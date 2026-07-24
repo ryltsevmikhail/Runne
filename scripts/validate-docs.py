@@ -8,6 +8,7 @@ Usage:
 import os, json, re, sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPSTREAM_DIR = os.path.join(BASE, "upstream", "opencode")
 BASELINE_SHA = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
 BASELINE_DATE = "2026-07-24"
 UPSTREAM_URL = "https://github.com/anomalyco/opencode"
@@ -57,6 +58,9 @@ for root, _, files in os.walk(os.path.join(BASE, "docs")):
 # ── 3. Empty files ───────────────────────────────────────────────────
 
 for root, _, files in os.walk(BASE):
+    if root.startswith(UPSTREAM_DIR):
+        continue
+
     for f in files:
         if f.startswith("."):
             continue
@@ -68,6 +72,9 @@ for root, _, files in os.walk(BASE):
 
 link_re = re.compile(r'\[([^\]]*)\]\(([^)]*\.md[^)]*)\)')
 for root, _, files in os.walk(BASE):
+    if root.startswith(UPSTREAM_DIR):
+        continue
+
     for f in files:
         if not f.endswith(".md"):
             continue
@@ -106,6 +113,9 @@ ref_branch_re = re.compile(
 # (Skip lines that mention our BASELINE_SHA — those are fine)
 
 for root, _, files in os.walk(BASE):
+    if root.startswith(UPSTREAM_DIR):
+        continue
+
     for f in files:
         if not f.endswith(".md"):
             continue
@@ -128,6 +138,9 @@ for root, _, files in os.walk(BASE):
 
 sha_re = re.compile(r'[0-9a-f]{40}')
 for root, _, files in os.walk(BASE):
+    if root.startswith(UPSTREAM_DIR):
+        continue
+
     for f in files:
         if not f.endswith(('.md', '.json')):
             continue
@@ -147,6 +160,9 @@ for root, _, files in os.walk(BASE):
 
 impl_re = re.compile(r'\b(?:уже\s+реализован|already\s+implemented|is implemented|проходит тесты|passes tests)\b', re.IGNORECASE)
 for root, _, files in os.walk(BASE):
+    if root.startswith(UPSTREAM_DIR):
+        continue
+
     for f in files:
         if not f.endswith(".md"):
             continue
