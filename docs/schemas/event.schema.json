@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/event.schema.json",
+  "title": "Event",
+  "description": "An Event records an observable occurrence in GOCODE Runtime.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique event identifier"
+    },
+    "event_type": {
+      "type": "string",
+      "description": "Event type"
+    },
+    "taskrun_id": {
+      "type": "string",
+      "description": "Associated TaskRun"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Event payload"
+    }
+  },
+  "required": [
+    "id",
+    "event_type",
+    "taskrun_id",
+    "timestamp",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "$comment": "Preliminary schema \u2014 subject to change. Do not use for implementation."
+}

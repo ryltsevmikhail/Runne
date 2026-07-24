@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/taskrun.schema.json",
+  "title": "TaskRun",
+  "description": "A TaskRun represents an independent unit of execution in GOCODE Runtime.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique TaskRun identifier"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "running",
+        "completed",
+        "failed",
+        "cancelled"
+      ]
+    },
+    "session_id": {
+      "type": "string",
+      "description": "Owning session identifier"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "session_id",
+    "created_at",
+    "updated_at"
+  ],
+  "additionalProperties": false,
+  "$comment": "Preliminary schema \u2014 subject to change. Do not use for implementation."
+}

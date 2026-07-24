@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/checkpoint.schema.json",
+  "title": "Checkpoint",
+  "description": "A Checkpoint captures TaskRun state for later resume.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "taskrun_id": {
+      "type": "string"
+    },
+    "attempt_id": {
+      "type": "string"
+    },
+    "state": {
+      "type": "object",
+      "description": "Serialized state snapshot"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "id",
+    "taskrun_id",
+    "attempt_id",
+    "state",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "$comment": "Preliminary schema \u2014 subject to change. Do not use for implementation."
+}

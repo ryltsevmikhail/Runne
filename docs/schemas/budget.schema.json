@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/budget.schema.json",
+  "title": "Budget",
+  "description": "A Budget constrains resource usage for a TaskRun.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "taskrun_id": {
+      "type": "string"
+    },
+    "max_tokens": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_cost_cents": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_duration_seconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_retries": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_subagents": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "id",
+    "taskrun_id",
+    "max_tokens",
+    "max_cost_cents",
+    "max_duration_seconds",
+    "max_retries",
+    "max_subagents"
+  ],
+  "additionalProperties": false,
+  "$comment": "Preliminary schema \u2014 subject to change. Do not use for implementation."
+}
