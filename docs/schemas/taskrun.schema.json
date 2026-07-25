@@ -12,11 +12,21 @@
     "status": {
       "type": "string",
       "enum": [
-        "pending",
+        "created",
+        "queued",
+        "admitted",
         "running",
-        "completed",
+        "waiting",
+        "retrying",
+        "checkpointing",
+        "reconciling",
+        "cancelling",
+        "succeeded",
         "failed",
-        "cancelled"
+        "cancelled",
+        "budget_exhausted",
+        "policy_denied",
+        "unrecoverable"
       ]
     },
     "session_id": {
@@ -40,5 +50,5 @@
     "updated_at"
   ],
   "additionalProperties": false,
-  "$comment": "Preliminary schema \u2014 subject to change. Do not use for implementation."
+  "$comment": "Target state vocabulary aligned with STATE_MACHINES.md; other TaskRun fields remain preliminary."
 }
