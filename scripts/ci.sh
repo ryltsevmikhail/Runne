@@ -28,7 +28,7 @@ fi
 echo "=== CI: $MODE mode (rustc $RUSTC_VER) ==="
 
 # Record lock digest before
-LOCK_DIGEST_BEFORE=$(shasum -a 256 Cargo.lock 2>/dev/null | awk '{print $1}')
+LOCK_DIGEST_BEFORE=$(sha256sum Cargo.lock 2>/dev/null | awk '{print $1}')
 
 if [ "$MODE" = "pinned" ]; then
     echo "--- fmt ---"
@@ -61,7 +61,7 @@ fi
 python3 scripts/check-deps.py
 
 echo "--- lock integrity ---"
-LOCK_DIGEST_AFTER=$(shasum -a 256 Cargo.lock 2>/dev/null | awk '{print $1}')
+LOCK_DIGEST_AFTER=$(sha256sum Cargo.lock 2>/dev/null | awk '{print $1}')
 if [ "$LOCK_DIGEST_BEFORE" != "$LOCK_DIGEST_AFTER" ]; then
     echo "ERROR: Cargo.lock changed during CI ($LOCK_DIGEST_BEFORE -> $LOCK_DIGEST_AFTER)"
     exit 1
