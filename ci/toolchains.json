@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "manifest_version": 1,
+  "created": "2026-07-26",
+  "bootstrap": {
+    "rustup": {
+      "version": "1.29.0",
+      "release_date": "2026-03-05"
+    }
+  },
+  "pinned": {
+    "channel": "1.97.1",
+    "rustc": "1.97.1",
+    "cargo": "1.97.1",
+    "components": ["rustfmt", "clippy", "rust-std"]
+  },
+  "msrv": {
+    "channel": "1.95.0",
+    "rustc": "1.95.0",
+    "cargo": "1.95.0",
+    "components": ["rust-std"]
+  },
+  "runners": {
+    "ubuntu": "ubuntu-24.04",
+    "macos": "macos-14",
+    "windows": "windows-2025"
+  },
+  "actions": {
+    "checkout": {
+      "repo": "actions/checkout",
+      "sha": "11bd71901bbe5b1630ceea73d27597364c9af683"
+    },
+    "setup-python": {
+      "repo": "actions/setup-python",
+      "sha": "a26af69be951a213d6a3b3e9127a88eefb3c3c18"
+    }
+  },
+  "os_arch": {
+    "local": "aarch64-apple-darwin"
+  }
+}
