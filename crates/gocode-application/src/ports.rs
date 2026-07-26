@@ -260,11 +260,25 @@ pub struct IdempotencyScope {
     /// The runtime authority that processed the command.
     pub runtime_authority_id: RuntimeAuthorityId,
     /// The principal that issued the command.
+    /// Authenticated principal.
     pub principal_id: PrincipalId,
     /// The operation being performed.
     pub operation: OperationTag,
     /// The aggregate scope (new or existing task run).
     pub aggregate_scope: AggregateScope,
+}
+
+/// Application command context — identity and metadata carried by every command.
+#[derive(Debug, Clone)]
+pub struct ApplicationCommandContext {
+    /// Unique command identifier.
+    pub command_id: gocode_domain::id::CommandId,
+    /// Client-supplied idempotency key.
+    pub idempotency_key: gocode_domain::id::IdempotencyKey,
+    /// Authenticated principal.
+    pub principal_id: PrincipalId,
+    /// Domain actor for event attribution.
+    pub actor: gocode_domain::event::Actor,
 }
 
 #[cfg(test)]
