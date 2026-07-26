@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "session-info-v1",
+  "title": "OpenCode Session.Info V1",
+  "type": "object",
+  "required": ["id", "slug", "projectID", "directory", "title", "version", "time"],
+  "properties": {
+    "id": { "type": "string" },
+    "slug": { "type": "string" },
+    "projectID": { "type": "string" },
+    "parentID": { "type": "string" },
+    "path": { "type": "string" },
+    "workspaceID": { "type": "string" },
+    "directory": { "type": "string" },
+    "title": { "type": "string" },
+    "version": { "type": "string" },
+    "summary": { "type": "string" },
+    "time": {
+      "type": "object",
+      "required": ["created", "updated"],
+      "properties": {
+        "created": { "type": "integer" },
+        "updated": { "type": "integer" },
+        "compacting": { "type": "integer" },
+        "archived": { "type": "integer" }
+      }
+    },
+    "cost": { "type": "number" },
+    "agent": { "type": "string" },
+    "model": { "type": "string" },
+    "tokens": {
+      "type": "object",
+      "properties": {
+        "input": { "type": "integer" },
+        "output": { "type": "integer" }
+      }
+    },
+    "metadata": { "type": "object" },
+    "permission": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["principal", "level"],
+        "properties": {
+          "principal": { "type": "string" },
+          "level": { "type": "string" }
+        }
+      }
+    },
+    "share": {
+      "type": "object",
+      "properties": { "url": { "type": "string" } }
+    },
+    "revert": {
+      "type": "object",
+      "properties": {
+        "revertedTo": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    }
+  }
+}
