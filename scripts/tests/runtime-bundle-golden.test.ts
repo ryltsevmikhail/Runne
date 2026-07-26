@@ -36,8 +36,8 @@ function canonicalBundleBytes(runtimeCommit: string): Uint8Array {
 }
 
 const PLACEHOLDER = '0000000000000000000000000000000000000000'
-const PINNED_COMMIT = 'b9ffcf7d125233ae93fce8db1ff7df39587d8cc1'
-const GOLDEN_HASH = '6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b'
+const PINNED_COMMIT = '6311992cea0551dab406a93b855ce2c49507e07e'
+const GOLDEN_HASH = 'bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429'
 
 describe('Runtime bundle golden vectors (TypeScript)', () => {
   it('produce canonical bytes identical to Rust', () => {
@@ -46,12 +46,20 @@ describe('Runtime bundle golden vectors (TypeScript)', () => {
     expect(bytes[0]).toBe('g'.charCodeAt(0))
   })
 
-  it('golden hash matches Rust with placeholder commit', async () => {
-    const bytes = canonicalBundleBytes(PLACEHOLDER)
+  it('golden hash with pinned commit matches Rust', async () => {
+    const bytes = canonicalBundleBytes(PINNED_COMMIT)
     const hashBuffer = await crypto.subtle.digest('SHA-256', bytes)
     const hashHex = Array.from(new Uint8Array(hashBuffer))
       .map(b => b.toString(16).padStart(2, '0')).join('')
     expect(hashHex).toBe(GOLDEN_HASH)
+  })
+
+  it('golden hash with placeholder commit is stable', async () => {
+    const bytes = canonicalBundleBytes(PLACEHOLDER)
+    const hashBuffer = await crypto.subtle.digest('SHA-256', bytes)
+    const hashHex = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0')).join('')
+    expect(hashHex).toBe('6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b')
   })
 
   it('pinned commit produces different hash than placeholder', async () => {
