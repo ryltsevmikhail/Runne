@@ -9,13 +9,33 @@ import {
   Settings,
   Sun,
 } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { isTauri } from '@tauri-apps/api/core'
+import { onMounted, ref } from 'vue'
+
+import { loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
 
 const theme = ref<'dark' | 'light'>('dark')
 const sidebarCollapsed = ref(false)
 
-function toggleTheme() {
-  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+onMounted(async () => {
+  if (isTauri()) {
+    const bootstrap = await loadBootstrap()
+    theme.value = bootstrap.theme
+  }
+})
+
+async function toggleTheme() {
+  const previous = theme.value
+  theme.value = previous === 'dark' ? 'light' : 'dark'
+  if (!isTauri()) {
+    return
+  }
+  try {
+    await saveTheme(theme.value)
+  }
+  catch {
+    theme.value = previous
+  }
 }
 </script>
 
