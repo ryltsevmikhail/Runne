@@ -31,7 +31,11 @@ impl fmt::Display for InvalidWireIdReason {
             Self::Empty => write!(f, "identifier is empty"),
             Self::InvalidUuidFormat => write!(f, "invalid UUID format"),
             Self::InvalidUuidVersion { expected, actual } => {
-                write!(f, "invalid UUID version: expected v{}, got v{}", expected, actual)
+                write!(
+                    f,
+                    "invalid UUID version: expected v{}, got v{}",
+                    expected, actual
+                )
             }
             Self::InvalidUuidVariant => write!(f, "invalid UUID variant"),
             Self::TooLong { max, actual } => {
@@ -70,7 +74,10 @@ fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidWireIdReason> {
     }
     let version = out[6] >> 4;
     if version != 7 {
-        return Err(InvalidWireIdReason::InvalidUuidVersion { expected: 7, actual: version });
+        return Err(InvalidWireIdReason::InvalidUuidVersion {
+            expected: 7,
+            actual: version,
+        });
     }
     if out[8] >> 6 != 0b10 {
         return Err(InvalidWireIdReason::InvalidUuidVariant);
@@ -90,9 +97,22 @@ fn hex_nibble(c: u8) -> Option<u8> {
 fn format_uuid(bytes: &[u8; 16]) -> String {
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0], bytes[1], bytes[2], bytes[3],
-        bytes[4], bytes[5], bytes[6], bytes[7],
-        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15],
     )
 }
 
@@ -105,14 +125,25 @@ macro_rules! wire_uuid_newtype {
         pub struct $name([u8; 16]);
 
         impl $name {
-            pub const fn from_bytes(bytes: [u8; 16]) -> Self { Self(bytes) }
-            pub const fn as_bytes(&self) -> &[u8; 16] { &self.0 }
-            pub const fn into_bytes(self) -> [u8; 16] { self.0 }
+            /// Create from raw 16-byte array.
+            pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+                Self(bytes)
+            }
+            /// Borrow the inner 16-byte array.
+            pub const fn as_bytes(&self) -> &[u8; 16] {
+                &self.0
+            }
+            /// Consume and return the inner 16-byte array.
+            pub const fn into_bytes(self) -> [u8; 16] {
+                self.0
+            }
         }
 
         impl fmt::Debug for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.debug_tuple(stringify!($name)).field(&format_uuid(&self.0)).finish()
+                f.debug_tuple(stringify!($name))
+                    .field(&format_uuid(&self.0))
+                    .finish()
             }
         }
 
@@ -138,7 +169,10 @@ wire_uuid_newtype!(WireAttemptId, "Wire-level attempt identifier (UUIDv7).");
 wire_uuid_newtype!(ProtocolSessionId, "Protocol session identifier (UUIDv7).");
 wire_uuid_newtype!(RequestId, "Request correlation identifier (UUIDv7).");
 wire_uuid_newtype!(InvocationId, "Invocation identifier (UUIDv7).");
-wire_uuid_newtype!(ControlCorrelationId, "Control message correlation identifier (UUIDv7).");
+wire_uuid_newtype!(
+    ControlCorrelationId,
+    "Control message correlation identifier (UUIDv7)."
+);
 wire_uuid_newtype!(ControlIntentId, "Control intent identifier (UUIDv7).");
 
 // ── Nonce ─────────────────────────────────────────────────────────────────
@@ -148,13 +182,21 @@ wire_uuid_newtype!(ControlIntentId, "Control intent identifier (UUIDv7).");
 pub struct Nonce([u8; 16]);
 
 impl Nonce {
-    pub const fn from_bytes(bytes: [u8; 16]) -> Self { Self(bytes) }
-    pub const fn as_bytes(&self) -> &[u8; 16] { &self.0 }
+    /// Create a nonce from raw 16 bytes.
+    pub const fn from_bytes(bytes: [u8; 16]) -> Self {
+        Self(bytes)
+    }
+    /// Borrow the inner 16-byte array.
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
 }
 
 impl fmt::Display for Nonce {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for b in &self.0 { write!(f, "{:02x}", b)?; }
+        for b in &self.0 {
+            write!(f, "{:02x}", b)?;
+        }
         Ok(())
     }
 }
@@ -171,29 +213,50 @@ macro_rules! bounded_id_string {
             /// Max byte length.
             pub const MAX_BYTES: usize = $max;
 
+            /// Create a new bounded string identifier.
             pub fn new(s: impl Into<String>) -> Result<Self, InvalidWireIdReason> {
                 let s = s.into();
-                if s.is_empty() { return Err(InvalidWireIdReason::Empty); }
+                if s.is_empty() {
+                    return Err(InvalidWireIdReason::Empty);
+                }
                 let len = s.len();
-                if len > $max { return Err(InvalidWireIdReason::TooLong { max: $max, actual: len }); }
+                if len > $max {
+                    return Err(InvalidWireIdReason::TooLong {
+                        max: $max,
+                        actual: len,
+                    });
+                }
                 if s.as_bytes().iter().any(|&b| b < 0x20 || b == 0x7f) {
                     return Err(InvalidWireIdReason::InvalidCharacter);
                 }
                 Ok(Self(s))
             }
 
-            pub fn as_str(&self) -> &str { &self.0 }
+            /// Return the inner string slice.
+            pub fn as_str(&self) -> &str {
+                &self.0
+            }
         }
 
         impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
         }
     };
 }
 
-bounded_id_string!(PluginId, 128, "Plugin package identity (e.g. 'com.example.my-plugin').");
+bounded_id_string!(
+    PluginId,
+    128,
+    "Plugin package identity (e.g. 'com.example.my-plugin')."
+);
 bounded_id_string!(TargetIdentity, 128, "Target identity for plugin execution.");
-bounded_id_string!(EntrypointIdentity, 256, "Entrypoint identity within a plugin.");
+bounded_id_string!(
+    EntrypointIdentity,
+    256,
+    "Entrypoint identity within a plugin."
+);
 bounded_id_string!(PluginIdentity, 128, "Plugin runtime identity.");
 bounded_id_string!(MigrationIdentity, 128, "Migration execution identity.");
 bounded_id_string!(ProfileId, 128, "Protocol profile identifier.");
@@ -209,11 +272,21 @@ pub struct ProtocolVersion {
 }
 
 impl ProtocolVersion {
+    /// Protocol version 1.0.
     pub const V1_0: Self = Self { major: 1, minor: 0 };
 
-    pub const fn new(major: u16, minor: u16) -> Self { Self { major, minor } }
-    pub const fn major(&self) -> u16 { self.major }
-    pub const fn minor(&self) -> u16 { self.minor }
+    /// Create a new protocol version with the given major and minor numbers.
+    pub const fn new(major: u16, minor: u16) -> Self {
+        Self { major, minor }
+    }
+    /// Return the major version number.
+    pub const fn major(&self) -> u16 {
+        self.major
+    }
+    /// Return the minor version number.
+    pub const fn minor(&self) -> u16 {
+        self.minor
+    }
 }
 
 impl fmt::Display for ProtocolVersion {
@@ -229,12 +302,20 @@ impl fmt::Display for ProtocolVersion {
 pub struct SchemaRevision(u32);
 
 impl SchemaRevision {
-    pub const fn new(v: u32) -> Self { Self(v) }
-    pub const fn value(&self) -> u32 { self.0 }
+    /// Create a new schema revision from a raw u32.
+    pub const fn new(v: u32) -> Self {
+        Self(v)
+    }
+    /// Return the inner u32 value.
+    pub const fn value(&self) -> u32 {
+        self.0
+    }
 }
 
 impl fmt::Display for SchemaRevision {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 /// Message type identifier — maps to a specific schema/type.
@@ -242,12 +323,20 @@ impl fmt::Display for SchemaRevision {
 pub struct MessageTypeId(u32);
 
 impl MessageTypeId {
-    pub const fn new(v: u32) -> Self { Self(v) }
-    pub const fn value(&self) -> u32 { self.0 }
+    /// Create a new message type identifier from a raw u32.
+    pub const fn new(v: u32) -> Self {
+        Self(v)
+    }
+    /// Return the inner u32 value.
+    pub const fn value(&self) -> u32 {
+        self.0
+    }
 }
 
 impl fmt::Display for MessageTypeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 /// Unix epoch milliseconds deadline.
@@ -255,12 +344,20 @@ impl fmt::Display for MessageTypeId {
 pub struct DeadlineUnixMillis(u64);
 
 impl DeadlineUnixMillis {
-    pub const fn new(v: u64) -> Self { Self(v) }
-    pub const fn value(&self) -> u64 { self.0 }
+    /// Create a new deadline from a raw u64 (Unix epoch milliseconds).
+    pub const fn new(v: u64) -> Self {
+        Self(v)
+    }
+    /// Return the inner u64 value.
+    pub const fn value(&self) -> u64 {
+        self.0
+    }
 }
 
 impl fmt::Display for DeadlineUnixMillis {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.0) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────

@@ -14,22 +14,32 @@ macro_rules! digest_newtype {
         pub struct $name([u8; 32]);
 
         impl $name {
-            pub const fn from_bytes(bytes: [u8; 32]) -> Self { Self(bytes) }
-            pub const fn as_bytes(&self) -> &[u8; 32] { &self.0 }
-            pub const fn into_bytes(self) -> [u8; 32] { self.0 }
+            pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+                Self(bytes)
+            }
+            pub const fn as_bytes(&self) -> &[u8; 32] {
+                &self.0
+            }
+            pub const fn into_bytes(self) -> [u8; 32] {
+                self.0
+            }
         }
 
         impl fmt::Debug for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "{}(0x", stringify!($name))?;
-                for b in &self.0 { write!(f, "{:02x}", b)?; }
+                for b in &self.0 {
+                    write!(f, "{:02x}", b)?;
+                }
                 write!(f, ")")
             }
         }
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                for b in &self.0 { write!(f, "{:02x}", b)?; }
+                for b in &self.0 {
+                    write!(f, "{:02x}", b)?;
+                }
                 Ok(())
             }
         }
@@ -39,15 +49,27 @@ macro_rules! digest_newtype {
 // ── Digest newtypes ───────────────────────────────────────────────────────
 
 digest_newtype!(Sha256Digest, "Raw SHA-256 output (32 bytes).");
-digest_newtype!(BootstrapSchemaDigest, "Digest of the bootstrap message schema.");
-digest_newtype!(WireContractDigest, "Digest of the wire contract specification.");
+digest_newtype!(
+    BootstrapSchemaDigest,
+    "Digest of the bootstrap message schema."
+);
+digest_newtype!(
+    WireContractDigest,
+    "Digest of the wire contract specification."
+);
 digest_newtype!(SchemaBundleDigest, "Digest of the session schema bundle.");
 digest_newtype!(BoundsProfileDigest, "Digest of a BoundsProfile definition.");
-digest_newtype!(ProfileDigest, "Digest of a ProtocolSupportProfile definition.");
+digest_newtype!(
+    ProfileDigest,
+    "Digest of a ProtocolSupportProfile definition."
+);
 digest_newtype!(ManifestDigest, "Digest of the plugin manifest.");
 digest_newtype!(MessageDigest, "Digest of a single message payload.");
 digest_newtype!(PayloadDigest, "Digest of a raw invocation payload.");
-digest_newtype!(ProtocolNegotiationSnapshotDigest, "Digest of the negotiation snapshot.");
+digest_newtype!(
+    ProtocolNegotiationSnapshotDigest,
+    "Digest of the negotiation snapshot."
+);
 
 // ── DigestAlgorithm ───────────────────────────────────────────────────────
 
@@ -80,15 +102,21 @@ impl PackageDigest {
         Self { algorithm, bytes }
     }
 
-    pub const fn algorithm(&self) -> DigestAlgorithm { self.algorithm }
-    pub const fn as_bytes(&self) -> &[u8; 32] { &self.bytes }
+    pub const fn algorithm(&self) -> DigestAlgorithm {
+        self.algorithm
+    }
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.bytes
+    }
 }
 
 impl fmt::Display for PackageDigest {
     /// Algorithm-tagged representation: `sha256:hex...`
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:", self.algorithm)?;
-        for b in &self.bytes { write!(f, "{:02x}", b)?; }
+        for b in &self.bytes {
+            write!(f, "{:02x}", b)?;
+        }
         Ok(())
     }
 }

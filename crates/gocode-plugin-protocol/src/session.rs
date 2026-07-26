@@ -6,13 +6,13 @@
 
 use crate::bootstrap::HostExecutionIdentity;
 use crate::digest::{
-    MessageDigest, PayloadDigest, ProfileDigest,
-    SchemaBundleDigest, Sha256Digest, WireContractDigest,
+    MessageDigest, PayloadDigest, ProfileDigest, SchemaBundleDigest, Sha256Digest,
+    WireContractDigest,
 };
 use crate::id::{
-    ControlCorrelationId, ControlIntentId, DeadlineUnixMillis, InvocationId,
-    MessageTypeId, ProfileId, ProtocolSessionId, ProtocolVersion, RequestId,
-    SchemaRevision, WireAttemptId, WireTaskRunId,
+    ControlCorrelationId, ControlIntentId, DeadlineUnixMillis, InvocationId, MessageTypeId,
+    ProfileId, ProtocolSessionId, ProtocolVersion, RequestId, SchemaRevision, WireAttemptId,
+    WireTaskRunId,
 };
 
 // ── Direction ──────────────────────────────────────────────────────────────
@@ -86,8 +86,12 @@ pub enum MessageCorrelation {
 pub struct InvocationPermitRef(u64);
 
 impl InvocationPermitRef {
-    pub const fn new(id: u64) -> Self { Self(id) }
-    pub const fn value(&self) -> u64 { self.0 }
+    pub const fn new(id: u64) -> Self {
+        Self(id)
+    }
+    pub const fn value(&self) -> u64 {
+        self.0
+    }
 }
 
 // ── SessionEnvelope ───────────────────────────────────────────────────────
@@ -146,39 +150,95 @@ impl<M> SessionEnvelope<M> {
         message: M,
     ) -> Self {
         Self {
-            session_id, profile_id, protocol_version,
-            wire_contract_digest, schema_bundle_digest,
-            direction, sequence, message_type_id, schema_revision,
-            host_identity, taskrun_id, attempt_id, correlation, deadline,
-            message_digest, payload_digest, profile_digest, sensitivity,
-            ancillary_handles, message,
+            session_id,
+            profile_id,
+            protocol_version,
+            wire_contract_digest,
+            schema_bundle_digest,
+            direction,
+            sequence,
+            message_type_id,
+            schema_revision,
+            host_identity,
+            taskrun_id,
+            attempt_id,
+            correlation,
+            deadline,
+            message_digest,
+            payload_digest,
+            profile_digest,
+            sensitivity,
+            ancillary_handles,
+            message,
         }
     }
 
     // Accessor methods
-    pub fn session_id(&self) -> &ProtocolSessionId { &self.session_id }
-    pub fn profile_id(&self) -> &ProfileId { &self.profile_id }
-    pub fn protocol_version(&self) -> ProtocolVersion { self.protocol_version }
-    pub fn wire_contract_digest(&self) -> &WireContractDigest { &self.wire_contract_digest }
-    pub fn schema_bundle_digest(&self) -> &SchemaBundleDigest { &self.schema_bundle_digest }
-    pub fn direction(&self) -> Direction { self.direction }
-    pub fn sequence(&self) -> u64 { self.sequence }
-    pub fn message_type_id(&self) -> MessageTypeId { self.message_type_id }
-    pub fn schema_revision(&self) -> SchemaRevision { self.schema_revision }
-    pub fn host_identity(&self) -> &HostExecutionIdentity { &self.host_identity }
-    pub fn taskrun_id(&self) -> &WireTaskRunId { &self.taskrun_id }
-    pub fn attempt_id(&self) -> &WireAttemptId { &self.attempt_id }
-    pub fn correlation(&self) -> &MessageCorrelation { &self.correlation }
-    pub fn deadline(&self) -> DeadlineUnixMillis { self.deadline }
-    pub fn message_digest(&self) -> &MessageDigest { &self.message_digest }
-    pub fn payload_digest(&self) -> &PayloadDigest { &self.payload_digest }
-    pub fn profile_digest(&self) -> &ProfileDigest { &self.profile_digest }
-    pub fn sensitivity(&self) -> Sensitivity { self.sensitivity }
-    pub fn ancillary_handles(&self) -> &[AncillaryHandleDeclaration] { &self.ancillary_handles }
-    pub fn message(&self) -> &M { &self.message }
+    pub fn session_id(&self) -> &ProtocolSessionId {
+        &self.session_id
+    }
+    pub fn profile_id(&self) -> &ProfileId {
+        &self.profile_id
+    }
+    pub fn protocol_version(&self) -> ProtocolVersion {
+        self.protocol_version
+    }
+    pub fn wire_contract_digest(&self) -> &WireContractDigest {
+        &self.wire_contract_digest
+    }
+    pub fn schema_bundle_digest(&self) -> &SchemaBundleDigest {
+        &self.schema_bundle_digest
+    }
+    pub fn direction(&self) -> Direction {
+        self.direction
+    }
+    pub fn sequence(&self) -> u64 {
+        self.sequence
+    }
+    pub fn message_type_id(&self) -> MessageTypeId {
+        self.message_type_id
+    }
+    pub fn schema_revision(&self) -> SchemaRevision {
+        self.schema_revision
+    }
+    pub fn host_identity(&self) -> &HostExecutionIdentity {
+        &self.host_identity
+    }
+    pub fn taskrun_id(&self) -> &WireTaskRunId {
+        &self.taskrun_id
+    }
+    pub fn attempt_id(&self) -> &WireAttemptId {
+        &self.attempt_id
+    }
+    pub fn correlation(&self) -> &MessageCorrelation {
+        &self.correlation
+    }
+    pub fn deadline(&self) -> DeadlineUnixMillis {
+        self.deadline
+    }
+    pub fn message_digest(&self) -> &MessageDigest {
+        &self.message_digest
+    }
+    pub fn payload_digest(&self) -> &PayloadDigest {
+        &self.payload_digest
+    }
+    pub fn profile_digest(&self) -> &ProfileDigest {
+        &self.profile_digest
+    }
+    pub fn sensitivity(&self) -> Sensitivity {
+        self.sensitivity
+    }
+    pub fn ancillary_handles(&self) -> &[AncillaryHandleDeclaration] {
+        &self.ancillary_handles
+    }
+    pub fn message(&self) -> &M {
+        &self.message
+    }
 
     /// Consume the envelope and return the message, discarding metadata.
-    pub fn into_message(self) -> M { self.message }
+    pub fn into_message(self) -> M {
+        self.message
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────
@@ -197,9 +257,7 @@ mod tests {
         let rid: RequestId = VALID_UUID.parse().unwrap();
         let iid: InvocationId = VALID_UUID.parse().unwrap();
         let pid = ProfileId::new("test-profile").unwrap();
-        let hi = HostExecutionIdentity::Plugin(
-            crate::id::PluginIdentity::new("host").unwrap(),
-        );
+        let hi = HostExecutionIdentity::Plugin(crate::id::PluginIdentity::new("host").unwrap());
 
         let envelope: SessionEnvelope<String> = SessionEnvelope::new(
             sid,

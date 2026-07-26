@@ -8,9 +8,6 @@
 
 use core::fmt;
 
-use crate::id::MessageTypeId;
-use crate::profile::DecodeLimits;
-
 // ── MajorType ──────────────────────────────────────────────────────────────
 
 /// CBOR major type (bits 7-5 of initial byte).
@@ -88,9 +85,17 @@ pub enum DecodeError {
     /// Unknown map key encountered.
     UnknownField { key: u64 },
     /// Unexpected major type at offset.
-    UnexpectedMajorType { offset: usize, expected: MajorType, actual: MajorType },
+    UnexpectedMajorType {
+        offset: usize,
+        expected: MajorType,
+        actual: MajorType,
+    },
     /// A limit was exceeded.
-    LimitExceeded { limit: String, max: usize, actual: usize },
+    LimitExceeded {
+        limit: String,
+        max: usize,
+        actual: usize,
+    },
     /// Duplicate key in map.
     DuplicateMapKey { key: u64 },
     /// Invalid UTF-8 in text string.
@@ -122,36 +127,82 @@ pub enum DecodeError {
     /// Duplicate field (encoder-level check, separate from map key check).
     DuplicateField { key: u64 },
     /// String exceeds maximum byte length.
-    StringTooLong { offset: usize, max: usize, actual: usize },
+    StringTooLong {
+        offset: usize,
+        max: usize,
+        actual: usize,
+    },
 }
 
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NonCanonicalEncoding { offset } => write!(f, "non-canonical encoding at offset {}", offset),
+            Self::NonCanonicalEncoding { offset } => {
+                write!(f, "non-canonical encoding at offset {}", offset)
+            }
             Self::UnknownField { key } => write!(f, "unknown field key {}", key),
-            Self::UnexpectedMajorType { offset, expected, actual } => {
-                write!(f, "expected {} at offset {}, got {}", expected.name(), offset, actual.name())
+            Self::UnexpectedMajorType {
+                offset,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "expected {} at offset {}, got {}",
+                    expected.name(),
+                    offset,
+                    actual.name()
+                )
             }
             Self::LimitExceeded { limit, max, actual } => {
-                write!(f, "{} limit exceeded: max={}, actual={}", limit, max, actual)
+                write!(
+                    f,
+                    "{} limit exceeded: max={}, actual={}",
+                    limit, max, actual
+                )
             }
             Self::DuplicateMapKey { key } => write!(f, "duplicate map key {}", key),
             Self::InvalidUtf8 { offset } => write!(f, "invalid UTF-8 at offset {}", offset),
-            Self::UnsupportedSimpleValue { value } => write!(f, "unsupported simple value {}", value),
+            Self::UnsupportedSimpleValue { value } => {
+                write!(f, "unsupported simple value {}", value)
+            }
             Self::MissingRequiredField { key } => write!(f, "missing required field {}", key),
             Self::UnknownMessageType { type_id } => write!(f, "unknown message type {}", type_id),
-            Self::FrameTooLarge { max, actual } => write!(f, "frame too large: max={}, actual={}", max, actual),
-            Self::FrameTruncated { expected, actual } => write!(f, "frame truncated: expected={}, actual={}", expected, actual),
+            Self::FrameTooLarge { max, actual } => {
+                write!(f, "frame too large: max={}, actual={}", max, actual)
+            }
+            Self::FrameTruncated { expected, actual } => write!(
+                f,
+                "frame truncated: expected={}, actual={}",
+                expected, actual
+            ),
             Self::TruncatedCbor { offset } => write!(f, "truncated CBOR at offset {}", offset),
-            Self::TrailingBytes { offset, count } => write!(f, "{} trailing bytes at offset {}", count, offset),
-            Self::ReencodeMismatch { offset } => write!(f, "re-encode mismatch at offset {}", offset),
-            Self::InvalidUuidVariant { offset } => write!(f, "invalid UUID variant at offset {}", offset),
+            Self::TrailingBytes { offset, count } => {
+                write!(f, "{} trailing bytes at offset {}", count, offset)
+            }
+            Self::ReencodeMismatch { offset } => {
+                write!(f, "re-encode mismatch at offset {}", offset)
+            }
+            Self::InvalidUuidVariant { offset } => {
+                write!(f, "invalid UUID variant at offset {}", offset)
+            }
             Self::FloatNotAllowed { offset } => write!(f, "float not allowed at offset {}", offset),
-            Self::TagNotAllowed { offset, tag } => write!(f, "tag {} not allowed at offset {}", tag, offset),
-            Self::IndefiniteLengthNotAllowed { offset } => write!(f, "indefinite length not allowed at offset {}", offset),
+            Self::TagNotAllowed { offset, tag } => {
+                write!(f, "tag {} not allowed at offset {}", tag, offset)
+            }
+            Self::IndefiniteLengthNotAllowed { offset } => {
+                write!(f, "indefinite length not allowed at offset {}", offset)
+            }
             Self::DuplicateField { key } => write!(f, "duplicate field key {}", key),
-            Self::StringTooLong { offset, max, actual } => write!(f, "string too long at offset {}: max={}, actual={}", offset, max, actual),
+            Self::StringTooLong {
+                offset,
+                max,
+                actual,
+            } => write!(
+                f,
+                "string too long at offset {}: max={}, actual={}",
+                offset, max, actual
+            ),
         }
     }
 }
@@ -172,11 +223,23 @@ pub struct CborEncoder {
 }
 
 impl CborEncoder {
-    pub fn new() -> Self { Self { buf: Vec::new() } }
-    pub fn with_capacity(cap: usize) -> Self { Self { buf: Vec::with_capacity(cap) } }
-    pub fn as_bytes(&self) -> &[u8] { &self.buf }
-    pub fn into_bytes(self) -> Vec<u8> { self.buf }
-    pub fn len(&self) -> usize { self.buf.len() }
+    pub fn new() -> Self {
+        Self { buf: Vec::new() }
+    }
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            buf: Vec::with_capacity(cap),
+        }
+    }
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.buf
+    }
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.buf
+    }
+    pub fn len(&self) -> usize {
+        self.buf.len()
+    }
 
     fn write_initial_byte(&mut self, major: u8, additional: u8) {
         self.buf.push((major << 5) | (additional & 0x1f));
@@ -264,13 +327,22 @@ pub struct CborDecoder<'a> {
 }
 
 impl<'a> CborDecoder<'a> {
-    pub fn new(data: &'a [u8]) -> Self { Self { data, pos: 0 } }
-
-    fn remaining(&self) -> usize { self.data.len() - self.pos }
-    fn peek(&self) -> Result<u8, DecodeError> {
-        self.data.get(self.pos).copied().ok_or(DecodeError::TruncatedCbor { offset: self.pos })
+    pub fn new(data: &'a [u8]) -> Self {
+        Self { data, pos: 0 }
     }
-    fn advance(&mut self, n: usize) { self.pos += n; }
+
+    fn remaining(&self) -> usize {
+        self.data.len() - self.pos
+    }
+    fn peek(&self) -> Result<u8, DecodeError> {
+        self.data
+            .get(self.pos)
+            .copied()
+            .ok_or(DecodeError::TruncatedCbor { offset: self.pos })
+    }
+    fn advance(&mut self, n: usize) {
+        self.pos += n;
+    }
 
     fn read_initial(&mut self, expected_major: MajorType) -> Result<(u8, u64), DecodeError> {
         let b = self.peek()?;
@@ -292,44 +364,74 @@ impl<'a> CborDecoder<'a> {
         Ok(match additional {
             0..=23 => additional as u64,
             24 => {
-                if self.remaining() < 1 { return Err(DecodeError::TruncatedCbor { offset: self.pos }); }
+                if self.remaining() < 1 {
+                    return Err(DecodeError::TruncatedCbor { offset: self.pos });
+                }
                 // Deterministic: value >= 24 must not fit in <24
                 let v = self.data[self.pos] as u64;
-                if v < 24 { return Err(DecodeError::NonCanonicalEncoding { offset: self.pos }); }
+                if v < 24 {
+                    return Err(DecodeError::NonCanonicalEncoding { offset: self.pos });
+                }
                 self.advance(1);
                 v
             }
             25 => {
-                if self.remaining() < 2 { return Err(DecodeError::TruncatedCbor { offset: self.pos }); }
+                if self.remaining() < 2 {
+                    return Err(DecodeError::TruncatedCbor { offset: self.pos });
+                }
                 let v = u16::from_be_bytes([self.data[self.pos], self.data[self.pos + 1]]) as u64;
-                if v <= 0xFF { return Err(DecodeError::NonCanonicalEncoding { offset: self.pos }); }
+                if v <= 0xFF {
+                    return Err(DecodeError::NonCanonicalEncoding { offset: self.pos });
+                }
                 self.advance(2);
                 v
             }
             26 => {
-                if self.remaining() < 4 { return Err(DecodeError::TruncatedCbor { offset: self.pos }); }
+                if self.remaining() < 4 {
+                    return Err(DecodeError::TruncatedCbor { offset: self.pos });
+                }
                 let v = u32::from_be_bytes([
-                    self.data[self.pos], self.data[self.pos + 1],
-                    self.data[self.pos + 2], self.data[self.pos + 3],
+                    self.data[self.pos],
+                    self.data[self.pos + 1],
+                    self.data[self.pos + 2],
+                    self.data[self.pos + 3],
                 ]) as u64;
-                if v <= 0xFFFF { return Err(DecodeError::NonCanonicalEncoding { offset: self.pos }); }
+                if v <= 0xFFFF {
+                    return Err(DecodeError::NonCanonicalEncoding { offset: self.pos });
+                }
                 self.advance(4);
                 v
             }
             27 => {
-                if self.remaining() < 8 { return Err(DecodeError::TruncatedCbor { offset: self.pos }); }
+                if self.remaining() < 8 {
+                    return Err(DecodeError::TruncatedCbor { offset: self.pos });
+                }
                 let v = u64::from_be_bytes([
-                    self.data[self.pos], self.data[self.pos + 1],
-                    self.data[self.pos + 2], self.data[self.pos + 3],
-                    self.data[self.pos + 4], self.data[self.pos + 5],
-                    self.data[self.pos + 6], self.data[self.pos + 7],
+                    self.data[self.pos],
+                    self.data[self.pos + 1],
+                    self.data[self.pos + 2],
+                    self.data[self.pos + 3],
+                    self.data[self.pos + 4],
+                    self.data[self.pos + 5],
+                    self.data[self.pos + 6],
+                    self.data[self.pos + 7],
                 ]);
-                if v <= 0xFFFF_FFFF { return Err(DecodeError::NonCanonicalEncoding { offset: self.pos }); }
+                if v <= 0xFFFF_FFFF {
+                    return Err(DecodeError::NonCanonicalEncoding { offset: self.pos });
+                }
                 self.advance(8);
                 v
             }
-            28..=30 => return Err(DecodeError::IndefiniteLengthNotAllowed { offset: self.pos - 1 }),
-            31 => return Err(DecodeError::IndefiniteLengthNotAllowed { offset: self.pos - 1 }),
+            28..=30 => {
+                return Err(DecodeError::IndefiniteLengthNotAllowed {
+                    offset: self.pos - 1,
+                });
+            }
+            31 => {
+                return Err(DecodeError::IndefiniteLengthNotAllowed {
+                    offset: self.pos - 1,
+                });
+            }
             _ => unreachable!(),
         })
     }
@@ -338,7 +440,9 @@ impl<'a> CborDecoder<'a> {
         let (_add, value) = self.read_initial(MajorType::Unsigned)?;
         if value > max {
             return Err(DecodeError::LimitExceeded {
-                limit: "unsigned".into(), max: max as usize, actual: value as usize,
+                limit: "unsigned".into(),
+                max: max as usize,
+                actual: value as usize,
             });
         }
         Ok(value)
@@ -351,7 +455,9 @@ impl<'a> CborDecoder<'a> {
                 let v = self.read_unsigned(max as u64)?;
                 if v > max as u64 {
                     return Err(DecodeError::LimitExceeded {
-                        limit: "signed".into(), max: max as usize, actual: v as usize,
+                        limit: "signed".into(),
+                        max: max as usize,
+                        actual: v as usize,
                     });
                 }
                 Ok(v as i64)
@@ -361,13 +467,17 @@ impl<'a> CborDecoder<'a> {
                 let v = -((value as i64) + 1);
                 if v < min {
                     return Err(DecodeError::LimitExceeded {
-                        limit: "signed".into(), max: max as usize, actual: v as usize,
+                        limit: "signed".into(),
+                        max: max as usize,
+                        actual: v as usize,
                     });
                 }
                 Ok(v)
             }
             other => Err(DecodeError::UnexpectedMajorType {
-                offset: self.pos, expected: MajorType::Unsigned, actual: other,
+                offset: self.pos,
+                expected: MajorType::Unsigned,
+                actual: other,
             }),
         }
     }
@@ -376,7 +486,11 @@ impl<'a> CborDecoder<'a> {
         let offset = self.pos;
         let (_add, len) = self.read_initial(MajorType::ByteString)?;
         if len as usize > max_bytes {
-            return Err(DecodeError::StringTooLong { offset, max: max_bytes, actual: len as usize });
+            return Err(DecodeError::StringTooLong {
+                offset,
+                max: max_bytes,
+                actual: len as usize,
+            });
         }
         if self.remaining() < len as usize {
             return Err(DecodeError::TruncatedCbor { offset: self.pos });
@@ -390,7 +504,11 @@ impl<'a> CborDecoder<'a> {
         let offset = self.pos;
         let (_add, len) = self.read_initial(MajorType::TextString)?;
         if len as usize > max_bytes {
-            return Err(DecodeError::StringTooLong { offset, max: max_bytes, actual: len as usize });
+            return Err(DecodeError::StringTooLong {
+                offset,
+                max: max_bytes,
+                actual: len as usize,
+            });
         }
         if self.remaining() < len as usize {
             return Err(DecodeError::TruncatedCbor { offset: self.pos });
@@ -398,15 +516,16 @@ impl<'a> CborDecoder<'a> {
         let start = self.pos;
         self.advance(len as usize);
         let bytes = &self.data[start..start + len as usize];
-        std::str::from_utf8(bytes)
-            .map_err(|_| DecodeError::InvalidUtf8 { offset })
+        std::str::from_utf8(bytes).map_err(|_| DecodeError::InvalidUtf8 { offset })
     }
 
     pub fn read_array_header(&mut self, max_items: u32) -> Result<u64, DecodeError> {
         let (_add, len) = self.read_initial(MajorType::Array)?;
         if len > max_items as u64 {
             return Err(DecodeError::LimitExceeded {
-                limit: "array items".into(), max: max_items as usize, actual: len as usize,
+                limit: "array items".into(),
+                max: max_items as usize,
+                actual: len as usize,
             });
         }
         Ok(len)
@@ -416,7 +535,9 @@ impl<'a> CborDecoder<'a> {
         let (_add, len) = self.read_initial(MajorType::Map)?;
         if len > max_items as u64 {
             return Err(DecodeError::LimitExceeded {
-                limit: "map items".into(), max: max_items as usize, actual: len as usize,
+                limit: "map items".into(),
+                max: max_items as usize,
+                actual: len as usize,
             });
         }
         Ok(len)
@@ -425,20 +546,32 @@ impl<'a> CborDecoder<'a> {
     pub fn read_bool(&mut self) -> Result<bool, DecodeError> {
         let b = self.peek()?;
         match b {
-            0xf4 => { self.advance(1); Ok(false) }
-            0xf5 => { self.advance(1); Ok(true) }
+            0xf4 => {
+                self.advance(1);
+                Ok(false)
+            }
+            0xf5 => {
+                self.advance(1);
+                Ok(true)
+            }
             _ => Err(DecodeError::UnexpectedMajorType {
-                offset: self.pos, expected: MajorType::Simple, actual: MajorType::from_byte(b),
+                offset: self.pos,
+                expected: MajorType::Simple,
+                actual: MajorType::from_byte(b),
             }),
         }
     }
 
     pub fn read_null(&mut self) -> Result<(), DecodeError> {
         let b = self.peek()?;
-        if b == 0xf6 { self.advance(1); Ok(()) }
-        else {
+        if b == 0xf6 {
+            self.advance(1);
+            Ok(())
+        } else {
             Err(DecodeError::UnexpectedMajorType {
-                offset: self.pos, expected: MajorType::Simple, actual: MajorType::from_byte(b),
+                offset: self.pos,
+                expected: MajorType::Simple,
+                actual: MajorType::from_byte(b),
             })
         }
     }
@@ -446,11 +579,22 @@ impl<'a> CborDecoder<'a> {
     pub fn read_optional_bool(&mut self) -> Result<Option<bool>, DecodeError> {
         let b = self.peek()?;
         match b {
-            0xf4 => { self.advance(1); Ok(Some(false)) }
-            0xf5 => { self.advance(1); Ok(Some(true)) }
-            0xf6 => { self.advance(1); Ok(None) }
+            0xf4 => {
+                self.advance(1);
+                Ok(Some(false))
+            }
+            0xf5 => {
+                self.advance(1);
+                Ok(Some(true))
+            }
+            0xf6 => {
+                self.advance(1);
+                Ok(None)
+            }
             _ => Err(DecodeError::UnexpectedMajorType {
-                offset: self.pos, expected: MajorType::Simple, actual: MajorType::from_byte(b),
+                offset: self.pos,
+                expected: MajorType::Simple,
+                actual: MajorType::from_byte(b),
             }),
         }
     }
@@ -469,7 +613,10 @@ impl<'a> CborDecoder<'a> {
     pub fn reject_tags(&mut self) -> Result<(), DecodeError> {
         let b = self.peek()?;
         if MajorType::from_byte(b) as u8 == 6 {
-            return Err(DecodeError::TagNotAllowed { offset: self.pos, tag: 0 });
+            return Err(DecodeError::TagNotAllowed {
+                offset: self.pos,
+                tag: 0,
+            });
         }
         Ok(())
     }
@@ -477,13 +624,18 @@ impl<'a> CborDecoder<'a> {
     /// Check the current offset is at the end of the buffer.
     pub fn expect_eof(&self) -> Result<(), DecodeError> {
         if self.pos < self.data.len() {
-            return Err(DecodeError::TrailingBytes { offset: self.pos, count: self.data.len() - self.pos });
+            return Err(DecodeError::TrailingBytes {
+                offset: self.pos,
+                count: self.data.len() - self.pos,
+            });
         }
         Ok(())
     }
 
     /// Current byte offset.
-    pub fn position(&self) -> usize { self.pos }
+    pub fn position(&self) -> usize {
+        self.pos
+    }
 }
 
 // ── DeterministicCodec trait ──────────────────────────────────────────────
@@ -639,13 +791,19 @@ mod tests {
     fn test_reject_non_canonical_unsigned() {
         // 0 encoded as 0x1800 (two bytes instead of one)
         let mut d = CborDecoder::new(&[0x18, 0x00]);
-        assert!(matches!(d.read_unsigned(100), Err(DecodeError::NonCanonicalEncoding { .. })));
+        assert!(matches!(
+            d.read_unsigned(100),
+            Err(DecodeError::NonCanonicalEncoding { .. })
+        ));
     }
 
     #[test]
     fn test_reject_truncated() {
         let mut d = CborDecoder::new(&[0x5A, 0x00]); // byte string header expecting 2 more bytes
-        assert!(matches!(d.read_byte_string(100), Err(DecodeError::TruncatedCbor { .. })));
+        assert!(matches!(
+            d.read_byte_string(100),
+            Err(DecodeError::TruncatedCbor { .. })
+        ));
     }
 
     #[test]
@@ -656,7 +814,10 @@ mod tests {
         data.push(0x00); // trailing
         let mut d = CborDecoder::new(&data);
         assert_eq!(d.read_unsigned(100).unwrap(), 1);
-        assert!(matches!(d.expect_eof(), Err(DecodeError::TrailingBytes { .. })));
+        assert!(matches!(
+            d.expect_eof(),
+            Err(DecodeError::TrailingBytes { .. })
+        ));
     }
 
     #[test]
