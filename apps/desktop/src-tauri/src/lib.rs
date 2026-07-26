@@ -1,4 +1,6 @@
-use gocode_app_core::{AppCore, BootstrapState};
+use std::path::Path;
+
+use gocode_app_core::{AppCore, BootstrapState, ProjectSummary};
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -23,6 +25,32 @@ fn set_theme(state: State<'_, AppCore>, theme: String) -> Result<(), IpcError> {
     })
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn list_projects(state: State<'_, AppCore>) -> Result<Vec<ProjectSummary>, IpcError> {
+    state.list_projects().map_err(|_| IpcError {
+        code: "projects_unavailable",
+    })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn get_project(state: State<'_, AppCore>, id: i64) -> Result<Option<ProjectSummary>, IpcError> {
+    state.get_project(id).map_err(|_| IpcError {
+        code: "project_unavailable",
+    })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn open_local_project(state: State<'_, AppCore>, path: String) -> Result<ProjectSummary, IpcError> {
+    state
+        .open_local_project(Path::new(&path))
+        .map_err(|_| IpcError {
+            code: "project_open_rejected",
+        })
+}
+
 /// Starts the native desktop application.
 ///
 /// # Panics
@@ -30,6 +58,7 @@ fn set_theme(state: State<'_, AppCore>, theme: String) -> Result<(), IpcError> {
 /// Panics when Tauri cannot initialize or run the application event loop.
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let profile_directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&profile_directory)?;
@@ -37,7 +66,13 @@ pub fn run() {
             app.manage(core);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_bootstrap, set_theme])
+        .invoke_handler(tauri::generate_handler![
+            get_bootstrap,
+            set_theme,
+            list_projects,
+            get_project,
+            open_local_project
+        ])
         .run(tauri::generate_context!())
         .expect("failed to run GOCODE desktop application");
 }

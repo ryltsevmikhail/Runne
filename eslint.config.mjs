@@ -34,6 +34,9 @@ export default tseslint.config(
     files: ['apps/**/*.ts', 'apps/**/*.vue', 'packages/**/*.ts'],
     languageOptions: {
       globals: globals.browser,
+      parserOptions: {
+        parser: tseslint.parser,
+      },
     },
     plugins: {
       boundaries,

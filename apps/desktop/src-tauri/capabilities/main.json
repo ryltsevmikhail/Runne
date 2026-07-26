@@ -3,5 +3,5 @@
   "identifier": "main",
   "description": "Minimum capability set for the primary GOCODE window.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:default", "dialog:allow-open"]
 }

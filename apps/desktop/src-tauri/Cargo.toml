@@ -14,6 +14,7 @@ gocode-app-core = { path = "../../../src-tauri/crates/app-core" }
 gocode-platform-desktop = { path = "../../../src-tauri/crates/platform-desktop" }
 serde.workspace = true
 tauri.workspace = true
+tauri-plugin-dialog = "=2.7.2"
 
 [lints]
 workspace = true
