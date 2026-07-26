@@ -152,7 +152,7 @@ impl BundleManifest {
     #[must_use]
     pub fn golden_hash(&self) -> String {
         let mut hasher = Sha256::new();
-        hasher.update(&self.canonical_bytes());
+        hasher.update(self.canonical_bytes());
         hex::encode(hasher.finalize())
     }
 }
