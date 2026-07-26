@@ -10,6 +10,7 @@
     "build": "pnpm --filter @gocode/desktop build",
     "dev": "pnpm --filter @gocode/desktop dev",
     "lint": "eslint .",
+    "lint:architecture": "python3 scripts/validate_architecture.py",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm --filter @gocode/desktop typecheck",
     "validate:docs": "python3 scripts/validate-docs.py --strict"
