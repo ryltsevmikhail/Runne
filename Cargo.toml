@@ -4,6 +4,7 @@ members = [
   "crates/gocode-domain",
   "crates/gocode-application",
   "crates/gocode-store",
+  "crates/gocode-opencode-compat",
   "crates/gocode-plugin-protocol",
   "crates/gocode-runtime",
 ]
