@@ -51,6 +51,9 @@ pub enum TaskRunCommand {
         attempt_id: AttemptId,
     },
 
+    /// Queue the task run for admission (created → queued).
+    Queue,
+
     /// Wait for approval or external input.
     WaitForApproval,
 
