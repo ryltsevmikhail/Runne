@@ -4,6 +4,7 @@
   "title": "OpenCode Session.Info V1",
   "type": "object",
   "required": ["id", "slug", "projectID", "directory", "title", "version", "time"],
+  "additionalProperties": false,
   "properties": {
     "id": { "type": "string" },
     "slug": { "type": "string" },
@@ -14,10 +15,20 @@
     "directory": { "type": "string" },
     "title": { "type": "string" },
     "version": { "type": "string" },
-    "summary": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "additions": { "type": "integer" },
+        "deletions": { "type": "integer" },
+        "files": { "type": "integer" },
+        "diffs": { "type": "integer" }
+      }
+    },
     "time": {
       "type": "object",
       "required": ["created", "updated"],
+      "additionalProperties": false,
       "properties": {
         "created": { "type": "integer" },
         "updated": { "type": "integer" },
@@ -27,12 +38,30 @@
     },
     "cost": { "type": "number" },
     "agent": { "type": "string" },
-    "model": { "type": "string" },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "providerID": { "type": "string" },
+        "variant": { "type": "string" }
+      }
+    },
     "tokens": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
         "input": { "type": "integer" },
-        "output": { "type": "integer" }
+        "output": { "type": "integer" },
+        "reasoning": { "type": "integer" },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "read": { "type": "integer" },
+            "write": { "type": "integer" }
+          }
+        }
       }
     },
     "metadata": { "type": "object" },
@@ -40,22 +69,28 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["principal", "level"],
+        "required": ["permission", "pattern", "action"],
+        "additionalProperties": false,
         "properties": {
-          "principal": { "type": "string" },
-          "level": { "type": "string" }
+          "permission": { "type": "string" },
+          "pattern": { "type": "string" },
+          "action": { "enum": ["allow", "deny", "ask"] }
         }
       }
     },
     "share": {
       "type": "object",
+      "additionalProperties": false,
       "properties": { "url": { "type": "string" } }
     },
     "revert": {
       "type": "object",
+      "additionalProperties": false,
       "properties": {
-        "revertedTo": { "type": "string" },
-        "reason": { "type": "string" }
+        "messageID": { "type": "string" },
+        "partID": { "type": "string" },
+        "snapshot": { "type": "string" },
+        "diff": { "type": "string" }
       }
     }
   }
