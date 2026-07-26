@@ -12,11 +12,13 @@
     "lint": "eslint .",
     "lint:architecture": "python3 scripts/validate_architecture.py",
     "test": "pnpm -r --if-present test",
+    "test:e2e": "playwright test",
     "typecheck": "pnpm --filter @gocode/desktop typecheck",
     "validate:docs": "python3 scripts/validate-docs.py --strict"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.62.0",
     "@types/node": "24.13.3",
     "@vitest/coverage-v8": "3.2.7",
     "eslint": "9.39.5",
