@@ -20,7 +20,7 @@ use gocode_application::ports::{
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
 use gocode_domain::id::{AggregateId, AttemptId, CommandId, EventId, IntegrityDigest, TaskRunId};
 use gocode_domain::timestamp::Timestamp;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::codec::{CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TaskRunEventCodec};
 use crate::integrity::compute_integrity_digest_with_global_position;
@@ -49,6 +49,14 @@ struct StoreInner {
 pub struct StoreTransaction {
     inner: Arc<StoreInner>,
     runtime_authority_id: RuntimeAuthorityId,
+}
+
+/// Current time as Unix microseconds (for stream row creation).
+fn now_micros() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as i64
 }
 
 impl StoreTransaction {
@@ -351,13 +359,17 @@ impl UnitOfWork for StoreTransaction {
             ));
         }
 
-        let conn = self.inner.writer.lock().unwrap();
+        let mut conn = self.inner.writer.lock().unwrap();
         let taskrun_id = *payload.events[0].taskrun_id();
         let taskrun_bytes = taskrun_id.as_bytes();
 
-        let tx = conn.unchecked_transaction().map_err(|_| {
-            CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
-        })?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::Unavailable,
+                )
+            })?;
 
         // Step 1: Receipt lookup inside transaction
         let scope_codec = IdempotencyScopeCodec;
@@ -421,15 +433,45 @@ impl UnitOfWork for StoreTransaction {
         }
 
         // Step 2: Version check
-        let (current_version, last_timestamp): (i64, Option<i64>) = tx
+        let stream_row = tx
             .query_row(
                 "SELECT current_version, last_timestamp
                  FROM task_run_streams WHERE taskrun_id = ?1",
                 params![taskrun_bytes],
-                |row| Ok((row.get(0)?, row.get::<_, Option<i64>>(1)?)),
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
             )
-            .ok()
-            .unwrap_or((0, None));
+            .optional()
+            .map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::CorruptData,
+                )
+            })?;
+
+        let (current_version, last_timestamp) = match stream_row {
+            Some(row) => row,
+            None if payload.expected_version == 0 => {
+                // New aggregate — insert placeholder stream row before events
+                tx.execute(
+                    "INSERT INTO task_run_streams
+                     (taskrun_id, current_version, last_event_id, last_timestamp, created_at)
+                     VALUES (?1, 0, NULL, NULL, ?2)",
+                    params![taskrun_bytes, now_micros()],
+                )
+                .map_err(|_| {
+                    CommitError::StorageFailure(
+                        gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                    )
+                })?;
+                (0, None)
+            }
+            None => {
+                let _ = tx.rollback();
+                return Err(CommitError::VersionConflict {
+                    expected: payload.expected_version,
+                    actual: 0,
+                });
+            }
+        };
 
         if payload.expected_version != current_version as u64 {
             let _ = tx.rollback();
@@ -542,19 +584,20 @@ impl UnitOfWork for StoreTransaction {
             })?;
         }
 
-        // Update stream
+        // Update stream metadata
         let last_event = payload.events.last().unwrap();
         if current_version == 0 {
+            // Stream row was inserted before events (see version check above).
+            // UPDATE to fill in version and event metadata.
             tx.execute(
-                "INSERT INTO task_run_streams
-                 (taskrun_id, current_version, last_event_id, last_timestamp, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                "UPDATE task_run_streams
+                 SET current_version = ?1, last_event_id = ?2, last_timestamp = ?3
+                 WHERE taskrun_id = ?4",
                 params![
-                    taskrun_bytes,
                     new_version,
                     last_event.event_id().as_bytes(),
                     now,
-                    now,
+                    taskrun_bytes,
                 ],
             )
             .map_err(|_| {

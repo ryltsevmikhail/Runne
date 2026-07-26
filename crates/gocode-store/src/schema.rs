@@ -54,6 +54,8 @@ pub fn run_startup_gates(conn: &Connection, db_path: &str) -> SqliteResult<()> {
     verify_pragma(conn, "journal_mode", "wal")?;
     verify_pragma(conn, "synchronous", "2")?; // FULL = 2
     verify_pragma(conn, "foreign_keys", "1")?;
+    #[cfg(target_os = "macos")]
+    verify_pragma(conn, "fullfsync", "1")?;
 
     // Set file permissions on Unix
     #[cfg(unix)]
@@ -75,7 +77,13 @@ pub fn run_startup_gates(conn: &Connection, db_path: &str) -> SqliteResult<()> {
 /// Verify a PRAGMA value matches the expected value.
 fn verify_pragma(conn: &Connection, pragma: &str, expected: &str) -> SqliteResult<()> {
     let sql = format!("PRAGMA {};", pragma);
-    let actual: String = conn.query_row(&sql, [], |row| row.get(0))?;
+    // PRAGMAs return either text or integer — try integer first, then text
+    let actual: String = conn.query_row(&sql, [], |row| {
+        row.get::<_, String>(0).or_else(|_| {
+            let val: i32 = row.get(0)?;
+            Ok(val.to_string())
+        })
+    })?;
     if actual != expected {
         return Err(rusqlite::Error::SqliteFailure(
             rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISMATCH),
