@@ -3,10 +3,10 @@
 //! Not public API. [`crate::service::TaskRunService`] is the only
 //! public entry point.
 
-use gocode_domain::command::{CreateTaskRun, TaskRunCommand, TerminalResult};
-use gocode_domain::event::{Actor, CommandContext, EventEnvelope, materialize_batch};
-use gocode_domain::id::{AggregateId, CommandId, EventId, IdempotencyKey, TaskRunId};
-use gocode_domain::task_run::{TaskRun, TaskRunEvent};
+use gocode_domain::command::{CreateTaskRun, TaskRunCommand};
+use gocode_domain::event::{Actor, CommandContext, materialize_batch};
+use gocode_domain::id::{CommandId, IdempotencyKey, TaskRunId};
+use gocode_domain::task_run::TaskRun;
 
 use crate::commands::CommandOutcome;
 use crate::errors::{ApplicationError, StreamConsistencyViolation};
@@ -51,7 +51,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         let lookup = self
             .unit_of_work
             .lookup_receipt(command_id, idempotency_key, &scope, fingerprint)
-            .map_err(|e| ApplicationError::from(e))?;
+            .map_err(ApplicationError::from)?;
         if let ReceiptLookup::Duplicate { stored_result } = lookup {
             return Ok(stored_result);
         }
@@ -80,7 +80,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
             .map_err(ApplicationError::IdGenerationFailed)?;
 
         let uncommitted =
-            materialize_batch(vec![draft], &event_ids, None, &domain_ctx).map_err(|e| {
+            materialize_batch(vec![draft], &event_ids, None, &domain_ctx).map_err(|_e| {
                 ApplicationError::StorageFailed(crate::ports::StorageFailureKind::CorruptData)
             })?;
 
@@ -94,7 +94,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
             command_id,
             idempotency_key: idempotency_key.clone(),
             idempotency_scope: scope,
-            command_fingerprint: fingerprint.clone(),
+            command_fingerprint: *fingerprint,
             expected_version: 0,
             events: uncommitted,
             command_result: outcome.clone(),
@@ -103,7 +103,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         match self
             .unit_of_work
             .commit(commit_payload)
-            .map_err(|e| ApplicationError::from(e))?
+            .map_err(ApplicationError::from)?
         {
             CommitResult::Committed { new_version: v } => {
                 if v != new_version {
@@ -118,8 +118,11 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         }
     }
 
+    // Spec requires each argument as an explicit pipeline parameter;
+    // grouping into a struct would create an artificial single-use type.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn execute_existing(
-        &self,
+        #[allow(clippy::too_many_arguments)] &self,
         command_id: CommandId,
         idempotency_key: &IdempotencyKey,
         principal_id: &crate::ports::PrincipalId,
@@ -140,7 +143,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         let lookup = self
             .unit_of_work
             .lookup_receipt(command_id, idempotency_key, &scope, fingerprint)
-            .map_err(|e| ApplicationError::from(e))?;
+            .map_err(ApplicationError::from)?;
         if let ReceiptLookup::Duplicate { stored_result } = lookup {
             return Ok(stored_result);
         }
@@ -165,7 +168,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
             })?,
         };
 
-        let mut agg = if stream.events.is_empty() {
+        let agg = if stream.events.is_empty() {
             return Err(ApplicationError::AggregateNotFound { taskrun_id });
         } else {
             TaskRun::replay(&stream.events).map_err(ApplicationError::Domain)?
@@ -206,7 +209,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
             command_id,
             idempotency_key: idempotency_key.clone(),
             idempotency_scope: scope,
-            command_fingerprint: fingerprint.clone(),
+            command_fingerprint: *fingerprint,
             expected_version,
             events: uncommitted,
             command_result: outcome.clone(),
@@ -215,7 +218,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         match self
             .unit_of_work
             .commit(commit_payload)
-            .map_err(|e| ApplicationError::from(e))?
+            .map_err(ApplicationError::from)?
         {
             CommitResult::Committed { new_version: v } => {
                 if v != new_version {

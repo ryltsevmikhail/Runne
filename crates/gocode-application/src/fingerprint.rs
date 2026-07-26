@@ -65,7 +65,7 @@ impl CommandFingerprint {
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN_PREFIX);
         hasher.update(SCHEMA_VERSION.to_be_bytes());
-        hasher.update(&[TAG_CREATE]);
+        hasher.update([TAG_CREATE]);
         // conversation_id: 16 raw bytes
         hasher.update(conversation_id.as_bytes());
         // workspace_id: 16 raw bytes
@@ -78,7 +78,7 @@ impl CommandFingerprint {
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN_PREFIX);
         hasher.update(SCHEMA_VERSION.to_be_bytes());
-        hasher.update(&[TAG_QUEUE]);
+        hasher.update([TAG_QUEUE]);
         // taskrun_id: 16 raw bytes
         hasher.update(taskrun_id.as_bytes());
         // expected_version: 8 bytes BE
@@ -91,7 +91,7 @@ impl CommandFingerprint {
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN_PREFIX);
         hasher.update(SCHEMA_VERSION.to_be_bytes());
-        hasher.update(&[TAG_ADMIT]);
+        hasher.update([TAG_ADMIT]);
         // taskrun_id: 16 raw bytes
         hasher.update(taskrun_id.as_bytes());
         // expected_version: 8 bytes BE
@@ -104,7 +104,7 @@ impl CommandFingerprint {
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN_PREFIX);
         hasher.update(SCHEMA_VERSION.to_be_bytes());
-        hasher.update(&[TAG_START_ATTEMPT]);
+        hasher.update([TAG_START_ATTEMPT]);
         // taskrun_id: 16 raw bytes
         hasher.update(taskrun_id.as_bytes());
         // expected_version: 8 bytes BE
@@ -138,7 +138,7 @@ impl CommandFingerprint {
         let mut hasher = Sha256::new();
         hasher.update(DOMAIN_PREFIX);
         hasher.update(SCHEMA_VERSION.to_be_bytes());
-        hasher.update(&[TAG_COMPLETE]);
+        hasher.update([TAG_COMPLETE]);
         // taskrun_id: 16 raw bytes
         hasher.update(taskrun_id.as_bytes());
         // expected_version: 8 bytes BE
@@ -148,10 +148,10 @@ impl CommandFingerprint {
         //   for Failure: reason_len (u16 BE) || reason_bytes
         match result {
             TerminalResult::Success => {
-                hasher.update(&[0x00u8]);
+                hasher.update([0x00u8]);
             }
             TerminalResult::Failure { reason } => {
-                hasher.update(&[0x01u8]);
+                hasher.update([0x01u8]);
                 let reason_bytes = reason.as_bytes();
                 hasher.update((reason_bytes.len() as u16).to_be_bytes());
                 hasher.update(reason_bytes);
