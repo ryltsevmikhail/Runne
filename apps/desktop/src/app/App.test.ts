@@ -22,6 +22,40 @@ describe('desktop application shell', () => {
     expect(wrapper.get('main').text()).toContain('Projects')
   })
 
+  it('uses the canonical GOCODE brand assets in the desktop shell', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('.brand-lockup').attributes('src')).toContain('gocode-lockup')
+    expect(wrapper.get('.brand-icon').attributes('src')).toContain('gocode-app-icon')
+    expect(wrapper.find('.brand-mark').exists()).toBe(false)
+  })
+
+  it('renders the documented native drag region without a duplicate title', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+
+    const titleBar = wrapper.get('.desktop-title-bar')
+    expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
+    expect(titleBar.text()).toBe('')
+  })
+
   it('toggles the desktop color theme from the sidebar', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
@@ -56,5 +90,20 @@ describe('desktop application shell', () => {
 
     expect(wrapper.get('aside').classes()).toContain('sidebar--collapsed')
     expect(wrapper.get('nav').attributes('aria-label')).toBe('Primary')
+  })
+
+  it('links the diagnostics action to the documented local route', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes,
+    })
+    await router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(App, {
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('[aria-label="Diagnostics"]').attributes('href')).toBe('/settings/diagnostics')
   })
 })

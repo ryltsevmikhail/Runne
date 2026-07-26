@@ -1,22 +1,17 @@
 <script setup lang="ts">
-import { isTauri } from '@tauri-apps/api/core'
 import { Clock3, FolderOpen, Plus } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
 import { listProjects } from '@/entities/project'
-import { selectAndOpenLocalProject } from '@/features/open-local-project'
 
 type LoadProjects = () => Promise<readonly Project[]>
-type OpenProject = () => Promise<Project | null>
 
 const props = withDefaults(defineProps<{
   loadProjects?: LoadProjects
-  openProject?: OpenProject
 }>(), {
-  loadProjects: async () => isTauri() ? listProjects() : [],
-  openProject: selectAndOpenLocalProject,
+  loadProjects: listProjects,
 })
 
 const router = useRouter()
@@ -37,21 +32,12 @@ onMounted(async () => {
 })
 
 async function openProjectPicker() {
-  error.value = null
-  try {
-    const project = await props.openProject()
-    if (project !== null) {
-      await openWorkspace(project)
-    }
-  }
-  catch {
-    error.value = 'The selected folder could not be opened.'
-  }
+  await router.push({ name: 'open-project' })
 }
 
-async function openWorkspace(project: Project) {
+async function openProjectDetails(project: Project) {
   await router.push({
-    name: 'workspace',
+    name: 'project-details',
     params: { id: project.id },
   })
 }
@@ -69,18 +55,17 @@ async function openWorkspace(project: Project) {
         </h1>
         <p>Choose a workspace and continue where you left off.</p>
       </div>
-      <button
+      <RouterLink
         class="primary-button"
-        type="button"
+        to="/projects/open"
         aria-label="Open local project"
-        @click="openProjectPicker"
       >
         <Plus
           :size="16"
           aria-hidden="true"
         />
         Open project
-      </button>
+      </RouterLink>
     </header>
 
     <div class="content-section">
@@ -113,8 +98,8 @@ async function openWorkspace(project: Project) {
           :key="project.id"
           class="project-card"
           type="button"
-          :aria-label="`Open workspace ${project.name}`"
-          @click="openWorkspace(project)"
+          :aria-label="`Open project ${project.name}`"
+          @click="openProjectDetails(project)"
         >
           <span class="project-icon">
             <FolderOpen

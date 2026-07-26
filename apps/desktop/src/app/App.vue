@@ -13,6 +13,9 @@ import { isTauri } from '@tauri-apps/api/core'
 import { onMounted, ref } from 'vue'
 
 import { loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
+import brandIcon from '@/shared/assets/gocode-app-icon.png'
+import brandLockup from '@/shared/assets/gocode-lockup.png'
+import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 
 const theme = ref<'dark' | 'light'>('dark')
 const sidebarCollapsed = ref(false)
@@ -45,6 +48,8 @@ async function toggleTheme() {
     :class="{ 'app-shell--collapsed': sidebarCollapsed }"
     :data-theme="theme"
   >
+    <DesktopTitleBar />
+
     <aside
       class="sidebar"
       :class="{ 'sidebar--collapsed': sidebarCollapsed }"
@@ -55,8 +60,16 @@ async function toggleTheme() {
           to="/"
           aria-label="GOCODE home"
         >
-          <span class="brand-mark">G</span>
-          <span class="brand-name">GOCODE</span>
+          <img
+            class="brand-lockup"
+            :src="brandLockup"
+            alt=""
+          >
+          <img
+            class="brand-icon"
+            :src="brandIcon"
+            alt=""
+          >
         </RouterLink>
         <button
           class="icon-button collapse-button"
@@ -118,9 +131,9 @@ async function toggleTheme() {
         </div>
 
         <div class="sidebar-actions">
-          <button
+          <RouterLink
             class="icon-button"
-            type="button"
+            to="/settings/diagnostics"
             aria-label="Diagnostics"
             title="Diagnostics"
           >
@@ -128,7 +141,7 @@ async function toggleTheme() {
               :size="16"
               aria-hidden="true"
             />
-          </button>
+          </RouterLink>
           <button
             class="icon-button"
             type="button"

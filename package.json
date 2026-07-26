@@ -14,7 +14,9 @@
     "test": "pnpm -r --if-present test",
     "test:e2e": "playwright test",
     "typecheck": "pnpm --filter @gocode/desktop typecheck",
-    "validate:docs": "python3 scripts/validate-docs.py --strict"
+    "validate:docs": "python3 scripts/validate-docs.py --strict",
+    "validate:visual-fixtures": "python3 scripts/validate_visual_fixtures.py",
+    "validate:visual-goldens": "python3 scripts/validate_visual_fixtures.py --require-goldens"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

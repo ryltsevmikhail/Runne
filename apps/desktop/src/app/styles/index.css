@@ -1,5 +1,7 @@
+@import "../../../../../docs/brand/gocode-brand-tokens.css";
+
 :root {
-  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -19,7 +21,7 @@ body,
 body {
   min-height: 100vh;
   overflow: hidden;
-  background: #0f0f11;
+  background: #151616;
 }
 
 button,
@@ -32,49 +34,51 @@ button {
 }
 
 .app-shell {
-  --primary: #f89521;
-  --primary-hover: #fa9f35;
-  --accent: #00d9ff;
-  --bg: #0f0f11;
-  --surface: #161618;
-  --surface-hover: #1c1e21;
-  --text: #ffffff;
-  --text-muted: #6b6f76;
-  --text-subtle: #4a4e55;
-  --border: #1c1e21;
-  --border-hover: #2a2c30;
-  --sidebar: #090909;
-  --sidebar-hover: #111113;
-  --sidebar-active: #161618;
-  --input: #161618;
-  --error: #ef4444;
+  --primary: var(--gocode-forge-orange);
+  --primary-hover: #f29150;
+  --lead: var(--gocode-lead-green);
+  --review: var(--gocode-review-violet);
+  --error: var(--gocode-error-coral);
+  --bg: var(--gocode-graphite);
+  --surface: #1c1d1e;
+  --surface-hover: #242527;
+  --text: var(--gocode-warm-white);
+  --text-muted: #a6a7a5;
+  --text-subtle: #747573;
+  --border: #343537;
+  --border-hover: #4a4b4d;
+  --sidebar: var(--gocode-sidebar);
+  --sidebar-hover: #323335;
+  --sidebar-active: #3a3532;
+  --input: #202123;
+  position: relative;
   display: grid;
   grid-template-columns: 244px minmax(0, 1fr);
   min-height: 100vh;
-  padding: 8px;
+  padding: 36px 8px 8px;
   color: var(--text);
   background: var(--bg);
-  transition: grid-template-columns 450ms cubic-bezier(.45, 0, .55, 1);
+  transition: grid-template-columns 220ms ease;
 }
 
 .app-shell[data-theme="light"] {
-  --primary: #f89521;
-  --primary-hover: #e88a1d;
-  --accent: #0891b2;
-  --bg: #f5f6f7;
-  --surface: #ffffff;
-  --surface-hover: #e8ebef;
-  --text: #1a1a1a;
-  --text-muted: #4b5563;
-  --text-subtle: #6b7280;
-  --border: transparent;
-  --border-hover: transparent;
-  --sidebar: #ffffff;
-  --sidebar-hover: #f3f4f6;
-  --sidebar-active: rgb(248 149 33 / 15%);
+  --primary: var(--gocode-forge-orange);
+  --primary-hover: #df6f2a;
+  --lead: var(--gocode-lead-green);
+  --review: var(--gocode-review-violet);
+  --error: var(--gocode-error-coral);
+  --bg: #e9e9e7;
+  --surface: var(--gocode-warm-white);
+  --surface-hover: #e7e7e5;
+  --text: #151616;
+  --text-muted: #555654;
+  --text-subtle: #747573;
+  --border: #d3d3d0;
+  --border-hover: #b9b9b5;
+  --sidebar: var(--gocode-sidebar);
+  --sidebar-hover: #323335;
+  --sidebar-active: #3a3532;
   --input: #ffffff;
-  --error: #b91c1c;
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
 }
 
@@ -82,14 +86,29 @@ button {
   grid-template-columns: 48px minmax(0, 1fr);
 }
 
+.desktop-title-bar {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 28px;
+  background: var(--bg);
+  user-select: none;
+}
+
 .sidebar {
+  --text: var(--gocode-warm-white);
+  --text-muted: #a6a7a5;
+  --text-subtle: #747573;
+  --border: #3f4042;
   display: flex;
   min-width: 0;
   flex-direction: column;
-  padding: 12px;
+  padding: 16px 12px 12px;
   color: var(--text);
   background: var(--sidebar);
-  transition: padding 450ms cubic-bezier(.45, 0, .55, 1);
+  transition: padding var(--gocode-motion-base) ease;
 }
 
 .sidebar--collapsed {
@@ -102,38 +121,29 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .brand {
   display: flex;
   min-width: 0;
   align-items: center;
-  gap: 9px;
-  padding-left: 4px;
+  padding-left: 2px;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: .08em;
   text-decoration: none;
 }
 
-.brand-mark {
-  display: grid;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 6px;
-  color: #111113;
-  background: var(--primary);
-  font-size: 12px;
-  letter-spacing: 0;
+.brand-lockup {
+  display: block;
+  width: 112px;
+  height: auto;
 }
 
-.brand-name {
-  overflow: hidden;
-  transition: opacity 150ms ease;
+.brand-icon {
+  display: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--gocode-radius-md);
 }
 
 .icon-button {
@@ -143,7 +153,7 @@ button {
   flex: 0 0 auto;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-muted);
   background: transparent;
   cursor: pointer;
@@ -176,12 +186,12 @@ nav {
   align-items: center;
   gap: 10px;
   padding: 0 10px;
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 600;
   text-decoration: none;
-  transition: color 150ms ease, background 150ms ease;
+  transition: color var(--gocode-motion-fast) ease, background var(--gocode-motion-fast) ease;
 }
 
 .nav-item:hover {
@@ -204,6 +214,7 @@ nav {
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
+  border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--sidebar-hover);
 }
@@ -244,7 +255,7 @@ nav {
 
 .workspace {
   min-width: 0;
-  min-height: calc(100vh - 16px);
+  min-height: calc(100vh - 44px);
   overflow: auto;
   padding: 34px 38px;
   border: 1px solid var(--border);
@@ -281,8 +292,8 @@ nav {
   gap: 7px;
   padding: 0 13px;
   border: 0;
-  border-radius: 6px;
-  color: #111113;
+  border-radius: 8px;
+  color: #151616;
   background: var(--primary);
   font-size: 11px;
   font-weight: 700;
@@ -328,7 +339,7 @@ nav {
   gap: 12px;
   padding: 14px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--text);
   background: var(--surface-hover);
   text-align: left;
@@ -338,6 +349,40 @@ nav {
 .project-card:hover {
   border-color: var(--border-hover);
   background: color-mix(in srgb, var(--surface-hover) 92%, var(--text) 8%);
+}
+
+.project-card--workspace {
+  width: min(100%, 560px);
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 42px 0 0;
+}
+
+.diagnostics-grid > div {
+  min-height: 88px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-hover);
+}
+
+.diagnostics-grid dt {
+  color: var(--text-subtle);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.diagnostics-grid dd {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .project-icon,
@@ -444,7 +489,7 @@ nav {
 
 .workspace-status {
   padding: 6px 9px;
-  border-radius: 6px;
+  border-radius: 8px;
   color: var(--text-muted);
   background: var(--surface-hover);
   font-size: 10px;
@@ -457,7 +502,7 @@ nav {
   grid-template-columns: minmax(160px, 220px) minmax(320px, 1fr) minmax(180px, 260px);
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--bg);
 }
 
@@ -531,18 +576,29 @@ nav {
   text-overflow: ellipsis;
 }
 
-button:focus-visible,
-a:focus-visible {
+.icon-button:focus-visible,
+.nav-item:focus-visible,
+.brand:focus-visible {
+  outline: 2px solid var(--gocode-warm-white);
+  outline-offset: 2px;
+}
+
+.primary-button:focus-visible,
+.project-card:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
-.sidebar--collapsed .brand-name,
+.sidebar--collapsed .brand-lockup,
 .sidebar--collapsed .collapse-button,
 .sidebar--collapsed .nav-label,
 .sidebar--collapsed .nav-item span,
 .sidebar--collapsed .status-copy {
   display: none;
+}
+
+.sidebar--collapsed .brand-icon {
+  display: block;
 }
 
 .sidebar--collapsed .sidebar-header,
@@ -574,12 +630,16 @@ a:focus-visible {
     padding-inline: 4px;
   }
 
-  .brand-name,
+  .brand-lockup,
   .collapse-button,
   .nav-label,
   .nav-item span,
   .status-copy {
     display: none;
+  }
+
+  .brand-icon {
+    display: block;
   }
 
   .sidebar-header,

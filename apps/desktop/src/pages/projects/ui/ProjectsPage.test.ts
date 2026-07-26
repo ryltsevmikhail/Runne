@@ -17,23 +17,27 @@ function createTestRouter() {
     routes: [
       { path: '/', component: ProjectsPage },
       {
-        path: '/workspaces/:id',
-        name: 'workspace',
-        component: { template: '<div>Workspace</div>' },
+        path: '/projects/:id',
+        name: 'project-details',
+        component: { template: '<div>Project details</div>' },
+      },
+      {
+        path: '/projects/open',
+        name: 'open-project',
+        component: { template: '<div>Open project</div>' },
       },
     ],
   })
 }
 
 describe('projects page', () => {
-  it('renders persisted projects and opens their workspace route', async () => {
+  it('renders persisted projects and opens their project details route', async () => {
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
     const wrapper = mount(ProjectsPage, {
       props: {
         loadProjects: async () => [project],
-        openProject: async () => null,
       },
       global: { plugins: [router] },
     })
@@ -42,20 +46,19 @@ describe('projects page', () => {
     expect(wrapper.text()).toContain('gocode-ui')
     expect(wrapper.text()).toContain('/workspace/gocode-ui')
 
-    await wrapper.get('[aria-label="Open workspace gocode-ui"]').trigger('click')
+    await wrapper.get('[aria-label="Open project gocode-ui"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/workspaces/7')
+    expect(router.currentRoute.value.fullPath).toBe('/projects/7')
   })
 
-  it('opens the workspace returned by the native local project flow', async () => {
+  it('opens the documented local project setup route', async () => {
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
     const wrapper = mount(ProjectsPage, {
       props: {
         loadProjects: async () => [],
-        openProject: async () => project,
       },
       global: { plugins: [router] },
     })
@@ -64,6 +67,6 @@ describe('projects page', () => {
     await wrapper.get('[aria-label="Open local project"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/workspaces/7')
+    expect(router.currentRoute.value.fullPath).toBe('/projects/open')
   })
 })
