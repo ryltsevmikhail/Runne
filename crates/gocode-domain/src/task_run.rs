@@ -287,6 +287,15 @@ impl TaskRun {
                     Sensitivity::Public,
                 )])
             }
+
+            TaskRunCommand::Queue => {
+                self.require_state(TaskRunState::Created, TaskRunEventKind::TaskRunQueued)?;
+                Ok(vec![draft(
+                    TaskRunEvent::TaskRunQueued,
+                    Sensitivity::Public,
+                )])
+            }
+
             TaskRunCommand::StartAttempt { attempt_id } => {
                 self.require_state(TaskRunState::Admitted, TaskRunEventKind::AttemptStarted)?;
                 self.check_attempt_id_unique(&attempt_id)?;
@@ -1145,5 +1154,23 @@ mod tests {
             err.unwrap_err(),
             DomainError::InvalidTransition { .. }
         ));
+    }
+
+    #[test]
+    fn test_queue_from_created() {
+        let mut agg = create_aggregate();
+        let drafts = agg.decide(TaskRunCommand::Queue).unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(*drafts[0].payload(), TaskRunEvent::TaskRunQueued);
+        agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
+        assert_eq!(agg.state(), TaskRunState::Queued);
+    }
+
+    #[test]
+    fn test_queue_from_queued_is_invalid() {
+        let mut agg = create_aggregate();
+        agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
+        let err = agg.decide(TaskRunCommand::Queue).unwrap_err();
+        assert!(matches!(err, DomainError::InvalidTransition { .. }));
     }
 }
