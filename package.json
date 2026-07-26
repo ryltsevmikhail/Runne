@@ -16,7 +16,10 @@
     "typecheck": "pnpm --filter @gocode/desktop typecheck",
     "validate:docs": "python3 scripts/validate-docs.py --strict",
     "validate:visual-fixtures": "python3 scripts/validate_visual_fixtures.py",
-    "validate:visual-goldens": "python3 scripts/validate_visual_fixtures.py --require-goldens"
+    "validate:visual-goldens": "python3 scripts/validate_visual_fixtures.py --require-goldens",
+    "capture:donor": "playwright test --config scripts/donor-capture/playwright.config.ts",
+    "validate:visual-fixtures:phase0": "python3 scripts/validate_visual_fixtures.py --phase0",
+    "validate:visual-goldens:phase0": "python3 scripts/validate_visual_fixtures.py --require-goldens --phase0"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
