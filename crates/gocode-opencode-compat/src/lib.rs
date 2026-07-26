@@ -4,3 +4,5 @@
 //!
 //! Phase 2a: read-only inventory registry + typed rejection.
 //! Zero production dependencies. All operations → Reject.
+
+pub mod classify;
