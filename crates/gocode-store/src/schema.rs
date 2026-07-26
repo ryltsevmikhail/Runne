@@ -43,7 +43,7 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
 /// verification.
 ///
 /// Fails closed (returns an error) if any check fails.
-pub fn run_startup_gates(conn: &Connection, db_path: &str) -> SqliteResult<()> {
+pub fn run_startup_gates(conn: &Connection, _db_path: &str) -> SqliteResult<()> {
     // Integrity check
     conn.execute_batch("PRAGMA integrity_check;")?;
 
@@ -62,7 +62,7 @@ pub fn run_startup_gates(conn: &Connection, db_path: &str) -> SqliteResult<()> {
     {
         use std::os::unix::fs::PermissionsExt;
         for suffix in &["", "-wal", "-shm"] {
-            let path = format!("{}{}", db_path, suffix);
+            let path = format!("{}{}", _db_path, suffix);
             if let Ok(meta) = std::fs::metadata(&path) {
                 let mut perms = meta.permissions();
                 perms.set_mode(0o600);
