@@ -12,6 +12,6 @@ test('desktop shell supports navigation, themes and collapsed sidebar', async ({
   await page.getByLabel('Collapse sidebar').click()
   await expect(page.locator('aside')).toHaveClass(/sidebar--collapsed/)
 
-  await page.getByRole('link', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByRole('heading', { name: 'Runtime' })).toBeVisible()
 })
