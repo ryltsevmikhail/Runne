@@ -81,6 +81,7 @@ def validate_registry(
     goldens_root: Path,
     *,
     require_goldens: bool,
+    capture_target: str | None = None,
 ) -> list[str]:
     content = registry_path.read_text(encoding="utf-8")
     commit_match = re.search(r"^\s+commit:\s*(\S+)\s*$", content, re.MULTILINE)
@@ -98,10 +99,17 @@ def validate_registry(
         golden_key = _inline_value(line, "golden_key")
         donor_path = _inline_value(line, "donor_path")
         state_data = _inline_value(line, "state_data")
+        fixture_capture_target = _inline_value(line, "capture_target")
         label = fixture_id or "unnamed fixture"
         if fixture_id is None or golden_key is None or donor_path is None or state_data is None:
             errors.append(f"{label}: incomplete visual fixture metadata")
             continue
+        if capture_target is not None:
+            if fixture_capture_target is None:
+                errors.append(f"{fixture_id}: missing capture_target")
+                continue
+            if fixture_capture_target != capture_target:
+                continue
         if not require_goldens:
             continue
         golden_path = goldens_root / f"{golden_key}.png"
@@ -132,6 +140,13 @@ def validate_registry(
 def main() -> int:
     require_goldens = "--require-goldens" in sys.argv
     phase0 = "--phase0" in sys.argv
+    capture_target = None
+    if "--capture-target" in sys.argv:
+        target_index = sys.argv.index("--capture-target") + 1
+        if target_index >= len(sys.argv) or sys.argv[target_index].startswith("--"):
+            print("ERROR: --capture-target requires a value")
+            return 2
+        capture_target = sys.argv[target_index]
     registry_path = DEFAULT_REGISTRY
     if phase0:
         registry_path = ROOT / "docs/07-testing/fixtures/desktop-visual-fixtures-phase0.yaml"
@@ -139,14 +154,18 @@ def main() -> int:
         registry_path,
         DEFAULT_GOLDENS,
         require_goldens=require_goldens,
+        capture_target=capture_target,
     )
     if errors:
         for error in errors:
             print(f"ERROR: {error}")
         return 1
     mode = "release goldens" if require_goldens else "fixture metadata"
-    phase_label = " (Phase 0)" if phase0 else ""
-    print(f"Desktop visual {mode}{phase_label} passed.")
+    labels = ["Phase 0"] if phase0 else []
+    if capture_target is not None:
+        labels.append(capture_target)
+    label = f" ({', '.join(labels)})" if labels else ""
+    print(f"Desktop visual {mode}{label} passed.")
     return 0
 
 

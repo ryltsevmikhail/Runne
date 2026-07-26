@@ -1,0 +1,21 @@
+{
+  "fixture_id": "desk-workspace-stale-light-1440",
+  "donor_commit": "bc6cf79fda5b13c937dbae92bdf2d912a987eeb0",
+  "approved": true,
+  "captured_at": "2026-07-26T10:59:47.274Z",
+  "os": "macOS",
+  "webview": "chromium",
+  "capture_tool": "gocode-donor-capture",
+  "capture_tool_version": "1.0.0",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "scale": 2,
+  "theme": "light",
+  "target_state": "stale",
+  "donor_state": "hibernated",
+  "locale": "en-US",
+  "timezone": "UTC",
+  "clock": "2026-07-26T12:00:00Z"
+}

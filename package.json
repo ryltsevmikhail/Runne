@@ -19,7 +19,7 @@
     "validate:visual-goldens": "python3 scripts/validate_visual_fixtures.py --require-goldens",
     "capture:donor": "playwright test --config scripts/donor-capture/playwright.config.ts",
     "validate:visual-fixtures:phase0": "python3 scripts/validate_visual_fixtures.py --phase0",
-    "validate:visual-goldens:phase0": "python3 scripts/validate_visual_fixtures.py --require-goldens --phase0"
+    "validate:visual-goldens:phase0": "python3 scripts/validate_visual_fixtures.py --require-goldens --phase0 --capture-target macos-webkit"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",

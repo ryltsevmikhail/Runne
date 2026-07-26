@@ -1,0 +1,21 @@
+{
+  "fixture_id": "desk-projects-populated-dark-1440",
+  "donor_commit": "bc6cf79fda5b13c937dbae92bdf2d912a987eeb0",
+  "approved": true,
+  "captured_at": "2026-07-26T10:59:36.343Z",
+  "os": "macOS",
+  "webview": "chromium",
+  "capture_tool": "gocode-donor-capture",
+  "capture_tool_version": "1.0.0",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "scale": 1,
+  "theme": "dark",
+  "target_state": "populated",
+  "donor_state": "populated",
+  "locale": "en-US",
+  "timezone": "UTC",
+  "clock": "2026-07-26T12:00:00Z"
+}

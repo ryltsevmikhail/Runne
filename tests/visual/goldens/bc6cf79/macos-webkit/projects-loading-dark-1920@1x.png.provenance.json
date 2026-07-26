@@ -1,0 +1,21 @@
+{
+  "fixture_id": "desk-projects-loading-dark-1920",
+  "donor_commit": "bc6cf79fda5b13c937dbae92bdf2d912a987eeb0",
+  "approved": true,
+  "captured_at": "2026-07-26T10:59:39.046Z",
+  "os": "macOS",
+  "webview": "chromium",
+  "capture_tool": "gocode-donor-capture",
+  "capture_tool_version": "1.0.0",
+  "viewport": {
+    "width": 1920,
+    "height": 1080
+  },
+  "scale": 1,
+  "theme": "dark",
+  "target_state": "loading",
+  "donor_state": "loading",
+  "locale": "en-US",
+  "timezone": "UTC",
+  "clock": "2026-07-26T12:00:00Z"
+}
