@@ -17,12 +17,24 @@
     "version": { "type": "string" },
     "summary": {
       "type": "object",
+      "required": ["additions", "deletions", "files"],
       "additionalProperties": false,
       "properties": {
-        "additions": { "type": "integer" },
-        "deletions": { "type": "integer" },
-        "files": { "type": "integer" },
-        "diffs": { "type": "integer" }
+        "additions": { "type": "number" },
+        "deletions": { "type": "number" },
+        "files": { "type": "number" },
+        "diffs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "additions": { "type": "number" },
+              "deletions": { "type": "number" }
+            }
+          }
+        }
       }
     },
     "time": {
@@ -30,16 +42,17 @@
       "required": ["created", "updated"],
       "additionalProperties": false,
       "properties": {
-        "created": { "type": "integer" },
-        "updated": { "type": "integer" },
-        "compacting": { "type": "integer" },
-        "archived": { "type": "integer" }
+        "created": { "type": "integer", "minimum": 0 },
+        "updated": { "type": "integer", "minimum": 0 },
+        "compacting": { "type": "integer", "minimum": 0 },
+        "archived": { "type": "number" }
       }
     },
     "cost": { "type": "number" },
     "agent": { "type": "string" },
     "model": {
       "type": "object",
+      "required": ["id", "providerID"],
       "additionalProperties": false,
       "properties": {
         "id": { "type": "string" },
@@ -49,6 +62,7 @@
     },
     "tokens": {
       "type": "object",
+      "required": ["input", "output", "reasoning", "cache"],
       "additionalProperties": false,
       "properties": {
         "input": { "type": "integer" },
@@ -56,6 +70,7 @@
         "reasoning": { "type": "integer" },
         "cache": {
           "type": "object",
+          "required": ["read", "write"],
           "additionalProperties": false,
           "properties": {
             "read": { "type": "integer" },
@@ -80,11 +95,13 @@
     },
     "share": {
       "type": "object",
+      "required": ["url"],
       "additionalProperties": false,
       "properties": { "url": { "type": "string" } }
     },
     "revert": {
       "type": "object",
+      "required": ["messageID"],
       "additionalProperties": false,
       "properties": {
         "messageID": { "type": "string" },
