@@ -44,3 +44,6 @@ __pycache__/
 
 # Donor snapshots are pinned source evidence and must remain complete.
 !upstream/**
+
+# SDD progress ledger (scratch)
+.superpowers/
