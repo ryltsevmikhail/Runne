@@ -74,8 +74,12 @@ def validate_registry(
 
 def main() -> int:
     require_goldens = "--require-goldens" in sys.argv
+    phase0 = "--phase0" in sys.argv
+    registry_path = DEFAULT_REGISTRY
+    if phase0:
+        registry_path = ROOT / "docs/07-testing/fixtures/desktop-visual-fixtures-phase0.yaml"
     errors = validate_registry(
-        DEFAULT_REGISTRY,
+        registry_path,
         DEFAULT_GOLDENS,
         require_goldens=require_goldens,
     )
@@ -84,7 +88,8 @@ def main() -> int:
             print(f"ERROR: {error}")
         return 1
     mode = "release goldens" if require_goldens else "fixture metadata"
-    print(f"Desktop visual {mode} passed.")
+    phase_label = " (Phase 0)" if phase0 else ""
+    print(f"Desktop visual {mode}{phase_label} passed.")
     return 0
 
 
