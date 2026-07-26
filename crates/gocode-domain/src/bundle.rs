@@ -148,7 +148,7 @@ impl BundleManifest {
         buf
     }
 
-    /// SHA-256 of [`canonical_bytes`].
+    /// SHA-256 of `BundleManifest::canonical_bytes()`.
     #[must_use]
     pub fn golden_hash(&self) -> String {
         let mut hasher = Sha256::new();
