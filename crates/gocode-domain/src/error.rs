@@ -32,14 +32,6 @@ pub enum DomainError {
         current: TaskRunState,
     },
 
-    /// An identifier failed validation.
-    InvalidId {
-        /// The entity whose ID was rejected (e.g., "TaskRunId").
-        entity: &'static str,
-        /// The reason for rejection.
-        reason: InvalidIdReason,
-    },
-
     /// The `aggregate_id` in an event does not match the expected value.
     AggregateIdMismatch {
         /// The expected aggregate ID.
@@ -104,9 +96,6 @@ impl fmt::Display for DomainError {
                     "aggregate is in terminal state {:?} and cannot be modified",
                     current
                 )
-            }
-            Self::InvalidId { entity, reason } => {
-                write!(f, "invalid ID for {}: {}", entity, reason)
             }
             Self::AggregateIdMismatch { expected, actual } => {
                 write!(
