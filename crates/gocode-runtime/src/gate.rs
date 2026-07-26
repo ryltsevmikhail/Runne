@@ -79,9 +79,11 @@ impl AdmissionGate {
         // Initially, some are available (unused). The rest are held by
         // existing `AdmissionReservation`s — we block until they are
         // released and acquire those too.
+        let mut held = Vec::with_capacity(self.reservation_capacity);
         for _ in 0..self.reservation_capacity {
-            let _ = self.active_reservations.clone().acquire_owned().await;
+            held.push(self.active_reservations.clone().acquire_owned().await);
         }
+        // Permits held until drain() returns — blocks new reservations
     }
 
     /// Close the gate permanently. Must be called after `drain()`.
