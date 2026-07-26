@@ -75,17 +75,7 @@ fn test_unknown_operation() {
     }
 }
 
-#[test]
-fn test_zero_mutation_compile_time() {
-    // Compile-time assertion: no mutating imports
-    // This test exists to document the structural guarantee.
-    // If EventStore, UnitOfWork, or TaskRunService are ever imported,
-    // this file won't compile (intentional).
-    assert!(
-        true,
-        "zero-mutation structural guarantee holds at compile time"
-    );
-}
+
 
 #[test]
 fn test_generate_and_verify_artifact() {
