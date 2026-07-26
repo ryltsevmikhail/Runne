@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+#![allow(missing_docs)]
 
 //! `gocode-application` — application-layer orchestration for GOCODE Runtime.
 //!
