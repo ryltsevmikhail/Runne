@@ -483,16 +483,18 @@ fn test_idempotency_conflict_different_fingerprint() {
     )
     .unwrap();
 
-    // Queue with same idempotency key but different command_id and different
-    // expected_version. The scope+key matches (same taskrun_id + same key) but
-    // the fingerprint differs (different expected_version).
-    // This should produce IdempotencyConflict.
-    //
-    // We use the same key "test-key-2" but a different command_id (context(3))
-    // and different expected_version (3 instead of 1).
+    // Same idempotency_key ("test-key-2"), different CommandId and expected_version
+    // → different fingerprint. Scope+key matches → IdempotencyConflict.
+    let conflict_ctx = ApplicationCommandContext {
+        command_id: CommandId::from_bytes([0x02, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00,
+            0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99]),
+        idempotency_key: IdempotencyKey::new("test-key-2").unwrap(),
+        principal_id: PrincipalId("test-principal".into()),
+        actor: Actor::new("test-actor-99").unwrap(),
+    };
     let err = svc
         .queue_task_run(
-            &make_context(3),
+            &conflict_ctx,
             QueueTaskRunInput {
                 taskrun_id: tr_id,
                 expected_version: 3,
@@ -586,86 +588,60 @@ fn test_clock_regression() {
 
 #[test]
 fn test_two_competing_writers() {
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+
     let db_path = temp_db_path("competing");
     cleanup_db(&db_path);
 
-    // Open two independent stores
-    let store1 = StoreTransaction::open(&db_path, RuntimeAuthorityId("host-1".into())).unwrap();
-    let ra1 = store1.runtime_authority_id().clone();
-    let svc1 = TaskRunService::new(store1.clone(), store1.clone(), store1.clone(), ra1);
-
-    let store2 = StoreTransaction::open(&db_path, RuntimeAuthorityId("host-2".into())).unwrap();
-    let ra2 = store2.runtime_authority_id().clone();
-    let svc2 = TaskRunService::new(store2.clone(), store2.clone(), store2.clone(), ra2);
-
-    // store1 creates
-    let outcome = svc1
-        .create_task_run(
-            &make_context(1),
-            CreateTaskRunInput {
-                conversation_id: make_conv_id(),
-                workspace_id: make_ws_id(),
-            },
-        )
-        .unwrap();
-    let tr_id = match outcome {
-        CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
-        other => panic!("expected TaskRunCreated, got {:?}", other),
+    let tr_id: TaskRunId = {
+        let (_store, svc) = open_service(&db_path);
+        let outcome = svc.create_task_run(&make_context(1), CreateTaskRunInput {
+            conversation_id: make_conv_id(), workspace_id: make_ws_id(),
+        }).unwrap();
+        let tr_id = match outcome {
+            CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
+            other => panic!("{other:?}"),
+        };
+        svc.queue_task_run(&make_context(2), QueueTaskRunInput {
+            taskrun_id: tr_id, expected_version: 1,
+        }).unwrap();
+        tr_id
     };
 
-    // store1 queues at version 1 → success (version becomes 2)
-    svc1.queue_task_run(
-        &make_context(2),
-        QueueTaskRunInput {
-            taskrun_id: tr_id,
-            expected_version: 1,
-        },
-    )
-    .unwrap();
+    let barrier = Arc::new(Barrier::new(2));
+    let db = Arc::new(db_path.clone());
+    let tr = Arc::new(tr_id);
+    let results = Arc::new(std::sync::Mutex::new(Vec::new()));
 
-    // store2 can read the updated stream
-    let stream = store2.load_task_run(tr_id).unwrap();
-    assert_eq!(
-        stream.current_version, 2,
-        "store2 should see store1's committed version"
-    );
+    let mut handles = vec![];
+    for i in 0..2 {
+        let db = Arc::clone(&db);
+        let tr = Arc::clone(&tr);
+        let barrier = Arc::clone(&barrier);
+        let results = Arc::clone(&results);
+        let ctx = make_context(10 + i);
+        handles.push(thread::spawn(move || {
+            let store = StoreTransaction::open(&db, RuntimeAuthorityId("test-host".into())).unwrap();
+            let ra = store.runtime_authority_id().clone();
+            let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra);
+            barrier.wait();
+            let r = svc.admit_task_run(&ctx, AdmitTaskRunInput {
+                taskrun_id: *tr,
+                expected_version: 2,
+            });
+            results.lock().unwrap().push(r);
+        }));
+    }
+    for h in handles { h.join().unwrap(); }
 
-    // store2 tries to queue at version 1 (stale) → VersionConflict
-    let err = svc2
-        .queue_task_run(
-            &make_context(3),
-            QueueTaskRunInput {
-                taskrun_id: tr_id,
-                expected_version: 1,
-            },
-        )
-        .unwrap_err();
-    assert!(
-        matches!(
-            err,
-            ApplicationError::VersionConflict {
-                expected: 1,
-                actual: 2
-            }
-        ),
-        "expected VersionConflict from competing writer, got {:?}",
-        err,
-    );
+    let res = results.lock().unwrap();
+    let committed = res.iter().filter(|r| r.is_ok()).count();
+    assert_eq!(committed, 1, "exactly one writer must commit, got {res:?}");
 
-    // store2 can succeed with correct version
-    svc2.queue_task_run(
-        &make_context(4),
-        QueueTaskRunInput {
-            taskrun_id: tr_id,
-            expected_version: 2,
-        },
-    )
-    .unwrap();
-
-    // Verify final state: version 3 (store1 queued + store2 queued)
-    let stream_final = store1.load_task_run(tr_id).unwrap();
-    assert_eq!(stream_final.current_version, 3);
-
+    let (_store, _svc) = open_service(&db_path);
+    let stream = _store.load_task_run(*tr).unwrap();
+    assert_eq!(stream.current_version, 3, "stream must have exactly 3 events");
     cleanup_db(&db_path);
 }
 
@@ -715,14 +691,7 @@ fn test_wal_reopen_data_intact() {
         tr_id
     }; // store dropped
 
-    // Verify WAL file exists
-    let wal_path = format!("{}-wal", db_path);
-    assert!(
-        std::path::Path::new(&wal_path).exists(),
-        "WAL file should exist after WAL-mode writes"
-    );
-
-    // Phase 2: reopen and continue from version 3
+    // Phase 2: reopen and verify data intact (WAL mode verified via PRAGMA in Test 1) and continue from version 3
     let (store, svc) = open_service(&db_path);
 
     // Load stream — should have 3 events
