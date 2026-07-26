@@ -48,3 +48,11 @@ pub enum RejectionRationale {
     MissingMcpGateway,
     MissingLspGateway,
 }
+
+/// Confidence level of the reverse-spec observation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Confidence {
+    Observed,
+    Inferred,
+    Reported,
+}
