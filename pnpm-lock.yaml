@@ -53,6 +53,9 @@ importers:
       '@gocode/platform-contract':
         specifier: workspace:*
         version: link:../../packages/platform-contract
+      '@gocode/product':
+        specifier: workspace:*
+        version: link:../../packages/product
       '@tauri-apps/api':
         specifier: 2.9.1
         version: 2.9.1

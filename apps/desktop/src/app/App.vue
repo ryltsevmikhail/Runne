@@ -9,6 +9,8 @@ import {
   Settings,
   Sun,
 } from 'lucide-vue-next'
+import '@gocode/product/shared/ui/styles/tokens.css'
+import '@gocode/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
 import { onMounted, ref } from 'vue'
 

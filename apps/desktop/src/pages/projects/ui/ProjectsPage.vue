@@ -1,6 +1,7 @@
 <script setup lang="ts">
+import { GcButton, GcProjectCard } from '@gocode/product/shared/ui'
 import { Clock3, FolderOpen, Plus } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
@@ -31,6 +32,24 @@ onMounted(async () => {
   }
 })
 
+const projectCards = computed(() =>
+  projects.value.map((project) => ({
+    name: project.name,
+    path: project.path,
+    slug: String(project.id),
+    status: 'ready' as const,
+    modifiedAt: new Date(project.lastOpenedAt).toLocaleDateString(),
+  })),
+)
+
+function handleProjectClick(slug: string) {
+  const project = projects.value.find((p) => String(p.id) === slug)
+  if (project === undefined) {
+    return
+  }
+  void openProjectDetails(project)
+}
+
 async function openProjectPicker() {
   await router.push({ name: 'open-project' })
 }
@@ -55,16 +74,14 @@ async function openProjectDetails(project: Project) {
         </h1>
         <p>Choose a workspace and continue where you left off.</p>
       </div>
-      <RouterLink
-        class="primary-button"
-        to="/projects/open"
-        aria-label="Open local project"
-      >
-        <Plus
-          :size="16"
-          aria-hidden="true"
-        />
-        Open project
+      <RouterLink to="/projects/open">
+        <GcButton aria-label="Open local project">
+          <Plus
+            :size="16"
+            aria-hidden="true"
+          />
+          Open project
+        </GcButton>
       </RouterLink>
     </header>
 
@@ -93,26 +110,13 @@ async function openProjectDetails(project: Project) {
           </span>
           <span class="project-arrow">→</span>
         </button>
-        <button
-          v-for="project in projects"
-          :key="project.id"
-          class="project-card"
-          type="button"
+        <GcProjectCard
+          v-for="project in projectCards"
+          :key="project.slug"
+          :project="project"
           :aria-label="`Open project ${project.name}`"
-          @click="openProjectDetails(project)"
-        >
-          <span class="project-icon">
-            <FolderOpen
-              :size="21"
-              aria-hidden="true"
-            />
-          </span>
-          <span class="project-copy">
-            <strong>{{ project.name }}</strong>
-            <small>{{ project.path }}</small>
-          </span>
-          <span class="project-arrow">→</span>
-        </button>
+          @click="handleProjectClick(project.slug)"
+        />
       </div>
     </div>
 

@@ -7,6 +7,10 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
+  "exports": {
+    "./shared/ui": "./shared/ui/index.ts",
+    "./shared/ui/styles/*": "./shared/ui/styles/*"
+  },
   "dependencies": {
     "vue": "3.5.28"
   },

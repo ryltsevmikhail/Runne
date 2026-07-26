@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@gocode/platform-contract": "workspace:*",
+    "@gocode/product": "workspace:*",
     "@tauri-apps/api": "2.9.1",
     "@tauri-apps/plugin-dialog": "2.7.2",
     "lucide-vue-next": "0.536.0",

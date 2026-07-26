@@ -53,7 +53,7 @@ describe('desktop application shell', () => {
 
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
-    expect(titleBar.text()).toBe('')
+    expect(titleBar.text()).toContain('GOCODE')
   })
 
   it('toggles the desktop color theme from the sidebar', async () => {

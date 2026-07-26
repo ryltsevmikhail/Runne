@@ -30,7 +30,7 @@ function selectItem(id: string) {
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'ArrowDown') { activeIndex.value = Math.min(activeIndex.value + 1, filtered.value.length - 1); e.preventDefault() }
   if (e.key === 'ArrowUp') { activeIndex.value = Math.max(activeIndex.value - 1, 0); e.preventDefault() }
-  if (e.key === 'Enter' && filtered.value[activeIndex.value]) { selectItem(filtered.value[activeIndex.value].id) }
+  if (e.key === 'Enter') { const item = filtered.value[activeIndex.value]; if (item) { selectItem(item.id) } }
   if (e.key === 'Escape') { emit('close') }
 }
 </script>
