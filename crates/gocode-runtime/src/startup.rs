@@ -7,7 +7,7 @@ use gocode_application::ports::{EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
 use tokio::sync::{mpsc, oneshot, Semaphore};
 
-use crate::config::{RuntimeConfig, RuntimeStartError};
+pub use crate::config::{RuntimeConfig, RuntimeStartError};
 use crate::controller::{ControlCommand, RuntimeController, ShutdownOutcome};
 use crate::gate::AdmissionGate;
 use crate::handle::RuntimeHandle;
