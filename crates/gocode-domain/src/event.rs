@@ -1,6 +1,6 @@
 //! Three-stage domain event model: draft → uncommitted → envelope.
 //!
-//! ```
+//! ```text
 //! Domain decide  → DomainEventDraft<E>
 //! Application     → UncommittedEvent<E>  (+ EventId, CommandContext, causation_id)
 //! Persistence     → EventEnvelope<E>     (+ sequence, timestamp, integrity_digest)
@@ -499,7 +499,6 @@ impl std::error::Error for BatchMaterializeError {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::id::TaskRunId;
 
     const VALID_UUID: &str = "018f2e3a-7000-7000-8000-000000000000";
     const ID2: &str = "018f2e3a-7000-7000-8000-000000000001";
