@@ -1,0 +1,10 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/gocode-domain",
+  "crates/gocode-plugin-protocol",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.95"
