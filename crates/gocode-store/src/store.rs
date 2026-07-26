@@ -226,7 +226,10 @@ impl AppEventStore for StoreTransaction {
             .map_err(|_| EventStoreError::CorruptData)?;
             let actor = Actor::new(String::from_utf8_lossy(&actor_bytes).as_ref())
                 .map_err(|_| EventStoreError::CorruptData)?;
-            let causation_id = causation_bytes.map(|b| EventId::from_bytes(b.try_into().unwrap()));
+            let causation_id = causation_bytes.map(|b| {
+                let arr: [u8; 16] = b.try_into().unwrap_or([0u8; 16]);
+                EventId::from_bytes(arr)
+            });
             let integrity_digest = IntegrityDigest::from_bytes(
                 digest_bytes
                     .try_into()
@@ -256,7 +259,10 @@ impl AppEventStore for StoreTransaction {
             events.push(envelope);
         }
 
-        let last_event_id = last_event_id_bytes.map(|b| EventId::from_bytes(b.try_into().unwrap()));
+        let last_event_id = last_event_id_bytes.map(|b| {
+            let arr: [u8; 16] = b.try_into().unwrap_or([0u8; 16]);
+            EventId::from_bytes(arr)
+        });
 
         Ok(LoadedStream {
             events,
