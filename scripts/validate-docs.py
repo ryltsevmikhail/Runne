@@ -43,6 +43,22 @@ for f in sorted(os.listdir(schemas_dir)):
         warn(f"Missing $id in {f}")
     if not data.get("title"):
         warn(f"Missing title in {f}")
+    if data.get("type") != "object":
+        err(f"Top-level schema must be object: {f}")
+    properties = data.get("properties")
+    required = data.get("required")
+    if not isinstance(properties, dict) or not properties:
+        err(f"Missing/non-object properties in {f}")
+    if not isinstance(required, list) or not required:
+        err(f"Missing/non-array required in {f}")
+    elif isinstance(properties, dict):
+        unknown_required = sorted(set(required) - set(properties))
+        if unknown_required:
+            err(f"Required fields absent from properties in {f}: {unknown_required}")
+    if data.get("additionalProperties") is not False:
+        err(f"Top-level schema must be closed (additionalProperties=false): {f}")
+    if "preliminary" in json.dumps(data).lower():
+        err(f"Preliminary schema cannot be implementation input: {f}")
 
 # ── 2. Front matter on all docs/*.md ─────────────────────────────────
 
@@ -54,6 +70,60 @@ for root, _, files in os.walk(os.path.join(BASE, "docs")):
         head = open(fp).read(200)
         if not head.startswith("---"):
             err(f"Missing front matter: {os.path.relpath(fp, BASE)}")
+
+# ── 2a. Structural documentation integrity ──────────────────────────
+
+numbered_h2_re = re.compile(r"^##\s+(\d+)\.")
+unresolved_marker_re = re.compile(r"\{SHA\}|\bTBD\b", re.IGNORECASE)
+for root, _, files in os.walk(os.path.join(BASE, "docs")):
+    if os.path.basename(root) == "templates":
+        continue
+    for f in files:
+        if not f.endswith(".md"):
+            continue
+        fp = os.path.join(root, f)
+        rel = os.path.relpath(fp, BASE)
+        seen_sections = {}
+        for i, line in enumerate(open(fp, errors="replace"), 1):
+            section = numbered_h2_re.match(line)
+            if section:
+                number = section.group(1)
+                if number in seen_sections:
+                    err(
+                        f"Duplicate numbered H2 in {rel}:{i}: "
+                        f"section {number} first appears at line {seen_sections[number]}"
+                    )
+                else:
+                    seen_sections[number] = i
+            if unresolved_marker_re.search(line):
+                err(f"Unresolved marker in {rel}:{i}: {line.strip()[:100]}")
+
+# Canonical requirement IDs are defined only in subsystem REQUIREMENTS files.
+requirement_re = re.compile(r"\bREQ-[A-Z]+-\d+\b")
+requirement_row_re = re.compile(r"^\|\s*(REQ-[A-Z]+-\d+)\s*\|")
+defined_requirements = set()
+subsystems_dir = os.path.join(BASE, "docs", "03-subsystems")
+for subsystem in os.listdir(subsystems_dir):
+    fp = os.path.join(subsystems_dir, subsystem, "REQUIREMENTS.md")
+    if not os.path.isfile(fp):
+        continue
+    for line in open(fp, errors="replace"):
+        match = requirement_row_re.match(line)
+        if match:
+            defined_requirements.add(match.group(1))
+
+for root, _, files in os.walk(os.path.join(BASE, "docs")):
+    if os.path.basename(root) == "templates":
+        continue
+    for f in files:
+        if not f.endswith((".md", ".json")):
+            continue
+        fp = os.path.join(root, f)
+        rel = os.path.relpath(fp, BASE)
+        for i, line in enumerate(open(fp, errors="replace"), 1):
+            for requirement in requirement_re.findall(line):
+                if requirement not in defined_requirements:
+                    err(f"Unknown requirement ID in {rel}:{i}: {requirement}")
 
 # ── 3. Empty files ───────────────────────────────────────────────────
 

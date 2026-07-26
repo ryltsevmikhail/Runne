@@ -2,21 +2,75 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gocode.dev/schemas/checkpoint.schema.json",
   "title": "Checkpoint",
-  "description": "A Checkpoint captures TaskRun state for later resume.",
+  "description": "Immutable resumable TaskRun snapshot aligned with the Checkpoints domain model.",
   "type": "object",
   "properties": {
-    "id": {
-      "type": "string"
+    "checkpoint_id": {
+      "type": "string",
+      "format": "uuid"
     },
     "taskrun_id": {
-      "type": "string"
+      "type": "string",
+      "format": "uuid"
     },
-    "attempt_id": {
-      "type": "string"
-    },
-    "state": {
+    "event_position": {
       "type": "object",
-      "description": "Serialized state snapshot"
+      "properties": {
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "aggregate_id",
+        "sequence"
+      ],
+      "additionalProperties": false
+    },
+    "attempt_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "execution_state": {
+      "type": "object"
+    },
+    "pending_tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "budget_usage": {
+      "type": "object"
+    },
+    "capability_grants": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "workspace_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "integrity_digest": {
+      "type": "string",
+      "minLength": 1
     },
     "created_at": {
       "type": "string",
@@ -24,12 +78,19 @@
     }
   },
   "required": [
-    "id",
+    "checkpoint_id",
     "taskrun_id",
-    "attempt_id",
-    "state",
+    "event_position",
+    "attempt_ref",
+    "execution_state",
+    "pending_tools",
+    "budget_usage",
+    "capability_grants",
+    "workspace_ref",
+    "schema_version",
+    "integrity_digest",
     "created_at"
   ],
   "additionalProperties": false,
-  "$comment": "Preliminary schema \u2014 subject to change. Do not use for implementation."
+  "$comment": "Target schema. Checkpoint validation also requires committed event position, digest verification, schema support and secret-value rejection."
 }

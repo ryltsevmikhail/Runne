@@ -2,14 +2,25 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://gocode.dev/schemas/taskrun.schema.json",
   "title": "TaskRun",
-  "description": "A TaskRun represents an independent unit of execution in GOCODE Runtime.",
+  "description": "TaskRun aggregate snapshot aligned with the Orchestration domain model.",
   "type": "object",
   "properties": {
-    "id": {
+    "taskrun_id": {
       "type": "string",
-      "description": "Unique TaskRun identifier"
+      "format": "uuid"
     },
-    "status": {
+    "parent_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "conversation_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
       "type": "string",
       "enum": [
         "created",
@@ -29,26 +40,41 @@
         "unrecoverable"
       ]
     },
-    "session_id": {
-      "type": "string",
-      "description": "Owning session identifier"
+    "active_attempt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
     },
-    "created_at": {
-      "type": "string",
-      "format": "date-time"
+    "terminal_result": {
+      "type": [
+        "object",
+        "null"
+      ]
     },
-    "updated_at": {
-      "type": "string",
-      "format": "date-time"
+    "budget_context": {
+      "type": "object"
+    },
+    "capability_context": {
+      "type": "object"
+    },
+    "event_position": {
+      "type": "integer",
+      "minimum": 0
     }
   },
   "required": [
-    "id",
-    "status",
-    "session_id",
-    "created_at",
-    "updated_at"
+    "taskrun_id",
+    "parent_id",
+    "conversation_ref",
+    "state",
+    "active_attempt",
+    "terminal_result",
+    "budget_context",
+    "capability_context",
+    "event_position"
   ],
   "additionalProperties": false,
-  "$comment": "Target state vocabulary aligned with STATE_MACHINES.md; other TaskRun fields remain preliminary."
+  "$comment": "Target schema. State/terminal consistency and one-active-attempt rules remain semantic validation beyond JSON Schema."
 }
