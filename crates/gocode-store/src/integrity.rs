@@ -208,16 +208,12 @@ mod tests {
             idempotency_key: IdempotencyKey::new("test-key").unwrap(),
             actor: Actor::new("test-actor").unwrap(),
         };
-        let uncommitted = gocode_domain::event::materialize_batch(
-            vec![draft],
-            &[event_id],
-            None,
-            &ctx,
-        )
-        .unwrap()
-        .into_iter()
-        .next()
-        .unwrap();
+        let uncommitted =
+            gocode_domain::event::materialize_batch(vec![draft], &[event_id], None, &ctx)
+                .unwrap()
+                .into_iter()
+                .next()
+                .unwrap();
         uncommitted.into_envelope(
             seq,
             Timestamp::from_unix_micros(1_000_000),
@@ -231,10 +227,8 @@ mod tests {
         let codec = TaskRunEventCodec;
         let payload_bytes = codec.encode(&TaskRunEvent::TaskRunCreated).unwrap();
 
-        let d1 =
-            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
-        let d2 =
-            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
+        let d1 = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
+        let d2 = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
         assert_eq!(d1, d2);
     }
 
@@ -244,10 +238,8 @@ mod tests {
         let codec = TaskRunEventCodec;
         let payload_bytes = codec.encode(&TaskRunEvent::TaskRunCreated).unwrap();
 
-        let d1 =
-            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
-        let d2 =
-            compute_integrity_digest_with_global_position(&envelope, 2, &payload_bytes);
+        let d1 = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
+        let d2 = compute_integrity_digest_with_global_position(&envelope, 2, &payload_bytes);
         assert_ne!(d1, d2);
     }
 
@@ -256,8 +248,7 @@ mod tests {
         let envelope = make_envelope(1, TaskRunEvent::TaskRunCreated);
         let codec = TaskRunEventCodec;
         let payload_bytes = codec.encode(&TaskRunEvent::TaskRunCreated).unwrap();
-        let digest =
-            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
+        let digest = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
 
         // Verify digest is 32 bytes
         assert_eq!(digest.as_bytes().len(), 32);

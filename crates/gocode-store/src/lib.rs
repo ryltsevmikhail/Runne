@@ -13,3 +13,4 @@
 pub mod codec;
 pub mod integrity;
 pub mod schema;
+pub mod store;

@@ -33,10 +33,7 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
 
     if current_version < 1 {
         conn.execute_batch(MIGRATION_V1)?;
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (1)",
-            [],
-        )?;
+        conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
     }
 
     Ok(())
