@@ -143,11 +143,7 @@ impl fmt::Display for DomainError {
                 )
             }
             Self::SequenceGap { expected, actual } => {
-                write!(
-                    f,
-                    "sequence gap: expected {}, got {}",
-                    expected, actual
-                )
+                write!(f, "sequence gap: expected {}, got {}", expected, actual)
             }
             Self::InvalidInitialSequence { expected, actual } => {
                 write!(
@@ -166,7 +162,9 @@ impl std::error::Error for DomainError {}
 mod tests {
     use super::*;
 
+    #[allow(dead_code)]
     const VALID_UUID: &str = "018f2e3a-7000-7000-8000-000000000000";
+    #[allow(dead_code)]
     const ID2: &str = "018f2e3a-7000-7000-8000-000000000001";
 
     #[test]

@@ -25,11 +25,21 @@ pub enum InvalidIdReason {
     /// The input does not match the UUID format (8-4-4-4-12 hex).
     InvalidUuidFormat,
     /// The UUID version field does not match the expected version.
-    InvalidUuidVersion { expected: u8, actual: u8 },
+    InvalidUuidVersion {
+        /// The expected UUID version.
+        expected: u8,
+        /// The actual UUID version found.
+        actual: u8,
+    },
     /// The UUID variant field is not RFC 9562 variant `10xx`.
     InvalidUuidVariant,
     /// A bounded string exceeded its maximum byte length.
-    TooLong { max: usize, actual: usize },
+    TooLong {
+        /// The maximum allowed byte length.
+        max: usize,
+        /// The actual byte length.
+        actual: usize,
+    },
 }
 
 impl fmt::Display for InvalidIdReason {
