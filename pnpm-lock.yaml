@@ -87,7 +87,27 @@ importers:
 
   packages/platform-contract: {}
 
-  packages/product: {}
+  packages/product:
+    dependencies:
+      vue:
+        specifier: 3.5.28
+        version: 3.5.28(typescript@5.9.3)
+    devDependencies:
+      '@vitejs/plugin-vue':
+        specifier: 6.0.5
+        version: 6.0.5(vite@7.3.6(@types/node@24.13.3))(vue@3.5.28(typescript@5.9.3))
+      '@vue/test-utils':
+        specifier: 2.4.6
+        version: 2.4.6
+      jsdom:
+        specifier: 26.1.0
+        version: 26.1.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: 3.2.7
+        version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)
 
   packages/runtime-contract: {}
 

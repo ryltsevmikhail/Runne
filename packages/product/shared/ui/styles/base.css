@@ -1,0 +1,16 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--gocode-font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--gocode-canvas);
+  color: var(--gocode-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
