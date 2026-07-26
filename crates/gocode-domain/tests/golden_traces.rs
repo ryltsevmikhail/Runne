@@ -16,7 +16,9 @@ const ATT_ID2: &str = "018f2e3a-7000-7000-8000-000000000004";
 
 /// Helper: create a TaskRun aggregate in Created state via replay.
 fn created_aggregate() -> TaskRun {
-    use gocode_domain::event::{Actor, CommandContext, DomainEventDraft, Sensitivity, materialize_batch};
+    use gocode_domain::event::{
+        Actor, CommandContext, DomainEventDraft, Sensitivity, materialize_batch,
+    };
     use gocode_domain::id::IntegrityDigest;
     use gocode_domain::timestamp::Timestamp;
 
@@ -65,8 +67,7 @@ fn golden_create_task_run() {
     assert_eq!(draft.schema_version(), 1);
 
     // Expected aggregate ID
-    let expected_agg_id: AggregateId =
-        AggregateId::TaskRun(TR_ID.parse().unwrap());
+    let expected_agg_id: AggregateId = AggregateId::TaskRun(TR_ID.parse().unwrap());
     assert_eq!(*draft.aggregate_id(), expected_agg_id);
 }
 
@@ -175,22 +176,18 @@ fn golden_cancellation_request_then_complete() {
 
     // Step 1: request cancellation
     let drafts = agg.decide(TaskRunCommand::RequestCancellation).unwrap();
-    assert_eq!(
-        *drafts[0].payload(),
-        TaskRunEvent::CancellationRequested
-    );
+    assert_eq!(*drafts[0].payload(), TaskRunEvent::CancellationRequested);
 
-    agg.apply_payload(&TaskRunEvent::CancellationRequested).unwrap();
+    agg.apply_payload(&TaskRunEvent::CancellationRequested)
+        .unwrap();
     assert_eq!(agg.state(), TaskRunState::Cancelling);
 
     // Step 2: complete cancellation
     let drafts = agg.decide(TaskRunCommand::CompleteCancellation).unwrap();
-    assert_eq!(
-        *drafts[0].payload(),
-        TaskRunEvent::CancellationCompleted
-    );
+    assert_eq!(*drafts[0].payload(), TaskRunEvent::CancellationCompleted);
 
-    agg.apply_payload(&TaskRunEvent::CancellationCompleted).unwrap();
+    agg.apply_payload(&TaskRunEvent::CancellationCompleted)
+        .unwrap();
     assert_eq!(agg.state(), TaskRunState::Cancelled);
     assert!(agg.active_attempt().is_none());
 }
@@ -218,7 +215,9 @@ fn golden_invalid_transition_created_to_attempt_started() {
 #[test]
 fn golden_replay_roundtrip_complete_lifecycle() {
     use gocode_domain::event::EventEnvelope;
-    use gocode_domain::event::{Sensitivity, DomainEventDraft, Actor, CommandContext, materialize_batch};
+    use gocode_domain::event::{
+        Actor, CommandContext, DomainEventDraft, Sensitivity, materialize_batch,
+    };
     use gocode_domain::id::IntegrityDigest;
     use gocode_domain::timestamp::Timestamp;
 
@@ -261,11 +260,7 @@ fn golden_replay_roundtrip_complete_lifecycle() {
         make_envelope(1, TaskRunEvent::TaskRunCreated, tr_id),
         make_envelope(2, TaskRunEvent::TaskRunQueued, tr_id),
         make_envelope(3, TaskRunEvent::TaskRunAdmitted, tr_id),
-        make_envelope(
-            4,
-            TaskRunEvent::AttemptStarted { attempt_id: aid },
-            tr_id,
-        ),
+        make_envelope(4, TaskRunEvent::AttemptStarted { attempt_id: aid }, tr_id),
         make_envelope(
             5,
             TaskRunEvent::TaskRunCompleted {

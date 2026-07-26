@@ -282,7 +282,10 @@ impl TaskRun {
         match command {
             TaskRunCommand::Admit => {
                 self.require_state(TaskRunState::Queued, TaskRunEventKind::TaskRunAdmitted)?;
-                Ok(vec![draft(TaskRunEvent::TaskRunAdmitted, Sensitivity::Public)])
+                Ok(vec![draft(
+                    TaskRunEvent::TaskRunAdmitted,
+                    Sensitivity::Public,
+                )])
             }
             TaskRunCommand::StartAttempt { attempt_id } => {
                 self.require_state(TaskRunState::Admitted, TaskRunEventKind::AttemptStarted)?;
@@ -316,10 +319,7 @@ impl TaskRun {
                 )])
             }
             TaskRunCommand::StartCheckpoint => {
-                self.require_state(
-                    TaskRunState::Running,
-                    TaskRunEventKind::CheckpointStarted,
-                )?;
+                self.require_state(TaskRunState::Running, TaskRunEventKind::CheckpointStarted)?;
                 Ok(vec![draft(
                     TaskRunEvent::CheckpointStarted,
                     Sensitivity::Public,
@@ -367,10 +367,7 @@ impl TaskRun {
                 )])
             }
             TaskRunCommand::Complete { result } => {
-                self.require_state(
-                    TaskRunState::Running,
-                    TaskRunEventKind::TaskRunCompleted,
-                )?;
+                self.require_state(TaskRunState::Running, TaskRunEventKind::TaskRunCompleted)?;
                 Ok(vec![draft(
                     TaskRunEvent::TaskRunCompleted { result },
                     Sensitivity::Public,
@@ -394,20 +391,11 @@ impl TaskRun {
                 )])
             }
             TaskRunCommand::CompleteReconciliation => {
-                self.require_state(
-                    TaskRunState::Reconciling,
-                    TaskRunEventKind::Reconciled,
-                )?;
-                Ok(vec![draft(
-                    TaskRunEvent::Reconciled,
-                    Sensitivity::Public,
-                )])
+                self.require_state(TaskRunState::Reconciling, TaskRunEventKind::Reconciled)?;
+                Ok(vec![draft(TaskRunEvent::Reconciled, Sensitivity::Public)])
             }
             TaskRunCommand::MarkUnrecoverable => {
-                self.require_state(
-                    TaskRunState::Reconciling,
-                    TaskRunEventKind::Unrecoverable,
-                )?;
+                self.require_state(TaskRunState::Reconciling, TaskRunEventKind::Unrecoverable)?;
                 Ok(vec![draft(
                     TaskRunEvent::Unrecoverable,
                     Sensitivity::Public,
@@ -442,9 +430,7 @@ impl TaskRun {
     /// - All events must share the same task run ID.
     /// - The first event must be `TaskRunCreated`.
     /// - `TaskRunCreated` must not appear more than once.
-    pub fn replay(
-        events: &[EventEnvelope<TaskRunEvent>],
-    ) -> Result<Self, DomainError> {
+    pub fn replay(events: &[EventEnvelope<TaskRunEvent>]) -> Result<Self, DomainError> {
         if events.is_empty() {
             return Err(DomainError::MissingCreationEvent {
                 aggregate_type: AggregateType::TaskRun,
@@ -691,10 +677,14 @@ mod tests {
         }
     }
 
-    fn make_envelope(sequence: u64, payload: TaskRunEvent, taskrun_id: TaskRunId) -> EventEnvelope<TaskRunEvent> {
-        use crate::timestamp::Timestamp;
-        use crate::id::{IntegrityDigest, IdempotencyKey};
+    fn make_envelope(
+        sequence: u64,
+        payload: TaskRunEvent,
+        taskrun_id: TaskRunId,
+    ) -> EventEnvelope<TaskRunEvent> {
         use crate::event::{Actor, CommandContext, DomainEventDraft};
+        use crate::id::{IdempotencyKey, IntegrityDigest};
+        use crate::timestamp::Timestamp;
         let draft = DomainEventDraft::new(
             AggregateId::TaskRun(taskrun_id),
             taskrun_id,
@@ -761,7 +751,10 @@ mod tests {
         assert_eq!(agg.state(), TaskRunState::Created);
 
         // created → queued
-        let drafts = agg.decide(TaskRunCommand::Admit).map_err(|e| format!("{:?}", e)).unwrap_err();
+        let _drafts = agg
+            .decide(TaskRunCommand::Admit)
+            .map_err(|e| format!("{:?}", e))
+            .unwrap_err();
         // Wait: Admit is not valid from Created — need TaskRunQueued event first
         // Actually per transition table: created + TaskRunQueued → queued
         // But there's no TaskRunQueued command — it's an internal event.
@@ -784,7 +777,8 @@ mod tests {
             drafts[0].payload(),
             TaskRunEvent::AttemptStarted { .. }
         ));
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id })
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Running);
         assert_eq!(agg.active_attempt(), Some(&attempt_id));
 
@@ -815,7 +809,8 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Running);
 
         // running → waiting
@@ -839,7 +834,8 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
 
         // running → retrying
         let aid2: AttemptId = ATTEMPT_ID2.parse().unwrap();
@@ -850,7 +846,8 @@ mod tests {
             drafts[0].payload(),
             TaskRunEvent::RetryStarted { .. }
         ));
-        agg.apply_payload(&TaskRunEvent::RetryStarted { attempt_id: aid2 }).unwrap();
+        agg.apply_payload(&TaskRunEvent::RetryStarted { attempt_id: aid2 })
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Retrying);
         assert_eq!(agg.active_attempt(), Some(&aid2));
 
@@ -862,7 +859,8 @@ mod tests {
             drafts[0].payload(),
             &TaskRunEvent::RetryCompleted { attempt_id: aid2 }
         );
-        agg.apply_payload(&TaskRunEvent::RetryCompleted { attempt_id: aid2 }).unwrap();
+        agg.apply_payload(&TaskRunEvent::RetryCompleted { attempt_id: aid2 })
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Running);
     }
 
@@ -874,7 +872,8 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
 
         // running → checkpointing
         let drafts = agg.decide(TaskRunCommand::StartCheckpoint).unwrap();
@@ -885,7 +884,8 @@ mod tests {
         // checkpointing → running
         let drafts = agg.decide(TaskRunCommand::CommitCheckpoint).unwrap();
         assert_eq!(drafts[0].payload(), &TaskRunEvent::CheckpointCommitted);
-        agg.apply_payload(&TaskRunEvent::CheckpointCommitted).unwrap();
+        agg.apply_payload(&TaskRunEvent::CheckpointCommitted)
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Running);
     }
 
@@ -897,18 +897,21 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
 
         // running → cancelling
         let drafts = agg.decide(TaskRunCommand::RequestCancellation).unwrap();
         assert_eq!(drafts[0].payload(), &TaskRunEvent::CancellationRequested);
-        agg.apply_payload(&TaskRunEvent::CancellationRequested).unwrap();
+        agg.apply_payload(&TaskRunEvent::CancellationRequested)
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Cancelling);
 
         // cancelling → cancelled
         let drafts = agg.decide(TaskRunCommand::CompleteCancellation).unwrap();
         assert_eq!(drafts[0].payload(), &TaskRunEvent::CancellationCompleted);
-        agg.apply_payload(&TaskRunEvent::CancellationCompleted).unwrap();
+        agg.apply_payload(&TaskRunEvent::CancellationCompleted)
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Cancelled);
         assert!(agg.state().is_terminal());
         assert!(agg.active_attempt().is_none());
@@ -922,7 +925,8 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
 
         let drafts = agg
             .decide(TaskRunCommand::Fail {
@@ -950,14 +954,13 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
 
         let drafts = agg.decide(TaskRunCommand::StartReconciliation).unwrap();
-        assert_eq!(
-            drafts[0].payload(),
-            &TaskRunEvent::ReconciliationStarted
-        );
-        agg.apply_payload(&TaskRunEvent::ReconciliationStarted).unwrap();
+        assert_eq!(drafts[0].payload(), &TaskRunEvent::ReconciliationStarted);
+        agg.apply_payload(&TaskRunEvent::ReconciliationStarted)
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Reconciling);
 
         let drafts = agg.decide(TaskRunCommand::CompleteReconciliation).unwrap();
@@ -972,8 +975,10 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
-        agg.apply_payload(&TaskRunEvent::ReconciliationStarted).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
+        agg.apply_payload(&TaskRunEvent::ReconciliationStarted)
+            .unwrap();
         assert_eq!(agg.state(), TaskRunState::Reconciling);
 
         let drafts = agg.decide(TaskRunCommand::MarkUnrecoverable).unwrap();
@@ -1013,11 +1018,7 @@ mod tests {
             make_envelope(1, TaskRunEvent::TaskRunCreated, tr_id),
             make_envelope(2, TaskRunEvent::TaskRunQueued, tr_id),
             make_envelope(3, TaskRunEvent::TaskRunAdmitted, tr_id),
-            make_envelope(
-                4,
-                TaskRunEvent::AttemptStarted { attempt_id: aid },
-                tr_id,
-            ),
+            make_envelope(4, TaskRunEvent::AttemptStarted { attempt_id: aid }, tr_id),
             make_envelope(
                 5,
                 TaskRunEvent::TaskRunCompleted {
@@ -1040,7 +1041,8 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunCompleted {
             result: TerminalResult::Success,
         })
@@ -1066,7 +1068,8 @@ mod tests {
         agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
         agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid }).unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
 
         // Try to start retry with same attempt ID
         let err = agg
@@ -1085,11 +1088,7 @@ mod tests {
     #[test]
     fn test_replay_missing_creation_event() {
         let tr_id: TaskRunId = VALID_UUID.parse().unwrap();
-        let events = &[make_envelope(
-            1,
-            TaskRunEvent::TaskRunQueued,
-            tr_id,
-        )];
+        let events = &[make_envelope(1, TaskRunEvent::TaskRunQueued, tr_id)];
         let err = TaskRun::replay(events).unwrap_err();
         assert!(matches!(err, DomainError::MissingCreationEvent { .. }));
     }
@@ -1108,16 +1107,9 @@ mod tests {
     #[test]
     fn test_replay_invalid_initial_sequence() {
         let tr_id: TaskRunId = VALID_UUID.parse().unwrap();
-        let events = &[make_envelope(
-            5,
-            TaskRunEvent::TaskRunCreated,
-            tr_id,
-        )];
+        let events = &[make_envelope(5, TaskRunEvent::TaskRunCreated, tr_id)];
         let err = TaskRun::replay(events).unwrap_err();
-        assert!(matches!(
-            err,
-            DomainError::InvalidInitialSequence { .. }
-        ));
+        assert!(matches!(err, DomainError::InvalidInitialSequence { .. }));
     }
 
     #[test]
@@ -1128,10 +1120,7 @@ mod tests {
             make_envelope(2, TaskRunEvent::TaskRunCreated, tr_id),
         ];
         let err = TaskRun::replay(events).unwrap_err();
-        assert!(matches!(
-            err,
-            DomainError::DuplicateCreationEvent { .. }
-        ));
+        assert!(matches!(err, DomainError::DuplicateCreationEvent { .. }));
     }
 
     #[test]
@@ -1143,18 +1132,14 @@ mod tests {
             make_envelope(2, TaskRunEvent::TaskRunQueued, tr_id2),
         ];
         let err = TaskRun::replay(events).unwrap_err();
-        assert!(matches!(
-            err,
-            DomainError::AggregateIdMismatch { .. }
-        ));
+        assert!(matches!(err, DomainError::AggregateIdMismatch { .. }));
     }
 
     #[test]
     fn test_invalid_transition_attempt_started_from_created() {
         let mut agg = create_aggregate();
         let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        let err = agg
-            .apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid });
+        let err = agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid });
         assert!(err.is_err());
         assert!(matches!(
             err.unwrap_err(),

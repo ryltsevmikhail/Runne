@@ -10,7 +10,7 @@ use core::fmt;
 
 use crate::id::{
     AggregateId, CommandId, EventId, IdempotencyKey, IntegrityDigest, InvalidIdReason,
-    TaskRunId, MAX_ACTOR_BYTES, MAX_EVENT_TYPE_BYTES,
+    MAX_ACTOR_BYTES, MAX_EVENT_TYPE_BYTES, TaskRunId,
 };
 use crate::timestamp::Timestamp;
 
@@ -501,11 +501,16 @@ mod tests {
     use super::*;
 
     const VALID_UUID: &str = "018f2e3a-7000-7000-8000-000000000000";
+    #[allow(dead_code)]
     const ID2: &str = "018f2e3a-7000-7000-8000-000000000001";
+    #[allow(dead_code)]
     const ID3: &str = "018f2e3a-7000-7000-8000-000000000002";
 
     fn make_ids(count: u8) -> Vec<EventId> {
-        let base: [u8; 16] = [0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        let base: [u8; 16] = [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ];
         (0..count)
             .map(|i| {
                 let mut bytes = base;
@@ -583,7 +588,10 @@ mod tests {
         ids[1] = ids[0]; // duplicate
         let ctx = make_context();
         let err = materialize_batch(drafts, &ids, None, &ctx).unwrap_err();
-        assert!(matches!(err, BatchMaterializeError::DuplicateEventId { .. }));
+        assert!(matches!(
+            err,
+            BatchMaterializeError::DuplicateEventId { .. }
+        ));
     }
 
     #[test]

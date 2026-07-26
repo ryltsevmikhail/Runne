@@ -17,12 +17,13 @@ pub enum TerminalResult {
     /// The task completed successfully.
     Success,
     /// The task failed with a reason.
+    /// The reason the task failed.
     Failure { reason: String },
 }
 
 // ── CreateTaskRun ──────────────────────────────────────────────────────────
 
-/// Command to create a new [`TaskRun`] aggregate.
+/// Command to create a new [`TaskRun`](crate::task_run::TaskRun) aggregate.
 ///
 /// Carries the aggregate identity and parent conversation / workspace
 /// references.
@@ -38,14 +39,17 @@ pub struct CreateTaskRun {
 
 // ── TaskRunCommand ────────────────────────────────────────────────────────
 
-/// All commands that can be sent to an existing [`TaskRun`] aggregate.
+/// All commands that can be sent to an existing [`TaskRun`](crate::task_run::TaskRun) aggregate.
 #[derive(Debug, Clone)]
 pub enum TaskRunCommand {
     /// Admit the task run for execution.
     Admit,
 
-    /// Start a new attempt with the given attempt ID.
-    StartAttempt { attempt_id: AttemptId },
+    /// Start a new attempt.
+    StartAttempt {
+        /// The ID to assign to the new attempt.
+        attempt_id: AttemptId,
+    },
 
     /// Wait for approval or external input.
     WaitForApproval,
@@ -53,11 +57,17 @@ pub enum TaskRunCommand {
     /// Resume execution after waiting.
     Resume,
 
-    /// Start a retry with a new attempt ID.
-    StartRetry { attempt_id: AttemptId },
+    /// Start a retry.
+    StartRetry {
+        /// The ID to assign to the retry attempt.
+        attempt_id: AttemptId,
+    },
 
-    /// Complete a retry — transitions back to running with the new attempt.
-    CompleteRetry { attempt_id: AttemptId },
+    /// Complete a retry.
+    CompleteRetry {
+        /// The ID of the attempt that completed retry.
+        attempt_id: AttemptId,
+    },
 
     /// Begin a checkpoint operation.
     StartCheckpoint,
@@ -72,10 +82,16 @@ pub enum TaskRunCommand {
     CompleteCancellation,
 
     /// Complete execution with a result.
-    Complete { result: TerminalResult },
+    Complete {
+        /// The terminal result (success or failure).
+        result: TerminalResult,
+    },
 
-    /// Mark the task run as failed with a reason.
-    Fail { reason: String },
+    /// Mark the task run as failed.
+    Fail {
+        /// The reason the task failed.
+        reason: String,
+    },
 
     /// Start a reconciliation pass.
     StartReconciliation,
