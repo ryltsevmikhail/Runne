@@ -11,3 +11,6 @@ members = [
 [workspace.package]
 edition = "2024"
 rust-version = "1.95"
+
+[workspace.dependencies]
+sha2 = "=0.10.8"
