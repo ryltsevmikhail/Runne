@@ -269,25 +269,29 @@ fn dispatch_admitted<E, U, I>(
     let AdmittedRequest { request, lease } = admitted;
 
     match request {
-        RuntimeRequest::Create { context, input, reply, .. } => {
+        RuntimeRequest::Create { context, input, reply } => {
             registry.spawn_create_task(context, input, service, reply);
             drop(lease);
         }
         RuntimeRequest::Queue { context, input, reply, .. } => {
+            let tid = input.taskrun_id;
             let per_run = PerRunRequest::Queue { context, input, reply };
-            route_to_worker(input.taskrun_id, per_run, lease, registry);
+            route_to_worker(tid, per_run, lease, registry);
         }
         RuntimeRequest::Admit { context, input, reply, .. } => {
+            let tid = input.taskrun_id;
             let per_run = PerRunRequest::Admit { context, input, reply };
-            route_to_worker(input.taskrun_id, per_run, lease, registry);
+            route_to_worker(tid, per_run, lease, registry);
         }
         RuntimeRequest::StartAttempt { context, input, reply, .. } => {
+            let tid = input.taskrun_id;
             let per_run = PerRunRequest::StartAttempt { context, input, reply };
-            route_to_worker(input.taskrun_id, per_run, lease, registry);
+            route_to_worker(tid, per_run, lease, registry);
         }
         RuntimeRequest::Complete { context, input, reply, .. } => {
+            let tid = input.taskrun_id;
             let per_run = PerRunRequest::Complete { context, input, reply };
-            route_to_worker(input.taskrun_id, per_run, lease, registry);
+            route_to_worker(tid, per_run, lease, registry);
         }
     }
 }
