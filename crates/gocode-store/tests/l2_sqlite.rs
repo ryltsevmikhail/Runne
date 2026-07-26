@@ -486,8 +486,10 @@ fn test_idempotency_conflict_different_fingerprint() {
     // Same idempotency_key ("test-key-2"), different CommandId and expected_version
     // → different fingerprint. Scope+key matches → IdempotencyConflict.
     let conflict_ctx = ApplicationCommandContext {
-        command_id: CommandId::from_bytes([0x02, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00,
-            0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x99]),
+        command_id: CommandId::from_bytes([
+            0x02, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x99,
+        ]),
         idempotency_key: IdempotencyKey::new("test-key-2").unwrap(),
         principal_id: PrincipalId("test-principal".into()),
         actor: Actor::new("test-actor-99").unwrap(),
@@ -596,16 +598,27 @@ fn test_two_competing_writers() {
 
     let tr_id: TaskRunId = {
         let (_store, svc) = open_service(&db_path);
-        let outcome = svc.create_task_run(&make_context(1), CreateTaskRunInput {
-            conversation_id: make_conv_id(), workspace_id: make_ws_id(),
-        }).unwrap();
+        let outcome = svc
+            .create_task_run(
+                &make_context(1),
+                CreateTaskRunInput {
+                    conversation_id: make_conv_id(),
+                    workspace_id: make_ws_id(),
+                },
+            )
+            .unwrap();
         let tr_id = match outcome {
             CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
             other => panic!("{other:?}"),
         };
-        svc.queue_task_run(&make_context(2), QueueTaskRunInput {
-            taskrun_id: tr_id, expected_version: 1,
-        }).unwrap();
+        svc.queue_task_run(
+            &make_context(2),
+            QueueTaskRunInput {
+                taskrun_id: tr_id,
+                expected_version: 1,
+            },
+        )
+        .unwrap();
         tr_id
     };
 
@@ -622,18 +635,24 @@ fn test_two_competing_writers() {
         let results = Arc::clone(&results);
         let ctx = make_context(10 + i);
         handles.push(thread::spawn(move || {
-            let store = StoreTransaction::open(&db, RuntimeAuthorityId("test-host".into())).unwrap();
+            let store =
+                StoreTransaction::open(&db, RuntimeAuthorityId("test-host".into())).unwrap();
             let ra = store.runtime_authority_id().clone();
             let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra);
             barrier.wait();
-            let r = svc.admit_task_run(&ctx, AdmitTaskRunInput {
-                taskrun_id: *tr,
-                expected_version: 2,
-            });
+            let r = svc.admit_task_run(
+                &ctx,
+                AdmitTaskRunInput {
+                    taskrun_id: *tr,
+                    expected_version: 2,
+                },
+            );
             results.lock().unwrap().push(r);
         }));
     }
-    for h in handles { h.join().unwrap(); }
+    for h in handles {
+        h.join().unwrap();
+    }
 
     let res = results.lock().unwrap();
     let committed = res.iter().filter(|r| r.is_ok()).count();
@@ -641,7 +660,10 @@ fn test_two_competing_writers() {
 
     let (_store, _svc) = open_service(&db_path);
     let stream = _store.load_task_run(*tr).unwrap();
-    assert_eq!(stream.current_version, 3, "stream must have exactly 3 events");
+    assert_eq!(
+        stream.current_version, 3,
+        "stream must have exactly 3 events"
+    );
     cleanup_db(&db_path);
 }
 
