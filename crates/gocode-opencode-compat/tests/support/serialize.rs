@@ -1,5 +1,4 @@
 use gocode_opencode_compat::inventory;
-use gocode_opencode_compat::profile::Transport;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -12,6 +11,21 @@ struct JsonEntry {
     transport: String,
     classification: String,
     status: String,
+}
+
+#[derive(Serialize)]
+struct ProfileArtifact {
+    profile_id: String,
+    profile_revision: u16,
+    baseline_sha: String,
+    digests: ArtifactInputDigests,
+    inventory: Vec<JsonEntry>,
+}
+
+#[derive(Serialize)]
+struct ArtifactInputDigests {
+    profile_schema_digest: String,
+    inventory_digest: String,
 }
 
 pub fn canonicalize_inventory() -> Vec<u8> {
@@ -27,8 +41,28 @@ pub fn canonicalize_inventory() -> Vec<u8> {
             status: format!("{:?}", e.implementation_status),
         })
         .collect();
-    let value = serde_json::to_value(&entries).unwrap();
-    serde_jcs::to_vec(&value).unwrap()
+
+    let inventory_digest = format!(
+        "sha256:{:x}",
+        Sha256::digest(serde_json::to_vec(&entries).unwrap())
+    );
+
+    let schema_bytes =
+        std::fs::read("../../docs/schemas/opencode-baseline-inventory-v1.schema.json").unwrap();
+    let schema_digest = format!("sha256:{:x}", Sha256::digest(&schema_bytes));
+
+    let artifact = ProfileArtifact {
+        profile_id: "opencode-baseline-inventory".into(),
+        profile_revision: 1,
+        baseline_sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
+        digests: ArtifactInputDigests {
+            profile_schema_digest: schema_digest,
+            inventory_digest,
+        },
+        inventory: entries,
+    };
+
+    serde_jcs::to_vec(&artifact).unwrap()
 }
 
 pub fn compute_digest(bytes: &[u8]) -> String {

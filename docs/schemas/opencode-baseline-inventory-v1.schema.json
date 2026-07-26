@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "opencode-baseline-inventory-v1",
+  
   "title": "OpenCode Baseline Inventory Profile V1",
   "type": "object",
   "properties": {
