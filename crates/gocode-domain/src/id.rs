@@ -50,7 +50,11 @@ impl fmt::Display for InvalidIdReason {
                 write!(f, "invalid UUID variant (expected RFC 9562 variant 10xx)")
             }
             Self::TooLong { max, actual } => {
-                write!(f, "value exceeds maximum length: max={}, actual={}", max, actual)
+                write!(
+                    f,
+                    "value exceeds maximum length: max={}, actual={}",
+                    max, actual
+                )
             }
         }
     }
@@ -81,8 +85,8 @@ fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidIdReason> {
     let mut byte_idx = 0usize;
     let mut chars = s.chars().filter(|c| *c != '-');
     while byte_idx < 16 {
-        let hi = chars.next().unwrap();
-        let lo = chars.next().unwrap();
+        let hi = chars.next().ok_or(InvalidIdReason::InvalidUuidFormat)?;
+        let lo = chars.next().ok_or(InvalidIdReason::InvalidUuidFormat)?;
         let hi_val = hex_nibble(hi as u8).ok_or(InvalidIdReason::InvalidUuidFormat)?;
         let lo_val = hex_nibble(lo as u8).ok_or(InvalidIdReason::InvalidUuidFormat)?;
         out[byte_idx] = (hi_val << 4) | lo_val;
@@ -118,11 +122,22 @@ fn hex_nibble(c: u8) -> Option<u8> {
 fn format_uuid(bytes: &[u8; 16]) -> String {
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
-        bytes[0],  bytes[1],  bytes[2],  bytes[3],
-        bytes[4],  bytes[5],
-        bytes[6],  bytes[7],
-        bytes[8],  bytes[9],
-        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+        bytes[0],
+        bytes[1],
+        bytes[2],
+        bytes[3],
+        bytes[4],
+        bytes[5],
+        bytes[6],
+        bytes[7],
+        bytes[8],
+        bytes[9],
+        bytes[10],
+        bytes[11],
+        bytes[12],
+        bytes[13],
+        bytes[14],
+        bytes[15],
     )
 }
 
@@ -179,9 +194,15 @@ macro_rules! uuid_v7_newtype {
 // ── UUIDv7 newtypes ────────────────────────────────────────────────────────
 
 uuid_v7_newtype!(TaskRunId, "UUIDv7 identifier for a task run aggregate.");
-uuid_v7_newtype!(ConversationId, "UUIDv7 identifier for a conversation aggregate.");
+uuid_v7_newtype!(
+    ConversationId,
+    "UUIDv7 identifier for a conversation aggregate."
+);
 uuid_v7_newtype!(WorkspaceId, "UUIDv7 identifier for a workspace aggregate.");
-uuid_v7_newtype!(AttemptId, "UUIDv7 identifier for a single execution attempt.");
+uuid_v7_newtype!(
+    AttemptId,
+    "UUIDv7 identifier for a single execution attempt."
+);
 uuid_v7_newtype!(InvocationId, "UUIDv7 identifier for a plugin invocation.");
 uuid_v7_newtype!(CheckpointId, "UUIDv7 identifier for a checkpoint.");
 uuid_v7_newtype!(PolicyId, "UUIDv7 identifier for a policy.");
@@ -489,5 +510,12 @@ mod tests {
         let id: TaskRunId = VALID_UUID_V7.parse().unwrap();
         let display = AggregateId::TaskRun(id).to_string();
         assert!(display.starts_with("taskrun:"));
+    }
+
+    #[test]
+    fn test_parse_uuid_v7_extra_dashes_rejected() {
+        // Extra dash in the tail — must be Err, not panic
+        let result = parse_uuid_v7("018f2e3a-7000-7000-8000-000000-000000");
+        assert!(matches!(result, Err(InvalidIdReason::InvalidUuidFormat)));
     }
 }
