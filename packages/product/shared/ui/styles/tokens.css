@@ -7,6 +7,7 @@
   --gocode-lead-green: #4DCA81;
   --gocode-review-violet: #A75DEE;
   --gocode-error-coral: #E56C62;
+  --gocode-warning: #F59E0B;
 
   /* UI surface colors (from Pen) */
   --gocode-canvas: #111214;
@@ -42,4 +43,16 @@
   /* Typography */
   --gocode-font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --gocode-font-mono: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
+}
+
+[data-theme='light'] {
+  --gocode-canvas: #E9E9E7;
+  --gocode-surface: #F5F5F4;
+  --gocode-surface-raised: #FFFFFF;
+  --gocode-text-primary: #151616;
+  --gocode-text-secondary: #555654;
+  --gocode-text-on-accent: #151616;
+  --gocode-border: #D3D3D0;
+  --gocode-ui-muted: #555654;
+  --gocode-ui-subtle: #747573;
 }

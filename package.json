@@ -13,7 +13,7 @@
     "lint:architecture": "python3 scripts/validate_architecture.py",
     "test": "pnpm -r --if-present test",
     "test:e2e": "playwright test",
-    "typecheck": "pnpm --filter @gocode/desktop typecheck",
+    "typecheck": "pnpm --filter @gocode/desktop typecheck && pnpm --filter @gocode/product typecheck",
     "validate:docs": "python3 scripts/validate-docs.py --strict",
     "validate:visual-fixtures": "python3 scripts/validate_visual_fixtures.py",
     "validate:visual-goldens": "python3 scripts/validate_visual_fixtures.py --require-goldens",

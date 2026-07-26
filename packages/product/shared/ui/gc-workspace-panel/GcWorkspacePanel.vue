@@ -5,10 +5,17 @@ interface Tab {
   badge?: string | number
 }
 
+interface WorkspaceFile {
+  id: string
+  label: string
+  depth?: number
+}
+
 defineProps<{
   tabs: Tab[]
   activeTab: string
-  panelState: 'empty' | 'loading' | 'unavailable'
+  panelState: 'empty' | 'loading' | 'unavailable' | 'ready'
+  files?: readonly WorkspaceFile[]
 }>()
 
 defineEmits<{
@@ -24,6 +31,7 @@ defineEmits<{
         v-for="tab in tabs"
         :key="tab.id"
         :class="['gc-workspace-panel-tab', { 'gc-workspace-panel-tab--active': tab.id === activeTab }]"
+        type="button"
         @click="$emit('selectTab', tab.id)"
       >
         <span class="gc-workspace-panel-tab-label">{{ tab.label }}</span>
@@ -33,24 +41,30 @@ defineEmits<{
 
     <div class="gc-workspace-panel-content">
       <!-- Empty state -->
-      <div v-if="panelState === 'empty'" class="gc-workspace-panel-empty">
+      <ul v-if="panelState === 'ready'" class="gc-workspace-panel-file-tree" aria-label="Workspace files">
+        <li v-for="file in files ?? []" :key="file.id" :style="{ paddingInlineStart: `${file.depth ?? 0}rem` }">
+          {{ file.label }}
+        </li>
+      </ul>
+
+      <div v-else-if="panelState === 'empty'" class="gc-workspace-panel-empty">
         <span class="gc-workspace-panel-empty-icon">📂</span>
         <p class="gc-workspace-panel-empty-title">Nothing here yet</p>
         <p class="gc-workspace-panel-empty-subtitle">Open a file to get started</p>
       </div>
 
       <!-- Loading state -->
-      <div v-if="panelState === 'loading'" class="gc-workspace-panel-loading">
+      <div v-else-if="panelState === 'loading'" class="gc-workspace-panel-loading">
         <div class="gc-workspace-panel-skeleton" />
         <div class="gc-workspace-panel-skeleton gc-workspace-panel-skeleton--short" />
         <div class="gc-workspace-panel-skeleton gc-workspace-panel-skeleton--medium" />
       </div>
 
       <!-- Unavailable state -->
-      <div v-if="panelState === 'unavailable'" class="gc-workspace-panel-unavailable">
+      <div v-else-if="panelState === 'unavailable'" class="gc-workspace-panel-unavailable">
         <span class="gc-workspace-panel-unavailable-icon">⚠️</span>
         <p class="gc-workspace-panel-unavailable-title">Panel unavailable</p>
-        <button class="gc-workspace-panel-retry-btn" @click="$emit('retry')">Retry</button>
+        <button class="gc-workspace-panel-retry-btn" type="button" @click="$emit('retry')">Retry</button>
       </div>
     </div>
   </div>
@@ -125,6 +139,20 @@ defineEmits<{
   padding: var(--gocode-space-lg);
 }
 
+.gc-workspace-panel-file-tree {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  color: var(--gocode-text-primary);
+  font-family: var(--gocode-font-mono);
+  font-size: 13px;
+  list-style: none;
+}
+
+.gc-workspace-panel-file-tree li {
+  padding-block: var(--gocode-space-xs);
+}
+
 /* Empty state */
 .gc-workspace-panel-empty {
   display: flex;
@@ -179,6 +207,12 @@ defineEmits<{
 @keyframes skeleton-pulse {
   0%, 100% { opacity: 0.4; }
   50% { opacity: 0.8; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-workspace-panel-skeleton {
+    animation: none;
+  }
 }
 
 /* Unavailable state */

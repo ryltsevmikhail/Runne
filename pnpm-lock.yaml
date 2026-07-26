@@ -111,6 +111,9 @@ importers:
       vitest:
         specifier: 3.2.7
         version: 3.2.7(@types/node@24.13.3)(jsdom@26.1.0)
+      vue-tsc:
+        specifier: 3.2.5
+        version: 3.2.5(typescript@5.9.3)
 
   packages/runtime-contract: {}
 

@@ -28,12 +28,14 @@ defineEmits<{
       <div class="gc-recovery-actions">
         <button
           class="gc-recovery-btn gc-recovery-btn--local"
+          type="button"
           @click="$emit('resolve', 'local')"
         >
           Keep local
         </button>
         <button
           class="gc-recovery-btn gc-recovery-btn--remote"
+          type="button"
           @click="$emit('resolve', 'remote')"
         >
           Use remote
@@ -51,6 +53,7 @@ defineEmits<{
       <div class="gc-recovery-actions">
         <button
           class="gc-recovery-btn gc-recovery-btn--fresh"
+          type="button"
           @click="$emit('reset')"
         >
           Start fresh
@@ -87,7 +90,7 @@ defineEmits<{
 }
 
 .gc-recovery-panel--conflict .gc-recovery-icon {
-  color: #f59e0b;
+  color: var(--gocode-warning);
 }
 
 .gc-recovery-panel--corrupt .gc-recovery-icon {

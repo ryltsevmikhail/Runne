@@ -12,6 +12,7 @@ defineEmits<{
 
 <template>
   <button
+    type="button"
     :class="['gc-button', `gc-button--${variant ?? 'primary'}`, `gc-button--${size ?? 'md'}`]"
     :disabled="disabled || variant === 'disabled'"
     @click="$emit('click', $event)"

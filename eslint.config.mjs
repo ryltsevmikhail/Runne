@@ -31,7 +31,7 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   ...vue.configs['flat/recommended'],
   {
-    files: ['apps/**/*.ts', 'apps/**/*.vue', 'packages/**/*.ts'],
+    files: ['apps/**/*.ts', 'apps/**/*.vue', 'packages/**/*.ts', 'packages/**/*.vue'],
     languageOptions: {
       globals: globals.browser,
       parserOptions: {

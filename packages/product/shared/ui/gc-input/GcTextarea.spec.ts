@@ -18,6 +18,7 @@ describe('GcTextarea', () => {
     const wrapper = mount(GcTextarea, { props: { modelValue: '', label: 'Bio', helper: 'Max 200 chars' } })
     expect(wrapper.text()).toContain('Bio')
     expect(wrapper.text()).toContain('Max 200 chars')
+    expect(wrapper.find('label').attributes('for')).toBe(wrapper.find('textarea').attributes('id'))
   })
 
   it('disables when state is disabled', () => {
@@ -26,8 +27,9 @@ describe('GcTextarea', () => {
   })
 
   it('renders error state', () => {
-    const wrapper = mount(GcTextarea, { props: { modelValue: '', state: 'error' } })
+    const wrapper = mount(GcTextarea, { props: { modelValue: '', state: 'error', helper: 'Required' } })
     expect(wrapper.find('.gc-input-wrapper').attributes('class')).toContain('error')
+    expect(wrapper.find('textarea').attributes('aria-invalid')).toBe('true')
   })
 
   it('supports custom rows', () => {

@@ -1,12 +1,19 @@
 <script setup lang="ts">
-defineProps<{
+import { computed, useId } from 'vue'
+
+const props = defineProps<{
   modelValue: string
   state?: 'default' | 'disabled' | 'error'
   label?: string
   helper?: string
   placeholder?: string
   rows?: number
+  id?: string
 }>()
+
+const generatedId = useId()
+const textareaId = computed(() => props.id ?? generatedId)
+const helperId = computed(() => props.helper ? `${textareaId.value}-helper` : undefined)
 
 defineEmits<{
   'update:modelValue': [value: string]
@@ -15,16 +22,19 @@ defineEmits<{
 
 <template>
   <div :class="['gc-input-wrapper', state && `gc-input-wrapper--${state}`]">
-    <label v-if="label" class="gc-input-label">{{ label }}</label>
+    <label v-if="label" class="gc-input-label" :for="textareaId">{{ label }}</label>
     <textarea
       :value="modelValue"
+      :id="textareaId"
       :placeholder="placeholder"
       :disabled="state === 'disabled'"
+      :aria-describedby="helperId"
+      :aria-invalid="state === 'error' || undefined"
       :rows="rows ?? 3"
       class="gc-textarea"
       @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     />
-    <span v-if="helper" :class="['gc-input-helper', state === 'error' && 'gc-input-helper--error']">
+    <span v-if="helper" :id="helperId" :class="['gc-input-helper', state === 'error' && 'gc-input-helper--error']">
       {{ helper }}
     </span>
   </div>

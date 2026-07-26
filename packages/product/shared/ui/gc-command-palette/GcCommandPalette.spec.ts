@@ -71,4 +71,18 @@ describe('GcCommandPalette', () => {
     const overlay = query('.gc-palette-overlay')
     expect(overlay?.textContent).toContain('No results')
   })
+
+  it('clamps the active selection when filtering removes earlier items', async () => {
+    const wrapper = mount(GcCommandPalette, { props: { open: true, items } })
+    const palette = query('.gc-palette') as HTMLElement
+    palette.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    palette.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    const input = query('.gc-palette-search') as HTMLInputElement
+    input.value = 'Settings'
+    input.dispatchEvent(new Event('input'))
+    await wrapper.vm.$nextTick()
+    palette.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.emitted('select')?.[0]).toEqual(['2'])
+  })
 })

@@ -50,6 +50,10 @@ async function openWorkspace() {
     params: { id: project.value.id },
   })
 }
+
+async function returnToProjects() {
+  await router.push('/')
+}
 </script>
 
 <template>
@@ -72,13 +76,9 @@ async function openWorkspace() {
     >
       The saved local project could not be restored.
     </GcAlert>
-    <RouterLink
-      to="/"
-    >
-      <GcButton variant="secondary">
-        Back to projects
-      </GcButton>
-    </RouterLink>
+    <GcButton variant="secondary" @click="returnToProjects">
+      Back to projects
+    </GcButton>
   </section>
 
   <section

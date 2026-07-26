@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { GcButton, GcProjectCard } from '@gocode/product/shared/ui'
 import { Clock3, FolderOpen, Plus } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
@@ -32,24 +32,6 @@ onMounted(async () => {
   }
 })
 
-const projectCards = computed(() =>
-  projects.value.map((project) => ({
-    name: project.name,
-    path: project.path,
-    slug: String(project.id),
-    status: 'ready' as const,
-    modifiedAt: new Date(project.lastOpenedAt).toLocaleDateString(),
-  })),
-)
-
-function handleProjectClick(slug: string) {
-  const project = projects.value.find((p) => String(p.id) === slug)
-  if (project === undefined) {
-    return
-  }
-  void openProjectDetails(project)
-}
-
 async function openProjectPicker() {
   await router.push({ name: 'open-project' })
 }
@@ -74,15 +56,13 @@ async function openProjectDetails(project: Project) {
         </h1>
         <p>Choose a workspace and continue where you left off.</p>
       </div>
-      <RouterLink to="/projects/open">
-        <GcButton aria-label="Open local project">
+      <GcButton aria-label="Open local project" @click="openProjectPicker">
           <Plus
             :size="16"
             aria-hidden="true"
           />
           Open project
-        </GcButton>
-      </RouterLink>
+      </GcButton>
     </header>
 
     <div class="content-section">
@@ -111,11 +91,16 @@ async function openProjectDetails(project: Project) {
           <span class="project-arrow">→</span>
         </button>
         <GcProjectCard
-          v-for="project in projectCards"
-          :key="project.slug"
-          :project="project"
+          v-for="project in projects"
+          :key="project.id"
+          :project="{
+            name: project.name,
+            path: project.path,
+            slug: String(project.id),
+            modifiedAt: new Date(project.lastOpenedAt).toLocaleDateString(),
+          }"
           :aria-label="`Open project ${project.name}`"
-          @click="handleProjectClick(project.slug)"
+          @click="openProjectDetails(project)"
         />
       </div>
     </div>

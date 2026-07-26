@@ -10,6 +10,7 @@ defineProps<{
   items: SidebarItem[]
   activeItem?: string
   collapsed?: boolean
+  ariaLabel?: string
 }>()
 
 defineEmits<{
@@ -18,11 +19,12 @@ defineEmits<{
 </script>
 
 <template>
-  <nav :class="['gc-sidebar', collapsed && 'gc-sidebar--collapsed']">
+  <nav :class="['gc-sidebar', collapsed && 'gc-sidebar--collapsed']" :aria-label="ariaLabel ?? 'Primary'">
     <button
       v-for="item in items"
       :key="item.id"
       :class="['gc-sidebar-item', { 'gc-sidebar-item--active': item.id === activeItem }]"
+      type="button"
       @click="$emit('navigate', item.id)"
     >
       <span v-if="item.icon" class="gc-sidebar-icon">{{ item.icon }}</span>

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
   },
   "exports": {
     "./shared/ui": "./shared/ui/index.ts",
@@ -19,6 +19,7 @@
     "@vue/test-utils": "2.4.6",
     "jsdom": "26.1.0",
     "typescript": "5.9.3",
-    "vitest": "3.2.7"
+    "vitest": "3.2.7",
+    "vue-tsc": "3.2.5"
   }
 }

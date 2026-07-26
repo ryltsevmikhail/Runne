@@ -70,4 +70,10 @@ defineProps<{
     opacity: 0.5;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-badge-dot {
+    animation: none;
+  }
+}
 </style>

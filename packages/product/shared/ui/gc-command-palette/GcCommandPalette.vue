@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { CommandItem } from './GcCommandPalette.types'
 
 const props = defineProps<{
@@ -22,6 +22,10 @@ const filtered = computed(() => {
   return props.items.filter(i => i.label.toLowerCase().includes(q))
 })
 
+watch(filtered, (items) => {
+  activeIndex.value = Math.min(activeIndex.value, Math.max(items.length - 1, 0))
+})
+
 function selectItem(id: string) {
   emit('select', id)
   emit('close')
@@ -38,11 +42,12 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <Teleport to="body">
     <div v-if="open" class="gc-palette-overlay" @click="emit('close')">
-      <div class="gc-palette" @click.stop @keydown="onKeydown">
+      <div class="gc-palette" role="dialog" aria-label="Command palette" @click.stop @keydown="onKeydown">
         <input
           v-model="search"
           class="gc-palette-search"
           placeholder="Type a command or search..."
+          aria-label="Search commands"
           autofocus
         />
         <div class="gc-palette-results">
@@ -50,6 +55,7 @@ function onKeydown(e: KeyboardEvent) {
             v-for="(item, i) in filtered"
             :key="item.id"
             :class="['gc-palette-item', { 'gc-palette-item--active': i === activeIndex }]"
+            type="button"
             @click="selectItem(item.id)"
             @mouseenter="activeIndex = i"
           >

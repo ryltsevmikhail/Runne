@@ -17,6 +17,7 @@ describe('GcInput', () => {
   it('shows label when provided', () => {
     const wrapper = mount(GcInput, { props: { modelValue: '', label: 'Email' } })
     expect(wrapper.text()).toContain('Email')
+    expect(wrapper.find('label').attributes('for')).toBe(wrapper.find('input').attributes('id'))
   })
 
   it('shows helper text', () => {
@@ -25,8 +26,10 @@ describe('GcInput', () => {
   })
 
   it('renders error state with red border', () => {
-    const wrapper = mount(GcInput, { props: { modelValue: '', state: 'error' } })
+    const wrapper = mount(GcInput, { props: { modelValue: '', state: 'error', helper: 'Required' } })
     expect(wrapper.find('.gc-input-wrapper').attributes('class')).toContain('error')
+    expect(wrapper.find('input').attributes('aria-invalid')).toBe('true')
+    expect(wrapper.find('input').attributes('aria-describedby')).toBe(wrapper.find('.gc-input-helper').attributes('id'))
   })
 
   it('disables input when state is disabled', () => {

@@ -21,6 +21,7 @@ defineEmits<{
     <button
       v-if="dismissible"
       class="gc-alert-dismiss"
+      type="button"
       aria-label="Dismiss"
       @click="$emit('dismiss')"
     >
@@ -52,8 +53,8 @@ defineEmits<{
 }
 
 .gc-alert--warning {
-  background: color-mix(in srgb, #f59e0b 10%, transparent);
-  border-color: color-mix(in srgb, #f59e0b 20%, transparent);
+  background: color-mix(in srgb, var(--gocode-warning) 10%, transparent);
+  border-color: color-mix(in srgb, var(--gocode-warning) 20%, transparent);
   color: var(--gocode-text-primary);
 }
 

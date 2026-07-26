@@ -3,7 +3,7 @@ export interface ProjectCard {
   name: string
   path: string
   slug: string
-  status: 'ready' | 'stale' | 'recovery'
+  status?: 'ready' | 'stale' | 'recovery'
   modifiedAt: string
 }
 
@@ -18,16 +18,18 @@ defineEmits<{
 
 <template>
   <article
-    :class="['gc-project-card', `gc-project-card--${project.status}`]"
-    @click="$emit('click')"
+    :class="['gc-project-card', project.status && `gc-project-card--${project.status}`]"
+    @click.self="$emit('click')"
   >
-    <div class="gc-project-card-header">
-      <h3 class="gc-project-card-name">{{ project.name }}</h3>
-      <span :class="['gc-project-card-status', `gc-project-card-status--${project.status}`]">
-        {{ project.status === 'ready' ? 'Ready' : project.status === 'stale' ? 'Attention' : 'Recovery' }}
-      </span>
-    </div>
-    <p class="gc-project-card-path">{{ project.path }}</p>
+    <button class="gc-project-card-main" type="button" @click="$emit('click')">
+      <div class="gc-project-card-header">
+        <h3 class="gc-project-card-name">{{ project.name }}</h3>
+        <span v-if="project.status" :class="['gc-project-card-status', `gc-project-card-status--${project.status}`]">
+          {{ project.status === 'ready' ? 'Ready' : project.status === 'stale' ? 'Attention' : 'Recovery' }}
+        </span>
+      </div>
+      <p class="gc-project-card-path">{{ project.path }}</p>
+    </button>
     <div class="gc-project-card-footer">
       <time class="gc-project-card-time">{{ project.modifiedAt }}</time>
       <div v-if="$slots.actions" class="gc-project-card-actions">
@@ -43,8 +45,23 @@ defineEmits<{
   border: 1px solid var(--gocode-border);
   border-radius: var(--gocode-radius-lg);
   padding: var(--gocode-space-lg);
-  cursor: pointer;
   transition: border-color var(--gocode-motion-fast), background var(--gocode-motion-fast);
+}
+
+.gc-project-card-main {
+  display: block;
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.gc-project-card-main:focus-visible {
+  outline: 2px solid var(--gocode-accent);
+  outline-offset: 3px;
 }
 
 .gc-project-card:hover {

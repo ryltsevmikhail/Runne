@@ -1,5 +1,7 @@
 <script setup lang="ts">
-withDefaults(
+import { nextTick, ref, useId, watch } from 'vue'
+
+const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
@@ -20,6 +22,17 @@ const emit = defineEmits<{
   cancel: []
   'update:open': [value: boolean]
 }>()
+
+const dialog = ref<HTMLElement | null>(null)
+const titleId = useId()
+const descriptionId = useId()
+
+watch(() => props.open, async (open) => {
+  if (open) {
+    await nextTick()
+    dialog.value?.focus()
+  }
+}, { immediate: true })
 
 function close() {
   emit('update:open', false)
@@ -45,11 +58,15 @@ function onKeydown(e: KeyboardEvent) {
         class="gc-dialog"
         role="dialog"
         aria-modal="true"
+        :aria-labelledby="titleId"
+        :aria-describedby="description || $slots.default ? descriptionId : undefined"
+        tabindex="-1"
+        ref="dialog"
         @click.stop
       >
         <div class="gc-dialog-header">
-          <h2 class="gc-dialog-title">{{ title }}</h2>
-          <p v-if="description || $slots.default" class="gc-dialog-description">
+          <h2 :id="titleId" class="gc-dialog-title">{{ title }}</h2>
+          <p v-if="description || $slots.default" :id="descriptionId" class="gc-dialog-description">
             {{ description }}
             <slot />
           </p>
@@ -57,12 +74,14 @@ function onKeydown(e: KeyboardEvent) {
         <div class="gc-dialog-footer">
           <button
             class="gc-dialog-btn gc-dialog-btn--cancel"
+            type="button"
             @click="close"
           >
             {{ cancelLabel }}
           </button>
           <button
             :class="['gc-dialog-btn', { 'gc-dialog-btn--danger': danger }]"
+            type="button"
             @click="emit('confirm')"
           >
             {{ confirmLabel }}

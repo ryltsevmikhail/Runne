@@ -3,7 +3,7 @@ import { GcAlert, GcButton, GcWorkspacePanel } from '@gocode/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { Folder, PanelRight } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
 import { getProject } from '@/entities/project'
@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
 })
 
 const route = useRoute()
+const router = useRouter()
 const project = ref<Project | null>(null)
 const loading = ref(true)
 const error = ref(false)
@@ -39,6 +40,10 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function returnToProjects() {
+  await router.push('/')
+}
 </script>
 
 <template>
@@ -61,13 +66,9 @@ onMounted(async () => {
     >
       The saved local project could not be restored.
     </GcAlert>
-    <RouterLink
-      to="/"
-    >
-      <GcButton variant="secondary">
-        Back to projects
-      </GcButton>
-    </RouterLink>
+    <GcButton variant="secondary" @click="returnToProjects">
+      Back to projects
+    </GcButton>
   </section>
 
   <section

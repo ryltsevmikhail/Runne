@@ -23,6 +23,15 @@ describe('GcDialog', () => {
     const overlay = query('.gc-dialog-overlay')
     expect(overlay?.textContent).toContain('Title')
     expect(overlay?.textContent).toContain('Description')
+    const dialog = query('[role="dialog"]') as HTMLElement
+    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy()
+    expect(dialog.getAttribute('aria-describedby')).toBeTruthy()
+  })
+
+  it('uses non-submitting dialog actions', () => {
+    mount(GcDialog, { props: { open: true, title: 'Title' } })
+    expect(query('.gc-dialog-btn--cancel')?.getAttribute('type')).toBe('button')
+    expect(query('.gc-dialog-btn:not(.gc-dialog-btn--cancel)')?.getAttribute('type')).toBe('button')
   })
 
   it('renders default slot', () => {

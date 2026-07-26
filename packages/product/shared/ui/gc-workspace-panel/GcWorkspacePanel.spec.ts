@@ -55,4 +55,17 @@ describe('GcWorkspacePanel', () => {
     expect(retryBtn.exists()).toBe(true)
     expect(retryBtn.text()).toBe('Retry')
   })
+
+  it('renders the supplied workspace file tree in ready state', () => {
+    const wrapper = mount(GcWorkspacePanel, {
+      props: {
+        tabs: [{ id: 'project', label: 'Project' }],
+        activeTab: 'project',
+        panelState: 'ready',
+        files: [{ id: 'readme', label: 'README.md' }, { id: 'app', label: 'App.vue', depth: 1 }],
+      },
+    })
+    expect(wrapper.get('[aria-label="Workspace files"]').text()).toContain('README.md')
+    expect(wrapper.get('[aria-label="Workspace files"]').text()).toContain('App.vue')
+  })
 })
