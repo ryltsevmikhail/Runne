@@ -75,8 +75,6 @@ fn test_unknown_operation() {
     }
 }
 
-
-
 #[test]
 fn test_generate_and_verify_artifact() {
     let json = serialize::canonicalize_inventory();
