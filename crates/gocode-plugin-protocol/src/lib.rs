@@ -3,3 +3,4 @@
 //! bootstrap handshake, frame codec. No external dependencies.
 
 pub mod id;
+pub mod digest;
