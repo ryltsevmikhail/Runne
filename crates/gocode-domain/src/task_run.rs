@@ -4,7 +4,7 @@
 //! attempt history, and terminal outcomes.
 
 use crate::command::{CreateTaskRun, TaskRunCommand, TerminalResult};
-use crate::error::{DomainError, InvalidIdReason};
+use crate::error::DomainError;
 use crate::event::{AggregateType, DomainEventDraft, EventEnvelope, Sensitivity};
 use crate::id::{AggregateId, AttemptId, TaskRunId};
 
