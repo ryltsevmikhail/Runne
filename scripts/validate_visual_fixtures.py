@@ -6,11 +6,29 @@ from __future__ import annotations
 import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_REGISTRY = ROOT / "docs/07-testing/fixtures/desktop-visual-fixtures.yaml"
 DEFAULT_GOLDENS = ROOT / "tests/visual/goldens"
+
+REQUIRED_PROVENANCE_KEYS = {"fixture_id", "donor_commit", "approved"}
+OPTIONAL_PROVENANCE_KEYS = {
+    "captured_at",
+    "os",
+    "webview",
+    "capture_tool",
+    "capture_tool_version",
+    "viewport",
+    "scale",
+    "theme",
+    "locale",
+    "timezone",
+    "clock",
+    "target_state",
+    "donor_state",
+}
 
 
 def _inline_value(line: str, key: str) -> str | None:
@@ -21,6 +39,41 @@ def _inline_value(line: str, key: str) -> str | None:
     if match is None:
         return None
     return (match.group(1) or match.group(2)).strip()
+
+
+def _valid_capture_metadata(provenance: dict[str, object]) -> bool:
+    if not set(provenance).issubset(REQUIRED_PROVENANCE_KEYS | OPTIONAL_PROVENANCE_KEYS):
+        return False
+    if "captured_at" in provenance:
+        try:
+            datetime.fromisoformat(str(provenance["captured_at"]).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    if "os" in provenance and provenance["os"] not in {"macOS", "Windows", "Linux"}:
+        return False
+    for key in {"webview", "capture_tool", "capture_tool_version", "locale", "timezone"}:
+        if key in provenance and (not isinstance(provenance[key], str) or not provenance[key]):
+            return False
+    if "viewport" in provenance:
+        viewport = provenance["viewport"]
+        if (
+            not isinstance(viewport, dict)
+            or set(viewport) != {"width", "height"}
+            or any(not isinstance(value, int) or value <= 0 for value in viewport.values())
+        ):
+            return False
+    if "scale" in provenance and (
+        not isinstance(provenance["scale"], int) or provenance["scale"] <= 0
+    ):
+        return False
+    if "theme" in provenance and provenance["theme"] not in {"dark", "light"}:
+        return False
+    if "clock" in provenance:
+        try:
+            datetime.fromisoformat(str(provenance["clock"]).replace("Z", "+00:00"))
+        except ValueError:
+            return False
+    return True
 
 
 def validate_registry(
@@ -61,11 +114,15 @@ def validate_registry(
         except (json.JSONDecodeError, OSError):
             errors.append(f"{fixture_id}: invalid donor golden provenance")
             continue
-        if provenance != {
+        if (
+            not isinstance(provenance, dict)
+            or {key: provenance.get(key) for key in REQUIRED_PROVENANCE_KEYS} != {
             "fixture_id": fixture_id,
             "donor_commit": donor_commit,
             "approved": True,
-        }:
+            }
+            or not _valid_capture_metadata(provenance)
+        ):
             errors.append(f"{fixture_id}: donor golden provenance mismatch")
     if not fixture_lines:
         errors.append("registry: no visual fixtures")
