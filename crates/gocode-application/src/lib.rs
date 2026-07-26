@@ -1,8 +1,20 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-#![allow(missing_docs)]
 
-//! gocode-application — use cases, ports, orchestration boundary.
+//! `gocode-application` — application-layer orchestration for GOCODE Runtime.
 //!
-//! Depends on gocode-domain for domain types.
-//! No concrete adapters — only port traits.
+//! ## Architecture
+//!
+//! * **Ports** — abstract traits for persistence, identity, time ([`ports`])
+//! * **Errors** — closed, typed application errors ([`errors`])
+//! * **Fingerprint** — SHA-256 command identity for idempotency ([`fingerprint`])
+//! * **Pipeline** — internal execution engine, not public API ([`pipeline`])
+//! * **Commands** — input/output DTO for use cases ([`commands`])
+//! * **Service** — public [`TaskRunService`] facade ([`service`])
+
+pub mod commands;
+pub mod errors;
+pub mod fingerprint;
+pub(crate) mod pipeline;
+pub mod ports;
+pub mod service;
