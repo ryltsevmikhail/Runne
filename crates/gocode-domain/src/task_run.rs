@@ -478,9 +478,7 @@ impl TaskRun {
         };
 
         let mut creation_seen = false;
-        let mut expected_seq = 1u64;
-
-        for event in events {
+        for (expected_seq, event) in (1u64..).zip(events) {
             // Sequence continuity
             if event.sequence() != expected_seq {
                 return Err(DomainError::SequenceGap {
@@ -488,7 +486,6 @@ impl TaskRun {
                     actual: event.sequence(),
                 });
             }
-            expected_seq += 1;
 
             // All events must share the same taskrun_id
             if *event.taskrun_id() != *taskrun_id {

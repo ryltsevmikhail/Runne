@@ -405,7 +405,7 @@ impl<E> EventEnvelope<E> {
 ///
 /// - `event_ids`: ordered, unique EventIds (one per draft).
 /// - `last_committed_event`: the most recent committed event's ID,
-///    used as `causation_id` for the first draft.
+///   used as `causation_id` for the first draft.
 /// - Each subsequent draft chains to the previous draft's event_id.
 ///
 /// Rejects: mismatched lengths, duplicate EventIds.
