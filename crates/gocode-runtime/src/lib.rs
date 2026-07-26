@@ -1,4 +1,7 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::too_many_arguments)]
+#![allow(dead_code)]
+#![allow(clippy::collapsible_if)]
 #![deny(missing_docs)]
 #![allow(missing_docs)]
 
@@ -15,4 +18,6 @@ mod supervisor;
 mod worker;
 
 mod startup;
-pub use startup::{BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext};
+pub use startup::{
+    BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
+};

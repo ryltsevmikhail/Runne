@@ -65,10 +65,7 @@ impl RuntimeController {
     /// Initiate a shutdown with the given mode.
     pub async fn shutdown(&mut self, mode: ShutdownMode) -> ShutdownOutcome {
         let (ack_tx, ack_rx) = oneshot::channel();
-        let cmd = ControlCommand::Shutdown {
-            mode,
-            ack: ack_tx,
-        };
+        let cmd = ControlCommand::Shutdown { mode, ack: ack_tx };
 
         if self.control_tx.send(cmd).await.is_err() {
             return ShutdownOutcome::Quiesced;
