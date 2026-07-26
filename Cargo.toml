@@ -1,0 +1,31 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/desktop/src-tauri",
+  "src-tauri/crates/app-core",
+  "src-tauri/crates/runtime-client",
+  "src-tauri/crates/platform-ports",
+  "src-tauri/crates/secure-store",
+  "src-tauri/crates/local-store",
+  "src-tauri/crates/platform-desktop",
+  "src-tauri/crates/platform-mobile",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+rust-version = "1.97"
+
+[workspace.dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+tauri = { version = "=2.11.5", default-features = false, features = ["wry"] }
+thiserror = "=2.0.18"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"

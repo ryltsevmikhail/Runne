@@ -90,12 +90,14 @@ for path in sorted(ROOT.rglob("*.md")):
                 f"{path.relative_to(ROOT)}: broken link -> {file_target}"
             )
 
+ignored_generated_dirs = {"node_modules", "target", "dist", "coverage", ".vite"}
 for path in sorted(ROOT.rglob("*")):
     relative_parts = path.relative_to(ROOT).parts
     if (
         path.is_file()
         and relative_parts[0] != "upstream"
         and not any(part.startswith(".") for part in relative_parts)
+        and not ignored_generated_dirs.intersection(relative_parts)
     ):
         if path.stat().st_size == 0:
             errors.append(f"{path.relative_to(ROOT)}: empty file")

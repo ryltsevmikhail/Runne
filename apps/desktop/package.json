@@ -1,0 +1,27 @@
+{
+  "name": "@gocode/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vue-tsc -b && vite build",
+    "dev": "vite",
+    "tauri": "tauri",
+    "test": "vitest run",
+    "typecheck": "vue-tsc -b"
+  },
+  "dependencies": {
+    "@gocode/platform-contract": "workspace:*",
+    "@tauri-apps/api": "2.9.1",
+    "lucide-vue-next": "0.536.0",
+    "vue": "3.5.28",
+    "vue-router": "4.6.4"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.10.0",
+    "@vitejs/plugin-vue": "6.0.5",
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "26.1.0",
+    "vue-tsc": "3.2.5"
+  }
+}
