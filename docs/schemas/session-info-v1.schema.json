@@ -27,11 +27,14 @@
           "type": "array",
           "items": {
             "type": "object",
+            "required": ["additions", "deletions"],
             "additionalProperties": false,
             "properties": {
-              "path": { "type": "string" },
+              "file": { "type": "string" },
+              "patch": { "type": "string" },
               "additions": { "type": "number" },
-              "deletions": { "type": "number" }
+              "deletions": { "type": "number" },
+              "status": { "enum": ["added", "deleted", "modified"] }
             }
           }
         }
@@ -65,16 +68,16 @@
       "required": ["input", "output", "reasoning", "cache"],
       "additionalProperties": false,
       "properties": {
-        "input": { "type": "integer" },
-        "output": { "type": "integer" },
-        "reasoning": { "type": "integer" },
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "reasoning": { "type": "number" },
         "cache": {
           "type": "object",
           "required": ["read", "write"],
           "additionalProperties": false,
           "properties": {
-            "read": { "type": "integer" },
-            "write": { "type": "integer" }
+            "read": { "type": "number" },
+            "write": { "type": "number" }
           }
         }
       }
