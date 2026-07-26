@@ -7,7 +7,7 @@ use gocode_application::commands::{
 use gocode_application::errors::ApplicationError;
 use gocode_application::ports::{ApplicationCommandContext, EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
-use tokio::sync::{oneshot, OwnedSemaphorePermit};
+use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 use crate::error::RuntimeError;
 
@@ -112,14 +112,26 @@ impl PerRunRequest {
     /// Split the request into a callable command and the reply channel.
     pub(crate) fn into_parts(self) -> (PerRunCall, Reply) {
         match self {
-            Self::Queue { context, input, reply } => (PerRunCall::Queue { context, input }, reply),
-            Self::Admit { context, input, reply } => (PerRunCall::Admit { context, input }, reply),
-            Self::StartAttempt { context, input, reply } => {
-                (PerRunCall::StartAttempt { context, input }, reply)
-            }
-            Self::Complete { context, input, reply } => {
-                (PerRunCall::Complete { context, input }, reply)
-            }
+            Self::Queue {
+                context,
+                input,
+                reply,
+            } => (PerRunCall::Queue { context, input }, reply),
+            Self::Admit {
+                context,
+                input,
+                reply,
+            } => (PerRunCall::Admit { context, input }, reply),
+            Self::StartAttempt {
+                context,
+                input,
+                reply,
+            } => (PerRunCall::StartAttempt { context, input }, reply),
+            Self::Complete {
+                context,
+                input,
+                reply,
+            } => (PerRunCall::Complete { context, input }, reply),
         }
     }
 }

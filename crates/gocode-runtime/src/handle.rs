@@ -7,7 +7,7 @@ use gocode_application::commands::{
     StartAttemptInput,
 };
 use gocode_application::ports::ApplicationCommandContext;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 
 use crate::error::{QueueKind, RuntimeError};
 use crate::gate::AdmissionGate;
@@ -58,20 +58,17 @@ impl RuntimeHandle {
             .map_err(|_| RuntimeError::RuntimeClosed)?;
         let lease = InFlightLease::new(in_flight_permit);
 
-        let _reservation = self
-            .gate
-            .try_reserve()
-            .ok_or(RuntimeError::RuntimeClosed)?;
+        let _reservation = self.gate.try_reserve().ok_or(RuntimeError::RuntimeClosed)?;
 
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let request = build(reply_tx);
         let admitted = AdmittedRequest { request, lease };
 
-        self.sender.try_send(admitted).map_err(|_| {
-            RuntimeError::Backpressure {
+        self.sender
+            .try_send(admitted)
+            .map_err(|_| RuntimeError::Backpressure {
                 queue: QueueKind::Ingress,
-            }
-        })?;
+            })?;
 
         reply_rx
             .await

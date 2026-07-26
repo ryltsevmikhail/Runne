@@ -4,8 +4,8 @@
 //! `drain()` transitions to `Draining` and blocks until all outstanding
 //! reservations are released. `close()` is final.
 
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use gocode_application::ports::{EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
 use gocode_domain::id::TaskRunId;
-use tokio::sync::{mpsc, Semaphore};
+use tokio::sync::{Semaphore, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::RuntimeConfig;
@@ -65,10 +65,25 @@ where
         };
         let (call, reply) = req.request.into_parts();
         let lease = req.lease;
-        execute_request(call, reply, lease, taskrun_id, &service, &semaphore, &config, &cancel).await;
+        execute_request(
+            call, reply, lease, taskrun_id, &service, &semaphore, &config, &cancel,
+        )
+        .await;
     };
-    drain_mailbox(&mut rx, disposition, taskrun_id, &service, &semaphore, &config, &cancel).await;
-    WorkerExit { taskrun_id, generation }
+    drain_mailbox(
+        &mut rx,
+        disposition,
+        taskrun_id,
+        &service,
+        &semaphore,
+        &config,
+        &cancel,
+    )
+    .await;
+    WorkerExit {
+        taskrun_id,
+        generation,
+    }
 }
 
 async fn execute_request<E, U, I>(
@@ -106,13 +121,18 @@ async fn execute_request<E, U, I>(
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;
         call.execute(svc.as_ref())
-    }).await;
+    })
+    .await;
     let outcome = match result {
         Ok(Ok(o)) => Ok(o),
         Ok(Err(e)) => Err(RuntimeError::Application(e)),
         Err(join_err) => Err(RuntimeError::WorkerExecutionFailed {
             taskrun_id: Some(taskrun_id),
-            kind: if join_err.is_panic() { WorkerFailureKind::WorkerPanicked } else { WorkerFailureKind::BlockingPoolClosed },
+            kind: if join_err.is_panic() {
+                WorkerFailureKind::WorkerPanicked
+            } else {
+                WorkerFailureKind::BlockingPoolClosed
+            },
         }),
     };
     let _ = reply.send(outcome);
@@ -142,7 +162,10 @@ async fn drain_mailbox<E, U, I>(
         while let Some(req) = rx.recv().await {
             let (call, reply) = req.request.into_parts();
             let lease = req.lease;
-            execute_request(call, reply, lease, taskrun_id, service, semaphore, config, cancel).await;
+            execute_request(
+                call, reply, lease, taskrun_id, service, semaphore, config, cancel,
+            )
+            .await;
         }
     }
 }

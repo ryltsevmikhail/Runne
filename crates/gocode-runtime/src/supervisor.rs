@@ -7,7 +7,7 @@ use gocode_application::commands::{CommandOutcome, CreateTaskRunInput};
 use gocode_application::ports::{ApplicationCommandContext, EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
 use gocode_domain::id::TaskRunId;
-use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -269,28 +269,68 @@ fn dispatch_admitted<E, U, I>(
     let AdmittedRequest { request, lease } = admitted;
 
     match request {
-        RuntimeRequest::Create { context, input, reply } => {
+        RuntimeRequest::Create {
+            context,
+            input,
+            reply,
+        } => {
             registry.spawn_create_task(context, input, service, reply);
             drop(lease);
         }
-        RuntimeRequest::Queue { context, input, reply, .. } => {
+        RuntimeRequest::Queue {
+            context,
+            input,
+            reply,
+            ..
+        } => {
             let tid = input.taskrun_id;
-            let per_run = PerRunRequest::Queue { context, input, reply };
+            let per_run = PerRunRequest::Queue {
+                context,
+                input,
+                reply,
+            };
             route_to_worker(tid, per_run, lease, registry);
         }
-        RuntimeRequest::Admit { context, input, reply, .. } => {
+        RuntimeRequest::Admit {
+            context,
+            input,
+            reply,
+            ..
+        } => {
             let tid = input.taskrun_id;
-            let per_run = PerRunRequest::Admit { context, input, reply };
+            let per_run = PerRunRequest::Admit {
+                context,
+                input,
+                reply,
+            };
             route_to_worker(tid, per_run, lease, registry);
         }
-        RuntimeRequest::StartAttempt { context, input, reply, .. } => {
+        RuntimeRequest::StartAttempt {
+            context,
+            input,
+            reply,
+            ..
+        } => {
             let tid = input.taskrun_id;
-            let per_run = PerRunRequest::StartAttempt { context, input, reply };
+            let per_run = PerRunRequest::StartAttempt {
+                context,
+                input,
+                reply,
+            };
             route_to_worker(tid, per_run, lease, registry);
         }
-        RuntimeRequest::Complete { context, input, reply, .. } => {
+        RuntimeRequest::Complete {
+            context,
+            input,
+            reply,
+            ..
+        } => {
             let tid = input.taskrun_id;
-            let per_run = PerRunRequest::Complete { context, input, reply };
+            let per_run = PerRunRequest::Complete {
+                context,
+                input,
+                reply,
+            };
             route_to_worker(tid, per_run, lease, registry);
         }
     }

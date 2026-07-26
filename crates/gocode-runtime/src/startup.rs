@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use gocode_application::ports::{EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
-use tokio::sync::{mpsc, oneshot, Semaphore};
+use tokio::sync::{Semaphore, mpsc, oneshot};
 
 pub use crate::config::{RuntimeConfig, RuntimeStartError};
 use crate::controller::{ControlCommand, RuntimeController, ShutdownOutcome};
@@ -28,6 +28,19 @@ pub struct TokioRuntimeContext {
     pub executor: tokio::runtime::Handle,
     /// Phantom proof of borrow (caller holds the real Tokio runtime).
     pub lease: BorrowedLease,
+}
+
+impl TokioRuntimeContext {
+    /// Test-only: construct from current Tokio handle.
+    pub fn new_for_test() -> Self {
+        Self {
+            generation: RuntimeGenerationId(0),
+            executor: tokio::runtime::Handle::current(),
+            lease: BorrowedLease {
+                _phantom: std::marker::PhantomData,
+            },
+        }
+    }
 }
 
 /// Opaque token proving the caller holds a reference to a Tokio runtime.
@@ -78,11 +91,7 @@ impl Runtime {
         let cancel = tokio_util::sync::CancellationToken::new();
 
         // Build handle and controller
-        let handle = RuntimeHandle::new(
-            ingress_tx,
-            Arc::clone(&gate),
-            Arc::clone(&in_flight_sem),
-        );
+        let handle = RuntimeHandle::new(ingress_tx, Arc::clone(&gate), Arc::clone(&in_flight_sem));
         let controller = RuntimeController::new(control_tx, drain_complete_rx);
 
         // Spawn supervisor on the provided executor
