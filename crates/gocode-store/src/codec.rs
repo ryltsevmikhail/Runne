@@ -154,10 +154,7 @@ fn read_uuid(bytes: &[u8], pos: &mut usize) -> Result<[u8; 16], StoreCodecError>
 }
 
 /// Read a length-prefixed byte slice (u16 BE length), advancing `pos`.
-fn read_len_prefixed<'a>(
-    bytes: &'a [u8],
-    pos: &mut usize,
-) -> Result<&'a [u8], StoreCodecError> {
+fn read_len_prefixed<'a>(bytes: &'a [u8], pos: &mut usize) -> Result<&'a [u8], StoreCodecError> {
     let len = read_u16_be(bytes, pos)? as usize;
     if *pos + len > bytes.len() {
         return Err(StoreCodecError::Truncated);
@@ -320,11 +317,12 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
             }
             TAG_TASK_RUN_FAILED => {
                 let reason_bytes = read_len_prefixed(bytes, &mut pos)?;
-                let reason =
-                    String::from_utf8(reason_bytes.to_vec()).map_err(|_| StoreCodecError::UnknownTag {
+                let reason = String::from_utf8(reason_bytes.to_vec()).map_err(|_| {
+                    StoreCodecError::UnknownTag {
                         tag,
                         context: "TaskRunFailed reason (invalid UTF-8)",
-                    })?;
+                    }
+                })?;
                 TaskRunEvent::TaskRunFailed { reason }
             }
             TAG_BUDGET_EXHAUSTED => TaskRunEvent::BudgetExhausted,
@@ -337,7 +335,7 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
                 return Err(StoreCodecError::UnknownTag {
                     tag,
                     context: "TaskRunEvent",
-                })
+                });
             }
         };
 
@@ -378,11 +376,12 @@ fn decode_terminal_result(
         0x00 => Ok(TerminalResult::Success),
         0x01 => {
             let reason_bytes = read_len_prefixed(bytes, pos)?;
-            let reason =
-                String::from_utf8(reason_bytes.to_vec()).map_err(|_| StoreCodecError::UnknownTag {
+            let reason = String::from_utf8(reason_bytes.to_vec()).map_err(|_| {
+                StoreCodecError::UnknownTag {
                     tag: 0x01,
                     context: "TerminalResult::Failure reason (invalid UTF-8)",
-                })?;
+                }
+            })?;
             Ok(TerminalResult::Failure { reason })
         }
         tag => Err(StoreCodecError::UnknownTag {
@@ -519,7 +518,7 @@ impl StoreCodec<CommandOutcome> for CommandOutcomeCodec {
                 return Err(StoreCodecError::UnknownTag {
                     tag,
                     context: "CommandOutcome",
-                })
+                });
             }
         };
 
@@ -616,7 +615,7 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,
                     context: "OperationTag",
-                })
+                });
             }
         };
 
@@ -644,7 +643,7 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,
                     context: "AggregateScope",
-                })
+                });
             }
         };
 
@@ -734,10 +733,7 @@ mod tests {
         bytes[0] = 0xFF;
         bytes[1] = 0xFF;
         let err = codec.decode(&bytes).unwrap_err();
-        assert!(matches!(
-            err,
-            StoreCodecError::UnsupportedVersion { .. }
-        ));
+        assert!(matches!(err, StoreCodecError::UnsupportedVersion { .. }));
     }
 
     #[test]
@@ -798,9 +794,7 @@ mod tests {
             runtime_authority_id: gocode_application::ports::RuntimeAuthorityId("host-1".into()),
             principal_id: gocode_application::ports::PrincipalId("user-1".into()),
             operation: OperationTag::Queue,
-            aggregate_scope: AggregateScope::ExistingTaskRun {
-                taskrun_id: tr_id,
-            },
+            aggregate_scope: AggregateScope::ExistingTaskRun { taskrun_id: tr_id },
         };
         let bytes = codec.encode(&original).unwrap();
         let decoded = codec.decode(&bytes).unwrap();

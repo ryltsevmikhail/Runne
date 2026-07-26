@@ -278,6 +278,36 @@ impl<E> UncommittedEvent<E> {
         &self.payload
     }
 
+    /// Construct an [`UncommittedEvent`] from all its parts.
+    ///
+    /// Used by persistence adapters for integrity digest computation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts(
+        event_id: EventId,
+        aggregate_id: AggregateId,
+        taskrun_id: TaskRunId,
+        causation_id: Option<EventId>,
+        command_id: CommandId,
+        idempotency_key: IdempotencyKey,
+        schema_version: u32,
+        actor: Actor,
+        sensitivity: Sensitivity,
+        payload: E,
+    ) -> Self {
+        Self {
+            event_id,
+            aggregate_id,
+            taskrun_id,
+            causation_id,
+            command_id,
+            idempotency_key,
+            schema_version,
+            actor,
+            sensitivity,
+            payload,
+        }
+    }
+
     /// Assemble an [`EventEnvelope`] from persisted parts.
     ///
     /// This method ONLY constructs a representation — it does **not** prove
@@ -394,6 +424,43 @@ impl<E> EventEnvelope<E> {
     /// Return the integrity digest (persistence-owned).
     pub fn integrity_digest(&self) -> &IntegrityDigest {
         &self.integrity_digest
+    }
+
+    /// Construct an [`EventEnvelope`] from all its parts.
+    ///
+    /// Used by persistence adapters when reconstructing events from
+    /// database rows. All fields are provided explicitly.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_parts(
+        event_id: EventId,
+        aggregate_id: AggregateId,
+        taskrun_id: TaskRunId,
+        causation_id: Option<EventId>,
+        command_id: CommandId,
+        idempotency_key: IdempotencyKey,
+        schema_version: u32,
+        actor: Actor,
+        sensitivity: Sensitivity,
+        payload: E,
+        sequence: u64,
+        timestamp: Timestamp,
+        integrity_digest: IntegrityDigest,
+    ) -> Self {
+        Self {
+            event_id,
+            aggregate_id,
+            taskrun_id,
+            causation_id,
+            command_id,
+            idempotency_key,
+            schema_version,
+            actor,
+            sensitivity,
+            payload,
+            sequence,
+            timestamp,
+            integrity_digest,
+        }
     }
 }
 
