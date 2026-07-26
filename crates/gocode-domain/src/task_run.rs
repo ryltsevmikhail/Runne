@@ -543,7 +543,7 @@ impl TaskRun {
     }
 
     /// Core transition table — apply a payload to mutate state.
-    fn apply_payload(&mut self, payload: &TaskRunEvent) -> Result<(), DomainError> {
+    pub fn apply_payload(&mut self, payload: &TaskRunEvent) -> Result<(), DomainError> {
         match payload {
             TaskRunEvent::TaskRunCreated => {
                 self.state = TaskRunState::Created;
