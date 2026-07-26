@@ -155,13 +155,6 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         let current_version = stream.current_version;
         let last_event_id = stream.last_event_id;
 
-        if current_version != expected_version {
-            return Err(ApplicationError::VersionConflict {
-                expected: expected_version,
-                actual: current_version,
-            });
-        }
-
         let domain_ctx = CommandContext {
             command_id,
             idempotency_key: idempotency_key.clone(),
@@ -177,6 +170,13 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         } else {
             TaskRun::replay(&stream.events).map_err(ApplicationError::Domain)?
         };
+
+        if current_version != expected_version {
+            return Err(ApplicationError::VersionConflict {
+                expected: expected_version,
+                actual: current_version,
+            });
+        }
 
         let drafts = agg
             .decide(domain_command)
