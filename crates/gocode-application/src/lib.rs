@@ -9,9 +9,9 @@
 //! * **Ports** — abstract traits for persistence, identity, time ([`ports`])
 //! * **Errors** — closed, typed application errors ([`errors`])
 //! * **Fingerprint** — SHA-256 command identity for idempotency ([`fingerprint`])
-//! * **Pipeline** — internal execution engine, not public API ([`pipeline`])
+//! * **Pipeline** — internal execution engine, not public API (`pipeline`)
 //! * **Commands** — input/output DTO for use cases ([`commands`])
-//! * **Service** — public [`TaskRunService`] facade ([`service`])
+//! * **Service** — public crate::service::TaskRunService facade ([`service`])
 
 pub mod commands;
 pub mod errors;
