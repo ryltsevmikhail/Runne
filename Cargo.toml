@@ -4,6 +4,7 @@ members = [
   "crates/gocode-domain",
   "crates/gocode-plugin-protocol",
   "crates/gocode-application",
+  "crates/gocode-store",
 ]
 
 [workspace.package]
