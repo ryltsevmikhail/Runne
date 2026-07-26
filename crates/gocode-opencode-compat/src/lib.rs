@@ -8,3 +8,4 @@
 pub mod classify;
 pub mod inventory;
 pub mod profile;
+pub mod translate;
