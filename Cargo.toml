@@ -9,6 +9,7 @@ members = [
   "src-tauri/crates/local-store",
   "src-tauri/crates/platform-desktop",
   "src-tauri/crates/platform-mobile",
+"src-tauri/crates/pairing-crypto",
 ]
 
 [workspace.package]
@@ -23,6 +24,7 @@ tauri = { version = "=2.11.5", default-features = false, features = ["wry"] }
 thiserror = "=2.0.18"
 rusqlite = { version = "=0.40.1", features = ["bundled"] }
 sha2 = "=0.10.9"
+ed25519-dalek = "=2.1.1"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
