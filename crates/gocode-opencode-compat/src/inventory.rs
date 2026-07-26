@@ -80,7 +80,7 @@ pub static INVENTORY: LazyLock<Vec<InventoryEntry>> = LazyLock::new(|| {
             source: SourceRef {
                 path: "session.ts".into(),
                 lines: (0, 0),
-                sha: "66495a2a".into(),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
                 observed_date: "2026-07-24".into(),
             },
             confidence: Confidence::Observed,
@@ -112,7 +112,7 @@ pub static INVENTORY: LazyLock<Vec<InventoryEntry>> = LazyLock::new(|| {
             source: SourceRef {
                 path: "session.ts".into(),
                 lines: (0, 0),
-                sha: "66495a2a".into(),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
                 observed_date: "2026-07-24".into(),
             },
             confidence: Confidence::Observed,
@@ -144,7 +144,7 @@ pub static INVENTORY: LazyLock<Vec<InventoryEntry>> = LazyLock::new(|| {
             source: SourceRef {
                 path: "session.ts".into(),
                 lines: (0, 0),
-                sha: "66495a2a".into(),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
                 observed_date: "2026-07-24".into(),
             },
             confidence: Confidence::Observed,
@@ -176,7 +176,7 @@ pub static INVENTORY: LazyLock<Vec<InventoryEntry>> = LazyLock::new(|| {
             source: SourceRef {
                 path: "session.ts".into(),
                 lines: (0, 0),
-                sha: "66495a2a".into(),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
                 observed_date: "2026-07-24".into(),
             },
             confidence: Confidence::Observed,
@@ -208,7 +208,7 @@ pub static INVENTORY: LazyLock<Vec<InventoryEntry>> = LazyLock::new(|| {
             source: SourceRef {
                 path: "session.ts".into(),
                 lines: (0, 0),
-                sha: "66495a2a".into(),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
                 observed_date: "2026-07-24".into(),
             },
             confidence: Confidence::Observed,
