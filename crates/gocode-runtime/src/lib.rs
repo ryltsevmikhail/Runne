@@ -21,3 +21,4 @@ mod startup;
 pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };
+pub mod bundle;

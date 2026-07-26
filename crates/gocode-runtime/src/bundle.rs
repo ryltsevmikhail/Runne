@@ -26,7 +26,6 @@ const RS: u8 = 0x1E;
 
 // ── Known event types ────────────────────────────────────────────────
 
-/// Every event type the client must understand.
 pub const KNOWN_EVENT_TYPES: &[&str] = &[
     "TaskRunCreated",
     "TaskRunAdmitted",
@@ -53,7 +52,6 @@ pub const KNOWN_EVENT_TYPES: &[&str] = &[
 
 // ── Known command types ──────────────────────────────────────────────
 
-/// Every command the client may issue.
 pub const KNOWN_COMMANDS: &[&str] = &[
     "CreateTaskRun",
     "Admit",
@@ -76,13 +74,10 @@ pub const KNOWN_COMMANDS: &[&str] = &[
 
 // ── Known aggregate kinds ────────────────────────────────────────────
 
-/// Every aggregate kind the client references.
 pub const KNOWN_AGGREGATE_KINDS: &[&str] = &["TaskRun", "Conversation", "Workspace"];
 
 // ── Bundle manifest ──────────────────────────────────────────────────
 
-/// Canonical bundle manifest — generates deterministic bytes.
-#[derive(Debug, Clone)]
 pub struct BundleManifest {
     pub bundle_id: String,
     pub runtime_commit: String,
@@ -92,7 +87,6 @@ pub struct BundleManifest {
 }
 
 impl BundleManifest {
-    /// Create a manifest with the current known types.
     #[must_use]
     pub fn v1(runtime_commit: &str) -> Self {
         Self {
@@ -107,59 +101,36 @@ impl BundleManifest {
         }
     }
 
-    /// Produce canonical bytes for the manifest.
-    ///
-    /// Format (RS = 0x1E separator, NL = 0x0A line feed):
-    /// ```text
-    /// BUNDLE_ID:RS:RUNTIME_COMMIT:NL
-    /// EVENTS:RS:type1,type2,...:NL
-    /// COMMANDS:RS:cmd1,cmd2,...:NL
-    /// AGGREGATES:RS:kind1,kind2,...:NL
-    /// ```
-    /// Every section terminator is NL (0x0A). No trailing whitespace.
     #[must_use]
     pub fn canonical_bytes(&self) -> Vec<u8> {
         let mut buf = Vec::with_capacity(1024);
-
-        // Bundle header: BUNDLE_ID:RS:RUNTIME_COMMIT:NL
         buf.extend_from_slice(self.bundle_id.as_bytes());
         buf.push(RS);
         buf.extend_from_slice(self.runtime_commit.as_bytes());
         buf.push(b'\n');
-
-        // Events
         buf.extend_from_slice(b"EVENTS");
         buf.push(RS);
         buf.extend_from_slice(self.event_types.join(",").as_bytes());
         buf.push(b'\n');
-
-        // Commands
         buf.extend_from_slice(b"COMMANDS");
         buf.push(RS);
         buf.extend_from_slice(self.commands.join(",").as_bytes());
         buf.push(b'\n');
-
-        // Aggregates
         buf.extend_from_slice(b"AGGREGATES");
         buf.push(RS);
         buf.extend_from_slice(self.aggregate_kinds.join(",").as_bytes());
         buf.push(b'\n');
-
         buf
     }
 
-    /// SHA-256 of `BundleManifest::canonical_bytes()`.
     #[must_use]
     pub fn golden_hash(&self) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(self.canonical_bytes());
-        hex::encode(hasher.finalize())
+        hex::encode(Sha256::digest(self.canonical_bytes()))
     }
 }
 
 // ── Bundle validation ────────────────────────────────────────────────
 
-/// Error returned when a client bundle fails validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BundleValidationError {
     UnknownBundleId(String),
@@ -185,12 +156,6 @@ impl std::fmt::Display for BundleValidationError {
 
 impl std::error::Error for BundleValidationError {}
 
-/// Validate a client bundle manifest against the runtime's known types.
-///
-/// # Errors
-///
-/// Returns an error if the bundle ID is unknown, any event/command/aggregate
-/// type is unknown, or the golden hash does not match.
 pub fn validate_bundle(
     manifest: &BundleManifest,
     expected_hash: &str,
@@ -200,14 +165,11 @@ pub fn validate_bundle(
             manifest.bundle_id.clone(),
         ));
     }
-
-    // Every event in the manifest must be known
     for et in &manifest.event_types {
         if !KNOWN_EVENT_TYPES.contains(&et.as_str()) {
             return Err(BundleValidationError::UnknownEventType(et.clone()));
         }
     }
-    // Every known event must be present in the manifest
     for known in KNOWN_EVENT_TYPES {
         if !manifest.event_types.iter().any(|e| e == known) {
             return Err(BundleValidationError::UnknownEventType(
@@ -215,22 +177,16 @@ pub fn validate_bundle(
             ));
         }
     }
-
-    // Commands
     for cmd in &manifest.commands {
         if !KNOWN_COMMANDS.contains(&cmd.as_str()) {
             return Err(BundleValidationError::UnknownCommand(cmd.clone()));
         }
     }
-
-    // Aggregates
     for kind in &manifest.aggregate_kinds {
         if !KNOWN_AGGREGATE_KINDS.contains(&kind.as_str()) {
             return Err(BundleValidationError::UnknownAggregateKind(kind.clone()));
         }
     }
-
-    // Hash
     let actual = manifest.golden_hash();
     if actual != expected_hash {
         return Err(BundleValidationError::HashMismatch {
@@ -238,13 +194,8 @@ pub fn validate_bundle(
             actual,
         });
     }
-
     Ok(())
 }
-
-// ══════════════════════════════════════════════════════════════════════
-// Tests
-// ══════════════════════════════════════════════════════════════════════
 
 #[cfg(test)]
 mod tests {
@@ -261,22 +212,22 @@ mod tests {
     fn golden_hash_is_stable() {
         let manifest = BundleManifest::v1(RUNTIME_COMMIT_PLACEHOLDER);
         let hash = manifest.golden_hash();
-        // Hash of canonical bytes with placeholder commit — must be stable
         assert_eq!(hash.len(), 64);
-        // Run once, pin the value
-        let expected = "6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b";
-        if expected != "6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b" {
-            assert_eq!(hash, expected);
-        }
+        assert_eq!(
+            hash,
+            "6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b"
+        );
     }
 
     #[test]
     fn validate_rejects_unknown_bundle_id() {
         let mut manifest = BundleManifest::v1(RUNTIME_COMMIT_PLACEHOLDER);
         manifest.bundle_id = "evil-client/1".into();
-        let hash = manifest.golden_hash(); // use actual hash to bypass hash check
-        let err = validate_bundle(&manifest, &hash).unwrap_err();
-        assert!(matches!(err, BundleValidationError::UnknownBundleId(_)));
+        let hash = manifest.golden_hash();
+        assert!(matches!(
+            validate_bundle(&manifest, &hash).unwrap_err(),
+            BundleValidationError::UnknownBundleId(_)
+        ));
     }
 
     #[test]
@@ -284,15 +235,19 @@ mod tests {
         let mut manifest = BundleManifest::v1(RUNTIME_COMMIT_PLACEHOLDER);
         manifest.event_types.push("EvilEvent".into());
         let hash = manifest.golden_hash();
-        let err = validate_bundle(&manifest, &hash).unwrap_err();
-        assert!(matches!(err, BundleValidationError::UnknownEventType(_)));
+        assert!(matches!(
+            validate_bundle(&manifest, &hash).unwrap_err(),
+            BundleValidationError::UnknownEventType(_)
+        ));
     }
 
     #[test]
     fn validate_rejects_hash_mismatch() {
         let manifest = BundleManifest::v1(RUNTIME_COMMIT_PLACEHOLDER);
-        let err = validate_bundle(&manifest, "deadbeef").unwrap_err();
-        assert!(matches!(err, BundleValidationError::HashMismatch { .. }));
+        assert!(matches!(
+            validate_bundle(&manifest, "deadbeef").unwrap_err(),
+            BundleValidationError::HashMismatch { .. }
+        ));
     }
 
     #[test]
@@ -300,14 +255,12 @@ mod tests {
         let manifest = BundleManifest::v1(RUNTIME_COMMIT_PLACEHOLDER);
         let bytes = manifest.canonical_bytes();
         let text = String::from_utf8_lossy(&bytes);
-
-        // Verify format: BUNDLE_ID:RS:RUNTIME_COMMIT:NL
         assert!(text.starts_with("gocode-ui-client/1"));
         assert!(text.contains('\x1E'));
         assert!(text.contains("EVENTS\x1E"));
         assert!(text.contains("COMMANDS\x1E"));
         assert!(text.contains("AGGREGATES\x1E"));
         assert!(text.ends_with('\n'));
-        assert!(!text.contains(' ')); // no spaces in canonical format
+        assert!(!text.contains(' '));
     }
 }
