@@ -1,8 +1,6 @@
 //! Profile types — std-only, zero deps.
 
-use crate::classify::{
-    CompatibilityClass, ImplementationStatus, RejectionCode, RejectionRationale,
-};
+use crate::classify::{RejectionCode, RejectionRationale};
 
 /// Bounded profile identifier (no revision suffix).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

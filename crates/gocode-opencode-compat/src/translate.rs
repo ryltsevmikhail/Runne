@@ -1,7 +1,7 @@
 //! Translation layer — Phase 2a: all reject.
 
-use crate::classify::{RejectionCode, RejectionRationale};
-use crate::inventory::{InventoryEntry, classify};
+use crate::classify::{ImplementationStatus, RejectionCode};
+use crate::inventory::classify;
 use crate::profile::{OperationSelector, ProfileId, ProfileRejection, TranslationDecision};
 
 pub fn translate_request(
@@ -18,7 +18,7 @@ pub fn translate_request(
             inventory_id: Some(e.inventory_id.clone()),
             upstream_operation_id: e.upstream_operation_id.clone(),
             code: match e.implementation_status {
-                crate::classify::ImplementationStatus::Planned => RejectionCode::OperationPlanned,
+                ImplementationStatus::Planned => RejectionCode::OperationPlanned,
                 _ => RejectionCode::OperationUnsupported,
             },
             rationale: e.rationale,
