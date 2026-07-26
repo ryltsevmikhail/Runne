@@ -2,8 +2,7 @@
 //!
 //! [`TaskRunService`] owns the pipeline and exposes five typed use cases.
 
-use gocode_domain::command::{TaskRunCommand, TerminalResult};
-use gocode_domain::id::{AttemptId, TaskRunId};
+use gocode_domain::command::TaskRunCommand;
 
 use crate::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
@@ -13,8 +12,8 @@ use crate::errors::ApplicationError;
 use crate::fingerprint::CommandFingerprint;
 use crate::pipeline::Pipeline;
 use crate::ports::{
-    ApplicationCommandContext, EventStore, IdGenerator, OperationTag, PrincipalId,
-    RuntimeAuthorityId, UnitOfWork,
+    ApplicationCommandContext, EventStore, IdGenerator, OperationTag, RuntimeAuthorityId,
+    UnitOfWork,
 };
 
 pub struct TaskRunService<E, U, I> {

@@ -8,6 +8,7 @@ use gocode_application::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
     StartAttemptInput,
 };
+
 use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
     ApplicationCommandContext, CommandCommit, CommitError, CommitResult, EventStore,
@@ -31,9 +32,11 @@ fn conv_id() -> ConversationId {
 fn ws_id() -> WorkspaceId {
     "018f2e3a-7000-7000-8000-000000000003".parse().unwrap()
 }
+#[allow(dead_code)]
 fn cmd_id() -> CommandId {
     "018f2e3a-7000-7000-8000-000000000004".parse().unwrap()
 }
+#[allow(dead_code)]
 fn idem_key() -> IdempotencyKey {
     IdempotencyKey::new("test-key").unwrap()
 }
@@ -41,6 +44,7 @@ fn att_id() -> AttemptId {
     "018f2e3a-7000-7000-8000-000000000005".parse().unwrap()
 }
 
+#[allow(dead_code)]
 fn ctx() -> ApplicationCommandContext {
     ApplicationCommandContext {
         command_id: cmd_id(),
@@ -112,25 +116,24 @@ impl UnitOfWork for MemStore {
             });
         }
         let tr_id = *payload.events.first().unwrap().taskrun_id();
-        let stream = inner.streams.entry(tr_id).or_default();
-        let cv = stream.len() as u64;
-        if cv != payload.expected_version {
-            return Err(CommitError::VersionConflict {
-                expected: payload.expected_version,
-                actual: cv,
-            });
-        }
-        let mut seq = cv + 1;
-        for ue in &payload.events {
-            stream.push(ue.clone().into_envelope(
-                seq,
-                gocode_domain::timestamp::Timestamp::from_unix_micros(0),
-                gocode_domain::id::IntegrityDigest::from_bytes([0u8; 32]),
-            ));
-            seq += 1;
-        }
-        let new_version = stream.len() as u64;
-        drop(stream);
+        let new_version = {
+            let stream = inner.streams.entry(tr_id).or_default();
+            let cv = stream.len() as u64;
+            if cv != payload.expected_version {
+                return Err(CommitError::VersionConflict {
+                    expected: payload.expected_version,
+                    actual: cv,
+                });
+            }
+            for (seq, ue) in (cv + 1..).zip(payload.events.iter()) {
+                stream.push(ue.clone().into_envelope(
+                    seq,
+                    gocode_domain::timestamp::Timestamp::from_unix_micros(0),
+                    gocode_domain::id::IntegrityDigest::from_bytes([0u8; 32]),
+                ));
+            }
+            stream.len() as u64
+        };
         inner.receipts.insert(rk, payload.command_result.clone());
         Ok(CommitResult::Committed { new_version })
     }
@@ -162,7 +165,7 @@ fn cmd_id_n(n: u8) -> CommandId {
         .unwrap()
 }
 fn idem_key_n(n: u8) -> IdempotencyKey {
-    IdempotencyKey::new(&format!("test-key-{}", n)).unwrap()
+    IdempotencyKey::new(format!("test-key-{}", n)).unwrap()
 }
 fn ctx_n(n: u8) -> ApplicationCommandContext {
     ApplicationCommandContext {
