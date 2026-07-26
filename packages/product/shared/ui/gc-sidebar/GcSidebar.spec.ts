@@ -46,6 +46,17 @@ describe('GcSidebar', () => {
     expect(badge.text()).toBe('3')
   })
 
+  it('collapsed buttons have aria-label with item label', () => {
+    const wrapper = mount(GcSidebar, {
+      props: { items, collapsed: true },
+    })
+    const buttons = wrapper.findAll('.gc-sidebar-item')
+    expect(buttons[0].attributes('aria-label')).toBe('Home')
+    expect(buttons[1].attributes('aria-label')).toBe('Settings')
+    // Profile has no icon but should still get aria-label in collapsed mode
+    expect(buttons[2].attributes('aria-label')).toBe('Profile')
+  })
+
   it('collapsed width is 56px', () => {
     const wrapper = mount(GcSidebar, {
       props: { items, collapsed: true },
