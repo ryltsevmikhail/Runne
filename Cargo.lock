@@ -191,10 +191,6 @@ dependencies = [
 [[package]]
 name = "gocode-domain"
 version = "0.1.0"
-dependencies = [
- "hex",
- "sha2",
-]
 
 [[package]]
 name = "gocode-plugin-protocol"
@@ -207,6 +203,8 @@ dependencies = [
  "gocode-application",
  "gocode-domain",
  "gocode-store",
+ "hex",
+ "sha2",
  "tokio",
  "tokio-util",
 ]

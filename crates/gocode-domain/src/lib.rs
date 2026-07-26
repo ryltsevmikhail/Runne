@@ -5,7 +5,6 @@
 //! gocode-domain — pure domain types, IDs, events, commands, state machines.
 //! No async, no IO, no external dependencies.
 
-pub mod bundle;
 pub mod command;
 pub mod error;
 pub mod event;

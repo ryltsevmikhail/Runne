@@ -5,5 +5,3 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-hex = "=0.4.3"
-sha2.workspace = true
