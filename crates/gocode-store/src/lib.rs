@@ -1,8 +1,15 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
-#![allow(missing_docs)]
 
-//! gocode-store — SQLite persistence for gocode-runtime.
+//! `gocode-store` — SQLite persistence adapter for GOCODE Runtime.
 //!
-//! Implements EventStore, UnitOfWork from gocode-application.
-//! Embedded SQLite via rusqlite with bundled SQLite.
+//! ## Architecture
+//!
+//! * **Schema** — DDL, migrations, startup PRAGMA gates ([`schema`])
+//! * **Codec** — durable encoding/decoding for event payloads and receipts ([`codec`])
+//! * **Integrity** — SHA-256 integrity digest computation ([`integrity`])
+//! * **Store** — `StoreTransaction`, EventStore/UnitOfWork/IdGenerator/Clock impl ([`store`])
+
+pub mod codec;
+pub mod integrity;
+pub mod schema;
