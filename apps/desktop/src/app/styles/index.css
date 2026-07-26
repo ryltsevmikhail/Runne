@@ -115,6 +115,13 @@ button {
   padding-inline: 4px;
 }
 
+.app-sidebar-navigation {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
 .sidebar-header {
   display: flex;
   min-height: 32px;

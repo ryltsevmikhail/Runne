@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { GcAlert } from '@gocode/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { onMounted, ref } from 'vue'
 
@@ -58,14 +59,14 @@ onMounted(async () => {
       <h2>Loading diagnostics</h2>
     </div>
 
-    <div
+    <GcAlert
       v-else-if="error || diagnostics === null"
-      class="empty-state"
+      level="error"
+      title="Diagnostics unavailable"
       role="alert"
     >
-      <h2>Diagnostics unavailable</h2>
-      <p>Safe local metadata could not be read.</p>
-    </div>
+      Safe local metadata could not be read.
+    </GcAlert>
 
     <dl
       v-else

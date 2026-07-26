@@ -19,6 +19,7 @@ describe('desktop application shell', () => {
     })
 
     expect(wrapper.get('nav').attributes('aria-label')).toBe('Primary')
+    expect(wrapper.findComponent({ name: 'GcSidebar' }).exists()).toBe(true)
     expect(wrapper.get('main').text()).toContain('Projects')
   })
 
@@ -53,7 +54,7 @@ describe('desktop application shell', () => {
 
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
-    expect(titleBar.text()).toBe('')
+    expect(titleBar.text()).toContain('GOCODE')
   })
 
   it('toggles the desktop color theme from the sidebar', async () => {
@@ -72,6 +73,7 @@ describe('desktop application shell', () => {
 
     expect(wrapper.attributes('data-theme')).toBe('light')
     expect(wrapper.find('[aria-label="Use dark theme"]').exists()).toBe(true)
+    expect(wrapper.get('.app-shell').attributes('data-theme')).toBe('light')
   })
 
   it('collapses the desktop navigation without hiding its accessible name', async () => {

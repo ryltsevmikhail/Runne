@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { GcAlert, GcButton } from '@gocode/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { ArrowRight, FolderOpen } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
@@ -49,6 +50,10 @@ async function openWorkspace() {
     params: { id: project.value.id },
   })
 }
+
+async function returnToProjects() {
+  await router.push('/')
+}
 </script>
 
 <template>
@@ -65,14 +70,15 @@ async function openWorkspace() {
     class="empty-state"
     role="alert"
   >
-    <h1>Project unavailable</h1>
-    <p>The saved local project could not be restored.</p>
-    <RouterLink
-      class="primary-button"
-      to="/"
+    <GcAlert
+      level="error"
+      title="Project unavailable"
     >
+      The saved local project could not be restored.
+    </GcAlert>
+    <GcButton variant="secondary" @click="returnToProjects">
       Back to projects
-    </RouterLink>
+    </GcButton>
   </section>
 
   <section

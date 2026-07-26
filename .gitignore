@@ -47,3 +47,6 @@ __pycache__/
 
 # SDD progress ledger (scratch)
 .superpowers/
+
+# Local linked worktrees
+.worktrees/

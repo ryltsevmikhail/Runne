@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { GcAlert, GcButton, GcWorkspacePanel } from '@gocode/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
-import { Folder, PanelRight, TerminalSquare } from 'lucide-vue-next'
+import { Folder, PanelRight } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
 import { getProject } from '@/entities/project'
@@ -16,6 +17,7 @@ const props = withDefaults(defineProps<{
 })
 
 const route = useRoute()
+const router = useRouter()
 const project = ref<Project | null>(null)
 const loading = ref(true)
 const error = ref(false)
@@ -38,6 +40,10 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+async function returnToProjects() {
+  await router.push('/')
+}
 </script>
 
 <template>
@@ -54,14 +60,15 @@ onMounted(async () => {
     class="empty-state"
     role="alert"
   >
-    <h1>Project unavailable</h1>
-    <p>The saved local project could not be restored.</p>
-    <RouterLink
-      class="primary-button"
-      to="/"
+    <GcAlert
+      level="error"
+      title="Project unavailable"
     >
+      The saved local project could not be restored.
+    </GcAlert>
+    <GcButton variant="secondary" @click="returnToProjects">
       Back to projects
-    </RouterLink>
+    </GcButton>
   </section>
 
   <section
@@ -93,15 +100,11 @@ onMounted(async () => {
       </aside>
 
       <div class="workspace-panel workspace-panel--main">
-        <TerminalSquare
-          :size="24"
-          aria-hidden="true"
+        <GcWorkspacePanel
+          :tabs="[{ id: 'overview', label: 'Overview' }]"
+          active-tab="overview"
+          panel-state="empty"
         />
-        <h2>Workspace restored</h2>
-        <p>
-          This project is stored locally. Task runs will become available after
-          the runtime contract is connected.
-        </p>
       </div>
 
       <aside class="workspace-panel workspace-panel--details">

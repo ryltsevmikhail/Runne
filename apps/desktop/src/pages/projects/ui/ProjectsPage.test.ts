@@ -45,6 +45,7 @@ describe('projects page', () => {
 
     expect(wrapper.text()).toContain('gocode-ui')
     expect(wrapper.text()).toContain('/workspace/gocode-ui')
+    expect(wrapper.get('[aria-label="Open project gocode-ui"] button').attributes('type')).toBe('button')
 
     await wrapper.get('[aria-label="Open project gocode-ui"]').trigger('click')
     await flushPromises()

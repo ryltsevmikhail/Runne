@@ -3,14 +3,16 @@ import {
   Activity,
   ChevronLeft,
   CircleHelp,
-  FolderKanban,
   Moon,
   PanelLeft,
-  Settings,
   Sun,
 } from 'lucide-vue-next'
+import { GcSidebar } from '@gocode/product/shared/ui'
+import '@gocode/product/shared/ui/styles/tokens.css'
+import '@gocode/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
 import { loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
 import brandIcon from '@/shared/assets/gocode-app-icon.png'
@@ -19,6 +21,14 @@ import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 
 const theme = ref<'dark' | 'light'>('dark')
 const sidebarCollapsed = ref(false)
+const route = useRoute()
+const router = useRouter()
+
+const sidebarItems = [
+  { id: 'projects', label: 'Projects', icon: '▦' },
+  { id: 'settings', label: 'Settings', icon: '⚙' },
+]
+const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
 
 onMounted(async () => {
   if (isTauri()) {
@@ -39,6 +49,10 @@ async function toggleTheme() {
   catch {
     theme.value = previous
   }
+}
+
+async function navigateSidebar(id: string) {
+  await router.push(id === 'settings' ? '/settings/runtimes' : '/')
 }
 </script>
 
@@ -90,33 +104,14 @@ async function toggleTheme() {
         </button>
       </div>
 
-      <nav aria-label="Primary">
-        <p class="nav-label">
-          Workspace
-        </p>
-        <RouterLink
-          class="nav-item"
-          to="/"
-          title="Projects"
-        >
-          <FolderKanban
-            :size="17"
-            aria-hidden="true"
-          />
-          <span>Projects</span>
-        </RouterLink>
-        <RouterLink
-          class="nav-item"
-          to="/settings/runtimes"
-          title="Runtime settings"
-        >
-          <Settings
-            :size="17"
-            aria-hidden="true"
-          />
-          <span>Settings</span>
-        </RouterLink>
-      </nav>
+      <GcSidebar
+        class="app-sidebar-navigation"
+        :items="sidebarItems"
+        :active-item="activeSidebarItem"
+        :collapsed="sidebarCollapsed"
+        aria-label="Primary"
+        @navigate="navigateSidebar"
+      />
 
       <div class="sidebar-status">
         <div

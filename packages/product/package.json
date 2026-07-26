@@ -2,5 +2,24 @@
   "name": "@gocode/product",
   "version": "0.1.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "vue-tsc --noEmit -p tsconfig.json"
+  },
+  "exports": {
+    "./shared/ui": "./shared/ui/index.ts",
+    "./shared/ui/styles/*": "./shared/ui/styles/*"
+  },
+  "dependencies": {
+    "vue": "3.5.28"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.5",
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "26.1.0",
+    "typescript": "5.9.3",
+    "vitest": "3.2.7",
+    "vue-tsc": "3.2.5"
+  }
 }

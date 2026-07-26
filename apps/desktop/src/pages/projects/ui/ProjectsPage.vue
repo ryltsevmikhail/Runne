@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { GcButton, GcProjectCard } from '@gocode/product/shared/ui'
 import { Clock3, FolderOpen, Plus } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -55,17 +56,13 @@ async function openProjectDetails(project: Project) {
         </h1>
         <p>Choose a workspace and continue where you left off.</p>
       </div>
-      <RouterLink
-        class="primary-button"
-        to="/projects/open"
-        aria-label="Open local project"
-      >
-        <Plus
-          :size="16"
-          aria-hidden="true"
-        />
-        Open project
-      </RouterLink>
+      <GcButton aria-label="Open local project" @click="openProjectPicker">
+          <Plus
+            :size="16"
+            aria-hidden="true"
+          />
+          Open project
+      </GcButton>
     </header>
 
     <div class="content-section">
@@ -93,26 +90,18 @@ async function openProjectDetails(project: Project) {
           </span>
           <span class="project-arrow">→</span>
         </button>
-        <button
+        <GcProjectCard
           v-for="project in projects"
           :key="project.id"
-          class="project-card"
-          type="button"
+          :project="{
+            name: project.name,
+            path: project.path,
+            slug: String(project.id),
+            modifiedAt: new Date(project.lastOpenedAt).toLocaleDateString(),
+          }"
           :aria-label="`Open project ${project.name}`"
           @click="openProjectDetails(project)"
-        >
-          <span class="project-icon">
-            <FolderOpen
-              :size="21"
-              aria-hidden="true"
-            />
-          </span>
-          <span class="project-copy">
-            <strong>{{ project.name }}</strong>
-            <small>{{ project.path }}</small>
-          </span>
-          <span class="project-arrow">→</span>
-        </button>
+        />
       </div>
     </div>
 
