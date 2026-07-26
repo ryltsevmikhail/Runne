@@ -65,8 +65,8 @@ fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidWireIdReason> {
     let mut byte_idx = 0usize;
     let mut chars = s.chars().filter(|c| *c != '-');
     while byte_idx < 16 {
-        let hi = chars.next().unwrap();
-        let lo = chars.next().unwrap();
+        let hi = chars.next().ok_or(InvalidWireIdReason::InvalidUuidFormat)?;
+        let lo = chars.next().ok_or(InvalidWireIdReason::InvalidUuidFormat)?;
         let hi_val = hex_nibble(hi as u8).ok_or(InvalidWireIdReason::InvalidUuidFormat)?;
         let lo_val = hex_nibble(lo as u8).ok_or(InvalidWireIdReason::InvalidUuidFormat)?;
         out[byte_idx] = (hi_val << 4) | lo_val;
