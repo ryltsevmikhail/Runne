@@ -6,7 +6,7 @@ use gocode_application::migration::{
         MigrationReport, MigrationReportFields, RollbackPolicy,
     },
     ports::CutoverIntent,
-    rollout::CanaryPolicy,
+    rollout::{CanaryPolicy, CutoverPolicy},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
         MigrationCycleId, MigrationPlanId, RoutingGeneration, RoutingUnit, RuntimeGenerationRef,
@@ -128,7 +128,9 @@ fn cutover_fields(migration_report: MigrationReport) -> CutoverManifestFields {
         plan_id: plan_id(),
         cycle_id: cycle_id(),
         intent: CutoverIntent::InternalCanary,
-        canary_policy: CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+        rollout_policy: CutoverPolicy::InternalCanary(
+            CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+        ),
         routing_unit: routing_unit(),
         source_release: artifact("source-release", 2),
         source_generation: RuntimeGenerationRef::new("source-v1").unwrap(),

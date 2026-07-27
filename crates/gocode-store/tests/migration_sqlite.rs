@@ -18,7 +18,7 @@ use gocode_application::migration::{
         MigrationTransition, SanitizedShadowInput, ShadowDiffReport, ShadowExecutionError,
         ShadowExecutionPort,
     },
-    rollout::CanaryPolicy,
+    rollout::{CanaryPolicy, CutoverPolicy},
     service::{
         CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
         RecordEvidenceInput, StagePlanInput, StartRollbackInput,
@@ -728,7 +728,9 @@ fn prepare_cutover_input(
     PrepareCutoverInput {
         plan_id: plan_id(),
         intent: CutoverIntent::InternalCanary,
-        canary_policy: CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+        rollout_policy: CutoverPolicy::InternalCanary(
+            CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+        ),
         manifest: artifact("cutover-manifest", 30),
         source_release: artifact("source-release", 31),
         candidate_release: artifact("candidate-release", 32),
