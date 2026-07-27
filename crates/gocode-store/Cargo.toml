@@ -7,8 +7,10 @@ rust-version.workspace = true
 [dependencies]
 gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
+rand = "0.8"
 rusqlite = { version = "=0.34.0", features = ["bundled"] }
 sha2 = "=0.10.8"
+hmac = "0.12"
 async-trait = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true }

@@ -1,6 +1,6 @@
 use gocode_domain::verification::backup::*;
-use gocode_domain::verification::identity::BackupID;
 use gocode_domain::verification::digest::VerificationDigest;
+use gocode_domain::verification::identity::BackupID;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use uuid::Uuid;
@@ -13,7 +13,10 @@ pub struct InMemoryBackupStore {
 
 impl InMemoryBackupStore {
     pub fn new() -> Self {
-        Self { archives: Mutex::new(HashMap::new()), gc_barrier_active: Mutex::new(false) }
+        Self {
+            archives: Mutex::new(HashMap::new()),
+            gc_barrier_active: Mutex::new(false),
+        }
     }
 
     /// Create consistent verification backup.
@@ -21,7 +24,11 @@ impl InMemoryBackupStore {
     /// 2. Snapshot streams
     /// 3. Create manifest
     /// 4. Release barrier
-    pub fn create_backup(&self, streams: Vec<StreamInventory>, blob_digest: VerificationDigest) -> BackupManifestRef {
+    pub fn create_backup(
+        &self,
+        streams: Vec<StreamInventory>,
+        blob_digest: VerificationDigest,
+    ) -> BackupManifestRef {
         // Acquire GC barrier
         *self.gc_barrier_active.lock().unwrap() = true;
 
@@ -54,7 +61,9 @@ impl InMemoryBackupStore {
     pub fn verify_backup(&self, backup_id: &BackupID) -> Result<(), String> {
         let archives = self.archives.lock().unwrap();
         let (manifest, _data) = archives.get(backup_id).ok_or("backup not found")?;
-        if !manifest.integrity_result { return Err("integrity check failed".into()); }
+        if !manifest.integrity_result {
+            return Err("integrity check failed".into());
+        }
         Ok(())
     }
 
@@ -86,7 +95,12 @@ mod tests {
     #[test]
     fn backup_creates_manifest() {
         let store = InMemoryBackupStore::new();
-        let streams = vec![StreamInventory { stream_name: "verification_run".into(), event_count: 10, first_sequence: 1, last_sequence: 10 }];
+        let streams = vec![StreamInventory {
+            stream_name: "verification_run".into(),
+            event_count: 10,
+            first_sequence: 1,
+            last_sequence: 10,
+        }];
         let manifest = store.create_backup(streams, VerificationDigest::from_bytes([1; 32]));
         assert!(manifest.integrity_result);
         assert_eq!(manifest.runtime_version, "1.0.0");
@@ -117,8 +131,18 @@ mod tests {
     fn import_backup_counts_events() {
         let store = InMemoryBackupStore::new();
         let streams = vec![
-            StreamInventory { stream_name: "verification_run".into(), event_count: 5, first_sequence: 1, last_sequence: 5 },
-            StreamInventory { stream_name: "gate_evaluation".into(), event_count: 3, first_sequence: 1, last_sequence: 3 },
+            StreamInventory {
+                stream_name: "verification_run".into(),
+                event_count: 5,
+                first_sequence: 1,
+                last_sequence: 5,
+            },
+            StreamInventory {
+                stream_name: "gate_evaluation".into(),
+                event_count: 3,
+                first_sequence: 1,
+                last_sequence: 3,
+            },
         ];
         let manifest = store.create_backup(streams, VerificationDigest::from_bytes([1; 32]));
         assert_eq!(store.import_backup(&manifest.backup_id).unwrap(), 8);
@@ -134,7 +158,12 @@ mod tests {
     #[test]
     fn backup_manifest_stream_inventory() {
         let store = InMemoryBackupStore::new();
-        let streams = vec![StreamInventory { stream_name: "verification_run".into(), event_count: 10, first_sequence: 1, last_sequence: 10 }];
+        let streams = vec![StreamInventory {
+            stream_name: "verification_run".into(),
+            event_count: 10,
+            first_sequence: 1,
+            last_sequence: 10,
+        }];
         let manifest = store.create_backup(streams, VerificationDigest::from_bytes([1; 32]));
         assert_eq!(manifest.streams.len(), 1);
         assert_eq!(manifest.streams[0].event_count, 10);
