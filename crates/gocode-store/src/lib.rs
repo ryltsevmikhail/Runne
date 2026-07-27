@@ -12,6 +12,7 @@
 //! * **Integrity** — SHA-256 integrity digest computation ([`integrity`])
 //! * **Store** — `StoreTransaction`, EventStore/UnitOfWork/IdGenerator/Clock impl ([`store`])
 
+pub mod atomic_pre_effect;
 pub mod codec;
 pub mod integrity;
 pub mod migration_codec;

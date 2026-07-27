@@ -9,6 +9,7 @@ pub mod conversation;
 pub mod error;
 pub mod event;
 pub mod id;
+pub mod security;
 pub mod task_run;
 pub mod timestamp;
 pub mod verification;
