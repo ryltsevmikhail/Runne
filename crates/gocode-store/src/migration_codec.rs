@@ -1,6 +1,7 @@
 //! Versioned canonical codecs for migration control-plane artifacts.
 
 use core::fmt;
+use std::time::Duration;
 
 use gocode_application::migration::{
     gates::{GateEvidence, GateFailureCode, GateRevocationReason, GateStatus, MigrationEvidence},
@@ -13,6 +14,7 @@ use gocode_application::migration::{
         CutoverIntent, MigrationAuditAction, MigrationAuditRecord, MigrationCommandOutcome,
         MigrationTransition,
     },
+    rollout::{CanaryPolicy, CutoverPolicy, RolloutStep},
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
@@ -27,7 +29,7 @@ use gocode_domain::{
 };
 
 const CODEC_VERSION: u8 = 1;
-const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 3;
+const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 4;
 
 /// Fail-closed migration codec errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,7 +356,7 @@ pub fn encode_cutover_manifest(manifest: &CutoverManifest) -> Result<Vec<u8>, Mi
     write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
     write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
     bytes.push(cutover_intent_tag(manifest.intent));
-    bytes.extend_from_slice(&manifest.admission_limit.to_be_bytes());
+    encode_cutover_policy(&mut bytes, &manifest.rollout_policy)?;
     encode_routing_unit(&mut bytes, &manifest.routing_unit)?;
     encode_artifact_ref(&mut bytes, &manifest.source_release)?;
     write_string(
@@ -407,7 +409,7 @@ pub fn decode_cutover_manifest(bytes: &[u8]) -> Result<CutoverManifest, Migratio
     let cycle_id =
         MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
     let intent = decode_cutover_intent(decoder.read_u8()?)?;
-    let admission_limit = decoder.read_u32()?;
+    let rollout_policy = decode_cutover_policy(&mut decoder)?;
     let routing_unit = decode_routing_unit(&mut decoder)?;
     let source_release = decode_artifact_ref(&mut decoder, "source_release")?;
     let source_generation = runtime_generation(
@@ -440,7 +442,7 @@ pub fn decode_cutover_manifest(bytes: &[u8]) -> Result<CutoverManifest, Migratio
         plan_id,
         cycle_id,
         intent,
-        admission_limit,
+        rollout_policy,
         routing_unit,
         source_release,
         source_generation,
@@ -1147,6 +1149,76 @@ fn decode_artifact_ref(
     .map_err(|_| invalid(field))
 }
 
+fn encode_cutover_policy(
+    bytes: &mut Vec<u8>,
+    policy: &CutoverPolicy,
+) -> Result<(), MigrationCodecError> {
+    match policy {
+        CutoverPolicy::InternalCanary(policy) => {
+            bytes.push(1);
+            write_cohort(bytes, &policy.target_cohort)?;
+            bytes.extend_from_slice(&policy.admission_limit.to_be_bytes());
+        }
+        CutoverPolicy::CohortExpansion(step) => {
+            bytes.push(2);
+            bytes.extend_from_slice(&step.previous_routing_generation.get().to_be_bytes());
+            write_cohort(bytes, &step.target_cohort)?;
+            bytes.extend_from_slice(&step.admission_limit.to_be_bytes());
+            bytes.extend_from_slice(&step.observation_window.as_secs().to_be_bytes());
+            bytes.extend_from_slice(&step.observation_window.subsec_nanos().to_be_bytes());
+            bytes.extend_from_slice(&step.observed_from.as_unix_micros().to_be_bytes());
+            bytes.extend_from_slice(&step.observed_until.as_unix_micros().to_be_bytes());
+            write_string(
+                bytes,
+                "required_gate_policy",
+                step.required_gate_policy.as_str(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn decode_cutover_policy(decoder: &mut Decoder<'_>) -> Result<CutoverPolicy, MigrationCodecError> {
+    match decoder.read_u8()? {
+        1 => Ok(CutoverPolicy::InternalCanary(
+            CanaryPolicy::new(read_cohort(decoder)?, decoder.read_u32()?)
+                .map_err(|_| invalid("canary_policy"))?,
+        )),
+        2 => {
+            let previous_routing_generation = RoutingGeneration::new(decoder.read_u64()?)
+                .map_err(|_| invalid("previous_routing_generation"))?;
+            let target_cohort = read_cohort(decoder)?;
+            let admission_limit = decoder.read_u32()?;
+            let observation_secs = decoder.read_u64()?;
+            let observation_nanos = decoder.read_u32()?;
+            if observation_nanos >= 1_000_000_000 {
+                return Err(invalid("observation_window"));
+            }
+            let observed_from = Timestamp::from_unix_micros(decoder.read_i64()?);
+            let observed_until = Timestamp::from_unix_micros(decoder.read_i64()?);
+            let required_gate_policy =
+                GatePolicyRef::new(decoder.read_string("required_gate_policy")?)
+                    .map_err(|_| invalid("required_gate_policy"))?;
+            Ok(CutoverPolicy::CohortExpansion(
+                RolloutStep::new(
+                    previous_routing_generation,
+                    target_cohort,
+                    admission_limit,
+                    Duration::new(observation_secs, observation_nanos),
+                    observed_from,
+                    observed_until,
+                    required_gate_policy,
+                )
+                .map_err(|_| invalid("rollout_step"))?,
+            ))
+        }
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "cutover_policy",
+            actual,
+        }),
+    }
+}
+
 fn validation_tag(validation: ArtifactValidation) -> u8 {
     match validation {
         ArtifactValidation::Passed => 1,
@@ -1492,7 +1564,7 @@ mod tests {
             MigrationReport, MigrationReportFields, RollbackPolicy,
         },
         ports::CutoverIntent,
-        rollout::CanaryPolicy,
+        rollout::{CanaryPolicy, CutoverPolicy, RolloutStep},
     };
     use gocode_domain::{
         id::{AggregateId, TaskRunId},
@@ -1546,8 +1618,28 @@ mod tests {
     fn cutover_manifest_roundtrips_and_rejects_digest_corruption() {
         let manifest = golden_cutover_manifest();
         let bytes = encode_cutover_manifest(&manifest).unwrap();
-        assert_eq!(hex(&bytes), golden_cutover_manifest_v3_hex());
+        assert_eq!(hex(&bytes), golden_cutover_manifest_v4_hex());
         assert_eq!(decode_cutover_manifest(&bytes).unwrap(), manifest);
+
+        let mut expansion = manifest.clone();
+        expansion.intent = CutoverIntent::CohortExpansion;
+        expansion.rollout_policy = CutoverPolicy::CohortExpansion(
+            RolloutStep::new(
+                RoutingGeneration::new(2).unwrap(),
+                golden_routing_unit().cohort,
+                2_048,
+                Duration::from_micros(100),
+                Timestamp::from_unix_micros(100),
+                Timestamp::from_unix_micros(200),
+                GatePolicyRef::new("policy-v1").unwrap(),
+            )
+            .unwrap(),
+        );
+        let expansion_bytes = encode_cutover_manifest(&expansion).unwrap();
+        assert_eq!(
+            decode_cutover_manifest(&expansion_bytes).unwrap(),
+            expansion
+        );
 
         let mut corrupt = bytes;
         corrupt[21..53].fill(0);
@@ -1661,10 +1753,11 @@ mod tests {
         }
     }
 
-    fn golden_cutover_manifest_v3_hex() -> String {
+    fn golden_cutover_manifest_v4_hex() -> String {
         const INTENT_END: usize = 142;
+        const POLICY_COHORT: &str = "0001000c636c69656e745f636c61737300077072656d69756d";
         let (prefix, suffix) = GOLDEN_CUTOVER_MANIFEST_HEX.split_at(INTENT_END);
-        format!("03{}00000040{suffix}", &prefix[2..])
+        format!("04{}01{POLICY_COHORT}00000040{suffix}", &prefix[2..])
     }
 
     fn golden_cutover_manifest() -> CutoverManifest {
@@ -1674,7 +1767,9 @@ mod tests {
             plan_id: MigrationPlanId::new("plan-1").unwrap(),
             cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
             intent: CutoverIntent::InternalCanary,
-            canary_policy: CanaryPolicy::new(golden_routing_unit().cohort, 64).unwrap(),
+            rollout_policy: CutoverPolicy::InternalCanary(
+                CanaryPolicy::new(golden_routing_unit().cohort, 64).unwrap(),
+            ),
             routing_unit: golden_routing_unit(),
             source_release: artifact("source-release", 13),
             source_generation: RuntimeGenerationRef::new("runtime-legacy").unwrap(),

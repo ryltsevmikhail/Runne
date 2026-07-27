@@ -20,7 +20,7 @@ use super::{
         MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceiptLookup,
         MigrationStoreError, MigrationTransition, ShadowExecutionPort,
     },
-    rollout::CanaryPolicy,
+    rollout::CutoverPolicy,
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortSelector, FencingToken, MigrationPlanId, RollbackDisposition,
@@ -228,13 +228,23 @@ where
         let previous = loaded.plan.phase;
         let mut plan = loaded.plan.clone();
         plan.advance(target, context.expected_plan_version)?;
-        validate_exit_evidence(&loaded, target)?;
-        if target == MigrationPhase::InternalCanary {
+        if matches!(
+            target,
+            MigrationPhase::Foundation
+                | MigrationPhase::ReadOnlyParity
+                | MigrationPhase::SimulatedShadow
+                | MigrationPhase::InternalCanary
+        ) {
+            validate_exit_evidence(&loaded, target)?;
+        }
+        if matches!(
+            target,
+            MigrationPhase::InternalCanary | MigrationPhase::CohortRollout
+        ) {
             validate_production_gates(&loaded, &plan, target, context.evaluated_at)?;
         } else if matches!(
             target,
-            MigrationPhase::CohortRollout
-                | MigrationPhase::DefaultNative
+            MigrationPhase::DefaultNative
                 | MigrationPhase::DrainDeprecate
                 | MigrationPhase::Retired
         ) {
@@ -276,7 +286,7 @@ where
         )))
     }
 
-    /// Freeze a currently valid Internal Canary evidence set without changing authority.
+    /// Freeze a currently valid phase-specific evidence set without changing authority.
     pub fn prepare_cutover(
         &self,
         context: MigrationCommandContext,
@@ -287,7 +297,7 @@ where
             vec![
                 input.plan_id.as_str().as_bytes().to_vec(),
                 vec![cutover_intent_tag(input.intent)],
-                input.canary_policy.admission_limit.to_be_bytes().to_vec(),
+                rollout_policy_fingerprint_bytes(&input.rollout_policy),
                 artifact_fingerprint_bytes(&input.manifest),
                 artifact_fingerprint_bytes(&input.source_release),
                 artifact_fingerprint_bytes(&input.candidate_release),
@@ -312,18 +322,15 @@ where
             .load_plan(&input.plan_id)
             .map_err(map_store_error)?
             .ok_or(MigrationError::PlanNotFound)?;
-        if input.intent != CutoverIntent::InternalCanary
-            || loaded.plan.phase != MigrationPhase::InternalCanary
-        {
+        let target_phase = cutover_phase(input.intent)?;
+        if loaded.plan.phase != target_phase {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
-        validate_exit_evidence(&loaded, MigrationPhase::InternalCanary)?;
-        let gate_set = validate_production_gates(
-            &loaded,
-            &loaded.plan,
-            MigrationPhase::InternalCanary,
-            context.evaluated_at,
-        )?;
+        if target_phase == MigrationPhase::InternalCanary {
+            validate_exit_evidence(&loaded, target_phase)?;
+        }
+        let gate_set =
+            validate_production_gates(&loaded, &loaded.plan, target_phase, context.evaluated_at)?;
         if gate_set.digest() != input.frozen_evidence_set.digest {
             return Err(MigrationError::GateSetChanged);
         }
@@ -341,6 +348,14 @@ where
                 actual: routing_head.routing_generation,
             });
         }
+        input.rollout_policy.validate_for_prepare(
+            input.intent,
+            &loaded.plan.routing_unit,
+            routing_head.routing_generation,
+            &loaded.plan.gate_policy,
+            context.evaluated_at,
+        )?;
+        validate_admission_expansion(&loaded, &input.rollout_policy)?;
 
         let mut plan = loaded.plan;
         let expected_plan_version = context.expected_plan_version;
@@ -360,7 +375,7 @@ where
             plan_id: plan.plan_id.clone(),
             cycle_id: plan.cycle_id.clone(),
             intent: input.intent,
-            canary_policy: input.canary_policy,
+            rollout_policy: input.rollout_policy,
             routing_unit: plan.routing_unit.clone(),
             source_release: input.source_release,
             source_generation: plan.source.clone(),
@@ -432,7 +447,10 @@ where
             .load_plan(&input.plan_id)
             .map_err(map_store_error)?
             .ok_or(MigrationError::PlanNotFound)?;
-        if loaded.plan.phase != MigrationPhase::InternalCanary {
+        if !matches!(
+            loaded.plan.phase,
+            MigrationPhase::InternalCanary | MigrationPhase::CohortRollout
+        ) {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
         let manifest = loaded
@@ -440,9 +458,12 @@ where
             .iter()
             .find(|manifest| manifest.prepared_transition_id == input.prepared_transition_id)
             .ok_or(MigrationError::PreparedCutoverNotFound)?;
+        let target_phase = cutover_phase(manifest.intent)?;
+        if loaded.plan.phase != target_phase {
+            return Err(MigrationError::ProductionGatesUnavailable);
+        }
         if manifest.plan_id != loaded.plan.plan_id
             || manifest.cycle_id != loaded.plan.cycle_id
-            || manifest.intent != CutoverIntent::InternalCanary
             || manifest.routing_unit != loaded.plan.routing_unit
             || !loaded
                 .transitions
@@ -451,13 +472,11 @@ where
         {
             return Err(MigrationError::StorageContractViolation);
         }
-        validate_exit_evidence(&loaded, MigrationPhase::InternalCanary)?;
-        let gate_set = validate_production_gates(
-            &loaded,
-            &loaded.plan,
-            MigrationPhase::InternalCanary,
-            context.evaluated_at,
-        )?;
+        if target_phase == MigrationPhase::InternalCanary {
+            validate_exit_evidence(&loaded, target_phase)?;
+        }
+        let gate_set =
+            validate_production_gates(&loaded, &loaded.plan, target_phase, context.evaluated_at)?;
         if manifest.evidence_set_digest != gate_set.digest()
             || !prepared_cutover_matches(&input.prepared_transition_id)
         {
@@ -481,13 +500,22 @@ where
             .map_err(map_store_error)?
             .ok_or(MigrationError::StorageContractViolation)?;
         if current_head.routing_generation != expected_routing_generation
-            || !matches!(current_head.authority, RuntimeAuthority::Source(_))
+            || current_head.source != loaded.plan.source
+            || current_head.candidate != loaded.plan.candidate
+            || !authority_matches_cutover_intent(&current_head.authority, manifest.intent)
         {
             return Err(MigrationError::RoutingGenerationConflict {
                 expected: expected_routing_generation,
                 actual: current_head.routing_generation,
             });
         }
+        manifest.rollout_policy.validate_for_prepare(
+            manifest.intent,
+            &loaded.plan.routing_unit,
+            current_head.routing_generation,
+            &loaded.plan.gate_policy,
+            context.evaluated_at,
+        )?;
         let next_routing_generation = RoutingGeneration::new(
             expected_routing_generation
                 .get()
@@ -732,8 +760,8 @@ pub struct PrepareCutoverInput {
     pub plan_id: MigrationPlanId,
     /// Exact rollout intent.
     pub intent: CutoverIntent,
-    /// Exact bounded Internal Canary admission policy.
-    pub canary_policy: CanaryPolicy,
+    /// Exact phase-specific rollout policy.
+    pub rollout_policy: CutoverPolicy,
     /// Immutable content-addressed manifest identity.
     pub manifest: ArtifactRef,
     /// Exact source release artifact.
@@ -1199,6 +1227,72 @@ fn cutover_intent_tag(intent: CutoverIntent) -> u8 {
         CutoverIntent::DefaultNative => 3,
         CutoverIntent::Rollback => 4,
     }
+}
+
+fn cutover_phase(intent: CutoverIntent) -> Result<MigrationPhase, MigrationError> {
+    match intent {
+        CutoverIntent::InternalCanary => Ok(MigrationPhase::InternalCanary),
+        CutoverIntent::CohortExpansion => Ok(MigrationPhase::CohortRollout),
+        CutoverIntent::DefaultNative | CutoverIntent::Rollback => {
+            Err(MigrationError::ProductionGatesUnavailable)
+        }
+    }
+}
+
+fn authority_matches_cutover_intent(authority: &RuntimeAuthority, intent: CutoverIntent) -> bool {
+    match intent {
+        CutoverIntent::InternalCanary => matches!(authority, RuntimeAuthority::Source(_)),
+        CutoverIntent::CohortExpansion => matches!(authority, RuntimeAuthority::Candidate(_)),
+        CutoverIntent::DefaultNative | CutoverIntent::Rollback => false,
+    }
+}
+
+fn validate_admission_expansion(
+    loaded: &LoadedMigrationPlan,
+    policy: &CutoverPolicy,
+) -> Result<(), MigrationError> {
+    let CutoverPolicy::CohortExpansion(step) = policy else {
+        return Ok(());
+    };
+    if loaded
+        .cutover_manifests
+        .iter()
+        .filter(|manifest| manifest.routing_unit == loaded.plan.routing_unit)
+        .map(|manifest| manifest.rollout_policy.admission_limit())
+        .max()
+        .is_some_and(|current_limit| step.admission_limit <= current_limit)
+    {
+        return Err(MigrationError::ProductionGatesUnavailable);
+    }
+    Ok(())
+}
+
+fn rollout_policy_fingerprint_bytes(policy: &CutoverPolicy) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    match policy {
+        CutoverPolicy::InternalCanary(policy) => {
+            bytes.push(1);
+            bytes.extend_from_slice(cohort_digest(&policy.target_cohort).as_bytes());
+            bytes.extend_from_slice(&policy.admission_limit.to_be_bytes());
+        }
+        CutoverPolicy::CohortExpansion(step) => {
+            bytes.push(2);
+            bytes.extend_from_slice(&step.previous_routing_generation.get().to_be_bytes());
+            bytes.extend_from_slice(cohort_digest(&step.target_cohort).as_bytes());
+            bytes.extend_from_slice(&step.admission_limit.to_be_bytes());
+            bytes.extend_from_slice(&step.observation_window.as_secs().to_be_bytes());
+            bytes.extend_from_slice(&step.observation_window.subsec_nanos().to_be_bytes());
+            bytes.extend_from_slice(&step.observed_from.as_unix_micros().to_be_bytes());
+            bytes.extend_from_slice(&step.observed_until.as_unix_micros().to_be_bytes());
+            bytes.extend_from_slice(
+                &u64::try_from(step.required_gate_policy.as_str().len())
+                    .unwrap_or(u64::MAX)
+                    .to_be_bytes(),
+            );
+            bytes.extend_from_slice(step.required_gate_policy.as_str().as_bytes());
+        }
+    }
+    bytes
 }
 
 fn rollback_disposition_tag(disposition: RollbackDisposition) -> u8 {

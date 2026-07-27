@@ -21,6 +21,8 @@ pub const PHASE_4: &[GateFamily] = &[
     GateFamily::CapacitySlo,
     GateFamily::ShadowIsolation,
 ];
+/// Critical evidence families required for each bounded cohort expansion.
+pub const PHASE_5: &[GateFamily] = PHASE_4;
 
 /// Durable status of one gate evaluation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -351,11 +353,15 @@ impl PhaseGatePolicy {
                 revision: 1,
                 required: PHASE_4,
             }),
+            MigrationPhase::CohortRollout => Some(Self {
+                target,
+                revision: 2,
+                required: PHASE_5,
+            }),
             MigrationPhase::Baseline
             | MigrationPhase::Foundation
             | MigrationPhase::ReadOnlyParity
             | MigrationPhase::SimulatedShadow
-            | MigrationPhase::CohortRollout
             | MigrationPhase::DefaultNative
             | MigrationPhase::DrainDeprecate
             | MigrationPhase::Retired => None,
@@ -562,6 +568,16 @@ mod tests {
                 GateFamily::ShadowIsolation,
             ]
         );
+    }
+
+    #[test]
+    fn cohort_rollout_uses_a_distinct_policy_revision_with_all_critical_families() {
+        let canary = PhaseGatePolicy::for_target(MigrationPhase::InternalCanary).unwrap();
+        let cohort = PhaseGatePolicy::for_target(MigrationPhase::CohortRollout).unwrap();
+
+        assert_eq!(canary.revision(), 1);
+        assert_eq!(cohort.revision(), 2);
+        assert_eq!(cohort.required(), PHASE_4);
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use gocode_application::migration::{
@@ -19,7 +20,7 @@ use gocode_application::migration::{
         MigrationReceiptLookup, MigrationStoreError, SanitizedShadowInput, ShadowDiffReport,
         ShadowExecutionError, ShadowExecutionPort,
     },
-    rollout::CanaryPolicy,
+    rollout::{CanaryPolicy, CutoverPolicy, RolloutStep},
     service::{
         BeginDrainInput, CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
         RecordEvidenceInput, RetireSourceInput, StagePlanInput, StartRollbackInput,
@@ -363,6 +364,168 @@ fn revocation_between_prepare_and_commit_blocks_cutover() {
     );
     assert_eq!(service.load_plan(&plan_id()).unwrap(), before_plan);
     assert_eq!(service.routing_head(&routing_unit()).unwrap(), before_head);
+}
+
+#[test]
+fn cohort_expansion_requires_complete_observation_and_resolved_effects() {
+    let (service, _) = canary_active_service();
+    service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::CohortRollout,
+        )
+        .unwrap();
+    let evidence_set_digest = current_gate_set_digest(&service, MigrationPhase::CohortRollout);
+    let before = service.load_plan(&plan_id()).unwrap();
+
+    assert_eq!(
+        service.prepare_cutover(
+            next_routing_generation_context(&service, 2),
+            prepare_cohort_expansion_input(
+                evidence_set_digest,
+                20,
+                RolloutStep::new(
+                    RoutingGeneration::new(2).unwrap(),
+                    routing_unit().cohort,
+                    2_048,
+                    Duration::from_micros(50),
+                    Timestamp::from_unix_micros(51),
+                    Timestamp::from_unix_micros(101),
+                    GatePolicyRef::new("policy-v1").unwrap(),
+                )
+                .unwrap(),
+                0,
+                50,
+            ),
+        ),
+        Err(MigrationError::ObservationWindowIncomplete)
+    );
+    assert_eq!(service.load_plan(&plan_id()).unwrap(), before);
+
+    let mut rollback_unavailable = prepare_cohort_expansion_input(
+        evidence_set_digest,
+        20,
+        valid_rollout_step(2, 2_048),
+        0,
+        59,
+    );
+    rollback_unavailable.rollback_policy = RollbackPolicy::ManualOnly;
+    assert_eq!(
+        service.prepare_cutover(
+            next_routing_generation_context(&service, 2),
+            rollback_unavailable,
+        ),
+        Err(MigrationError::RollbackIneligible)
+    );
+    assert_eq!(service.load_plan(&plan_id()).unwrap(), before);
+
+    assert_eq!(
+        service.prepare_cutover(
+            next_routing_generation_context(&service, 2),
+            prepare_cohort_expansion_input(
+                evidence_set_digest,
+                20,
+                valid_rollout_step(2, 2_048),
+                1,
+                60,
+            ),
+        ),
+        Err(MigrationError::UnresolvedEffect)
+    );
+    assert_eq!(service.load_plan(&plan_id()).unwrap(), before);
+}
+
+#[test]
+fn each_cohort_expansion_allocates_exactly_one_new_generation() {
+    let (service, _) = canary_active_service();
+    service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::CohortRollout,
+        )
+        .unwrap();
+    let evidence_set_digest = current_gate_set_digest(&service, MigrationPhase::CohortRollout);
+
+    let first_prepared = service
+        .prepare_cutover(
+            next_routing_generation_context(&service, 2),
+            prepare_cohort_expansion_input(
+                evidence_set_digest,
+                20,
+                valid_rollout_step(2, 2_048),
+                0,
+                60,
+            ),
+        )
+        .unwrap();
+    let first = service
+        .commit_cutover(
+            next_routing_generation_context(&service, 2),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: first_prepared.outcome.transition_id,
+                observed_source_high_water: 20,
+                candidate_fencing_token: FencingToken::new([10; 32]).unwrap(),
+            },
+        )
+        .unwrap()
+        .outcome
+        .routing_snapshot
+        .unwrap();
+
+    let before_non_expanding_step = service.load_plan(&plan_id()).unwrap();
+    assert_eq!(
+        service.prepare_cutover(
+            next_routing_generation_context(&service, 3),
+            prepare_cohort_expansion_input(
+                evidence_set_digest,
+                21,
+                valid_rollout_step(3, 2_048),
+                0,
+                65,
+            ),
+        ),
+        Err(MigrationError::ProductionGatesUnavailable)
+    );
+    assert_eq!(
+        service.load_plan(&plan_id()).unwrap(),
+        before_non_expanding_step
+    );
+
+    let second_prepared = service
+        .prepare_cutover(
+            next_routing_generation_context(&service, 3),
+            prepare_cohort_expansion_input(
+                evidence_set_digest,
+                21,
+                valid_rollout_step(3, 4_096),
+                0,
+                70,
+            ),
+        )
+        .unwrap();
+    let second = service
+        .commit_cutover(
+            next_routing_generation_context(&service, 3),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: second_prepared.outcome.transition_id,
+                observed_source_high_water: 21,
+                candidate_fencing_token: FencingToken::new([11; 32]).unwrap(),
+            },
+        )
+        .unwrap()
+        .outcome
+        .routing_snapshot
+        .unwrap();
+
+    assert_eq!(first.routing_generation.get(), 3);
+    assert_eq!(
+        second.routing_generation.get(),
+        first.routing_generation.get() + 1
+    );
 }
 
 #[test]
@@ -733,6 +896,40 @@ fn shadow_ready_service() -> (
     (service, store)
 }
 
+fn canary_active_service() -> (
+    MigrationService<MemoryMigrationStore, PureShadow>,
+    MemoryMigrationStore,
+) {
+    let (service, store) = shadow_ready_service();
+    record_phase4_evidence_except(&service, None);
+    service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::InternalCanary,
+        )
+        .unwrap();
+    let evidence_set_digest = current_gate_set_digest(&service, MigrationPhase::InternalCanary);
+    let prepared = service
+        .prepare_cutover(
+            next_routing_generation_context(&service, 1),
+            prepare_cutover_input(evidence_set_digest, 10),
+        )
+        .unwrap();
+    service
+        .commit_cutover(
+            next_routing_generation_context(&service, 1),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: prepared.outcome.transition_id,
+                observed_source_high_water: 10,
+                candidate_fencing_token: FencingToken::new([9; 32]).unwrap(),
+            },
+        )
+        .unwrap();
+    (service, store)
+}
+
 fn record_phase4_evidence_except(
     service: &MigrationService<MemoryMigrationStore, PureShadow>,
     omitted: Option<GateFamily>,
@@ -778,8 +975,15 @@ fn phase4_gate_evidence(family: GateFamily, status: GateStatus, suffix: u8) -> G
 fn current_phase4_gate_set_digest(
     service: &MigrationService<MemoryMigrationStore, PureShadow>,
 ) -> ArtifactDigest {
+    current_gate_set_digest(service, MigrationPhase::InternalCanary)
+}
+
+fn current_gate_set_digest(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+    target: MigrationPhase,
+) -> ArtifactDigest {
     let loaded = service.load_plan(&plan_id()).unwrap().unwrap();
-    PhaseGatePolicy::for_target(MigrationPhase::InternalCanary)
+    PhaseGatePolicy::for_target(target)
         .unwrap()
         .validate(
             &loaded.evidence,
@@ -812,8 +1016,15 @@ fn next_context(
 fn next_routing_context(
     service: &MigrationService<MemoryMigrationStore, PureShadow>,
 ) -> MigrationCommandContext {
+    next_routing_generation_context(service, 1)
+}
+
+fn next_routing_generation_context(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+    generation: u64,
+) -> MigrationCommandContext {
     let mut context = next_context(service);
-    context.expected_routing_generation = Some(RoutingGeneration::new(1).unwrap());
+    context.expected_routing_generation = Some(RoutingGeneration::new(generation).unwrap());
     context
 }
 
@@ -824,7 +1035,9 @@ fn prepare_cutover_input(
     PrepareCutoverInput {
         plan_id: plan_id(),
         intent: CutoverIntent::InternalCanary,
-        canary_policy: CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+        rollout_policy: CutoverPolicy::InternalCanary(
+            CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+        ),
         manifest: artifact("cutover-manifest", 30),
         source_release: artifact("source-release", 31),
         candidate_release: artifact("candidate-release", 32),
@@ -871,6 +1084,96 @@ fn prepare_cutover_input(
         retention_until: Timestamp::from_unix_micros(1_000),
         operator_authorization: artifact("operator-authorization", 38),
     }
+}
+
+fn prepare_cohort_expansion_input(
+    evidence_set_digest: ArtifactDigest,
+    source_high_water: u64,
+    rollout_step: RolloutStep,
+    unresolved_effects: u64,
+    artifact_byte: u8,
+) -> PrepareCutoverInput {
+    PrepareCutoverInput {
+        plan_id: plan_id(),
+        intent: CutoverIntent::CohortExpansion,
+        rollout_policy: CutoverPolicy::CohortExpansion(rollout_step),
+        manifest: artifact(&format!("cohort-manifest-{artifact_byte}"), artifact_byte),
+        source_release: artifact("source-release", 31),
+        candidate_release: artifact("candidate-release", 32),
+        frozen_evidence_set: ArtifactRef::new("artifact://evidence-set", evidence_set_digest)
+            .unwrap(),
+        migration_report: MigrationReport::new(MigrationReportFields {
+            report: artifact(
+                &format!("cohort-migration-report-{artifact_byte}"),
+                artifact_byte + 1,
+            ),
+            plan_id: plan_id(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            source_snapshot: artifact(
+                &format!("cohort-source-snapshot-{artifact_byte}"),
+                artifact_byte + 2,
+            ),
+            source_high_water,
+            source_generation: source_generation(),
+            candidate_generation: candidate_generation(),
+            counts: MigrationCounts {
+                imported: 10,
+                skipped: 0,
+                unsupported: 0,
+                rejected: 0,
+                unknown: 0,
+                lossy: 0,
+                ambiguous: 0,
+            },
+            schema: artifact("schema", 3),
+            mapping: artifact(
+                &format!("cohort-mapping-{artifact_byte}"),
+                artifact_byte + 3,
+            ),
+            profile: artifact("profile", 1),
+            integrity: ArtifactValidation::Passed,
+            rebuild: ArtifactValidation::Passed,
+            disposition: ImportDisposition::Clean,
+            created_at: Timestamp::from_unix_micros(90),
+        })
+        .unwrap(),
+        drain_report: DrainReportArtifact {
+            report: artifact(
+                &format!("cohort-drain-report-{artifact_byte}"),
+                artifact_byte + 4,
+            ),
+            complete: true,
+            timed_out: false,
+            unresolved_effects,
+            source_high_water,
+        },
+        candidate_validation: CandidateValidationReport {
+            report: artifact(
+                &format!("cohort-candidate-validation-{artifact_byte}"),
+                artifact_byte + 5,
+            ),
+            validation: ArtifactValidation::Passed,
+        },
+        rollback_policy: RollbackPolicy::BeforeCandidateWrites,
+        retention_until: Timestamp::from_unix_micros(1_000),
+        operator_authorization: artifact(
+            &format!("cohort-operator-authorization-{artifact_byte}"),
+            artifact_byte + 6,
+        ),
+    }
+}
+
+fn valid_rollout_step(previous_generation: u64, admission_limit: u32) -> RolloutStep {
+    RolloutStep::new(
+        RoutingGeneration::new(previous_generation).unwrap(),
+        routing_unit().cohort,
+        admission_limit,
+        Duration::from_micros(50),
+        Timestamp::from_unix_micros(50),
+        Timestamp::from_unix_micros(100),
+        GatePolicyRef::new("policy-v1").unwrap(),
+    )
+    .unwrap()
 }
 
 fn artifact(name: &str, byte: u8) -> ArtifactRef {
