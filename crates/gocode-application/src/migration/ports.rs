@@ -250,8 +250,11 @@ impl MigrationMutation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationCommit {
     context: MigrationCommandContext,
+    fingerprint: MigrationCommandFingerprint,
+    guard_plan_id: MigrationPlanId,
     plan: MigrationPlan,
     mutations: Vec<MigrationMutation>,
+    outcome: MigrationCommandOutcome,
     audit: MigrationAuditRecord,
 }
 
@@ -259,8 +262,34 @@ impl MigrationCommit {
     /// Validate and construct an atomic commit payload.
     pub fn new(
         context: MigrationCommandContext,
+        fingerprint: MigrationCommandFingerprint,
         plan: MigrationPlan,
         mutations: Vec<MigrationMutation>,
+        outcome: MigrationCommandOutcome,
+        audit: Option<MigrationAuditRecord>,
+    ) -> Result<Self, MigrationError> {
+        let guard_plan_id = plan.plan_id.clone();
+        Self::new_with_guard(
+            context,
+            fingerprint,
+            guard_plan_id,
+            plan,
+            mutations,
+            outcome,
+            audit,
+        )
+    }
+
+    /// Validate a commit whose optimistic version guard belongs to another
+    /// plan, as required when an isolated rollback cycle is created from an
+    /// immutable parent.
+    pub fn new_with_guard(
+        context: MigrationCommandContext,
+        fingerprint: MigrationCommandFingerprint,
+        guard_plan_id: MigrationPlanId,
+        plan: MigrationPlan,
+        mutations: Vec<MigrationMutation>,
+        outcome: MigrationCommandOutcome,
         audit: Option<MigrationAuditRecord>,
     ) -> Result<Self, MigrationError> {
         let audit = audit.ok_or(MigrationError::AuditUnavailable)?;
@@ -291,8 +320,11 @@ impl MigrationCommit {
 
         Ok(Self {
             context,
+            fingerprint,
+            guard_plan_id,
             plan,
             mutations,
+            outcome,
             audit,
         })
     }
@@ -300,6 +332,16 @@ impl MigrationCommit {
     /// Command context used for optimistic concurrency and idempotency.
     pub fn context(&self) -> &MigrationCommandContext {
         &self.context
+    }
+
+    /// Semantic fingerprint stored with the durable receipt.
+    pub fn fingerprint(&self) -> &MigrationCommandFingerprint {
+        &self.fingerprint
+    }
+
+    /// Plan whose durable version must match the command expectation.
+    pub fn guard_plan_id(&self) -> &MigrationPlanId {
+        &self.guard_plan_id
     }
 
     /// Resulting plan state.
@@ -310,6 +352,11 @@ impl MigrationCommit {
     /// Closed mutations applied by the adapter.
     pub fn mutations(&self) -> &[MigrationMutation] {
         &self.mutations
+    }
+
+    /// Semantic outcome stored with the durable receipt.
+    pub fn outcome(&self) -> &MigrationCommandOutcome {
+        &self.outcome
     }
 
     /// Audit record committed atomically with the mutations.
@@ -477,11 +524,13 @@ mod tests {
     fn production_mutation_requires_an_expected_routing_generation() {
         let commit = MigrationCommit::new(
             test_context(None),
+            test_fingerprint(),
             test_plan(),
             vec![
                 MigrationMutation::AppendTransition(test_transition()),
                 MigrationMutation::AppendRoutingSnapshot(candidate_snapshot()),
             ],
+            test_outcome(),
             Some(test_audit_record()),
         );
 
@@ -495,8 +544,10 @@ mod tests {
     fn audit_record_is_required_for_every_mutation() {
         let commit = MigrationCommit::new(
             test_context(Some(RoutingGeneration::new(1).unwrap())),
+            test_fingerprint(),
             test_plan(),
             vec![MigrationMutation::AppendTransition(test_transition())],
+            test_outcome(),
             None,
         );
 
@@ -511,11 +562,13 @@ mod tests {
         let transition = test_transition();
         let commit = MigrationCommit::new(
             test_context(Some(RoutingGeneration::new(1).unwrap())),
+            test_fingerprint(),
             test_plan(),
             vec![
                 MigrationMutation::AppendTransition(transition.clone()),
                 MigrationMutation::AppendTransition(transition),
             ],
+            test_outcome(),
             Some(test_audit_record()),
         );
 
@@ -533,8 +586,10 @@ mod tests {
             .unwrap();
         let commit = MigrationCommit::new(
             test_context(Some(RoutingGeneration::new(1).unwrap())),
+            test_fingerprint(),
             test_plan(),
             vec![MigrationMutation::AppendTransition(test_transition())],
+            test_outcome(),
             Some(audit),
         );
 
@@ -609,6 +664,18 @@ mod tests {
             operator_id: OperatorId::new("operator-1").unwrap(),
             action: MigrationAuditAction::AdvancePhase,
             recorded_at: Timestamp::from_unix_micros(10),
+        }
+    }
+
+    fn test_fingerprint() -> MigrationCommandFingerprint {
+        MigrationCommandFingerprint::from_bytes([8; 32])
+    }
+
+    fn test_outcome() -> MigrationCommandOutcome {
+        MigrationCommandOutcome {
+            plan: test_plan(),
+            routing_snapshot: Some(candidate_snapshot()),
+            transition_id: "transition-1".to_owned(),
         }
     }
 
