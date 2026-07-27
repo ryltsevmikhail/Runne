@@ -5,6 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-gocode-api = { path = "../gocode-api" }
 gocode-domain = { path = "../gocode-domain" }
-sha2 = "=0.10.8"
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

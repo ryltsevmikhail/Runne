@@ -21,3 +21,4 @@ pub mod migration;
 pub(crate) mod pipeline;
 pub mod ports;
 pub mod service;
+pub mod verification;
