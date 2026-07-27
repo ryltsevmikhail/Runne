@@ -14,6 +14,7 @@ pub mod gate;
 pub mod handle;
 pub mod migration_drain;
 pub mod migration_fence;
+pub mod migration_router;
 pub mod migration_shadow;
 pub mod session_host;
 pub mod types;

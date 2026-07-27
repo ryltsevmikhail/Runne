@@ -16,7 +16,10 @@ use gocode_application::migration::{
         RuntimeAuthority, RuntimeBinding, RuntimeGenerationRef,
     },
 };
-use gocode_domain::{id::AggregateId, timestamp::Timestamp};
+use gocode_domain::{
+    id::{AggregateId, ConversationId, TaskRunId},
+    timestamp::Timestamp,
+};
 
 const CODEC_VERSION: u8 = 1;
 
@@ -571,6 +574,68 @@ pub fn encode_runtime_binding(binding: &RuntimeBinding) -> Result<Vec<u8>, Migra
     Ok(bytes)
 }
 
+/// Decode one immutable runtime binding.
+pub fn decode_runtime_binding(bytes: &[u8]) -> Result<RuntimeBinding, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let aggregate_tag = decoder.read_u8()?;
+    let aggregate_bytes = decoder.read_array::<16>()?;
+    let aggregate_id = match aggregate_tag {
+        1 => AggregateId::TaskRun(
+            TaskRunId::from_bytes(aggregate_bytes)
+                .to_string()
+                .parse()
+                .map_err(|_| invalid("aggregate_id"))?,
+        ),
+        2 => AggregateId::Conversation(
+            ConversationId::from_bytes(aggregate_bytes)
+                .to_string()
+                .parse()
+                .map_err(|_| invalid("aggregate_id"))?,
+        ),
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "aggregate_type",
+                actual,
+            });
+        }
+    };
+    let authority_tag = decoder.read_u8()?;
+    let authority_generation = runtime_generation(
+        decoder.read_string("authority_generation")?,
+        "authority_generation",
+    )?;
+    let authority = match authority_tag {
+        1 => RuntimeAuthority::Source(authority_generation),
+        2 => RuntimeAuthority::Candidate(authority_generation),
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "authority",
+                actual,
+            });
+        }
+    };
+    let runtime_generation = runtime_generation(
+        decoder.read_string("runtime_generation")?,
+        "runtime_generation",
+    )?;
+    let routing_generation =
+        RoutingGeneration::new(decoder.read_u64()?).map_err(|_| invalid("routing_generation"))?;
+    let fencing_token =
+        FencingToken::new(decoder.read_array()?).map_err(|_| invalid("fencing_token"))?;
+    let bound_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+
+    RuntimeBinding::new(
+        aggregate_id,
+        authority,
+        runtime_generation,
+        routing_generation,
+        fencing_token,
+        bound_at,
+    )
+    .map_err(|_| invalid("runtime_binding"))
+}
+
 fn encode_routing_unit(bytes: &mut Vec<u8>, unit: &RoutingUnit) -> Result<(), MigrationCodecError> {
     write_string(bytes, "deployment", unit.deployment.as_str())?;
     write_cohort(bytes, &unit.cohort)?;
@@ -1020,9 +1085,12 @@ mod tests {
     use gocode_application::migration::types::{
         ArtifactDigest, CohortDimension, CohortSelector, FencingToken, MigrationCycleId,
         MigrationPlanId, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RuntimeAuthority,
-        RuntimeGenerationRef,
+        RuntimeBinding, RuntimeGenerationRef,
     };
-    use gocode_domain::timestamp::Timestamp;
+    use gocode_domain::{
+        id::{AggregateId, TaskRunId},
+        timestamp::Timestamp,
+    };
 
     use super::*;
 
@@ -1094,6 +1162,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn runtime_binding_codec_has_literal_bytes_and_rejects_trailing_data() {
+        let generation = RuntimeGenerationRef::new("runtime-native").unwrap();
+        let binding = RuntimeBinding::new(
+            AggregateId::TaskRun(taskrun_id()),
+            RuntimeAuthority::Candidate(generation.clone()),
+            generation,
+            RoutingGeneration::new(2).unwrap(),
+            FencingToken::new([7; 32]).unwrap(),
+            Timestamp::from_unix_micros(10),
+        )
+        .unwrap();
+        let bytes = encode_runtime_binding(&binding).unwrap();
+
+        assert_eq!(
+            hex(&bytes),
+            concat!(
+                "0101",
+                "018f2e3a8d5c7b208d9a000000000001",
+                "02",
+                "000e72756e74696d652d6e6174697665",
+                "000e72756e74696d652d6e6174697665",
+                "0000000000000002",
+                "0707070707070707070707070707070707070707070707070707070707070707",
+                "000000000000000a"
+            )
+        );
+        assert_eq!(decode_runtime_binding(&bytes).unwrap(), binding);
+
+        let mut trailing = bytes;
+        trailing.push(0);
+        assert_eq!(
+            decode_runtime_binding(&trailing),
+            Err(MigrationCodecError::TrailingBytes { remaining: 1 })
+        );
+    }
+
     fn golden_snapshot() -> RoutingSnapshot {
         let source = RuntimeGenerationRef::new("runtime-legacy").unwrap();
         let candidate = RuntimeGenerationRef::new("runtime-native").unwrap();
@@ -1113,6 +1218,10 @@ mod tests {
             rollback_disposition: RollbackDisposition::Eligible,
             committed_at: Timestamp::from_unix_micros(10),
         }
+    }
+
+    fn taskrun_id() -> TaskRunId {
+        "018f2e3a-8d5c-7b20-8d9a-000000000001".parse().unwrap()
     }
 
     fn hex(bytes: &[u8]) -> String {

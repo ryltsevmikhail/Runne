@@ -255,6 +255,12 @@ pub enum MigrationStoreError {
     IntegrityViolation,
     /// A durable counter exceeded its supported range.
     ArithmeticOverflow,
+    /// An aggregate is already pinned under another routing unit.
+    RuntimeBindingConflict,
+    /// Dispatch identity or semantic input conflicts with durable state.
+    DispatchIntentConflict,
+    /// Dispatch state transition is invalid or cannot be proved safe.
+    InvalidDispatchTransition,
 }
 
 /// Closed atomic mutations understood by the control store.
