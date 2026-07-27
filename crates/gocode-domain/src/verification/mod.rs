@@ -8,4 +8,5 @@ pub mod evidence;
 pub mod evaluation;
 pub mod intent;
 pub mod runner;
+pub mod profile;
 
