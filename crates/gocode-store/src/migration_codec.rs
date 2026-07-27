@@ -14,7 +14,7 @@ use gocode_application::migration::{
         CutoverIntent, MigrationAuditAction, MigrationAuditRecord, MigrationCommandOutcome,
         MigrationTransition,
     },
-    rollout::{CanaryPolicy, CutoverPolicy, RolloutStep},
+    rollout::{CanaryPolicy, CutoverPolicy, PreDispatchFallbackPolicy, RolloutStep},
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
@@ -29,7 +29,7 @@ use gocode_domain::{
 };
 
 const CODEC_VERSION: u8 = 1;
-const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 4;
+const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 5;
 
 /// Fail-closed migration codec errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1174,6 +1174,18 @@ fn encode_cutover_policy(
                 step.required_gate_policy.as_str(),
             )?;
         }
+        CutoverPolicy::DefaultNative(policy) => {
+            bytes.push(3);
+            match policy {
+                PreDispatchFallbackPolicy::Disabled => bytes.push(0),
+                PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance { source_profile } => {
+                    bytes.push(1);
+                    write_string(bytes, "source_profile_id", &source_profile.profile_id)?;
+                    bytes.extend_from_slice(&source_profile.profile_revision.to_be_bytes());
+                    bytes.extend_from_slice(source_profile.profile_digest.as_bytes());
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -1212,6 +1224,25 @@ fn decode_cutover_policy(decoder: &mut Decoder<'_>) -> Result<CutoverPolicy, Mig
                 .map_err(|_| invalid("rollout_step"))?,
             ))
         }
+        3 => match decoder.read_u8()? {
+            0 => Ok(CutoverPolicy::DefaultNative(
+                PreDispatchFallbackPolicy::Disabled,
+            )),
+            1 => Ok(CutoverPolicy::DefaultNative(
+                PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+                    source_profile: FeatureProfileRef::new(
+                        decoder.read_string("source_profile_id")?,
+                        decoder.read_u16()?,
+                        ArtifactDigest::from_bytes(decoder.read_array()?),
+                    )
+                    .map_err(|_| invalid("source_profile"))?,
+                },
+            )),
+            actual => Err(MigrationCodecError::UnknownTag {
+                field: "pre_dispatch_fallback_policy",
+                actual,
+            }),
+        },
         actual => Err(MigrationCodecError::UnknownTag {
             field: "cutover_policy",
             actual,
@@ -1618,7 +1649,7 @@ mod tests {
     fn cutover_manifest_roundtrips_and_rejects_digest_corruption() {
         let manifest = golden_cutover_manifest();
         let bytes = encode_cutover_manifest(&manifest).unwrap();
-        assert_eq!(hex(&bytes), golden_cutover_manifest_v4_hex());
+        assert_eq!(hex(&bytes), golden_cutover_manifest_v5_hex());
         assert_eq!(decode_cutover_manifest(&bytes).unwrap(), manifest);
 
         let mut expansion = manifest.clone();
@@ -1639,6 +1670,19 @@ mod tests {
         assert_eq!(
             decode_cutover_manifest(&expansion_bytes).unwrap(),
             expansion
+        );
+
+        let mut default_native = manifest.clone();
+        default_native.intent = CutoverIntent::DefaultNative;
+        default_native.rollout_policy = CutoverPolicy::DefaultNative(
+            PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+                source_profile: golden_routing_unit().feature_profile,
+            },
+        );
+        let default_native_bytes = encode_cutover_manifest(&default_native).unwrap();
+        assert_eq!(
+            decode_cutover_manifest(&default_native_bytes).unwrap(),
+            default_native
         );
 
         let mut corrupt = bytes;
@@ -1753,11 +1797,11 @@ mod tests {
         }
     }
 
-    fn golden_cutover_manifest_v4_hex() -> String {
+    fn golden_cutover_manifest_v5_hex() -> String {
         const INTENT_END: usize = 142;
         const POLICY_COHORT: &str = "0001000c636c69656e745f636c61737300077072656d69756d";
         let (prefix, suffix) = GOLDEN_CUTOVER_MANIFEST_HEX.split_at(INTENT_END);
-        format!("04{}01{POLICY_COHORT}00000040{suffix}", &prefix[2..])
+        format!("05{}01{POLICY_COHORT}00000040{suffix}", &prefix[2..])
     }
 
     fn golden_cutover_manifest() -> CutoverManifest {

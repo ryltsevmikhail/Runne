@@ -23,6 +23,8 @@ pub const PHASE_4: &[GateFamily] = &[
 ];
 /// Critical evidence families required for each bounded cohort expansion.
 pub const PHASE_5: &[GateFamily] = PHASE_4;
+/// Critical evidence families required before candidate becomes default.
+pub const PHASE_6: &[GateFamily] = PHASE_4;
 
 /// Durable status of one gate evaluation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -358,11 +360,15 @@ impl PhaseGatePolicy {
                 revision: 2,
                 required: PHASE_5,
             }),
+            MigrationPhase::DefaultNative => Some(Self {
+                target,
+                revision: 3,
+                required: PHASE_6,
+            }),
             MigrationPhase::Baseline
             | MigrationPhase::Foundation
             | MigrationPhase::ReadOnlyParity
             | MigrationPhase::SimulatedShadow
-            | MigrationPhase::DefaultNative
             | MigrationPhase::DrainDeprecate
             | MigrationPhase::Retired => None,
         }
@@ -571,13 +577,16 @@ mod tests {
     }
 
     #[test]
-    fn cohort_rollout_uses_a_distinct_policy_revision_with_all_critical_families() {
+    fn production_phases_use_distinct_policy_revisions_with_all_critical_families() {
         let canary = PhaseGatePolicy::for_target(MigrationPhase::InternalCanary).unwrap();
         let cohort = PhaseGatePolicy::for_target(MigrationPhase::CohortRollout).unwrap();
+        let default_native = PhaseGatePolicy::for_target(MigrationPhase::DefaultNative).unwrap();
 
         assert_eq!(canary.revision(), 1);
         assert_eq!(cohort.revision(), 2);
+        assert_eq!(default_native.revision(), 3);
         assert_eq!(cohort.required(), PHASE_4);
+        assert_eq!(default_native.required(), PHASE_4);
     }
 
     #[test]

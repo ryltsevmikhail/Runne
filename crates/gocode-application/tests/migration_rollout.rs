@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use gocode_application::migration::{
     error::MigrationError,
-    rollout::{CanaryPolicy, MAX_ROLLOUT_ADMISSION_LIMIT, RolloutStep},
+    rollout::{CanaryPolicy, MAX_ROLLOUT_ADMISSION_LIMIT, PreDispatchFallbackPolicy, RolloutStep},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
         GatePolicyRef, RoutingGeneration, RoutingUnit,
@@ -105,6 +105,32 @@ fn cohort_step_is_exact_to_generation_cohort_and_gate_policy() {
         ),
         Err(MigrationError::ProductionGatesUnavailable)
     );
+}
+
+#[test]
+fn default_native_rejects_silent_profile_substitution() {
+    let policy = PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+        source_profile: FeatureProfileRef::new(
+            "different-profile",
+            1,
+            ArtifactDigest::from_bytes([9; 32]),
+        )
+        .unwrap(),
+    };
+
+    assert_eq!(
+        policy.validate_routing_unit(&internal_unit()),
+        Err(MigrationError::RoutingUnitMismatch)
+    );
+}
+
+#[test]
+fn default_native_accepts_only_the_exact_source_profile() {
+    let policy = PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+        source_profile: internal_unit().feature_profile,
+    };
+
+    assert_eq!(policy.validate_routing_unit(&internal_unit()), Ok(()));
 }
 
 fn internal_unit() -> RoutingUnit {

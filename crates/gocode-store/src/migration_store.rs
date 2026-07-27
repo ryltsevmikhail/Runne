@@ -11,6 +11,7 @@ use gocode_application::migration::{
         MigrationCommandFingerprint, MigrationCommit, MigrationCommitResult, MigrationControlStore,
         MigrationMutation, MigrationReceipt, MigrationReceiptLookup, MigrationStoreError,
     },
+    rollout::PreDispatchFallbackPolicy,
     routing::{
         BindRuntimeRequest, DispatchClaim, DispatchIntentStatus, DispatchResultStatus,
         MigrationRoutingStore, RouteAdmission, RoutingDispatchIntent,
@@ -460,14 +461,25 @@ impl MigrationRoutingStore for SqliteMigrationControlStore {
             return Err(MigrationStoreError::IntegrityViolation);
         }
 
-        let runtime_generation = match &durable_snapshot.authority {
+        let selected_authority = match &request.fallback_policy {
+            PreDispatchFallbackPolicy::Disabled => durable_snapshot.authority.clone(),
+            PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance { source_profile } => {
+                if !matches!(durable_snapshot.authority, RuntimeAuthority::Candidate(_))
+                    || source_profile != &request.routing_unit.feature_profile
+                {
+                    return Err(MigrationStoreError::IntegrityViolation);
+                }
+                RuntimeAuthority::Source(durable_snapshot.source.clone())
+            }
+        };
+        let runtime_generation = match &selected_authority {
             RuntimeAuthority::Source(generation) | RuntimeAuthority::Candidate(generation) => {
                 generation.clone()
             }
         };
         let binding = RuntimeBinding::new(
             request.aggregate_id.clone(),
-            durable_snapshot.authority.clone(),
+            selected_authority,
             runtime_generation,
             durable_snapshot.routing_generation,
             durable_snapshot.fencing_token,

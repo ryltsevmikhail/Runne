@@ -244,9 +244,7 @@ where
             validate_production_gates(&loaded, &plan, target, context.evaluated_at)?;
         } else if matches!(
             target,
-            MigrationPhase::DefaultNative
-                | MigrationPhase::DrainDeprecate
-                | MigrationPhase::Retired
+            MigrationPhase::DrainDeprecate | MigrationPhase::Retired
         ) {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
@@ -449,7 +447,9 @@ where
             .ok_or(MigrationError::PlanNotFound)?;
         if !matches!(
             loaded.plan.phase,
-            MigrationPhase::InternalCanary | MigrationPhase::CohortRollout
+            MigrationPhase::InternalCanary
+                | MigrationPhase::CohortRollout
+                | MigrationPhase::DefaultNative
         ) {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
@@ -1233,17 +1233,18 @@ fn cutover_phase(intent: CutoverIntent) -> Result<MigrationPhase, MigrationError
     match intent {
         CutoverIntent::InternalCanary => Ok(MigrationPhase::InternalCanary),
         CutoverIntent::CohortExpansion => Ok(MigrationPhase::CohortRollout),
-        CutoverIntent::DefaultNative | CutoverIntent::Rollback => {
-            Err(MigrationError::ProductionGatesUnavailable)
-        }
+        CutoverIntent::DefaultNative => Ok(MigrationPhase::DefaultNative),
+        CutoverIntent::Rollback => Err(MigrationError::ProductionGatesUnavailable),
     }
 }
 
 fn authority_matches_cutover_intent(authority: &RuntimeAuthority, intent: CutoverIntent) -> bool {
     match intent {
         CutoverIntent::InternalCanary => matches!(authority, RuntimeAuthority::Source(_)),
-        CutoverIntent::CohortExpansion => matches!(authority, RuntimeAuthority::Candidate(_)),
-        CutoverIntent::DefaultNative | CutoverIntent::Rollback => false,
+        CutoverIntent::CohortExpansion | CutoverIntent::DefaultNative => {
+            matches!(authority, RuntimeAuthority::Candidate(_))
+        }
+        CutoverIntent::Rollback => false,
     }
 }
 
@@ -1258,7 +1259,7 @@ fn validate_admission_expansion(
         .cutover_manifests
         .iter()
         .filter(|manifest| manifest.routing_unit == loaded.plan.routing_unit)
-        .map(|manifest| manifest.rollout_policy.admission_limit())
+        .filter_map(|manifest| manifest.rollout_policy.admission_limit())
         .max()
         .is_some_and(|current_limit| step.admission_limit <= current_limit)
     {
@@ -1290,6 +1291,25 @@ fn rollout_policy_fingerprint_bytes(policy: &CutoverPolicy) -> Vec<u8> {
                     .to_be_bytes(),
             );
             bytes.extend_from_slice(step.required_gate_policy.as_str().as_bytes());
+        }
+        CutoverPolicy::DefaultNative(policy) => {
+            bytes.push(3);
+            match policy {
+                super::rollout::PreDispatchFallbackPolicy::Disabled => bytes.push(0),
+                super::rollout::PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+                    source_profile,
+                } => {
+                    bytes.push(1);
+                    bytes.extend_from_slice(
+                        &u64::try_from(source_profile.profile_id.len())
+                            .unwrap_or(u64::MAX)
+                            .to_be_bytes(),
+                    );
+                    bytes.extend_from_slice(source_profile.profile_id.as_bytes());
+                    bytes.extend_from_slice(&source_profile.profile_revision.to_be_bytes());
+                    bytes.extend_from_slice(source_profile.profile_digest.as_bytes());
+                }
+            }
         }
     }
     bytes
