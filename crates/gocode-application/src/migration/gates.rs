@@ -239,7 +239,7 @@ pub enum MigrationEvidence {
 }
 
 impl MigrationEvidence {
-    pub(crate) fn identity_digest(&self) -> ArtifactDigest {
+    pub fn identity_digest(&self) -> ArtifactDigest {
         match self {
             Self::Baseline { fixture_digest, .. } => *fixture_digest,
             Self::Foundation {
@@ -258,7 +258,7 @@ impl MigrationEvidence {
         }
     }
 
-    pub(crate) fn semantic_digest(&self) -> ArtifactDigest {
+    pub fn semantic_digest(&self) -> ArtifactDigest {
         let mut hasher = Sha256::new();
         hasher.update(b"gocode-migration-evidence\x01");
         match self {
