@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod gates;
+pub mod health;
 pub mod ports;
 pub mod service;
 pub mod state;
