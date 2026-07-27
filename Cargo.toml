@@ -1,10 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
+  "crates/gocode-api",
   "crates/gocode-domain",
   "crates/gocode-application",
   "crates/gocode-store",
   "crates/gocode-opencode-compat",
+  "crates/gocode-opencode-adapter-sqlite",
   "crates/gocode-plugin-protocol",
   "crates/gocode-runtime",
 ]

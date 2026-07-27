@@ -20,8 +20,8 @@ use gocode_application::ports::{
 use gocode_application::service::TaskRunService;
 use gocode_domain::event::{Actor, EventEnvelope};
 use gocode_domain::id::{
-    AttemptId, CommandId, ConversationId, EventId, IdempotencyKey, IntegrityDigest, TaskRunId,
-    WorkspaceId,
+    AggregateId, AttemptId, CommandId, ConversationId, EventId, IdempotencyKey, IntegrityDigest,
+    TaskRunId, WorkspaceId,
 };
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
@@ -80,7 +80,14 @@ impl UnitOfWork for InMemoryStore {
                 stored_result: outcome.clone(),
             });
         }
-        let tr_id = *payload.events.first().unwrap().taskrun_id();
+        let tr_id = match payload.events.first().unwrap().correlation_id() {
+            AggregateId::TaskRun(taskrun_id) => *taskrun_id,
+            _ => {
+                return Err(CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                ));
+            }
+        };
         let new_version = {
             let stream = s.streams.entry(tr_id).or_default();
             let cv = stream.len() as u64;
@@ -106,6 +113,10 @@ impl UnitOfWork for InMemoryStore {
 impl IdGenerator for InMemoryStore {
     fn next_taskrun_id(&self) -> Result<TaskRunId, IdGenerationError> {
         Ok("018f2e3a-7000-7000-8000-000000000001".parse().unwrap())
+    }
+
+    fn next_conversation_id(&self) -> Result<ConversationId, IdGenerationError> {
+        Ok("018f2e3a-7000-7000-8000-000000000006".parse().unwrap())
     }
     fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError> {
         Ok("018f2e3a-7000-7000-8000-000000000005".parse().unwrap())

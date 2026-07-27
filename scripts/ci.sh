@@ -29,6 +29,19 @@ echo "=== CI: $MODE mode (rustc $RUSTC_VER) ==="
 
 # Record lock digest before
 LOCK_DIGEST_BEFORE=$(shasum -a 256 Cargo.lock 2>/dev/null | awk '{print $1}')
+PROFILE_FILES=(
+    docs/profiles/opencode-baseline-inventory-v1.json
+    docs/profiles/opencode-baseline-inventory-v1.digest
+    docs/profiles/opencode-baseline-inventory-v2.json
+    docs/profiles/opencode-baseline-inventory-v2.digest
+    docs/schemas/opencode-baseline-inventory-v1.schema.json
+    docs/schemas/opencode-baseline-inventory-v2.schema.json
+)
+PROFILE_DIGEST_BEFORE=$(
+    shasum -a 256 "${PROFILE_FILES[@]}" 2>/dev/null \
+        | shasum -a 256 \
+        | awk '{print $1}'
+)
 
 if [ "$MODE" = "pinned" ]; then
     echo "--- fmt ---"
@@ -60,6 +73,11 @@ if ! command -v python3 &>/dev/null; then
 fi
 python3 scripts/check-deps.py
 
+if [ "$MODE" = "pinned" ]; then
+    echo "--- docs ---"
+    python3 scripts/validate-docs.py --strict
+fi
+
 echo "--- lock integrity ---"
 LOCK_DIGEST_AFTER=$(shasum -a 256 Cargo.lock 2>/dev/null | awk '{print $1}')
 if [ "$LOCK_DIGEST_BEFORE" != "$LOCK_DIGEST_AFTER" ]; then
@@ -67,5 +85,17 @@ if [ "$LOCK_DIGEST_BEFORE" != "$LOCK_DIGEST_AFTER" ]; then
     exit 1
 fi
 echo "Cargo.lock unchanged: $LOCK_DIGEST_BEFORE"
+
+echo "--- profile artifact integrity ---"
+PROFILE_DIGEST_AFTER=$(
+    shasum -a 256 "${PROFILE_FILES[@]}" 2>/dev/null \
+        | shasum -a 256 \
+        | awk '{print $1}'
+)
+if [ "$PROFILE_DIGEST_BEFORE" != "$PROFILE_DIGEST_AFTER" ]; then
+    echo "ERROR: profile artifacts changed during CI"
+    exit 1
+fi
+echo "Profile artifacts unchanged: $PROFILE_DIGEST_BEFORE"
 
 echo "=== CI $MODE: PASSED ==="

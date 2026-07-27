@@ -5,19 +5,30 @@
 //! layer, dedup, conflicts, reopen, concurrent writes, clock regression,
 //! and fail-closed behavior on schema corruption.
 
+use gocode_api::{
+    ApiActor, ApiCommandContext, ApiPrincipalId, CreateConversationInput, ResponseSeed,
+};
 use gocode_application::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
     StartAttemptInput,
 };
+use gocode_application::conversation_service::ConversationService;
 use gocode_application::errors::ApplicationError;
+use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
-    ApplicationCommandContext, EventStore, EventStoreError, LoadedStream, PrincipalId,
-    RuntimeAuthorityId, StorageFailureKind,
+    AggregateScope, ApplicationCommandContext, CommitError, ConversationCommit,
+    ConversationRepository, EventStore, EventStoreError, IdempotencyScope, LoadedStream,
+    OperationTag, PrincipalId, RuntimeAuthorityId, StorageFailureKind,
 };
 use gocode_application::service::TaskRunService;
 use gocode_domain::command::TerminalResult;
-use gocode_domain::event::Actor;
-use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
+use gocode_domain::conversation::{Conversation, ConversationEvent, ConversationState};
+use gocode_domain::event::{
+    Actor, CommandContext, Sensitivity, UncommittedEvent, materialize_batch,
+};
+use gocode_domain::id::{
+    CommandId, ConversationId, EventId, IdempotencyKey, TaskRunId, WorkspaceId,
+};
 use gocode_domain::task_run::TaskRun;
 use gocode_store::store::StoreTransaction;
 
@@ -85,6 +96,97 @@ fn open_service(
     (store, svc)
 }
 
+fn api_context() -> ApiCommandContext {
+    ApiCommandContext {
+        principal: ApiPrincipalId::new("test-principal").unwrap(),
+        actor: ApiActor::new("test-actor").unwrap(),
+        response_seed: ResponseSeed {
+            project_id: "project".into(),
+            directory: "/workspace".into(),
+            path: None,
+            version: "test".into(),
+            workspace_id: None,
+        },
+    }
+}
+
+fn direct_conversation_commit(
+    store: &StoreTransaction,
+    conversation_id: ConversationId,
+    workspace_id: WorkspaceId,
+    command_id: CommandId,
+    idempotency_key: IdempotencyKey,
+) -> ConversationCommit {
+    let event_id: EventId = "018f2e3a-7000-7000-8000-0000000000d4".parse().unwrap();
+    let events = materialize_batch(
+        vec![Conversation::decide_create(conversation_id, workspace_id)],
+        &[event_id],
+        None,
+        &CommandContext {
+            command_id,
+            idempotency_key: idempotency_key.clone(),
+            actor: Actor::new("direct-test").unwrap(),
+        },
+    )
+    .unwrap();
+    ConversationCommit {
+        command_id,
+        idempotency_key,
+        idempotency_scope: IdempotencyScope {
+            runtime_authority_id: store.runtime_authority_id().clone(),
+            principal_id: PrincipalId("test-principal".into()),
+            operation: OperationTag::CreateConversation,
+            aggregate_scope: AggregateScope::NewConversation {
+                conversation_id,
+                workspace_id,
+            },
+        },
+        command_fingerprint: CommandFingerprint::for_create_conversation(
+            &conversation_id,
+            &workspace_id,
+        ),
+        expected_version: 0,
+        events,
+        workspace_id,
+    }
+}
+
+fn replace_conversation_event_metadata(
+    event: &UncommittedEvent<ConversationEvent>,
+    command_id: CommandId,
+    idempotency_key: IdempotencyKey,
+    schema_version: u32,
+    sensitivity: Sensitivity,
+) -> UncommittedEvent<ConversationEvent> {
+    UncommittedEvent::from_parts(
+        *event.event_id(),
+        event.aggregate_id().clone(),
+        event.correlation_id().clone(),
+        event.causation_id().copied(),
+        command_id,
+        idempotency_key,
+        schema_version,
+        event.actor().clone(),
+        sensitivity,
+        event.payload().clone(),
+    )
+}
+
+fn assert_no_conversation_commit_rows(db_path: &str) {
+    let conn = gocode_store::schema::open_with_pragmas(db_path).unwrap();
+    let counts: (i64, i64, i64) = conn
+        .query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 2),
+                (SELECT COUNT(*) FROM events WHERE aggregate_type = 2),
+                (SELECT COUNT(*) FROM command_receipts)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(counts, (0, 0, 0));
+}
+
 // ── Test 1: PRAGMA profile ───────────────────────────────────────────────
 
 #[test]
@@ -122,6 +224,218 @@ fn test_pragma_profile() {
     }
 
     cleanup_db(&db_path);
+}
+
+#[test]
+fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
+    let db_path = temp_db_path("conversation-create");
+    cleanup_db(&db_path);
+    let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000c1".parse().unwrap();
+    let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000c2".parse().unwrap();
+    let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000c3".parse().unwrap();
+    let input = CreateConversationInput {
+        conversation_id,
+        workspace_id,
+        command_id,
+        idempotency_key: IdempotencyKey::new("conversation-create").unwrap(),
+    };
+
+    let first = {
+        let store =
+            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        let service = ConversationService::new(
+            store.clone(),
+            store.clone(),
+            store.runtime_authority_id().clone(),
+        );
+        let first = service.create(&api_context(), input.clone()).unwrap();
+        let duplicate = service.create(&api_context(), input.clone()).unwrap();
+        assert_eq!(first.conversation_id, duplicate.conversation_id);
+        assert_eq!(first.workspace_id, duplicate.workspace_id);
+        assert_eq!(first.committed_at, duplicate.committed_at);
+        assert_eq!(first.stream_version, 1);
+
+        let stream = store.load_conversation(conversation_id).unwrap();
+        assert_eq!(stream.current_version, 1);
+        assert_eq!(stream.events.len(), 1);
+        let aggregate = Conversation::replay(&stream.events).unwrap();
+        assert_eq!(aggregate.id, conversation_id);
+        assert_eq!(aggregate.workspace_id, workspace_id);
+        assert_eq!(aggregate.state, ConversationState::Active);
+        first
+    };
+
+    let reopened =
+        StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let reopened_service = ConversationService::new(
+        reopened.clone(),
+        reopened.clone(),
+        reopened.runtime_authority_id().clone(),
+    );
+    let duplicate = reopened_service
+        .create(&api_context(), input.clone())
+        .unwrap();
+    assert_eq!(duplicate.committed_at, first.committed_at);
+    assert_eq!(
+        reopened
+            .load_conversation(conversation_id)
+            .unwrap()
+            .events
+            .len(),
+        1
+    );
+
+    let conn = gocode_store::schema::open_with_pragmas(&db_path).unwrap();
+    let counts: (i64, i64, i64) = conn
+        .query_row(
+            "SELECT
+                (SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 2),
+                (SELECT COUNT(*) FROM events WHERE aggregate_type = 2),
+                (SELECT COUNT(*) FROM command_receipts WHERE command_id = ?1)",
+            rusqlite::params![command_id.as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(counts, (1, 1, 1));
+
+    cleanup_db(&db_path);
+}
+
+#[test]
+fn conversation_commit_rejects_non_public_event_without_mutation() {
+    let db_path = temp_db_path("conversation-non-public");
+    cleanup_db(&db_path);
+    let store = StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000d1".parse().unwrap();
+    let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000d2".parse().unwrap();
+    let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000d3".parse().unwrap();
+    let mut commit = direct_conversation_commit(
+        &store,
+        conversation_id,
+        workspace_id,
+        command_id,
+        IdempotencyKey::new("conversation-non-public").unwrap(),
+    );
+    let original = commit.events.pop().unwrap();
+    commit.events.push(replace_conversation_event_metadata(
+        &original,
+        command_id,
+        commit.idempotency_key.clone(),
+        1,
+        Sensitivity::Sensitive,
+    ));
+
+    assert_eq!(
+        store.commit_conversation(commit),
+        Err(CommitError::StorageFailure(
+            StorageFailureKind::IntegrityViolation
+        ))
+    );
+    drop(store);
+    assert_no_conversation_commit_rows(&db_path);
+    cleanup_db(&db_path);
+}
+
+#[test]
+fn conversation_commit_rejects_mismatched_event_command_without_mutation() {
+    let db_path = temp_db_path("conversation-command-mismatch");
+    cleanup_db(&db_path);
+    let store = StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000e1".parse().unwrap();
+    let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000e2".parse().unwrap();
+    let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000e3".parse().unwrap();
+    let other_command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000e4".parse().unwrap();
+    let mut commit = direct_conversation_commit(
+        &store,
+        conversation_id,
+        workspace_id,
+        command_id,
+        IdempotencyKey::new("conversation-command-mismatch").unwrap(),
+    );
+    let original = commit.events.pop().unwrap();
+    commit.events.push(replace_conversation_event_metadata(
+        &original,
+        other_command_id,
+        commit.idempotency_key.clone(),
+        1,
+        Sensitivity::Public,
+    ));
+
+    assert_eq!(
+        store.commit_conversation(commit),
+        Err(CommitError::StorageFailure(
+            StorageFailureKind::IntegrityViolation
+        ))
+    );
+    drop(store);
+    assert_no_conversation_commit_rows(&db_path);
+    cleanup_db(&db_path);
+}
+
+#[test]
+fn conversation_commit_rejects_noncanonical_scope_fingerprint_key_and_schema() {
+    enum Mismatch {
+        Scope,
+        Fingerprint,
+        Key,
+        Schema,
+    }
+
+    for (name, mismatch) in [
+        ("scope", Mismatch::Scope),
+        ("fingerprint", Mismatch::Fingerprint),
+        ("key", Mismatch::Key),
+        ("schema", Mismatch::Schema),
+    ] {
+        let db_path = temp_db_path(&format!("conversation-{name}-mismatch"));
+        cleanup_db(&db_path);
+        let store =
+            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        let conversation_id: ConversationId =
+            "018f2e3a-7000-7000-8000-0000000000f1".parse().unwrap();
+        let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000f2".parse().unwrap();
+        let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000f3".parse().unwrap();
+        let mut commit = direct_conversation_commit(
+            &store,
+            conversation_id,
+            workspace_id,
+            command_id,
+            IdempotencyKey::new(format!("conversation-{name}-mismatch")).unwrap(),
+        );
+
+        match mismatch {
+            Mismatch::Scope => {
+                commit.idempotency_scope.operation = OperationTag::CreateTaskRun;
+            }
+            Mismatch::Fingerprint => {
+                commit.command_fingerprint = CommandFingerprint::from_bytes([0x5a; 32]);
+            }
+            Mismatch::Key => {
+                commit.idempotency_key = IdempotencyKey::new("different-key").unwrap();
+            }
+            Mismatch::Schema => {
+                let original = commit.events.pop().unwrap();
+                commit.events.push(replace_conversation_event_metadata(
+                    &original,
+                    command_id,
+                    commit.idempotency_key.clone(),
+                    2,
+                    Sensitivity::Public,
+                ));
+            }
+        }
+
+        assert_eq!(
+            store.commit_conversation(commit),
+            Err(CommitError::StorageFailure(
+                StorageFailureKind::IntegrityViolation
+            )),
+            "{name} mismatch must fail closed"
+        );
+        drop(store);
+        assert_no_conversation_commit_rows(&db_path);
+        cleanup_db(&db_path);
+    }
 }
 
 // ── Test 2: Full lifecycle ───────────────────────────────────────────────
@@ -297,6 +611,91 @@ fn test_replay_after_reopen() {
         !agg.state().is_terminal(),
         "aggregate should not be terminal after create+queue+admit+start"
     );
+
+    cleanup_db(&db_path);
+}
+
+#[test]
+fn test_correlation_metadata_is_persisted_and_corruption_fails_closed() {
+    let db_path = temp_db_path("correlation-metadata");
+    cleanup_db(&db_path);
+
+    let (store, svc) = open_service(&db_path);
+    let outcome = svc
+        .create_task_run(
+            &make_context(1),
+            CreateTaskRunInput {
+                conversation_id: make_conv_id(),
+                workspace_id: make_ws_id(),
+            },
+        )
+        .unwrap();
+    let taskrun_id = match outcome {
+        CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
+        other => panic!("expected TaskRunCreated, got {:?}", other),
+    };
+
+    let conn = gocode_store::schema::open_with_pragmas(&db_path).unwrap();
+    let (correlation_id, correlation_type, integrity_profile): (Vec<u8>, i64, i64) = conn
+        .query_row(
+            "SELECT correlation_id, correlation_type, integrity_profile
+             FROM events WHERE aggregate_type = 1 AND aggregate_id = ?1",
+            rusqlite::params![taskrun_id.as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(correlation_id, taskrun_id.as_bytes());
+    assert_eq!(correlation_type, 1);
+    assert_eq!(integrity_profile, 1);
+
+    conn.execute(
+        "UPDATE events SET correlation_type = 2
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load_task_run(taskrun_id),
+        Err(EventStoreError::CorruptData)
+    ));
+
+    conn.execute(
+        "UPDATE events SET correlation_type = 1, integrity_profile = 2
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load_task_run(taskrun_id),
+        Err(EventStoreError::CorruptData)
+    ));
+
+    conn.execute(
+        "UPDATE events SET integrity_profile = 1
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(
+        conn.execute(
+            "UPDATE events SET correlation_id = x'00'
+             WHERE aggregate_type = 1 AND aggregate_id = ?1",
+            rusqlite::params![taskrun_id.as_bytes()],
+        )
+        .is_err()
+    );
+    assert!(store.load_task_run(taskrun_id).is_ok());
+
+    conn.execute(
+        "UPDATE events SET correlation_id = zeroblob(16)
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load_task_run(taskrun_id),
+        Err(EventStoreError::CorruptData)
+    ));
 
     cleanup_db(&db_path);
 }
@@ -554,7 +953,7 @@ fn test_clock_regression() {
         let conn = gocode_store::schema::open_with_pragmas(&db_path).unwrap();
         conn.execute_batch("PRAGMA journal_mode=WAL;").unwrap();
         conn.execute(
-            "UPDATE task_run_streams SET last_timestamp = ?1",
+            "UPDATE aggregate_streams SET last_timestamp = ?1",
             rusqlite::params![i64::MAX],
         )
         .unwrap();

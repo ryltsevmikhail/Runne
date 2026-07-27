@@ -6,6 +6,7 @@
 //! No async, no IO, no external dependencies.
 
 pub mod command;
+pub mod conversation;
 pub mod error;
 pub mod event;
 pub mod id;

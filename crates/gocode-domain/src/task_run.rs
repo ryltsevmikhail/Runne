@@ -252,8 +252,8 @@ impl TaskRun {
     ) -> Result<DomainEventDraft<TaskRunEvent>, DomainError> {
         let aggregate_id = AggregateId::TaskRun(command.taskrun_id);
         Ok(DomainEventDraft::new(
+            aggregate_id.clone(),
             aggregate_id,
-            command.taskrun_id,
             1,
             Sensitivity::Public,
             TaskRunEvent::TaskRunCreated,
@@ -276,7 +276,13 @@ impl TaskRun {
 
         let aggregate_id = AggregateId::TaskRun(self.id);
         let draft = |payload: TaskRunEvent, sensitivity: Sensitivity| {
-            DomainEventDraft::new(aggregate_id, self.id, 1, sensitivity, payload)
+            DomainEventDraft::new(
+                aggregate_id.clone(),
+                aggregate_id.clone(),
+                1,
+                sensitivity,
+                payload,
+            )
         };
 
         match command {
@@ -421,8 +427,15 @@ impl TaskRun {
         let expected = AggregateId::TaskRun(self.id);
         if *event.aggregate_id() != expected {
             return Err(DomainError::AggregateIdMismatch {
-                expected,
+                expected: expected.clone(),
                 actual: event.aggregate_id().clone(),
+            });
+        }
+
+        if *event.correlation_id() != expected {
+            return Err(DomainError::AggregateIdMismatch {
+                expected,
+                actual: event.correlation_id().clone(),
             });
         }
 
@@ -462,10 +475,27 @@ impl TaskRun {
             });
         }
 
-        // Validate taskrun_id consistency and build initial aggregate
-        let taskrun_id = first.taskrun_id();
+        // The TaskRun's aggregate and correlation IDs must both be the same
+        // TaskRun variant. Derive the ID from the aggregate ID so an invalid
+        // correlation cannot fabricate an aggregate identity during replay.
+        let taskrun_id = match first.aggregate_id() {
+            AggregateId::TaskRun(tid) => *tid,
+            _ => {
+                return Err(DomainError::AggregateIdMismatch {
+                    expected: first.correlation_id().clone(),
+                    actual: first.aggregate_id().clone(),
+                });
+            }
+        };
+        let expected = AggregateId::TaskRun(taskrun_id);
+        if *first.correlation_id() != expected {
+            return Err(DomainError::AggregateIdMismatch {
+                expected,
+                actual: first.correlation_id().clone(),
+            });
+        }
         let mut agg = Self {
-            id: *taskrun_id,
+            id: taskrun_id,
             state: TaskRunState::Created,
             active_attempt: None,
             attempt_history: Vec::new(),
@@ -482,11 +512,18 @@ impl TaskRun {
                 });
             }
 
-            // All events must share the same taskrun_id
-            if *event.taskrun_id() != *taskrun_id {
+            // All events must belong to the same TaskRun aggregate and
+            // correlation stream. Both checks are variant-sensitive equality.
+            if *event.aggregate_id() != expected {
                 return Err(DomainError::AggregateIdMismatch {
-                    expected: AggregateId::TaskRun(*taskrun_id),
+                    expected: expected.clone(),
                     actual: event.aggregate_id().clone(),
+                });
+            }
+            if *event.correlation_id() != expected {
+                return Err(DomainError::AggregateIdMismatch {
+                    expected: expected.clone(),
+                    actual: event.correlation_id().clone(),
                 });
             }
 
@@ -691,12 +728,26 @@ mod tests {
         payload: TaskRunEvent,
         taskrun_id: TaskRunId,
     ) -> EventEnvelope<TaskRunEvent> {
+        make_envelope_with_correlation(
+            sequence,
+            payload,
+            taskrun_id,
+            AggregateId::TaskRun(taskrun_id),
+        )
+    }
+
+    fn make_envelope_with_correlation(
+        sequence: u64,
+        payload: TaskRunEvent,
+        taskrun_id: TaskRunId,
+        correlation_id: AggregateId,
+    ) -> EventEnvelope<TaskRunEvent> {
         use crate::event::{Actor, CommandContext, DomainEventDraft};
         use crate::id::{IdempotencyKey, IntegrityDigest};
         use crate::timestamp::Timestamp;
         let draft = DomainEventDraft::new(
             AggregateId::TaskRun(taskrun_id),
-            taskrun_id,
+            correlation_id,
             1,
             Sensitivity::Public,
             payload,
@@ -1142,6 +1193,47 @@ mod tests {
         ];
         let err = TaskRun::replay(events).unwrap_err();
         assert!(matches!(err, DomainError::AggregateIdMismatch { .. }));
+    }
+
+    #[test]
+    fn test_apply_rejects_non_taskrun_correlation() {
+        let tr_id: TaskRunId = VALID_UUID.parse().unwrap();
+        let mut aggregate = create_aggregate();
+        let event = make_envelope_with_correlation(
+            2,
+            TaskRunEvent::TaskRunQueued,
+            tr_id,
+            AggregateId::Workspace(WORKSPACE_ID.parse().unwrap()),
+        );
+
+        let err = aggregate.apply(&event).unwrap_err();
+        assert_eq!(
+            err,
+            DomainError::AggregateIdMismatch {
+                expected: AggregateId::TaskRun(tr_id),
+                actual: AggregateId::Workspace(WORKSPACE_ID.parse().unwrap()),
+            }
+        );
+    }
+
+    #[test]
+    fn test_replay_rejects_non_taskrun_correlation() {
+        let tr_id: TaskRunId = VALID_UUID.parse().unwrap();
+        let event = make_envelope_with_correlation(
+            1,
+            TaskRunEvent::TaskRunCreated,
+            tr_id,
+            AggregateId::Conversation(CONVERSATION_ID.parse().unwrap()),
+        );
+
+        let err = TaskRun::replay(&[event]).unwrap_err();
+        assert_eq!(
+            err,
+            DomainError::AggregateIdMismatch {
+                expected: AggregateId::TaskRun(tr_id),
+                actual: AggregateId::Conversation(CONVERSATION_ID.parse().unwrap()),
+            }
+        );
     }
 
     #[test]

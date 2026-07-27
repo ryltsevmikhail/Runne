@@ -5,6 +5,16 @@
 
 use crate::id::{AttemptId, ConversationId, TaskRunId, WorkspaceId};
 
+// ── ConversationCommand ──────────────────────────────────────────────────
+
+/// All commands that can be sent to an existing
+/// [`Conversation`](crate::conversation::Conversation) aggregate.
+#[derive(Debug, Clone)]
+pub enum ConversationCommand {
+    /// Close the conversation permanently.
+    Close,
+}
+
 // ── TerminalResult ─────────────────────────────────────────────────────────
 
 /// The outcome of a completed task run (succeeded or failed).

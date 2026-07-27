@@ -9,3 +9,6 @@ gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
 rusqlite = { version = "=0.34.0", features = ["bundled"] }
 sha2 = "=0.10.8"
+
+[dev-dependencies]
+gocode-api = { path = "../gocode-api" }

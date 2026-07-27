@@ -19,7 +19,8 @@ use gocode_application::service::TaskRunService;
 use gocode_domain::command::TerminalResult;
 use gocode_domain::event::{Actor, EventEnvelope};
 use gocode_domain::id::{
-    AttemptId, CommandId, ConversationId, EventId, IdempotencyKey, TaskRunId, WorkspaceId,
+    AggregateId, AttemptId, CommandId, ConversationId, EventId, IdempotencyKey, TaskRunId,
+    WorkspaceId,
 };
 use gocode_domain::task_run::TaskRunEvent;
 
@@ -115,7 +116,14 @@ impl UnitOfWork for MemStore {
                 stored_result: outcome.clone(),
             });
         }
-        let tr_id = *payload.events.first().unwrap().taskrun_id();
+        let tr_id = match payload.events.first().unwrap().correlation_id() {
+            AggregateId::TaskRun(taskrun_id) => *taskrun_id,
+            _ => {
+                return Err(CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                ));
+            }
+        };
         let new_version = {
             let stream = inner.streams.entry(tr_id).or_default();
             let cv = stream.len() as u64;
@@ -142,6 +150,10 @@ impl UnitOfWork for MemStore {
 impl IdGenerator for MemStore {
     fn next_taskrun_id(&self) -> Result<TaskRunId, IdGenerationError> {
         Ok(tr_id())
+    }
+
+    fn next_conversation_id(&self) -> Result<ConversationId, IdGenerationError> {
+        Ok(conv_id())
     }
     fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError> {
         Ok(att_id())

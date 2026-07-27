@@ -25,7 +25,7 @@ fn created_aggregate() -> TaskRun {
     let tr_id: TaskRunId = TR_ID.parse().unwrap();
     let draft = DomainEventDraft::new(
         AggregateId::TaskRun(tr_id),
-        tr_id,
+        AggregateId::TaskRun(tr_id),
         1,
         Sensitivity::Public,
         TaskRunEvent::TaskRunCreated,
@@ -231,7 +231,7 @@ fn golden_replay_roundtrip_complete_lifecycle() {
     ) -> EventEnvelope<TaskRunEvent> {
         let draft = DomainEventDraft::new(
             AggregateId::TaskRun(tr_id),
-            tr_id,
+            AggregateId::TaskRun(tr_id),
             1,
             Sensitivity::Public,
             payload,

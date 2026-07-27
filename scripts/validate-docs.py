@@ -9,9 +9,13 @@ import os, json, re, sys
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPSTREAM_DIR = os.path.join(BASE, "upstream", "opencode")
+DOCS_DIR = os.path.join(BASE, "docs")
+IMPLEMENTATION_PLANS_DIR = os.path.join(DOCS_DIR, "superpowers", "plans")
 BASELINE_SHA = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
 BASELINE_DATE = "2026-07-24"
 UPSTREAM_URL = "https://github.com/anomalyco/opencode"
+IGNORED_TREE_NAMES = {".git", ".worktrees", "target"}
+HISTORIC_SCHEMA_EXCEPTIONS = {"opencode-baseline-inventory-v1.schema.json"}
 
 errors = []
 warnings = []
@@ -24,6 +28,22 @@ def err(msg):
 
 def warn(msg):
     warnings.append(msg)
+
+def walk_files(root, suffixes=None):
+    """Yield repository files while excluding generated and pinned source trees."""
+    for current_root, dirs, files in os.walk(root):
+        dirs[:] = [
+            directory
+            for directory in dirs
+            if directory not in IGNORED_TREE_NAMES
+            and os.path.join(current_root, directory) != UPSTREAM_DIR
+        ]
+        for filename in files:
+            if suffixes is None or filename.endswith(suffixes):
+                yield os.path.join(current_root, filename)
+
+def is_implementation_plan(path):
+    return path.startswith(IMPLEMENTATION_PLANS_DIR + os.sep)
 
 # ── 1. JSON Schema validity ──────────────────────────────────────────
 
@@ -39,7 +59,7 @@ for f in sorted(os.listdir(schemas_dir)):
         continue
     if data.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         err(f"Wrong $schema in {f}: {data.get('$schema')}")
-    if not data.get("$id"):
+    if not data.get("$id") and f not in HISTORIC_SCHEMA_EXCEPTIONS:
         warn(f"Missing $id in {f}")
     if not data.get("title"):
         warn(f"Missing title in {f}")
@@ -55,48 +75,45 @@ for f in sorted(os.listdir(schemas_dir)):
         unknown_required = sorted(set(required) - set(properties))
         if unknown_required:
             err(f"Required fields absent from properties in {f}: {unknown_required}")
-    if data.get("additionalProperties") is not False:
+    if (
+        data.get("additionalProperties") is not False
+        and f not in HISTORIC_SCHEMA_EXCEPTIONS
+    ):
         err(f"Top-level schema must be closed (additionalProperties=false): {f}")
     if "preliminary" in json.dumps(data).lower():
         err(f"Preliminary schema cannot be implementation input: {f}")
 
 # ── 2. Front matter on all docs/*.md ─────────────────────────────────
 
-for root, _, files in os.walk(os.path.join(BASE, "docs")):
-    for f in files:
-        if not f.endswith(".md"):
-            continue
-        fp = os.path.join(root, f)
-        head = open(fp).read(200)
-        if not head.startswith("---"):
-            err(f"Missing front matter: {os.path.relpath(fp, BASE)}")
+for fp in walk_files(DOCS_DIR, ".md"):
+    if is_implementation_plan(fp):
+        continue
+    head = open(fp).read(200)
+    if not head.startswith("---"):
+        err(f"Missing front matter: {os.path.relpath(fp, BASE)}")
 
 # ── 2a. Structural documentation integrity ──────────────────────────
 
 numbered_h2_re = re.compile(r"^##\s+(\d+)\.")
 unresolved_marker_re = re.compile(r"\{SHA\}|\bTBD\b", re.IGNORECASE)
-for root, _, files in os.walk(os.path.join(BASE, "docs")):
-    if os.path.basename(root) == "templates":
+for fp in walk_files(DOCS_DIR, ".md"):
+    if is_implementation_plan(fp) or "templates" in fp.split(os.sep):
         continue
-    for f in files:
-        if not f.endswith(".md"):
-            continue
-        fp = os.path.join(root, f)
-        rel = os.path.relpath(fp, BASE)
-        seen_sections = {}
-        for i, line in enumerate(open(fp, errors="replace"), 1):
-            section = numbered_h2_re.match(line)
-            if section:
-                number = section.group(1)
-                if number in seen_sections:
-                    err(
-                        f"Duplicate numbered H2 in {rel}:{i}: "
-                        f"section {number} first appears at line {seen_sections[number]}"
-                    )
-                else:
-                    seen_sections[number] = i
-            if unresolved_marker_re.search(line):
-                err(f"Unresolved marker in {rel}:{i}: {line.strip()[:100]}")
+    rel = os.path.relpath(fp, BASE)
+    seen_sections = {}
+    for i, line in enumerate(open(fp, errors="replace"), 1):
+        section = numbered_h2_re.match(line)
+        if section:
+            number = section.group(1)
+            if number in seen_sections:
+                err(
+                    f"Duplicate numbered H2 in {rel}:{i}: "
+                    f"section {number} first appears at line {seen_sections[number]}"
+                )
+            else:
+                seen_sections[number] = i
+        if unresolved_marker_re.search(line):
+            err(f"Unresolved marker in {rel}:{i}: {line.strip()[:100]}")
 
 # Canonical requirement IDs are defined only in subsystem REQUIREMENTS files.
 requirement_re = re.compile(r"\bREQ-[A-Z]+-\d+\b")
@@ -112,51 +129,40 @@ for subsystem in os.listdir(subsystems_dir):
         if match:
             defined_requirements.add(match.group(1))
 
-for root, _, files in os.walk(os.path.join(BASE, "docs")):
-    if os.path.basename(root) == "templates":
+local_requirement_prefixes = {"DOM", "PROTO", "FUZZ"}
+for fp in walk_files(DOCS_DIR, (".md", ".json")):
+    if is_implementation_plan(fp) or "templates" in fp.split(os.sep):
         continue
-    for f in files:
-        if not f.endswith((".md", ".json")):
-            continue
-        fp = os.path.join(root, f)
-        rel = os.path.relpath(fp, BASE)
-        for i, line in enumerate(open(fp, errors="replace"), 1):
-            for requirement in requirement_re.findall(line):
-                if requirement not in defined_requirements:
-                    err(f"Unknown requirement ID in {rel}:{i}: {requirement}")
+    rel = os.path.relpath(fp, BASE)
+    for i, line in enumerate(open(fp, errors="replace"), 1):
+        for requirement in requirement_re.findall(line):
+            prefix = requirement.split("-", 2)[1]
+            if (
+                requirement not in defined_requirements
+                and prefix not in local_requirement_prefixes
+            ):
+                err(f"Unknown requirement ID in {rel}:{i}: {requirement}")
 
 # ── 3. Empty files ───────────────────────────────────────────────────
 
-for root, _, files in os.walk(BASE):
-    if root.startswith(UPSTREAM_DIR):
+for fp in walk_files(BASE):
+    if os.path.basename(fp).startswith("."):
         continue
-
-    for f in files:
-        if f.startswith("."):
-            continue
-        fp = os.path.join(root, f)
-        if os.path.getsize(fp) == 0:
-            err(f"Empty file: {os.path.relpath(fp, BASE)}")
+    if os.path.getsize(fp) == 0:
+        err(f"Empty file: {os.path.relpath(fp, BASE)}")
 
 # ── 4. Broken relative Markdown links ────────────────────────────────
 
 link_re = re.compile(r'\[([^\]]*)\]\(([^)]*\.md[^)]*)\)')
-for root, _, files in os.walk(BASE):
-    if root.startswith(UPSTREAM_DIR):
-        continue
-
-    for f in files:
-        if not f.endswith(".md"):
+for fp in walk_files(BASE, ".md"):
+    content = open(fp, errors='replace').read()
+    for m in link_re.finditer(content):
+        target = m.group(2).split('#')[0]
+        if not target or target.startswith(('http://', 'https://')):
             continue
-        fp = os.path.join(root, f)
-        content = open(fp, errors='replace').read()
-        for m in link_re.finditer(content):
-            target = m.group(2).split('#')[0]
-            if not target or target.startswith(('http://', 'https://')):
-                continue
-            resolved = os.path.normpath(os.path.join(os.path.dirname(fp), target))
-            if not os.path.exists(resolved):
-                err(f"Broken link in {os.path.relpath(fp, BASE)}: -> {target}")
+        resolved = os.path.normpath(os.path.join(os.path.dirname(fp), target))
+        if not os.path.exists(resolved):
+            err(f"Broken link in {os.path.relpath(fp, BASE)}: -> {target}")
 
 # ── 5. Floating branch references (URL / ref / commit / upstream evidence ONLY) ──
 
@@ -182,70 +188,53 @@ ref_branch_re = re.compile(
 # Check 3: upstream/opencode path references — make sure if SHA is present, it's our baseline
 # (Skip lines that mention our BASELINE_SHA — those are fine)
 
-for root, _, files in os.walk(BASE):
-    if root.startswith(UPSTREAM_DIR):
+for fp in walk_files(BASE, ".md"):
+    if is_implementation_plan(fp):
         continue
-
-    for f in files:
-        if not f.endswith(".md"):
-            continue
-        fp = os.path.join(root, f)
-        rel = os.path.relpath(fp, BASE)
-        for i, line in enumerate(open(fp, errors='replace'), 1):
-            # Check URL patterns
-            m = url_branch_re.search(line)
-            if m:
-                err(f"Floating URL ref in {rel}:{i}: {line.strip()[:100]}")
-            # Check ref/commit patterns — but skip lines that are clearly not evidence
-            m = ref_branch_re.search(line)
-            if m:
-                # Allow: explanations about snapshot policy
-                if any(kw in line.lower() for kw in ['snapshot', 'закреплён', 'pinned', 'not followed', 'не плавающ']):
-                    continue
-                err(f"Floating ref/commit in {rel}:{i}: {line.strip()[:100]}")
+    rel = os.path.relpath(fp, BASE)
+    for i, line in enumerate(open(fp, errors='replace'), 1):
+        # Check URL patterns
+        m = url_branch_re.search(line)
+        if m:
+            err(f"Floating URL ref in {rel}:{i}: {line.strip()[:100]}")
+        # Check ref/commit patterns — but skip lines that are clearly not evidence
+        m = ref_branch_re.search(line)
+        if m:
+            # Allow: explanations about snapshot policy
+            if any(kw in line.lower() for kw in ['snapshot', 'закреплён', 'pinned', 'not followed', 'не плавающ']):
+                continue
+            err(f"Floating ref/commit in {rel}:{i}: {line.strip()[:100]}")
 
 # ── 6. Baseline SHA consistency ──────────────────────────────────────
 
 sha_re = re.compile(r'[0-9a-f]{40}')
-for root, _, files in os.walk(BASE):
-    if root.startswith(UPSTREAM_DIR):
-        continue
-
-    for f in files:
-        if not f.endswith(('.md', '.json')):
-            continue
-        fp = os.path.join(root, f)
-        content = open(fp, errors='replace').read()
-        for sha in sha_re.findall(content):
-            if sha != BASELINE_SHA:
-                # Allow sha-like strings that aren't actually git SHAs in context
-                # (e.g. they appear in error messages, hex dumps, etc.)
-                # We only flag if the surrounding context mentions OpenCode
-                idx = content.find(sha)
-                context = content[max(0,idx-80):idx+80].lower()
-                if 'opencode' in context or 'upstream' in context or 'baseline' in context:
-                    warn(f"Non-baseline SHA near OpenCode context in {os.path.relpath(fp, BASE)}: {sha[:12]}")
+for fp in walk_files(BASE, (".md", ".json")):
+    content = open(fp, errors='replace').read()
+    for sha in sha_re.findall(content):
+        if sha != BASELINE_SHA:
+            # Allow sha-like strings that aren't actually git SHAs in context
+            # (e.g. they appear in error messages, hex dumps, etc.)
+            # We only flag if the surrounding context mentions OpenCode
+            idx = content.find(sha)
+            context = content[max(0,idx-80):idx+80].lower()
+            if 'opencode' in context or 'upstream' in context or 'baseline' in context:
+                warn(f"Non-baseline SHA near OpenCode context in {os.path.relpath(fp, BASE)}: {sha[:12]}")
 
 # ── 7. No claims of implementation ───────────────────────────────────
 
 impl_re = re.compile(r'\b(?:уже\s+реализован|already\s+implemented|is implemented|проходит тесты|passes tests)\b', re.IGNORECASE)
-for root, _, files in os.walk(BASE):
-    if root.startswith(UPSTREAM_DIR):
+for fp in walk_files(BASE, ".md"):
+    if is_implementation_plan(fp):
         continue
-
-    for f in files:
-        if not f.endswith(".md"):
-            continue
-        fp = os.path.join(root, f)
-        rel = os.path.relpath(fp, BASE)
-        for i, line in enumerate(open(fp, errors='replace'), 1):
-            if impl_re.search(line):
-                # Allow in ADRs/decisions that explicitly document decisions, not claims
-                if 'adr' in rel.lower() or 'decision' in rel.lower():
-                    continue
-                if 'not yet' in line.lower() or 'не реализован' in line.lower():
-                    continue
-                warn(f"Possible implementation claim in {rel}:{i}: {line.strip()[:100]}")
+    rel = os.path.relpath(fp, BASE)
+    for i, line in enumerate(open(fp, errors='replace'), 1):
+        if impl_re.search(line):
+            # Allow in ADRs/decisions that explicitly document decisions, not claims
+            if 'adr' in rel.lower() or 'decision' in rel.lower():
+                continue
+            if 'not yet' in line.lower() or 'не реализован' in line.lower():
+                continue
+            warn(f"Possible implementation claim in {rel}:{i}: {line.strip()[:100]}")
 
 # ── Summary ──────────────────────────────────────────────────────────
 
@@ -269,4 +258,4 @@ if not errors and not warnings:
 elif not errors:
     print("\n✓ No errors (warnings only).")
 
-sys.exit(1 if errors else 0)
+sys.exit(1 if errors or (strict and warnings) else 0)

@@ -10,7 +10,7 @@ use core::fmt;
 
 use crate::id::{
     AggregateId, CommandId, EventId, IdempotencyKey, IntegrityDigest, InvalidIdReason,
-    MAX_ACTOR_BYTES, MAX_EVENT_TYPE_BYTES, TaskRunId,
+    MAX_ACTOR_BYTES, MAX_EVENT_TYPE_BYTES,
 };
 use crate::timestamp::Timestamp;
 
@@ -150,8 +150,8 @@ pub struct CommandContext {
 pub struct DomainEventDraft<E> {
     /// Aggregate that produced this event.
     pub(crate) aggregate_id: AggregateId,
-    /// Owning task run (set to the TaskRun's own ID).
-    pub(crate) taskrun_id: TaskRunId,
+    /// Aggregate that correlates this event with its causal stream.
+    pub(crate) correlation_id: AggregateId,
     /// Schema version for forward compatibility.
     pub(crate) schema_version: u32,
     /// Sensitivity classification (deterministic from event type).
@@ -164,14 +164,14 @@ impl<E> DomainEventDraft<E> {
     /// Create a new draft.
     pub fn new(
         aggregate_id: AggregateId,
-        taskrun_id: TaskRunId,
+        correlation_id: AggregateId,
         schema_version: u32,
         sensitivity: Sensitivity,
         payload: E,
     ) -> Self {
         Self {
             aggregate_id,
-            taskrun_id,
+            correlation_id,
             schema_version,
             sensitivity,
             payload,
@@ -183,9 +183,9 @@ impl<E> DomainEventDraft<E> {
         &self.aggregate_id
     }
 
-    /// Return a reference to the task run ID.
-    pub fn taskrun_id(&self) -> &TaskRunId {
-        &self.taskrun_id
+    /// Return a reference to the correlation aggregate ID.
+    pub fn correlation_id(&self) -> &AggregateId {
+        &self.correlation_id
     }
 
     /// Return the schema version.
@@ -217,7 +217,7 @@ impl<E> DomainEventDraft<E> {
 pub struct UncommittedEvent<E> {
     pub(crate) event_id: EventId,
     pub(crate) aggregate_id: AggregateId,
-    pub(crate) taskrun_id: TaskRunId,
+    pub(crate) correlation_id: AggregateId,
     pub(crate) causation_id: Option<EventId>,
     pub(crate) command_id: CommandId,
     pub(crate) idempotency_key: IdempotencyKey,
@@ -238,9 +238,9 @@ impl<E> UncommittedEvent<E> {
         &self.aggregate_id
     }
 
-    /// Return a reference to the task run ID.
-    pub fn taskrun_id(&self) -> &TaskRunId {
-        &self.taskrun_id
+    /// Return a reference to the correlation aggregate ID.
+    pub fn correlation_id(&self) -> &AggregateId {
+        &self.correlation_id
     }
 
     /// Return the causation event ID, if any.
@@ -285,7 +285,7 @@ impl<E> UncommittedEvent<E> {
     pub fn from_parts(
         event_id: EventId,
         aggregate_id: AggregateId,
-        taskrun_id: TaskRunId,
+        correlation_id: AggregateId,
         causation_id: Option<EventId>,
         command_id: CommandId,
         idempotency_key: IdempotencyKey,
@@ -297,7 +297,7 @@ impl<E> UncommittedEvent<E> {
         Self {
             event_id,
             aggregate_id,
-            taskrun_id,
+            correlation_id,
             causation_id,
             command_id,
             idempotency_key,
@@ -323,7 +323,7 @@ impl<E> UncommittedEvent<E> {
         EventEnvelope {
             event_id: self.event_id,
             aggregate_id: self.aggregate_id,
-            taskrun_id: self.taskrun_id,
+            correlation_id: self.correlation_id,
             causation_id: self.causation_id,
             command_id: self.command_id,
             idempotency_key: self.idempotency_key,
@@ -346,7 +346,7 @@ pub struct EventEnvelope<E> {
     // domain-owned (from UncommittedEvent):
     pub(crate) event_id: EventId,
     pub(crate) aggregate_id: AggregateId,
-    pub(crate) taskrun_id: TaskRunId,
+    pub(crate) correlation_id: AggregateId,
     pub(crate) causation_id: Option<EventId>,
     pub(crate) command_id: CommandId,
     pub(crate) idempotency_key: IdempotencyKey,
@@ -371,9 +371,9 @@ impl<E> EventEnvelope<E> {
         &self.aggregate_id
     }
 
-    /// Return a reference to the task run ID.
-    pub fn taskrun_id(&self) -> &TaskRunId {
-        &self.taskrun_id
+    /// Return a reference to the correlation aggregate ID.
+    pub fn correlation_id(&self) -> &AggregateId {
+        &self.correlation_id
     }
 
     /// Return the causation event ID, if any.
@@ -434,7 +434,7 @@ impl<E> EventEnvelope<E> {
     pub fn from_parts(
         event_id: EventId,
         aggregate_id: AggregateId,
-        taskrun_id: TaskRunId,
+        correlation_id: AggregateId,
         causation_id: Option<EventId>,
         command_id: CommandId,
         idempotency_key: IdempotencyKey,
@@ -449,7 +449,7 @@ impl<E> EventEnvelope<E> {
         Self {
             event_id,
             aggregate_id,
-            taskrun_id,
+            correlation_id,
             causation_id,
             command_id,
             idempotency_key,
@@ -507,7 +507,7 @@ pub fn materialize_batch<E>(
         let uncommitted = UncommittedEvent {
             event_id: event_ids[i],
             aggregate_id: draft.aggregate_id,
-            taskrun_id: draft.taskrun_id,
+            correlation_id: draft.correlation_id,
             causation_id: prev_event_id,
             command_id: context.command_id,
             idempotency_key: context.idempotency_key.clone(),
@@ -596,9 +596,11 @@ mod tests {
     }
 
     fn make_draft<E: Clone>(payload: E) -> DomainEventDraft<E> {
+        let taskrun_id = VALID_UUID.parse().unwrap();
+        let aggregate_id = AggregateId::TaskRun(taskrun_id);
         DomainEventDraft::new(
-            AggregateId::TaskRun(VALID_UUID.parse::<TaskRunId>().unwrap()),
-            VALID_UUID.parse().unwrap(),
+            aggregate_id.clone(),
+            aggregate_id,
             1,
             Sensitivity::Public,
             payload,
