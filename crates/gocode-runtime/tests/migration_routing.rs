@@ -103,6 +103,27 @@ async fn stale_fence_creates_no_binding_and_dispatches_nowhere() {
     assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 0);
 }
 
+#[tokio::test]
+async fn indeterminate_candidate_dispatch_never_falls_back_to_source() {
+    let harness = RoutingHarness::new_with_attempt(
+        candidate_snapshot(),
+        matching_registry(),
+        DispatchAttempt::Indeterminate,
+    );
+    let request = route_request();
+
+    assert_eq!(
+        harness.router.route_new_work(request.clone()).await,
+        Err(MigrationRoutingError::ReconciliationRequired)
+    );
+    assert_eq!(
+        harness.router.route_new_work(request).await,
+        Err(MigrationRoutingError::ReconciliationRequired)
+    );
+    assert_eq!(harness.dispatch.source.load(Ordering::Acquire), 0);
+    assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 1);
+}
+
 struct RoutingHarness {
     db: TestDb,
     router:
@@ -112,13 +133,45 @@ struct RoutingHarness {
 
 impl RoutingHarness {
     fn new(snapshot: RoutingSnapshot, registry: VerifiedFeatureRegistry) -> Self {
-        Self::new_with_fence(snapshot, registry, FencingToken::new([8; 32]).unwrap())
+        Self::new_with_fence_and_attempt(
+            snapshot,
+            registry,
+            FencingToken::new([8; 32]).unwrap(),
+            DispatchAttempt::Accepted,
+        )
+    }
+
+    fn new_with_attempt(
+        snapshot: RoutingSnapshot,
+        registry: VerifiedFeatureRegistry,
+        attempt: DispatchAttempt,
+    ) -> Self {
+        Self::new_with_fence_and_attempt(
+            snapshot,
+            registry,
+            FencingToken::new([8; 32]).unwrap(),
+            attempt,
+        )
     }
 
     fn new_with_fence(
         snapshot: RoutingSnapshot,
         registry: VerifiedFeatureRegistry,
         active_token: FencingToken,
+    ) -> Self {
+        Self::new_with_fence_and_attempt(
+            snapshot,
+            registry,
+            active_token,
+            DispatchAttempt::Accepted,
+        )
+    }
+
+    fn new_with_fence_and_attempt(
+        snapshot: RoutingSnapshot,
+        registry: VerifiedFeatureRegistry,
+        active_token: FencingToken,
+        attempt: DispatchAttempt,
     ) -> Self {
         let db = TestDb::new("runtime");
         let store = Arc::new(SqliteMigrationControlStore::open(db.path()).unwrap());
@@ -131,6 +184,7 @@ impl RoutingHarness {
             fence: Arc::clone(&fence),
             source: AtomicUsize::new(0),
             candidate: AtomicUsize::new(0),
+            attempt,
         });
         let router = MigrationRouter::new(
             store,
@@ -197,6 +251,7 @@ struct CountingDispatch {
     fence: Arc<FenceRegistry>,
     source: AtomicUsize,
     candidate: AtomicUsize,
+    attempt: DispatchAttempt,
 }
 
 impl MigrationDispatchPort for CountingDispatch {
@@ -214,9 +269,7 @@ impl MigrationDispatchPort for CountingDispatch {
                     }
                 },
             )
-            .map_or(DispatchAttempt::Indeterminate, |_| {
-                DispatchAttempt::Accepted
-            })
+            .map_or(DispatchAttempt::Indeterminate, |_| self.attempt)
     }
 }
 

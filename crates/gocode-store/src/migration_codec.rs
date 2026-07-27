@@ -27,7 +27,7 @@ use gocode_domain::{
 };
 
 const CODEC_VERSION: u8 = 1;
-const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 2;
+const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 3;
 
 /// Fail-closed migration codec errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -354,6 +354,7 @@ pub fn encode_cutover_manifest(manifest: &CutoverManifest) -> Result<Vec<u8>, Mi
     write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
     write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
     bytes.push(cutover_intent_tag(manifest.intent));
+    bytes.extend_from_slice(&manifest.admission_limit.to_be_bytes());
     encode_routing_unit(&mut bytes, &manifest.routing_unit)?;
     encode_artifact_ref(&mut bytes, &manifest.source_release)?;
     write_string(
@@ -406,6 +407,7 @@ pub fn decode_cutover_manifest(bytes: &[u8]) -> Result<CutoverManifest, Migratio
     let cycle_id =
         MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
     let intent = decode_cutover_intent(decoder.read_u8()?)?;
+    let admission_limit = decoder.read_u32()?;
     let routing_unit = decode_routing_unit(&mut decoder)?;
     let source_release = decode_artifact_ref(&mut decoder, "source_release")?;
     let source_generation = runtime_generation(
@@ -438,6 +440,7 @@ pub fn decode_cutover_manifest(bytes: &[u8]) -> Result<CutoverManifest, Migratio
         plan_id,
         cycle_id,
         intent,
+        admission_limit,
         routing_unit,
         source_release,
         source_generation,
@@ -1489,6 +1492,7 @@ mod tests {
             MigrationReport, MigrationReportFields, RollbackPolicy,
         },
         ports::CutoverIntent,
+        rollout::CanaryPolicy,
     };
     use gocode_domain::{
         id::{AggregateId, TaskRunId},
@@ -1542,7 +1546,7 @@ mod tests {
     fn cutover_manifest_roundtrips_and_rejects_digest_corruption() {
         let manifest = golden_cutover_manifest();
         let bytes = encode_cutover_manifest(&manifest).unwrap();
-        assert_eq!(hex(&bytes), GOLDEN_CUTOVER_MANIFEST_HEX);
+        assert_eq!(hex(&bytes), golden_cutover_manifest_v3_hex());
         assert_eq!(decode_cutover_manifest(&bytes).unwrap(), manifest);
 
         let mut corrupt = bytes;
@@ -1657,6 +1661,12 @@ mod tests {
         }
     }
 
+    fn golden_cutover_manifest_v3_hex() -> String {
+        const INTENT_END: usize = 142;
+        let (prefix, suffix) = GOLDEN_CUTOVER_MANIFEST_HEX.split_at(INTENT_END);
+        format!("03{}00000040{suffix}", &prefix[2..])
+    }
+
     fn golden_cutover_manifest() -> CutoverManifest {
         let report = golden_migration_report();
         CutoverManifest::new(CutoverManifestFields {
@@ -1664,6 +1674,7 @@ mod tests {
             plan_id: MigrationPlanId::new("plan-1").unwrap(),
             cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
             intent: CutoverIntent::InternalCanary,
+            canary_policy: CanaryPolicy::new(golden_routing_unit().cohort, 64).unwrap(),
             routing_unit: golden_routing_unit(),
             source_release: artifact("source-release", 13),
             source_generation: RuntimeGenerationRef::new("runtime-legacy").unwrap(),
