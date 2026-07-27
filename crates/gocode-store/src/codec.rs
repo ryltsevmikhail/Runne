@@ -408,6 +408,15 @@ fn decode_plan_ref(bytes: &[u8], pos: &mut usize) -> Result<PlanRevisionRef, Sto
     let revision = read_u64_be(bytes, pos)?;
     let context_manifest_ref = decode_context_ref(bytes, pos)?;
     let expected_proposal_indexes = read_u32_vec(bytes, pos)?;
+    if expected_proposal_indexes
+        .windows(2)
+        .any(|pair| pair[0] >= pair[1])
+    {
+        return Err(StoreCodecError::UnknownTag {
+            tag: 0,
+            context: "PlanRevisionRef proposal indexes",
+        });
+    }
     let proposal_batch_digest = read_digest(bytes, pos)?;
     let planning_policy_ref = decode_result_ref(bytes, pos)?;
     let planning_budget_ref = decode_budget_ref(bytes, pos)?;
@@ -1256,13 +1265,30 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
                 cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
                 manifest_ref: decode_context_ref(bytes, &mut pos)?,
             },
-            TAG_PLAN_COMMITTED => TaskRunEvent::PlanCommitted {
-                cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
-                plan_revision_ref: decode_plan_ref(bytes, &mut pos)?,
-                input_digest: read_digest(bytes, &mut pos)?,
-                output_digest: read_digest(bytes, &mut pos)?,
-                expected_proposal_indexes: read_u32_vec(bytes, &mut pos)?,
-            },
+            TAG_PLAN_COMMITTED => {
+                let cycle_id = CycleId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let plan_revision_ref = decode_plan_ref(bytes, &mut pos)?;
+                let input_digest = read_digest(bytes, &mut pos)?;
+                let output_digest = read_digest(bytes, &mut pos)?;
+                let expected_proposal_indexes = read_u32_vec(bytes, &mut pos)?;
+                if expected_proposal_indexes
+                    .windows(2)
+                    .any(|pair| pair[0] >= pair[1])
+                    || expected_proposal_indexes != plan_revision_ref.expected_proposal_indexes
+                {
+                    return Err(StoreCodecError::UnknownTag {
+                        tag,
+                        context: "PlanCommitted proposal indexes",
+                    });
+                }
+                TaskRunEvent::PlanCommitted {
+                    cycle_id,
+                    plan_revision_ref,
+                    input_digest,
+                    output_digest,
+                    expected_proposal_indexes,
+                }
+            }
             TAG_STEP_OUTCOME_RECORDED => TaskRunEvent::StepOutcomeRecorded {
                 cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
                 outcome: decode_step_record(bytes, &mut pos)?,
@@ -2302,6 +2328,25 @@ mod tests {
             let bytes = codec.encode(event).unwrap();
             assert_eq!(bytes[2], expected_tag);
             assert_eq!(codec.decode(&bytes).unwrap(), *event);
+
+            let mut unsupported = bytes.clone();
+            unsupported[1] = 2;
+            assert!(matches!(
+                codec.decode(&unsupported),
+                Err(StoreCodecError::UnsupportedVersion { .. })
+            ));
+
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(matches!(
+                codec.decode(&trailing),
+                Err(StoreCodecError::TrailingBytes { .. })
+            ));
+
+            assert!(matches!(
+                codec.decode(&bytes[..bytes.len() - 1]),
+                Err(StoreCodecError::Truncated)
+            ));
         }
     }
 
@@ -2377,6 +2422,25 @@ mod tests {
             let bytes = codec.encode(outcome).unwrap();
             assert_eq!(bytes[2], expected_tag);
             assert_eq!(codec.decode(&bytes).unwrap(), *outcome);
+
+            let mut unsupported = bytes.clone();
+            unsupported[1] = 2;
+            assert!(matches!(
+                codec.decode(&unsupported),
+                Err(StoreCodecError::UnsupportedVersion { .. })
+            ));
+
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(matches!(
+                codec.decode(&trailing),
+                Err(StoreCodecError::TrailingBytes { .. })
+            ));
+
+            assert!(matches!(
+                codec.decode(&bytes[..bytes.len() - 1]),
+                Err(StoreCodecError::Truncated)
+            ));
         }
     }
 
