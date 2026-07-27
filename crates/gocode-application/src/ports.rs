@@ -2,13 +2,18 @@
 //!
 //! All ports are trait-only; no concrete adapters in this crate.
 
+use gocode_domain::agent_loop::{StepOutcomeRef, WakeCondition, WakeEvidenceRef};
 use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{EventEnvelope, UncommittedEvent};
 use gocode_domain::id::{
-    AttemptId, CommandId, ConversationId, EventId, IdempotencyKey, TaskRunId, WorkspaceId,
+    AttemptId, CheckpointId, CommandId, ConversationId, CycleId, EventId, IdempotencyKey,
+    IntegrityDigest, PlanEvaluationId, TaskRunId, WorkspaceId,
 };
+use gocode_domain::recovery::ReconciliationResultRef;
+use gocode_domain::reference::BudgetReservationRef;
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
+use gocode_domain::verification::PlanEvaluationRef;
 
 use crate::commands::CommandOutcome;
 use crate::fingerprint::CommandFingerprint;
@@ -279,6 +284,16 @@ pub trait IdGenerator {
     /// Generate a new unique [`AttemptId`].
     fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError>;
 
+    /// Generate a new unique loop cycle ID.
+    fn next_cycle_id(&self) -> Result<CycleId, IdGenerationError> {
+        Err(IdGenerationError::Unavailable)
+    }
+
+    /// Generate a new unique loop checkpoint ID.
+    fn next_checkpoint_id(&self) -> Result<CheckpointId, IdGenerationError> {
+        Err(IdGenerationError::Unavailable)
+    }
+
     /// Generate `count` new unique [`EventId`]s.
     fn next_event_ids(&self, count: usize) -> Result<Vec<EventId>, IdGenerationError>;
 }
@@ -304,6 +319,117 @@ pub trait Clock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClockError {
     /// The clock could not be read.
+    Unavailable,
+}
+
+/// Provider of authoritative wall-clock microseconds for retry scheduling.
+pub trait TimePort {
+    fn now_unix_us(&self) -> Result<i64, TimeError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TimeError {
+    Unavailable,
+    OutOfRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreparedRetrySchedule {
+    pub retry_policy_digest: IntegrityDigest,
+    pub budget_reservation_ref: BudgetReservationRef,
+    pub delay_ms: u64,
+    pub due_at_unix_us: i64,
+}
+
+pub trait RetrySchedulePort {
+    #[allow(clippy::too_many_arguments)]
+    fn prepare(
+        &self,
+        taskrun_id: TaskRunId,
+        attempt_id: AttemptId,
+        retry_ordinal: u64,
+        step_outcome_ref: &StepOutcomeRef,
+        requested_policy_digest: &IntegrityDigest,
+        requested_budget_reservation: &BudgetReservationRef,
+        now_unix_us: i64,
+    ) -> Result<PreparedRetrySchedule, RetryScheduleError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RetryScheduleError {
+    Denied,
+    BudgetExhausted,
+    StaleReservation,
+    Unavailable,
+}
+
+pub trait WakeEvidenceQueryPort {
+    fn validate_current(
+        &self,
+        evidence: &WakeEvidenceRef,
+        taskrun_id: TaskRunId,
+        cycle_id: CycleId,
+        condition: &WakeCondition,
+    ) -> Result<(), WakeEvidenceError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WakeEvidenceError {
+    Missing,
+    Stale,
+    Forged,
+    CrossCycle,
+    Unavailable,
+}
+
+pub trait ReconciliationQueryPort {
+    fn validate_current(
+        &self,
+        evidence: &ReconciliationResultRef,
+        taskrun_id: TaskRunId,
+        predecessor_attempt_id: AttemptId,
+        expected_generation: u64,
+        expected_stream_head: u64,
+    ) -> Result<(), ReconciliationError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReconciliationError {
+    Missing,
+    Stale,
+    UnresolvedEffects,
+    InvalidBinding,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateEvaluationRef {
+    pub gate_id: String,
+    pub evidence_digest: IntegrityDigest,
+    pub result_digest: IntegrityDigest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanEvaluation {
+    pub reference: PlanEvaluationRef,
+    pub gate_evaluation_refs: Vec<GateEvaluationRef>,
+    pub evaluated_at_unix_us: i64,
+    pub superseded_by: Option<PlanEvaluationId>,
+}
+
+pub trait VerificationQueryPort {
+    fn get_exact(
+        &self,
+        reference: &PlanEvaluationRef,
+    ) -> Result<PlanEvaluation, VerificationQueryError>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VerificationQueryError {
+    Missing,
+    Stale,
+    InvalidBinding,
+    DigestMismatch,
     Unavailable,
 }
 
@@ -335,6 +461,17 @@ pub enum OperationTag {
     Complete = 5,
     /// Create a new conversation.
     CreateConversation = 6,
+    StartLoopCycle = 7,
+    CommitContext = 8,
+    CommitPlan = 9,
+    RecordStepOutcome = 10,
+    CompleteLoopCycle = 11,
+    CreateNextCycle = 12,
+    ScheduleRetry = 13,
+    ActivateScheduledRetryAttempt = 14,
+    CommitRecoveryResume = 15,
+    CommitLoopCheckpoint = 16,
+    ResumeLoopWait = 17,
 }
 
 /// The aggregate scope within which idempotency is enforced.
@@ -400,6 +537,17 @@ mod tests {
         assert_eq!(OperationTag::StartAttempt as u8, 4);
         assert_eq!(OperationTag::Complete as u8, 5);
         assert_eq!(OperationTag::CreateConversation as u8, 6);
+        assert_eq!(OperationTag::StartLoopCycle as u8, 7);
+        assert_eq!(OperationTag::CommitContext as u8, 8);
+        assert_eq!(OperationTag::CommitPlan as u8, 9);
+        assert_eq!(OperationTag::RecordStepOutcome as u8, 10);
+        assert_eq!(OperationTag::CompleteLoopCycle as u8, 11);
+        assert_eq!(OperationTag::CreateNextCycle as u8, 12);
+        assert_eq!(OperationTag::ScheduleRetry as u8, 13);
+        assert_eq!(OperationTag::ActivateScheduledRetryAttempt as u8, 14);
+        assert_eq!(OperationTag::CommitRecoveryResume as u8, 15);
+        assert_eq!(OperationTag::CommitLoopCheckpoint as u8, 16);
+        assert_eq!(OperationTag::ResumeLoopWait as u8, 17);
     }
 
     #[test]

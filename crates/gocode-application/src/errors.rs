@@ -12,7 +12,8 @@ use crate::fingerprint::CommandFingerprint;
 use crate::ports::CommitError;
 pub use crate::ports::{
     ClockError, CommitError as CommitErrorType, EventStoreError, IdGenerationError,
-    StorageFailureKind,
+    ReconciliationError, RetryScheduleError, StorageFailureKind, TimeError, VerificationQueryError,
+    WakeEvidenceError,
 };
 
 /// Typed stream consistency violations.
@@ -107,6 +108,12 @@ pub enum ApplicationError {
         /// The version returned by the commit.
         returned: u64,
     },
+    TimePortFailed(TimeError),
+    RetryScheduleRejected(RetryScheduleError),
+    WakeEvidenceRejected(WakeEvidenceError),
+    ReconciliationRejected(ReconciliationError),
+    VerificationRejected(VerificationQueryError),
+    InvalidAuthorityResult,
 }
 
 impl fmt::Display for ApplicationError {
@@ -166,6 +173,20 @@ impl fmt::Display for ApplicationError {
                     computed, returned
                 )
             }
+            Self::TimePortFailed(error) => write!(f, "time port failed: {:?}", error),
+            Self::RetryScheduleRejected(error) => {
+                write!(f, "retry schedule rejected: {:?}", error)
+            }
+            Self::WakeEvidenceRejected(error) => {
+                write!(f, "wake evidence rejected: {:?}", error)
+            }
+            Self::ReconciliationRejected(error) => {
+                write!(f, "reconciliation rejected: {:?}", error)
+            }
+            Self::VerificationRejected(error) => {
+                write!(f, "verification rejected: {:?}", error)
+            }
+            Self::InvalidAuthorityResult => write!(f, "authority returned inconsistent data"),
         }
     }
 }

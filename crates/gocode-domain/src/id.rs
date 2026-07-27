@@ -221,6 +221,31 @@ uuid_v7_newtype!(ProcessId, "UUIDv7 identifier for a host process.");
 uuid_v7_newtype!(EventId, "UUIDv7 identifier for a domain event.");
 uuid_v7_newtype!(CommandId, "UUIDv7 identifier for a command.");
 
+uuid_v7_newtype!(CycleId, "UUIDv7 identifier for a loop cycle.");
+uuid_v7_newtype!(StepId, "UUIDv7 identifier for a step outcome.");
+uuid_v7_newtype!(PlanId, "UUIDv7 identifier for a plan revision.");
+uuid_v7_newtype!(ManifestId, "UUIDv7 identifier for a context manifest.");
+uuid_v7_newtype!(ResultId, "UUIDv7 identifier for an immutable result.");
+uuid_v7_newtype!(EffectId, "UUIDv7 identifier for a side effect.");
+uuid_v7_newtype!(
+    BudgetReservationId,
+    "UUIDv7 identifier for a budget reservation."
+);
+uuid_v7_newtype!(SecretRefId, "UUIDv7 identifier for a secret reference.");
+uuid_v7_newtype!(
+    ContextManifestId,
+    "UUIDv7 identifier for a context manifest contract."
+);
+uuid_v7_newtype!(
+    ReconciliationRunId,
+    "UUIDv7 identifier for a reconciliation run."
+);
+uuid_v7_newtype!(PlanEvaluationId, "UUIDv7 identifier for a plan evaluation.");
+uuid_v7_newtype!(
+    WakeEvidenceId,
+    "UUIDv7 identifier for accepted wake evidence."
+);
+
 // ── IdempotencyKey ────────────────────────────────────────────────────────
 
 /// Opaque client-provided idempotency key.
@@ -426,6 +451,18 @@ mod tests {
         let _: ProcessId = VALID_UUID_V7.parse().unwrap();
         let _: EventId = VALID_UUID_V7.parse().unwrap();
         let _: CommandId = VALID_UUID_V7.parse().unwrap();
+    }
+
+    #[test]
+    fn phase5_reference_ids_roundtrip_uuid_v7() {
+        let _: ResultId = VALID_UUID_V7.parse().unwrap();
+        let _: EffectId = VALID_UUID_V7.parse().unwrap();
+        let _: BudgetReservationId = VALID_UUID_V7.parse().unwrap();
+        let _: SecretRefId = VALID_UUID_V7.parse().unwrap();
+        let _: ContextManifestId = VALID_UUID_V7.parse().unwrap();
+        let _: ReconciliationRunId = VALID_UUID_V7.parse().unwrap();
+        let _: PlanEvaluationId = VALID_UUID_V7.parse().unwrap();
+        let _: WakeEvidenceId = VALID_UUID_V7.parse().unwrap();
     }
 
     #[test]
