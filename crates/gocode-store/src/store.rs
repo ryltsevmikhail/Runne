@@ -13,21 +13,59 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
-    Clock, ClockError, CommandCommit, CommitError, CommitResult, EventStore as AppEventStore,
-    EventStoreError, IdGenerationError, IdGenerator, IdempotencyScope, LoadedStream, ReceiptLookup,
-    RuntimeAuthorityId, UnitOfWork,
+    AggregateScope, Clock, ClockError, CommandCommit, CommitError, CommitResult,
+    ConversationCommit, ConversationCommitResult, ConversationLoadedStream, ConversationReceipt,
+    ConversationReceiptLookup, ConversationRepository, EventStore as AppEventStore,
+    EventStoreError, IdGenerationError, IdGenerator, IdempotencyScope, LoadedStream, OperationTag,
+    ReceiptLookup, RuntimeAuthorityId, StorageFailureKind, UnitOfWork,
 };
+use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
-use gocode_domain::id::{AggregateId, AttemptId, CommandId, EventId, IntegrityDigest, TaskRunId};
+use gocode_domain::id::{
+    AggregateId, AttemptId, CommandId, ConversationId, EventId, IntegrityDigest, TaskRunId,
+};
 use gocode_domain::timestamp::Timestamp;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::codec::{CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TaskRunEventCodec};
-use crate::integrity::compute_integrity_digest_with_global_position;
+use crate::codec::{
+    CommandOutcomeCodec, ConversationEventCodec, ConversationReceiptCodec, IdempotencyScopeCodec,
+    StoreCodec, TaskRunEventCodec,
+};
+use crate::integrity::{
+    compute_integrity_digest_v2_with_global_position, compute_integrity_digest_with_global_position,
+};
 use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
 
 /// Maximum event count per commit (safety bound).
 const MAX_EVENTS_PER_COMMIT: usize = 1_000;
+
+const CORRELATION_TYPE_TASK_RUN: i64 = 1;
+const CORRELATION_TYPE_CONVERSATION: i64 = 2;
+const INTEGRITY_PROFILE_V1: i64 = 1;
+const INTEGRITY_PROFILE_V2: i64 = 2;
+
+#[derive(Clone, Copy)]
+enum StoredCorrelationType {
+    TaskRun,
+    Conversation,
+}
+
+impl StoredCorrelationType {
+    fn from_i64(value: i64) -> Result<Self, EventStoreError> {
+        match value {
+            CORRELATION_TYPE_TASK_RUN => Ok(Self::TaskRun),
+            CORRELATION_TYPE_CONVERSATION => Ok(Self::Conversation),
+            _ => Err(EventStoreError::CorruptData),
+        }
+    }
+
+    const fn as_i64(self) -> i64 {
+        match self {
+            Self::TaskRun => CORRELATION_TYPE_TASK_RUN,
+            Self::Conversation => CORRELATION_TYPE_CONVERSATION,
+        }
+    }
+}
 
 /// Inner state shared between clones via `Arc`.
 struct StoreInner {
@@ -141,9 +179,9 @@ impl AppEventStore for StoreTransaction {
         let stream: Option<(i64, Option<Vec<u8>>)> = conn
             .query_row(
                 "SELECT current_version, last_event_id
-                 FROM task_run_streams
-                 WHERE taskrun_id = ?1",
-                params![taskrun_bytes],
+                 FROM aggregate_streams
+                 WHERE aggregate_type = ?1 AND aggregate_id = ?2",
+                params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes],
                 |row| Ok((row.get(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
             )
             .ok();
@@ -159,15 +197,16 @@ impl AppEventStore for StoreTransaction {
             .prepare(
                 "SELECT event_id, sequence, timestamp, schema_version,
                         causation_id, command_id, idempotency_key, actor,
-                        payload, integrity_digest
+                        payload, integrity_digest, correlation_id,
+                        correlation_type, integrity_profile, global_position
                  FROM events
-                 WHERE taskrun_id = ?1
+                 WHERE aggregate_type = ?1 AND aggregate_id = ?2
                  ORDER BY sequence ASC",
             )
             .map_err(|_| EventStoreError::CorruptData)?;
 
         let event_rows = stmt
-            .query_map(params![taskrun_bytes], |row| {
+            .query_map(params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes], |row| {
                 let eid: Vec<u8> = row.get(0)?;
                 let seq: i64 = row.get(1)?;
                 let ts: i64 = row.get(2)?;
@@ -178,6 +217,10 @@ impl AppEventStore for StoreTransaction {
                 let act: Vec<u8> = row.get(7)?;
                 let payload_bytes: Vec<u8> = row.get(8)?;
                 let digest_bytes: Vec<u8> = row.get(9)?;
+                let correlation_bytes: Vec<u8> = row.get(10)?;
+                let correlation_type: i64 = row.get(11)?;
+                let integrity_profile: i64 = row.get(12)?;
+                let global_position: i64 = row.get(13)?;
                 Ok((
                     eid,
                     seq as u64,
@@ -189,6 +232,10 @@ impl AppEventStore for StoreTransaction {
                     act,
                     payload_bytes,
                     digest_bytes,
+                    correlation_bytes,
+                    correlation_type,
+                    integrity_profile,
+                    global_position,
                 ))
             })
             .map_err(|_| EventStoreError::CorruptData)?;
@@ -208,6 +255,10 @@ impl AppEventStore for StoreTransaction {
                 actor_bytes,
                 payload_bytes,
                 digest_bytes,
+                correlation_bytes,
+                correlation_type,
+                integrity_profile,
+                global_position,
             ) = row.map_err(|_| EventStoreError::CorruptData)?;
 
             let event_id = EventId::from_bytes(
@@ -239,11 +290,25 @@ impl AppEventStore for StoreTransaction {
                 .decode(&payload_bytes)
                 .map_err(|_| EventStoreError::CorruptData)?;
             let aggregate_id = AggregateId::TaskRun(taskrun_id);
+            if integrity_profile != INTEGRITY_PROFILE_V1 {
+                return Err(EventStoreError::CorruptData);
+            }
+            let correlation_id = match StoredCorrelationType::from_i64(correlation_type)? {
+                StoredCorrelationType::TaskRun => TaskRunId::from_bytes(
+                    correlation_bytes
+                        .try_into()
+                        .map_err(|_| EventStoreError::CorruptData)?,
+                ),
+                StoredCorrelationType::Conversation => return Err(EventStoreError::CorruptData),
+            };
+            if correlation_id != taskrun_id {
+                return Err(EventStoreError::CorruptData);
+            }
 
             let envelope = EventEnvelope::from_parts(
                 event_id,
-                aggregate_id,
-                taskrun_id,
+                aggregate_id.clone(),
+                AggregateId::TaskRun(correlation_id),
                 causation_id,
                 command_id,
                 idempotency_key,
@@ -255,6 +320,15 @@ impl AppEventStore for StoreTransaction {
                 Timestamp::from_unix_micros(ts_micros),
                 integrity_digest,
             );
+            let expected_digest = compute_integrity_digest_with_global_position(
+                &envelope,
+                global_position,
+                &payload_bytes,
+            )
+            .map_err(|_| EventStoreError::CorruptData)?;
+            if envelope.integrity_digest() != &expected_digest {
+                return Err(EventStoreError::CorruptData);
+            }
 
             events.push(envelope);
         }
@@ -270,6 +344,506 @@ impl AppEventStore for StoreTransaction {
             last_event_id,
         })
     }
+}
+
+// ── ConversationRepository impl ─────────────────────────────────────────
+
+impl ConversationRepository for StoreTransaction {
+    fn load_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<ConversationLoadedStream, EventStoreError> {
+        let conn = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| EventStoreError::Unavailable)?;
+        let stream = conn
+            .query_row(
+                "SELECT current_version, last_event_id
+                 FROM aggregate_streams
+                 WHERE aggregate_type = ?1 AND aggregate_id = ?2",
+                params![CORRELATION_TYPE_CONVERSATION, conversation_id.as_bytes()],
+                |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
+            )
+            .optional()
+            .map_err(|_| EventStoreError::CorruptData)?
+            .ok_or(EventStoreError::NotFound)?;
+        let current_version = u64::try_from(stream.0).map_err(|_| EventStoreError::CorruptData)?;
+        let last_event_id = stream.1.map(parse_event_id).transpose()?;
+
+        let mut statement = conn
+            .prepare(
+                "SELECT event_id, sequence, global_position, timestamp, sensitivity,
+                        schema_version, causation_id, command_id, idempotency_key,
+                        actor, payload, integrity_digest, correlation_id,
+                        correlation_type, integrity_profile
+                 FROM events
+                 WHERE aggregate_type = ?1 AND aggregate_id = ?2
+                 ORDER BY sequence",
+            )
+            .map_err(|_| EventStoreError::CorruptData)?;
+        let rows = statement
+            .query_map(
+                params![CORRELATION_TYPE_CONVERSATION, conversation_id.as_bytes()],
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                        row.get::<_, i64>(5)?,
+                        row.get::<_, Option<Vec<u8>>>(6)?,
+                        row.get::<_, Vec<u8>>(7)?,
+                        row.get::<_, Vec<u8>>(8)?,
+                        row.get::<_, Vec<u8>>(9)?,
+                        row.get::<_, Vec<u8>>(10)?,
+                        row.get::<_, Vec<u8>>(11)?,
+                        row.get::<_, Vec<u8>>(12)?,
+                        row.get::<_, i64>(13)?,
+                        row.get::<_, i64>(14)?,
+                    ))
+                },
+            )
+            .map_err(|_| EventStoreError::CorruptData)?;
+        let codec = ConversationEventCodec;
+        let aggregate_id = AggregateId::Conversation(conversation_id);
+        let mut events = Vec::new();
+
+        for row in rows {
+            let (
+                event_id,
+                sequence,
+                global_position,
+                timestamp,
+                sensitivity,
+                schema_version,
+                causation_id,
+                command_id,
+                idempotency_key,
+                actor,
+                payload,
+                stored_digest,
+                correlation_id,
+                correlation_type,
+                integrity_profile,
+            ) = row.map_err(|_| EventStoreError::CorruptData)?;
+            if correlation_type != CORRELATION_TYPE_CONVERSATION
+                || integrity_profile != INTEGRITY_PROFILE_V2
+                || sensitivity != 0
+                || correlation_id.as_slice() != conversation_id.as_bytes()
+            {
+                return Err(EventStoreError::CorruptData);
+            }
+            let sequence = u64::try_from(sequence).map_err(|_| EventStoreError::CorruptData)?;
+            let schema_version =
+                u32::try_from(schema_version).map_err(|_| EventStoreError::CorruptData)?;
+            let payload_value = codec
+                .decode(&payload)
+                .map_err(|_| EventStoreError::CorruptData)?;
+            let envelope = EventEnvelope::from_parts(
+                parse_event_id(event_id)?,
+                aggregate_id.clone(),
+                aggregate_id.clone(),
+                causation_id.map(parse_event_id).transpose()?,
+                parse_command_id(command_id)?,
+                gocode_domain::id::IdempotencyKey::new(
+                    String::from_utf8(idempotency_key).map_err(|_| EventStoreError::CorruptData)?,
+                )
+                .map_err(|_| EventStoreError::CorruptData)?,
+                schema_version,
+                Actor::new(String::from_utf8(actor).map_err(|_| EventStoreError::CorruptData)?)
+                    .map_err(|_| EventStoreError::CorruptData)?,
+                Sensitivity::Public,
+                payload_value,
+                sequence,
+                Timestamp::from_unix_micros(timestamp),
+                parse_integrity_digest(stored_digest)?,
+            );
+            let expected_digest = compute_integrity_digest_v2_with_global_position(
+                &envelope,
+                global_position,
+                &payload,
+            )
+            .map_err(|_| EventStoreError::CorruptData)?;
+            if envelope.integrity_digest() != &expected_digest {
+                return Err(EventStoreError::CorruptData);
+            }
+            events.push(envelope);
+        }
+
+        if events.len() as u64 != current_version
+            || events
+                .iter()
+                .enumerate()
+                .any(|(index, event)| event.sequence() != index as u64 + 1)
+            || events.last().map(|event| *event.event_id()) != last_event_id
+        {
+            return Err(EventStoreError::CorruptData);
+        }
+
+        Ok(ConversationLoadedStream {
+            events,
+            current_version,
+            last_event_id,
+        })
+    }
+
+    fn lookup_conversation_receipt(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &gocode_domain::id::IdempotencyKey,
+        idempotency_scope: &IdempotencyScope,
+        fingerprint: &CommandFingerprint,
+    ) -> Result<ConversationReceiptLookup, CommitError> {
+        let conn = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
+        let scope = IdempotencyScopeCodec
+            .encode(idempotency_scope)
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        let by_command = conn
+            .query_row(
+                "SELECT idempotency_scope_bytes, fingerprint, command_outcome
+                 FROM command_receipts WHERE command_id = ?1",
+                params![command_id.as_bytes()],
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        if let Some((stored_scope, stored_fingerprint, stored_outcome)) = by_command {
+            let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
+            if stored_scope == scope && stored_fingerprint == *fingerprint {
+                let stored_result = ConversationReceiptCodec
+                    .decode(&stored_outcome)
+                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+                return Ok(ConversationReceiptLookup::Duplicate { stored_result });
+            }
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: command_id,
+                attempted_command_id: command_id,
+                stored_fingerprint,
+                attempted_fingerprint: *fingerprint,
+            });
+        }
+
+        if let Some((stored_command, stored_fingerprint)) = conn
+            .query_row(
+                "SELECT command_id, fingerprint FROM command_receipts
+                 WHERE idempotency_scope_bytes = ?1 AND idempotency_key = ?2",
+                params![scope, idempotency_key.as_str().as_bytes()],
+                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+            )
+            .optional()
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?
+        {
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: parse_command_id_for_commit(stored_command)?,
+                attempted_command_id: command_id,
+                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
+                attempted_fingerprint: *fingerprint,
+            });
+        }
+        Ok(ConversationReceiptLookup::Miss)
+    }
+
+    fn commit_conversation(
+        &self,
+        payload: ConversationCommit,
+    ) -> Result<ConversationCommitResult, CommitError> {
+        if payload.events.len() != 1 {
+            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+        }
+        let event = &payload.events[0];
+        let conversation_id = match (event.aggregate_id(), event.correlation_id()) {
+            (AggregateId::Conversation(aggregate), AggregateId::Conversation(correlation))
+                if aggregate == correlation =>
+            {
+                *aggregate
+            }
+            _ => return Err(storage_failure(StorageFailureKind::IntegrityViolation)),
+        };
+        match event.payload() {
+            ConversationEvent::ConversationCreated { workspace_id }
+                if *workspace_id == payload.workspace_id => {}
+            _ => return Err(storage_failure(StorageFailureKind::IntegrityViolation)),
+        }
+        let scope_matches = matches!(
+            &payload.idempotency_scope,
+            IdempotencyScope {
+                runtime_authority_id,
+                operation: OperationTag::CreateConversation,
+                aggregate_scope:
+                    AggregateScope::NewConversation {
+                        conversation_id: scoped_conversation_id,
+                        workspace_id: scoped_workspace_id,
+                    },
+                ..
+            } if runtime_authority_id == &self.runtime_authority_id
+                && scoped_conversation_id == &conversation_id
+                && scoped_workspace_id == &payload.workspace_id
+        );
+        let expected_fingerprint =
+            CommandFingerprint::for_create_conversation(&conversation_id, &payload.workspace_id);
+        if !scope_matches
+            || event.command_id() != &payload.command_id
+            || event.idempotency_key() != &payload.idempotency_key
+            || payload.command_fingerprint != expected_fingerprint
+            || event.schema_version() != 1
+            || event.sensitivity() != &Sensitivity::Public
+            || event.causation_id().is_some()
+        {
+            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+        }
+
+        let mut conn = self
+            .inner
+            .writer
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
+        let tx = conn
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
+        let scope = IdempotencyScopeCodec
+            .encode(&payload.idempotency_scope)
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+
+        if let Some((stored_scope, stored_fingerprint, stored_outcome)) = tx
+            .query_row(
+                "SELECT idempotency_scope_bytes, fingerprint, command_outcome
+                 FROM command_receipts WHERE command_id = ?1",
+                params![payload.command_id.as_bytes()],
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?
+        {
+            let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
+            if stored_scope == scope && stored_fingerprint == payload.command_fingerprint {
+                let stored_result = ConversationReceiptCodec
+                    .decode(&stored_outcome)
+                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+                return Ok(ConversationCommitResult::Duplicate { stored_result });
+            }
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: payload.command_id,
+                attempted_command_id: payload.command_id,
+                stored_fingerprint,
+                attempted_fingerprint: payload.command_fingerprint,
+            });
+        }
+        if let Some((stored_command, stored_fingerprint)) = tx
+            .query_row(
+                "SELECT command_id, fingerprint FROM command_receipts
+                 WHERE idempotency_scope_bytes = ?1 AND idempotency_key = ?2",
+                params![scope, payload.idempotency_key.as_str().as_bytes()],
+                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
+            )
+            .optional()
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?
+        {
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: parse_command_id_for_commit(stored_command)?,
+                attempted_command_id: payload.command_id,
+                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
+                attempted_fingerprint: payload.command_fingerprint,
+            });
+        }
+
+        let existing_version = tx
+            .query_row(
+                "SELECT current_version FROM aggregate_streams
+                 WHERE aggregate_type = ?1 AND aggregate_id = ?2",
+                params![CORRELATION_TYPE_CONVERSATION, conversation_id.as_bytes()],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        if let Some(actual) = existing_version {
+            return Err(CommitError::VersionConflict {
+                expected: payload.expected_version,
+                actual: u64::try_from(actual)
+                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?,
+            });
+        }
+        if payload.expected_version != 0 {
+            return Err(CommitError::VersionConflict {
+                expected: payload.expected_version,
+                actual: 0,
+            });
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| CommitError::ClockFailure)
+            .and_then(|duration| {
+                i64::try_from(duration.as_micros()).map_err(|_| CommitError::ClockFailure)
+            })?;
+        let global_position = tx
+            .query_row(
+                "SELECT next_global_position FROM event_log_state WHERE singleton = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        let next_global_position = global_position
+            .checked_add(1)
+            .ok_or(CommitError::GlobalPositionExhausted)?;
+        let timestamp = Timestamp::from_unix_micros(now);
+        let payload_bytes = ConversationEventCodec
+            .encode(event.payload())
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        let envelope = EventEnvelope::from_parts(
+            *event.event_id(),
+            AggregateId::Conversation(conversation_id),
+            AggregateId::Conversation(conversation_id),
+            event.causation_id().copied(),
+            *event.command_id(),
+            event.idempotency_key().clone(),
+            event.schema_version(),
+            event.actor().clone(),
+            *event.sensitivity(),
+            event.payload().clone(),
+            1,
+            timestamp,
+            IntegrityDigest::from_bytes([0; 32]),
+        );
+        let digest = compute_integrity_digest_v2_with_global_position(
+            &envelope,
+            global_position,
+            &payload_bytes,
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+
+        tx.execute(
+            "INSERT INTO aggregate_streams
+             (aggregate_type, aggregate_id, current_version, last_event_id,
+              last_timestamp, created_at)
+             VALUES (?1, ?2, 1, ?3, ?4, ?4)",
+            params![
+                CORRELATION_TYPE_CONVERSATION,
+                conversation_id.as_bytes(),
+                event.event_id().as_bytes(),
+                now,
+            ],
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        tx.execute(
+            "INSERT INTO events
+             (event_id, aggregate_type, aggregate_id, sequence, global_position,
+              timestamp, sensitivity, schema_version, causation_id, command_id,
+              idempotency_key, actor, payload, integrity_digest, correlation_id,
+              correlation_type, integrity_profile)
+             VALUES (?1, ?2, ?3, 1, ?4, ?5, 0, ?6, ?7, ?8, ?9, ?10, ?11,
+                     ?12, ?3, ?2, ?13)",
+            params![
+                event.event_id().as_bytes(),
+                CORRELATION_TYPE_CONVERSATION,
+                conversation_id.as_bytes(),
+                global_position,
+                now,
+                event.schema_version() as i64,
+                event.causation_id().map(EventId::as_bytes),
+                event.command_id().as_bytes(),
+                event.idempotency_key().as_str().as_bytes(),
+                event.actor().as_str().as_bytes(),
+                payload_bytes,
+                digest.as_bytes(),
+                INTEGRITY_PROFILE_V2,
+            ],
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        tx.execute(
+            "UPDATE event_log_state SET next_global_position = ?1 WHERE singleton = 1",
+            params![next_global_position],
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+
+        let result = ConversationReceipt {
+            conversation_id,
+            workspace_id: payload.workspace_id,
+            new_version: 1,
+            committed_at: timestamp,
+        };
+        let outcome = ConversationReceiptCodec
+            .encode(&result)
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        tx.execute(
+            "INSERT INTO command_receipts
+             (command_id, idempotency_scope_bytes, idempotency_key, fingerprint,
+              command_outcome, committed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                payload.command_id.as_bytes(),
+                scope,
+                payload.idempotency_key.as_str().as_bytes(),
+                payload.command_fingerprint.as_bytes(),
+                outcome,
+                now,
+            ],
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        tx.commit()
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        Ok(ConversationCommitResult::Committed { result })
+    }
+}
+
+fn parse_event_id(bytes: Vec<u8>) -> Result<EventId, EventStoreError> {
+    let bytes: [u8; 16] = bytes.try_into().map_err(|_| EventStoreError::CorruptData)?;
+    let id = EventId::from_bytes(bytes);
+    id.to_string()
+        .parse::<EventId>()
+        .map_err(|_| EventStoreError::CorruptData)
+}
+
+fn parse_command_id(bytes: Vec<u8>) -> Result<CommandId, EventStoreError> {
+    let bytes: [u8; 16] = bytes.try_into().map_err(|_| EventStoreError::CorruptData)?;
+    let id = CommandId::from_bytes(bytes);
+    id.to_string()
+        .parse::<CommandId>()
+        .map_err(|_| EventStoreError::CorruptData)
+}
+
+fn parse_integrity_digest(bytes: Vec<u8>) -> Result<IntegrityDigest, EventStoreError> {
+    Ok(IntegrityDigest::from_bytes(
+        bytes.try_into().map_err(|_| EventStoreError::CorruptData)?,
+    ))
+}
+
+fn parse_command_id_for_commit(bytes: Vec<u8>) -> Result<CommandId, CommitError> {
+    let bytes: [u8; 16] = bytes
+        .try_into()
+        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+    let id = CommandId::from_bytes(bytes);
+    id.to_string()
+        .parse::<CommandId>()
+        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))
+}
+
+fn parse_fingerprint(bytes: Vec<u8>) -> Result<CommandFingerprint, CommitError> {
+    Ok(CommandFingerprint::from_bytes(bytes.try_into().map_err(
+        |_| storage_failure(StorageFailureKind::CorruptData),
+    )?))
+}
+
+const fn storage_failure(kind: StorageFailureKind) -> CommitError {
+    CommitError::StorageFailure(kind)
 }
 
 // ── UnitOfWork impl ──────────────────────────────────────────────────────
@@ -366,7 +940,24 @@ impl UnitOfWork for StoreTransaction {
         }
 
         let mut conn = self.inner.writer.lock().unwrap();
-        let taskrun_id = *payload.events[0].taskrun_id();
+        let taskrun_id = match payload.events[0].correlation_id() {
+            AggregateId::TaskRun(taskrun_id) => *taskrun_id,
+            _ => {
+                return Err(CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                ));
+            }
+        };
+        for event in &payload.events {
+            match event.correlation_id() {
+                AggregateId::TaskRun(correlation_id) if *correlation_id == taskrun_id => {}
+                _ => {
+                    return Err(CommitError::StorageFailure(
+                        gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                    ));
+                }
+            }
+        }
         let taskrun_bytes = taskrun_id.as_bytes();
 
         let tx = conn
@@ -442,8 +1033,9 @@ impl UnitOfWork for StoreTransaction {
         let stream_row = tx
             .query_row(
                 "SELECT current_version, last_timestamp
-                 FROM task_run_streams WHERE taskrun_id = ?1",
-                params![taskrun_bytes],
+                 FROM aggregate_streams
+                 WHERE aggregate_type = ?1 AND aggregate_id = ?2",
+                params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes],
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<i64>>(1)?)),
             )
             .optional()
@@ -458,10 +1050,11 @@ impl UnitOfWork for StoreTransaction {
             None if payload.expected_version == 0 => {
                 // New aggregate — insert placeholder stream row before events
                 tx.execute(
-                    "INSERT INTO task_run_streams
-                     (taskrun_id, current_version, last_event_id, last_timestamp, created_at)
-                     VALUES (?1, 0, NULL, NULL, ?2)",
-                    params![taskrun_bytes, now_micros()],
+                    "INSERT INTO aggregate_streams
+                     (aggregate_type, aggregate_id, current_version, last_event_id,
+                      last_timestamp, created_at)
+                     VALUES (?1, ?2, 0, NULL, NULL, ?3)",
+                    params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes, now_micros()],
                 )
                 .map_err(|_| {
                     CommitError::StorageFailure(
@@ -536,12 +1129,23 @@ impl UnitOfWork for StoreTransaction {
                 )
             })?;
 
+            let correlation_id = match event.correlation_id() {
+                AggregateId::TaskRun(correlation_id) if *correlation_id == taskrun_id => {
+                    correlation_id
+                }
+                _ => {
+                    return Err(CommitError::StorageFailure(
+                        gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                    ));
+                }
+            };
+
             // Build temporary envelope for digest computation
             let aggregate_id = AggregateId::TaskRun(taskrun_id);
             let temp_envelope = EventEnvelope::from_parts(
                 *event.event_id(),
-                aggregate_id,
-                taskrun_id,
+                aggregate_id.clone(),
+                AggregateId::TaskRun(*correlation_id),
                 event.causation_id().copied(),
                 *event.command_id(),
                 event.idempotency_key().clone(),
@@ -555,24 +1159,31 @@ impl UnitOfWork for StoreTransaction {
             );
 
             let digest =
-                compute_integrity_digest_with_global_position(&temp_envelope, gp, &payload_bytes);
+                compute_integrity_digest_with_global_position(&temp_envelope, gp, &payload_bytes)
+                    .map_err(|_| {
+                    CommitError::StorageFailure(
+                        gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                    )
+                })?;
 
             let causation_bytes: Option<&[u8]> =
                 event.causation_id().map(|eid| eid.as_bytes() as &[u8]);
 
             tx.execute(
                 "INSERT INTO events
-                 (event_id, taskrun_id, sequence, global_position, timestamp,
-                  aggregate_type, sensitivity, schema_version, causation_id,
-                  command_id, idempotency_key, actor, payload, integrity_digest)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                 (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp,
+                  sensitivity, schema_version, causation_id,
+                  command_id, idempotency_key, actor, payload, integrity_digest,
+                  correlation_id, correlation_type, integrity_profile)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                         ?15, ?16, ?17)",
                 params![
                     event.event_id().as_bytes(),
+                    CORRELATION_TYPE_TASK_RUN,
                     taskrun_bytes,
                     seq,
                     gp,
                     now,
-                    1_i64,
                     0_i64,
                     event.schema_version() as i64,
                     causation_bytes,
@@ -581,6 +1192,9 @@ impl UnitOfWork for StoreTransaction {
                     event.actor().as_str().as_bytes(),
                     payload_bytes,
                     digest.as_bytes(),
+                    correlation_id.as_bytes(),
+                    StoredCorrelationType::TaskRun.as_i64(),
+                    INTEGRITY_PROFILE_V1,
                 ],
             )
             .map_err(|_| {
@@ -596,13 +1210,14 @@ impl UnitOfWork for StoreTransaction {
             // Stream row was inserted before events (see version check above).
             // UPDATE to fill in version and event metadata.
             tx.execute(
-                "UPDATE task_run_streams
+                "UPDATE aggregate_streams
                  SET current_version = ?1, last_event_id = ?2, last_timestamp = ?3
-                 WHERE taskrun_id = ?4",
+                 WHERE aggregate_type = ?4 AND aggregate_id = ?5",
                 params![
                     new_version,
                     last_event.event_id().as_bytes(),
                     now,
+                    CORRELATION_TYPE_TASK_RUN,
                     taskrun_bytes,
                 ],
             )
@@ -613,13 +1228,14 @@ impl UnitOfWork for StoreTransaction {
             })?;
         } else {
             tx.execute(
-                "UPDATE task_run_streams
+                "UPDATE aggregate_streams
                  SET current_version = ?1, last_event_id = ?2, last_timestamp = ?3
-                 WHERE taskrun_id = ?4",
+                 WHERE aggregate_type = ?4 AND aggregate_id = ?5",
                 params![
                     new_version,
                     last_event.event_id().as_bytes(),
                     now,
+                    CORRELATION_TYPE_TASK_RUN,
                     taskrun_bytes,
                 ],
             )
@@ -686,6 +1302,12 @@ impl UnitOfWork for StoreTransaction {
 impl IdGenerator for StoreTransaction {
     fn next_taskrun_id(&self) -> Result<TaskRunId, IdGenerationError> {
         Ok(TaskRunId::from_bytes(self.generate_uuid()))
+    }
+
+    fn next_conversation_id(&self) -> Result<gocode_domain::id::ConversationId, IdGenerationError> {
+        Ok(gocode_domain::id::ConversationId::from_bytes(
+            self.generate_uuid(),
+        ))
     }
 
     fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError> {

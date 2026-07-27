@@ -2,6 +2,7 @@
 //!
 //! All ports are trait-only; no concrete adapters in this crate.
 
+use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{EventEnvelope, UncommittedEvent};
 use gocode_domain::id::{
     AttemptId, CommandId, ConversationId, EventId, IdempotencyKey, TaskRunId, WorkspaceId,
@@ -20,6 +21,100 @@ pub trait EventStore {
     ///
     /// Returns a [`LoadedStream`] or an [`EventStoreError`].
     fn load_task_run(&self, taskrun_id: TaskRunId) -> Result<LoadedStream, EventStoreError>;
+}
+
+/// Atomic persistence boundary for conversation streams and create receipts.
+pub trait ConversationRepository {
+    /// Loads a committed conversation stream.
+    fn load_conversation(
+        &self,
+        conversation_id: ConversationId,
+    ) -> Result<ConversationLoadedStream, EventStoreError>;
+
+    /// Looks up the durable result of a create-conversation command.
+    fn lookup_conversation_receipt(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &IdempotencyKey,
+        idempotency_scope: &IdempotencyScope,
+        fingerprint: &CommandFingerprint,
+    ) -> Result<ConversationReceiptLookup, CommitError>;
+
+    /// Atomically appends conversation events and stores their create receipt.
+    fn commit_conversation(
+        &self,
+        payload: ConversationCommit,
+    ) -> Result<ConversationCommitResult, CommitError>;
+}
+
+/// A committed conversation stream.
+#[derive(Debug, Clone)]
+pub struct ConversationLoadedStream {
+    /// Events ordered by their contiguous stream sequence.
+    pub events: Vec<EventEnvelope<ConversationEvent>>,
+    /// Last committed stream sequence, or zero for an empty stream.
+    pub current_version: u64,
+    /// Last committed event identity, if any.
+    pub last_event_id: Option<EventId>,
+}
+
+/// Durable result of a create-conversation command.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationReceipt {
+    /// Conversation created by the command.
+    pub conversation_id: ConversationId,
+    /// Workspace recorded by the creation event.
+    pub workspace_id: WorkspaceId,
+    /// Resulting stream version.
+    pub new_version: u64,
+    /// Persistence-authoritative commit timestamp.
+    pub committed_at: Timestamp,
+}
+
+/// Result of a conversation receipt lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversationReceiptLookup {
+    /// No matching receipt exists.
+    Miss,
+    /// The exact command was committed previously.
+    Duplicate {
+        /// Original durable result.
+        stored_result: ConversationReceipt,
+    },
+}
+
+/// Atomic conversation event and receipt commit payload.
+#[derive(Debug, Clone)]
+pub struct ConversationCommit {
+    /// Unique command identity.
+    pub command_id: CommandId,
+    /// Client-provided idempotency key.
+    pub idempotency_key: IdempotencyKey,
+    /// Full uniqueness scope for the key.
+    pub idempotency_scope: IdempotencyScope,
+    /// Deterministic semantic command fingerprint.
+    pub command_fingerprint: CommandFingerprint,
+    /// Expected conversation stream version.
+    pub expected_version: u64,
+    /// Conversation events to append.
+    pub events: Vec<UncommittedEvent<ConversationEvent>>,
+    /// Workspace expected in the creation event and receipt.
+    pub workspace_id: WorkspaceId,
+}
+
+/// Result of an atomic conversation commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConversationCommitResult {
+    /// Events and receipt were committed.
+    Committed {
+        /// Durable create result.
+        result: ConversationReceipt,
+    },
+    /// The exact command was committed previously.
+    Duplicate {
+        /// Original durable create result.
+        stored_result: ConversationReceipt,
+    },
 }
 
 /// The result of loading a task run's event stream.
@@ -178,6 +273,9 @@ pub trait IdGenerator {
     /// Generate a new unique [`TaskRunId`].
     fn next_taskrun_id(&self) -> Result<TaskRunId, IdGenerationError>;
 
+    /// Generate a new unique [`ConversationId`].
+    fn next_conversation_id(&self) -> Result<ConversationId, IdGenerationError>;
+
     /// Generate a new unique [`AttemptId`].
     fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError>;
 
@@ -235,6 +333,8 @@ pub enum OperationTag {
     StartAttempt = 4,
     /// Complete a task run with a terminal result.
     Complete = 5,
+    /// Create a new conversation.
+    CreateConversation = 6,
 }
 
 /// The aggregate scope within which idempotency is enforced.
@@ -251,6 +351,13 @@ pub enum AggregateScope {
     ExistingTaskRun {
         /// The task run ID.
         taskrun_id: TaskRunId,
+    },
+    /// A conversation that does not yet exist.
+    NewConversation {
+        /// Conversation identity selected by the API boundary.
+        conversation_id: ConversationId,
+        /// Workspace that owns the conversation.
+        workspace_id: WorkspaceId,
     },
 }
 
@@ -292,6 +399,7 @@ mod tests {
         assert_eq!(OperationTag::Admit as u8, 3);
         assert_eq!(OperationTag::StartAttempt as u8, 4);
         assert_eq!(OperationTag::Complete as u8, 5);
+        assert_eq!(OperationTag::CreateConversation as u8, 6);
     }
 
     #[test]

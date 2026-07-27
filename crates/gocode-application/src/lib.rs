@@ -14,6 +14,7 @@
 //! * **Service** — public crate::service::TaskRunService facade ([`service`])
 
 pub mod commands;
+pub mod conversation_service;
 pub mod errors;
 pub mod fingerprint;
 pub(crate) mod pipeline;

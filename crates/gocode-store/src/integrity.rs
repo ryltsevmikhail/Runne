@@ -17,7 +17,7 @@
 //! ```
 
 use gocode_domain::event::EventEnvelope;
-use gocode_domain::id::IntegrityDigest;
+use gocode_domain::id::{AggregateId, IntegrityDigest, TaskRunId};
 use gocode_domain::task_run::TaskRunEvent;
 use sha2::{Digest, Sha256};
 
@@ -26,6 +26,26 @@ const DOMAIN_PREFIX: &[u8] = b"gocode-integrity\x01";
 
 /// Current integrity profile version.
 const PROFILE_VERSION: u16 = 1;
+
+/// Integrity computation rejected an event that is not correlated to a TaskRun.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IntegrityError {
+    /// TaskRun event streams require a TaskRun correlation aggregate.
+    NonTaskRunCorrelation(AggregateId),
+    /// The integrity profile does not define the supplied aggregate kind.
+    UnsupportedAggregate(AggregateId),
+}
+
+fn taskrun_correlation_id(
+    envelope: &EventEnvelope<TaskRunEvent>,
+) -> Result<&TaskRunId, IntegrityError> {
+    match envelope.correlation_id() {
+        AggregateId::TaskRun(taskrun_id) => Ok(taskrun_id),
+        correlation_id => Err(IntegrityError::NonTaskRunCorrelation(
+            correlation_id.clone(),
+        )),
+    }
+}
 
 /// Compute the integrity digest for a complete [`EventEnvelope`].
 ///
@@ -39,7 +59,8 @@ const PROFILE_VERSION: u16 = 1;
 pub fn compute_integrity_digest(
     envelope: &EventEnvelope<TaskRunEvent>,
     payload_bytes: &[u8],
-) -> IntegrityDigest {
+) -> Result<IntegrityDigest, IntegrityError> {
+    let taskrun_id = taskrun_correlation_id(envelope)?;
     let mut hasher = Sha256::new();
 
     // domain_prefix(17)
@@ -56,7 +77,7 @@ pub fn compute_integrity_digest(
     hasher.update([agg_type]);
 
     // taskrun_id(16)
-    hasher.update(envelope.taskrun_id().as_bytes());
+    hasher.update(taskrun_id.as_bytes());
 
     // sequence(8,BE)
     hasher.update(envelope.sequence().to_be_bytes());
@@ -104,7 +125,7 @@ pub fn compute_integrity_digest(
     hasher.update(payload_bytes);
 
     let digest: [u8; 32] = hasher.finalize().into();
-    IntegrityDigest::from_bytes(digest)
+    Ok(IntegrityDigest::from_bytes(digest))
 }
 
 /// Compute an integrity digest with an explicit global position.
@@ -115,7 +136,8 @@ pub fn compute_integrity_digest_with_global_position(
     envelope: &EventEnvelope<TaskRunEvent>,
     global_position: i64,
     payload_bytes: &[u8],
-) -> IntegrityDigest {
+) -> Result<IntegrityDigest, IntegrityError> {
+    let taskrun_id = taskrun_correlation_id(envelope)?;
     let mut hasher = Sha256::new();
 
     // domain_prefix(17)
@@ -132,7 +154,7 @@ pub fn compute_integrity_digest_with_global_position(
     hasher.update([agg_type]);
 
     // taskrun_id(16)
-    hasher.update(envelope.taskrun_id().as_bytes());
+    hasher.update(taskrun_id.as_bytes());
 
     // sequence(8,BE)
     hasher.update(envelope.sequence().to_be_bytes());
@@ -179,7 +201,67 @@ pub fn compute_integrity_digest_with_global_position(
     hasher.update(payload_bytes);
 
     let digest: [u8; 32] = hasher.finalize().into();
-    IntegrityDigest::from_bytes(digest)
+    Ok(IntegrityDigest::from_bytes(digest))
+}
+
+/// Computes the typed-aggregate integrity profile used for new Phase 2b rows.
+///
+/// Profile 2 includes both aggregate and correlation discriminants and IDs.
+/// Existing profile-1 TaskRun rows retain their original bytes and digest.
+pub fn compute_integrity_digest_v2_with_global_position<E>(
+    envelope: &EventEnvelope<E>,
+    global_position: i64,
+    payload_bytes: &[u8],
+) -> Result<IntegrityDigest, IntegrityError> {
+    let (aggregate_type, aggregate_id) = typed_aggregate(envelope.aggregate_id())?;
+    let (correlation_type, correlation_id) = typed_aggregate(envelope.correlation_id())?;
+    let mut hasher = Sha256::new();
+
+    hasher.update(DOMAIN_PREFIX);
+    hasher.update(2_u16.to_be_bytes());
+    hasher.update(envelope.event_id().as_bytes());
+    hasher.update([aggregate_type]);
+    hasher.update(aggregate_id);
+    hasher.update([correlation_type]);
+    hasher.update(correlation_id);
+    hasher.update(envelope.sequence().to_be_bytes());
+    hasher.update(global_position.to_be_bytes());
+    hasher.update(envelope.timestamp().as_unix_micros().to_be_bytes());
+    match envelope.causation_id() {
+        Some(causation_id) => {
+            hasher.update([1]);
+            hasher.update(causation_id.as_bytes());
+        }
+        None => hasher.update([0]),
+    }
+    hasher.update(envelope.command_id().as_bytes());
+    let idempotency_key = envelope.idempotency_key().as_str().as_bytes();
+    hasher.update((idempotency_key.len() as u16).to_be_bytes());
+    hasher.update(idempotency_key);
+    let actor = envelope.actor().as_str().as_bytes();
+    hasher.update((actor.len() as u16).to_be_bytes());
+    hasher.update(actor);
+    let sensitivity = match envelope.sensitivity() {
+        gocode_domain::event::Sensitivity::Public => 0,
+        gocode_domain::event::Sensitivity::Internal => 1,
+        gocode_domain::event::Sensitivity::Sensitive => 2,
+    };
+    hasher.update([sensitivity]);
+    hasher.update(envelope.schema_version().to_be_bytes());
+    hasher.update((payload_bytes.len() as u32).to_be_bytes());
+    hasher.update(payload_bytes);
+
+    Ok(IntegrityDigest::from_bytes(hasher.finalize().into()))
+}
+
+fn typed_aggregate(aggregate_id: &AggregateId) -> Result<(u8, &[u8; 16]), IntegrityError> {
+    match aggregate_id {
+        AggregateId::TaskRun(id) => Ok((1, id.as_bytes())),
+        AggregateId::Conversation(id) => Ok((2, id.as_bytes())),
+        AggregateId::Workspace(_) => {
+            Err(IntegrityError::UnsupportedAggregate(aggregate_id.clone()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -198,7 +280,7 @@ mod tests {
         let event_id: EventId = VALID_UUID.parse().unwrap();
         let draft = DomainEventDraft::new(
             AggregateId::TaskRun(tr_id),
-            tr_id,
+            AggregateId::TaskRun(tr_id),
             1,
             Sensitivity::Public,
             payload,
@@ -227,8 +309,10 @@ mod tests {
         let codec = TaskRunEventCodec;
         let payload_bytes = codec.encode(&TaskRunEvent::TaskRunCreated).unwrap();
 
-        let d1 = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
-        let d2 = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
+        let d1 =
+            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes).unwrap();
+        let d2 =
+            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes).unwrap();
         assert_eq!(d1, d2);
     }
 
@@ -238,8 +322,10 @@ mod tests {
         let codec = TaskRunEventCodec;
         let payload_bytes = codec.encode(&TaskRunEvent::TaskRunCreated).unwrap();
 
-        let d1 = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
-        let d2 = compute_integrity_digest_with_global_position(&envelope, 2, &payload_bytes);
+        let d1 =
+            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes).unwrap();
+        let d2 =
+            compute_integrity_digest_with_global_position(&envelope, 2, &payload_bytes).unwrap();
         assert_ne!(d1, d2);
     }
 
@@ -248,7 +334,8 @@ mod tests {
         let envelope = make_envelope(1, TaskRunEvent::TaskRunCreated);
         let codec = TaskRunEventCodec;
         let payload_bytes = codec.encode(&TaskRunEvent::TaskRunCreated).unwrap();
-        let digest = compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes);
+        let digest =
+            compute_integrity_digest_with_global_position(&envelope, 1, &payload_bytes).unwrap();
 
         // Verify digest is 32 bytes
         assert_eq!(digest.as_bytes().len(), 32);
@@ -271,8 +358,8 @@ mod tests {
         let env1 = make_envelope(1, TaskRunEvent::TaskRunCreated);
         let env2 = make_envelope(2, TaskRunEvent::TaskRunQueued);
 
-        let d1 = compute_integrity_digest_with_global_position(&env1, 1, &pb_created);
-        let d2 = compute_integrity_digest_with_global_position(&env2, 2, &pb_queued);
+        let d1 = compute_integrity_digest_with_global_position(&env1, 1, &pb_created).unwrap();
+        let d2 = compute_integrity_digest_with_global_position(&env2, 2, &pb_queued).unwrap();
 
         assert_ne!(d1, d2);
     }

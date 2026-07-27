@@ -321,9 +321,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
+name = "gocode-api"
+version = "0.1.0"
+dependencies = [
+ "gocode-domain",
+ "jsonschema",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "gocode-application"
 version = "0.1.0"
 dependencies = [
+ "gocode-api",
  "gocode-domain",
  "sha2",
 ]
@@ -333,14 +344,29 @@ name = "gocode-domain"
 version = "0.1.0"
 
 [[package]]
+name = "gocode-opencode-adapter-sqlite"
+version = "0.1.0"
+dependencies = [
+ "gocode-api",
+ "gocode-domain",
+ "gocode-opencode-compat",
+ "jsonschema",
+ "rusqlite",
+ "serde_json",
+]
+
+[[package]]
 name = "gocode-opencode-compat"
 version = "0.1.0"
 dependencies = [
+ "gocode-api",
+ "gocode-domain",
  "jsonschema",
  "serde",
  "serde_jcs",
  "serde_json",
  "sha2",
+ "tokio",
 ]
 
 [[package]]
@@ -351,10 +377,15 @@ version = "0.1.0"
 name = "gocode-runtime"
 version = "0.1.0"
 dependencies = [
+ "gocode-api",
  "gocode-application",
  "gocode-domain",
+ "gocode-opencode-adapter-sqlite",
+ "gocode-opencode-compat",
  "gocode-store",
  "hex",
+ "jsonschema",
+ "serde_json",
  "sha2",
  "tokio",
  "tokio-util",
@@ -364,6 +395,7 @@ dependencies = [
 name = "gocode-store"
 version = "0.1.0"
 dependencies = [
+ "gocode-api",
  "gocode-application",
  "gocode-domain",
  "rusqlite",

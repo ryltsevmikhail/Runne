@@ -7,8 +7,11 @@
 use core::fmt;
 
 use gocode_application::commands::CommandOutcome;
-use gocode_application::ports::{AggregateScope, IdempotencyScope, OperationTag};
+use gocode_application::ports::{
+    AggregateScope, ConversationReceipt, IdempotencyScope, OperationTag,
+};
 use gocode_domain::command::TerminalResult;
+use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId, WorkspaceId};
 use gocode_domain::task_run::TaskRunEvent;
 
@@ -101,6 +104,11 @@ fn write_u64_be(buf: &mut Vec<u8>, v: u64) {
     buf.extend_from_slice(&v.to_be_bytes());
 }
 
+/// Write an i64 in big-endian to a Vec.
+fn write_i64_be(buf: &mut Vec<u8>, value: i64) {
+    buf.extend_from_slice(&value.to_be_bytes());
+}
+
 /// Write a length-prefixed byte slice (u16 BE length).
 fn write_len_prefixed(buf: &mut Vec<u8>, data: &[u8]) {
     let len = data.len() as u16;
@@ -140,6 +148,20 @@ fn read_u64_be(bytes: &[u8], pos: &mut usize) -> Result<u64, StoreCodecError> {
     ]);
     *pos += 8;
     Ok(v)
+}
+
+/// Read an i64 BE from bytes at `pos`, advancing `pos`.
+fn read_i64_be(bytes: &[u8], pos: &mut usize) -> Result<i64, StoreCodecError> {
+    if *pos + 8 > bytes.len() {
+        return Err(StoreCodecError::Truncated);
+    }
+    let value = i64::from_be_bytes(
+        bytes[*pos..*pos + 8]
+            .try_into()
+            .map_err(|_| StoreCodecError::Truncated)?,
+    );
+    *pos += 8;
+    Ok(value)
 }
 
 /// Read 16 bytes as a UUID from `pos`, advancing `pos`.
@@ -349,6 +371,71 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
     }
 }
 
+// ── ConversationEvent codec ──────────────────────────────────────────────
+
+const TAG_CONVERSATION_CREATED: u8 = 0x20;
+const TAG_CONVERSATION_CLOSED: u8 = 0x21;
+
+/// Codec for [`ConversationEvent`] payload BLOBs.
+pub struct ConversationEventCodec;
+
+impl StoreCodec<ConversationEvent> for ConversationEventCodec {
+    const CODEC_VERSION: u16 = 1;
+
+    fn encode(&self, value: &ConversationEvent) -> Result<Vec<u8>, StoreCodecError> {
+        let mut buffer = Vec::with_capacity(19);
+        write_u16_be(&mut buffer, Self::CODEC_VERSION);
+        match value {
+            ConversationEvent::ConversationCreated { workspace_id } => {
+                buffer.push(TAG_CONVERSATION_CREATED);
+                write_uuid(&mut buffer, workspace_id.as_bytes());
+            }
+            ConversationEvent::ConversationClosed => buffer.push(TAG_CONVERSATION_CLOSED),
+        }
+        Ok(buffer)
+    }
+
+    fn decode(&self, bytes: &[u8]) -> Result<ConversationEvent, StoreCodecError> {
+        let mut position = 0;
+        let version = read_u16_be(bytes, &mut position)?;
+        if version != Self::CODEC_VERSION {
+            return Err(StoreCodecError::UnsupportedVersion {
+                found: version,
+                supported: Self::CODEC_VERSION,
+            });
+        }
+        let tag = *bytes.get(position).ok_or(StoreCodecError::Truncated)?;
+        position += 1;
+        let event = match tag {
+            TAG_CONVERSATION_CREATED => {
+                let workspace_bytes = read_uuid(bytes, &mut position)?;
+                let workspace_id = WorkspaceId::from_bytes(workspace_bytes);
+                workspace_id
+                    .to_string()
+                    .parse::<WorkspaceId>()
+                    .map_err(|_| StoreCodecError::UnknownTag {
+                        tag,
+                        context: "ConversationCreated workspace UUIDv7",
+                    })?;
+                ConversationEvent::ConversationCreated { workspace_id }
+            }
+            TAG_CONVERSATION_CLOSED => ConversationEvent::ConversationClosed,
+            _ => {
+                return Err(StoreCodecError::UnknownTag {
+                    tag,
+                    context: "ConversationEvent",
+                });
+            }
+        };
+        if position != bytes.len() {
+            return Err(StoreCodecError::TrailingBytes {
+                remaining: bytes.len() - position,
+            });
+        }
+        Ok(event)
+    }
+}
+
 /// Encode a [`TerminalResult`] into a buffer.
 fn encode_terminal_result(buf: &mut Vec<u8>, result: &TerminalResult) {
     match result {
@@ -532,6 +619,74 @@ impl StoreCodec<CommandOutcome> for CommandOutcomeCodec {
     }
 }
 
+// ── ConversationReceipt codec ────────────────────────────────────────────
+
+/// Codec for durable create-conversation receipts.
+pub struct ConversationReceiptCodec;
+
+impl StoreCodec<ConversationReceipt> for ConversationReceiptCodec {
+    const CODEC_VERSION: u16 = 1;
+
+    fn encode(&self, value: &ConversationReceipt) -> Result<Vec<u8>, StoreCodecError> {
+        let mut buffer = Vec::with_capacity(50);
+        write_u16_be(&mut buffer, Self::CODEC_VERSION);
+        write_uuid(&mut buffer, value.conversation_id.as_bytes());
+        write_uuid(&mut buffer, value.workspace_id.as_bytes());
+        write_u64_be(&mut buffer, value.new_version);
+        write_i64_be(&mut buffer, value.committed_at.as_unix_micros());
+        Ok(buffer)
+    }
+
+    fn decode(&self, bytes: &[u8]) -> Result<ConversationReceipt, StoreCodecError> {
+        let mut position = 0;
+        let version = read_u16_be(bytes, &mut position)?;
+        if version != Self::CODEC_VERSION {
+            return Err(StoreCodecError::UnsupportedVersion {
+                found: version,
+                supported: Self::CODEC_VERSION,
+            });
+        }
+        let conversation_id = ConversationId::from_bytes(read_uuid(bytes, &mut position)?);
+        let workspace_id = WorkspaceId::from_bytes(read_uuid(bytes, &mut position)?);
+        conversation_id
+            .to_string()
+            .parse::<ConversationId>()
+            .map_err(|_| StoreCodecError::UnknownTag {
+                tag: 0,
+                context: "ConversationReceipt conversation UUIDv7",
+            })?;
+        workspace_id
+            .to_string()
+            .parse::<WorkspaceId>()
+            .map_err(|_| StoreCodecError::UnknownTag {
+                tag: 0,
+                context: "ConversationReceipt workspace UUIDv7",
+            })?;
+        let new_version = read_u64_be(bytes, &mut position)?;
+        let committed_at = gocode_domain::timestamp::Timestamp::from_unix_micros(read_i64_be(
+            bytes,
+            &mut position,
+        )?);
+        if committed_at.as_unix_micros() < 0 {
+            return Err(StoreCodecError::UnknownTag {
+                tag: 0,
+                context: "ConversationReceipt negative commit timestamp",
+            });
+        }
+        if position != bytes.len() {
+            return Err(StoreCodecError::TrailingBytes {
+                remaining: bytes.len() - position,
+            });
+        }
+        Ok(ConversationReceipt {
+            conversation_id,
+            workspace_id,
+            new_version,
+            committed_at,
+        })
+    }
+}
+
 // ── IdempotencyScope codec ───────────────────────────────────────────────
 
 /// Codec for [`IdempotencyScope`] — stored in `command_receipts`.
@@ -568,6 +723,14 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
             AggregateScope::ExistingTaskRun { taskrun_id } => {
                 buf.push(0x01); // tag: ExistingTaskRun
                 write_uuid(&mut buf, taskrun_id.as_bytes());
+            }
+            AggregateScope::NewConversation {
+                conversation_id,
+                workspace_id,
+            } => {
+                buf.push(0x02);
+                write_uuid(&mut buf, conversation_id.as_bytes());
+                write_uuid(&mut buf, workspace_id.as_bytes());
             }
         }
 
@@ -611,6 +774,7 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
             3 => OperationTag::Admit,
             4 => OperationTag::StartAttempt,
             5 => OperationTag::Complete,
+            6 => OperationTag::CreateConversation,
             t => {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,
@@ -637,6 +801,14 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
                 let tr_bytes = read_uuid(bytes, &mut pos)?;
                 AggregateScope::ExistingTaskRun {
                     taskrun_id: TaskRunId::from_bytes(tr_bytes),
+                }
+            }
+            0x02 => {
+                let conversation_id = ConversationId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let workspace_id = WorkspaceId::from_bytes(read_uuid(bytes, &mut pos)?);
+                AggregateScope::NewConversation {
+                    conversation_id,
+                    workspace_id,
                 }
             }
             t => {
@@ -754,6 +926,78 @@ mod tests {
         assert!(matches!(err, StoreCodecError::TrailingBytes { .. }));
     }
 
+    // ── ConversationEvent round-trip ──────────────────────────────────
+
+    #[test]
+    fn conversation_event_codec_created_has_stable_bytes() {
+        let codec = ConversationEventCodec;
+        let workspace_id: WorkspaceId = WS_ID.parse().unwrap();
+        let original = ConversationEvent::ConversationCreated { workspace_id };
+
+        let bytes = codec.encode(&original).unwrap();
+
+        let mut expected = vec![0x00, 0x01, TAG_CONVERSATION_CREATED];
+        expected.extend_from_slice(workspace_id.as_bytes());
+        assert_eq!(bytes, expected);
+        assert_eq!(codec.decode(&bytes).unwrap(), original);
+    }
+
+    #[test]
+    fn conversation_event_codec_closed_has_stable_bytes() {
+        let codec = ConversationEventCodec;
+        let bytes = codec
+            .encode(&ConversationEvent::ConversationClosed)
+            .unwrap();
+
+        assert_eq!(bytes, [0x00, 0x01, TAG_CONVERSATION_CLOSED]);
+        assert_eq!(
+            codec.decode(&bytes).unwrap(),
+            ConversationEvent::ConversationClosed
+        );
+    }
+
+    #[test]
+    fn conversation_event_codec_rejects_unknown_version_tag_and_trailing_bytes() {
+        let codec = ConversationEventCodec;
+        let mut unknown_version = vec![0xff, 0xff, TAG_CONVERSATION_CLOSED];
+        assert!(matches!(
+            codec.decode(&unknown_version),
+            Err(StoreCodecError::UnsupportedVersion { .. })
+        ));
+
+        unknown_version[0] = 0x00;
+        unknown_version[1] = 0x01;
+        unknown_version[2] = 0xff;
+        assert!(matches!(
+            codec.decode(&unknown_version),
+            Err(StoreCodecError::UnknownTag { .. })
+        ));
+
+        let mut trailing = codec
+            .encode(&ConversationEvent::ConversationClosed)
+            .unwrap();
+        trailing.push(0);
+        assert!(matches!(
+            codec.decode(&trailing),
+            Err(StoreCodecError::TrailingBytes { remaining: 1 })
+        ));
+    }
+
+    #[test]
+    fn conversation_event_codec_rejects_non_uuid_v7_workspace() {
+        let codec = ConversationEventCodec;
+        let mut bytes = vec![0x00, 0x01, TAG_CONVERSATION_CREATED];
+        bytes.extend_from_slice(&[0; 16]);
+
+        assert!(matches!(
+            codec.decode(&bytes),
+            Err(StoreCodecError::UnknownTag {
+                context: "ConversationCreated workspace UUIDv7",
+                ..
+            })
+        ));
+    }
+
     // ── CommandOutcome round-trip ──────────────────────────────────────
 
     #[test]
@@ -782,6 +1026,57 @@ mod tests {
         let bytes = codec.encode(&original).unwrap();
         let decoded = codec.decode(&bytes).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn conversation_receipt_codec_has_stable_roundtrip_bytes() {
+        let codec = ConversationReceiptCodec;
+        let conversation_id: ConversationId = CONV_ID.parse().unwrap();
+        let workspace_id: WorkspaceId = WS_ID.parse().unwrap();
+        let receipt = ConversationReceipt {
+            conversation_id,
+            workspace_id,
+            new_version: 1,
+            committed_at: gocode_domain::timestamp::Timestamp::from_unix_micros(1_234_567),
+        };
+
+        let bytes = codec.encode(&receipt).unwrap();
+
+        let mut expected = vec![0, 1];
+        expected.extend_from_slice(conversation_id.as_bytes());
+        expected.extend_from_slice(workspace_id.as_bytes());
+        expected.extend_from_slice(&1_u64.to_be_bytes());
+        expected.extend_from_slice(&1_234_567_i64.to_be_bytes());
+        assert_eq!(bytes, expected);
+        assert_eq!(codec.decode(&bytes).unwrap(), receipt);
+    }
+
+    #[test]
+    fn conversation_receipt_codec_rejects_negative_timestamp_and_trailing_bytes() {
+        let codec = ConversationReceiptCodec;
+        let receipt = ConversationReceipt {
+            conversation_id: CONV_ID.parse().unwrap(),
+            workspace_id: WS_ID.parse().unwrap(),
+            new_version: 1,
+            committed_at: gocode_domain::timestamp::Timestamp::from_unix_micros(1),
+        };
+        let mut negative = codec.encode(&receipt).unwrap();
+        let timestamp_start = negative.len() - 8;
+        negative[timestamp_start..].copy_from_slice(&(-1_i64).to_be_bytes());
+        assert!(matches!(
+            codec.decode(&negative),
+            Err(StoreCodecError::UnknownTag {
+                context: "ConversationReceipt negative commit timestamp",
+                ..
+            })
+        ));
+
+        let mut trailing = codec.encode(&receipt).unwrap();
+        trailing.push(0);
+        assert!(matches!(
+            codec.decode(&trailing),
+            Err(StoreCodecError::TrailingBytes { remaining: 1 })
+        ));
     }
 
     // ── IdempotencyScope round-trip ────────────────────────────────────
@@ -818,5 +1113,23 @@ mod tests {
         let bytes = codec.encode(&original).unwrap();
         let decoded = codec.decode(&bytes).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn idempotency_scope_codec_roundtrips_new_conversation() {
+        let codec = IdempotencyScopeCodec;
+        let original = IdempotencyScope {
+            runtime_authority_id: gocode_application::ports::RuntimeAuthorityId("host-1".into()),
+            principal_id: gocode_application::ports::PrincipalId("user-1".into()),
+            operation: OperationTag::CreateConversation,
+            aggregate_scope: AggregateScope::NewConversation {
+                conversation_id: CONV_ID.parse().unwrap(),
+                workspace_id: WS_ID.parse().unwrap(),
+            },
+        };
+
+        let bytes = codec.encode(&original).unwrap();
+
+        assert_eq!(codec.decode(&bytes).unwrap(), original);
     }
 }

@@ -33,6 +33,7 @@ const TAG_QUEUE: u8 = 2;
 const TAG_ADMIT: u8 = 3;
 const TAG_START_ATTEMPT: u8 = 4;
 const TAG_COMPLETE: u8 = 5;
+const TAG_CREATE_CONVERSATION: u8 = 6;
 
 /// A SHA-256 fingerprint of a command's semantic payload.
 ///
@@ -69,6 +70,20 @@ impl CommandFingerprint {
         // conversation_id: 16 raw bytes
         hasher.update(conversation_id.as_bytes());
         // workspace_id: 16 raw bytes
+        hasher.update(workspace_id.as_bytes());
+        Self(hasher.finalize().into())
+    }
+
+    /// Create a fingerprint for `CreateConversation`.
+    pub fn for_create_conversation(
+        conversation_id: &ConversationId,
+        workspace_id: &WorkspaceId,
+    ) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(DOMAIN_PREFIX);
+        hasher.update(SCHEMA_VERSION.to_be_bytes());
+        hasher.update([TAG_CREATE_CONVERSATION]);
+        hasher.update(conversation_id.as_bytes());
         hasher.update(workspace_id.as_bytes());
         Self(hasher.finalize().into())
     }
@@ -187,6 +202,21 @@ mod tests {
         let fp1 = CommandFingerprint::for_create(&conv1, &ws_id);
         let fp2 = CommandFingerprint::for_create(&conv2, &ws_id);
         assert_ne!(fp1, fp2);
+    }
+
+    #[test]
+    fn create_conversation_has_a_distinct_deterministic_domain() {
+        let conversation_id: ConversationId = CONV_ID_STR.parse().unwrap();
+        let workspace_id: WorkspaceId = WS_ID_STR.parse().unwrap();
+
+        let first = CommandFingerprint::for_create_conversation(&conversation_id, &workspace_id);
+        let second = CommandFingerprint::for_create_conversation(&conversation_id, &workspace_id);
+
+        assert_eq!(first, second);
+        assert_ne!(
+            first,
+            CommandFingerprint::for_create(&conversation_id, &workspace_id)
+        );
     }
 
     #[test]
