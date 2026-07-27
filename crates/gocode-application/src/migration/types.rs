@@ -1,6 +1,9 @@
 use core::fmt;
 
+use gocode_domain::{id::AggregateId, timestamp::Timestamp};
 use sha2::{Digest, Sha256};
+
+use super::state::MigrationPhase;
 
 pub const MAX_MIGRATION_ID_BYTES: usize = 128;
 pub const MAX_COHORT_DIMENSIONS: usize = 16;
@@ -148,6 +151,26 @@ impl FencingToken {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeAuthority {
+    Source(RuntimeGenerationRef),
+    Candidate(RuntimeGenerationRef),
+}
+
+impl RuntimeAuthority {
+    fn generation(&self) -> &RuntimeGenerationRef {
+        match self {
+            Self::Source(generation) | Self::Candidate(generation) => generation,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RollbackDisposition {
+    Eligible,
+    Ineligible,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CohortDimension {
     key: String,
@@ -267,6 +290,114 @@ impl RoutingUnit {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutingSnapshot {
+    pub routing_generation: RoutingGeneration,
+    pub source: RuntimeGenerationRef,
+    pub candidate: RuntimeGenerationRef,
+    pub cohort: CohortSelector,
+    pub authority: RuntimeAuthority,
+    pub contract_digest: ArtifactDigest,
+    pub profile_digest: ArtifactDigest,
+    pub config_digest: ArtifactDigest,
+    pub fencing_token: FencingToken,
+    pub rollback_disposition: RollbackDisposition,
+    pub committed_at: Timestamp,
+}
+
+impl RoutingSnapshot {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        routing_generation: RoutingGeneration,
+        source: RuntimeGenerationRef,
+        candidate: RuntimeGenerationRef,
+        phase: MigrationPhase,
+        authority: RuntimeAuthority,
+        routing_unit: RoutingUnit,
+        fencing_token: FencingToken,
+        rollback_disposition: RollbackDisposition,
+        committed_at: Timestamp,
+    ) -> Result<Self, MigrationValueError> {
+        if source == candidate {
+            return Err(MigrationValueError::SourceAndCandidateMustDiffer);
+        }
+        match &authority {
+            RuntimeAuthority::Source(generation) if generation != &source => {
+                return Err(MigrationValueError::AuthorityGenerationMismatch);
+            }
+            RuntimeAuthority::Candidate(generation) if generation != &candidate => {
+                return Err(MigrationValueError::AuthorityGenerationMismatch);
+            }
+            RuntimeAuthority::Candidate(_)
+                if matches!(
+                    phase,
+                    MigrationPhase::Baseline
+                        | MigrationPhase::Foundation
+                        | MigrationPhase::ReadOnlyParity
+                        | MigrationPhase::SimulatedShadow
+                ) =>
+            {
+                return Err(MigrationValueError::CandidateAuthorityBeforeCanary);
+            }
+            _ => {}
+        }
+        if fencing_token.as_bytes() == &[0; 32] {
+            return Err(MigrationValueError::ZeroFencingToken);
+        }
+
+        Ok(Self {
+            routing_generation,
+            source,
+            candidate,
+            cohort: routing_unit.cohort,
+            authority,
+            contract_digest: routing_unit.contract_digest,
+            profile_digest: routing_unit.feature_profile.profile_digest,
+            config_digest: routing_unit.config_digest,
+            fencing_token,
+            rollback_disposition,
+            committed_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeBinding {
+    pub aggregate_id: AggregateId,
+    pub authority: RuntimeAuthority,
+    pub runtime_generation: RuntimeGenerationRef,
+    pub routing_generation: RoutingGeneration,
+    pub fencing_token: FencingToken,
+    pub bound_at: Timestamp,
+}
+
+impl RuntimeBinding {
+    pub fn new(
+        aggregate_id: AggregateId,
+        authority: RuntimeAuthority,
+        runtime_generation: RuntimeGenerationRef,
+        routing_generation: RoutingGeneration,
+        fencing_token: FencingToken,
+        bound_at: Timestamp,
+    ) -> Result<Self, MigrationValueError> {
+        if authority.generation() != &runtime_generation {
+            return Err(MigrationValueError::BindingAuthorityGenerationMismatch);
+        }
+        if fencing_token.as_bytes() == &[0; 32] {
+            return Err(MigrationValueError::ZeroFencingToken);
+        }
+
+        Ok(Self {
+            aggregate_id,
+            authority,
+            runtime_generation,
+            routing_generation,
+            fencing_token,
+            bound_at,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum GateFamily {
@@ -326,6 +457,11 @@ fn update_length_prefixed(hasher: &mut Sha256, value: &str) {
 
 #[cfg(test)]
 mod tests {
+    use gocode_domain::{
+        id::{AggregateId, TaskRunId},
+        timestamp::Timestamp,
+    };
+
     use super::*;
 
     #[test]
@@ -352,6 +488,132 @@ mod tests {
             ])
             .is_err()
         );
+    }
+
+    #[test]
+    fn source_only_snapshot_rejects_candidate_authority_before_canary() {
+        let result = RoutingSnapshot::new(
+            RoutingGeneration::new(1).unwrap(),
+            source_generation(),
+            candidate_generation(),
+            MigrationPhase::SimulatedShadow,
+            RuntimeAuthority::Candidate(candidate_generation()),
+            test_routing_unit(),
+            FencingToken::from_bytes([7; 32]),
+            RollbackDisposition::Eligible,
+            Timestamp::from_unix_micros(10),
+        );
+
+        assert_eq!(
+            result,
+            Err(MigrationValueError::CandidateAuthorityBeforeCanary)
+        );
+    }
+
+    #[test]
+    fn runtime_binding_rejects_authority_generation_mismatch() {
+        assert_eq!(
+            RuntimeBinding::new(
+                aggregate_id(),
+                RuntimeAuthority::Source(source_generation()),
+                candidate_generation(),
+                RoutingGeneration::new(1).unwrap(),
+                FencingToken::from_bytes([7; 32]),
+                Timestamp::from_unix_micros(10),
+            ),
+            Err(MigrationValueError::BindingAuthorityGenerationMismatch)
+        );
+    }
+
+    #[test]
+    fn routing_snapshot_rejects_invalid_authority_and_token() {
+        let routing_generation = RoutingGeneration::new(1).unwrap();
+        let source = source_generation();
+        let candidate = candidate_generation();
+
+        assert_eq!(
+            RoutingSnapshot::new(
+                routing_generation,
+                source.clone(),
+                source.clone(),
+                MigrationPhase::InternalCanary,
+                RuntimeAuthority::Source(source.clone()),
+                test_routing_unit(),
+                FencingToken::from_bytes([7; 32]),
+                RollbackDisposition::Eligible,
+                Timestamp::from_unix_micros(10),
+            ),
+            Err(MigrationValueError::SourceAndCandidateMustDiffer)
+        );
+        assert_eq!(
+            RoutingSnapshot::new(
+                routing_generation,
+                source.clone(),
+                candidate.clone(),
+                MigrationPhase::InternalCanary,
+                RuntimeAuthority::Source(candidate),
+                test_routing_unit(),
+                FencingToken::from_bytes([7; 32]),
+                RollbackDisposition::Eligible,
+                Timestamp::from_unix_micros(10),
+            ),
+            Err(MigrationValueError::AuthorityGenerationMismatch)
+        );
+        assert_eq!(
+            RoutingSnapshot::new(
+                routing_generation,
+                source,
+                candidate_generation(),
+                MigrationPhase::InternalCanary,
+                RuntimeAuthority::Source(source_generation()),
+                test_routing_unit(),
+                FencingToken::from_bytes([0; 32]),
+                RollbackDisposition::Eligible,
+                Timestamp::from_unix_micros(10),
+            ),
+            Err(MigrationValueError::ZeroFencingToken)
+        );
+    }
+
+    #[test]
+    fn routing_snapshot_copies_routing_unit_scope_and_digests() {
+        let routing_unit = test_routing_unit();
+        let snapshot = RoutingSnapshot::new(
+            RoutingGeneration::new(1).unwrap(),
+            source_generation(),
+            candidate_generation(),
+            MigrationPhase::InternalCanary,
+            RuntimeAuthority::Candidate(candidate_generation()),
+            routing_unit.clone(),
+            FencingToken::from_bytes([7; 32]),
+            RollbackDisposition::Eligible,
+            Timestamp::from_unix_micros(10),
+        )
+        .unwrap();
+
+        assert_eq!(snapshot.cohort, routing_unit.cohort);
+        assert_eq!(snapshot.contract_digest, routing_unit.contract_digest);
+        assert_eq!(
+            snapshot.profile_digest,
+            routing_unit.feature_profile.profile_digest
+        );
+        assert_eq!(snapshot.config_digest, routing_unit.config_digest);
+    }
+
+    fn source_generation() -> RuntimeGenerationRef {
+        RuntimeGenerationRef::new("runtime-legacy").unwrap()
+    }
+
+    fn candidate_generation() -> RuntimeGenerationRef {
+        RuntimeGenerationRef::new("runtime-native").unwrap()
+    }
+
+    fn aggregate_id() -> AggregateId {
+        AggregateId::TaskRun(
+            "018f2e3a-8d5c-7b20-8d9a-000000000001"
+                .parse::<TaskRunId>()
+                .unwrap(),
+        )
     }
 
     fn test_routing_unit() -> RoutingUnit {

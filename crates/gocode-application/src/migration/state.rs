@@ -196,7 +196,6 @@ mod tests {
         );
     }
 
-
     fn test_plan(phase: MigrationPhase) -> MigrationPlan {
         MigrationPlan {
             plan_id: MigrationPlanId::new("plan-1").unwrap(),
