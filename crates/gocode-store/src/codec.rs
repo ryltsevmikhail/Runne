@@ -10,10 +10,23 @@ use gocode_application::commands::CommandOutcome;
 use gocode_application::ports::{
     AggregateScope, ConversationReceipt, IdempotencyScope, OperationTag,
 };
+use gocode_domain::agent_loop::{
+    LoopCheckpointBody, LoopDisposition, StepOutcomeRecord, StepOutcomeRef, StepOutcomeType,
+    WakeCondition, WakeConditionKind, WakeEvidenceRef, WakeEvidenceSource,
+};
 use gocode_domain::command::TerminalResult;
+use gocode_domain::context::ContextManifestRef;
 use gocode_domain::conversation::ConversationEvent;
-use gocode_domain::id::{AttemptId, ConversationId, TaskRunId, WorkspaceId};
-use gocode_domain::task_run::TaskRunEvent;
+use gocode_domain::id::{
+    AttemptId, BudgetReservationId, CheckpointId, ContextManifestId, ConversationId, CycleId,
+    EffectId, IntegrityDigest, PlanEvaluationId, PlanId, ReconciliationRunId, ResultId, StepId,
+    TaskRunId, WakeEvidenceId, WorkspaceId,
+};
+use gocode_domain::plan::{PlanParentRef, PlanRevisionRef};
+use gocode_domain::recovery::{ReconciliationResultRef, ReconciliationStatus};
+use gocode_domain::reference::{BudgetReservationRef, CheckpointRef, ResultRef};
+use gocode_domain::task_run::{TaskRunEvent, TaskRunState};
+use gocode_domain::verification::{PlanEvaluationRef, PlanEvaluationResult};
 
 /// Error from a codec encode/decode operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -186,6 +199,79 @@ fn read_len_prefixed<'a>(bytes: &'a [u8], pos: &mut usize) -> Result<&'a [u8], S
     Ok(data)
 }
 
+fn write_digest(buf: &mut Vec<u8>, digest: &IntegrityDigest) {
+    buf.extend_from_slice(digest.as_bytes());
+}
+
+fn read_digest(bytes: &[u8], pos: &mut usize) -> Result<IntegrityDigest, StoreCodecError> {
+    if *pos + 32 > bytes.len() {
+        return Err(StoreCodecError::Truncated);
+    }
+    let mut digest = [0u8; 32];
+    digest.copy_from_slice(&bytes[*pos..*pos + 32]);
+    *pos += 32;
+    Ok(IntegrityDigest::from_bytes(digest))
+}
+
+fn write_string(buf: &mut Vec<u8>, value: &str) -> Result<(), StoreCodecError> {
+    if value.len() > u16::MAX as usize {
+        return Err(StoreCodecError::Oversized {
+            field: "string",
+            max: u16::MAX as usize,
+            actual: value.len(),
+        });
+    }
+    write_len_prefixed(buf, value.as_bytes());
+    Ok(())
+}
+
+fn read_string(
+    bytes: &[u8],
+    pos: &mut usize,
+    context: &'static str,
+) -> Result<String, StoreCodecError> {
+    String::from_utf8(read_len_prefixed(bytes, pos)?.to_vec())
+        .map_err(|_| StoreCodecError::UnknownTag { tag: 0, context })
+}
+
+fn write_u32_vec(buf: &mut Vec<u8>, values: &[u32]) -> Result<(), StoreCodecError> {
+    if values.len() > u16::MAX as usize {
+        return Err(StoreCodecError::Oversized {
+            field: "u32 vector",
+            max: u16::MAX as usize,
+            actual: values.len(),
+        });
+    }
+    write_u16_be(buf, values.len() as u16);
+    for value in values {
+        buf.extend_from_slice(&value.to_be_bytes());
+    }
+    Ok(())
+}
+
+fn read_u32_vec(bytes: &[u8], pos: &mut usize) -> Result<Vec<u32>, StoreCodecError> {
+    let len = read_u16_be(bytes, pos)? as usize;
+    let byte_len = len.checked_mul(4).ok_or(StoreCodecError::Oversized {
+        field: "u32 vector",
+        max: u16::MAX as usize,
+        actual: len,
+    })?;
+    if *pos + byte_len > bytes.len() {
+        return Err(StoreCodecError::Truncated);
+    }
+    let mut values = Vec::with_capacity(len);
+    for _ in 0..len {
+        let value = u32::from_be_bytes(
+            bytes[*pos..*pos + 4]
+                .try_into()
+                .map_err(|_| StoreCodecError::Truncated)?,
+        );
+        *pos += 4;
+        values.push(value);
+    }
+    Ok(values)
+}
+
 // ── TaskRunEvent codec ───────────────────────────────────────────────────
 
 /// Event tag constants for TaskRunEvent encoding.
@@ -209,6 +295,631 @@ const TAG_RECONCILIATION_STARTED: u8 = 0x11;
 const TAG_RECONCILED: u8 = 0x12;
 const TAG_UNRECOVERABLE: u8 = 0x13;
 const TAG_TASK_RUN_CANCELLED: u8 = 0x14;
+const TAG_LOOP_CYCLE_STARTED: u8 = 0x15;
+const TAG_CONTEXT_COMMITTED: u8 = 0x16;
+const TAG_PLAN_COMMITTED: u8 = 0x17;
+const TAG_STEP_OUTCOME_RECORDED: u8 = 0x18;
+const TAG_LOOP_CYCLE_COMPLETED: u8 = 0x19;
+const TAG_NEXT_CYCLE_CREATED: u8 = 0x1A;
+const TAG_RETRY_SCHEDULED: u8 = 0x1B;
+const TAG_LOOP_CHECKPOINT_RECORDED: u8 = 0x1C;
+const TAG_ACTIVATE_SCHEDULED_RETRY_ATTEMPT: u8 = 0x1D;
+const TAG_RECOVERY_RESUME_STARTED: u8 = 0x1E;
+const TAG_LOOP_CHECKPOINT_STARTED: u8 = 0x1F;
+const TAG_LOOP_CHECKPOINT_COMMITTED: u8 = 0x20;
+const TAG_LOOP_WAKE_ACCEPTED: u8 = 0x21;
+
+fn encode_context_ref(
+    buf: &mut Vec<u8>,
+    value: &ContextManifestRef,
+) -> Result<(), StoreCodecError> {
+    write_uuid(buf, value.manifest_id.as_bytes());
+    write_uuid(buf, value.taskrun_id.as_bytes());
+    write_uuid(buf, value.attempt_id.as_bytes());
+    write_uuid(buf, value.cycle_id.as_bytes());
+    write_u64_be(buf, value.revision);
+    write_string(buf, &value.policy_revision)?;
+    write_digest(buf, &value.integrity_digest);
+    Ok(())
+}
+
+fn decode_context_ref(
+    bytes: &[u8],
+    pos: &mut usize,
+) -> Result<ContextManifestRef, StoreCodecError> {
+    Ok(ContextManifestRef {
+        manifest_id: ContextManifestId::from_bytes(read_uuid(bytes, pos)?),
+        taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, pos)?),
+        attempt_id: AttemptId::from_bytes(read_uuid(bytes, pos)?),
+        cycle_id: CycleId::from_bytes(read_uuid(bytes, pos)?),
+        revision: read_u64_be(bytes, pos)?,
+        policy_revision: read_string(bytes, pos, "ContextManifestRef policy revision")?,
+        integrity_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_result_ref(buf: &mut Vec<u8>, value: &ResultRef) -> Result<(), StoreCodecError> {
+    write_uuid(buf, value.result_id.as_bytes());
+    write_string(buf, &value.media_type)?;
+    write_digest(buf, &value.integrity_digest);
+    Ok(())
+}
+
+fn decode_result_ref(bytes: &[u8], pos: &mut usize) -> Result<ResultRef, StoreCodecError> {
+    ResultRef::new(
+        ResultId::from_bytes(read_uuid(bytes, pos)?),
+        read_string(bytes, pos, "ResultRef media type")?,
+        read_digest(bytes, pos)?,
+    )
+    .map_err(|_| StoreCodecError::UnknownTag {
+        tag: 0,
+        context: "ResultRef",
+    })
+}
+
+fn encode_budget_ref(buf: &mut Vec<u8>, value: &BudgetReservationRef) {
+    write_uuid(buf, value.reservation_id.as_bytes());
+    write_uuid(buf, value.taskrun_id.as_bytes());
+    write_uuid(buf, value.attempt_id.as_bytes());
+    write_u64_be(buf, value.retry_ordinal);
+    write_digest(buf, &value.reservation_digest);
+}
+
+fn decode_budget_ref(
+    bytes: &[u8],
+    pos: &mut usize,
+) -> Result<BudgetReservationRef, StoreCodecError> {
+    Ok(BudgetReservationRef {
+        reservation_id: BudgetReservationId::from_bytes(read_uuid(bytes, pos)?),
+        taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, pos)?),
+        attempt_id: AttemptId::from_bytes(read_uuid(bytes, pos)?),
+        retry_ordinal: read_u64_be(bytes, pos)?,
+        reservation_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_plan_ref(buf: &mut Vec<u8>, value: &PlanRevisionRef) -> Result<(), StoreCodecError> {
+    write_uuid(buf, value.plan_id.as_bytes());
+    write_uuid(buf, value.taskrun_id.as_bytes());
+    write_uuid(buf, value.cycle_id.as_bytes());
+    write_u64_be(buf, value.revision);
+    encode_context_ref(buf, &value.context_manifest_ref)?;
+    write_u32_vec(buf, &value.expected_proposal_indexes)?;
+    write_digest(buf, &value.proposal_batch_digest);
+    encode_result_ref(buf, &value.planning_policy_ref)?;
+    encode_budget_ref(buf, &value.planning_budget_ref);
+    match &value.parent_ref {
+        None => buf.push(0),
+        Some(parent) => {
+            buf.push(1);
+            write_uuid(buf, parent.plan_id.as_bytes());
+            write_u64_be(buf, parent.revision);
+            write_digest(buf, &parent.integrity_digest);
+        }
+    }
+    write_digest(buf, &value.integrity_digest);
+    Ok(())
+}
+
+fn decode_plan_ref(bytes: &[u8], pos: &mut usize) -> Result<PlanRevisionRef, StoreCodecError> {
+    let plan_id = PlanId::from_bytes(read_uuid(bytes, pos)?);
+    let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, pos)?);
+    let cycle_id = CycleId::from_bytes(read_uuid(bytes, pos)?);
+    let revision = read_u64_be(bytes, pos)?;
+    let context_manifest_ref = decode_context_ref(bytes, pos)?;
+    let expected_proposal_indexes = read_u32_vec(bytes, pos)?;
+    let proposal_batch_digest = read_digest(bytes, pos)?;
+    let planning_policy_ref = decode_result_ref(bytes, pos)?;
+    let planning_budget_ref = decode_budget_ref(bytes, pos)?;
+    let parent_ref = match *bytes.get(*pos).ok_or(StoreCodecError::Truncated)? {
+        0 => {
+            *pos += 1;
+            None
+        }
+        1 => {
+            *pos += 1;
+            Some(PlanParentRef {
+                plan_id: PlanId::from_bytes(read_uuid(bytes, pos)?),
+                revision: read_u64_be(bytes, pos)?,
+                integrity_digest: read_digest(bytes, pos)?,
+            })
+        }
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "PlanRevisionRef parent",
+            });
+        }
+    };
+    Ok(PlanRevisionRef {
+        plan_id,
+        taskrun_id,
+        cycle_id,
+        revision,
+        context_manifest_ref,
+        expected_proposal_indexes,
+        proposal_batch_digest,
+        planning_policy_ref,
+        planning_budget_ref,
+        parent_ref,
+        integrity_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_step_ref(buf: &mut Vec<u8>, value: &StepOutcomeRef) {
+    write_uuid(buf, value.cycle_id.as_bytes());
+    buf.extend_from_slice(&value.proposal_index.to_be_bytes());
+    write_uuid(buf, value.step_id.as_bytes());
+    write_digest(buf, &value.outcome_digest);
+}
+
+fn decode_step_ref(bytes: &[u8], pos: &mut usize) -> Result<StepOutcomeRef, StoreCodecError> {
+    let cycle_id = CycleId::from_bytes(read_uuid(bytes, pos)?);
+    if *pos + 4 > bytes.len() {
+        return Err(StoreCodecError::Truncated);
+    }
+    let proposal_index = u32::from_be_bytes(
+        bytes[*pos..*pos + 4]
+            .try_into()
+            .map_err(|_| StoreCodecError::Truncated)?,
+    );
+    *pos += 4;
+    Ok(StepOutcomeRef {
+        cycle_id,
+        proposal_index,
+        step_id: StepId::from_bytes(read_uuid(bytes, pos)?),
+        outcome_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_step_record(buf: &mut Vec<u8>, value: &StepOutcomeRecord) -> Result<(), StoreCodecError> {
+    buf.extend_from_slice(&value.proposal_index.to_be_bytes());
+    write_uuid(buf, value.step_id.as_bytes());
+    buf.push(match value.outcome_type {
+        StepOutcomeType::Succeeded => 0,
+        StepOutcomeType::FailedBeforeCommit => 1,
+        StepOutcomeType::FailedAfterCommit => 2,
+        StepOutcomeType::Uncertain => 3,
+        StepOutcomeType::Cancelled => 4,
+    });
+    match &value.result_ref {
+        None => buf.push(0),
+        Some(result) => {
+            buf.push(1);
+            encode_result_ref(buf, result)?;
+        }
+    }
+    match value.effect_id {
+        None => buf.push(0),
+        Some(effect_id) => {
+            buf.push(1);
+            write_uuid(buf, effect_id.as_bytes());
+        }
+    }
+    if value.evidence_digests.len() > u16::MAX as usize {
+        return Err(StoreCodecError::Oversized {
+            field: "StepOutcomeRecord evidence",
+            max: u16::MAX as usize,
+            actual: value.evidence_digests.len(),
+        });
+    }
+    write_u16_be(buf, value.evidence_digests.len() as u16);
+    for digest in &value.evidence_digests {
+        write_digest(buf, digest);
+    }
+    Ok(())
+}
+
+fn decode_step_record(bytes: &[u8], pos: &mut usize) -> Result<StepOutcomeRecord, StoreCodecError> {
+    if *pos + 4 > bytes.len() {
+        return Err(StoreCodecError::Truncated);
+    }
+    let proposal_index = u32::from_be_bytes(
+        bytes[*pos..*pos + 4]
+            .try_into()
+            .map_err(|_| StoreCodecError::Truncated)?,
+    );
+    *pos += 4;
+    let step_id = StepId::from_bytes(read_uuid(bytes, pos)?);
+    let outcome_tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    let outcome_type = match outcome_tag {
+        0 => StepOutcomeType::Succeeded,
+        1 => StepOutcomeType::FailedBeforeCommit,
+        2 => StepOutcomeType::FailedAfterCommit,
+        3 => StepOutcomeType::Uncertain,
+        4 => StepOutcomeType::Cancelled,
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "StepOutcomeType",
+            });
+        }
+    };
+    let result_ref = match *bytes.get(*pos).ok_or(StoreCodecError::Truncated)? {
+        0 => {
+            *pos += 1;
+            None
+        }
+        1 => {
+            *pos += 1;
+            Some(decode_result_ref(bytes, pos)?)
+        }
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "StepOutcomeRecord result option",
+            });
+        }
+    };
+    let effect_id = match *bytes.get(*pos).ok_or(StoreCodecError::Truncated)? {
+        0 => {
+            *pos += 1;
+            None
+        }
+        1 => {
+            *pos += 1;
+            Some(EffectId::from_bytes(read_uuid(bytes, pos)?))
+        }
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "StepOutcomeRecord effect option",
+            });
+        }
+    };
+    let evidence_len = read_u16_be(bytes, pos)? as usize;
+    let mut evidence_digests = Vec::with_capacity(evidence_len);
+    for _ in 0..evidence_len {
+        evidence_digests.push(read_digest(bytes, pos)?);
+    }
+    Ok(StepOutcomeRecord {
+        proposal_index,
+        step_id,
+        outcome_type,
+        result_ref,
+        effect_id,
+        evidence_digests,
+    })
+}
+
+fn encode_wake_condition(buf: &mut Vec<u8>, value: &WakeCondition) -> Result<(), StoreCodecError> {
+    buf.push(match value.kind {
+        WakeConditionKind::ExternalInput => 0,
+        WakeConditionKind::Approval => 1,
+        WakeConditionKind::ChildTaskRun => 2,
+        WakeConditionKind::Timer => 3,
+        WakeConditionKind::Reconciliation => 4,
+    });
+    write_string(buf, &value.condition_ref)?;
+    write_digest(buf, &value.condition_digest);
+    Ok(())
+}
+
+fn decode_wake_condition(bytes: &[u8], pos: &mut usize) -> Result<WakeCondition, StoreCodecError> {
+    let tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    let kind = match tag {
+        0 => WakeConditionKind::ExternalInput,
+        1 => WakeConditionKind::Approval,
+        2 => WakeConditionKind::ChildTaskRun,
+        3 => WakeConditionKind::Timer,
+        4 => WakeConditionKind::Reconciliation,
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "WakeConditionKind",
+            });
+        }
+    };
+    Ok(WakeCondition {
+        kind,
+        condition_ref: read_string(bytes, pos, "WakeCondition reference")?,
+        condition_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_wake_evidence(buf: &mut Vec<u8>, value: &WakeEvidenceRef) -> Result<(), StoreCodecError> {
+    write_uuid(buf, value.cycle_id.as_bytes());
+    write_digest(buf, &value.condition_digest);
+    buf.push(match value.source {
+        WakeEvidenceSource::ExternalInput => 0,
+        WakeEvidenceSource::Approval => 1,
+        WakeEvidenceSource::ChildTaskRun => 2,
+        WakeEvidenceSource::Timer => 3,
+        WakeEvidenceSource::Reconciliation => 4,
+    });
+    write_uuid(buf, value.evidence_id.as_bytes());
+    write_digest(buf, &value.evidence_digest);
+    write_i64_be(buf, value.observed_at_unix_us);
+    write_string(buf, &value.authority_revision)
+}
+
+fn decode_wake_evidence(bytes: &[u8], pos: &mut usize) -> Result<WakeEvidenceRef, StoreCodecError> {
+    let cycle_id = CycleId::from_bytes(read_uuid(bytes, pos)?);
+    let condition_digest = read_digest(bytes, pos)?;
+    let tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    let source = match tag {
+        0 => WakeEvidenceSource::ExternalInput,
+        1 => WakeEvidenceSource::Approval,
+        2 => WakeEvidenceSource::ChildTaskRun,
+        3 => WakeEvidenceSource::Timer,
+        4 => WakeEvidenceSource::Reconciliation,
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "WakeEvidenceSource",
+            });
+        }
+    };
+    Ok(WakeEvidenceRef {
+        cycle_id,
+        condition_digest,
+        source,
+        evidence_id: WakeEvidenceId::from_bytes(read_uuid(bytes, pos)?),
+        evidence_digest: read_digest(bytes, pos)?,
+        observed_at_unix_us: read_i64_be(bytes, pos)?,
+        authority_revision: read_string(bytes, pos, "WakeEvidence authority revision")?,
+    })
+}
+
+fn encode_plan_evaluation(buf: &mut Vec<u8>, value: &PlanEvaluationRef) {
+    write_uuid(buf, value.evaluation_id.as_bytes());
+    write_uuid(buf, value.taskrun_id.as_bytes());
+    write_uuid(buf, value.plan_id.as_bytes());
+    write_u64_be(buf, value.plan_revision);
+    write_u64_be(buf, value.evaluated_stream_head);
+    buf.push(match value.result {
+        PlanEvaluationResult::Passed => 0,
+        PlanEvaluationResult::Failed => 1,
+        PlanEvaluationResult::Blocked => 2,
+        PlanEvaluationResult::RequiresReview => 3,
+    });
+    write_digest(buf, &value.gate_definitions_digest);
+    write_digest(buf, &value.evidence_set_digest);
+    write_digest(buf, &value.evaluation_digest);
+}
+
+fn decode_plan_evaluation(
+    bytes: &[u8],
+    pos: &mut usize,
+) -> Result<PlanEvaluationRef, StoreCodecError> {
+    let evaluation_id = PlanEvaluationId::from_bytes(read_uuid(bytes, pos)?);
+    let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, pos)?);
+    let plan_id = PlanId::from_bytes(read_uuid(bytes, pos)?);
+    let plan_revision = read_u64_be(bytes, pos)?;
+    let evaluated_stream_head = read_u64_be(bytes, pos)?;
+    let tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    let result = match tag {
+        0 => PlanEvaluationResult::Passed,
+        1 => PlanEvaluationResult::Failed,
+        2 => PlanEvaluationResult::Blocked,
+        3 => PlanEvaluationResult::RequiresReview,
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "PlanEvaluationResult",
+            });
+        }
+    };
+    Ok(PlanEvaluationRef {
+        evaluation_id,
+        taskrun_id,
+        plan_id,
+        plan_revision,
+        evaluated_stream_head,
+        result,
+        gate_definitions_digest: read_digest(bytes, pos)?,
+        evidence_set_digest: read_digest(bytes, pos)?,
+        evaluation_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_disposition(buf: &mut Vec<u8>, value: &LoopDisposition) -> Result<(), StoreCodecError> {
+    match value {
+        LoopDisposition::Continue => buf.push(0),
+        LoopDisposition::Wait {
+            reason,
+            wake_condition,
+        } => {
+            buf.push(1);
+            write_string(buf, reason)?;
+            encode_wake_condition(buf, wake_condition)?;
+        }
+        LoopDisposition::Complete {
+            plan_evaluation_ref,
+        } => {
+            buf.push(2);
+            encode_plan_evaluation(buf, plan_evaluation_ref);
+        }
+        LoopDisposition::Fail {
+            reason,
+            unresolved_proposals,
+        } => {
+            buf.push(3);
+            write_string(buf, reason)?;
+            write_u32_vec(buf, unresolved_proposals)?;
+        }
+    }
+    Ok(())
+}
+
+fn decode_disposition(bytes: &[u8], pos: &mut usize) -> Result<LoopDisposition, StoreCodecError> {
+    let tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    match tag {
+        0 => Ok(LoopDisposition::Continue),
+        1 => Ok(LoopDisposition::Wait {
+            reason: read_string(bytes, pos, "LoopDisposition wait reason")?,
+            wake_condition: decode_wake_condition(bytes, pos)?,
+        }),
+        2 => Ok(LoopDisposition::Complete {
+            plan_evaluation_ref: decode_plan_evaluation(bytes, pos)?,
+        }),
+        3 => Ok(LoopDisposition::Fail {
+            reason: read_string(bytes, pos, "LoopDisposition fail reason")?,
+            unresolved_proposals: read_u32_vec(bytes, pos)?,
+        }),
+        tag => Err(StoreCodecError::UnknownTag {
+            tag,
+            context: "LoopDisposition",
+        }),
+    }
+}
+
+fn encode_checkpoint_ref(buf: &mut Vec<u8>, value: &CheckpointRef) {
+    write_uuid(buf, value.checkpoint_id.as_bytes());
+    write_u64_be(buf, value.event_position);
+    write_digest(buf, &value.integrity_digest);
+}
+
+fn decode_checkpoint_ref(bytes: &[u8], pos: &mut usize) -> Result<CheckpointRef, StoreCodecError> {
+    Ok(CheckpointRef {
+        checkpoint_id: CheckpointId::from_bytes(read_uuid(bytes, pos)?),
+        event_position: read_u64_be(bytes, pos)?,
+        integrity_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_reconciliation_ref(buf: &mut Vec<u8>, value: &ReconciliationResultRef) {
+    write_uuid(buf, value.reconciliation_run_id.as_bytes());
+    write_uuid(buf, value.taskrun_id.as_bytes());
+    write_uuid(buf, value.predecessor_attempt_id.as_bytes());
+    write_u64_be(buf, value.recovery_generation);
+    write_u64_be(buf, value.reconciled_stream_position);
+    buf.push(match value.status {
+        ReconciliationStatus::Reconciled => 0,
+        ReconciliationStatus::Failed => 1,
+        ReconciliationStatus::InProgress => 2,
+    });
+    write_u64_be(buf, value.unresolved_effect_count);
+    write_digest(buf, &value.result_digest);
+}
+
+fn decode_reconciliation_ref(
+    bytes: &[u8],
+    pos: &mut usize,
+) -> Result<ReconciliationResultRef, StoreCodecError> {
+    let reconciliation_run_id = ReconciliationRunId::from_bytes(read_uuid(bytes, pos)?);
+    let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, pos)?);
+    let predecessor_attempt_id = AttemptId::from_bytes(read_uuid(bytes, pos)?);
+    let recovery_generation = read_u64_be(bytes, pos)?;
+    let reconciled_stream_position = read_u64_be(bytes, pos)?;
+    let tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    let status = match tag {
+        0 => ReconciliationStatus::Reconciled,
+        1 => ReconciliationStatus::Failed,
+        2 => ReconciliationStatus::InProgress,
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "ReconciliationStatus",
+            });
+        }
+    };
+    Ok(ReconciliationResultRef {
+        reconciliation_run_id,
+        taskrun_id,
+        predecessor_attempt_id,
+        recovery_generation,
+        reconciled_stream_position,
+        status,
+        unresolved_effect_count: read_u64_be(bytes, pos)?,
+        result_digest: read_digest(bytes, pos)?,
+    })
+}
+
+fn encode_checkpoint_body(
+    buf: &mut Vec<u8>,
+    value: &LoopCheckpointBody,
+) -> Result<(), StoreCodecError> {
+    write_string(buf, &value.schema_version)?;
+    write_uuid(buf, value.cycle_id.as_bytes());
+    write_uuid(buf, value.attempt_id.as_bytes());
+    match &value.plan_revision_ref {
+        None => buf.push(0),
+        Some(plan_ref) => {
+            buf.push(1);
+            encode_plan_ref(buf, plan_ref)?;
+        }
+    }
+    match &value.context_manifest_ref {
+        None => buf.push(0),
+        Some(context_ref) => {
+            buf.push(1);
+            encode_context_ref(buf, context_ref)?;
+        }
+    }
+    if value.step_outcome_refs.len() > u16::MAX as usize {
+        return Err(StoreCodecError::Oversized {
+            field: "LoopCheckpointBody step outcomes",
+            max: u16::MAX as usize,
+            actual: value.step_outcome_refs.len(),
+        });
+    }
+    write_u16_be(buf, value.step_outcome_refs.len() as u16);
+    for step_ref in &value.step_outcome_refs {
+        encode_step_ref(buf, step_ref);
+    }
+    Ok(())
+}
+
+fn decode_checkpoint_body(
+    bytes: &[u8],
+    pos: &mut usize,
+) -> Result<LoopCheckpointBody, StoreCodecError> {
+    let schema_version = read_string(bytes, pos, "LoopCheckpointBody schema version")?;
+    let cycle_id = CycleId::from_bytes(read_uuid(bytes, pos)?);
+    let attempt_id = AttemptId::from_bytes(read_uuid(bytes, pos)?);
+    let plan_revision_ref = match *bytes.get(*pos).ok_or(StoreCodecError::Truncated)? {
+        0 => {
+            *pos += 1;
+            None
+        }
+        1 => {
+            *pos += 1;
+            Some(decode_plan_ref(bytes, pos)?)
+        }
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "LoopCheckpointBody plan option",
+            });
+        }
+    };
+    let context_manifest_ref = match *bytes.get(*pos).ok_or(StoreCodecError::Truncated)? {
+        0 => {
+            *pos += 1;
+            None
+        }
+        1 => {
+            *pos += 1;
+            Some(decode_context_ref(bytes, pos)?)
+        }
+        tag => {
+            return Err(StoreCodecError::UnknownTag {
+                tag,
+                context: "LoopCheckpointBody context option",
+            });
+        }
+    };
+    let len = read_u16_be(bytes, pos)? as usize;
+    let mut step_outcome_refs = Vec::with_capacity(len);
+    for _ in 0..len {
+        step_outcome_refs.push(decode_step_ref(bytes, pos)?);
+    }
+    Ok(LoopCheckpointBody {
+        schema_version,
+        cycle_id,
+        attempt_id,
+        plan_revision_ref,
+        context_manifest_ref,
+        step_outcome_refs,
+    })
+}
 
 /// Codec for [`TaskRunEvent`] payload BLOB.
 pub struct TaskRunEventCodec;
@@ -286,6 +997,167 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
             TaskRunEvent::TaskRunCancelled => {
                 buf.push(TAG_TASK_RUN_CANCELLED);
             }
+            TaskRunEvent::LoopCycleStarted {
+                cycle_id,
+                attempt_id,
+                sequence,
+                parent_cycle_id,
+            } => {
+                buf.push(TAG_LOOP_CYCLE_STARTED);
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                write_uuid(&mut buf, attempt_id.as_bytes());
+                write_u64_be(&mut buf, *sequence);
+                match parent_cycle_id {
+                    None => buf.push(0),
+                    Some(parent) => {
+                        buf.push(1);
+                        write_uuid(&mut buf, parent.as_bytes());
+                    }
+                }
+            }
+            TaskRunEvent::ContextCommitted {
+                cycle_id,
+                manifest_ref,
+            } => {
+                buf.push(TAG_CONTEXT_COMMITTED);
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                encode_context_ref(&mut buf, manifest_ref)?;
+            }
+            TaskRunEvent::PlanCommitted {
+                cycle_id,
+                plan_revision_ref,
+                input_digest,
+                output_digest,
+                expected_proposal_indexes,
+            } => {
+                buf.push(TAG_PLAN_COMMITTED);
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                encode_plan_ref(&mut buf, plan_revision_ref)?;
+                write_digest(&mut buf, input_digest);
+                write_digest(&mut buf, output_digest);
+                write_u32_vec(&mut buf, expected_proposal_indexes)?;
+            }
+            TaskRunEvent::StepOutcomeRecorded { cycle_id, outcome } => {
+                buf.push(TAG_STEP_OUTCOME_RECORDED);
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                encode_step_record(&mut buf, outcome)?;
+            }
+            TaskRunEvent::LoopCycleCompleted {
+                cycle_id,
+                attempt_id,
+                disposition,
+            } => {
+                buf.push(TAG_LOOP_CYCLE_COMPLETED);
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                write_uuid(&mut buf, attempt_id.as_bytes());
+                encode_disposition(&mut buf, disposition)?;
+            }
+            TaskRunEvent::NextCycleCreated {
+                parent_cycle_id,
+                successor_cycle_id,
+                attempt_id,
+                sequence,
+            } => {
+                buf.push(TAG_NEXT_CYCLE_CREATED);
+                write_uuid(&mut buf, parent_cycle_id.as_bytes());
+                write_uuid(&mut buf, successor_cycle_id.as_bytes());
+                write_uuid(&mut buf, attempt_id.as_bytes());
+                write_u64_be(&mut buf, *sequence);
+            }
+            TaskRunEvent::RetryScheduled {
+                ordinal,
+                old_attempt_id,
+                new_attempt_id,
+                abandoned_cycle_id,
+                step_outcome_ref,
+                retry_policy_digest,
+                budget_reservation_ref,
+                delay_ms,
+                due_at_unix_us,
+            } => {
+                buf.push(TAG_RETRY_SCHEDULED);
+                write_u64_be(&mut buf, *ordinal);
+                write_uuid(&mut buf, old_attempt_id.as_bytes());
+                write_uuid(&mut buf, new_attempt_id.as_bytes());
+                write_uuid(&mut buf, abandoned_cycle_id.as_bytes());
+                encode_step_ref(&mut buf, step_outcome_ref);
+                write_digest(&mut buf, retry_policy_digest);
+                encode_budget_ref(&mut buf, budget_reservation_ref);
+                write_u64_be(&mut buf, *delay_ms);
+                write_i64_be(&mut buf, *due_at_unix_us);
+            }
+            TaskRunEvent::ActivateScheduledRetryAttempt {
+                ordinal,
+                attempt_id,
+                activated_at_unix_us,
+            } => {
+                buf.push(TAG_ACTIVATE_SCHEDULED_RETRY_ATTEMPT);
+                write_u64_be(&mut buf, *ordinal);
+                write_uuid(&mut buf, attempt_id.as_bytes());
+                write_i64_be(&mut buf, *activated_at_unix_us);
+            }
+            TaskRunEvent::RecoveryResumeStarted {
+                new_attempt_id,
+                new_generation,
+                abandoned_cycle_id,
+                context_manifest_ref,
+                checkpoint_ref,
+                reconciliation_ref,
+            } => {
+                buf.push(TAG_RECOVERY_RESUME_STARTED);
+                write_uuid(&mut buf, new_attempt_id.as_bytes());
+                write_u64_be(&mut buf, *new_generation);
+                match abandoned_cycle_id {
+                    None => buf.push(0),
+                    Some(cycle_id) => {
+                        buf.push(1);
+                        write_uuid(&mut buf, cycle_id.as_bytes());
+                    }
+                }
+                encode_context_ref(&mut buf, context_manifest_ref)?;
+                encode_checkpoint_ref(&mut buf, checkpoint_ref);
+                encode_reconciliation_ref(&mut buf, reconciliation_ref);
+            }
+            TaskRunEvent::LoopCheckpointStarted {
+                checkpoint_id,
+                event_position,
+                integrity_digest,
+            } => {
+                buf.push(TAG_LOOP_CHECKPOINT_STARTED);
+                write_uuid(&mut buf, checkpoint_id.as_bytes());
+                write_u64_be(&mut buf, *event_position);
+                write_digest(&mut buf, integrity_digest);
+            }
+            TaskRunEvent::LoopCheckpointRecorded {
+                checkpoint_id,
+                event_position,
+                body,
+                integrity_digest,
+            } => {
+                buf.push(TAG_LOOP_CHECKPOINT_RECORDED);
+                write_uuid(&mut buf, checkpoint_id.as_bytes());
+                write_u64_be(&mut buf, *event_position);
+                encode_checkpoint_body(&mut buf, body)?;
+                write_digest(&mut buf, integrity_digest);
+            }
+            TaskRunEvent::LoopCheckpointCommitted {
+                checkpoint_id,
+                event_position,
+                integrity_digest,
+            } => {
+                buf.push(TAG_LOOP_CHECKPOINT_COMMITTED);
+                write_uuid(&mut buf, checkpoint_id.as_bytes());
+                write_u64_be(&mut buf, *event_position);
+                write_digest(&mut buf, integrity_digest);
+            }
+            TaskRunEvent::LoopWakeAccepted {
+                cycle_id,
+                wake_evidence_ref,
+            } => {
+                buf.push(TAG_LOOP_WAKE_ACCEPTED);
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                encode_wake_evidence(&mut buf, wake_evidence_ref)?;
+            }
         }
         Ok(buf)
     }
@@ -353,6 +1225,123 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
             TAG_RECONCILED => TaskRunEvent::Reconciled,
             TAG_UNRECOVERABLE => TaskRunEvent::Unrecoverable,
             TAG_TASK_RUN_CANCELLED => TaskRunEvent::TaskRunCancelled,
+            TAG_LOOP_CYCLE_STARTED => {
+                let cycle_id = CycleId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let attempt_id = AttemptId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let sequence = read_u64_be(bytes, &mut pos)?;
+                let parent_cycle_id = match *bytes.get(pos).ok_or(StoreCodecError::Truncated)? {
+                    0 => {
+                        pos += 1;
+                        None
+                    }
+                    1 => {
+                        pos += 1;
+                        Some(CycleId::from_bytes(read_uuid(bytes, &mut pos)?))
+                    }
+                    tag => {
+                        return Err(StoreCodecError::UnknownTag {
+                            tag,
+                            context: "LoopCycleStarted parent",
+                        });
+                    }
+                };
+                TaskRunEvent::LoopCycleStarted {
+                    cycle_id,
+                    attempt_id,
+                    sequence,
+                    parent_cycle_id,
+                }
+            }
+            TAG_CONTEXT_COMMITTED => TaskRunEvent::ContextCommitted {
+                cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                manifest_ref: decode_context_ref(bytes, &mut pos)?,
+            },
+            TAG_PLAN_COMMITTED => TaskRunEvent::PlanCommitted {
+                cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                plan_revision_ref: decode_plan_ref(bytes, &mut pos)?,
+                input_digest: read_digest(bytes, &mut pos)?,
+                output_digest: read_digest(bytes, &mut pos)?,
+                expected_proposal_indexes: read_u32_vec(bytes, &mut pos)?,
+            },
+            TAG_STEP_OUTCOME_RECORDED => TaskRunEvent::StepOutcomeRecorded {
+                cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                outcome: decode_step_record(bytes, &mut pos)?,
+            },
+            TAG_LOOP_CYCLE_COMPLETED => TaskRunEvent::LoopCycleCompleted {
+                cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                disposition: decode_disposition(bytes, &mut pos)?,
+            },
+            TAG_NEXT_CYCLE_CREATED => TaskRunEvent::NextCycleCreated {
+                parent_cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                successor_cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                sequence: read_u64_be(bytes, &mut pos)?,
+            },
+            TAG_RETRY_SCHEDULED => TaskRunEvent::RetryScheduled {
+                ordinal: read_u64_be(bytes, &mut pos)?,
+                old_attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                new_attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                abandoned_cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                step_outcome_ref: decode_step_ref(bytes, &mut pos)?,
+                retry_policy_digest: read_digest(bytes, &mut pos)?,
+                budget_reservation_ref: decode_budget_ref(bytes, &mut pos)?,
+                delay_ms: read_u64_be(bytes, &mut pos)?,
+                due_at_unix_us: read_i64_be(bytes, &mut pos)?,
+            },
+            TAG_ACTIVATE_SCHEDULED_RETRY_ATTEMPT => TaskRunEvent::ActivateScheduledRetryAttempt {
+                ordinal: read_u64_be(bytes, &mut pos)?,
+                attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                activated_at_unix_us: read_i64_be(bytes, &mut pos)?,
+            },
+            TAG_RECOVERY_RESUME_STARTED => {
+                let new_attempt_id = AttemptId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let new_generation = read_u64_be(bytes, &mut pos)?;
+                let abandoned_cycle_id = match *bytes.get(pos).ok_or(StoreCodecError::Truncated)? {
+                    0 => {
+                        pos += 1;
+                        None
+                    }
+                    1 => {
+                        pos += 1;
+                        Some(CycleId::from_bytes(read_uuid(bytes, &mut pos)?))
+                    }
+                    tag => {
+                        return Err(StoreCodecError::UnknownTag {
+                            tag,
+                            context: "RecoveryResumeStarted abandoned cycle",
+                        });
+                    }
+                };
+                TaskRunEvent::RecoveryResumeStarted {
+                    new_attempt_id,
+                    new_generation,
+                    abandoned_cycle_id,
+                    context_manifest_ref: decode_context_ref(bytes, &mut pos)?,
+                    checkpoint_ref: decode_checkpoint_ref(bytes, &mut pos)?,
+                    reconciliation_ref: decode_reconciliation_ref(bytes, &mut pos)?,
+                }
+            }
+            TAG_LOOP_CHECKPOINT_STARTED => TaskRunEvent::LoopCheckpointStarted {
+                checkpoint_id: CheckpointId::from_bytes(read_uuid(bytes, &mut pos)?),
+                event_position: read_u64_be(bytes, &mut pos)?,
+                integrity_digest: read_digest(bytes, &mut pos)?,
+            },
+            TAG_LOOP_CHECKPOINT_RECORDED => TaskRunEvent::LoopCheckpointRecorded {
+                checkpoint_id: CheckpointId::from_bytes(read_uuid(bytes, &mut pos)?),
+                event_position: read_u64_be(bytes, &mut pos)?,
+                body: decode_checkpoint_body(bytes, &mut pos)?,
+                integrity_digest: read_digest(bytes, &mut pos)?,
+            },
+            TAG_LOOP_CHECKPOINT_COMMITTED => TaskRunEvent::LoopCheckpointCommitted {
+                checkpoint_id: CheckpointId::from_bytes(read_uuid(bytes, &mut pos)?),
+                event_position: read_u64_be(bytes, &mut pos)?,
+                integrity_digest: read_digest(bytes, &mut pos)?,
+            },
+            TAG_LOOP_WAKE_ACCEPTED => TaskRunEvent::LoopWakeAccepted {
+                cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                wake_evidence_ref: decode_wake_evidence(bytes, &mut pos)?,
+            },
             _ => {
                 return Err(StoreCodecError::UnknownTag {
                     tag,
@@ -478,6 +1467,52 @@ fn decode_terminal_result(
     }
 }
 
+fn encode_taskrun_state(state: TaskRunState) -> u8 {
+    match state {
+        TaskRunState::Created => 0,
+        TaskRunState::Queued => 1,
+        TaskRunState::Admitted => 2,
+        TaskRunState::Running => 3,
+        TaskRunState::Waiting => 4,
+        TaskRunState::Retrying => 5,
+        TaskRunState::Checkpointing => 6,
+        TaskRunState::Cancelling => 7,
+        TaskRunState::Reconciling => 8,
+        TaskRunState::Succeeded => 9,
+        TaskRunState::Failed => 10,
+        TaskRunState::Cancelled => 11,
+        TaskRunState::BudgetExhausted => 12,
+        TaskRunState::PolicyDenied => 13,
+        TaskRunState::Unrecoverable => 14,
+    }
+}
+
+fn decode_taskrun_state(bytes: &[u8], pos: &mut usize) -> Result<TaskRunState, StoreCodecError> {
+    let tag = *bytes.get(*pos).ok_or(StoreCodecError::Truncated)?;
+    *pos += 1;
+    match tag {
+        0 => Ok(TaskRunState::Created),
+        1 => Ok(TaskRunState::Queued),
+        2 => Ok(TaskRunState::Admitted),
+        3 => Ok(TaskRunState::Running),
+        4 => Ok(TaskRunState::Waiting),
+        5 => Ok(TaskRunState::Retrying),
+        6 => Ok(TaskRunState::Checkpointing),
+        7 => Ok(TaskRunState::Cancelling),
+        8 => Ok(TaskRunState::Reconciling),
+        9 => Ok(TaskRunState::Succeeded),
+        10 => Ok(TaskRunState::Failed),
+        11 => Ok(TaskRunState::Cancelled),
+        12 => Ok(TaskRunState::BudgetExhausted),
+        13 => Ok(TaskRunState::PolicyDenied),
+        14 => Ok(TaskRunState::Unrecoverable),
+        tag => Err(StoreCodecError::UnknownTag {
+            tag,
+            context: "TaskRunState",
+        }),
+    }
+}
+
 // ── CommandOutcome codec ─────────────────────────────────────────────────
 
 const CO_TAG_CREATED: u8 = 0x01;
@@ -485,6 +1520,17 @@ const CO_TAG_QUEUED: u8 = 0x02;
 const CO_TAG_ADMITTED: u8 = 0x03;
 const CO_TAG_ATTEMPT_STARTED: u8 = 0x04;
 const CO_TAG_COMPLETED: u8 = 0x05;
+const CO_TAG_CYCLE_STARTED: u8 = 0x06;
+const CO_TAG_CONTEXT_COMMITTED: u8 = 0x07;
+const CO_TAG_PLAN_COMMITTED: u8 = 0x08;
+const CO_TAG_STEP_OUTCOME_RECORDED: u8 = 0x09;
+const CO_TAG_LOOP_DISPOSITION_COMMITTED: u8 = 0x0A;
+const CO_TAG_NEXT_CYCLE_ALLOCATED: u8 = 0x0B;
+const CO_TAG_LOOP_WAIT_RESUMED: u8 = 0x0C;
+const CO_TAG_RETRY_SCHEDULED: u8 = 0x0D;
+const CO_TAG_RETRY_ACTIVATED: u8 = 0x0E;
+const CO_TAG_RECOVERY_RESUMED: u8 = 0x0F;
+const CO_TAG_LOOP_CHECKPOINT_COMMITTED: u8 = 0x10;
 
 /// Codec for [`CommandOutcome`] receipt BLOB.
 pub struct CommandOutcomeCodec;
@@ -537,6 +1583,121 @@ impl StoreCodec<CommandOutcome> for CommandOutcomeCodec {
             } => {
                 buf.push(CO_TAG_COMPLETED);
                 write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::CycleStarted {
+                taskrun_id,
+                cycle_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_CYCLE_STARTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::ContextCommitted {
+                taskrun_id,
+                cycle_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_CONTEXT_COMMITTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::PlanCommitted {
+                taskrun_id,
+                plan_ref,
+                new_version,
+            } => {
+                buf.push(CO_TAG_PLAN_COMMITTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                encode_plan_ref(&mut buf, plan_ref.as_ref())?;
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::StepOutcomeRecorded {
+                taskrun_id,
+                step_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_STEP_OUTCOME_RECORDED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, step_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::LoopDispositionCommitted {
+                taskrun_id,
+                cycle_id,
+                final_state,
+                new_version,
+            } => {
+                buf.push(CO_TAG_LOOP_DISPOSITION_COMMITTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                buf.push(encode_taskrun_state(*final_state));
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::NextCycleAllocated {
+                taskrun_id,
+                successor_cycle_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_NEXT_CYCLE_ALLOCATED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, successor_cycle_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::LoopWaitResumed {
+                taskrun_id,
+                cycle_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_LOOP_WAIT_RESUMED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, cycle_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::RetryScheduled {
+                taskrun_id,
+                new_attempt_id,
+                due_at_unix_us,
+                new_version,
+            } => {
+                buf.push(CO_TAG_RETRY_SCHEDULED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, new_attempt_id.as_bytes());
+                write_i64_be(&mut buf, *due_at_unix_us);
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::RetryActivated {
+                taskrun_id,
+                attempt_id,
+                new_version,
+            }
+            | CommandOutcome::RecoveryResumed {
+                taskrun_id,
+                attempt_id,
+                new_version,
+            } => {
+                buf.push(if matches!(value, CommandOutcome::RetryActivated { .. }) {
+                    CO_TAG_RETRY_ACTIVATED
+                } else {
+                    CO_TAG_RECOVERY_RESUMED
+                });
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, attempt_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::LoopCheckpointCommitted {
+                taskrun_id,
+                checkpoint_id,
+                event_position,
+                new_version,
+            } => {
+                buf.push(CO_TAG_LOOP_CHECKPOINT_COMMITTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_uuid(&mut buf, checkpoint_id.as_bytes());
+                write_u64_be(&mut buf, *event_position);
                 write_u64_be(&mut buf, *new_version);
             }
         }
@@ -601,6 +1762,84 @@ impl StoreCodec<CommandOutcome> for CommandOutcomeCodec {
                     new_version: nv,
                 }
             }
+            CO_TAG_CYCLE_STARTED | CO_TAG_CONTEXT_COMMITTED | CO_TAG_LOOP_WAIT_RESUMED => {
+                let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let cycle_id = CycleId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let new_version = read_u64_be(bytes, &mut pos)?;
+                match tag {
+                    CO_TAG_CYCLE_STARTED => CommandOutcome::CycleStarted {
+                        taskrun_id,
+                        cycle_id,
+                        new_version,
+                    },
+                    CO_TAG_CONTEXT_COMMITTED => CommandOutcome::ContextCommitted {
+                        taskrun_id,
+                        cycle_id,
+                        new_version,
+                    },
+                    _ => CommandOutcome::LoopWaitResumed {
+                        taskrun_id,
+                        cycle_id,
+                        new_version,
+                    },
+                }
+            }
+            CO_TAG_PLAN_COMMITTED => CommandOutcome::PlanCommitted {
+                taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                plan_ref: Box::new(decode_plan_ref(bytes, &mut pos)?),
+                new_version: read_u64_be(bytes, &mut pos)?,
+            },
+            CO_TAG_STEP_OUTCOME_RECORDED => CommandOutcome::StepOutcomeRecorded {
+                taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                step_id: StepId::from_bytes(read_uuid(bytes, &mut pos)?),
+                new_version: read_u64_be(bytes, &mut pos)?,
+            },
+            CO_TAG_LOOP_DISPOSITION_COMMITTED => {
+                let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let cycle_id = CycleId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let final_state = decode_taskrun_state(bytes, &mut pos)?;
+                CommandOutcome::LoopDispositionCommitted {
+                    taskrun_id,
+                    cycle_id,
+                    final_state,
+                    new_version: read_u64_be(bytes, &mut pos)?,
+                }
+            }
+            CO_TAG_NEXT_CYCLE_ALLOCATED => CommandOutcome::NextCycleAllocated {
+                taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                successor_cycle_id: CycleId::from_bytes(read_uuid(bytes, &mut pos)?),
+                new_version: read_u64_be(bytes, &mut pos)?,
+            },
+            CO_TAG_RETRY_SCHEDULED => CommandOutcome::RetryScheduled {
+                taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                new_attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                due_at_unix_us: read_i64_be(bytes, &mut pos)?,
+                new_version: read_u64_be(bytes, &mut pos)?,
+            },
+            CO_TAG_RETRY_ACTIVATED | CO_TAG_RECOVERY_RESUMED => {
+                let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let attempt_id = AttemptId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let new_version = read_u64_be(bytes, &mut pos)?;
+                if tag == CO_TAG_RETRY_ACTIVATED {
+                    CommandOutcome::RetryActivated {
+                        taskrun_id,
+                        attempt_id,
+                        new_version,
+                    }
+                } else {
+                    CommandOutcome::RecoveryResumed {
+                        taskrun_id,
+                        attempt_id,
+                        new_version,
+                    }
+                }
+            }
+            CO_TAG_LOOP_CHECKPOINT_COMMITTED => CommandOutcome::LoopCheckpointCommitted {
+                taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                checkpoint_id: CheckpointId::from_bytes(read_uuid(bytes, &mut pos)?),
+                event_position: read_u64_be(bytes, &mut pos)?,
+                new_version: read_u64_be(bytes, &mut pos)?,
+            },
             _ => {
                 return Err(StoreCodecError::UnknownTag {
                     tag,
@@ -775,6 +2014,17 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
             4 => OperationTag::StartAttempt,
             5 => OperationTag::Complete,
             6 => OperationTag::CreateConversation,
+            7 => OperationTag::StartLoopCycle,
+            8 => OperationTag::CommitContext,
+            9 => OperationTag::CommitPlan,
+            10 => OperationTag::RecordStepOutcome,
+            11 => OperationTag::CompleteLoopCycle,
+            12 => OperationTag::CreateNextCycle,
+            13 => OperationTag::ScheduleRetry,
+            14 => OperationTag::ActivateScheduledRetryAttempt,
+            15 => OperationTag::CommitRecoveryResume,
+            16 => OperationTag::CommitLoopCheckpoint,
+            17 => OperationTag::ResumeLoopWait,
             t => {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,
@@ -843,6 +2093,62 @@ mod tests {
     const CONV_ID: &str = "018f2e3a-7000-7000-8000-000000000003";
     const WS_ID: &str = "018f2e3a-7000-7000-8000-000000000004";
 
+    fn phase5_context_ref() -> ContextManifestRef {
+        ContextManifestRef {
+            manifest_id: TR_ID.parse().unwrap(),
+            taskrun_id: TR_ID.parse().unwrap(),
+            attempt_id: ATT_ID.parse().unwrap(),
+            cycle_id: CONV_ID.parse().unwrap(),
+            revision: 1,
+            policy_revision: "context-v1".into(),
+            integrity_digest: IntegrityDigest::from_bytes([1; 32]),
+        }
+    }
+
+    fn phase5_budget_ref() -> BudgetReservationRef {
+        BudgetReservationRef {
+            reservation_id: WS_ID.parse().unwrap(),
+            taskrun_id: TR_ID.parse().unwrap(),
+            attempt_id: ATT_ID.parse().unwrap(),
+            retry_ordinal: 1,
+            reservation_digest: IntegrityDigest::from_bytes([2; 32]),
+        }
+    }
+
+    fn phase5_plan_ref() -> PlanRevisionRef {
+        PlanRevisionRef {
+            plan_id: WS_ID.parse().unwrap(),
+            taskrun_id: TR_ID.parse().unwrap(),
+            cycle_id: CONV_ID.parse().unwrap(),
+            revision: 2,
+            context_manifest_ref: phase5_context_ref(),
+            expected_proposal_indexes: vec![0],
+            proposal_batch_digest: IntegrityDigest::from_bytes([3; 32]),
+            planning_policy_ref: ResultRef::new(
+                TR_ID.parse().unwrap(),
+                "application/json",
+                IntegrityDigest::from_bytes([4; 32]),
+            )
+            .unwrap(),
+            planning_budget_ref: phase5_budget_ref(),
+            parent_ref: Some(PlanParentRef {
+                plan_id: WS_ID.parse().unwrap(),
+                revision: 1,
+                integrity_digest: IntegrityDigest::from_bytes([5; 32]),
+            }),
+            integrity_digest: IntegrityDigest::from_bytes([6; 32]),
+        }
+    }
+
+    fn phase5_step_ref() -> StepOutcomeRef {
+        StepOutcomeRef {
+            cycle_id: CONV_ID.parse().unwrap(),
+            proposal_index: 0,
+            step_id: WS_ID.parse().unwrap(),
+            outcome_digest: IntegrityDigest::from_bytes([7; 32]),
+        }
+    }
+
     // ── TaskRunEvent round-trip ────────────────────────────────────────
 
     #[test]
@@ -852,6 +2158,226 @@ mod tests {
         let bytes = codec.encode(&original).unwrap();
         let decoded = codec.decode(&bytes).unwrap();
         assert_eq!(original, decoded);
+    }
+
+    #[test]
+    fn phase5_taskrun_event_codec_roundtrips_all_thirteen_tags() {
+        let cycle_id: CycleId = CONV_ID.parse().unwrap();
+        let attempt_id: AttemptId = ATT_ID.parse().unwrap();
+        let checkpoint_id: CheckpointId = WS_ID.parse().unwrap();
+        let digest = IntegrityDigest::from_bytes([8; 32]);
+        let step_ref = phase5_step_ref();
+        let wake_evidence = WakeEvidenceRef {
+            cycle_id,
+            condition_digest: IntegrityDigest::from_bytes([9; 32]),
+            source: WakeEvidenceSource::Approval,
+            evidence_id: WS_ID.parse().unwrap(),
+            evidence_digest: IntegrityDigest::from_bytes([10; 32]),
+            observed_at_unix_us: 100,
+            authority_revision: "approval-v1".into(),
+        };
+        let events = vec![
+            TaskRunEvent::LoopCycleStarted {
+                cycle_id,
+                attempt_id,
+                sequence: 0,
+                parent_cycle_id: None,
+            },
+            TaskRunEvent::ContextCommitted {
+                cycle_id,
+                manifest_ref: phase5_context_ref(),
+            },
+            TaskRunEvent::PlanCommitted {
+                cycle_id,
+                plan_revision_ref: phase5_plan_ref(),
+                input_digest: IntegrityDigest::from_bytes([11; 32]),
+                output_digest: IntegrityDigest::from_bytes([12; 32]),
+                expected_proposal_indexes: vec![0],
+            },
+            TaskRunEvent::StepOutcomeRecorded {
+                cycle_id,
+                outcome: StepOutcomeRecord {
+                    proposal_index: 0,
+                    step_id: WS_ID.parse().unwrap(),
+                    outcome_type: StepOutcomeType::Succeeded,
+                    result_ref: Some(
+                        ResultRef::new(
+                            TR_ID.parse().unwrap(),
+                            "text/plain",
+                            IntegrityDigest::from_bytes([13; 32]),
+                        )
+                        .unwrap(),
+                    ),
+                    effect_id: None,
+                    evidence_digests: vec![IntegrityDigest::from_bytes([14; 32])],
+                },
+            },
+            TaskRunEvent::LoopCycleCompleted {
+                cycle_id,
+                attempt_id,
+                disposition: LoopDisposition::Wait {
+                    reason: "approval".into(),
+                    wake_condition: WakeCondition {
+                        kind: WakeConditionKind::Approval,
+                        condition_ref: "approval:1".into(),
+                        condition_digest: IntegrityDigest::from_bytes([9; 32]),
+                    },
+                },
+            },
+            TaskRunEvent::NextCycleCreated {
+                parent_cycle_id: cycle_id,
+                successor_cycle_id: WS_ID.parse().unwrap(),
+                attempt_id,
+                sequence: 1,
+            },
+            TaskRunEvent::RetryScheduled {
+                ordinal: 1,
+                old_attempt_id: attempt_id,
+                new_attempt_id: WS_ID.parse().unwrap(),
+                abandoned_cycle_id: cycle_id,
+                step_outcome_ref: step_ref.clone(),
+                retry_policy_digest: digest,
+                budget_reservation_ref: phase5_budget_ref(),
+                delay_ms: 25,
+                due_at_unix_us: 125,
+            },
+            TaskRunEvent::LoopCheckpointRecorded {
+                checkpoint_id,
+                event_position: 20,
+                body: LoopCheckpointBody {
+                    schema_version: "1".into(),
+                    cycle_id,
+                    attempt_id,
+                    plan_revision_ref: Some(phase5_plan_ref()),
+                    context_manifest_ref: Some(phase5_context_ref()),
+                    step_outcome_refs: vec![step_ref],
+                },
+                integrity_digest: digest,
+            },
+            TaskRunEvent::ActivateScheduledRetryAttempt {
+                ordinal: 1,
+                attempt_id: WS_ID.parse().unwrap(),
+                activated_at_unix_us: 125,
+            },
+            TaskRunEvent::RecoveryResumeStarted {
+                new_attempt_id: WS_ID.parse().unwrap(),
+                new_generation: 1,
+                abandoned_cycle_id: Some(cycle_id),
+                context_manifest_ref: phase5_context_ref(),
+                checkpoint_ref: CheckpointRef {
+                    checkpoint_id,
+                    event_position: 20,
+                    integrity_digest: digest,
+                },
+                reconciliation_ref: ReconciliationResultRef {
+                    reconciliation_run_id: WS_ID.parse().unwrap(),
+                    taskrun_id: TR_ID.parse().unwrap(),
+                    predecessor_attempt_id: attempt_id,
+                    recovery_generation: 0,
+                    reconciled_stream_position: 19,
+                    status: ReconciliationStatus::Reconciled,
+                    unresolved_effect_count: 0,
+                    result_digest: digest,
+                },
+            },
+            TaskRunEvent::LoopCheckpointStarted {
+                checkpoint_id,
+                event_position: 20,
+                integrity_digest: digest,
+            },
+            TaskRunEvent::LoopCheckpointCommitted {
+                checkpoint_id,
+                event_position: 20,
+                integrity_digest: digest,
+            },
+            TaskRunEvent::LoopWakeAccepted {
+                cycle_id,
+                wake_evidence_ref: wake_evidence,
+            },
+        ];
+
+        let codec = TaskRunEventCodec;
+        let expected_tags = 0x15u8..=0x21;
+        for (event, expected_tag) in events.iter().zip(expected_tags) {
+            let bytes = codec.encode(event).unwrap();
+            assert_eq!(bytes[2], expected_tag);
+            assert_eq!(codec.decode(&bytes).unwrap(), *event);
+        }
+    }
+
+    #[test]
+    fn phase5_command_outcome_codec_roundtrips_tags_six_through_sixteen() {
+        let taskrun_id: TaskRunId = TR_ID.parse().unwrap();
+        let cycle_id: CycleId = CONV_ID.parse().unwrap();
+        let attempt_id: AttemptId = ATT_ID.parse().unwrap();
+        let checkpoint_id: CheckpointId = WS_ID.parse().unwrap();
+        let outcomes = vec![
+            CommandOutcome::CycleStarted {
+                taskrun_id,
+                cycle_id,
+                new_version: 1,
+            },
+            CommandOutcome::ContextCommitted {
+                taskrun_id,
+                cycle_id,
+                new_version: 2,
+            },
+            CommandOutcome::PlanCommitted {
+                taskrun_id,
+                plan_ref: Box::new(phase5_plan_ref()),
+                new_version: 3,
+            },
+            CommandOutcome::StepOutcomeRecorded {
+                taskrun_id,
+                step_id: WS_ID.parse().unwrap(),
+                new_version: 4,
+            },
+            CommandOutcome::LoopDispositionCommitted {
+                taskrun_id,
+                cycle_id,
+                final_state: TaskRunState::Waiting,
+                new_version: 6,
+            },
+            CommandOutcome::NextCycleAllocated {
+                taskrun_id,
+                successor_cycle_id: WS_ID.parse().unwrap(),
+                new_version: 7,
+            },
+            CommandOutcome::LoopWaitResumed {
+                taskrun_id,
+                cycle_id,
+                new_version: 9,
+            },
+            CommandOutcome::RetryScheduled {
+                taskrun_id,
+                new_attempt_id: attempt_id,
+                due_at_unix_us: 100,
+                new_version: 10,
+            },
+            CommandOutcome::RetryActivated {
+                taskrun_id,
+                attempt_id,
+                new_version: 11,
+            },
+            CommandOutcome::RecoveryResumed {
+                taskrun_id,
+                attempt_id,
+                new_version: 12,
+            },
+            CommandOutcome::LoopCheckpointCommitted {
+                taskrun_id,
+                checkpoint_id,
+                event_position: 13,
+                new_version: 15,
+            },
+        ];
+        let codec = CommandOutcomeCodec;
+
+        for (outcome, expected_tag) in outcomes.iter().zip(0x06u8..=0x10) {
+            let bytes = codec.encode(outcome).unwrap();
+            assert_eq!(bytes[2], expected_tag);
+            assert_eq!(codec.decode(&bytes).unwrap(), *outcome);
+        }
     }
 
     #[test]

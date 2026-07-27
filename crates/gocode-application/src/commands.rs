@@ -2,8 +2,19 @@
 //!
 //! These are the types visible to callers of [`crate::service::TaskRunService`].
 
+use gocode_domain::agent_loop::{
+    LoopDisposition, StepOutcomeRecord, StepOutcomeRef, WakeEvidenceRef,
+};
 use gocode_domain::command::TerminalResult;
-use gocode_domain::id::{AttemptId, ConversationId, TaskRunId, WorkspaceId};
+use gocode_domain::context::ContextManifestRef;
+use gocode_domain::id::{
+    AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, StepId, TaskRunId,
+    WorkspaceId,
+};
+use gocode_domain::plan::PlanRevisionRef;
+use gocode_domain::recovery::ReconciliationResultRef;
+use gocode_domain::reference::{BudgetReservationRef, CheckpointRef};
+use gocode_domain::task_run::TaskRunState;
 
 /// Input for creating a new task run.
 #[derive(Debug, Clone)]
@@ -52,6 +63,99 @@ pub struct CompleteTaskRunInput {
     pub expected_version: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct StartLoopCycleInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitContextInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub cycle_id: CycleId,
+    pub manifest_ref: ContextManifestRef,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitPlanInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub cycle_id: CycleId,
+    pub plan_revision_ref: PlanRevisionRef,
+    pub input_digest: IntegrityDigest,
+    pub output_digest: IntegrityDigest,
+    pub expected_proposal_indexes: Vec<u32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RecordStepOutcomeInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub cycle_id: CycleId,
+    pub outcome: StepOutcomeRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompleteLoopCycleInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub cycle_id: CycleId,
+    pub disposition: LoopDisposition,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateNextCycleInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub parent_cycle_id: CycleId,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResumeLoopWaitInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub wake_evidence_ref: WakeEvidenceRef,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScheduleRetryInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub retry_ordinal: u64,
+    pub step_outcome_ref: StepOutcomeRef,
+    pub retry_policy_digest: IntegrityDigest,
+    pub budget_reservation_ref: BudgetReservationRef,
+}
+
+#[derive(Debug, Clone)]
+pub struct ActivateScheduledRetryInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub retry_ordinal: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitRecoveryResumeInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub context_manifest_ref: ContextManifestRef,
+    pub checkpoint_ref: CheckpointRef,
+    pub reconciliation_ref: ReconciliationResultRef,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitLoopCheckpointInput {
+    pub taskrun_id: TaskRunId,
+    pub expected_version: u64,
+    pub cycle_id: CycleId,
+    pub attempt_id: AttemptId,
+    pub schema_version: String,
+    pub plan_revision_ref: Option<PlanRevisionRef>,
+    pub context_manifest_ref: Option<ContextManifestRef>,
+    pub step_outcome_refs: Vec<StepOutcomeRef>,
+}
+
 /// The outcome of a successfully processed command.
 ///
 /// Returned to the caller after the command is committed.
@@ -92,6 +196,64 @@ pub enum CommandOutcome {
         /// The task run ID.
         taskrun_id: TaskRunId,
         /// The new stream version.
+        new_version: u64,
+    },
+    CycleStarted {
+        taskrun_id: TaskRunId,
+        cycle_id: CycleId,
+        new_version: u64,
+    },
+    ContextCommitted {
+        taskrun_id: TaskRunId,
+        cycle_id: CycleId,
+        new_version: u64,
+    },
+    PlanCommitted {
+        taskrun_id: TaskRunId,
+        plan_ref: Box<PlanRevisionRef>,
+        new_version: u64,
+    },
+    StepOutcomeRecorded {
+        taskrun_id: TaskRunId,
+        step_id: StepId,
+        new_version: u64,
+    },
+    LoopDispositionCommitted {
+        taskrun_id: TaskRunId,
+        cycle_id: CycleId,
+        final_state: TaskRunState,
+        new_version: u64,
+    },
+    NextCycleAllocated {
+        taskrun_id: TaskRunId,
+        successor_cycle_id: CycleId,
+        new_version: u64,
+    },
+    LoopWaitResumed {
+        taskrun_id: TaskRunId,
+        cycle_id: CycleId,
+        new_version: u64,
+    },
+    RetryScheduled {
+        taskrun_id: TaskRunId,
+        new_attempt_id: AttemptId,
+        due_at_unix_us: i64,
+        new_version: u64,
+    },
+    RetryActivated {
+        taskrun_id: TaskRunId,
+        attempt_id: AttemptId,
+        new_version: u64,
+    },
+    RecoveryResumed {
+        taskrun_id: TaskRunId,
+        attempt_id: AttemptId,
+        new_version: u64,
+    },
+    LoopCheckpointCommitted {
+        taskrun_id: TaskRunId,
+        checkpoint_id: CheckpointId,
+        event_position: u64,
         new_version: u64,
     },
 }

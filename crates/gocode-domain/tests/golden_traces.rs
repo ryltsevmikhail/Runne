@@ -312,3 +312,12 @@ fn golden_retry_with_new_attempt() {
     assert_eq!(agg.state(), TaskRunState::Running);
     assert_eq!(agg.active_attempt(), Some(&aid2));
 }
+
+// ─── Phase 5: Loop ID types ─────────────────────────────────────────────
+
+#[test]
+fn golden_cycle_id_roundtrip() {
+    let raw = "018f2e3a-7000-7000-8000-000000000005";
+    let id: gocode_domain::id::CycleId = raw.parse().unwrap();
+    assert_eq!(id.to_string(), raw);
+}

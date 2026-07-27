@@ -133,6 +133,36 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         outcome_builder: impl FnOnce(u64) -> CommandOutcome,
         operation: crate::ports::OperationTag,
     ) -> Result<CommandOutcome, ApplicationError> {
+        self.execute_existing_prepared(
+            command_id,
+            idempotency_key,
+            principal_id,
+            taskrun_id,
+            expected_version,
+            fingerprint,
+            operation,
+            |_| Ok((domain_command, outcome_builder)),
+        )
+    }
+
+    /// Execute an existing-aggregate command whose authoritative/generated
+    /// values must only be prepared after duplicate receipt lookup and exact
+    /// stream replay.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn execute_existing_prepared<B>(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &IdempotencyKey,
+        principal_id: &crate::ports::PrincipalId,
+        taskrun_id: TaskRunId,
+        expected_version: u64,
+        fingerprint: &CommandFingerprint,
+        operation: crate::ports::OperationTag,
+        prepare: impl FnOnce(&TaskRun) -> Result<(TaskRunCommand, B), ApplicationError>,
+    ) -> Result<CommandOutcome, ApplicationError>
+    where
+        B: FnOnce(u64) -> CommandOutcome,
+    {
         let scope = IdempotencyScope {
             runtime_authority_id: self.runtime_authority_id.clone(),
             principal_id: principal_id.clone(),
@@ -180,6 +210,8 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
                 actual: current_version,
             });
         }
+
+        let (domain_command, outcome_builder) = prepare(&agg)?;
 
         let drafts = agg
             .decide(domain_command)

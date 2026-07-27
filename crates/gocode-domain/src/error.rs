@@ -12,6 +12,39 @@ use crate::task_run::{TaskRunEventKind, TaskRunState};
 // Re-export for convenience — defined in `id.rs`.
 pub use crate::id::InvalidIdReason;
 
+/// Closed reasons why a durable Agent Loop invariant was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopInvariantViolation {
+    MissingActiveAttempt,
+    ActiveCycleExists,
+    MissingActiveCycle,
+    CycleAlreadyUsed,
+    AttemptAlreadyHasCycle,
+    CycleBindingMismatch,
+    CycleStateMismatch,
+    ContextBindingMismatch,
+    ProposalIndexesNotCanonical,
+    PlanBindingMismatch,
+    ProposalIndexUnexpected,
+    ProposalOutcomeDuplicate,
+    StepIdDuplicate,
+    OutcomeCardinalityMismatch,
+    UnresolvedProposalMismatch,
+    MissingCompletedCycle,
+    SuccessorAlreadyAllocated,
+    SuccessorNotAllowed,
+    SuccessorReservationMismatch,
+    WakeEvidenceMismatch,
+    PendingRetryExists,
+    MissingPendingRetry,
+    PendingRetryMismatch,
+    RetryNotDue,
+    RecoveryReferenceMismatch,
+    PendingCheckpointExists,
+    MissingPendingCheckpoint,
+    CheckpointMismatch,
+}
+
 /// All domain-level errors produced by the TaskRun aggregate.
 ///
 /// Closed enum — every possible error condition is enumerated.
@@ -78,6 +111,24 @@ pub enum DomainError {
         /// Actual first sequence number.
         actual: u64,
     },
+
+    /// A closed Agent Loop invariant was violated.
+    LoopInvariantViolation {
+        /// Machine-distinguishable invariant.
+        violation: LoopInvariantViolation,
+    },
+
+    /// Legacy Resume cannot bypass a durable loop wait.
+    LoopWakeEvidenceRequired,
+
+    /// Recovery generation cannot be incremented without overflow.
+    RecoveryGenerationExhausted,
+
+    /// A required multi-event command batch is torn or reordered.
+    CorruptCommandBatch,
+
+    /// Replay ended with a torn loop-checkpoint batch.
+    CorruptCheckpointBatch,
 }
 
 impl fmt::Display for DomainError {
@@ -140,6 +191,21 @@ impl fmt::Display for DomainError {
                     "invalid initial sequence: expected {}, got {}",
                     expected, actual
                 )
+            }
+            Self::LoopInvariantViolation { violation } => {
+                write!(f, "agent loop invariant violated: {:?}", violation)
+            }
+            Self::LoopWakeEvidenceRequired => {
+                write!(f, "verified loop wake evidence is required")
+            }
+            Self::RecoveryGenerationExhausted => {
+                write!(f, "recovery generation exhausted")
+            }
+            Self::CorruptCommandBatch => {
+                write!(f, "corrupt or torn command event batch")
+            }
+            Self::CorruptCheckpointBatch => {
+                write!(f, "corrupt or torn loop checkpoint batch")
             }
         }
     }
