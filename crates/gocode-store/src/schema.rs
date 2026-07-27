@@ -10,7 +10,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 4;
+pub const CURRENT_SCHEMA_VERSION: i64 = 5;
 
 /// Apply all schema migrations up to [`CURRENT_SCHEMA_VERSION`].
 ///
@@ -65,6 +65,13 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V4)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (4)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 5 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V5)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
         tx.commit()?;
     }
 
@@ -391,6 +398,24 @@ CREATE TABLE migration_audit (
 );
 "#;
 
+// ── Migration V5: write-ahead routing dispatch intent ──────────────────
+
+const MIGRATION_V5: &str = r#"
+CREATE TABLE routing_dispatch_intents (
+    aggregate_type INTEGER NOT NULL CHECK(aggregate_type IN (1, 2)),
+    aggregate_id BLOB NOT NULL CHECK(length(aggregate_id) = 16),
+    command_id BLOB NOT NULL UNIQUE CHECK(length(command_id) = 16),
+    idempotency_key BLOB NOT NULL CHECK(length(idempotency_key) BETWEEN 1 AND 256),
+    request_digest BLOB NOT NULL CHECK(length(request_digest) = 32),
+    dispatch_status INTEGER NOT NULL CHECK(dispatch_status BETWEEN 1 AND 4),
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY(aggregate_type, aggregate_id),
+    FOREIGN KEY(aggregate_type, aggregate_id)
+        REFERENCES runtime_bindings(aggregate_type, aggregate_id)
+);
+"#;
+
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     let conn = Connection::open(db_path)?;
@@ -540,11 +565,11 @@ mod tests {
     }
 
     #[test]
-    fn schema_v4_adds_all_migration_control_tables_atomically() {
+    fn schema_v5_adds_all_migration_control_tables_atomically() {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 4);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -552,6 +577,7 @@ mod tests {
             "routing_snapshots",
             "routing_head",
             "runtime_bindings",
+            "routing_dispatch_intents",
             "migration_reports",
             "cutover_manifests",
             "rollback_manifests",

@@ -11,10 +11,20 @@ use gocode_application::migration::{
         MigrationCommandFingerprint, MigrationCommit, MigrationCommitResult, MigrationControlStore,
         MigrationMutation, MigrationReceipt, MigrationReceiptLookup, MigrationStoreError,
     },
+    routing::{
+        BindRuntimeRequest, DispatchClaim, DispatchIntentStatus, DispatchResultStatus,
+        MigrationRoutingStore, RouteAdmission, RoutingDispatchIntent,
+    },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
-    types::{RoutingGeneration, RoutingSnapshot, RoutingUnit},
+    types::{
+        ArtifactDigest, RoutingGeneration, RoutingSnapshot, RoutingUnit, RuntimeAuthority,
+        RuntimeBinding,
+    },
 };
-use gocode_domain::id::AggregateId;
+use gocode_domain::{
+    id::{AggregateId, CommandId, IdempotencyKey},
+    timestamp::Timestamp,
+};
 use rusqlite::{
     Connection, Error as SqliteError, ErrorCode, OptionalExtension, Transaction,
     TransactionBehavior, params,
@@ -25,9 +35,10 @@ use crate::{
     migration_codec::{
         MigrationCodecError, decode_cutover_manifest, decode_migration_evidence,
         decode_migration_outcome, decode_migration_plan, decode_migration_transition,
-        decode_routing_snapshot, encode_cutover_manifest, encode_migration_audit,
-        encode_migration_evidence, encode_migration_outcome, encode_migration_plan,
-        encode_migration_transition, encode_routing_snapshot, encode_runtime_binding,
+        decode_routing_snapshot, decode_runtime_binding, encode_cutover_manifest,
+        encode_migration_audit, encode_migration_evidence, encode_migration_outcome,
+        encode_migration_plan, encode_migration_transition, encode_routing_snapshot,
+        encode_runtime_binding,
     },
     schema::{apply_migrations, open_with_pragmas, run_startup_gates},
 };
@@ -220,30 +231,7 @@ impl MigrationControlStore for SqliteMigrationControlStore {
         unit: &RoutingUnit,
     ) -> Result<Option<RoutingSnapshot>, MigrationStoreError> {
         let connection = self.reader()?;
-        let unit_digest = unit.digest();
-        let row: Option<(i64, Vec<u8>)> = connection
-            .query_row(
-                "SELECT h.routing_generation, s.snapshot_blob
-                 FROM routing_head h
-                 JOIN routing_snapshots s
-                   ON s.routing_unit_digest = h.routing_unit_digest
-                  AND s.routing_generation = h.routing_generation
-                 WHERE h.routing_unit_digest = ?1",
-                [unit_digest.as_bytes().as_slice()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .map_err(map_read_error)?;
-        let Some((stored_generation, snapshot_blob)) = row else {
-            return Ok(None);
-        };
-        let snapshot = decode_routing_snapshot(&snapshot_blob).map_err(map_codec_error)?;
-        if stored_generation != u64_to_i64(snapshot.routing_generation.get())?
-            || !snapshot_matches_unit(&snapshot, unit)
-        {
-            return Err(MigrationStoreError::CorruptData);
-        }
-        Ok(Some(snapshot))
+        load_routing_head_on(&connection, unit)
     }
 
     fn lookup_receipt(
@@ -293,6 +281,236 @@ impl MigrationControlStore for SqliteMigrationControlStore {
             committed_at: commit.audit().recorded_at,
         };
         Ok(MigrationCommitResult::Committed { receipt })
+    }
+}
+
+impl MigrationRoutingStore for SqliteMigrationControlStore {
+    fn load_runtime_binding(
+        &self,
+        aggregate_id: AggregateId,
+        routing_unit: &RoutingUnit,
+    ) -> Result<Option<RuntimeBinding>, MigrationStoreError> {
+        let connection = self.reader()?;
+        load_runtime_binding_on(&connection, &aggregate_id, routing_unit)
+    }
+
+    fn load_dispatch_intent(
+        &self,
+        aggregate_id: AggregateId,
+    ) -> Result<Option<RoutingDispatchIntent>, MigrationStoreError> {
+        let connection = self.reader()?;
+        load_dispatch_intent_on(&connection, &aggregate_id)
+    }
+
+    fn bind_and_create_dispatch_intent(
+        &self,
+        request: BindRuntimeRequest,
+    ) -> Result<RouteAdmission, MigrationStoreError> {
+        validate_bind_runtime_request(&request)?;
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| MigrationStoreError::Unavailable)?;
+        let transaction = writer
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map_write_error)?;
+
+        if let Some(binding) =
+            load_runtime_binding_on(&transaction, &request.aggregate_id, &request.routing_unit)?
+        {
+            let intent = load_dispatch_intent_on(&transaction, &request.aggregate_id)?
+                .ok_or(MigrationStoreError::IntegrityViolation)?;
+            validate_existing_intent(&intent, &request)?;
+            transaction.commit().map_err(map_write_error)?;
+            return Ok(RouteAdmission::Existing { binding, intent });
+        }
+
+        let durable_snapshot = load_routing_head_on(&transaction, &request.routing_unit)?
+            .ok_or(MigrationStoreError::IntegrityViolation)?;
+        if durable_snapshot.routing_generation != request.expected_snapshot.routing_generation {
+            return Err(MigrationStoreError::RoutingGenerationConflict {
+                expected: request.expected_snapshot.routing_generation,
+                actual: durable_snapshot.routing_generation,
+            });
+        }
+        if durable_snapshot != request.expected_snapshot {
+            return Err(MigrationStoreError::IntegrityViolation);
+        }
+
+        let runtime_generation = match &durable_snapshot.authority {
+            RuntimeAuthority::Source(generation) | RuntimeAuthority::Candidate(generation) => {
+                generation.clone()
+            }
+        };
+        let binding = RuntimeBinding::new(
+            request.aggregate_id.clone(),
+            durable_snapshot.authority.clone(),
+            runtime_generation,
+            durable_snapshot.routing_generation,
+            durable_snapshot.fencing_token,
+            request.bound_at,
+        )
+        .map_err(|_| MigrationStoreError::IntegrityViolation)?;
+        let intent = RoutingDispatchIntent {
+            aggregate_id: request.aggregate_id.clone(),
+            command_id: request.command_id,
+            idempotency_key: request.idempotency_key.clone(),
+            request_digest: request.request_digest,
+            status: DispatchIntentStatus::Pending,
+            created_at: request.bound_at,
+            updated_at: request.bound_at,
+        };
+        let (aggregate_type, aggregate_bytes) = aggregate_parts(&request.aggregate_id)?;
+        let binding_blob = encode_runtime_binding(&binding).map_err(map_codec_error)?;
+        transaction
+            .execute(
+                "INSERT INTO runtime_bindings
+                 (aggregate_type, aggregate_id, routing_unit_digest,
+                  routing_generation, binding_blob)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    aggregate_type,
+                    aggregate_bytes.as_slice(),
+                    request.routing_unit.digest().as_bytes().as_slice(),
+                    u64_to_i64(binding.routing_generation.get())?,
+                    binding_blob,
+                ],
+            )
+            .map_err(map_runtime_binding_write_error)?;
+        transaction
+            .execute(
+                "INSERT INTO routing_dispatch_intents
+                 (aggregate_type, aggregate_id, command_id, idempotency_key,
+                  request_digest, dispatch_status, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    aggregate_type,
+                    aggregate_bytes.as_slice(),
+                    request.command_id.as_bytes().as_slice(),
+                    request.idempotency_key.as_str().as_bytes(),
+                    request.request_digest.as_bytes().as_slice(),
+                    dispatch_status_tag(DispatchIntentStatus::Pending),
+                    request.bound_at.as_unix_micros(),
+                    request.bound_at.as_unix_micros(),
+                ],
+            )
+            .map_err(map_dispatch_intent_write_error)?;
+        transaction.commit().map_err(map_write_error)?;
+        Ok(RouteAdmission::Created { binding, intent })
+    }
+
+    fn claim_dispatch(
+        &self,
+        aggregate_id: AggregateId,
+        command_id: CommandId,
+        claimed_at: Timestamp,
+    ) -> Result<DispatchClaim, MigrationStoreError> {
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| MigrationStoreError::Unavailable)?;
+        let transaction = writer
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map_write_error)?;
+        let current = load_dispatch_intent_on(&transaction, &aggregate_id)?
+            .ok_or(MigrationStoreError::IntegrityViolation)?;
+        if current.command_id != command_id {
+            return Err(MigrationStoreError::DispatchIntentConflict);
+        }
+        if current.status != DispatchIntentStatus::Pending {
+            transaction.commit().map_err(map_write_error)?;
+            return Ok(DispatchClaim::Existing(current));
+        }
+        if claimed_at < current.updated_at {
+            return Err(MigrationStoreError::InvalidDispatchTransition);
+        }
+        let (aggregate_type, aggregate_bytes) = aggregate_parts(&aggregate_id)?;
+        let changed = transaction
+            .execute(
+                "UPDATE routing_dispatch_intents
+                 SET dispatch_status = ?1, updated_at = ?2
+                 WHERE aggregate_type = ?3
+                   AND aggregate_id = ?4
+                   AND command_id = ?5
+                   AND dispatch_status = ?6",
+                params![
+                    dispatch_status_tag(DispatchIntentStatus::Indeterminate),
+                    claimed_at.as_unix_micros(),
+                    aggregate_type,
+                    aggregate_bytes.as_slice(),
+                    command_id.as_bytes().as_slice(),
+                    dispatch_status_tag(DispatchIntentStatus::Pending),
+                ],
+            )
+            .map_err(map_write_error)?;
+        if changed != 1 {
+            return Err(MigrationStoreError::InvalidDispatchTransition);
+        }
+        let claimed = load_dispatch_intent_on(&transaction, &aggregate_id)?
+            .ok_or(MigrationStoreError::IntegrityViolation)?;
+        transaction.commit().map_err(map_write_error)?;
+        Ok(DispatchClaim::Claimed(claimed))
+    }
+
+    fn record_dispatch_result(
+        &self,
+        aggregate_id: AggregateId,
+        command_id: CommandId,
+        status: DispatchResultStatus,
+        recorded_at: Timestamp,
+    ) -> Result<RoutingDispatchIntent, MigrationStoreError> {
+        let target = match status {
+            DispatchResultStatus::Accepted => DispatchIntentStatus::Accepted,
+            DispatchResultStatus::RejectedBeforeAcceptance => {
+                DispatchIntentStatus::RejectedBeforeAcceptance
+            }
+        };
+        let mut writer = self
+            .writer
+            .lock()
+            .map_err(|_| MigrationStoreError::Unavailable)?;
+        let transaction = writer
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(map_write_error)?;
+        let current = load_dispatch_intent_on(&transaction, &aggregate_id)?
+            .ok_or(MigrationStoreError::IntegrityViolation)?;
+        if current.command_id != command_id {
+            return Err(MigrationStoreError::DispatchIntentConflict);
+        }
+        if current.status == target {
+            transaction.commit().map_err(map_write_error)?;
+            return Ok(current);
+        }
+        if current.status != DispatchIntentStatus::Indeterminate || recorded_at < current.updated_at
+        {
+            return Err(MigrationStoreError::InvalidDispatchTransition);
+        }
+        let (aggregate_type, aggregate_bytes) = aggregate_parts(&aggregate_id)?;
+        let changed = transaction
+            .execute(
+                "UPDATE routing_dispatch_intents
+                 SET dispatch_status = ?1, updated_at = ?2
+                 WHERE aggregate_type = ?3
+                   AND aggregate_id = ?4
+                   AND command_id = ?5
+                   AND dispatch_status = ?6",
+                params![
+                    dispatch_status_tag(target),
+                    recorded_at.as_unix_micros(),
+                    aggregate_type,
+                    aggregate_bytes.as_slice(),
+                    command_id.as_bytes().as_slice(),
+                    dispatch_status_tag(DispatchIntentStatus::Indeterminate),
+                ],
+            )
+            .map_err(map_write_error)?;
+        if changed != 1 {
+            return Err(MigrationStoreError::InvalidDispatchTransition);
+        }
+        let recorded = load_dispatch_intent_on(&transaction, &aggregate_id)?
+            .ok_or(MigrationStoreError::IntegrityViolation)?;
+        transaction.commit().map_err(map_write_error)?;
+        Ok(recorded)
     }
 }
 
@@ -787,11 +1005,215 @@ fn receipt_scope(context: &MigrationCommandContext) -> Result<Vec<u8>, Migration
     Ok(scope)
 }
 
+fn validate_bind_runtime_request(request: &BindRuntimeRequest) -> Result<(), MigrationStoreError> {
+    if matches!(request.aggregate_id, AggregateId::Workspace(_))
+        || request.request_digest.as_bytes() == &[0; 32]
+        || !snapshot_matches_unit(&request.expected_snapshot, &request.routing_unit)
+        || request.bound_at < request.expected_snapshot.committed_at
+    {
+        return Err(MigrationStoreError::IntegrityViolation);
+    }
+    Ok(())
+}
+
+fn validate_existing_intent(
+    intent: &RoutingDispatchIntent,
+    request: &BindRuntimeRequest,
+) -> Result<(), MigrationStoreError> {
+    if intent.aggregate_id != request.aggregate_id
+        || intent.command_id != request.command_id
+        || intent.idempotency_key != request.idempotency_key
+        || intent.request_digest != request.request_digest
+    {
+        return Err(MigrationStoreError::DispatchIntentConflict);
+    }
+    Ok(())
+}
+
+fn load_routing_head_on(
+    connection: &Connection,
+    unit: &RoutingUnit,
+) -> Result<Option<RoutingSnapshot>, MigrationStoreError> {
+    let unit_digest = unit.digest();
+    let row: Option<(i64, Vec<u8>)> = connection
+        .query_row(
+            "SELECT h.routing_generation, s.snapshot_blob
+             FROM routing_head h
+             JOIN routing_snapshots s
+               ON s.routing_unit_digest = h.routing_unit_digest
+              AND s.routing_generation = h.routing_generation
+             WHERE h.routing_unit_digest = ?1",
+            [unit_digest.as_bytes().as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(map_read_error)?;
+    let Some((stored_generation, snapshot_blob)) = row else {
+        return Ok(None);
+    };
+    let snapshot = decode_routing_snapshot(&snapshot_blob).map_err(map_codec_error)?;
+    if stored_generation != u64_to_i64(snapshot.routing_generation.get())?
+        || !snapshot_matches_unit(&snapshot, unit)
+    {
+        return Err(MigrationStoreError::CorruptData);
+    }
+    Ok(Some(snapshot))
+}
+
+fn load_runtime_binding_on(
+    connection: &Connection,
+    aggregate_id: &AggregateId,
+    routing_unit: &RoutingUnit,
+) -> Result<Option<RuntimeBinding>, MigrationStoreError> {
+    let (aggregate_type, aggregate_bytes) = aggregate_parts(aggregate_id)?;
+    let row: Option<StoredRuntimeBindingRow> = connection
+        .query_row(
+            "SELECT b.routing_unit_digest, b.routing_generation, b.binding_blob,
+                    s.snapshot_blob
+             FROM runtime_bindings b
+             JOIN routing_snapshots s
+               ON s.routing_unit_digest = b.routing_unit_digest
+              AND s.routing_generation = b.routing_generation
+             WHERE b.aggregate_type = ?1 AND b.aggregate_id = ?2",
+            params![aggregate_type, aggregate_bytes.as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()
+        .map_err(map_read_error)?;
+    let Some((stored_unit_digest, stored_generation, binding_blob, snapshot_blob)) = row else {
+        return Ok(None);
+    };
+    if stored_unit_digest != routing_unit.digest().as_bytes() {
+        return Err(MigrationStoreError::RuntimeBindingConflict);
+    }
+    let binding = decode_runtime_binding(&binding_blob).map_err(map_codec_error)?;
+    let snapshot = decode_routing_snapshot(&snapshot_blob).map_err(map_codec_error)?;
+    if &binding.aggregate_id != aggregate_id
+        || stored_generation != u64_to_i64(binding.routing_generation.get())?
+        || !snapshot_matches_unit(&snapshot, routing_unit)
+        || binding.routing_generation != snapshot.routing_generation
+        || binding.authority != snapshot.authority
+        || binding.fencing_token != snapshot.fencing_token
+        || binding.bound_at < snapshot.committed_at
+    {
+        return Err(MigrationStoreError::CorruptData);
+    }
+    Ok(Some(binding))
+}
+
+type StoredRuntimeBindingRow = (Vec<u8>, i64, Vec<u8>, Vec<u8>);
+
+fn load_dispatch_intent_on(
+    connection: &Connection,
+    aggregate_id: &AggregateId,
+) -> Result<Option<RoutingDispatchIntent>, MigrationStoreError> {
+    let (aggregate_type, aggregate_bytes) = aggregate_parts(aggregate_id)?;
+    let row: Option<StoredDispatchIntentRow> = connection
+        .query_row(
+            "SELECT command_id, idempotency_key, request_digest,
+                    dispatch_status, created_at, updated_at
+             FROM routing_dispatch_intents
+             WHERE aggregate_type = ?1 AND aggregate_id = ?2",
+            params![aggregate_type, aggregate_bytes.as_slice()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(map_read_error)?;
+    let Some((command_bytes, idempotency_bytes, digest_bytes, status, created_at, updated_at)) =
+        row
+    else {
+        return Ok(None);
+    };
+    let command_id = decode_command_id(&command_bytes)?;
+    let idempotency_key = std::str::from_utf8(&idempotency_bytes)
+        .map_err(|_| MigrationStoreError::CorruptData)
+        .and_then(|value| {
+            IdempotencyKey::new(value.to_owned()).map_err(|_| MigrationStoreError::CorruptData)
+        })?;
+    let request_digest = ArtifactDigest::from_bytes(
+        digest_bytes
+            .try_into()
+            .map_err(|_| MigrationStoreError::CorruptData)?,
+    );
+    if request_digest.as_bytes() == &[0; 32] || updated_at < created_at {
+        return Err(MigrationStoreError::CorruptData);
+    }
+    Ok(Some(RoutingDispatchIntent {
+        aggregate_id: aggregate_id.clone(),
+        command_id,
+        idempotency_key,
+        request_digest,
+        status: decode_dispatch_status(status)?,
+        created_at: Timestamp::from_unix_micros(created_at),
+        updated_at: Timestamp::from_unix_micros(updated_at),
+    }))
+}
+
+type StoredDispatchIntentRow = (Vec<u8>, Vec<u8>, Vec<u8>, i64, i64, i64);
+
+fn decode_command_id(bytes: &[u8]) -> Result<CommandId, MigrationStoreError> {
+    let bytes: [u8; 16] = bytes
+        .try_into()
+        .map_err(|_| MigrationStoreError::CorruptData)?;
+    CommandId::from_bytes(bytes)
+        .to_string()
+        .parse()
+        .map_err(|_| MigrationStoreError::CorruptData)
+}
+
+fn decode_dispatch_status(value: i64) -> Result<DispatchIntentStatus, MigrationStoreError> {
+    match value {
+        1 => Ok(DispatchIntentStatus::Pending),
+        2 => Ok(DispatchIntentStatus::Indeterminate),
+        3 => Ok(DispatchIntentStatus::Accepted),
+        4 => Ok(DispatchIntentStatus::RejectedBeforeAcceptance),
+        _ => Err(MigrationStoreError::CorruptData),
+    }
+}
+
+const fn dispatch_status_tag(status: DispatchIntentStatus) -> i64 {
+    match status {
+        DispatchIntentStatus::Pending => 1,
+        DispatchIntentStatus::Indeterminate => 2,
+        DispatchIntentStatus::Accepted => 3,
+        DispatchIntentStatus::RejectedBeforeAcceptance => 4,
+    }
+}
+
 fn snapshot_matches_unit(snapshot: &RoutingSnapshot, unit: &RoutingUnit) -> bool {
     snapshot.cohort == unit.cohort
         && snapshot.contract_digest == unit.contract_digest
         && snapshot.profile_digest == unit.feature_profile.profile_digest
         && snapshot.config_digest == unit.config_digest
+}
+
+fn map_runtime_binding_write_error(error: SqliteError) -> MigrationStoreError {
+    if is_busy(&error) {
+        MigrationStoreError::Unavailable
+    } else if is_constraint(&error) {
+        MigrationStoreError::RuntimeBindingConflict
+    } else {
+        MigrationStoreError::IntegrityViolation
+    }
+}
+
+fn map_dispatch_intent_write_error(error: SqliteError) -> MigrationStoreError {
+    if is_busy(&error) {
+        MigrationStoreError::Unavailable
+    } else if is_constraint(&error) {
+        MigrationStoreError::DispatchIntentConflict
+    } else {
+        MigrationStoreError::IntegrityViolation
+    }
 }
 
 fn aggregate_parts(aggregate_id: &AggregateId) -> Result<(i64, [u8; 16]), MigrationStoreError> {
@@ -878,6 +1300,19 @@ fn is_busy(error: &SqliteError) -> bool {
         SqliteError::SqliteFailure(
             rusqlite::ffi::Error {
                 code: ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked,
+                ..
+            },
+            _
+        )
+    )
+}
+
+fn is_constraint(error: &SqliteError) -> bool {
+    matches!(
+        error,
+        SqliteError::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: ErrorCode::ConstraintViolation,
                 ..
             },
             _

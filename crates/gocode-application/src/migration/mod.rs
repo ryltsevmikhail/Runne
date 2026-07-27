@@ -7,6 +7,7 @@ pub mod gates;
 pub mod health;
 pub mod platform;
 pub mod ports;
+pub mod routing;
 pub mod service;
 pub mod state;
 pub mod types;

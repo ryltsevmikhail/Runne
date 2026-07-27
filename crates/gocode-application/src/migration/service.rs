@@ -1050,6 +1050,11 @@ fn map_store_error(error: MigrationStoreError) -> MigrationError {
         | MigrationStoreError::UnsupportedSchema
         | MigrationStoreError::Unavailable
         | MigrationStoreError::IdempotencyConflict
-        | MigrationStoreError::IntegrityViolation => MigrationError::StorageContractViolation,
+        | MigrationStoreError::IntegrityViolation
+        | MigrationStoreError::RuntimeBindingConflict
+        | MigrationStoreError::DispatchIntentConflict
+        | MigrationStoreError::InvalidDispatchTransition => {
+            MigrationError::StorageContractViolation
+        }
     }
 }

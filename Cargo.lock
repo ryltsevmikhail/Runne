@@ -400,6 +400,7 @@ dependencies = [
  "gocode-store",
  "hex",
  "jsonschema",
+ "rusqlite",
  "serde_json",
  "sha2",
  "tokio",
