@@ -200,4 +200,67 @@ mod tests {
             ComponentHealth::Degraded { .. }
         ));
     }
+
+    #[test]
+    fn exporter_readiness_cannot_replace_unavailable_canonical_audit() {
+        let report = HealthReport::all_ready().with(
+            HealthComponent::Audit,
+            ComponentHealth::Blocked {
+                code: HealthCode::AuditUnavailable,
+            },
+        );
+        let before = report.clone();
+
+        assert_eq!(
+            report.production_readiness(),
+            Err(HealthReadinessError::CriticalBlocked {
+                component: HealthComponent::Audit,
+                code: HealthCode::AuditUnavailable,
+            })
+        );
+        assert_eq!(report, before);
+        assert_eq!(
+            report.get(HealthComponent::TelemetryExport),
+            ComponentHealth::Ready
+        );
+    }
+
+    #[test]
+    fn critical_store_and_audit_health_is_not_flattened() {
+        let report = HealthReport::all_ready()
+            .with(
+                HealthComponent::Store,
+                ComponentHealth::Degraded {
+                    code: HealthCode::StoreUnavailable,
+                },
+            )
+            .with(
+                HealthComponent::Audit,
+                ComponentHealth::Blocked {
+                    code: HealthCode::AuditUnavailable,
+                },
+            );
+        let before = report.clone();
+
+        assert_eq!(
+            report.production_readiness(),
+            Err(HealthReadinessError::CriticalDegraded {
+                component: HealthComponent::Store,
+                code: HealthCode::StoreUnavailable,
+            })
+        );
+        assert_eq!(report, before);
+        assert_eq!(
+            report.get(HealthComponent::Store),
+            ComponentHealth::Degraded {
+                code: HealthCode::StoreUnavailable,
+            }
+        );
+        assert_eq!(
+            report.get(HealthComponent::Audit),
+            ComponentHealth::Blocked {
+                code: HealthCode::AuditUnavailable,
+            }
+        );
+    }
 }
