@@ -2,7 +2,6 @@
 //! bounded strings, integrity digests.
 
 use core::fmt;
-use std::str::FromStr;
 
 // ── constants ──────────────────────────────────────────────────────────────
 
@@ -78,7 +77,7 @@ impl std::error::Error for InvalidIdReason {}
 /// and variant (`10xx`).
 ///
 /// No external dependencies — manual hex parsing.
-fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidIdReason> {
+pub(crate) fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidIdReason> {
     if s.is_empty() {
         return Err(InvalidIdReason::Empty);
     }
@@ -129,7 +128,7 @@ fn hex_nibble(c: u8) -> Option<u8> {
 }
 
 /// Format a `[u8; 16]` as a standard 8-4-4-4-12 UUID string.
-fn format_uuid(bytes: &[u8; 16]) -> String {
+pub(crate) fn format_uuid(bytes: &[u8; 16]) -> String {
     format!(
         "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
         bytes[0],
@@ -179,27 +178,29 @@ macro_rules! uuid_v7_newtype {
         impl fmt::Debug for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 f.debug_tuple(stringify!($name))
-                    .field(&format_uuid(&self.0))
+                    .field(&$crate::id::format_uuid(&self.0))
                     .finish()
             }
         }
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}", format_uuid(&self.0))
+                write!(f, "{}", $crate::id::format_uuid(&self.0))
             }
         }
 
-        impl FromStr for $name {
+        impl std::str::FromStr for $name {
             type Err = InvalidIdReason;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                let bytes = parse_uuid_v7(s)?;
+                let bytes = $crate::id::parse_uuid_v7(s)?;
                 Ok(Self(bytes))
             }
         }
     };
 }
+
+pub(crate) use uuid_v7_newtype;
 
 // ── UUIDv7 newtypes ────────────────────────────────────────────────────────
 

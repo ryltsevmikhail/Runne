@@ -1,0 +1,17 @@
+[package]
+name = "gocode-security"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-domain = { path = "../gocode-domain" }
+gocode-application = { path = "../gocode-application" }
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "v7"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+sha2.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "sync", "test-util"] }
