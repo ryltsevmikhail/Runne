@@ -2,12 +2,20 @@
 
 use core::fmt;
 
-use gocode_application::migration::types::{
-    ArtifactDigest, CohortDimension, CohortSelector, FencingToken, MigrationValueError,
-    RollbackDisposition, RoutingGeneration, RoutingSnapshot, RuntimeAuthority,
-    RuntimeGenerationRef,
+use gocode_application::migration::{
+    gates::{GateEvidence, GateFailureCode, GateRevocationReason, GateStatus, MigrationEvidence},
+    ports::{
+        MigrationAuditAction, MigrationAuditRecord, MigrationCommandOutcome, MigrationTransition,
+    },
+    state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
+    types::{
+        ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
+        FencingToken, GateFamily, GateId, GatePolicyRef, MigrationCycleId, MigrationPlanId,
+        MigrationValueError, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit,
+        RuntimeAuthority, RuntimeBinding, RuntimeGenerationRef,
+    },
 };
-use gocode_domain::timestamp::Timestamp;
+use gocode_domain::{id::AggregateId, timestamp::Timestamp};
 
 const CODEC_VERSION: u8 = 1;
 
@@ -191,6 +199,613 @@ pub fn decode_routing_snapshot(bytes: &[u8]) -> Result<RoutingSnapshot, Migratio
     })
 }
 
+/// Encode one migration plan using migration codec version 1.
+pub fn encode_migration_plan(plan: &MigrationPlan) -> Result<Vec<u8>, MigrationCodecError> {
+    let mut bytes = Vec::with_capacity(512);
+    bytes.push(CODEC_VERSION);
+    write_string(&mut bytes, "plan_id", plan.plan_id.as_str())?;
+    write_string(&mut bytes, "cycle_id", plan.cycle_id.as_str())?;
+    match &plan.cycle_kind {
+        MigrationCycleKind::Forward => bytes.push(1),
+        MigrationCycleKind::Rollback { parent_cycle_id } => {
+            bytes.push(2);
+            write_string(&mut bytes, "parent_cycle_id", parent_cycle_id.as_str())?;
+        }
+    }
+    write_string(&mut bytes, "source", plan.source.as_str())?;
+    write_string(&mut bytes, "candidate", plan.candidate.as_str())?;
+    bytes.push(phase_tag(plan.phase));
+    bytes.push(match plan.status {
+        MigrationPlanStatus::Active => 1,
+        MigrationPlanStatus::Retired => 2,
+    });
+    encode_routing_unit(&mut bytes, &plan.routing_unit)?;
+    write_string(&mut bytes, "gate_policy", plan.gate_policy.as_str())?;
+    bytes.extend_from_slice(&plan.plan_version.to_be_bytes());
+    bytes.extend_from_slice(&plan.created_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Decode one canonical migration plan.
+pub fn decode_migration_plan(bytes: &[u8]) -> Result<MigrationPlan, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let plan_id =
+        MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
+    let cycle_id =
+        MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
+    let cycle_kind = match decoder.read_u8()? {
+        1 => MigrationCycleKind::Forward,
+        2 => MigrationCycleKind::Rollback {
+            parent_cycle_id: MigrationCycleId::new(decoder.read_string("parent_cycle_id")?)
+                .map_err(|_| invalid("parent_cycle_id"))?,
+        },
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "cycle_kind",
+                actual,
+            });
+        }
+    };
+    let source = runtime_generation(decoder.read_string("source")?, "source")?;
+    let candidate = runtime_generation(decoder.read_string("candidate")?, "candidate")?;
+    if source == candidate {
+        return Err(invalid("source_candidate"));
+    }
+    let phase = decode_phase(decoder.read_u8()?)?;
+    let status = match decoder.read_u8()? {
+        1 => MigrationPlanStatus::Active,
+        2 => MigrationPlanStatus::Retired,
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "plan_status",
+                actual,
+            });
+        }
+    };
+    let routing_unit = decode_routing_unit(&mut decoder)?;
+    let gate_policy = GatePolicyRef::new(decoder.read_string("gate_policy")?)
+        .map_err(|_| invalid("gate_policy"))?;
+    let plan_version = decoder.read_u64()?;
+    let created_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+    Ok(MigrationPlan {
+        plan_id,
+        cycle_id,
+        cycle_kind,
+        source,
+        candidate,
+        phase,
+        status,
+        routing_unit,
+        gate_policy,
+        plan_version,
+        created_at,
+    })
+}
+
+/// Encode one immutable migration transition.
+pub fn encode_migration_transition(
+    transition: &MigrationTransition,
+) -> Result<Vec<u8>, MigrationCodecError> {
+    let mut bytes = vec![CODEC_VERSION];
+    write_string(
+        &mut bytes,
+        "transition_id",
+        transition.transition_id.as_str(),
+    )?;
+    write_string(&mut bytes, "plan_id", transition.plan_id.as_str())?;
+    write_string(&mut bytes, "cycle_id", transition.cycle_id.as_str())?;
+    bytes.push(phase_tag(transition.from));
+    bytes.push(phase_tag(transition.to));
+    bytes.extend_from_slice(&transition.plan_version.to_be_bytes());
+    bytes.extend_from_slice(&transition.occurred_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Decode one immutable migration transition.
+pub fn decode_migration_transition(
+    bytes: &[u8],
+) -> Result<MigrationTransition, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let transition_id = decoder.read_string("transition_id")?;
+    let plan_id =
+        MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
+    let cycle_id =
+        MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
+    let from = decode_phase(decoder.read_u8()?)?;
+    let to = decode_phase(decoder.read_u8()?)?;
+    let plan_version = decoder.read_u64()?;
+    let occurred_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+    Ok(MigrationTransition {
+        transition_id,
+        plan_id,
+        cycle_id,
+        from,
+        to,
+        plan_version,
+        occurred_at,
+    })
+}
+
+/// Encode immutable migration evidence.
+pub fn encode_migration_evidence(
+    evidence: &MigrationEvidence,
+) -> Result<Vec<u8>, MigrationCodecError> {
+    let mut bytes = vec![CODEC_VERSION];
+    match evidence {
+        MigrationEvidence::Baseline {
+            source_sha,
+            inventory_digest,
+            fixture_digest,
+        } => {
+            bytes.push(1);
+            write_string(&mut bytes, "source_sha", source_sha)?;
+            bytes.extend_from_slice(inventory_digest.as_bytes());
+            bytes.extend_from_slice(fixture_digest.as_bytes());
+        }
+        MigrationEvidence::Foundation {
+            contract_digest,
+            store_integrity_digest,
+            deterministic_test_digest,
+        } => {
+            bytes.push(2);
+            bytes.extend_from_slice(contract_digest.as_bytes());
+            bytes.extend_from_slice(store_integrity_digest.as_bytes());
+            bytes.extend_from_slice(deterministic_test_digest.as_bytes());
+        }
+        MigrationEvidence::ReadOnlyParity {
+            import_report_digest,
+            completeness_digest,
+            canonical_mutation_count,
+        } => {
+            bytes.push(3);
+            bytes.extend_from_slice(import_report_digest.as_bytes());
+            bytes.extend_from_slice(completeness_digest.as_bytes());
+            bytes.extend_from_slice(&canonical_mutation_count.to_be_bytes());
+        }
+        MigrationEvidence::SimulatedShadow {
+            semantic_diff_digest,
+            canonical_write_count,
+            external_effect_count,
+            client_acknowledgement_count,
+        } => {
+            bytes.push(4);
+            bytes.extend_from_slice(semantic_diff_digest.as_bytes());
+            bytes.extend_from_slice(&canonical_write_count.to_be_bytes());
+            bytes.extend_from_slice(&external_effect_count.to_be_bytes());
+            bytes.extend_from_slice(&client_acknowledgement_count.to_be_bytes());
+        }
+        MigrationEvidence::ProductionGate(gate) => {
+            bytes.push(5);
+            encode_gate_evidence(&mut bytes, gate)?;
+        }
+    }
+    Ok(bytes)
+}
+
+/// Decode immutable migration evidence.
+pub fn decode_migration_evidence(bytes: &[u8]) -> Result<MigrationEvidence, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let evidence = match decoder.read_u8()? {
+        1 => MigrationEvidence::Baseline {
+            source_sha: decoder.read_string("source_sha")?,
+            inventory_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+            fixture_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+        },
+        2 => MigrationEvidence::Foundation {
+            contract_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+            store_integrity_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+            deterministic_test_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+        },
+        3 => MigrationEvidence::ReadOnlyParity {
+            import_report_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+            completeness_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+            canonical_mutation_count: decoder.read_u64()?,
+        },
+        4 => MigrationEvidence::SimulatedShadow {
+            semantic_diff_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+            canonical_write_count: decoder.read_u64()?,
+            external_effect_count: decoder.read_u64()?,
+            client_acknowledgement_count: decoder.read_u64()?,
+        },
+        5 => MigrationEvidence::ProductionGate(decode_gate_evidence(&mut decoder)?),
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "migration_evidence",
+                actual,
+            });
+        }
+    };
+    decoder.finish()?;
+    Ok(evidence)
+}
+
+/// Encode one command outcome stored in an idempotency receipt.
+pub fn encode_migration_outcome(
+    outcome: &MigrationCommandOutcome,
+) -> Result<Vec<u8>, MigrationCodecError> {
+    let mut bytes = vec![CODEC_VERSION];
+    write_blob(&mut bytes, "plan", &encode_migration_plan(&outcome.plan)?)?;
+    match &outcome.routing_snapshot {
+        Some(snapshot) => {
+            bytes.push(1);
+            write_blob(
+                &mut bytes,
+                "routing_snapshot",
+                &encode_routing_snapshot(snapshot)?,
+            )?;
+        }
+        None => bytes.push(0),
+    }
+    write_string(&mut bytes, "transition_id", &outcome.transition_id)?;
+    Ok(bytes)
+}
+
+/// Decode one command outcome from an idempotency receipt.
+pub fn decode_migration_outcome(
+    bytes: &[u8],
+) -> Result<MigrationCommandOutcome, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let plan = decode_migration_plan(decoder.read_blob("plan")?)?;
+    let routing_snapshot = match decoder.read_u8()? {
+        0 => None,
+        1 => Some(decode_routing_snapshot(
+            decoder.read_blob("routing_snapshot")?,
+        )?),
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "routing_snapshot_option",
+                actual,
+            });
+        }
+    };
+    let transition_id = decoder.read_string("transition_id")?;
+    decoder.finish()?;
+    Ok(MigrationCommandOutcome {
+        plan,
+        routing_snapshot,
+        transition_id,
+    })
+}
+
+/// Encode one canonical audit record.
+pub fn encode_migration_audit(
+    audit: &MigrationAuditRecord,
+) -> Result<Vec<u8>, MigrationCodecError> {
+    let mut bytes = vec![CODEC_VERSION];
+    bytes.extend_from_slice(audit.record_id.as_bytes());
+    write_string(&mut bytes, "plan_id", audit.plan_id.as_str())?;
+    bytes.extend_from_slice(audit.command_id.as_bytes());
+    write_string(&mut bytes, "operator_id", audit.operator_id.as_str())?;
+    bytes.push(audit_action_tag(audit.action));
+    bytes.extend_from_slice(&audit.recorded_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Encode one immutable runtime binding.
+pub fn encode_runtime_binding(binding: &RuntimeBinding) -> Result<Vec<u8>, MigrationCodecError> {
+    let mut bytes = vec![CODEC_VERSION];
+    let (aggregate_tag, aggregate_bytes) = aggregate_parts(&binding.aggregate_id);
+    bytes.push(aggregate_tag);
+    bytes.extend_from_slice(aggregate_bytes);
+    match &binding.authority {
+        RuntimeAuthority::Source(generation) => {
+            bytes.push(1);
+            write_string(&mut bytes, "authority_generation", generation.as_str())?;
+        }
+        RuntimeAuthority::Candidate(generation) => {
+            bytes.push(2);
+            write_string(&mut bytes, "authority_generation", generation.as_str())?;
+        }
+    }
+    write_string(
+        &mut bytes,
+        "runtime_generation",
+        binding.runtime_generation.as_str(),
+    )?;
+    bytes.extend_from_slice(&binding.routing_generation.get().to_be_bytes());
+    bytes.extend_from_slice(binding.fencing_token.as_bytes());
+    bytes.extend_from_slice(&binding.bound_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+fn encode_routing_unit(bytes: &mut Vec<u8>, unit: &RoutingUnit) -> Result<(), MigrationCodecError> {
+    write_string(bytes, "deployment", unit.deployment.as_str())?;
+    write_cohort(bytes, &unit.cohort)?;
+    write_string(
+        bytes,
+        "profile_id",
+        unit.feature_profile.profile_id.as_str(),
+    )?;
+    bytes.extend_from_slice(&unit.feature_profile.profile_revision.to_be_bytes());
+    bytes.extend_from_slice(unit.feature_profile.profile_digest.as_bytes());
+    bytes.extend_from_slice(unit.contract_digest.as_bytes());
+    bytes.extend_from_slice(unit.schema_digest.as_bytes());
+    bytes.extend_from_slice(unit.config_digest.as_bytes());
+    Ok(())
+}
+
+fn decode_routing_unit(decoder: &mut Decoder<'_>) -> Result<RoutingUnit, MigrationCodecError> {
+    let deployment =
+        DeploymentId::new(decoder.read_string("deployment")?).map_err(|_| invalid("deployment"))?;
+    let cohort = read_cohort(decoder)?;
+    let profile_id = decoder.read_string("profile_id")?;
+    let profile_revision = decoder.read_u16()?;
+    let profile_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let feature_profile = FeatureProfileRef::new(profile_id, profile_revision, profile_digest)
+        .map_err(|_| invalid("feature_profile"))?;
+    Ok(RoutingUnit {
+        deployment,
+        cohort,
+        feature_profile,
+        contract_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+        schema_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+        config_digest: ArtifactDigest::from_bytes(decoder.read_array()?),
+    })
+}
+
+fn encode_gate_evidence(
+    bytes: &mut Vec<u8>,
+    gate: &GateEvidence,
+) -> Result<(), MigrationCodecError> {
+    write_string(bytes, "gate_id", gate.gate_id.as_str())?;
+    bytes.extend_from_slice(&gate.gate_revision.to_be_bytes());
+    bytes.push(gate.family as u8);
+    write_string(bytes, "source_generation", gate.source_generation.as_str())?;
+    write_string(
+        bytes,
+        "candidate_generation",
+        gate.candidate_generation.as_str(),
+    )?;
+    write_cohort(bytes, &gate.cohort)?;
+    bytes.extend_from_slice(gate.contract_digest.as_bytes());
+    bytes.extend_from_slice(gate.profile_digest.as_bytes());
+    bytes.extend_from_slice(gate.config_digest.as_bytes());
+    bytes.extend_from_slice(&gate.measured_at.as_unix_micros().to_be_bytes());
+    bytes.extend_from_slice(&gate.valid_until.as_unix_micros().to_be_bytes());
+    match gate.status {
+        GateStatus::Passed => bytes.push(1),
+        GateStatus::Failed { code } => {
+            bytes.push(2);
+            bytes.push(gate_failure_tag(code));
+        }
+        GateStatus::Revoked { reason } => {
+            bytes.push(3);
+            bytes.push(gate_revocation_tag(reason));
+        }
+    }
+    bytes.extend_from_slice(gate.evidence_digest.as_bytes());
+    Ok(())
+}
+
+fn decode_gate_evidence(decoder: &mut Decoder<'_>) -> Result<GateEvidence, MigrationCodecError> {
+    let gate_id = GateId::new(decoder.read_string("gate_id")?).map_err(|_| invalid("gate_id"))?;
+    let gate_revision = decoder.read_u16()?;
+    if gate_revision == 0 {
+        return Err(invalid("gate_revision"));
+    }
+    let family = decode_gate_family(decoder.read_u8()?)?;
+    let source_generation = runtime_generation(
+        decoder.read_string("source_generation")?,
+        "source_generation",
+    )?;
+    let candidate_generation = runtime_generation(
+        decoder.read_string("candidate_generation")?,
+        "candidate_generation",
+    )?;
+    let cohort = read_cohort(decoder)?;
+    let contract_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let profile_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let config_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let measured_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    let valid_until = Timestamp::from_unix_micros(decoder.read_i64()?);
+    let status = match decoder.read_u8()? {
+        1 => GateStatus::Passed,
+        2 => GateStatus::Failed {
+            code: decode_gate_failure(decoder.read_u8()?)?,
+        },
+        3 => GateStatus::Revoked {
+            reason: decode_gate_revocation(decoder.read_u8()?)?,
+        },
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "gate_status",
+                actual,
+            });
+        }
+    };
+    let evidence_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    Ok(GateEvidence {
+        gate_id,
+        gate_revision,
+        family,
+        source_generation,
+        candidate_generation,
+        cohort,
+        contract_digest,
+        profile_digest,
+        config_digest,
+        measured_at,
+        valid_until,
+        status,
+        evidence_digest,
+    })
+}
+
+fn write_cohort(bytes: &mut Vec<u8>, cohort: &CohortSelector) -> Result<(), MigrationCodecError> {
+    let count =
+        u16::try_from(cohort.dimensions().len()).map_err(|_| MigrationCodecError::Oversized {
+            field: "cohort",
+            max: usize::from(u16::MAX),
+            actual: cohort.dimensions().len(),
+        })?;
+    bytes.extend_from_slice(&count.to_be_bytes());
+    for dimension in cohort.dimensions() {
+        write_string(bytes, "cohort_key", dimension.key())?;
+        write_string(bytes, "cohort_value", dimension.value())?;
+    }
+    Ok(())
+}
+
+fn read_cohort(decoder: &mut Decoder<'_>) -> Result<CohortSelector, MigrationCodecError> {
+    let count = usize::from(decoder.read_u16()?);
+    let mut dimensions = Vec::with_capacity(count);
+    for _ in 0..count {
+        dimensions.push(
+            CohortDimension::new(
+                decoder.read_string("cohort_key")?,
+                decoder.read_string("cohort_value")?,
+            )
+            .map_err(|_| invalid("cohort"))?,
+        );
+    }
+    CohortSelector::new(dimensions).map_err(|_| invalid("cohort"))
+}
+
+fn aggregate_parts(aggregate_id: &AggregateId) -> (u8, &[u8; 16]) {
+    match aggregate_id {
+        AggregateId::TaskRun(id) => (1, id.as_bytes()),
+        AggregateId::Conversation(id) => (2, id.as_bytes()),
+        AggregateId::Workspace(id) => (3, id.as_bytes()),
+    }
+}
+
+fn phase_tag(phase: MigrationPhase) -> u8 {
+    match phase {
+        MigrationPhase::Baseline => 0,
+        MigrationPhase::Foundation => 1,
+        MigrationPhase::ReadOnlyParity => 2,
+        MigrationPhase::SimulatedShadow => 3,
+        MigrationPhase::InternalCanary => 4,
+        MigrationPhase::CohortRollout => 5,
+        MigrationPhase::DefaultNative => 6,
+        MigrationPhase::DrainDeprecate => 7,
+        MigrationPhase::Retired => 8,
+    }
+}
+
+fn decode_phase(tag: u8) -> Result<MigrationPhase, MigrationCodecError> {
+    match tag {
+        0 => Ok(MigrationPhase::Baseline),
+        1 => Ok(MigrationPhase::Foundation),
+        2 => Ok(MigrationPhase::ReadOnlyParity),
+        3 => Ok(MigrationPhase::SimulatedShadow),
+        4 => Ok(MigrationPhase::InternalCanary),
+        5 => Ok(MigrationPhase::CohortRollout),
+        6 => Ok(MigrationPhase::DefaultNative),
+        7 => Ok(MigrationPhase::DrainDeprecate),
+        8 => Ok(MigrationPhase::Retired),
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "phase",
+            actual,
+        }),
+    }
+}
+
+fn decode_gate_family(tag: u8) -> Result<GateFamily, MigrationCodecError> {
+    GateFamily::ALL
+        .into_iter()
+        .find(|family| *family as u8 == tag)
+        .ok_or(MigrationCodecError::UnknownTag {
+            field: "gate_family",
+            actual: tag,
+        })
+}
+
+fn gate_failure_tag(code: GateFailureCode) -> u8 {
+    match code {
+        GateFailureCode::Integrity => 1,
+        GateFailureCode::Unavailable => 2,
+        GateFailureCode::ScopeMismatch => 3,
+        GateFailureCode::PolicyDenied => 4,
+        GateFailureCode::Timeout => 5,
+        GateFailureCode::Capacity => 6,
+        GateFailureCode::Privacy => 7,
+        GateFailureCode::UnresolvedEffect => 8,
+    }
+}
+
+fn decode_gate_failure(tag: u8) -> Result<GateFailureCode, MigrationCodecError> {
+    match tag {
+        1 => Ok(GateFailureCode::Integrity),
+        2 => Ok(GateFailureCode::Unavailable),
+        3 => Ok(GateFailureCode::ScopeMismatch),
+        4 => Ok(GateFailureCode::PolicyDenied),
+        5 => Ok(GateFailureCode::Timeout),
+        6 => Ok(GateFailureCode::Capacity),
+        7 => Ok(GateFailureCode::Privacy),
+        8 => Ok(GateFailureCode::UnresolvedEffect),
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "gate_failure",
+            actual,
+        }),
+    }
+}
+
+fn gate_revocation_tag(reason: GateRevocationReason) -> u8 {
+    match reason {
+        GateRevocationReason::SecurityRevoked => 1,
+        GateRevocationReason::ArtifactChanged => 2,
+        GateRevocationReason::GenerationReplaced => 3,
+        GateRevocationReason::OperatorRevoked => 4,
+    }
+}
+
+fn decode_gate_revocation(tag: u8) -> Result<GateRevocationReason, MigrationCodecError> {
+    match tag {
+        1 => Ok(GateRevocationReason::SecurityRevoked),
+        2 => Ok(GateRevocationReason::ArtifactChanged),
+        3 => Ok(GateRevocationReason::GenerationReplaced),
+        4 => Ok(GateRevocationReason::OperatorRevoked),
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "gate_revocation",
+            actual,
+        }),
+    }
+}
+
+fn audit_action_tag(action: MigrationAuditAction) -> u8 {
+    match action {
+        MigrationAuditAction::StagePlan => 1,
+        MigrationAuditAction::RecordEvidence => 2,
+        MigrationAuditAction::AdvancePhase => 3,
+        MigrationAuditAction::PrepareCutover => 4,
+        MigrationAuditAction::CommitCutover => 5,
+        MigrationAuditAction::StartRollbackCycle => 6,
+        MigrationAuditAction::BeginDrain => 7,
+        MigrationAuditAction::RetireSource => 8,
+    }
+}
+
+fn versioned_decoder(bytes: &[u8]) -> Result<Decoder<'_>, MigrationCodecError> {
+    let mut decoder = Decoder::new(bytes);
+    let version = decoder.read_u8()?;
+    if version != CODEC_VERSION {
+        return Err(MigrationCodecError::UnknownVersion { actual: version });
+    }
+    Ok(decoder)
+}
+
+fn invalid(field: &'static str) -> MigrationCodecError {
+    MigrationCodecError::InvalidValue { field }
+}
+
+fn write_blob(
+    output: &mut Vec<u8>,
+    field: &'static str,
+    value: &[u8],
+) -> Result<(), MigrationCodecError> {
+    let length = u32::try_from(value.len()).map_err(|_| MigrationCodecError::Oversized {
+        field,
+        max: u32::MAX as usize,
+        actual: value.len(),
+    })?;
+    output.extend_from_slice(&length.to_be_bytes());
+    output.extend_from_slice(value);
+    Ok(())
+}
+
 fn write_string(
     output: &mut Vec<u8>,
     field: &'static str,
@@ -241,6 +856,10 @@ impl<'a> Decoder<'a> {
         Ok(u16::from_be_bytes(self.read_exact::<2>()?))
     }
 
+    fn read_u32(&mut self) -> Result<u32, MigrationCodecError> {
+        Ok(u32::from_be_bytes(self.read_exact::<4>()?))
+    }
+
     fn read_u64(&mut self) -> Result<u64, MigrationCodecError> {
         Ok(u64::from_be_bytes(self.read_exact::<8>()?))
     }
@@ -265,6 +884,25 @@ impl<'a> Decoder<'a> {
             .ok_or(MigrationCodecError::Truncated)?;
         self.position = end;
         String::from_utf8(value.to_vec()).map_err(|_| MigrationCodecError::InvalidUtf8 { field })
+    }
+
+    fn read_blob(&mut self, field: &'static str) -> Result<&'a [u8], MigrationCodecError> {
+        let length =
+            usize::try_from(self.read_u32()?).map_err(|_| MigrationCodecError::Oversized {
+                field,
+                max: usize::MAX,
+                actual: usize::MAX,
+            })?;
+        let end = self
+            .position
+            .checked_add(length)
+            .ok_or(MigrationCodecError::Truncated)?;
+        let value = self
+            .bytes
+            .get(self.position..end)
+            .ok_or(MigrationCodecError::Truncated)?;
+        self.position = end;
+        Ok(value)
     }
 
     fn read_exact<const N: usize>(&mut self) -> Result<[u8; N], MigrationCodecError> {
