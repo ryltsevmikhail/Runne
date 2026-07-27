@@ -87,6 +87,91 @@ pub struct GateEvidence {
     pub evidence_digest: ArtifactDigest,
 }
 
+/// Exact runtime, cohort, artifact and time scope required by a gate policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GateContext {
+    /// Source runtime generation being evaluated.
+    pub source_generation: RuntimeGenerationRef,
+    /// Candidate runtime generation being evaluated.
+    pub candidate_generation: RuntimeGenerationRef,
+    /// Exact routing cohort being evaluated.
+    pub cohort: CohortSelector,
+    /// Canonical contract digest required by the transition.
+    pub contract_digest: ArtifactDigest,
+    /// Compatibility-profile digest required by the transition.
+    pub profile_digest: ArtifactDigest,
+    /// Runtime configuration digest required by the transition.
+    pub config_digest: ArtifactDigest,
+    /// Evaluation instant supplied by the application authority.
+    pub now: Timestamp,
+}
+
+/// Reason immutable gate evidence cannot satisfy an exact gate context.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateApplicabilityError {
+    /// The evidence validity window has not started.
+    NotYetValid,
+    /// The evidence validity window has ended.
+    Expired,
+    /// The recorded gate evaluation failed.
+    Failed,
+    /// The evidence was explicitly revoked.
+    Revoked,
+    /// The evidence covers a different source runtime generation.
+    SourceGenerationMismatch,
+    /// The evidence covers a different candidate runtime generation.
+    CandidateGenerationMismatch,
+    /// The evidence covers a different routing cohort.
+    CohortMismatch,
+    /// The contract digest differs from the requested scope.
+    ContractDigestMismatch,
+    /// The compatibility-profile digest differs from the requested scope.
+    ProfileDigestMismatch,
+    /// The runtime configuration digest differs from the requested scope.
+    ConfigDigestMismatch,
+    /// The evidence artifact digest is the all-zero sentinel.
+    EmptyEvidenceDigest,
+}
+
+impl GateEvidence {
+    /// Validate this immutable evidence against an exact gate context.
+    pub fn applies_to(&self, context: &GateContext) -> Result<(), GateApplicabilityError> {
+        match self.status {
+            GateStatus::Passed => {}
+            GateStatus::Failed { .. } => return Err(GateApplicabilityError::Failed),
+            GateStatus::Revoked { .. } => return Err(GateApplicabilityError::Revoked),
+        }
+        if self.measured_at > context.now {
+            return Err(GateApplicabilityError::NotYetValid);
+        }
+        if self.valid_until <= context.now {
+            return Err(GateApplicabilityError::Expired);
+        }
+        if self.source_generation != context.source_generation {
+            return Err(GateApplicabilityError::SourceGenerationMismatch);
+        }
+        if self.candidate_generation != context.candidate_generation {
+            return Err(GateApplicabilityError::CandidateGenerationMismatch);
+        }
+        if self.cohort != context.cohort {
+            return Err(GateApplicabilityError::CohortMismatch);
+        }
+        if self.contract_digest != context.contract_digest {
+            return Err(GateApplicabilityError::ContractDigestMismatch);
+        }
+        if self.profile_digest != context.profile_digest {
+            return Err(GateApplicabilityError::ProfileDigestMismatch);
+        }
+        if self.config_digest != context.config_digest {
+            return Err(GateApplicabilityError::ConfigDigestMismatch);
+        }
+        if self.evidence_digest.as_bytes() == &[0; 32] {
+            return Err(GateApplicabilityError::EmptyEvidenceDigest);
+        }
+        Ok(())
+    }
+}
+
 /// Immutable evidence recorded against a migration cycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrationEvidence {
@@ -256,5 +341,170 @@ fn gate_revocation_tag(reason: GateRevocationReason) -> u8 {
         GateRevocationReason::ArtifactChanged => 2,
         GateRevocationReason::GenerationReplaced => 3,
         GateRevocationReason::OperatorRevoked => 4,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::migration::types::CohortDimension;
+
+    #[test]
+    fn stale_revoked_and_scope_mismatched_evidence_never_applies() {
+        let context = gate_context_at(200);
+
+        let mut expired = passed_evidence();
+        expired.valid_until = Timestamp::from_unix_micros(200);
+        assert_eq!(
+            expired.applies_to(&context),
+            Err(GateApplicabilityError::Expired)
+        );
+
+        let mut revoked = passed_evidence();
+        revoked.status = GateStatus::Revoked {
+            reason: GateRevocationReason::SecurityRevoked,
+        };
+        assert_eq!(
+            revoked.applies_to(&context),
+            Err(GateApplicabilityError::Revoked)
+        );
+
+        let mut wrong_candidate = passed_evidence();
+        wrong_candidate.candidate_generation =
+            RuntimeGenerationRef::new("candidate-other").unwrap();
+        assert_eq!(
+            wrong_candidate.applies_to(&context),
+            Err(GateApplicabilityError::CandidateGenerationMismatch)
+        );
+    }
+
+    #[test]
+    fn all_ten_families_have_stable_discriminants() {
+        assert_eq!(
+            GateFamily::ALL,
+            [
+                GateFamily::StoreIntegrity,
+                GateFamily::CanonicalAudit,
+                GateFamily::SecurityPolicy,
+                GateFamily::PlatformCertification,
+                GateFamily::RuntimeHealth,
+                GateFamily::RecoveryReadiness,
+                GateFamily::DrainReadiness,
+                GateFamily::RollbackReadiness,
+                GateFamily::CapacitySlo,
+                GateFamily::ShadowIsolation,
+            ]
+        );
+    }
+
+    #[test]
+    fn applicability_requires_a_passed_fresh_exact_nonempty_scope() {
+        let context = gate_context_at(200);
+        assert_eq!(passed_evidence().applies_to(&context), Ok(()));
+
+        let mut evidence = passed_evidence();
+        evidence.measured_at = Timestamp::from_unix_micros(201);
+        assert_eq!(
+            evidence.applies_to(&context),
+            Err(GateApplicabilityError::NotYetValid)
+        );
+
+        let mut evidence = passed_evidence();
+        evidence.status = GateStatus::Failed {
+            code: GateFailureCode::Integrity,
+        };
+        assert_eq!(
+            evidence.applies_to(&context),
+            Err(GateApplicabilityError::Failed)
+        );
+
+        let mut evidence = passed_evidence();
+        evidence.source_generation = RuntimeGenerationRef::new("source-other").unwrap();
+        assert_eq!(
+            evidence.applies_to(&context),
+            Err(GateApplicabilityError::SourceGenerationMismatch)
+        );
+
+        let mut evidence = passed_evidence();
+        evidence.cohort = CohortSelector::new(vec![
+            CohortDimension::new("project_class", "external").unwrap(),
+        ])
+        .unwrap();
+        assert_eq!(
+            evidence.applies_to(&context),
+            Err(GateApplicabilityError::CohortMismatch)
+        );
+
+        let mismatched_digests = [
+            (
+                ArtifactDigest::from_bytes([12; 32]),
+                context.profile_digest,
+                context.config_digest,
+                GateApplicabilityError::ContractDigestMismatch,
+            ),
+            (
+                context.contract_digest,
+                ArtifactDigest::from_bytes([13; 32]),
+                context.config_digest,
+                GateApplicabilityError::ProfileDigestMismatch,
+            ),
+            (
+                context.contract_digest,
+                context.profile_digest,
+                ArtifactDigest::from_bytes([14; 32]),
+                GateApplicabilityError::ConfigDigestMismatch,
+            ),
+        ];
+        for (contract, profile, config, expected) in mismatched_digests {
+            let mut evidence = passed_evidence();
+            evidence.contract_digest = contract;
+            evidence.profile_digest = profile;
+            evidence.config_digest = config;
+            assert_eq!(evidence.applies_to(&context), Err(expected));
+        }
+
+        let mut evidence = passed_evidence();
+        evidence.evidence_digest = ArtifactDigest::from_bytes([0; 32]);
+        assert_eq!(
+            evidence.applies_to(&context),
+            Err(GateApplicabilityError::EmptyEvidenceDigest)
+        );
+    }
+
+    fn gate_context_at(now: i64) -> GateContext {
+        GateContext {
+            source_generation: RuntimeGenerationRef::new("source-v1").unwrap(),
+            candidate_generation: RuntimeGenerationRef::new("candidate-v1").unwrap(),
+            cohort: cohort(),
+            contract_digest: ArtifactDigest::from_bytes([2; 32]),
+            profile_digest: ArtifactDigest::from_bytes([3; 32]),
+            config_digest: ArtifactDigest::from_bytes([4; 32]),
+            now: Timestamp::from_unix_micros(now),
+        }
+    }
+
+    fn passed_evidence() -> GateEvidence {
+        GateEvidence {
+            gate_id: GateId::new("gate-1").unwrap(),
+            gate_revision: 1,
+            family: GateFamily::StoreIntegrity,
+            source_generation: RuntimeGenerationRef::new("source-v1").unwrap(),
+            candidate_generation: RuntimeGenerationRef::new("candidate-v1").unwrap(),
+            cohort: cohort(),
+            contract_digest: ArtifactDigest::from_bytes([2; 32]),
+            profile_digest: ArtifactDigest::from_bytes([3; 32]),
+            config_digest: ArtifactDigest::from_bytes([4; 32]),
+            measured_at: Timestamp::from_unix_micros(100),
+            valid_until: Timestamp::from_unix_micros(300),
+            status: GateStatus::Passed,
+            evidence_digest: ArtifactDigest::from_bytes([5; 32]),
+        }
+    }
+
+    fn cohort() -> CohortSelector {
+        CohortSelector::new(vec![
+            CohortDimension::new("project_class", "internal").unwrap(),
+        ])
+        .unwrap()
     }
 }
