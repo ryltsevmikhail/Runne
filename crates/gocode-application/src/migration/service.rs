@@ -525,18 +525,33 @@ where
         .map_err(|_| MigrationError::ArithmeticOverflow)?;
         let mut plan = loaded.plan;
         plan.record_mutation(context.expected_plan_version)?;
-        let rollback_disposition = match manifest.rollback_policy {
-            RollbackPolicy::ManualOnly => RollbackDisposition::Ineligible,
-            RollbackPolicy::BeforeCandidateWrites | RollbackPolicy::ReverseMigrationRequired(_) => {
-                RollbackDisposition::Eligible
+        let rollback_disposition = if matches!(manifest.intent, CutoverIntent::Rollback) {
+            RollbackDisposition::Ineligible
+        } else {
+            match manifest.rollback_policy {
+                RollbackPolicy::ManualOnly => RollbackDisposition::Ineligible,
+                RollbackPolicy::BeforeCandidateWrites
+                | RollbackPolicy::ReverseMigrationRequired(_) => RollbackDisposition::Eligible,
             }
+        };
+        let (snapshot_source, snapshot_candidate, authority) = match manifest.intent {
+            CutoverIntent::Rollback => (
+                plan.candidate.clone(),
+                plan.source.clone(),
+                RuntimeAuthority::Source(plan.candidate.clone()),
+            ),
+            _ => (
+                plan.source.clone(),
+                plan.candidate.clone(),
+                RuntimeAuthority::Candidate(plan.candidate.clone()),
+            ),
         };
         let snapshot = RoutingSnapshot::new(
             next_routing_generation,
-            plan.source.clone(),
-            plan.candidate.clone(),
+            snapshot_source,
+            snapshot_candidate,
             plan.phase,
-            RuntimeAuthority::Candidate(plan.candidate.clone()),
+            authority,
             plan.routing_unit.clone(),
             input.candidate_fencing_token,
             rollback_disposition,
@@ -762,6 +777,126 @@ where
         })
     }
 
+    /// Immediately revoke candidate routing authority and restore Source.
+    pub fn emergency_revoke(
+        &self,
+        context: MigrationCommandContext,
+        input: EmergencyRevokeInput,
+    ) -> Result<EmergencyRevokeOutput, MigrationError> {
+        let fingerprint = fingerprint(
+            9,
+            vec![
+                input.plan_id.as_str().as_bytes().to_vec(),
+                artifact_fingerprint_bytes(&input.operator_authorization),
+                input.emergency_reason.as_bytes().to_vec(),
+                input.new_fencing_token.as_bytes().to_vec(),
+            ],
+        );
+        if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
+            return Ok(EmergencyRevokeOutput { outcome });
+        }
+
+        let loaded = self
+            .store
+            .load_plan(&input.plan_id)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::PlanNotFound)?;
+        if !matches!(
+            loaded.plan.phase,
+            MigrationPhase::InternalCanary
+                | MigrationPhase::CohortRollout
+                | MigrationPhase::DefaultNative
+        ) {
+            return Err(MigrationError::EmergencyRevokeIneligible);
+        }
+
+        let routing_head = self
+            .store
+            .load_routing_head(&loaded.plan.routing_unit)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::StorageContractViolation)?;
+        if routing_head.rollback_disposition != RollbackDisposition::Eligible {
+            return Err(MigrationError::EmergencyRevokeIneligible);
+        }
+        if let Some(expected) = context.expected_routing_generation
+            && expected != routing_head.routing_generation
+        {
+            return Err(MigrationError::RoutingGenerationConflict {
+                expected,
+                actual: routing_head.routing_generation,
+            });
+        }
+
+        let next_routing_generation = RoutingGeneration::new(
+            routing_head
+                .routing_generation
+                .get()
+                .checked_add(1)
+                .ok_or(MigrationError::ArithmeticOverflow)?,
+        )
+        .map_err(|_| MigrationError::ArithmeticOverflow)?;
+
+        let mut plan = loaded.plan;
+        plan.record_mutation(context.expected_plan_version)?;
+
+        let snapshot = RoutingSnapshot::new(
+            next_routing_generation,
+            plan.source.clone(),
+            plan.candidate.clone(),
+            plan.phase,
+            RuntimeAuthority::Source(plan.source.clone()),
+            plan.routing_unit.clone(),
+            input.new_fencing_token,
+            RollbackDisposition::Ineligible,
+            context.evaluated_at,
+        )
+        .map_err(|_| MigrationError::StorageContractViolation)?;
+
+        let transition_id = transition_identity(&context, &fingerprint);
+        let previous = plan.phase;
+        let transition = MigrationTransition {
+            transition_id: transition_id.clone(),
+            plan_id: plan.plan_id.clone(),
+            cycle_id: plan.cycle_id.clone(),
+            from: previous,
+            to: plan.phase,
+            plan_version: plan.plan_version,
+            occurred_at: context.evaluated_at,
+        };
+        let outcome = MigrationCommandOutcome {
+            plan: plan.clone(),
+            routing_snapshot: Some(snapshot.clone()),
+            transition_id,
+        };
+        let audit = audit_record(
+            &context,
+            &plan,
+            MigrationAuditAction::EmergencyRevoke,
+            &fingerprint,
+        );
+        let mut commit_context = context;
+        commit_context.expected_routing_generation = Some(routing_head.routing_generation);
+        let commit = MigrationCommit::new(
+            commit_context,
+            fingerprint,
+            plan.clone(),
+            vec![
+                MigrationMutation::AppendTransition(transition),
+                MigrationMutation::AppendRoutingSnapshot(snapshot),
+                MigrationMutation::AdvanceRoutingHead {
+                    unit_digest: plan.routing_unit.digest(),
+                    expected: routing_head.routing_generation,
+                    next: next_routing_generation,
+                },
+            ],
+            outcome,
+            Some(audit),
+        )?;
+        Ok(EmergencyRevokeOutput {
+            outcome: commit_outcome(self.store.commit(commit).map_err(map_store_error)?),
+        })
+    }
+
     fn lookup_duplicate(
         &self,
         context: &MigrationCommandContext,
@@ -937,6 +1072,26 @@ pub struct RetireSourceInput {
 /// Successful source-retirement result.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetireSourceOutput {
+    /// Stored semantic outcome.
+    pub outcome: MigrationCommandOutcome,
+}
+
+/// Input for emergency candidate authority revocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmergencyRevokeInput {
+    /// Target plan.
+    pub plan_id: MigrationPlanId,
+    /// Operator authorization evidence.
+    pub operator_authorization: ArtifactRef,
+    /// Machine-readable emergency reason.
+    pub emergency_reason: String,
+    /// Fresh fence token for the restored Source generation.
+    pub new_fencing_token: FencingToken,
+}
+
+/// Successful emergency revocation result.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmergencyRevokeOutput {
     /// Stored semantic outcome.
     pub outcome: MigrationCommandOutcome,
 }
@@ -1326,7 +1481,7 @@ fn cutover_phase(intent: CutoverIntent) -> Result<MigrationPhase, MigrationError
         CutoverIntent::InternalCanary => Ok(MigrationPhase::InternalCanary),
         CutoverIntent::CohortExpansion => Ok(MigrationPhase::CohortRollout),
         CutoverIntent::DefaultNative => Ok(MigrationPhase::DefaultNative),
-        CutoverIntent::Rollback => Err(MigrationError::ProductionGatesUnavailable),
+        CutoverIntent::Rollback => Ok(MigrationPhase::InternalCanary),
     }
 }
 
@@ -1336,7 +1491,7 @@ fn authority_matches_cutover_intent(authority: &RuntimeAuthority, intent: Cutove
         CutoverIntent::CohortExpansion | CutoverIntent::DefaultNative => {
             matches!(authority, RuntimeAuthority::Candidate(_))
         }
-        CutoverIntent::Rollback => false,
+        CutoverIntent::Rollback => matches!(authority, RuntimeAuthority::Source(_)),
     }
 }
 

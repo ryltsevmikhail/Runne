@@ -53,6 +53,7 @@ pub enum MigrationError {
     ImportAmbiguous,
     RollbackIneligible,
     ReverseMigrationUnavailable,
+    EmergencyRevokeIneligible,
     RetirementBlocked,
     StorageContractViolation,
     ArithmeticOverflow,
