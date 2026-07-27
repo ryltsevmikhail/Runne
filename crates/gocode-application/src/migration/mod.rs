@@ -1,6 +1,7 @@
 //! Migration control-plane types and orchestration.
 
 pub mod error;
+pub mod feature_matrix;
 pub mod fence;
 pub mod gates;
 pub mod health;

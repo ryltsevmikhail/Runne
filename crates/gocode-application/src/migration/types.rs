@@ -233,7 +233,7 @@ impl CohortSelector {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FeatureProfileRef {
     pub profile_id: String,
     pub profile_revision: u16,

@@ -8,7 +8,7 @@ use super::{
 };
 
 /// Operating-system identity used by platform certification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PlatformOs {
     /// Linux platform.
     Linux,
@@ -21,7 +21,7 @@ pub enum PlatformOs {
 }
 
 /// Processor architecture used by platform certification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PlatformArchitecture {
     /// 64-bit Arm.
     Aarch64,
@@ -32,7 +32,7 @@ pub enum PlatformArchitecture {
 }
 
 /// Storage filesystem class used by platform certification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FilesystemClass {
     /// Local durable filesystem with governed sync semantics.
     LocalDurable,
@@ -43,7 +43,7 @@ pub enum FilesystemClass {
 }
 
 /// SQLite or platform VFS identity.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum PlatformVfs {
     /// SQLite default VFS for the exact certified platform.
     SqliteDefault,
@@ -54,7 +54,7 @@ pub enum PlatformVfs {
 }
 
 /// Process containment model.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProcessModel {
     /// POSIX process model.
     Posix,
@@ -67,7 +67,7 @@ pub enum ProcessModel {
 }
 
 /// Exact platform tuple covered by one certification.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct PlatformTuple {
     /// Operating system.
     pub os: PlatformOs,
