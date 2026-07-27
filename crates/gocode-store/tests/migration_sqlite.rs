@@ -18,9 +18,10 @@ use gocode_application::migration::{
         MigrationTransition, SanitizedShadowInput, ShadowDiffReport, ShadowExecutionError,
         ShadowExecutionPort,
     },
+    rollout::CanaryPolicy,
     service::{
-        CutoverIntent, MigrationService, PrepareCutoverInput, RecordEvidenceInput, StagePlanInput,
-        StartRollbackInput,
+        CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
+        RecordEvidenceInput, StagePlanInput, StartRollbackInput,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
@@ -371,7 +372,7 @@ fn rollback_cycle_starts_at_baseline_without_mutating_parent() {
 }
 
 #[test]
-fn prepared_gate_set_and_source_high_water_survive_reopen() {
+fn prepared_cutover_and_canary_head_survive_reopen() {
     let db = TempDb::new("prepared-cutover-reopen");
     let store = SqliteMigrationControlStore::open(db.path()).unwrap();
     let service = MigrationService::new(store, PureShadow);
@@ -433,6 +434,15 @@ fn prepared_gate_set_and_source_high_water_survive_reopen() {
             .unwrap();
         version += 1;
     }
+    version = service
+        .advance_phase(
+            command_context(39, version, None),
+            plan_id(),
+            MigrationPhase::InternalCanary,
+        )
+        .unwrap()
+        .plan
+        .plan_version;
     let loaded = service.load_plan(&plan_id()).unwrap().unwrap();
     let evidence_set_digest = PhaseGatePolicy::for_target(MigrationPhase::InternalCanary)
         .unwrap()
@@ -456,6 +466,30 @@ fn prepared_gate_set_and_source_high_water_survive_reopen() {
             prepare_cutover_input(evidence_set_digest, 4242),
         )
         .unwrap();
+    let committed = service
+        .commit_cutover(
+            command_context(
+                41,
+                prepared.outcome.plan.plan_version,
+                Some(RoutingGeneration::new(1).unwrap()),
+            ),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: prepared.outcome.transition_id.clone(),
+                observed_source_high_water: 4242,
+                candidate_fencing_token: FencingToken::new([9; 32]).unwrap(),
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        committed
+            .outcome
+            .routing_snapshot
+            .as_ref()
+            .unwrap()
+            .authority,
+        RuntimeAuthority::Candidate(_)
+    ));
     let before = service.load_plan(&plan_id()).unwrap().unwrap();
     assert_eq!(before.cutover_manifests.len(), 1);
     assert_eq!(before.migration_reports.len(), 1);
@@ -468,6 +502,14 @@ fn prepared_gate_set_and_source_high_water_survive_reopen() {
 
     let reopened = SqliteMigrationControlStore::open(db.path()).unwrap();
     assert_eq!(reopened.load_plan(&plan_id()).unwrap().unwrap(), before);
+    assert!(matches!(
+        reopened
+            .load_routing_head(&routing_unit())
+            .unwrap()
+            .unwrap()
+            .authority,
+        RuntimeAuthority::Candidate(_)
+    ));
     drop(reopened);
 
     let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
@@ -686,6 +728,7 @@ fn prepare_cutover_input(
     PrepareCutoverInput {
         plan_id: plan_id(),
         intent: CutoverIntent::InternalCanary,
+        canary_policy: CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
         manifest: artifact("cutover-manifest", 30),
         source_release: artifact("source-release", 31),
         candidate_release: artifact("candidate-release", 32),

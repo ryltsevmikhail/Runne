@@ -19,6 +19,7 @@ use gocode_application::migration::{
         MigrationReceiptLookup, MigrationStoreError, SanitizedShadowInput, ShadowDiffReport,
         ShadowExecutionError, ShadowExecutionPort,
     },
+    rollout::CanaryPolicy,
     service::{
         BeginDrainInput, CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
         RecordEvidenceInput, RetireSourceInput, StagePlanInput, StartRollbackInput,
@@ -234,8 +235,11 @@ fn stale_evidence_blocks_internal_canary_without_mutation() {
 
 #[test]
 fn complete_phase4_gate_set_permits_internal_canary_eligibility() {
-    let (service, _) = shadow_ready_service();
+    let (service, store) = shadow_ready_service();
     record_phase4_evidence_except(&service, None);
+    let unrelated_unit = unrelated_routing_unit();
+    let unrelated_snapshot = unrelated_source_snapshot();
+    store.insert_routing_head(&unrelated_unit, unrelated_snapshot.clone());
 
     let output = service
         .advance_phase(
@@ -254,12 +258,70 @@ fn complete_phase4_gate_set_permits_internal_canary_eligibility() {
             .authority,
         RuntimeAuthority::Source(_)
     ));
+    let evidence_set_digest = current_phase4_gate_set_digest(&service);
+    let prepared = service
+        .prepare_cutover(
+            next_routing_context(&service),
+            prepare_cutover_input(evidence_set_digest, 10),
+        )
+        .unwrap();
+    let before_mismatched_high_water = service.load_plan(&plan_id()).unwrap();
+    let before_mismatched_head = service.routing_head(&routing_unit()).unwrap();
+    assert_eq!(
+        service.commit_cutover(
+            next_routing_context(&service),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: prepared.outcome.transition_id.clone(),
+                observed_source_high_water: 11,
+                candidate_fencing_token: FencingToken::new([9; 32]).unwrap(),
+            },
+        ),
+        Err(MigrationError::StorageContractViolation)
+    );
+    assert_eq!(
+        service.load_plan(&plan_id()).unwrap(),
+        before_mismatched_high_water
+    );
+    assert_eq!(
+        service.routing_head(&routing_unit()).unwrap(),
+        before_mismatched_head
+    );
+    let committed = service
+        .commit_cutover(
+            next_routing_context(&service),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: prepared.outcome.transition_id,
+                observed_source_high_water: 10,
+                candidate_fencing_token: FencingToken::new([9; 32]).unwrap(),
+            },
+        )
+        .unwrap();
+    let snapshot = committed.outcome.routing_snapshot.unwrap();
+    assert!(matches!(
+        snapshot.authority,
+        RuntimeAuthority::Candidate(ref generation) if generation == &candidate_generation()
+    ));
+    assert_eq!(snapshot.cohort, routing_unit().cohort);
+    assert_eq!(snapshot.routing_generation.get(), 2);
+    assert_eq!(
+        service.routing_head(&unrelated_unit).unwrap(),
+        Some(unrelated_snapshot)
+    );
 }
 
 #[test]
 fn revocation_between_prepare_and_commit_blocks_cutover() {
     let (service, _) = shadow_ready_service();
     record_phase4_evidence_except(&service, None);
+    service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::InternalCanary,
+        )
+        .unwrap();
     let evidence_set_digest = current_phase4_gate_set_digest(&service);
     let prepared = service
         .prepare_cutover(
@@ -287,10 +349,12 @@ fn revocation_between_prepare_and_commit_blocks_cutover() {
 
     assert_eq!(
         service.commit_cutover(
-            next_context(&service),
+            next_routing_context(&service),
             CommitCutoverInput {
                 plan_id: plan_id(),
                 prepared_transition_id: prepared.outcome.transition_id,
+                observed_source_high_water: 10,
+                candidate_fencing_token: FencingToken::new([9; 32]).unwrap(),
             },
         ),
         Err(MigrationError::GateRevoked {
@@ -320,6 +384,8 @@ fn production_control_primitives_fail_closed_without_mutation() {
             CommitCutoverInput {
                 plan_id: plan_id(),
                 prepared_transition_id: "prepared-1".to_owned(),
+                observed_source_high_water: 10,
+                candidate_fencing_token: FencingToken::new([9; 32]).unwrap(),
             },
         ),
         Err(MigrationError::ProductionGatesUnavailable)
@@ -400,6 +466,14 @@ struct MemoryState {
 }
 
 impl MemoryMigrationStore {
+    fn insert_routing_head(&self, unit: &RoutingUnit, snapshot: RoutingSnapshot) {
+        self.state
+            .lock()
+            .unwrap()
+            .heads
+            .insert(unit.digest(), snapshot);
+    }
+
     fn transition_count(&self) -> usize {
         self.state
             .lock()
@@ -750,6 +824,7 @@ fn prepare_cutover_input(
     PrepareCutoverInput {
         plan_id: plan_id(),
         intent: CutoverIntent::InternalCanary,
+        canary_policy: CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
         manifest: artifact("cutover-manifest", 30),
         source_release: artifact("source-release", 31),
         candidate_release: artifact("candidate-release", 32),
@@ -949,4 +1024,34 @@ fn routing_unit() -> RoutingUnit {
         schema_digest: ArtifactDigest::from_bytes([3; 32]),
         config_digest: ArtifactDigest::from_bytes([4; 32]),
     }
+}
+
+fn unrelated_routing_unit() -> RoutingUnit {
+    RoutingUnit {
+        deployment: DeploymentId::new("production").unwrap(),
+        cohort: CohortSelector::new(vec![
+            CohortDimension::new("client_class", "standard").unwrap(),
+        ])
+        .unwrap(),
+        feature_profile: FeatureProfileRef::new("default", 1, ArtifactDigest::from_bytes([1; 32]))
+            .unwrap(),
+        contract_digest: ArtifactDigest::from_bytes([2; 32]),
+        schema_digest: ArtifactDigest::from_bytes([3; 32]),
+        config_digest: ArtifactDigest::from_bytes([4; 32]),
+    }
+}
+
+fn unrelated_source_snapshot() -> RoutingSnapshot {
+    RoutingSnapshot::new(
+        RoutingGeneration::new(1).unwrap(),
+        source_generation(),
+        candidate_generation(),
+        MigrationPhase::Baseline,
+        RuntimeAuthority::Source(source_generation()),
+        unrelated_routing_unit(),
+        FencingToken::new([6; 32]).unwrap(),
+        RollbackDisposition::Eligible,
+        Timestamp::from_unix_micros(1),
+    )
+    .unwrap()
 }

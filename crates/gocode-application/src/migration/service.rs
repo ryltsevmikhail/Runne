@@ -20,10 +20,11 @@ use super::{
         MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceiptLookup,
         MigrationStoreError, MigrationTransition, ShadowExecutionPort,
     },
+    rollout::CanaryPolicy,
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
-        ArtifactDigest, CohortSelector, MigrationPlanId, RollbackDisposition, RoutingSnapshot,
-        RuntimeAuthority,
+        ArtifactDigest, CohortSelector, FencingToken, MigrationPlanId, RollbackDisposition,
+        RoutingGeneration, RoutingSnapshot, RuntimeAuthority,
     },
 };
 
@@ -286,6 +287,7 @@ where
             vec![
                 input.plan_id.as_str().as_bytes().to_vec(),
                 vec![cutover_intent_tag(input.intent)],
+                input.canary_policy.admission_limit.to_be_bytes().to_vec(),
                 artifact_fingerprint_bytes(&input.manifest),
                 artifact_fingerprint_bytes(&input.source_release),
                 artifact_fingerprint_bytes(&input.candidate_release),
@@ -311,7 +313,7 @@ where
             .map_err(map_store_error)?
             .ok_or(MigrationError::PlanNotFound)?;
         if input.intent != CutoverIntent::InternalCanary
-            || loaded.plan.phase != MigrationPhase::SimulatedShadow
+            || loaded.plan.phase != MigrationPhase::InternalCanary
         {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
@@ -358,6 +360,7 @@ where
             plan_id: plan.plan_id.clone(),
             cycle_id: plan.cycle_id.clone(),
             intent: input.intent,
+            canary_policy: input.canary_policy,
             routing_unit: plan.routing_unit.clone(),
             source_release: input.source_release,
             source_generation: plan.source.clone(),
@@ -416,6 +419,8 @@ where
             vec![
                 input.plan_id.as_str().as_bytes().to_vec(),
                 input.prepared_transition_id.as_bytes().to_vec(),
+                input.observed_source_high_water.to_be_bytes().to_vec(),
+                input.candidate_fencing_token.as_bytes().to_vec(),
             ],
         );
         if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
@@ -427,7 +432,7 @@ where
             .load_plan(&input.plan_id)
             .map_err(map_store_error)?
             .ok_or(MigrationError::PlanNotFound)?;
-        if loaded.plan.phase != MigrationPhase::SimulatedShadow {
+        if loaded.plan.phase != MigrationPhase::InternalCanary {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
         let manifest = loaded
@@ -438,6 +443,7 @@ where
         if manifest.plan_id != loaded.plan.plan_id
             || manifest.cycle_id != loaded.plan.cycle_id
             || manifest.intent != CutoverIntent::InternalCanary
+            || manifest.routing_unit != loaded.plan.routing_unit
             || !loaded
                 .transitions
                 .iter()
@@ -457,7 +463,98 @@ where
         {
             return Err(MigrationError::GateSetChanged);
         }
-        Err(MigrationError::ProductionGatesUnavailable)
+        if manifest.source_high_water != input.observed_source_high_water {
+            return Err(MigrationError::StorageContractViolation);
+        }
+        let expected_routing_generation = context
+            .expected_routing_generation
+            .ok_or(MigrationError::ExpectedRoutingGenerationRequired)?;
+        if manifest.expected_routing_generation != expected_routing_generation {
+            return Err(MigrationError::RoutingGenerationConflict {
+                expected: manifest.expected_routing_generation,
+                actual: expected_routing_generation,
+            });
+        }
+        let current_head = self
+            .store
+            .load_routing_head(&loaded.plan.routing_unit)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::StorageContractViolation)?;
+        if current_head.routing_generation != expected_routing_generation
+            || !matches!(current_head.authority, RuntimeAuthority::Source(_))
+        {
+            return Err(MigrationError::RoutingGenerationConflict {
+                expected: expected_routing_generation,
+                actual: current_head.routing_generation,
+            });
+        }
+        let next_routing_generation = RoutingGeneration::new(
+            expected_routing_generation
+                .get()
+                .checked_add(1)
+                .ok_or(MigrationError::ArithmeticOverflow)?,
+        )
+        .map_err(|_| MigrationError::ArithmeticOverflow)?;
+        let mut plan = loaded.plan;
+        plan.record_mutation(context.expected_plan_version)?;
+        let rollback_disposition = match manifest.rollback_policy {
+            RollbackPolicy::ManualOnly => RollbackDisposition::Ineligible,
+            RollbackPolicy::BeforeCandidateWrites | RollbackPolicy::ReverseMigrationRequired(_) => {
+                RollbackDisposition::Eligible
+            }
+        };
+        let snapshot = RoutingSnapshot::new(
+            next_routing_generation,
+            plan.source.clone(),
+            plan.candidate.clone(),
+            plan.phase,
+            RuntimeAuthority::Candidate(plan.candidate.clone()),
+            plan.routing_unit.clone(),
+            input.candidate_fencing_token,
+            rollback_disposition,
+            context.evaluated_at,
+        )
+        .map_err(|_| MigrationError::StorageContractViolation)?;
+        let transition_id = transition_identity(&context, &fingerprint);
+        let transition = MigrationTransition {
+            transition_id: transition_id.clone(),
+            plan_id: plan.plan_id.clone(),
+            cycle_id: plan.cycle_id.clone(),
+            from: plan.phase,
+            to: plan.phase,
+            plan_version: plan.plan_version,
+            occurred_at: context.evaluated_at,
+        };
+        let outcome = MigrationCommandOutcome {
+            plan: plan.clone(),
+            routing_snapshot: Some(snapshot.clone()),
+            transition_id,
+        };
+        let audit = audit_record(
+            &context,
+            &plan,
+            MigrationAuditAction::CommitCutover,
+            &fingerprint,
+        );
+        let commit = MigrationCommit::new(
+            context,
+            fingerprint,
+            plan.clone(),
+            vec![
+                MigrationMutation::AppendTransition(transition),
+                MigrationMutation::AppendRoutingSnapshot(snapshot),
+                MigrationMutation::AdvanceRoutingHead {
+                    unit_digest: plan.routing_unit.digest(),
+                    expected: expected_routing_generation,
+                    next: next_routing_generation,
+                },
+            ],
+            outcome,
+            Some(audit),
+        )?;
+        Ok(CommitCutoverOutput {
+            outcome: commit_outcome(self.store.commit(commit).map_err(map_store_error)?),
+        })
     }
 
     /// Start an isolated Source-only rollback cycle.
@@ -635,6 +732,8 @@ pub struct PrepareCutoverInput {
     pub plan_id: MigrationPlanId,
     /// Exact rollout intent.
     pub intent: CutoverIntent,
+    /// Exact bounded Internal Canary admission policy.
+    pub canary_policy: CanaryPolicy,
     /// Immutable content-addressed manifest identity.
     pub manifest: ArtifactRef,
     /// Exact source release artifact.
@@ -671,6 +770,10 @@ pub struct CommitCutoverInput {
     pub plan_id: MigrationPlanId,
     /// Identity returned by preparation.
     pub prepared_transition_id: String,
+    /// Source high-water observed immediately before routing CAS.
+    pub observed_source_high_water: u64,
+    /// Fresh fence token assigned to the candidate routing generation.
+    pub candidate_fencing_token: FencingToken,
 }
 
 /// Committed cutover result.

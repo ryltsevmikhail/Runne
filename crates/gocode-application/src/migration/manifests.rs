@@ -7,6 +7,7 @@ use gocode_domain::timestamp::Timestamp;
 use super::{
     error::MigrationError,
     ports::CutoverIntent,
+    rollout::{CanaryPolicy, MAX_CANARY_ADMISSION_LIMIT},
     types::{
         ArtifactDigest, MigrationCycleId, MigrationPlanId, RoutingGeneration, RoutingUnit,
         RuntimeGenerationRef,
@@ -262,6 +263,7 @@ pub struct CutoverManifestFields {
     pub plan_id: MigrationPlanId,
     pub cycle_id: MigrationCycleId,
     pub intent: CutoverIntent,
+    pub canary_policy: CanaryPolicy,
     pub routing_unit: RoutingUnit,
     pub source_release: ArtifactRef,
     pub source_generation: RuntimeGenerationRef,
@@ -290,6 +292,7 @@ pub struct CutoverManifest {
     pub plan_id: MigrationPlanId,
     pub cycle_id: MigrationCycleId,
     pub intent: CutoverIntent,
+    pub admission_limit: u32,
     pub routing_unit: RoutingUnit,
     pub source_release: ArtifactRef,
     pub source_generation: RuntimeGenerationRef,
@@ -332,6 +335,9 @@ impl CutoverManifest {
         if fields.candidate_validation.validation != ArtifactValidation::Passed {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
+        fields
+            .canary_policy
+            .validate_routing_unit(&fields.routing_unit)?;
         let expected_prepared_version = fields
             .expected_plan_version
             .checked_add(1)
@@ -378,6 +384,7 @@ impl CutoverManifest {
             plan_id: fields.plan_id,
             cycle_id: fields.cycle_id,
             intent: fields.intent,
+            admission_limit: fields.canary_policy.admission_limit,
             routing_unit: fields.routing_unit,
             source_release: fields.source_release,
             source_generation: fields.source_generation,
@@ -430,6 +437,8 @@ impl CutoverManifest {
             && self.expected_plan_version.checked_add(1) == Some(self.plan_version)
             && self.source_generation != self.candidate_generation
             && self.retention_until >= self.prepared_at
+            && self.admission_limit != 0
+            && self.admission_limit <= MAX_CANARY_ADMISSION_LIMIT
     }
 }
 
