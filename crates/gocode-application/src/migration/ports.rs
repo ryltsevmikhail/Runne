@@ -102,6 +102,8 @@ pub enum MigrationAuditAction {
     BeginDrain,
     /// Retire the source authority.
     RetireSource,
+    /// Emergency revocation of candidate routing authority.
+    EmergencyRevoke,
 }
 
 /// Audit evidence stored atomically with a control mutation.

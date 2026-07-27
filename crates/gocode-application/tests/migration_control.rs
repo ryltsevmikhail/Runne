@@ -27,8 +27,9 @@ use gocode_application::migration::{
         RolloutStep,
     },
     service::{
-        BeginDrainInput, CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
-        RecordEvidenceInput, RetireSourceInput, StagePlanInput, StartRollbackInput,
+        BeginDrainInput, CommitCutoverInput, CutoverIntent, EmergencyRevokeInput, MigrationService,
+        PrepareCutoverInput, RecordEvidenceInput, RetireSourceInput, StagePlanInput,
+        StartRollbackInput,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
@@ -733,6 +734,244 @@ fn rollback_cycle_rejects_a_stale_parent_version_without_mutation() {
     assert!(service.load_plan(&rollback_plan_id()).unwrap().is_none());
 }
 
+#[test]
+fn emergency_revoke_restores_source_authority_and_disables_further_rollback() {
+    let (service, _) = canary_active_service();
+    let before_head = service.routing_head(&routing_unit()).unwrap().unwrap();
+    assert_eq!(
+        before_head.rollback_disposition,
+        RollbackDisposition::Eligible
+    );
+
+    let output = service
+        .emergency_revoke(
+            emergency_revoke_context(&service),
+            EmergencyRevokeInput {
+                plan_id: plan_id(),
+                operator_authorization: artifact("emergency-auth", 200),
+                emergency_reason: "candidate-data-corruption".to_owned(),
+                new_fencing_token: FencingToken::new([13; 32]).unwrap(),
+            },
+        )
+        .unwrap();
+
+    let snapshot = output.outcome.routing_snapshot.unwrap();
+    assert!(matches!(
+        snapshot.authority,
+        RuntimeAuthority::Source(ref generation) if generation == &source_generation()
+    ));
+    assert_eq!(
+        snapshot.rollback_disposition,
+        RollbackDisposition::Ineligible
+    );
+    assert_eq!(
+        snapshot.routing_generation.get(),
+        before_head.routing_generation.get() + 1
+    );
+}
+
+#[test]
+fn emergency_revoke_is_idempotent() {
+    let (service, _) = canary_active_service();
+    let context = emergency_revoke_context(&service);
+    let input = EmergencyRevokeInput {
+        plan_id: plan_id(),
+        operator_authorization: artifact("emergency-auth", 201),
+        emergency_reason: "candidate-data-corruption".to_owned(),
+        new_fencing_token: FencingToken::new([14; 32]).unwrap(),
+    };
+
+    let first = service
+        .emergency_revoke(context.clone(), input.clone())
+        .unwrap();
+    let retry = service.emergency_revoke(context, input).unwrap();
+    assert_eq!(
+        first.outcome.routing_snapshot,
+        retry.outcome.routing_snapshot
+    );
+}
+
+#[test]
+fn emergency_revoke_rejects_non_production_phases() {
+    let (service, _) = seeded_service();
+
+    assert_eq!(
+        service.emergency_revoke(
+            next_context(&service),
+            EmergencyRevokeInput {
+                plan_id: plan_id(),
+                operator_authorization: artifact("emergency-auth", 202),
+                emergency_reason: "test".to_owned(),
+                new_fencing_token: FencingToken::new([15; 32]).unwrap(),
+            },
+        ),
+        Err(MigrationError::EmergencyRevokeIneligible)
+    );
+}
+
+#[test]
+fn rollback_cycle_can_commit_cutover_and_restore_source_authority() {
+    let (service, _) = seeded_service();
+    service
+        .start_rollback_cycle(command_context(0, None, 50), rollback_input())
+        .unwrap();
+
+    let rb_plan_id = rollback_plan_id();
+    for target in [
+        MigrationPhase::Foundation,
+        MigrationPhase::ReadOnlyParity,
+        MigrationPhase::SimulatedShadow,
+    ] {
+        service
+            .record_evidence(
+                rollback_next_context(&service),
+                RecordEvidenceInput {
+                    plan_id: rb_plan_id.clone(),
+                    evidence: required_evidence_for(target),
+                },
+            )
+            .unwrap();
+        service
+            .advance_phase(rollback_next_context(&service), rb_plan_id.clone(), target)
+            .unwrap();
+    }
+
+    service
+        .record_evidence(
+            rollback_next_context(&service),
+            RecordEvidenceInput {
+                plan_id: rb_plan_id.clone(),
+                evidence: MigrationEvidence::SimulatedShadow {
+                    semantic_diff_digest: ArtifactDigest::from_bytes([14; 32]),
+                    canonical_write_count: 0,
+                    external_effect_count: 0,
+                    client_acknowledgement_count: 0,
+                },
+            },
+        )
+        .unwrap();
+
+    for (index, family) in GateFamily::ALL.into_iter().enumerate() {
+        service
+            .record_evidence(
+                rollback_next_context(&service),
+                RecordEvidenceInput {
+                    plan_id: rb_plan_id.clone(),
+                    evidence: MigrationEvidence::ProductionGate(GateEvidence {
+                        gate_id: GateId::new(format!("rb-gate-{}", index + 1)).unwrap(),
+                        gate_revision: 1,
+                        family,
+                        source_generation: candidate_generation(),
+                        candidate_generation: source_generation(),
+                        cohort: routing_unit().cohort,
+                        contract_digest: routing_unit().contract_digest,
+                        profile_digest: routing_unit().feature_profile.profile_digest,
+                        config_digest: routing_unit().config_digest,
+                        measured_at: Timestamp::from_unix_micros(50),
+                        valid_until: Timestamp::from_unix_micros(300),
+                        status: GateStatus::Passed,
+                        evidence_digest: ArtifactDigest::from_bytes(
+                            [u8::try_from(index + 1).unwrap(); 32],
+                        ),
+                    }),
+                },
+            )
+            .unwrap();
+    }
+
+    service
+        .advance_phase(
+            rollback_next_context(&service),
+            rb_plan_id.clone(),
+            MigrationPhase::InternalCanary,
+        )
+        .unwrap();
+
+    let evidence_set_digest = rollback_gate_set_digest(&service);
+    let prepared = service
+        .prepare_cutover(
+            rollback_routing_context(&service, 2),
+            PrepareCutoverInput {
+                plan_id: rb_plan_id.clone(),
+                intent: CutoverIntent::Rollback,
+                rollout_policy: CutoverPolicy::InternalCanary(
+                    CanaryPolicy::new(routing_unit().cohort, 64).unwrap(),
+                ),
+                manifest: artifact("rollback-manifest", 220),
+                source_release: artifact("source-release", 31),
+                candidate_release: artifact("candidate-release", 32),
+                frozen_evidence_set: ArtifactRef::new(
+                    "artifact://evidence-set",
+                    evidence_set_digest,
+                )
+                .unwrap(),
+                migration_report: MigrationReport::new(MigrationReportFields {
+                    report: artifact("rb-migration-report", 221),
+                    plan_id: rb_plan_id.clone(),
+                    cycle_id: MigrationCycleId::new("cycle-rollback-1").unwrap(),
+                    source_snapshot: artifact("rb-source-snapshot", 222),
+                    source_high_water: 0,
+                    source_generation: candidate_generation(),
+                    candidate_generation: source_generation(),
+                    counts: MigrationCounts {
+                        imported: 10,
+                        skipped: 0,
+                        unsupported: 0,
+                        rejected: 0,
+                        unknown: 0,
+                        lossy: 0,
+                        ambiguous: 0,
+                    },
+                    schema: artifact("schema", 3),
+                    mapping: artifact("rb-mapping", 223),
+                    profile: artifact("profile", 1),
+                    integrity: ArtifactValidation::Passed,
+                    rebuild: ArtifactValidation::Passed,
+                    disposition: ImportDisposition::Clean,
+                    created_at: Timestamp::from_unix_micros(90),
+                })
+                .unwrap(),
+                drain_report: DrainReportArtifact {
+                    report: artifact("rb-drain-report", 224),
+                    complete: true,
+                    timed_out: false,
+                    unresolved_effects: 0,
+                    source_high_water: 0,
+                },
+                candidate_validation: CandidateValidationReport {
+                    report: artifact("rb-candidate-validation", 225),
+                    validation: ArtifactValidation::Passed,
+                },
+                rollback_policy: RollbackPolicy::BeforeCandidateWrites,
+                retention_until: Timestamp::from_unix_micros(1_000),
+                operator_authorization: artifact("rb-operator-authorization", 226),
+            },
+        )
+        .unwrap();
+
+    let committed = service
+        .commit_cutover(
+            rollback_routing_context(&service, 2),
+            CommitCutoverInput {
+                plan_id: rb_plan_id,
+                prepared_transition_id: prepared.outcome.transition_id,
+                observed_source_high_water: 0,
+                candidate_fencing_token: FencingToken::new([15; 32]).unwrap(),
+            },
+        )
+        .unwrap();
+
+    let snapshot = committed.outcome.routing_snapshot.unwrap();
+    assert!(matches!(
+        snapshot.authority,
+        RuntimeAuthority::Source(ref generation) if generation == &source_generation()
+    ));
+    assert_eq!(
+        snapshot.rollback_disposition,
+        RollbackDisposition::Ineligible
+    );
+}
+
 #[derive(Clone, Default)]
 struct MemoryMigrationStore {
     state: Arc<Mutex<MemoryState>>,
@@ -1149,6 +1388,77 @@ fn next_context(
         .plan
         .plan_version;
     command_context(version, None, version + 2)
+}
+
+fn emergency_revoke_context(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+) -> MigrationCommandContext {
+    let version = service
+        .load_plan(&plan_id())
+        .unwrap()
+        .unwrap()
+        .plan
+        .plan_version;
+    command_context(version, None, version + 80)
+}
+
+fn rollback_next_context(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+) -> MigrationCommandContext {
+    let version = service
+        .load_plan(&rollback_plan_id())
+        .unwrap()
+        .unwrap()
+        .plan
+        .plan_version;
+    command_context_for_rb(version, 200 + version)
+}
+
+fn command_context_for_rb(
+    expected_plan_version: u64,
+    command_suffix: u64,
+) -> MigrationCommandContext {
+    MigrationCommandContext {
+        command_id: format!("018f2e3a-8d5c-7b20-8d9a-{command_suffix:012x}")
+            .parse::<CommandId>()
+            .unwrap(),
+        idempotency_key: IdempotencyKey::new(format!("rb-command-{command_suffix}")).unwrap(),
+        operator_id: OperatorId::new("operator-1").unwrap(),
+        expected_plan_version,
+        expected_routing_generation: None,
+        evaluated_at: Timestamp::from_unix_micros(100),
+    }
+}
+
+fn rollback_routing_context(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+    generation: u64,
+) -> MigrationCommandContext {
+    let mut context = rollback_next_context(service);
+    context.expected_routing_generation = Some(RoutingGeneration::new(generation).unwrap());
+    context
+}
+
+fn rollback_gate_set_digest(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+) -> ArtifactDigest {
+    let loaded = service.load_plan(&rollback_plan_id()).unwrap().unwrap();
+    PhaseGatePolicy::for_target(MigrationPhase::InternalCanary)
+        .unwrap()
+        .validate(
+            &loaded.evidence,
+            &GateContext {
+                source_generation: loaded.plan.source,
+                candidate_generation: loaded.plan.candidate,
+                cohort: loaded.plan.routing_unit.cohort,
+                contract_digest: loaded.plan.routing_unit.contract_digest,
+                profile_digest: loaded.plan.routing_unit.feature_profile.profile_digest,
+                config_digest: loaded.plan.routing_unit.config_digest,
+                now: Timestamp::from_unix_micros(100),
+            },
+        )
+        .unwrap()
+        .digest()
 }
 
 fn next_routing_context(
