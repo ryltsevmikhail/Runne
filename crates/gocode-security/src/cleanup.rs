@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 
+use gocode_domain::security::Generation;
+
 #[derive(Debug, Clone)]
 pub struct CleanupReservationRef {
     pub reservation_id: String,
     pub state: CleanupState,
+    pub generation: Option<Generation>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,6 +33,22 @@ impl CleanupPool {
     }
 
     pub fn allocate(&mut self, id: String) -> Result<CleanupReservationRef, CleanupError> {
+        self.allocate_inner(id, None)
+    }
+
+    pub fn allocate_for_generation(
+        &mut self,
+        id: String,
+        generation: Generation,
+    ) -> Result<CleanupReservationRef, CleanupError> {
+        self.allocate_inner(id, Some(generation))
+    }
+
+    fn allocate_inner(
+        &mut self,
+        id: String,
+        generation: Option<Generation>,
+    ) -> Result<CleanupReservationRef, CleanupError> {
         if self.used >= self.capacity {
             return Err(CleanupError::CapacityUnavailable);
         }
@@ -37,6 +56,7 @@ impl CleanupPool {
         let reservation = CleanupReservationRef {
             reservation_id: id,
             state: CleanupState::Allocated,
+            generation,
         };
         self.reservations
             .insert(reservation.reservation_id.clone(), reservation.clone());
@@ -65,6 +85,25 @@ impl CleanupPool {
         Ok(())
     }
 
+    pub fn release_for_generation(
+        &mut self,
+        id: &str,
+        generation: Generation,
+    ) -> Result<(), CleanupError> {
+        let reservation = self
+            .reservations
+            .get(id)
+            .ok_or(CleanupError::ReservationNotFound)?;
+        if reservation.generation != Some(generation) {
+            return Err(CleanupError::StaleGeneration);
+        }
+        self.release_activated(id)
+    }
+
+    pub fn reservation(&self, id: &str) -> Option<&CleanupReservationRef> {
+        self.reservations.get(id)
+    }
+
     pub fn available(&self) -> usize {
         self.capacity - self.used
     }
@@ -76,11 +115,14 @@ pub enum CleanupError {
     CapacityUnavailable,
     #[error("reservation not found")]
     ReservationNotFound,
+    #[error("cleanup generation is stale")]
+    StaleGeneration,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gocode_domain::security::Generation;
 
     #[test]
     fn capacity_exhausted() {
@@ -104,5 +146,21 @@ mod tests {
         pool.allocate("r1".into()).unwrap();
         pool.mark_uncertain("r1").unwrap();
         assert_eq!(pool.available(), 1);
+    }
+
+    #[test]
+    fn stale_generation_cannot_release_or_return_capacity() {
+        let mut pool = CleanupPool::new(1);
+        pool.allocate_for_generation("r1".into(), Generation::INITIAL)
+            .unwrap();
+
+        let result = pool.release_for_generation("r1", Generation::INITIAL.next());
+
+        assert!(matches!(result, Err(CleanupError::StaleGeneration)));
+        assert_eq!(pool.available(), 0);
+        assert_eq!(
+            pool.reservation("r1").unwrap().state,
+            CleanupState::Allocated
+        );
     }
 }

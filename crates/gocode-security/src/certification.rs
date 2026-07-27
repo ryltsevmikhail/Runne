@@ -50,6 +50,12 @@ pub struct CertificationManager {
     known_os_version: String,
 }
 
+impl Default for CertificationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CertificationManager {
     pub fn new() -> Self {
         Self {

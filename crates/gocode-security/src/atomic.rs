@@ -1,51 +1,28 @@
 use std::collections::HashMap;
 
-/// Атомарная транзакция до запуска эффекта, принадлежащая репозиторию.
-/// Все поля фиксируются вместе или не фиксируются вовсе. Между аудитом и разрешением нет окна сбоя.
-#[derive(Debug, Clone)]
-pub struct AtomicPreEffectTransaction {
-    pub authorization_decision: AuthorizationDecision,
-    pub budget_consumed: bool,
-    pub side_effect_started: bool,
-    pub dispatch_intent: String,
-    pub permit_claimed: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct AuthorizationDecision {
-    pub grant_id: Option<String>,
-    pub allowed: bool,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone)]
-pub enum PreEffectTransactionOutcome {
-    Committed { intent_id: String },
-    RolledBack { reason: String },
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AtomicTransactionError {
-    #[error("permit already claimed")]
-    PermitAlreadyClaimed,
-    #[error("budget unavailable")]
-    BudgetUnavailable,
-    #[error("audit store unavailable")]
-    AuditStoreUnavailable,
-}
+pub use gocode_application::security::atomic_transaction::{
+    AtomicPreEffectTransaction, AtomicTransactionError, AuthorizationDecision,
+    PreEffectTransactionOutcome,
+};
 
 /// Хранилище атомарных транзакций в памяти для тестирования.
 /// В production это была бы одна SQLite-транзакция BEGIN IMMEDIATE.
 pub struct AtomicTransactionStore {
     transactions: HashMap<String, AtomicPreEffectTransaction>,
-    committed: Vec<String>,
+    permit_claims: HashMap<String, String>,
+}
+
+impl Default for AtomicTransactionStore {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AtomicTransactionStore {
     pub fn new() -> Self {
         Self {
             transactions: HashMap::new(),
-            committed: Vec::new(),
+            permit_claims: HashMap::new(),
         }
     }
 
@@ -62,21 +39,31 @@ impl AtomicTransactionStore {
                 reason: "authorization denied".into(),
             });
         }
-        if !tx.budget_consumed {
+        if tx.budget_reservation_id.is_empty() || tx.budget_amount == 0 {
             return Err(AtomicTransactionError::BudgetUnavailable);
         }
-        if tx.permit_claimed
-            && self
-                .committed
-                .iter()
-                .any(|committed| committed == &intent_id)
+        if !tx.side_effect_started
+            || tx.permit_id.is_empty()
+            || intent_id.is_empty()
+            || tx.authorization_decision.grant_id.is_empty()
+            || tx.authorization_decision.reason.is_empty()
         {
-            return Err(AtomicTransactionError::PermitAlreadyClaimed);
+            return Err(AtomicTransactionError::IncompleteTransaction);
+        }
+        if let Some(claimed_intent) = self.permit_claims.get(&tx.permit_id) {
+            if claimed_intent == &intent_id {
+                if self.transactions.get(&intent_id) != Some(&tx) {
+                    return Err(AtomicTransactionError::ReplayConflict);
+                }
+                return Ok(PreEffectTransactionOutcome::Committed { intent_id });
+            }
+            return Err(AtomicTransactionError::PermitIntentConflict);
         }
 
         // Сохраняем транзакцию только после успешного прохождения всех проверок.
+        self.permit_claims
+            .insert(tx.permit_id.clone(), intent_id.clone());
         self.transactions.insert(intent_id.clone(), tx);
-        self.committed.push(intent_id.clone());
         Ok(PreEffectTransactionOutcome::Committed { intent_id })
     }
 
@@ -85,7 +72,11 @@ impl AtomicTransactionStore {
     }
 
     pub fn is_committed(&self, intent_id: &str) -> bool {
-        self.committed.contains(&intent_id.to_string())
+        self.transactions.contains_key(intent_id)
+    }
+
+    pub fn committed_count(&self) -> usize {
+        self.transactions.len()
     }
 }
 
@@ -111,7 +102,7 @@ mod tests {
     fn budget_failure_rolls_back() {
         let mut store = AtomicTransactionStore::new();
         let mut tx = valid_tx("intent-2");
-        tx.budget_consumed = false;
+        tx.budget_amount = 0;
 
         let result = store.commit_pre_effect(tx);
 
@@ -123,18 +114,18 @@ mod tests {
     }
 
     #[test]
-    fn permit_already_claimed_rejected() {
+    fn exact_replay_of_claimed_permit_is_idempotent() {
         let mut store = AtomicTransactionStore::new();
-        let mut tx = valid_tx("intent-3");
-        tx.permit_claimed = true;
+        let tx = valid_tx("intent-3");
 
         store.commit_pre_effect(tx.clone()).unwrap();
         let result = store.commit_pre_effect(tx);
 
         assert!(matches!(
             result,
-            Err(AtomicTransactionError::PermitAlreadyClaimed)
+            Ok(PreEffectTransactionOutcome::Committed { .. })
         ));
+        assert_eq!(store.committed_count(), 1);
     }
 
     #[test]
@@ -142,7 +133,7 @@ mod tests {
         let mut store = AtomicTransactionStore::new();
         let mut tx = valid_tx("intent-4");
         tx.authorization_decision = AuthorizationDecision {
-            grant_id: None,
+            grant_id: "g1".into(),
             allowed: false,
             reason: "denied".into(),
         };
@@ -157,29 +148,92 @@ mod tests {
     }
 
     #[test]
-    fn crash_recovery_sees_committed_intent() {
+    fn committed_intent_is_visible_in_the_same_in_memory_store() {
         let mut store = AtomicTransactionStore::new();
         store.commit_pre_effect(valid_tx("intent-5")).unwrap();
 
-        // Имитируем сбой и восстановление: создаём новый экземпляр хранилища.
-        let _recovered = AtomicTransactionStore::new();
-        // В production восстановление читает устойчивое хранилище;
-        // здесь проверяется паттерн доступности зафиксированного намерения.
         assert!(store.is_committed("intent-5"));
         assert!(store.get_intent("intent-5").is_some());
     }
 
+    #[test]
+    fn exact_replay_of_claimed_permit_returns_prior_outcome_without_second_commit() {
+        let mut store = AtomicTransactionStore::new();
+        let tx = valid_tx_with_permit("intent-6", "permit-1");
+        let first = store.commit_pre_effect(tx.clone()).unwrap();
+
+        let replay = store.commit_pre_effect(tx).unwrap();
+
+        assert_eq!(first.intent_id(), replay.intent_id());
+        assert_eq!(store.committed_count(), 1);
+    }
+
+    #[test]
+    fn same_permit_with_different_intent_is_rejected_without_mutation() {
+        let mut store = AtomicTransactionStore::new();
+        store
+            .commit_pre_effect(valid_tx_with_permit("intent-7a", "permit-2"))
+            .unwrap();
+
+        let result = store.commit_pre_effect(valid_tx_with_permit("intent-7b", "permit-2"));
+
+        assert!(matches!(
+            result,
+            Err(AtomicTransactionError::PermitIntentConflict)
+        ));
+        assert_eq!(store.committed_count(), 1);
+        assert!(store.get_intent("intent-7b").is_none());
+    }
+
+    #[test]
+    fn same_permit_and_intent_with_changed_payload_is_rejected_without_mutation() {
+        let mut store = AtomicTransactionStore::new();
+        let original = valid_tx_with_permit("intent-8", "permit-3");
+        store.commit_pre_effect(original.clone()).unwrap();
+        let mut changed = original.clone();
+        changed.authorization_decision.reason = "changed".into();
+
+        let result = store.commit_pre_effect(changed);
+
+        assert!(matches!(
+            result,
+            Err(AtomicTransactionError::ReplayConflict)
+        ));
+        assert_eq!(store.get_intent("intent-8"), Some(&original));
+        assert_eq!(store.committed_count(), 1);
+    }
+
+    #[test]
+    fn incomplete_pre_effect_marker_is_rejected_without_mutation() {
+        let mut store = AtomicTransactionStore::new();
+        let mut tx = valid_tx("intent-9");
+        tx.side_effect_started = false;
+
+        let result = store.commit_pre_effect(tx);
+
+        assert!(matches!(
+            result,
+            Err(AtomicTransactionError::IncompleteTransaction)
+        ));
+        assert_eq!(store.committed_count(), 0);
+    }
+
     fn valid_tx(intent: &str) -> AtomicPreEffectTransaction {
+        valid_tx_with_permit(intent, &format!("permit-{intent}"))
+    }
+
+    fn valid_tx_with_permit(intent: &str, permit_id: &str) -> AtomicPreEffectTransaction {
         AtomicPreEffectTransaction {
             authorization_decision: AuthorizationDecision {
-                grant_id: Some("g1".into()),
+                grant_id: "g1".into(),
                 allowed: true,
                 reason: "ok".into(),
             },
-            budget_consumed: true,
+            budget_reservation_id: format!("reservation-{intent}"),
+            budget_amount: 1,
             side_effect_started: true,
             dispatch_intent: intent.into(),
-            permit_claimed: false,
+            permit_id: permit_id.into(),
         }
     }
 }

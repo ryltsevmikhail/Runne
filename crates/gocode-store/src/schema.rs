@@ -10,7 +10,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 6;
+pub const CURRENT_SCHEMA_VERSION: i64 = 7;
 
 /// Apply all schema migrations up to [`CURRENT_SCHEMA_VERSION`].
 ///
@@ -79,6 +79,13 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V6)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (6)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 7 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V7)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (7)", [])?;
         tx.commit()?;
     }
 
@@ -507,6 +514,38 @@ ALTER TABLE rollback_manifests_v6 RENAME TO rollback_manifests;
 ALTER TABLE retirement_manifests_v6 RENAME TO retirement_manifests;
 "#;
 
+// ── Migration V7: atomic security pre-effect transaction ────────────────
+
+const MIGRATION_V7: &str = r#"
+CREATE TABLE security_dispatch_intents (
+    intent_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status = 'uncertain')
+);
+
+CREATE TABLE security_authorization_decisions (
+    intent_id TEXT PRIMARY KEY REFERENCES security_dispatch_intents(intent_id),
+    grant_id TEXT NOT NULL,
+    allowed INTEGER NOT NULL CHECK (allowed IN (0, 1)),
+    reason TEXT NOT NULL
+);
+
+CREATE TABLE security_budget_consumptions (
+    intent_id TEXT PRIMARY KEY REFERENCES security_dispatch_intents(intent_id),
+    reservation_id TEXT NOT NULL,
+    amount INTEGER NOT NULL
+);
+
+CREATE TABLE security_audit_pre_effect (
+    intent_id TEXT PRIMARY KEY REFERENCES security_dispatch_intents(intent_id),
+    side_effect_started INTEGER NOT NULL CHECK (side_effect_started = 1)
+);
+
+CREATE TABLE security_permit_claims (
+    permit_id TEXT PRIMARY KEY,
+    intent_id TEXT NOT NULL UNIQUE REFERENCES security_dispatch_intents(intent_id)
+);
+"#;
+
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     let conn = Connection::open(db_path)?;
@@ -660,7 +699,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -702,6 +741,30 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(cycle_column_count, 1, "missing cycle lineage on {table}");
+        }
+    }
+
+    #[test]
+    fn schema_v7_adds_atomic_pre_effect_tables_together() {
+        let conn = Connection::open_in_memory().unwrap();
+        apply_migrations(&conn).unwrap();
+
+        for table in [
+            "security_dispatch_intents",
+            "security_authorization_decisions",
+            "security_budget_consumptions",
+            "security_audit_pre_effect",
+            "security_permit_claims",
+        ] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "missing atomic pre-effect table {table}");
         }
     }
 
