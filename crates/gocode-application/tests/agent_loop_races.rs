@@ -1,8 +1,11 @@
 //! Phase 5 Race Tests — concurrent command protocol at the domain boundary.
 //!
-//! Each test demonstrates: two mutually exclusive commands are both valid on
-//! the same aggregate snapshot; after one is applied (winner), the other is
-//! rejected with a typed error (loser); no partial mutations occur.
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+// Each test demonstrates: two mutually exclusive commands are both valid on
+// the same aggregate snapshot; after one is applied (winner), the other is
+// rejected with a typed error (loser); no partial mutations occur.
 
 use gocode_domain::agent_loop::{
     LoopCheckpointBody, LoopDisposition, StepOutcomeRecord, StepOutcomeRef, StepOutcomeType,
@@ -20,6 +23,20 @@ use gocode_domain::recovery::{ReconciliationResultRef, ReconciliationStatus};
 use gocode_domain::reference::{BudgetReservationRef, CheckpointRef, ResultRef};
 use gocode_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use gocode_domain::timestamp::Timestamp;
+use gocode_domain::verification::PlanEvaluationRef;
+
+use gocode_application::commands::{CommandOutcome, CreateNextCycleInput};
+use gocode_application::errors::ApplicationError;
+use gocode_application::fingerprint::CommandFingerprint;
+use gocode_application::ports::{
+    ApplicationCommandContext, CommandCommit, CommitError, CommitResult, EventStore,
+    EventStoreError, IdGenerationError, IdGenerator, IdempotencyScope, LoadedStream,
+    PlanEvaluation, PreparedRetrySchedule, PrincipalId, ReceiptLookup, ReconciliationError,
+    ReconciliationQueryPort, RetryScheduleError, RetrySchedulePort, RuntimeAuthorityId, TimeError,
+    TimePort, UnitOfWork, VerificationQueryError, VerificationQueryPort, WakeEvidenceError,
+    WakeEvidenceQueryPort,
+};
+use gocode_application::service::{AgentLoopAuthorities, TaskRunService};
 
 const TASK: &str = "018f2e3a-7000-7000-8000-000000000001";
 const ATTEMPT: &str = "018f2e3a-7000-7000-8000-000000000002";
@@ -627,4 +644,240 @@ fn loser_never_causes_partial_mutations() {
         .unwrap_err();
     assert!(matches!(err2, DomainError::LoopInvariantViolation { .. }));
     assert_eq!(before, agg);
+}
+
+// Service-level OCC version-conflict test
+
+// (imports from top of file)
+
+// Simple version-tracking store: load returns fixed events, commit checks OCC.
+// After winner commits and advances version, loser's load sees updated version
+// and pipeline returns VersionConflict (checked before domain decide).
+
+#[derive(Clone)]
+struct OccStore {
+    events: Rc<RefCell<Vec<EventEnvelope<TaskRunEvent>>>>,
+    version: Rc<Cell<u64>>,
+}
+
+impl OccStore {
+    fn new(events: Vec<EventEnvelope<TaskRunEvent>>) -> Self {
+        let v = events.last().map(|e| e.sequence()).unwrap_or(0);
+        Self {
+            events: Rc::new(RefCell::new(events)),
+            version: Rc::new(Cell::new(v)),
+        }
+    }
+}
+
+impl EventStore for OccStore {
+    fn load_task_run(&self, _: TaskRunId) -> Result<LoadedStream, EventStoreError> {
+        let events = self.events.borrow().clone();
+        let v = self.version.get();
+        Ok(LoadedStream {
+            current_version: v,
+            last_event_id: events.last().map(|e| *e.event_id()),
+            events,
+        })
+    }
+}
+
+impl UnitOfWork for OccStore {
+    fn lookup_receipt(
+        &self,
+        _: CommandId,
+        _: &IdempotencyKey,
+        _: &IdempotencyScope,
+        _: &CommandFingerprint,
+    ) -> Result<ReceiptLookup, CommitError> {
+        Ok(ReceiptLookup::Miss)
+    }
+    fn commit(&self, payload: CommandCommit) -> Result<CommitResult, CommitError> {
+        let cur = self.version.get();
+        if payload.expected_version != cur {
+            return Err(CommitError::VersionConflict {
+                expected: payload.expected_version,
+                actual: cur,
+            });
+        }
+        let nv = cur + payload.events.len() as u64;
+        // Append committed events to keep version/event-count consistent
+        let mut ev = self.events.borrow_mut();
+        let mut seq = cur;
+        for ue in &payload.events {
+            seq += 1;
+            ev.push(envelope(seq, ue.payload().clone()));
+        }
+        self.version.set(nv);
+        Ok(CommitResult::Committed { new_version: nv })
+    }
+}
+
+const GEN_ID: &str = "018f2e3a-7000-7000-8000-000000000010";
+struct OI;
+impl IdGenerator for OI {
+    fn next_taskrun_id(&self) -> Result<TaskRunId, IdGenerationError> {
+        Ok(TASK.parse().unwrap())
+    }
+    fn next_conversation_id(&self) -> Result<gocode_domain::id::ConversationId, IdGenerationError> {
+        Ok(OTHER.parse().unwrap())
+    }
+    fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError> {
+        Ok(ATT2.parse().unwrap())
+    }
+    fn next_cycle_id(&self) -> Result<gocode_domain::id::CycleId, IdGenerationError> {
+        Ok(OTHER.parse().unwrap())
+    }
+    fn next_checkpoint_id(&self) -> Result<gocode_domain::id::CheckpointId, IdGenerationError> {
+        Ok(OTHER.parse().unwrap())
+    }
+    fn next_event_ids(
+        &self,
+        c: usize,
+    ) -> Result<Vec<gocode_domain::id::EventId>, IdGenerationError> {
+        Ok((0..c).map(|_| GEN_ID.parse().unwrap()).collect())
+    }
+}
+
+struct OT;
+impl TimePort for OT {
+    fn now_unix_us(&self) -> Result<i64, TimeError> {
+        Ok(0)
+    }
+}
+struct OR;
+impl RetrySchedulePort for OR {
+    fn prepare(
+        &self,
+        _: TaskRunId,
+        _: AttemptId,
+        _: u64,
+        _: &StepOutcomeRef,
+        p: &IntegrityDigest,
+        b: &BudgetReservationRef,
+        n: i64,
+    ) -> Result<PreparedRetrySchedule, RetryScheduleError> {
+        Ok(PreparedRetrySchedule {
+            retry_policy_digest: *p,
+            budget_reservation_ref: b.clone(),
+            delay_ms: 1,
+            due_at_unix_us: n + 1000,
+        })
+    }
+}
+struct OW;
+impl WakeEvidenceQueryPort for OW {
+    fn validate_current(
+        &self,
+        _: &WakeEvidenceRef,
+        _: TaskRunId,
+        _: gocode_domain::id::CycleId,
+        _: &WakeCondition,
+    ) -> Result<(), WakeEvidenceError> {
+        Ok(())
+    }
+}
+struct OC;
+impl ReconciliationQueryPort for OC {
+    fn validate_current(
+        &self,
+        _: &gocode_domain::recovery::ReconciliationResultRef,
+        _: TaskRunId,
+        _: AttemptId,
+        _: u64,
+        _: u64,
+    ) -> Result<(), ReconciliationError> {
+        Ok(())
+    }
+}
+struct OV;
+impl VerificationQueryPort for OV {
+    fn get_exact(&self, _: &PlanEvaluationRef) -> Result<PlanEvaluation, VerificationQueryError> {
+        panic!("unexpected")
+    }
+}
+
+fn oc_ctx(key: &str) -> ApplicationCommandContext {
+    ApplicationCommandContext {
+        command_id: TASK.parse().unwrap(),
+        idempotency_key: IdempotencyKey::new(key).unwrap(),
+        principal_id: PrincipalId("p".into()),
+        actor: Actor::new("p").unwrap(),
+    }
+}
+
+/// Two concurrent CreateNextCycle commands on the same version.
+/// Winner commits and advances version; loser hits VersionConflict via the pipeline.
+#[test]
+fn pipeline_version_conflict_two_create_next_cycle() {
+    let mut stream = base_loop_stream();
+    stream.push(envelope(
+        6,
+        TaskRunEvent::ContextCommitted {
+            cycle_id: CYCLE.parse().unwrap(),
+            manifest_ref: context_ref(),
+        },
+    ));
+    stream.push(envelope(
+        7,
+        TaskRunEvent::PlanCommitted {
+            cycle_id: CYCLE.parse().unwrap(),
+            plan_revision_ref: plan_ref(vec![]),
+            input_digest: digest(9),
+            output_digest: digest(10),
+            expected_proposal_indexes: vec![],
+        },
+    ));
+    stream.push(envelope(
+        8,
+        TaskRunEvent::LoopCycleCompleted {
+            cycle_id: CYCLE.parse().unwrap(),
+            attempt_id: ATTEMPT.parse().unwrap(),
+            disposition: LoopDisposition::Continue,
+        },
+    ));
+
+    let tr: TaskRunId = TASK.parse().unwrap();
+    let store = OccStore::new(stream);
+    let svc = TaskRunService::with_agent_loop_authorities(
+        store.clone(),
+        store.clone(),
+        OI,
+        RuntimeAuthorityId("t".into()),
+        AgentLoopAuthorities {
+            time: OT,
+            retry_schedule: OR,
+            wake_evidence: OW,
+            reconciliation: OC,
+            verification: OV,
+        },
+    );
+
+    let w = svc.create_next_cycle(
+        &oc_ctx("w"),
+        CreateNextCycleInput {
+            taskrun_id: tr,
+            expected_version: 8,
+            parent_cycle_id: CYCLE.parse().unwrap(),
+        },
+    );
+    assert!(
+        matches!(w, Ok(CommandOutcome::NextCycleAllocated { .. })),
+        "winner: {:?}",
+        w
+    );
+
+    let l = svc.create_next_cycle(
+        &oc_ctx("l"),
+        CreateNextCycleInput {
+            taskrun_id: tr,
+            expected_version: 8,
+            parent_cycle_id: CYCLE.parse().unwrap(),
+        },
+    );
+    assert!(
+        matches!(l, Err(ApplicationError::VersionConflict { .. })),
+        "loser: {:?}",
+        l
+    );
 }
