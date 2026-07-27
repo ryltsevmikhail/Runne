@@ -62,6 +62,24 @@ pub struct MigrationPlan {
 }
 
 impl MigrationPlan {
+    /// Record a non-phase control mutation under optimistic concurrency.
+    pub fn record_mutation(&mut self, expected_version: u64) -> Result<(), MigrationError> {
+        if self.status != MigrationPlanStatus::Active || self.phase == MigrationPhase::Retired {
+            return Err(MigrationError::TerminalPlanImmutable);
+        }
+        if expected_version != self.plan_version {
+            return Err(MigrationError::PlanVersionConflict {
+                expected: expected_version,
+                actual: self.plan_version,
+            });
+        }
+        self.plan_version = self
+            .plan_version
+            .checked_add(1)
+            .ok_or(MigrationError::ArithmeticOverflow)?;
+        Ok(())
+    }
+
     pub fn advance(
         &mut self,
         target: MigrationPhase,
@@ -93,18 +111,19 @@ impl MigrationPlan {
     }
 
     pub fn new_rollback(
+        plan_id: MigrationPlanId,
         cycle_id: MigrationCycleId,
         parent: &Self,
         routing_unit: RoutingUnit,
         gate_policy: GatePolicyRef,
         created_at: Timestamp,
     ) -> Result<Self, MigrationError> {
-        if cycle_id == parent.cycle_id {
+        if plan_id == parent.plan_id || cycle_id == parent.cycle_id {
             return Err(MigrationError::RollbackIneligible);
         }
 
         Ok(Self {
-            plan_id: parent.plan_id.clone(),
+            plan_id,
             cycle_id,
             cycle_kind: MigrationCycleKind::Rollback {
                 parent_cycle_id: parent.cycle_id.clone(),
@@ -167,6 +186,7 @@ mod tests {
     fn rollback_cycle_requires_a_distinct_cycle_and_parent() {
         let parent = test_plan(MigrationPhase::InternalCanary);
         let rollback = MigrationPlan::new_rollback(
+            MigrationPlanId::new("plan-rb").unwrap(),
             MigrationCycleId::new("cycle-rb").unwrap(),
             &parent,
             test_routing_unit(),
@@ -174,6 +194,7 @@ mod tests {
             Timestamp::from_unix_micros(10),
         )
         .unwrap();
+        assert_ne!(rollback.plan_id, parent.plan_id);
         assert_eq!(rollback.phase, MigrationPhase::Baseline);
         assert!(matches!(
             rollback.cycle_kind,
@@ -186,6 +207,7 @@ mod tests {
         let parent = test_plan(MigrationPhase::SimulatedShadow);
         assert_eq!(
             MigrationPlan::new_rollback(
+                MigrationPlanId::new("plan-rb").unwrap(),
                 parent.cycle_id.clone(),
                 &parent,
                 test_routing_unit(),

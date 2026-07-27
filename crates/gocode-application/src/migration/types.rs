@@ -283,6 +283,7 @@ impl RoutingUnit {
         }
         update_length_prefixed(&mut hasher, &self.feature_profile.profile_id);
         hasher.update(self.feature_profile.profile_revision.to_be_bytes());
+        hasher.update(self.feature_profile.profile_digest.as_bytes());
         hasher.update(self.contract_digest.as_bytes());
         hasher.update(self.schema_digest.as_bytes());
         hasher.update(self.config_digest.as_bytes());
@@ -476,8 +477,17 @@ mod tests {
         let unit = test_routing_unit();
         assert_eq!(
             unit.digest().to_string(),
-            "sha256:deac818dd599a0d7b8e1974203a63e9044de37c6833f5d946d8fa0da3f7b36fa"
+            "sha256:1bce54dc564e4c57cebf24006da6bceac9da00394f47c6814d0b3defa3a7b91c"
         );
+    }
+
+    #[test]
+    fn routing_unit_digest_changes_with_profile_digest() {
+        let unit = test_routing_unit();
+        let mut changed = unit.clone();
+        changed.feature_profile.profile_digest = ArtifactDigest::from_bytes([9; 32]);
+
+        assert_ne!(unit.digest(), changed.digest());
     }
 
     #[test]
