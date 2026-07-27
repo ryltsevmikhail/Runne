@@ -5,7 +5,10 @@ use std::{
 
 use gocode_application::migration::{
     error::MigrationError,
-    gates::MigrationEvidence,
+    gates::{
+        GateContext, GateEvidence, GateRevocationReason, GateStatus, MigrationEvidence,
+        PhaseGatePolicy,
+    },
     ports::{
         LoadedMigrationPlan, MigrationCommandContext, MigrationCommandFingerprint, MigrationCommit,
         MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceipt,
@@ -19,9 +22,9 @@ use gocode_application::migration::{
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
-        FencingToken, GatePolicyRef, MigrationCycleId, MigrationPlanId, OperatorId,
-        RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit, RuntimeAuthority,
-        RuntimeGenerationRef,
+        FencingToken, GateFamily, GateId, GatePolicyRef, MigrationCycleId, MigrationPlanId,
+        OperatorId, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit,
+        RuntimeAuthority, RuntimeGenerationRef,
     },
 };
 use gocode_domain::{
@@ -175,8 +178,9 @@ fn record_evidence_rejects_scope_mismatch_without_mutation() {
 }
 
 #[test]
-fn canary_transition_fails_closed_before_gate_implementation() {
+fn internal_canary_requires_every_critical_family() {
     let (service, _) = shadow_ready_service();
+    record_phase4_evidence_except(&service, Some(GateFamily::CanonicalAudit));
     let before = service.load_plan(&plan_id()).unwrap();
 
     assert_eq!(
@@ -185,9 +189,86 @@ fn canary_transition_fails_closed_before_gate_implementation() {
             plan_id(),
             MigrationPhase::InternalCanary,
         ),
-        Err(MigrationError::ProductionGatesUnavailable)
+        Err(MigrationError::GateMissing {
+            family: GateFamily::CanonicalAudit,
+        })
     );
     assert_eq!(service.load_plan(&plan_id()).unwrap(), before);
+}
+
+#[test]
+fn complete_phase4_gate_set_permits_internal_canary_eligibility() {
+    let (service, _) = shadow_ready_service();
+    record_phase4_evidence_except(&service, None);
+
+    let output = service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::InternalCanary,
+        )
+        .unwrap();
+
+    assert_eq!(output.plan.phase, MigrationPhase::InternalCanary);
+    assert!(matches!(
+        service
+            .routing_head(&routing_unit())
+            .unwrap()
+            .unwrap()
+            .authority,
+        RuntimeAuthority::Source(_)
+    ));
+}
+
+#[test]
+fn revocation_between_prepare_and_commit_blocks_cutover() {
+    let (service, _) = shadow_ready_service();
+    record_phase4_evidence_except(&service, None);
+    let evidence_set_digest = current_phase4_gate_set_digest(&service);
+    let prepared = service
+        .prepare_cutover(
+            next_context(&service),
+            PrepareCutoverInput {
+                plan_id: plan_id(),
+                intent: CutoverIntent::InternalCanary,
+                manifest_id: "manifest-1".to_owned(),
+                source_high_water: 10,
+                evidence_set_digest,
+            },
+        )
+        .unwrap();
+    service
+        .record_evidence(
+            next_context(&service),
+            RecordEvidenceInput {
+                plan_id: plan_id(),
+                evidence: MigrationEvidence::ProductionGate(phase4_gate_evidence(
+                    GateFamily::CanonicalAudit,
+                    GateStatus::Revoked {
+                        reason: GateRevocationReason::SecurityRevoked,
+                    },
+                    99,
+                )),
+            },
+        )
+        .unwrap();
+    let before_plan = service.load_plan(&plan_id()).unwrap();
+    let before_head = service.routing_head(&routing_unit()).unwrap();
+
+    assert_eq!(
+        service.commit_cutover(
+            next_context(&service),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: prepared.outcome.transition_id,
+            },
+        ),
+        Err(MigrationError::GateRevoked {
+            family: GateFamily::CanonicalAudit,
+        })
+    );
+    assert_eq!(service.load_plan(&plan_id()).unwrap(), before_plan);
+    assert_eq!(service.routing_head(&routing_unit()).unwrap(), before_head);
 }
 
 #[test]
@@ -401,6 +482,7 @@ impl MigrationControlStore for MemoryMigrationStore {
                             plan: plan.clone(),
                             transitions: Vec::new(),
                             evidence: Vec::new(),
+                            cutover_manifests: Vec::new(),
                         },
                     );
                 }
@@ -419,6 +501,14 @@ impl MigrationControlStore for MemoryMigrationStore {
                         .ok_or(MigrationStoreError::CorruptData)?
                         .evidence
                         .push(evidence.clone());
+                }
+                MigrationMutation::AppendCutoverManifest(manifest) => {
+                    state
+                        .plans
+                        .get_mut(manifest.plan_id.as_str())
+                        .ok_or(MigrationStoreError::CorruptData)?
+                        .cutover_manifests
+                        .push(manifest.clone());
                 }
                 MigrationMutation::AppendRoutingSnapshot(snapshot) => {
                     state
@@ -518,6 +608,70 @@ fn shadow_ready_service() -> (
     (service, store)
 }
 
+fn record_phase4_evidence_except(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+    omitted: Option<GateFamily>,
+) {
+    for (index, family) in GateFamily::ALL.into_iter().enumerate() {
+        if omitted == Some(family) {
+            continue;
+        }
+        service
+            .record_evidence(
+                next_context(service),
+                RecordEvidenceInput {
+                    plan_id: plan_id(),
+                    evidence: MigrationEvidence::ProductionGate(phase4_gate_evidence(
+                        family,
+                        GateStatus::Passed,
+                        u8::try_from(index + 1).unwrap(),
+                    )),
+                },
+            )
+            .unwrap();
+    }
+}
+
+fn phase4_gate_evidence(family: GateFamily, status: GateStatus, suffix: u8) -> GateEvidence {
+    GateEvidence {
+        gate_id: GateId::new(format!("gate-{suffix}")).unwrap(),
+        gate_revision: 1,
+        family,
+        source_generation: source_generation(),
+        candidate_generation: candidate_generation(),
+        cohort: routing_unit().cohort,
+        contract_digest: routing_unit().contract_digest,
+        profile_digest: routing_unit().feature_profile.profile_digest,
+        config_digest: routing_unit().config_digest,
+        measured_at: Timestamp::from_unix_micros(50),
+        valid_until: Timestamp::from_unix_micros(300),
+        status,
+        evidence_digest: ArtifactDigest::from_bytes([suffix; 32]),
+    }
+}
+
+fn current_phase4_gate_set_digest(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+) -> ArtifactDigest {
+    let loaded = service.load_plan(&plan_id()).unwrap().unwrap();
+    PhaseGatePolicy::for_target(MigrationPhase::InternalCanary)
+        .unwrap()
+        .validate(
+            &loaded.evidence,
+            &GateContext {
+                source_generation: loaded.plan.source,
+                candidate_generation: loaded.plan.candidate,
+                cohort: loaded.plan.routing_unit.cohort,
+                contract_digest: loaded.plan.routing_unit.contract_digest,
+                profile_digest: loaded.plan.routing_unit.feature_profile.profile_digest,
+                config_digest: loaded.plan.routing_unit.config_digest,
+                now: Timestamp::from_unix_micros(100),
+            },
+        )
+        .unwrap()
+        .digest()
+}
+
 fn next_context(
     service: &MigrationService<MemoryMigrationStore, PureShadow>,
 ) -> MigrationCommandContext {
@@ -548,6 +702,7 @@ fn command_context(
         operator_id: OperatorId::new("operator-1").unwrap(),
         expected_plan_version,
         expected_routing_generation,
+        evaluated_at: Timestamp::from_unix_micros(100),
     }
 }
 

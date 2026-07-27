@@ -23,11 +23,11 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     migration_codec::{
-        MigrationCodecError, decode_migration_evidence, decode_migration_outcome,
-        decode_migration_plan, decode_migration_transition, decode_routing_snapshot,
-        encode_migration_audit, encode_migration_evidence, encode_migration_outcome,
-        encode_migration_plan, encode_migration_transition, encode_routing_snapshot,
-        encode_runtime_binding,
+        MigrationCodecError, decode_cutover_manifest, decode_migration_evidence,
+        decode_migration_outcome, decode_migration_plan, decode_migration_transition,
+        decode_routing_snapshot, encode_cutover_manifest, encode_migration_audit,
+        encode_migration_evidence, encode_migration_outcome, encode_migration_plan,
+        encode_migration_transition, encode_routing_snapshot, encode_runtime_binding,
     },
     schema::{apply_migrations, open_with_pragmas, run_startup_gates},
 };
@@ -177,10 +177,41 @@ impl MigrationControlStore for SqliteMigrationControlStore {
             evidence.push(decode_migration_evidence(&blob).map_err(map_codec_error)?);
         }
 
+        let mut manifest_statement = connection
+            .prepare(
+                "SELECT manifest_id, manifest_blob, created_at
+                 FROM cutover_manifests
+                 WHERE plan_id = ?1
+                 ORDER BY created_at, manifest_id",
+            )
+            .map_err(map_read_error)?;
+        let manifest_rows = manifest_statement
+            .query_map([plan_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
+            })
+            .map_err(map_read_error)?;
+        let mut cutover_manifests = Vec::new();
+        for row in manifest_rows {
+            let (stored_digest, blob, created_at) = row.map_err(map_read_error)?;
+            let manifest = decode_cutover_manifest(&blob).map_err(map_codec_error)?;
+            if stored_digest != manifest.manifest_digest.as_bytes()
+                || manifest.plan_id != *plan_id
+                || created_at != manifest.prepared_at.as_unix_micros()
+            {
+                return Err(MigrationStoreError::CorruptData);
+            }
+            cutover_manifests.push(manifest);
+        }
+
         Ok(Some(LoadedMigrationPlan {
             plan,
             transitions,
             evidence,
+            cutover_manifests,
         }))
     }
 
@@ -452,6 +483,14 @@ fn validate_mutations(commit: &MigrationCommit) -> Result<(), MigrationStoreErro
             {
                 return Err(MigrationStoreError::IntegrityViolation);
             }
+            MigrationMutation::AppendCutoverManifest(manifest)
+                if manifest.plan_id != commit.plan().plan_id
+                    || manifest.cycle_id != commit.plan().cycle_id
+                    || manifest.plan_version != commit.plan().plan_version
+                    || !manifest.has_valid_identity() =>
+            {
+                return Err(MigrationStoreError::IntegrityViolation);
+            }
             MigrationMutation::AppendRoutingSnapshot(snapshot)
                 if !snapshot_matches_unit(snapshot, unit)
                     || snapshot.source != commit.plan().source
@@ -521,6 +560,22 @@ fn persist_mutations(
                             commit.plan().plan_id.as_str(),
                             blob,
                             commit.audit().recorded_at.as_unix_micros(),
+                        ],
+                    )
+                    .map_err(map_write_error)?;
+            }
+            MigrationMutation::AppendCutoverManifest(manifest) => {
+                let blob = encode_cutover_manifest(manifest).map_err(map_codec_error)?;
+                transaction
+                    .execute(
+                        "INSERT INTO cutover_manifests
+                         (manifest_id, plan_id, manifest_blob, created_at)
+                         VALUES (?1, ?2, ?3, ?4)",
+                        params![
+                            manifest.manifest_digest.as_bytes().as_slice(),
+                            manifest.plan_id.as_str(),
+                            blob,
+                            manifest.prepared_at.as_unix_micros(),
                         ],
                     )
                     .map_err(map_write_error)?;

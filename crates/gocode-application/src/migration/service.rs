@@ -2,14 +2,19 @@
 
 use sha2::{Digest, Sha256};
 
+pub use super::ports::CutoverIntent;
+
 use super::{
     error::MigrationError,
-    gates::MigrationEvidence,
+    gates::{
+        GateApplicabilityError, GateContext, GateSetValidationError, MigrationEvidence,
+        PhaseGatePolicy, ValidatedGateSet,
+    },
     ports::{
-        LoadedMigrationPlan, MigrationAuditAction, MigrationAuditRecord, MigrationCommandContext,
-        MigrationCommandFingerprint, MigrationCommandOutcome, MigrationCommit,
-        MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceiptLookup,
-        MigrationStoreError, MigrationTransition, ShadowExecutionPort,
+        CutoverManifest, LoadedMigrationPlan, MigrationAuditAction, MigrationAuditRecord,
+        MigrationCommandContext, MigrationCommandFingerprint, MigrationCommandOutcome,
+        MigrationCommit, MigrationCommitResult, MigrationControlStore, MigrationMutation,
+        MigrationReceiptLookup, MigrationStoreError, MigrationTransition, ShadowExecutionPort,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
@@ -220,6 +225,14 @@ where
         plan.advance(target, context.expected_plan_version)?;
         validate_exit_evidence(&loaded, target)?;
         if target == MigrationPhase::InternalCanary {
+            validate_production_gates(&loaded, &plan, target, context.evaluated_at)?;
+        } else if matches!(
+            target,
+            MigrationPhase::CohortRollout
+                | MigrationPhase::DefaultNative
+                | MigrationPhase::DrainDeprecate
+                | MigrationPhase::Retired
+        ) {
             return Err(MigrationError::ProductionGatesUnavailable);
         }
 
@@ -231,7 +244,7 @@ where
             from: previous,
             to: target,
             plan_version: plan.plan_version,
-            occurred_at: plan.created_at,
+            occurred_at: context.evaluated_at,
         };
         let outcome = MigrationCommandOutcome {
             plan: plan.clone(),
@@ -258,7 +271,7 @@ where
         )))
     }
 
-    /// Validate a cutover request without enabling production gates.
+    /// Freeze a currently valid Internal Canary evidence set without changing authority.
     pub fn prepare_cutover(
         &self,
         context: MigrationCommandContext,
@@ -277,10 +290,81 @@ where
         if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
             return Ok(PrepareCutoverOutput { outcome });
         }
-        Err(MigrationError::ProductionGatesUnavailable)
+        validate_manifest_ref(&input.manifest_id)?;
+
+        let loaded = self
+            .store
+            .load_plan(&input.plan_id)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::PlanNotFound)?;
+        if input.intent != CutoverIntent::InternalCanary
+            || loaded.plan.phase != MigrationPhase::SimulatedShadow
+        {
+            return Err(MigrationError::ProductionGatesUnavailable);
+        }
+        validate_exit_evidence(&loaded, MigrationPhase::InternalCanary)?;
+        let gate_set = validate_production_gates(
+            &loaded,
+            &loaded.plan,
+            MigrationPhase::InternalCanary,
+            context.evaluated_at,
+        )?;
+        if gate_set.digest() != input.evidence_set_digest {
+            return Err(MigrationError::GateSetChanged);
+        }
+
+        let mut plan = loaded.plan;
+        plan.record_mutation(context.expected_plan_version)?;
+        let transition_id = prepared_cutover_identity(&context, &plan.plan_id, gate_set.digest());
+        let transition = MigrationTransition {
+            transition_id: transition_id.clone(),
+            plan_id: plan.plan_id.clone(),
+            cycle_id: plan.cycle_id.clone(),
+            from: plan.phase,
+            to: plan.phase,
+            plan_version: plan.plan_version,
+            occurred_at: context.evaluated_at,
+        };
+        let manifest = CutoverManifest {
+            manifest_digest: CutoverManifest::digest_for_ref(&input.manifest_id),
+            manifest_ref: input.manifest_id,
+            plan_id: plan.plan_id.clone(),
+            cycle_id: plan.cycle_id.clone(),
+            intent: input.intent,
+            source_high_water: input.source_high_water,
+            evidence_set_digest: gate_set.digest(),
+            prepared_transition_id: transition_id.clone(),
+            plan_version: plan.plan_version,
+            prepared_at: context.evaluated_at,
+        };
+        let outcome = MigrationCommandOutcome {
+            plan: plan.clone(),
+            routing_snapshot: None,
+            transition_id,
+        };
+        let audit = audit_record(
+            &context,
+            &plan,
+            MigrationAuditAction::PrepareCutover,
+            &fingerprint,
+        );
+        let commit = MigrationCommit::new(
+            context,
+            fingerprint,
+            plan.clone(),
+            vec![
+                MigrationMutation::AppendTransition(transition),
+                MigrationMutation::AppendCutoverManifest(manifest),
+            ],
+            outcome,
+            Some(audit),
+        )?;
+        Ok(PrepareCutoverOutput {
+            outcome: commit_outcome(self.store.commit(commit).map_err(map_store_error)?),
+        })
     }
 
-    /// Validate a prepared cutover request without enabling production gates.
+    /// Revalidate a prepared cutover without enabling routing authority.
     pub fn commit_cutover(
         &self,
         context: MigrationCommandContext,
@@ -295,6 +379,42 @@ where
         );
         if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
             return Ok(CommitCutoverOutput { outcome });
+        }
+
+        let loaded = self
+            .store
+            .load_plan(&input.plan_id)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::PlanNotFound)?;
+        if loaded.plan.phase != MigrationPhase::SimulatedShadow {
+            return Err(MigrationError::ProductionGatesUnavailable);
+        }
+        let manifest = loaded
+            .cutover_manifests
+            .iter()
+            .find(|manifest| manifest.prepared_transition_id == input.prepared_transition_id)
+            .ok_or(MigrationError::PreparedCutoverNotFound)?;
+        if manifest.plan_id != loaded.plan.plan_id
+            || manifest.cycle_id != loaded.plan.cycle_id
+            || manifest.intent != CutoverIntent::InternalCanary
+            || !loaded
+                .transitions
+                .iter()
+                .any(|transition| transition.transition_id == input.prepared_transition_id)
+        {
+            return Err(MigrationError::StorageContractViolation);
+        }
+        validate_exit_evidence(&loaded, MigrationPhase::InternalCanary)?;
+        let gate_set = validate_production_gates(
+            &loaded,
+            &loaded.plan,
+            MigrationPhase::InternalCanary,
+            context.evaluated_at,
+        )?;
+        if manifest.evidence_set_digest != gate_set.digest()
+            || !prepared_cutover_matches(&input.prepared_transition_id)
+        {
+            return Err(MigrationError::GateSetChanged);
         }
         Err(MigrationError::ProductionGatesUnavailable)
     }
@@ -465,19 +585,6 @@ pub struct AdvancePhaseOutput {
     pub snapshot: Option<RoutingSnapshot>,
     /// Durable transition identity.
     pub transition_id: String,
-}
-
-/// Intent captured by a prepared cutover.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CutoverIntent {
-    /// Bounded internal canary.
-    InternalCanary,
-    /// Bounded cohort expansion.
-    CohortExpansion,
-    /// Candidate becomes the default for new work.
-    DefaultNative,
-    /// Authority returns through an isolated rollback cycle.
-    Rollback,
 }
 
 /// Input for preparing a cutover.
@@ -685,6 +792,92 @@ fn validate_exit_evidence(
     }
 }
 
+fn validate_production_gates(
+    loaded: &LoadedMigrationPlan,
+    plan: &MigrationPlan,
+    target: MigrationPhase,
+    now: gocode_domain::timestamp::Timestamp,
+) -> Result<ValidatedGateSet, MigrationError> {
+    let policy =
+        PhaseGatePolicy::for_target(target).ok_or(MigrationError::ProductionGatesUnavailable)?;
+    let context = GateContext {
+        source_generation: plan.source.clone(),
+        candidate_generation: plan.candidate.clone(),
+        cohort: plan.routing_unit.cohort.clone(),
+        contract_digest: plan.routing_unit.contract_digest,
+        profile_digest: plan.routing_unit.feature_profile.profile_digest,
+        config_digest: plan.routing_unit.config_digest,
+        now,
+    };
+    policy
+        .validate(&loaded.evidence, &context)
+        .map_err(map_gate_set_error)
+}
+
+fn map_gate_set_error(error: GateSetValidationError) -> MigrationError {
+    match error {
+        GateSetValidationError::Missing { family } => MigrationError::GateMissing { family },
+        GateSetValidationError::Inapplicable { family, reason } => match reason {
+            GateApplicabilityError::Expired => MigrationError::GateExpired { family },
+            GateApplicabilityError::Revoked => MigrationError::GateRevoked { family },
+            GateApplicabilityError::NotYetValid
+            | GateApplicabilityError::Failed
+            | GateApplicabilityError::SourceGenerationMismatch
+            | GateApplicabilityError::CandidateGenerationMismatch
+            | GateApplicabilityError::CohortMismatch
+            | GateApplicabilityError::ContractDigestMismatch
+            | GateApplicabilityError::ProfileDigestMismatch
+            | GateApplicabilityError::ConfigDigestMismatch
+            | GateApplicabilityError::EmptyEvidenceDigest => MigrationError::GateFailed { family },
+        },
+    }
+}
+
+fn prepared_cutover_identity(
+    context: &MigrationCommandContext,
+    plan_id: &MigrationPlanId,
+    evidence_set_digest: ArtifactDigest,
+) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"gocode-cutover-prepare\x01");
+    update_length_prefixed(&mut hasher, plan_id.as_str().as_bytes());
+    update_length_prefixed(&mut hasher, context.command_id.to_string().as_bytes());
+    hasher.update(evidence_set_digest.as_bytes());
+    let preparation_digest = ArtifactDigest::from_bytes(hasher.finalize().into());
+    format!("cutover-prepare:{}", digest_hex(preparation_digest))
+}
+
+fn validate_manifest_ref(manifest_ref: &str) -> Result<(), MigrationError> {
+    const MAX_MANIFEST_REF_BYTES: usize = 256;
+    if manifest_ref.is_empty()
+        || manifest_ref.len() > MAX_MANIFEST_REF_BYTES
+        || manifest_ref.bytes().any(|byte| byte < 0x20 || byte == 0x7f)
+    {
+        return Err(MigrationError::StorageContractViolation);
+    }
+    Ok(())
+}
+
+fn prepared_cutover_matches(prepared_transition_id: &str) -> bool {
+    let mut parts = prepared_transition_id.split(':');
+    matches!(
+        (parts.next(), parts.next(), parts.next()),
+        (Some("cutover-prepare"), Some(identity), None)
+            if identity.len() == 64
+                && identity.bytes().all(|byte| byte.is_ascii_hexdigit())
+    )
+}
+
+fn digest_hex(digest: ArtifactDigest) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut encoded = String::with_capacity(64);
+    for byte in digest.as_bytes() {
+        encoded.push(char::from(HEX[usize::from(*byte >> 4)]));
+        encoded.push(char::from(HEX[usize::from(*byte & 0x0f)]));
+    }
+    encoded
+}
+
 fn validate_evidence_scope(
     plan: &MigrationPlan,
     evidence: &MigrationEvidence,
@@ -774,7 +967,7 @@ fn audit_record(
         command_id: context.command_id,
         operator_id: context.operator_id.clone(),
         action,
-        recorded_at: plan.created_at,
+        recorded_at: context.evaluated_at,
     }
 }
 

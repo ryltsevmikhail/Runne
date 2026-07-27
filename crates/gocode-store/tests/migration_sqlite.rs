@@ -6,7 +6,7 @@ use std::{
 };
 
 use gocode_application::migration::{
-    gates::MigrationEvidence,
+    gates::{GateContext, GateEvidence, GateStatus, MigrationEvidence, PhaseGatePolicy},
     ports::{
         MigrationAuditAction, MigrationAuditRecord, MigrationCommandContext,
         MigrationCommandFingerprint, MigrationCommandOutcome, MigrationCommit,
@@ -14,13 +14,16 @@ use gocode_application::migration::{
         MigrationTransition, SanitizedShadowInput, ShadowDiffReport, ShadowExecutionError,
         ShadowExecutionPort,
     },
-    service::{MigrationService, RecordEvidenceInput, StagePlanInput, StartRollbackInput},
+    service::{
+        CutoverIntent, MigrationService, PrepareCutoverInput, RecordEvidenceInput, StagePlanInput,
+        StartRollbackInput,
+    },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
-        FencingToken, GatePolicyRef, MigrationCycleId, MigrationPlanId, OperatorId,
-        RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit, RuntimeAuthority,
-        RuntimeGenerationRef,
+        FencingToken, GateFamily, GateId, GatePolicyRef, MigrationCycleId, MigrationPlanId,
+        OperatorId, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit,
+        RuntimeAuthority, RuntimeGenerationRef,
     },
 };
 use gocode_domain::{
@@ -363,6 +366,111 @@ fn rollback_cycle_starts_at_baseline_without_mutating_parent() {
     );
 }
 
+#[test]
+fn prepared_gate_set_and_source_high_water_survive_reopen() {
+    let db = TempDb::new("prepared-cutover-reopen");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    let service = MigrationService::new(store, PureShadow);
+    let mut version = service
+        .stage_plan(stage_context(), stage_input())
+        .unwrap()
+        .plan
+        .plan_version;
+    for (target, evidence_suffix, advance_suffix) in [
+        (MigrationPhase::Foundation, 2_u8, 3_u8),
+        (MigrationPhase::ReadOnlyParity, 4, 5),
+        (MigrationPhase::SimulatedShadow, 6, 7),
+    ] {
+        service
+            .record_evidence(
+                command_context(evidence_suffix, version, None),
+                RecordEvidenceInput {
+                    plan_id: plan_id(),
+                    evidence: required_evidence_for(target),
+                },
+            )
+            .unwrap();
+        version += 1;
+        version = service
+            .advance_phase(
+                command_context(advance_suffix, version, None),
+                plan_id(),
+                target,
+            )
+            .unwrap()
+            .plan
+            .plan_version;
+    }
+    service
+        .record_evidence(
+            command_context(8, version, None),
+            RecordEvidenceInput {
+                plan_id: plan_id(),
+                evidence: MigrationEvidence::SimulatedShadow {
+                    semantic_diff_digest: ArtifactDigest::from_bytes([14; 32]),
+                    canonical_write_count: 0,
+                    external_effect_count: 0,
+                    client_acknowledgement_count: 0,
+                },
+            },
+        )
+        .unwrap();
+    version += 1;
+    for (index, family) in GateFamily::ALL.into_iter().enumerate() {
+        let suffix = u8::try_from(index + 20).unwrap();
+        service
+            .record_evidence(
+                command_context(suffix, version, None),
+                RecordEvidenceInput {
+                    plan_id: plan_id(),
+                    evidence: MigrationEvidence::ProductionGate(gate_evidence(family, suffix)),
+                },
+            )
+            .unwrap();
+        version += 1;
+    }
+    let loaded = service.load_plan(&plan_id()).unwrap().unwrap();
+    let evidence_set_digest = PhaseGatePolicy::for_target(MigrationPhase::InternalCanary)
+        .unwrap()
+        .validate(
+            &loaded.evidence,
+            &GateContext {
+                source_generation: loaded.plan.source.clone(),
+                candidate_generation: loaded.plan.candidate.clone(),
+                cohort: loaded.plan.routing_unit.cohort.clone(),
+                contract_digest: loaded.plan.routing_unit.contract_digest,
+                profile_digest: loaded.plan.routing_unit.feature_profile.profile_digest,
+                config_digest: loaded.plan.routing_unit.config_digest,
+                now: Timestamp::from_unix_micros(100),
+            },
+        )
+        .unwrap()
+        .digest();
+    let prepared = service
+        .prepare_cutover(
+            command_context(40, version, None),
+            PrepareCutoverInput {
+                plan_id: plan_id(),
+                intent: CutoverIntent::InternalCanary,
+                manifest_id: "manifest-phase4-1".to_owned(),
+                source_high_water: 4242,
+                evidence_set_digest,
+            },
+        )
+        .unwrap();
+    let before = service.load_plan(&plan_id()).unwrap().unwrap();
+    assert_eq!(before.cutover_manifests.len(), 1);
+    assert_eq!(before.cutover_manifests[0].source_high_water, 4242);
+    assert_eq!(
+        before.cutover_manifests[0].prepared_transition_id,
+        prepared.outcome.transition_id
+    );
+    drop(service);
+
+    let reopened = SqliteMigrationControlStore::open(db.path()).unwrap();
+    assert_eq!(reopened.load_plan(&plan_id()).unwrap().unwrap(), before);
+}
+
 fn stage_commit() -> MigrationCommit {
     stage_commit_for(
         test_plan(),
@@ -487,6 +595,24 @@ fn required_evidence_for(target: MigrationPhase) -> MigrationEvidence {
     }
 }
 
+fn gate_evidence(family: GateFamily, suffix: u8) -> GateEvidence {
+    GateEvidence {
+        gate_id: GateId::new(format!("gate-{suffix}")).unwrap(),
+        gate_revision: 1,
+        family,
+        source_generation: source_generation(),
+        candidate_generation: candidate_generation(),
+        cohort: routing_unit().cohort,
+        contract_digest: routing_unit().contract_digest,
+        profile_digest: routing_unit().feature_profile.profile_digest,
+        config_digest: routing_unit().config_digest,
+        measured_at: Timestamp::from_unix_micros(50),
+        valid_until: Timestamp::from_unix_micros(300),
+        status: GateStatus::Passed,
+        evidence_digest: ArtifactDigest::from_bytes([suffix; 32]),
+    }
+}
+
 fn rollback_input() -> StartRollbackInput {
     let rollback_plan = MigrationPlan {
         plan_id: MigrationPlanId::new("plan-rollback-1").unwrap(),
@@ -538,6 +664,7 @@ fn command_context(
         operator_id: OperatorId::new("operator-1").unwrap(),
         expected_plan_version,
         expected_routing_generation,
+        evaluated_at: Timestamp::from_unix_micros(100),
     }
 }
 
