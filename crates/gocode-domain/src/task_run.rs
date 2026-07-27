@@ -1115,11 +1115,14 @@ impl TaskRun {
             |other: &EventEnvelope<TaskRunEvent>| other.command_id() == event.command_id();
         match event.payload() {
             TaskRunEvent::LoopCycleCompleted { disposition, .. } => {
+                if matches!(disposition, LoopDisposition::Continue) {
+                    return Ok(());
+                }
                 let next = events
                     .get(index + 1)
                     .ok_or(DomainError::CorruptCommandBatch)?;
                 let valid = match disposition {
-                    LoopDisposition::Continue => return Ok(()),
+                    LoopDisposition::Continue => true,
                     LoopDisposition::Wait { .. } => {
                         matches!(next.payload(), TaskRunEvent::WaitStarted)
                     }
