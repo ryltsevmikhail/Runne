@@ -32,6 +32,12 @@ async fn drain_timeout_reports_remaining_work_and_is_not_success() {
     assert_eq!(report.disposition, DrainDisposition::TimedOut);
     assert_eq!(report.still_running, vec![running.binding_id().clone()]);
     assert!(!report.is_complete());
+    let before = report.clone();
+    assert_eq!(
+        report.validate_cutover_eligibility(),
+        Err(RuntimeMigrationError::DrainTimedOut)
+    );
+    assert_eq!(report, before);
 }
 
 #[tokio::test]
@@ -95,6 +101,7 @@ async fn completed_work_wakes_drain_and_closes_the_cohort() {
     completion.await.unwrap();
 
     assert!(report.is_complete());
+    assert_eq!(report.validate_cutover_eligibility(), Ok(()));
     assert_eq!(
         report.completed,
         vec![MigrationWorkId::new("binding-complete").unwrap()]
@@ -107,6 +114,40 @@ async fn completed_work_wakes_drain_and_closes_the_cohort() {
         ),
         Err(RuntimeMigrationError::AdmissionClosed)
     );
+}
+
+#[tokio::test]
+async fn unresolved_effect_blocks_cutover_without_reclassifying_the_report() {
+    let controller = MigrationDrainController::default();
+    controller
+        .register_cohort(cohort_a(), routing_generation(7))
+        .unwrap();
+    let work = controller
+        .try_admit(
+            &cohort_a(),
+            routing_generation(7),
+            MigrationWorkId::new("binding-uncertain").unwrap(),
+        )
+        .unwrap();
+    controller
+        .mark_uncertain(&cohort_a(), routing_generation(7), work.binding_id())
+        .unwrap();
+
+    let report = controller
+        .drain(DrainRequest::new(
+            cohort_a(),
+            routing_generation(7),
+            Duration::from_millis(20),
+        ))
+        .await
+        .unwrap();
+    let before = report.clone();
+
+    assert_eq!(
+        report.validate_cutover_eligibility(),
+        Err(RuntimeMigrationError::UnresolvedEffect)
+    );
+    assert_eq!(report, before);
 }
 
 fn cohort_a() -> CohortSelector {

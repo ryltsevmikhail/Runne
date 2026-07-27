@@ -197,6 +197,38 @@ fn internal_canary_requires_every_critical_family() {
 }
 
 #[test]
+fn stale_evidence_blocks_internal_canary_without_mutation() {
+    let (service, _) = shadow_ready_service();
+    record_phase4_evidence_except(&service, Some(GateFamily::CanonicalAudit));
+    let mut expired = phase4_gate_evidence(GateFamily::CanonicalAudit, GateStatus::Passed, 99);
+    expired.valid_until = Timestamp::from_unix_micros(100);
+    service
+        .record_evidence(
+            next_context(&service),
+            RecordEvidenceInput {
+                plan_id: plan_id(),
+                evidence: MigrationEvidence::ProductionGate(expired),
+            },
+        )
+        .unwrap();
+    let before_plan = service.load_plan(&plan_id()).unwrap();
+    let before_head = service.routing_head(&routing_unit()).unwrap();
+
+    assert_eq!(
+        service.advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::InternalCanary,
+        ),
+        Err(MigrationError::GateExpired {
+            family: GateFamily::CanonicalAudit,
+        })
+    );
+    assert_eq!(service.load_plan(&plan_id()).unwrap(), before_plan);
+    assert_eq!(service.routing_head(&routing_unit()).unwrap(), before_head);
+}
+
+#[test]
 fn complete_phase4_gate_set_permits_internal_canary_eligibility() {
     let (service, _) = shadow_ready_service();
     record_phase4_evidence_except(&service, None);

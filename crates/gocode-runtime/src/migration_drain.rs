@@ -109,6 +109,23 @@ impl DrainReport {
             && self.uncertain.is_empty()
             && self.stale_workers.is_empty()
     }
+
+    /// Validate this immutable report as cutover evidence.
+    pub fn validate_cutover_eligibility(&self) -> Result<(), RuntimeMigrationError> {
+        if !self.recovery_required.is_empty()
+            || !self.uncertain.is_empty()
+            || !self.stale_workers.is_empty()
+        {
+            return Err(RuntimeMigrationError::UnresolvedEffect);
+        }
+        if self.disposition == DrainDisposition::TimedOut {
+            return Err(RuntimeMigrationError::DrainTimedOut);
+        }
+        if !self.still_running.is_empty() {
+            return Err(RuntimeMigrationError::DrainIncomplete);
+        }
+        Ok(())
+    }
 }
 
 /// Typed cohort admission and drain failures.
@@ -135,6 +152,12 @@ pub enum RuntimeMigrationError {
     WorkNotFound,
     /// Drain timeout is zero.
     InvalidTimeout,
+    /// Drain deadline elapsed before every running item completed.
+    DrainTimedOut,
+    /// A supposedly complete report still contains active work.
+    DrainIncomplete,
+    /// Recovery, uncertain-effect or stale-worker work remains unresolved.
+    UnresolvedEffect,
     /// Admission high-water counter overflowed.
     HighWaterExhausted,
     /// Controller synchronization state is unavailable.
