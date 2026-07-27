@@ -397,6 +397,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "gocode-api",
  "gocode-domain",
  "sha2",
  "thiserror",
@@ -483,11 +484,14 @@ dependencies = [
 name = "gocode-store"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "gocode-api",
  "gocode-application",
  "gocode-domain",
  "rusqlite",
  "sha2",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

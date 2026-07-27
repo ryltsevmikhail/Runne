@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 gocode-domain = { path = "../gocode-domain" }
+gocode-api = { path = "../gocode-api" }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
