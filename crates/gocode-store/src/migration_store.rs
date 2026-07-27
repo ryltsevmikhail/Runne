@@ -34,10 +34,12 @@ use sha2::{Digest, Sha256};
 use crate::{
     migration_codec::{
         MigrationCodecError, decode_cutover_manifest, decode_migration_evidence,
-        decode_migration_outcome, decode_migration_plan, decode_migration_transition,
+        decode_migration_outcome, decode_migration_plan, decode_migration_report,
+        decode_migration_transition, decode_retirement_manifest, decode_rollback_manifest,
         decode_routing_snapshot, decode_runtime_binding, encode_cutover_manifest,
         encode_migration_audit, encode_migration_evidence, encode_migration_outcome,
-        encode_migration_plan, encode_migration_transition, encode_routing_snapshot,
+        encode_migration_plan, encode_migration_report, encode_migration_transition,
+        encode_retirement_manifest, encode_rollback_manifest, encode_routing_snapshot,
         encode_runtime_binding,
     },
     schema::{apply_migrations, open_with_pragmas, run_startup_gates},
@@ -188,9 +190,49 @@ impl MigrationControlStore for SqliteMigrationControlStore {
             evidence.push(decode_migration_evidence(&blob).map_err(map_codec_error)?);
         }
 
+        let mut report_statement = connection
+            .prepare(
+                "SELECT report_id, cycle_id, report_kind, report_blob, created_at
+                 FROM migration_reports
+                 WHERE plan_id = ?1
+                 ORDER BY created_at, report_id",
+            )
+            .map_err(map_read_error)?;
+        let report_rows = report_statement
+            .query_map([plan_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(map_read_error)?;
+        let mut migration_reports = Vec::new();
+        for row in report_rows {
+            let (stored_digest, stored_cycle_id, report_kind, blob, created_at) =
+                row.map_err(map_read_error)?;
+            let report = decode_migration_report(&blob).map_err(map_codec_error)?;
+            if report_kind != 1
+                || stored_digest != report.report.digest.as_bytes()
+                || report.plan_id != *plan_id
+                || stored_cycle_id != report.cycle_id.as_str()
+                || report.cycle_id != plan.cycle_id
+                || report.source_generation != plan.source
+                || report.candidate_generation != plan.candidate
+                || report.schema.digest != plan.routing_unit.schema_digest
+                || report.profile.digest != plan.routing_unit.feature_profile.profile_digest
+                || report.created_at.as_unix_micros() != created_at
+            {
+                return Err(MigrationStoreError::CorruptData);
+            }
+            migration_reports.push(report);
+        }
+
         let mut manifest_statement = connection
             .prepare(
-                "SELECT manifest_id, manifest_blob, created_at
+                "SELECT manifest_id, cycle_id, manifest_blob, created_at
                  FROM cutover_manifests
                  WHERE plan_id = ?1
                  ORDER BY created_at, manifest_id",
@@ -200,29 +242,110 @@ impl MigrationControlStore for SqliteMigrationControlStore {
             .query_map([plan_id.as_str()], |row| {
                 Ok((
                     row.get::<_, Vec<u8>>(0)?,
-                    row.get::<_, Vec<u8>>(1)?,
-                    row.get::<_, i64>(2)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, i64>(3)?,
                 ))
             })
             .map_err(map_read_error)?;
         let mut cutover_manifests = Vec::new();
         for row in manifest_rows {
-            let (stored_digest, blob, created_at) = row.map_err(map_read_error)?;
+            let (stored_digest, stored_cycle_id, blob, created_at) = row.map_err(map_read_error)?;
             let manifest = decode_cutover_manifest(&blob).map_err(map_codec_error)?;
             if stored_digest != manifest.manifest_digest.as_bytes()
                 || manifest.plan_id != *plan_id
+                || stored_cycle_id != manifest.cycle_id.as_str()
+                || manifest.cycle_id != plan.cycle_id
+                || manifest.routing_unit != plan.routing_unit
+                || manifest.source_generation != plan.source
+                || manifest.candidate_generation != plan.candidate
                 || created_at != manifest.prepared_at.as_unix_micros()
+                || !migration_reports.iter().any(|report| {
+                    report.report == manifest.import_report
+                        && report.source_high_water == manifest.source_high_water
+                        && report.is_cutover_eligible()
+                })
             {
                 return Err(MigrationStoreError::CorruptData);
             }
             cutover_manifests.push(manifest);
         }
 
+        let mut rollback_statement = connection
+            .prepare(
+                "SELECT manifest_id, cycle_id, parent_plan_id, manifest_blob, created_at
+                 FROM rollback_manifests
+                 WHERE plan_id = ?1
+                 ORDER BY created_at, manifest_id",
+            )
+            .map_err(map_read_error)?;
+        let rollback_rows = rollback_statement
+            .query_map([plan_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(map_read_error)?;
+        let mut rollback_manifests = Vec::new();
+        for row in rollback_rows {
+            let (stored_digest, stored_cycle_id, parent_plan_id, blob, created_at) =
+                row.map_err(map_read_error)?;
+            let manifest = decode_rollback_manifest(&blob).map_err(map_codec_error)?;
+            if stored_digest != manifest.manifest.digest.as_bytes()
+                || manifest.plan_id != *plan_id
+                || stored_cycle_id != manifest.cycle_id.as_str()
+                || parent_plan_id != manifest.parent_plan_id.as_str()
+                || created_at != manifest.created_at.as_unix_micros()
+            {
+                return Err(MigrationStoreError::CorruptData);
+            }
+            rollback_manifests.push(manifest);
+        }
+
+        let mut retirement_statement = connection
+            .prepare(
+                "SELECT manifest_id, cycle_id, manifest_blob, created_at
+                 FROM retirement_manifests
+                 WHERE plan_id = ?1
+                 ORDER BY created_at, manifest_id",
+            )
+            .map_err(map_read_error)?;
+        let retirement_rows = retirement_statement
+            .query_map([plan_id.as_str()], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(map_read_error)?;
+        let mut retirement_manifests = Vec::new();
+        for row in retirement_rows {
+            let (stored_digest, stored_cycle_id, blob, created_at) = row.map_err(map_read_error)?;
+            let manifest = decode_retirement_manifest(&blob).map_err(map_codec_error)?;
+            if stored_digest != manifest.manifest.digest.as_bytes()
+                || manifest.plan_id != *plan_id
+                || stored_cycle_id != manifest.cycle_id.as_str()
+                || created_at != manifest.created_at.as_unix_micros()
+            {
+                return Err(MigrationStoreError::CorruptData);
+            }
+            retirement_manifests.push(manifest);
+        }
+
         Ok(Some(LoadedMigrationPlan {
             plan,
             transitions,
             evidence,
+            migration_reports,
             cutover_manifests,
+            rollback_manifests,
+            retirement_manifests,
         }))
     }
 
@@ -705,6 +828,36 @@ fn validate_mutations(commit: &MigrationCommit) -> Result<(), MigrationStoreErro
                 if manifest.plan_id != commit.plan().plan_id
                     || manifest.cycle_id != commit.plan().cycle_id
                     || manifest.plan_version != commit.plan().plan_version
+                    || !manifest.has_valid_identity()
+                    || !commit.mutations().iter().any(|candidate| {
+                        matches!(
+                            candidate,
+                            MigrationMutation::AppendMigrationReport(report)
+                                if report.report == manifest.import_report
+                                    && report.source_high_water == manifest.source_high_water
+                                    && report.is_cutover_eligible()
+                        )
+                    }) =>
+            {
+                return Err(MigrationStoreError::IntegrityViolation);
+            }
+            MigrationMutation::AppendMigrationReport(report)
+                if report.plan_id != commit.plan().plan_id
+                    || report.cycle_id != commit.plan().cycle_id
+                    || !report.has_valid_identity() =>
+            {
+                return Err(MigrationStoreError::IntegrityViolation);
+            }
+            MigrationMutation::AppendRollbackManifest(manifest)
+                if manifest.plan_id != commit.plan().plan_id
+                    || manifest.cycle_id != commit.plan().cycle_id
+                    || !manifest.has_valid_identity() =>
+            {
+                return Err(MigrationStoreError::IntegrityViolation);
+            }
+            MigrationMutation::AppendRetirementManifest(manifest)
+                if manifest.plan_id != commit.plan().plan_id
+                    || manifest.cycle_id != commit.plan().cycle_id
                     || !manifest.has_valid_identity() =>
             {
                 return Err(MigrationStoreError::IntegrityViolation);
@@ -782,18 +935,71 @@ fn persist_mutations(
                     )
                     .map_err(map_write_error)?;
             }
+            MigrationMutation::AppendMigrationReport(report) => {
+                let blob = encode_migration_report(report).map_err(map_codec_error)?;
+                transaction
+                    .execute(
+                        "INSERT INTO migration_reports
+                         (report_id, plan_id, cycle_id, report_kind, report_blob, created_at)
+                         VALUES (?1, ?2, ?3, 1, ?4, ?5)",
+                        params![
+                            report.report.digest.as_bytes().as_slice(),
+                            report.plan_id.as_str(),
+                            report.cycle_id.as_str(),
+                            blob,
+                            report.created_at.as_unix_micros(),
+                        ],
+                    )
+                    .map_err(map_write_error)?;
+            }
             MigrationMutation::AppendCutoverManifest(manifest) => {
                 let blob = encode_cutover_manifest(manifest).map_err(map_codec_error)?;
                 transaction
                     .execute(
                         "INSERT INTO cutover_manifests
-                         (manifest_id, plan_id, manifest_blob, created_at)
-                         VALUES (?1, ?2, ?3, ?4)",
+                         (manifest_id, plan_id, cycle_id, manifest_blob, created_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5)",
                         params![
                             manifest.manifest_digest.as_bytes().as_slice(),
                             manifest.plan_id.as_str(),
+                            manifest.cycle_id.as_str(),
                             blob,
                             manifest.prepared_at.as_unix_micros(),
+                        ],
+                    )
+                    .map_err(map_write_error)?;
+            }
+            MigrationMutation::AppendRollbackManifest(manifest) => {
+                let blob = encode_rollback_manifest(manifest).map_err(map_codec_error)?;
+                transaction
+                    .execute(
+                        "INSERT INTO rollback_manifests
+                         (manifest_id, plan_id, cycle_id, parent_plan_id, manifest_blob, created_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            manifest.manifest.digest.as_bytes().as_slice(),
+                            manifest.plan_id.as_str(),
+                            manifest.cycle_id.as_str(),
+                            manifest.parent_plan_id.as_str(),
+                            blob,
+                            manifest.created_at.as_unix_micros(),
+                        ],
+                    )
+                    .map_err(map_write_error)?;
+            }
+            MigrationMutation::AppendRetirementManifest(manifest) => {
+                let blob = encode_retirement_manifest(manifest).map_err(map_codec_error)?;
+                transaction
+                    .execute(
+                        "INSERT INTO retirement_manifests
+                         (manifest_id, plan_id, cycle_id, manifest_blob, created_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5)",
+                        params![
+                            manifest.manifest.digest.as_bytes().as_slice(),
+                            manifest.plan_id.as_str(),
+                            manifest.cycle_id.as_str(),
+                            blob,
+                            manifest.created_at.as_unix_micros(),
                         ],
                     )
                     .map_err(map_write_error)?;

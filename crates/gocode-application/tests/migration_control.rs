@@ -9,6 +9,10 @@ use gocode_application::migration::{
         GateContext, GateEvidence, GateRevocationReason, GateStatus, MigrationEvidence,
         PhaseGatePolicy,
     },
+    manifests::{
+        ArtifactRef, ArtifactValidation, CandidateValidationReport, DrainReportArtifact,
+        ImportDisposition, MigrationCounts, MigrationReport, MigrationReportFields, RollbackPolicy,
+    },
     ports::{
         LoadedMigrationPlan, MigrationCommandContext, MigrationCommandFingerprint, MigrationCommit,
         MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceipt,
@@ -259,14 +263,8 @@ fn revocation_between_prepare_and_commit_blocks_cutover() {
     let evidence_set_digest = current_phase4_gate_set_digest(&service);
     let prepared = service
         .prepare_cutover(
-            next_context(&service),
-            PrepareCutoverInput {
-                plan_id: plan_id(),
-                intent: CutoverIntent::InternalCanary,
-                manifest_id: "manifest-1".to_owned(),
-                source_high_water: 10,
-                evidence_set_digest,
-            },
+            next_routing_context(&service),
+            prepare_cutover_input(evidence_set_digest, 10),
         )
         .unwrap();
     service
@@ -312,13 +310,7 @@ fn production_control_primitives_fail_closed_without_mutation() {
     assert_eq!(
         service.prepare_cutover(
             command_context(0, None, 60),
-            PrepareCutoverInput {
-                plan_id: plan_id(),
-                intent: CutoverIntent::InternalCanary,
-                manifest_id: "manifest-1".to_owned(),
-                source_high_water: 10,
-                evidence_set_digest: ArtifactDigest::from_bytes([20; 32]),
-            },
+            prepare_cutover_input(ArtifactDigest::from_bytes([20; 32]), 10),
         ),
         Err(MigrationError::ProductionGatesUnavailable)
     );
@@ -514,7 +506,10 @@ impl MigrationControlStore for MemoryMigrationStore {
                             plan: plan.clone(),
                             transitions: Vec::new(),
                             evidence: Vec::new(),
+                            migration_reports: Vec::new(),
                             cutover_manifests: Vec::new(),
+                            rollback_manifests: Vec::new(),
+                            retirement_manifests: Vec::new(),
                         },
                     );
                 }
@@ -534,13 +529,37 @@ impl MigrationControlStore for MemoryMigrationStore {
                         .evidence
                         .push(evidence.clone());
                 }
+                MigrationMutation::AppendMigrationReport(report) => {
+                    state
+                        .plans
+                        .get_mut(report.plan_id.as_str())
+                        .ok_or(MigrationStoreError::CorruptData)?
+                        .migration_reports
+                        .push(report.as_ref().clone());
+                }
                 MigrationMutation::AppendCutoverManifest(manifest) => {
                     state
                         .plans
                         .get_mut(manifest.plan_id.as_str())
                         .ok_or(MigrationStoreError::CorruptData)?
                         .cutover_manifests
-                        .push(manifest.clone());
+                        .push(manifest.as_ref().clone());
+                }
+                MigrationMutation::AppendRollbackManifest(manifest) => {
+                    state
+                        .plans
+                        .get_mut(manifest.plan_id.as_str())
+                        .ok_or(MigrationStoreError::CorruptData)?
+                        .rollback_manifests
+                        .push(manifest.as_ref().clone());
+                }
+                MigrationMutation::AppendRetirementManifest(manifest) => {
+                    state
+                        .plans
+                        .get_mut(manifest.plan_id.as_str())
+                        .ok_or(MigrationStoreError::CorruptData)?
+                        .retirement_manifests
+                        .push(manifest.as_ref().clone());
                 }
                 MigrationMutation::AppendRoutingSnapshot(snapshot) => {
                     state
@@ -714,6 +733,77 @@ fn next_context(
         .plan
         .plan_version;
     command_context(version, None, version + 2)
+}
+
+fn next_routing_context(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+) -> MigrationCommandContext {
+    let mut context = next_context(service);
+    context.expected_routing_generation = Some(RoutingGeneration::new(1).unwrap());
+    context
+}
+
+fn prepare_cutover_input(
+    evidence_set_digest: ArtifactDigest,
+    source_high_water: u64,
+) -> PrepareCutoverInput {
+    PrepareCutoverInput {
+        plan_id: plan_id(),
+        intent: CutoverIntent::InternalCanary,
+        manifest: artifact("cutover-manifest", 30),
+        source_release: artifact("source-release", 31),
+        candidate_release: artifact("candidate-release", 32),
+        frozen_evidence_set: ArtifactRef::new("artifact://evidence-set", evidence_set_digest)
+            .unwrap(),
+        migration_report: MigrationReport::new(MigrationReportFields {
+            report: artifact("migration-report", 33),
+            plan_id: plan_id(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            source_snapshot: artifact("source-snapshot", 34),
+            source_high_water,
+            source_generation: source_generation(),
+            candidate_generation: candidate_generation(),
+            counts: MigrationCounts {
+                imported: 10,
+                skipped: 0,
+                unsupported: 0,
+                rejected: 0,
+                unknown: 0,
+                lossy: 0,
+                ambiguous: 0,
+            },
+            schema: artifact("schema", 3),
+            mapping: artifact("mapping", 35),
+            profile: artifact("profile", 1),
+            integrity: ArtifactValidation::Passed,
+            rebuild: ArtifactValidation::Passed,
+            disposition: ImportDisposition::Clean,
+            created_at: Timestamp::from_unix_micros(90),
+        })
+        .unwrap(),
+        drain_report: DrainReportArtifact {
+            report: artifact("drain-report", 36),
+            complete: true,
+            timed_out: false,
+            unresolved_effects: 0,
+            source_high_water,
+        },
+        candidate_validation: CandidateValidationReport {
+            report: artifact("candidate-validation", 37),
+            validation: ArtifactValidation::Passed,
+        },
+        rollback_policy: RollbackPolicy::BeforeCandidateWrites,
+        retention_until: Timestamp::from_unix_micros(1_000),
+        operator_authorization: artifact("operator-authorization", 38),
+    }
+}
+
+fn artifact(name: &str, byte: u8) -> ArtifactRef {
+    ArtifactRef::new(
+        format!("artifact://{name}"),
+        ArtifactDigest::from_bytes([byte; 32]),
+    )
+    .unwrap()
 }
 
 fn stage_context() -> MigrationCommandContext {

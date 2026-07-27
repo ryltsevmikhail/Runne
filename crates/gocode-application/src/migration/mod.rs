@@ -5,6 +5,7 @@ pub mod feature_matrix;
 pub mod fence;
 pub mod gates;
 pub mod health;
+pub mod manifests;
 pub mod platform;
 pub mod ports;
 pub mod routing;

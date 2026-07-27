@@ -4,9 +4,14 @@ use core::fmt;
 
 use gocode_application::migration::{
     gates::{GateEvidence, GateFailureCode, GateRevocationReason, GateStatus, MigrationEvidence},
+    manifests::{
+        ArtifactRef, ArtifactValidation, CutoverManifest, ImportDisposition, MigrationCounts,
+        MigrationReport, MigrationReportFields, RetirementManifest, RollbackManifest,
+        RollbackPolicy,
+    },
     ports::{
-        CutoverIntent, CutoverManifest, MigrationAuditAction, MigrationAuditRecord,
-        MigrationCommandOutcome, MigrationTransition,
+        CutoverIntent, MigrationAuditAction, MigrationAuditRecord, MigrationCommandOutcome,
+        MigrationTransition,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
@@ -22,6 +27,7 @@ use gocode_domain::{
 };
 
 const CODEC_VERSION: u8 = 1;
+const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 2;
 
 /// Fail-closed migration codec errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -337,19 +343,51 @@ pub fn encode_cutover_manifest(manifest: &CutoverManifest) -> Result<Vec<u8>, Mi
     if !manifest.has_valid_identity() {
         return Err(invalid("cutover_manifest"));
     }
-    let mut bytes = vec![CODEC_VERSION];
-    bytes.extend_from_slice(manifest.manifest_digest.as_bytes());
-    write_string(&mut bytes, "manifest_ref", &manifest.manifest_ref)?;
+    let mut bytes = vec![CUTOVER_MANIFEST_CODEC_VERSION];
+    encode_artifact_ref(
+        &mut bytes,
+        &ArtifactRef {
+            reference: manifest.manifest_ref.clone(),
+            digest: manifest.manifest_digest,
+        },
+    )?;
     write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
     write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
     bytes.push(cutover_intent_tag(manifest.intent));
+    encode_routing_unit(&mut bytes, &manifest.routing_unit)?;
+    encode_artifact_ref(&mut bytes, &manifest.source_release)?;
+    write_string(
+        &mut bytes,
+        "source_generation",
+        manifest.source_generation.as_str(),
+    )?;
+    encode_artifact_ref(&mut bytes, &manifest.candidate_release)?;
+    write_string(
+        &mut bytes,
+        "candidate_generation",
+        manifest.candidate_generation.as_str(),
+    )?;
+    encode_artifact_ref(
+        &mut bytes,
+        &ArtifactRef {
+            reference: manifest.evidence_set_ref.clone(),
+            digest: manifest.evidence_set_digest,
+        },
+    )?;
+    encode_artifact_ref(&mut bytes, &manifest.import_report)?;
+    encode_artifact_ref(&mut bytes, &manifest.drain_report)?;
+    encode_artifact_ref(&mut bytes, &manifest.candidate_validation)?;
     bytes.extend_from_slice(&manifest.source_high_water.to_be_bytes());
-    bytes.extend_from_slice(manifest.evidence_set_digest.as_bytes());
+    bytes.extend_from_slice(&manifest.expected_routing_generation.get().to_be_bytes());
+    encode_rollback_policy(&mut bytes, &manifest.rollback_policy)?;
+    bytes.extend_from_slice(&manifest.retention_until.as_unix_micros().to_be_bytes());
+    encode_artifact_ref(&mut bytes, &manifest.operator_authorization)?;
     write_string(
         &mut bytes,
         "prepared_transition_id",
         &manifest.prepared_transition_id,
     )?;
+    bytes.extend_from_slice(&manifest.expected_plan_version.to_be_bytes());
     bytes.extend_from_slice(&manifest.plan_version.to_be_bytes());
     bytes.extend_from_slice(&manifest.prepared_at.as_unix_micros().to_be_bytes());
     Ok(bytes)
@@ -357,37 +395,323 @@ pub fn encode_cutover_manifest(manifest: &CutoverManifest) -> Result<Vec<u8>, Mi
 
 /// Decode one immutable cutover preparation manifest.
 pub fn decode_cutover_manifest(bytes: &[u8]) -> Result<CutoverManifest, MigrationCodecError> {
-    let mut decoder = versioned_decoder(bytes)?;
-    let manifest_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
-    let manifest_ref = decoder.read_string("manifest_ref")?;
-    if manifest_digest != CutoverManifest::digest_for_ref(&manifest_ref) {
-        return Err(invalid("manifest_digest"));
+    let mut decoder = Decoder::new(bytes);
+    let version = decoder.read_u8()?;
+    if version != CUTOVER_MANIFEST_CODEC_VERSION {
+        return Err(MigrationCodecError::UnknownVersion { actual: version });
     }
+    let manifest_identity = decode_artifact_ref(&mut decoder, "manifest")?;
     let plan_id =
         MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
     let cycle_id =
         MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
     let intent = decode_cutover_intent(decoder.read_u8()?)?;
+    let routing_unit = decode_routing_unit(&mut decoder)?;
+    let source_release = decode_artifact_ref(&mut decoder, "source_release")?;
+    let source_generation = runtime_generation(
+        decoder.read_string("source_generation")?,
+        "source_generation",
+    )?;
+    let candidate_release = decode_artifact_ref(&mut decoder, "candidate_release")?;
+    let candidate_generation = runtime_generation(
+        decoder.read_string("candidate_generation")?,
+        "candidate_generation",
+    )?;
+    let frozen_evidence_set = decode_artifact_ref(&mut decoder, "evidence_set")?;
+    let import_report = decode_artifact_ref(&mut decoder, "import_report")?;
+    let drain_report = decode_artifact_ref(&mut decoder, "drain_report")?;
+    let candidate_validation = decode_artifact_ref(&mut decoder, "candidate_validation")?;
     let source_high_water = decoder.read_u64()?;
-    let evidence_set_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let expected_routing_generation =
+        RoutingGeneration::new(decoder.read_u64()?).map_err(|_| invalid("routing_generation"))?;
+    let rollback_policy = decode_rollback_policy(&mut decoder)?;
+    let retention_until = Timestamp::from_unix_micros(decoder.read_i64()?);
+    let operator_authorization = decode_artifact_ref(&mut decoder, "operator_authorization")?;
     let prepared_transition_id = decoder.read_string("prepared_transition_id")?;
+    let expected_plan_version = decoder.read_u64()?;
     let plan_version = decoder.read_u64()?;
     let prepared_at = Timestamp::from_unix_micros(decoder.read_i64()?);
     decoder.finish()?;
     let manifest = CutoverManifest {
-        manifest_digest,
-        manifest_ref,
+        manifest_digest: manifest_identity.digest,
+        manifest_ref: manifest_identity.reference,
         plan_id,
         cycle_id,
         intent,
+        routing_unit,
+        source_release,
+        source_generation,
+        candidate_release,
+        candidate_generation,
+        evidence_set_digest: frozen_evidence_set.digest,
+        evidence_set_ref: frozen_evidence_set.reference,
+        import_report,
+        drain_report,
+        candidate_validation,
         source_high_water,
-        evidence_set_digest,
+        expected_routing_generation,
+        rollback_policy,
+        retention_until,
+        operator_authorization,
         prepared_transition_id,
+        expected_plan_version,
         plan_version,
         prepared_at,
     };
     if !manifest.has_valid_identity() {
         return Err(invalid("cutover_manifest"));
+    }
+    Ok(manifest)
+}
+
+/// Encode one immutable one-way migration report.
+pub fn encode_migration_report(report: &MigrationReport) -> Result<Vec<u8>, MigrationCodecError> {
+    if !report.has_valid_identity() {
+        return Err(invalid("migration_report"));
+    }
+    let mut bytes = vec![CODEC_VERSION];
+    encode_artifact_ref(&mut bytes, &report.report)?;
+    write_string(&mut bytes, "plan_id", report.plan_id.as_str())?;
+    write_string(&mut bytes, "cycle_id", report.cycle_id.as_str())?;
+    encode_artifact_ref(&mut bytes, &report.source_snapshot)?;
+    bytes.extend_from_slice(&report.source_high_water.to_be_bytes());
+    write_string(
+        &mut bytes,
+        "source_generation",
+        report.source_generation.as_str(),
+    )?;
+    write_string(
+        &mut bytes,
+        "candidate_generation",
+        report.candidate_generation.as_str(),
+    )?;
+    for count in [
+        report.counts.imported,
+        report.counts.skipped,
+        report.counts.unsupported,
+        report.counts.rejected,
+        report.counts.unknown,
+        report.counts.lossy,
+        report.counts.ambiguous,
+    ] {
+        bytes.extend_from_slice(&count.to_be_bytes());
+    }
+    encode_artifact_ref(&mut bytes, &report.schema)?;
+    encode_artifact_ref(&mut bytes, &report.mapping)?;
+    encode_artifact_ref(&mut bytes, &report.profile)?;
+    bytes.push(validation_tag(report.integrity));
+    bytes.push(validation_tag(report.rebuild));
+    match &report.disposition {
+        ImportDisposition::Clean => bytes.push(1),
+        ImportDisposition::ManualAuthorized(authorization) => {
+            bytes.push(2);
+            encode_artifact_ref(&mut bytes, authorization)?;
+        }
+    }
+    bytes.extend_from_slice(&report.created_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Decode one immutable one-way migration report.
+pub fn decode_migration_report(bytes: &[u8]) -> Result<MigrationReport, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let report = decode_artifact_ref(&mut decoder, "report")?;
+    let plan_id =
+        MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
+    let cycle_id =
+        MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
+    let source_snapshot = decode_artifact_ref(&mut decoder, "source_snapshot")?;
+    let source_high_water = decoder.read_u64()?;
+    let source_generation = runtime_generation(
+        decoder.read_string("source_generation")?,
+        "source_generation",
+    )?;
+    let candidate_generation = runtime_generation(
+        decoder.read_string("candidate_generation")?,
+        "candidate_generation",
+    )?;
+    let counts = MigrationCounts {
+        imported: decoder.read_u64()?,
+        skipped: decoder.read_u64()?,
+        unsupported: decoder.read_u64()?,
+        rejected: decoder.read_u64()?,
+        unknown: decoder.read_u64()?,
+        lossy: decoder.read_u64()?,
+        ambiguous: decoder.read_u64()?,
+    };
+    let schema = decode_artifact_ref(&mut decoder, "schema")?;
+    let mapping = decode_artifact_ref(&mut decoder, "mapping")?;
+    let profile = decode_artifact_ref(&mut decoder, "profile")?;
+    let integrity = decode_validation(decoder.read_u8()?)?;
+    let rebuild = decode_validation(decoder.read_u8()?)?;
+    let disposition = match decoder.read_u8()? {
+        1 => ImportDisposition::Clean,
+        2 => ImportDisposition::ManualAuthorized(decode_artifact_ref(
+            &mut decoder,
+            "manual_authorization",
+        )?),
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "import_disposition",
+                actual,
+            });
+        }
+    };
+    let created_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+    MigrationReport::new(MigrationReportFields {
+        report,
+        plan_id,
+        cycle_id,
+        source_snapshot,
+        source_high_water,
+        source_generation,
+        candidate_generation,
+        counts,
+        schema,
+        mapping,
+        profile,
+        integrity,
+        rebuild,
+        disposition,
+        created_at,
+    })
+    .map_err(|_| invalid("migration_report"))
+}
+
+/// Encode one isolated rollback-cycle manifest.
+pub fn encode_rollback_manifest(
+    manifest: &RollbackManifest,
+) -> Result<Vec<u8>, MigrationCodecError> {
+    if !manifest.has_valid_identity() {
+        return Err(invalid("rollback_manifest"));
+    }
+    let mut bytes = vec![CODEC_VERSION];
+    encode_artifact_ref(&mut bytes, &manifest.manifest)?;
+    write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
+    write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
+    write_string(
+        &mut bytes,
+        "parent_plan_id",
+        manifest.parent_plan_id.as_str(),
+    )?;
+    encode_routing_unit(&mut bytes, &manifest.routing_unit)?;
+    bytes.extend_from_slice(&manifest.candidate_high_water.to_be_bytes());
+    encode_artifact_ref(&mut bytes, &manifest.changed_state_inventory)?;
+    encode_artifact_ref(&mut bytes, &manifest.reconciliation_report)?;
+    match &manifest.reverse_migration_contract {
+        Some(contract) => {
+            bytes.push(1);
+            encode_artifact_ref(&mut bytes, contract)?;
+        }
+        None => bytes.push(0),
+    }
+    bytes.extend_from_slice(&manifest.expected_routing_generation.get().to_be_bytes());
+    encode_artifact_ref(&mut bytes, &manifest.operator_authorization)?;
+    bytes.extend_from_slice(&manifest.created_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Decode one isolated rollback-cycle manifest.
+pub fn decode_rollback_manifest(bytes: &[u8]) -> Result<RollbackManifest, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let manifest = decode_artifact_ref(&mut decoder, "manifest")?;
+    let plan_id =
+        MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
+    let cycle_id =
+        MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
+    let parent_plan_id = MigrationPlanId::new(decoder.read_string("parent_plan_id")?)
+        .map_err(|_| invalid("parent_plan_id"))?;
+    let routing_unit = decode_routing_unit(&mut decoder)?;
+    let candidate_high_water = decoder.read_u64()?;
+    let changed_state_inventory = decode_artifact_ref(&mut decoder, "changed_state_inventory")?;
+    let reconciliation_report = decode_artifact_ref(&mut decoder, "reconciliation_report")?;
+    let reverse_migration_contract = match decoder.read_u8()? {
+        0 => None,
+        1 => Some(decode_artifact_ref(
+            &mut decoder,
+            "reverse_migration_contract",
+        )?),
+        actual => {
+            return Err(MigrationCodecError::UnknownTag {
+                field: "reverse_migration_contract",
+                actual,
+            });
+        }
+    };
+    let expected_routing_generation =
+        RoutingGeneration::new(decoder.read_u64()?).map_err(|_| invalid("routing_generation"))?;
+    let operator_authorization = decode_artifact_ref(&mut decoder, "operator_authorization")?;
+    let created_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+    let manifest = RollbackManifest {
+        manifest,
+        plan_id,
+        cycle_id,
+        parent_plan_id,
+        routing_unit,
+        candidate_high_water,
+        changed_state_inventory,
+        reconciliation_report,
+        reverse_migration_contract,
+        expected_routing_generation,
+        operator_authorization,
+        created_at,
+    };
+    if !manifest.has_valid_identity() {
+        return Err(invalid("rollback_manifest"));
+    }
+    Ok(manifest)
+}
+
+/// Encode one final source-retirement manifest.
+pub fn encode_retirement_manifest(
+    manifest: &RetirementManifest,
+) -> Result<Vec<u8>, MigrationCodecError> {
+    if !manifest.has_valid_identity() {
+        return Err(invalid("retirement_manifest"));
+    }
+    let mut bytes = vec![CODEC_VERSION];
+    encode_artifact_ref(&mut bytes, &manifest.manifest)?;
+    write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
+    write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
+    encode_artifact_ref(&mut bytes, &manifest.final_drain_report)?;
+    encode_artifact_ref(&mut bytes, &manifest.final_audit)?;
+    encode_artifact_ref(&mut bytes, &manifest.removal_diff)?;
+    bytes.extend_from_slice(&manifest.retention_until.as_unix_micros().to_be_bytes());
+    encode_artifact_ref(&mut bytes, &manifest.operator_authorization)?;
+    bytes.extend_from_slice(&manifest.created_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Decode one final source-retirement manifest.
+pub fn decode_retirement_manifest(bytes: &[u8]) -> Result<RetirementManifest, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let manifest = decode_artifact_ref(&mut decoder, "manifest")?;
+    let plan_id =
+        MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
+    let cycle_id =
+        MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
+    let final_drain_report = decode_artifact_ref(&mut decoder, "final_drain_report")?;
+    let final_audit = decode_artifact_ref(&mut decoder, "final_audit")?;
+    let removal_diff = decode_artifact_ref(&mut decoder, "removal_diff")?;
+    let retention_until = Timestamp::from_unix_micros(decoder.read_i64()?);
+    let operator_authorization = decode_artifact_ref(&mut decoder, "operator_authorization")?;
+    let created_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+    let manifest = RetirementManifest {
+        manifest,
+        plan_id,
+        cycle_id,
+        final_drain_report,
+        final_audit,
+        removal_diff,
+        retention_until,
+        operator_authorization,
+        created_at,
+    };
+    if !manifest.has_valid_identity() {
+        return Err(invalid("retirement_manifest"));
     }
     Ok(manifest)
 }
@@ -797,6 +1121,78 @@ fn aggregate_parts(aggregate_id: &AggregateId) -> (u8, &[u8; 16]) {
     }
 }
 
+fn encode_artifact_ref(
+    bytes: &mut Vec<u8>,
+    artifact: &ArtifactRef,
+) -> Result<(), MigrationCodecError> {
+    if !artifact.is_valid() {
+        return Err(invalid("artifact_ref"));
+    }
+    write_string(bytes, "artifact_ref", &artifact.reference)?;
+    bytes.extend_from_slice(artifact.digest.as_bytes());
+    Ok(())
+}
+
+fn decode_artifact_ref(
+    decoder: &mut Decoder<'_>,
+    field: &'static str,
+) -> Result<ArtifactRef, MigrationCodecError> {
+    ArtifactRef::new(
+        decoder.read_string(field)?,
+        ArtifactDigest::from_bytes(decoder.read_array()?),
+    )
+    .map_err(|_| invalid(field))
+}
+
+fn validation_tag(validation: ArtifactValidation) -> u8 {
+    match validation {
+        ArtifactValidation::Passed => 1,
+        ArtifactValidation::Failed => 2,
+    }
+}
+
+fn decode_validation(actual: u8) -> Result<ArtifactValidation, MigrationCodecError> {
+    match actual {
+        1 => Ok(ArtifactValidation::Passed),
+        2 => Ok(ArtifactValidation::Failed),
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "artifact_validation",
+            actual,
+        }),
+    }
+}
+
+fn encode_rollback_policy(
+    bytes: &mut Vec<u8>,
+    policy: &RollbackPolicy,
+) -> Result<(), MigrationCodecError> {
+    match policy {
+        RollbackPolicy::BeforeCandidateWrites => bytes.push(1),
+        RollbackPolicy::ReverseMigrationRequired(contract) => {
+            bytes.push(2);
+            encode_artifact_ref(bytes, contract)?;
+        }
+        RollbackPolicy::ManualOnly => bytes.push(3),
+    }
+    Ok(())
+}
+
+fn decode_rollback_policy(
+    decoder: &mut Decoder<'_>,
+) -> Result<RollbackPolicy, MigrationCodecError> {
+    match decoder.read_u8()? {
+        1 => Ok(RollbackPolicy::BeforeCandidateWrites),
+        2 => Ok(RollbackPolicy::ReverseMigrationRequired(
+            decode_artifact_ref(decoder, "reverse_migration_contract")?,
+        )),
+        3 => Ok(RollbackPolicy::ManualOnly),
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "rollback_policy",
+            actual,
+        }),
+    }
+}
+
 fn phase_tag(phase: MigrationPhase) -> u8 {
     match phase {
         MigrationPhase::Baseline => 0,
@@ -1081,11 +1477,18 @@ impl<'a> Decoder<'a> {
 
 #[cfg(test)]
 mod tests {
-    use gocode_application::migration::ports::{CutoverIntent, CutoverManifest};
     use gocode_application::migration::types::{
-        ArtifactDigest, CohortDimension, CohortSelector, FencingToken, MigrationCycleId,
-        MigrationPlanId, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RuntimeAuthority,
-        RuntimeBinding, RuntimeGenerationRef,
+        ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
+        FencingToken, MigrationCycleId, MigrationPlanId, RollbackDisposition, RoutingGeneration,
+        RoutingSnapshot, RoutingUnit, RuntimeAuthority, RuntimeBinding, RuntimeGenerationRef,
+    };
+    use gocode_application::migration::{
+        manifests::{
+            ArtifactRef, ArtifactValidation, CandidateValidationReport, CutoverManifest,
+            CutoverManifestFields, DrainReportArtifact, ImportDisposition, MigrationCounts,
+            MigrationReport, MigrationReportFields, RollbackPolicy,
+        },
+        ports::CutoverIntent,
     };
     use gocode_domain::{
         id::{AggregateId, TaskRunId},
@@ -1110,6 +1513,7 @@ mod tests {
         "01",
         "000000000000000a"
     );
+    const GOLDEN_CUTOVER_MANIFEST_HEX: &str = "02001261727469666163743a2f2f6375746f7665720c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0006706c616e2d3100076379636c652d3101000a70726f64756374696f6e0001000c636c69656e745f636c61737300077072656d69756d000764656661756c7400010101010101010101010101010101010101010101010101010101010101010101020202020202020202020202020202020202020202020202020202020202020203030303030303030303030303030303030303030303030303030303030303030404040404040404040404040404040404040404040404040404040404040404001961727469666163743a2f2f736f757263652d72656c656173650d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d000e72756e74696d652d6c6567616379001c61727469666163743a2f2f63616e6469646174652d72656c656173650e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e0e000e72756e74696d652d6e6174697665001761727469666163743a2f2f65766964656e63652d7365740f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f001861727469666163743a2f2f696d706f72742d7265706f72740808080808080808080808080808080808080808080808080808080808080808001761727469666163743a2f2f647261696e2d7265706f72741010101010101010101010101010101010101010101010101010101010101010001f61727469666163743a2f2f63616e6469646174652d76616c69646174696f6e1111111111111111111111111111111111111111111111111111111111111111000000000000002a000000000000000201000000000000012c002161727469666163743a2f2f6f70657261746f722d617574686f72697a6174696f6e121212121212121212121212121212121212121212121212121212121212121200186375746f7665722d707265706172653a76323a61613a62620000000000000011000000000000001200000000000000c8";
 
     #[test]
     fn routing_snapshot_codec_has_literal_golden_bytes() {
@@ -1136,29 +1540,16 @@ mod tests {
 
     #[test]
     fn cutover_manifest_roundtrips_and_rejects_digest_corruption() {
-        let manifest_ref = "manifest-phase4-1".to_owned();
-        let manifest = CutoverManifest {
-            manifest_digest: CutoverManifest::digest_for_ref(&manifest_ref),
-            manifest_ref,
-            plan_id: MigrationPlanId::new("plan-1").unwrap(),
-            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
-            intent: CutoverIntent::InternalCanary,
-            source_high_water: 42,
-            evidence_set_digest: ArtifactDigest::from_bytes([9; 32]),
-            prepared_transition_id: "cutover-prepare:v1:aa:bb".to_owned(),
-            plan_version: 18,
-            prepared_at: Timestamp::from_unix_micros(200),
-        };
+        let manifest = golden_cutover_manifest();
         let bytes = encode_cutover_manifest(&manifest).unwrap();
+        assert_eq!(hex(&bytes), GOLDEN_CUTOVER_MANIFEST_HEX);
         assert_eq!(decode_cutover_manifest(&bytes).unwrap(), manifest);
 
         let mut corrupt = bytes;
-        corrupt[1] ^= 0xff;
+        corrupt[21..53].fill(0);
         assert_eq!(
             decode_cutover_manifest(&corrupt),
-            Err(MigrationCodecError::InvalidValue {
-                field: "manifest_digest",
-            })
+            Err(MigrationCodecError::InvalidValue { field: "manifest" })
         );
     }
 
@@ -1199,6 +1590,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn report_rollback_and_retirement_codecs_are_closed_and_roundtrip() {
+        let report = golden_migration_report();
+        let report_bytes = encode_migration_report(&report).unwrap();
+        assert_eq!(decode_migration_report(&report_bytes).unwrap(), report);
+
+        let rollback = RollbackManifest {
+            manifest: artifact("rollback", 20),
+            plan_id: MigrationPlanId::new("rollback-plan").unwrap(),
+            cycle_id: MigrationCycleId::new("rollback-cycle").unwrap(),
+            parent_plan_id: MigrationPlanId::new("plan-1").unwrap(),
+            routing_unit: golden_routing_unit(),
+            candidate_high_water: 43,
+            changed_state_inventory: artifact("changed-state", 21),
+            reconciliation_report: artifact("reconciliation", 22),
+            reverse_migration_contract: Some(artifact("reverse-contract", 23)),
+            expected_routing_generation: RoutingGeneration::new(3).unwrap(),
+            operator_authorization: artifact("rollback-authorization", 24),
+            created_at: Timestamp::from_unix_micros(400),
+        };
+        let rollback_bytes = encode_rollback_manifest(&rollback).unwrap();
+        assert_eq!(decode_rollback_manifest(&rollback_bytes).unwrap(), rollback);
+
+        let retirement = RetirementManifest {
+            manifest: artifact("retirement", 25),
+            plan_id: MigrationPlanId::new("plan-1").unwrap(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            final_drain_report: artifact("final-drain", 26),
+            final_audit: artifact("final-audit", 27),
+            removal_diff: artifact("removal-diff", 28),
+            retention_until: Timestamp::from_unix_micros(900),
+            operator_authorization: artifact("retirement-authorization", 29),
+            created_at: Timestamp::from_unix_micros(500),
+        };
+        let mut retirement_bytes = encode_retirement_manifest(&retirement).unwrap();
+        assert_eq!(
+            decode_retirement_manifest(&retirement_bytes).unwrap(),
+            retirement
+        );
+        retirement_bytes.push(0);
+        assert_eq!(
+            decode_retirement_manifest(&retirement_bytes),
+            Err(MigrationCodecError::TrailingBytes { remaining: 1 })
+        );
+    }
+
     fn golden_snapshot() -> RoutingSnapshot {
         let source = RuntimeGenerationRef::new("runtime-legacy").unwrap();
         let candidate = RuntimeGenerationRef::new("runtime-native").unwrap();
@@ -1218,6 +1655,100 @@ mod tests {
             rollback_disposition: RollbackDisposition::Eligible,
             committed_at: Timestamp::from_unix_micros(10),
         }
+    }
+
+    fn golden_cutover_manifest() -> CutoverManifest {
+        let report = golden_migration_report();
+        CutoverManifest::new(CutoverManifestFields {
+            manifest: artifact("cutover", 12),
+            plan_id: MigrationPlanId::new("plan-1").unwrap(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            intent: CutoverIntent::InternalCanary,
+            routing_unit: golden_routing_unit(),
+            source_release: artifact("source-release", 13),
+            source_generation: RuntimeGenerationRef::new("runtime-legacy").unwrap(),
+            candidate_release: artifact("candidate-release", 14),
+            candidate_generation: RuntimeGenerationRef::new("runtime-native").unwrap(),
+            frozen_evidence_set: artifact("evidence-set", 15),
+            migration_report: report,
+            drain_report: DrainReportArtifact {
+                report: artifact("drain-report", 16),
+                complete: true,
+                timed_out: false,
+                unresolved_effects: 0,
+                source_high_water: 42,
+            },
+            candidate_validation: CandidateValidationReport {
+                report: artifact("candidate-validation", 17),
+                validation: ArtifactValidation::Passed,
+            },
+            expected_routing_generation: RoutingGeneration::new(2).unwrap(),
+            routing_generation_at_prepare: RoutingGeneration::new(2).unwrap(),
+            rollback_policy: RollbackPolicy::BeforeCandidateWrites,
+            retention_until: Timestamp::from_unix_micros(300),
+            operator_authorization: artifact("operator-authorization", 18),
+            prepared_transition_id: "cutover-prepare:v2:aa:bb".to_owned(),
+            expected_plan_version: 17,
+            prepared_plan_version: 18,
+            prepared_at: Timestamp::from_unix_micros(200),
+        })
+        .unwrap()
+    }
+
+    fn golden_migration_report() -> MigrationReport {
+        MigrationReport::new(MigrationReportFields {
+            report: artifact("import-report", 8),
+            plan_id: MigrationPlanId::new("plan-1").unwrap(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            source_snapshot: artifact("source-snapshot", 9),
+            source_high_water: 42,
+            source_generation: RuntimeGenerationRef::new("runtime-legacy").unwrap(),
+            candidate_generation: RuntimeGenerationRef::new("runtime-native").unwrap(),
+            counts: MigrationCounts {
+                imported: 10,
+                skipped: 0,
+                unsupported: 0,
+                rejected: 0,
+                unknown: 0,
+                lossy: 0,
+                ambiguous: 0,
+            },
+            schema: artifact("schema", 3),
+            mapping: artifact("mapping", 11),
+            profile: artifact("profile", 1),
+            integrity: ArtifactValidation::Passed,
+            rebuild: ArtifactValidation::Passed,
+            disposition: ImportDisposition::Clean,
+            created_at: Timestamp::from_unix_micros(100),
+        })
+        .unwrap()
+    }
+
+    fn golden_routing_unit() -> RoutingUnit {
+        RoutingUnit {
+            deployment: DeploymentId::new("production").unwrap(),
+            cohort: CohortSelector::new(vec![
+                CohortDimension::new("client_class", "premium").unwrap(),
+            ])
+            .unwrap(),
+            feature_profile: FeatureProfileRef::new(
+                "default",
+                1,
+                ArtifactDigest::from_bytes([1; 32]),
+            )
+            .unwrap(),
+            contract_digest: ArtifactDigest::from_bytes([2; 32]),
+            schema_digest: ArtifactDigest::from_bytes([3; 32]),
+            config_digest: ArtifactDigest::from_bytes([4; 32]),
+        }
+    }
+
+    fn artifact(name: &str, byte: u8) -> ArtifactRef {
+        ArtifactRef::new(
+            format!("artifact://{name}"),
+            ArtifactDigest::from_bytes([byte; 32]),
+        )
+        .unwrap()
     }
 
     fn taskrun_id() -> TaskRunId {
