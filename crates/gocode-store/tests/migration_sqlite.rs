@@ -1,0 +1,450 @@
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Barrier},
+    thread,
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use gocode_application::migration::{
+    gates::MigrationEvidence,
+    ports::{
+        MigrationAuditAction, MigrationAuditRecord, MigrationCommandContext,
+        MigrationCommandFingerprint, MigrationCommandOutcome, MigrationCommit,
+        MigrationControlStore, MigrationMutation, MigrationReceiptLookup, MigrationStoreError,
+        MigrationTransition,
+    },
+    state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
+    types::{
+        ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
+        FencingToken, GatePolicyRef, MigrationCycleId, MigrationPlanId, OperatorId,
+        RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit, RuntimeAuthority,
+        RuntimeGenerationRef,
+    },
+};
+use gocode_domain::{
+    id::{CommandId, IdempotencyKey},
+    timestamp::Timestamp,
+};
+use gocode_store::{migration_store::SqliteMigrationControlStore, schema::open_with_pragmas};
+use rusqlite::Connection;
+
+#[test]
+fn two_writers_racing_same_routing_generation_have_one_winner() {
+    let db = TempDb::new("routing-cas");
+    let left = SqliteMigrationControlStore::open(db.path()).unwrap();
+    let right = SqliteMigrationControlStore::open(db.path()).unwrap();
+    left.commit(stage_commit()).unwrap();
+
+    let barrier = Arc::new(Barrier::new(2));
+    let left_barrier = Arc::clone(&barrier);
+    let left_thread = thread::spawn(move || {
+        left_barrier.wait();
+        left.commit(routing_commit(2))
+    });
+    let right_barrier = Arc::clone(&barrier);
+    let right_thread = thread::spawn(move || {
+        right_barrier.wait();
+        right.commit(routing_commit(3))
+    });
+
+    let results = [left_thread.join().unwrap(), right_thread.join().unwrap()];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| {
+                matches!(
+                    result,
+                    Err(MigrationStoreError::RoutingGenerationConflict {
+                        expected,
+                        actual,
+                    }) if expected.get() == 1 && actual.get() == 2
+                )
+            })
+            .count(),
+        1
+    );
+
+    let connection = Connection::open(db.path()).unwrap();
+    let snapshot_count: i64 = connection
+        .query_row("SELECT COUNT(*) FROM routing_snapshots", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(snapshot_count, 2);
+}
+
+#[test]
+fn audit_failure_rolls_back_plan_snapshot_head_and_receipt() {
+    let db = TempDb::new("audit-rollback");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    connection
+        .execute_batch(
+            "CREATE TRIGGER reject_migration_audit
+             BEFORE INSERT ON migration_audit
+             BEGIN
+                 SELECT RAISE(ABORT, 'audit failure');
+             END;",
+        )
+        .unwrap();
+    let before = durable_counts(&connection);
+
+    assert_eq!(
+        store.commit(stage_commit()),
+        Err(MigrationStoreError::IntegrityViolation)
+    );
+    assert_eq!(durable_counts(&connection), before);
+}
+
+#[test]
+fn reopen_restores_exact_plan_head_and_receipt() {
+    let db = TempDb::new("migration-reopen");
+    let original = SqliteMigrationControlStore::open(db.path()).unwrap();
+    let context = stage_context();
+    let fingerprint = fingerprint(1);
+    let result = original.commit(stage_commit()).unwrap();
+    drop(original);
+
+    let reopened = SqliteMigrationControlStore::open(db.path()).unwrap();
+    assert_eq!(
+        reopened.load_plan(&plan_id()).unwrap().unwrap().plan,
+        result.plan().clone()
+    );
+    assert_eq!(
+        reopened.load_routing_head(&routing_unit()).unwrap(),
+        result.outcome().routing_snapshot
+    );
+    assert_eq!(
+        reopened.lookup_receipt(&context, &fingerprint).unwrap(),
+        MigrationReceiptLookup::Duplicate {
+            stored_result: Box::new(result.outcome().clone()),
+        }
+    );
+}
+
+#[test]
+fn load_plan_rejects_normalized_candidate_mismatch() {
+    let db = TempDb::new("normalized-plan-corruption");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    store.commit(stage_commit()).unwrap();
+    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE migration_plans
+             SET candidate_generation = 'runtime-corrupted'
+             WHERE plan_id = ?1",
+            [plan_id().as_str()],
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.load_plan(&plan_id()),
+        Err(MigrationStoreError::CorruptData)
+    );
+}
+
+#[test]
+fn load_plan_rejects_evidence_blob_that_does_not_match_its_digest() {
+    let db = TempDb::new("evidence-corruption");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    store.commit(stage_commit()).unwrap();
+    store.commit(evidence_commit()).unwrap();
+    let replacement =
+        gocode_store::migration_codec::encode_migration_evidence(&MigrationEvidence::Baseline {
+            source_sha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_owned(),
+            inventory_digest: ArtifactDigest::from_bytes([8; 32]),
+            fixture_digest: ArtifactDigest::from_bytes([9; 32]),
+        })
+        .unwrap();
+    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    connection
+        .execute(
+            "UPDATE migration_evidence SET evidence_blob = ?1",
+            [replacement],
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.load_plan(&plan_id()),
+        Err(MigrationStoreError::CorruptData)
+    );
+}
+
+#[test]
+fn second_forward_plan_cannot_silently_reuse_an_existing_routing_head() {
+    let db = TempDb::new("routing-head-reuse");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    store.commit(stage_commit()).unwrap();
+    let mut second_plan = test_plan();
+    second_plan.plan_id = MigrationPlanId::new("plan-2").unwrap();
+    second_plan.cycle_id = MigrationCycleId::new("cycle-2").unwrap();
+
+    assert_eq!(
+        store.commit(stage_commit_for(
+            second_plan,
+            source_snapshot(RoutingGeneration::new(2).unwrap()),
+            5,
+        )),
+        Err(MigrationStoreError::IntegrityViolation)
+    );
+    let connection = Connection::open(db.path()).unwrap();
+    assert_eq!(row_count(&connection, "migration_plans"), 1);
+    assert_eq!(row_count(&connection, "routing_snapshots"), 1);
+    assert_eq!(row_count(&connection, "routing_head"), 1);
+}
+
+fn stage_commit() -> MigrationCommit {
+    stage_commit_for(
+        test_plan(),
+        source_snapshot(RoutingGeneration::new(1).unwrap()),
+        1,
+    )
+}
+
+fn stage_commit_for(plan: MigrationPlan, snapshot: RoutingSnapshot, suffix: u8) -> MigrationCommit {
+    let context = command_context(suffix, 0, None);
+    let fingerprint = fingerprint(suffix);
+    let transition = transition(&format!("transition-stage-{suffix}"), &plan);
+    let outcome = MigrationCommandOutcome {
+        plan: plan.clone(),
+        routing_snapshot: Some(snapshot.clone()),
+        transition_id: transition.transition_id.clone(),
+    };
+    let audit = audit(&context, &plan, MigrationAuditAction::StagePlan, suffix);
+
+    MigrationCommit::new(
+        context,
+        fingerprint,
+        plan.clone(),
+        vec![
+            MigrationMutation::InsertPlan(plan),
+            MigrationMutation::AppendTransition(transition),
+            MigrationMutation::AppendRoutingSnapshot(snapshot),
+        ],
+        outcome,
+        Some(audit),
+    )
+    .unwrap()
+}
+
+fn routing_commit(suffix: u8) -> MigrationCommit {
+    let plan = test_plan();
+    let snapshot = source_snapshot(RoutingGeneration::new(2).unwrap());
+    let context = command_context(suffix, 0, Some(RoutingGeneration::new(1).unwrap()));
+    let fingerprint = fingerprint(suffix);
+    let outcome = MigrationCommandOutcome {
+        plan: plan.clone(),
+        routing_snapshot: Some(snapshot.clone()),
+        transition_id: format!("routing-{suffix}"),
+    };
+    let audit = audit(
+        &context,
+        &plan,
+        MigrationAuditAction::PrepareCutover,
+        suffix,
+    );
+
+    MigrationCommit::new(
+        context,
+        fingerprint,
+        plan,
+        vec![
+            MigrationMutation::AppendRoutingSnapshot(snapshot),
+            MigrationMutation::AdvanceRoutingHead {
+                unit_digest: routing_unit().digest(),
+                expected: RoutingGeneration::new(1).unwrap(),
+                next: RoutingGeneration::new(2).unwrap(),
+            },
+        ],
+        outcome,
+        Some(audit),
+    )
+    .unwrap()
+}
+
+fn evidence_commit() -> MigrationCommit {
+    let mut plan = test_plan();
+    plan.record_mutation(0).unwrap();
+    let context = command_context(4, 0, None);
+    let fingerprint = fingerprint(4);
+    let evidence = MigrationEvidence::Baseline {
+        source_sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".to_owned(),
+        inventory_digest: ArtifactDigest::from_bytes([8; 32]),
+        fixture_digest: ArtifactDigest::from_bytes([9; 32]),
+    };
+    let outcome = MigrationCommandOutcome {
+        plan: plan.clone(),
+        routing_snapshot: None,
+        transition_id: "evidence-4".to_owned(),
+    };
+    let audit = audit(&context, &plan, MigrationAuditAction::RecordEvidence, 4);
+    MigrationCommit::new(
+        context,
+        fingerprint,
+        plan,
+        vec![MigrationMutation::AppendEvidence(evidence)],
+        outcome,
+        Some(audit),
+    )
+    .unwrap()
+}
+
+fn stage_context() -> MigrationCommandContext {
+    command_context(1, 0, None)
+}
+
+fn command_context(
+    command_suffix: u8,
+    expected_plan_version: u64,
+    expected_routing_generation: Option<RoutingGeneration>,
+) -> MigrationCommandContext {
+    MigrationCommandContext {
+        command_id: format!("018f2e3a-8d5c-7b20-8d9a-{command_suffix:012x}")
+            .parse::<CommandId>()
+            .unwrap(),
+        idempotency_key: IdempotencyKey::new(format!("migration-{command_suffix}")).unwrap(),
+        operator_id: OperatorId::new("operator-1").unwrap(),
+        expected_plan_version,
+        expected_routing_generation,
+    }
+}
+
+fn fingerprint(suffix: u8) -> MigrationCommandFingerprint {
+    MigrationCommandFingerprint::from_bytes([suffix; 32])
+}
+
+fn audit(
+    context: &MigrationCommandContext,
+    plan: &MigrationPlan,
+    action: MigrationAuditAction,
+    suffix: u8,
+) -> MigrationAuditRecord {
+    MigrationAuditRecord {
+        record_id: ArtifactDigest::from_bytes([suffix; 32]),
+        plan_id: plan.plan_id.clone(),
+        command_id: context.command_id,
+        operator_id: context.operator_id.clone(),
+        action,
+        recorded_at: Timestamp::from_unix_micros(i64::from(suffix)),
+    }
+}
+
+fn transition(identity: &str, plan: &MigrationPlan) -> MigrationTransition {
+    MigrationTransition {
+        transition_id: identity.to_owned(),
+        plan_id: plan.plan_id.clone(),
+        cycle_id: plan.cycle_id.clone(),
+        from: MigrationPhase::Baseline,
+        to: MigrationPhase::Baseline,
+        plan_version: plan.plan_version,
+        occurred_at: Timestamp::from_unix_micros(1),
+    }
+}
+
+fn test_plan() -> MigrationPlan {
+    MigrationPlan {
+        plan_id: plan_id(),
+        cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+        cycle_kind: MigrationCycleKind::Forward,
+        source: source_generation(),
+        candidate: candidate_generation(),
+        phase: MigrationPhase::Baseline,
+        status: MigrationPlanStatus::Active,
+        routing_unit: routing_unit(),
+        gate_policy: GatePolicyRef::new("policy-v1").unwrap(),
+        plan_version: 0,
+        created_at: Timestamp::from_unix_micros(1),
+    }
+}
+
+fn source_snapshot(routing_generation: RoutingGeneration) -> RoutingSnapshot {
+    RoutingSnapshot::new(
+        routing_generation,
+        source_generation(),
+        candidate_generation(),
+        MigrationPhase::Baseline,
+        RuntimeAuthority::Source(source_generation()),
+        routing_unit(),
+        FencingToken::new([7; 32]).unwrap(),
+        RollbackDisposition::Eligible,
+        Timestamp::from_unix_micros(1),
+    )
+    .unwrap()
+}
+
+fn plan_id() -> MigrationPlanId {
+    MigrationPlanId::new("plan-1").unwrap()
+}
+
+fn source_generation() -> RuntimeGenerationRef {
+    RuntimeGenerationRef::new("runtime-legacy").unwrap()
+}
+
+fn candidate_generation() -> RuntimeGenerationRef {
+    RuntimeGenerationRef::new("runtime-native").unwrap()
+}
+
+fn routing_unit() -> RoutingUnit {
+    RoutingUnit {
+        deployment: DeploymentId::new("production").unwrap(),
+        cohort: CohortSelector::new(vec![
+            CohortDimension::new("client_class", "premium").unwrap(),
+        ])
+        .unwrap(),
+        feature_profile: FeatureProfileRef::new("default", 1, ArtifactDigest::from_bytes([1; 32]))
+            .unwrap(),
+        contract_digest: ArtifactDigest::from_bytes([2; 32]),
+        schema_digest: ArtifactDigest::from_bytes([3; 32]),
+        config_digest: ArtifactDigest::from_bytes([4; 32]),
+    }
+}
+
+fn durable_counts(connection: &Connection) -> [i64; 5] {
+    [
+        row_count(connection, "migration_plans"),
+        row_count(connection, "routing_snapshots"),
+        row_count(connection, "routing_head"),
+        row_count(connection, "migration_receipts"),
+        row_count(connection, "migration_audit"),
+    ]
+}
+
+fn row_count(connection: &Connection, table: &str) -> i64 {
+    connection
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+}
+
+struct TempDb {
+    path: PathBuf,
+}
+
+impl TempDb {
+    fn new(name: &str) -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        Self {
+            path: std::env::temp_dir().join(format!(
+                "gocode-migration-{name}-{}-{nonce}.sqlite",
+                std::process::id()
+            )),
+        }
+    }
+
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for TempDb {
+    fn drop(&mut self) {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", self.path.display()));
+        }
+    }
+}
