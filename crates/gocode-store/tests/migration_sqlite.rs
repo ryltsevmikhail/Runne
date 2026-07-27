@@ -2,7 +2,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Barrier},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use gocode_application::migration::{
@@ -18,10 +18,10 @@ use gocode_application::migration::{
         MigrationTransition, SanitizedShadowInput, ShadowDiffReport, ShadowExecutionError,
         ShadowExecutionPort,
     },
-    rollout::{CanaryPolicy, CutoverPolicy},
+    rollout::{CanaryPolicy, CutoverPolicy, RolloutStep},
     service::{
-        CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
-        RecordEvidenceInput, StagePlanInput, StartRollbackInput,
+        CommitCutoverInput, CutoverIntent, EmergencyRevokeInput, MigrationService,
+        PrepareCutoverInput, RecordEvidenceInput, StagePlanInput, StartRollbackInput,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
