@@ -356,11 +356,14 @@ async fn sqlite_writer_contention_does_not_block_unrelated_tokio_timers() {
     let lock_barrier = Arc::new(Barrier::new(2));
     let lock_thread_barrier = lock_barrier.clone();
     let lock_path = runtime_path.clone();
+    let (release_lock, await_release) = std::sync::mpsc::channel();
     let lock_thread = std::thread::spawn(move || {
         let conn = gocode_store::schema::open_with_pragmas(lock_path.to_str().unwrap()).unwrap();
         conn.execute_batch("BEGIN IMMEDIATE").unwrap();
         lock_thread_barrier.wait();
-        std::thread::sleep(std::time::Duration::from_millis(150));
+        await_release
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("Tokio worker did not make progress while SQLite was locked");
         conn.execute_batch("ROLLBACK").unwrap();
     });
     lock_barrier.wait();
@@ -373,12 +376,12 @@ async fn sqlite_writer_contention_does_not_block_unrelated_tokio_timers() {
         idempotency_key: IdempotencyKey::new("async-contention").unwrap(),
     };
     let host_call = tokio::spawn(async move { host.create_conversation(&context, input).await });
-    let started = std::time::Instant::now();
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     assert!(
-        started.elapsed() < std::time::Duration::from_millis(100),
+        !host_call.is_finished(),
         "SQLite contention blocked the current Tokio worker"
     );
+    release_lock.send(()).unwrap();
 
     host_call.await.unwrap().unwrap();
     lock_thread.join().unwrap();
