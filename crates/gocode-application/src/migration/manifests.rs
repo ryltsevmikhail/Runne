@@ -546,8 +546,18 @@ pub struct RetirementManifest {
     pub plan_id: MigrationPlanId,
     pub cycle_id: MigrationCycleId,
     pub final_drain_report: ArtifactRef,
+    /// Exact digest of the retirement-clear legacy reference inventory.
+    pub reference_inventory_digest: ArtifactDigest,
+    /// Evidence covering every claimed replacement platform tuple.
+    pub platform_verification_set: ArtifactRef,
+    /// Evidence that migration and rollback windows are closed.
+    pub closed_windows_evidence: ArtifactRef,
+    /// Evidence that legacy credentials, processes, and packages are disabled.
+    pub disabled_legacy_authority: ArtifactRef,
     pub final_audit: ArtifactRef,
     pub removal_diff: ArtifactRef,
+    /// Security and compatibility removal-suite result.
+    pub removal_suite: ArtifactRef,
     pub retention_until: Timestamp,
     pub operator_authorization: ArtifactRef,
     pub created_at: Timestamp,
@@ -560,10 +570,15 @@ impl RetirementManifest {
             && all_artifacts_unique([
                 &self.manifest,
                 &self.final_drain_report,
+                &self.platform_verification_set,
+                &self.closed_windows_evidence,
+                &self.disabled_legacy_authority,
                 &self.final_audit,
                 &self.removal_diff,
+                &self.removal_suite,
                 &self.operator_authorization,
             ])
+            && self.reference_inventory_digest.as_bytes() != &[0; 32]
     }
 }
 

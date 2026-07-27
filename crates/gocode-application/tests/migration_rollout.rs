@@ -4,7 +4,10 @@ use gocode_application::migration::{
     error::MigrationError,
     manifests::{ArtifactRef, DeprecationManifest, LegacyNewBindingPolicy},
     rollout::{CanaryPolicy, MAX_ROLLOUT_ADMISSION_LIMIT, PreDispatchFallbackPolicy, RolloutStep},
-    rollout::{LegacyReferenceDisposition, LegacyReferenceInventory, LegacyReferenceSet},
+    rollout::{
+        LegacyReferenceDisposition, LegacyReferenceInventory, LegacyReferenceSet,
+        RetirementReadiness, RetirementRequirement,
+    },
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
         GatePolicyRef, MigrationCycleId, MigrationPlanId, RoutingGeneration, RoutingUnit,
@@ -169,6 +172,34 @@ fn deprecation_manifest_publishes_closed_admission_and_exact_inventory() {
     };
 
     assert!(manifest.has_valid_identity());
+}
+
+#[test]
+fn retirement_readiness_fails_closed_on_a_retained_runtime_reference() {
+    let mut readiness = RetirementReadiness {
+        reference_inventory: clear_legacy_inventory(),
+        legacy_admission_closed: true,
+        replacement_platforms_verified: true,
+        migration_window_closed: true,
+        rollback_window_closed: true,
+        credentials_disabled: true,
+        processes_disabled: true,
+        packages_disabled: true,
+        removal_suites_passed: true,
+        final_audit_accepted: true,
+    };
+    assert!(readiness.is_ready());
+
+    readiness
+        .reference_inventory
+        .credentials_packages_processes
+        .blocking_count = 1;
+
+    assert_eq!(
+        readiness.first_missing(),
+        Some(RetirementRequirement::ReferenceInventoryClear)
+    );
+    assert!(!readiness.is_ready());
 }
 
 fn clear_legacy_inventory() -> LegacyReferenceInventory {

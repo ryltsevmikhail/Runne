@@ -30,6 +30,7 @@ use gocode_domain::{
 
 const CODEC_VERSION: u8 = 1;
 const CUTOVER_MANIFEST_CODEC_VERSION: u8 = 5;
+const RETIREMENT_MANIFEST_CODEC_VERSION: u8 = 2;
 
 /// Fail-closed migration codec errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -676,13 +677,18 @@ pub fn encode_retirement_manifest(
     if !manifest.has_valid_identity() {
         return Err(invalid("retirement_manifest"));
     }
-    let mut bytes = vec![CODEC_VERSION];
+    let mut bytes = vec![RETIREMENT_MANIFEST_CODEC_VERSION];
     encode_artifact_ref(&mut bytes, &manifest.manifest)?;
     write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
     write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
     encode_artifact_ref(&mut bytes, &manifest.final_drain_report)?;
+    bytes.extend_from_slice(manifest.reference_inventory_digest.as_bytes());
+    encode_artifact_ref(&mut bytes, &manifest.platform_verification_set)?;
+    encode_artifact_ref(&mut bytes, &manifest.closed_windows_evidence)?;
+    encode_artifact_ref(&mut bytes, &manifest.disabled_legacy_authority)?;
     encode_artifact_ref(&mut bytes, &manifest.final_audit)?;
     encode_artifact_ref(&mut bytes, &manifest.removal_diff)?;
+    encode_artifact_ref(&mut bytes, &manifest.removal_suite)?;
     bytes.extend_from_slice(&manifest.retention_until.as_unix_micros().to_be_bytes());
     encode_artifact_ref(&mut bytes, &manifest.operator_authorization)?;
     bytes.extend_from_slice(&manifest.created_at.as_unix_micros().to_be_bytes());
@@ -691,15 +697,24 @@ pub fn encode_retirement_manifest(
 
 /// Decode one final source-retirement manifest.
 pub fn decode_retirement_manifest(bytes: &[u8]) -> Result<RetirementManifest, MigrationCodecError> {
-    let mut decoder = versioned_decoder(bytes)?;
+    let mut decoder = Decoder::new(bytes);
+    let version = decoder.read_u8()?;
+    if version != RETIREMENT_MANIFEST_CODEC_VERSION {
+        return Err(MigrationCodecError::UnknownVersion { actual: version });
+    }
     let manifest = decode_artifact_ref(&mut decoder, "manifest")?;
     let plan_id =
         MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
     let cycle_id =
         MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
     let final_drain_report = decode_artifact_ref(&mut decoder, "final_drain_report")?;
+    let reference_inventory_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let platform_verification_set = decode_artifact_ref(&mut decoder, "platform_verification_set")?;
+    let closed_windows_evidence = decode_artifact_ref(&mut decoder, "closed_windows_evidence")?;
+    let disabled_legacy_authority = decode_artifact_ref(&mut decoder, "disabled_legacy_authority")?;
     let final_audit = decode_artifact_ref(&mut decoder, "final_audit")?;
     let removal_diff = decode_artifact_ref(&mut decoder, "removal_diff")?;
+    let removal_suite = decode_artifact_ref(&mut decoder, "removal_suite")?;
     let retention_until = Timestamp::from_unix_micros(decoder.read_i64()?);
     let operator_authorization = decode_artifact_ref(&mut decoder, "operator_authorization")?;
     let created_at = Timestamp::from_unix_micros(decoder.read_i64()?);
@@ -709,8 +724,13 @@ pub fn decode_retirement_manifest(bytes: &[u8]) -> Result<RetirementManifest, Mi
         plan_id,
         cycle_id,
         final_drain_report,
+        reference_inventory_digest,
+        platform_verification_set,
+        closed_windows_evidence,
+        disabled_legacy_authority,
         final_audit,
         removal_diff,
+        removal_suite,
         retention_until,
         operator_authorization,
         created_at,
@@ -1758,8 +1778,13 @@ mod tests {
             plan_id: MigrationPlanId::new("plan-1").unwrap(),
             cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
             final_drain_report: artifact("final-drain", 26),
+            reference_inventory_digest: ArtifactDigest::from_bytes([30; 32]),
+            platform_verification_set: artifact("platform-verification", 31),
+            closed_windows_evidence: artifact("closed-windows", 32),
+            disabled_legacy_authority: artifact("disabled-legacy", 33),
             final_audit: artifact("final-audit", 27),
             removal_diff: artifact("removal-diff", 28),
+            removal_suite: artifact("removal-suite", 34),
             retention_until: Timestamp::from_unix_micros(900),
             operator_authorization: artifact("retirement-authorization", 29),
             created_at: Timestamp::from_unix_micros(500),

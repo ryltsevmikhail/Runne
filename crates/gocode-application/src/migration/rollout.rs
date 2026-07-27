@@ -118,6 +118,105 @@ impl LegacyReferenceInventory {
     }
 }
 
+/// Independently testable Stage 8 exit conditions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RetirementRequirement {
+    /// No runtime reference remains unresolved.
+    ReferenceInventoryClear,
+    /// Stage 7 closed every new legacy binding.
+    LegacyAdmissionClosed,
+    /// Replacement was verified on every claimed platform tuple.
+    ReplacementPlatformsVerified,
+    /// Forward migration support window is closed.
+    MigrationWindowClosed,
+    /// Rollback support window is closed.
+    RollbackWindowClosed,
+    /// Legacy credentials are disabled.
+    CredentialsDisabled,
+    /// Legacy runtime processes are disabled.
+    ProcessesDisabled,
+    /// Legacy packages are disabled.
+    PackagesDisabled,
+    /// Removal passed security and compatibility suites.
+    RemovalSuitesPassed,
+    /// Final retirement audit was accepted.
+    FinalAuditAccepted,
+}
+
+impl RetirementRequirement {
+    /// Canonical complete requirement inventory.
+    pub const ALL: [Self; 10] = [
+        Self::ReferenceInventoryClear,
+        Self::LegacyAdmissionClosed,
+        Self::ReplacementPlatformsVerified,
+        Self::MigrationWindowClosed,
+        Self::RollbackWindowClosed,
+        Self::CredentialsDisabled,
+        Self::ProcessesDisabled,
+        Self::PackagesDisabled,
+        Self::RemovalSuitesPassed,
+        Self::FinalAuditAccepted,
+    ];
+}
+
+/// Evaluated Stage 8 readiness over exact immutable evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetirementReadiness {
+    /// Exact categorized legacy-reference inventory.
+    pub reference_inventory: LegacyReferenceInventory,
+    /// New Source bindings are durably closed.
+    pub legacy_admission_closed: bool,
+    /// Candidate replacement is verified on every claimed platform.
+    pub replacement_platforms_verified: bool,
+    /// Forward migration window is closed.
+    pub migration_window_closed: bool,
+    /// Rollback window is closed.
+    pub rollback_window_closed: bool,
+    /// Legacy credentials are disabled.
+    pub credentials_disabled: bool,
+    /// Legacy processes are disabled.
+    pub processes_disabled: bool,
+    /// Legacy packages are disabled.
+    pub packages_disabled: bool,
+    /// Security and compatibility removal suites passed.
+    pub removal_suites_passed: bool,
+    /// Final audit was accepted.
+    pub final_audit_accepted: bool,
+}
+
+impl RetirementReadiness {
+    /// Return the first unsatisfied exit condition, if any.
+    pub fn first_missing(&self) -> Option<RetirementRequirement> {
+        RetirementRequirement::ALL
+            .into_iter()
+            .find(|requirement| !self.satisfies(*requirement))
+    }
+
+    /// Return true only when every Stage 8 exit condition is satisfied.
+    pub fn is_ready(&self) -> bool {
+        self.first_missing().is_none()
+    }
+
+    fn satisfies(&self, requirement: RetirementRequirement) -> bool {
+        match requirement {
+            RetirementRequirement::ReferenceInventoryClear => {
+                self.reference_inventory.is_retirement_clear()
+            }
+            RetirementRequirement::LegacyAdmissionClosed => self.legacy_admission_closed,
+            RetirementRequirement::ReplacementPlatformsVerified => {
+                self.replacement_platforms_verified
+            }
+            RetirementRequirement::MigrationWindowClosed => self.migration_window_closed,
+            RetirementRequirement::RollbackWindowClosed => self.rollback_window_closed,
+            RetirementRequirement::CredentialsDisabled => self.credentials_disabled,
+            RetirementRequirement::ProcessesDisabled => self.processes_disabled,
+            RetirementRequirement::PackagesDisabled => self.packages_disabled,
+            RetirementRequirement::RemovalSuitesPassed => self.removal_suites_passed,
+            RetirementRequirement::FinalAuditAccepted => self.final_audit_accepted,
+        }
+    }
+}
+
 /// Explicit policy for selecting Source before any candidate dispatch is attempted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PreDispatchFallbackPolicy {

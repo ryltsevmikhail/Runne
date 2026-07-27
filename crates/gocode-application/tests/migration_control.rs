@@ -12,7 +12,8 @@ use gocode_application::migration::{
     },
     manifests::{
         ArtifactRef, ArtifactValidation, CandidateValidationReport, DrainReportArtifact,
-        ImportDisposition, MigrationCounts, MigrationReport, MigrationReportFields, RollbackPolicy,
+        ImportDisposition, MigrationCounts, MigrationReport, MigrationReportFields,
+        RetirementManifest, RollbackPolicy,
     },
     ports::{
         LoadedMigrationPlan, MigrationCommandContext, MigrationCommandFingerprint, MigrationCommit,
@@ -20,7 +21,11 @@ use gocode_application::migration::{
         MigrationReceiptLookup, MigrationStoreError, SanitizedShadowInput, ShadowDiffReport,
         ShadowExecutionError, ShadowExecutionPort,
     },
-    rollout::{CanaryPolicy, CutoverPolicy, PreDispatchFallbackPolicy, RolloutStep},
+    rollout::{
+        CanaryPolicy, CutoverPolicy, LegacyReferenceDisposition, LegacyReferenceInventory,
+        LegacyReferenceSet, PreDispatchFallbackPolicy, RetirementReadiness, RetirementRequirement,
+        RolloutStep,
+    },
     service::{
         BeginDrainInput, CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
         RecordEvidenceInput, RetireSourceInput, StagePlanInput, StartRollbackInput,
@@ -644,18 +649,57 @@ fn production_control_primitives_fail_closed_without_mutation() {
         Err(MigrationError::ProductionGatesUnavailable)
     );
     assert_eq!(
-        service.retire_source(
-            command_context(0, None, 63),
-            RetireSourceInput {
-                plan_id: plan_id(),
-                retirement_evidence_digest: ArtifactDigest::from_bytes([21; 32]),
-            },
-        ),
-        Err(MigrationError::ProductionGatesUnavailable)
+        service.retire_source(command_context(0, None, 63), retirement_input(),),
+        Err(MigrationError::RetirementBlocked)
     );
 
     assert_eq!(service.load_plan(&plan_id()).unwrap(), before_plan);
     assert_eq!(service.routing_head(&routing_unit()).unwrap(), before_head);
+}
+
+#[test]
+fn retirement_requires_every_exit_condition_without_mutation() {
+    for missing in RetirementRequirement::ALL {
+        let (service, _) = draining_service();
+        let before = service.load_plan(&plan_id()).unwrap();
+        let mut input = retirement_input();
+        omit_retirement_requirement(&mut input.readiness, missing);
+
+        assert_eq!(
+            service.retire_source(next_context(&service), input),
+            Err(MigrationError::RetirementBlocked)
+        );
+        assert_eq!(service.load_plan(&plan_id()).unwrap(), before);
+    }
+}
+
+#[test]
+fn successful_retirement_is_terminal_and_preserves_history() {
+    let (service, _) = draining_service();
+    let before = service.load_plan(&plan_id()).unwrap().unwrap();
+
+    let output = service
+        .retire_source(next_context(&service), retirement_input())
+        .unwrap();
+
+    assert_eq!(output.outcome.plan.phase, MigrationPhase::Retired);
+    assert_eq!(output.outcome.plan.status, MigrationPlanStatus::Retired);
+    let after = service.load_plan(&plan_id()).unwrap().unwrap();
+    assert_eq!(
+        &after.transitions[..before.transitions.len()],
+        before.transitions.as_slice()
+    );
+    assert_eq!(after.retirement_manifests.len(), 1);
+    assert_eq!(
+        service.begin_drain(
+            next_context(&service),
+            BeginDrainInput {
+                plan_id: plan_id(),
+                cohort: routing_unit().cohort,
+            },
+        ),
+        Err(MigrationError::TerminalPlanImmutable)
+    );
 }
 
 #[test]
@@ -1010,6 +1054,20 @@ fn canary_active_service() -> (
     (service, store)
 }
 
+fn draining_service() -> (
+    MigrationService<MemoryMigrationStore, PureShadow>,
+    MemoryMigrationStore,
+) {
+    let (service, store) = seeded_service();
+    {
+        let mut state = store.state.lock().unwrap();
+        let loaded = state.plans.get_mut(plan_id().as_str()).unwrap();
+        loaded.plan.phase = MigrationPhase::DrainDeprecate;
+        loaded.plan.plan_version = 7;
+    }
+    (service, store)
+}
+
 fn record_phase4_evidence_except(
     service: &MigrationService<MemoryMigrationStore, PureShadow>,
     omitted: Option<GateFamily>,
@@ -1262,6 +1320,90 @@ fn artifact(name: &str, byte: u8) -> ArtifactRef {
         ArtifactDigest::from_bytes([byte; 32]),
     )
     .unwrap()
+}
+
+fn retirement_input() -> RetireSourceInput {
+    let readiness = complete_retirement_readiness();
+    RetireSourceInput {
+        plan_id: plan_id(),
+        manifest: RetirementManifest {
+            manifest: artifact("retirement", 100),
+            plan_id: plan_id(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            final_drain_report: artifact("final-drain", 101),
+            reference_inventory_digest: readiness.reference_inventory.digest(),
+            platform_verification_set: artifact("platform-verification", 102),
+            closed_windows_evidence: artifact("closed-windows", 103),
+            disabled_legacy_authority: artifact("disabled-legacy", 104),
+            final_audit: artifact("final-audit", 105),
+            removal_diff: artifact("removal-diff", 106),
+            removal_suite: artifact("removal-suite", 107),
+            retention_until: Timestamp::from_unix_micros(1_000),
+            operator_authorization: artifact("retirement-authorization", 108),
+            created_at: Timestamp::from_unix_micros(100),
+        },
+        readiness,
+    }
+}
+
+fn complete_retirement_readiness() -> RetirementReadiness {
+    let resolved = |byte| LegacyReferenceSet {
+        blocking_count: 0,
+        identity_digest: ArtifactDigest::from_bytes([byte; 32]),
+        disposition: LegacyReferenceDisposition::Resolved,
+    };
+    RetirementReadiness {
+        reference_inventory: LegacyReferenceInventory {
+            active_and_in_flight: resolved(110),
+            recovery_candidates: resolved(111),
+            uncertain_effects: resolved(112),
+            timers_processes_cleanup: resolved(113),
+            replay_and_client_cursors: resolved(114),
+            audit_and_retention: resolved(115),
+            rollback_artifacts: resolved(116),
+            credentials_packages_processes: resolved(117),
+        },
+        legacy_admission_closed: true,
+        replacement_platforms_verified: true,
+        migration_window_closed: true,
+        rollback_window_closed: true,
+        credentials_disabled: true,
+        processes_disabled: true,
+        packages_disabled: true,
+        removal_suites_passed: true,
+        final_audit_accepted: true,
+    }
+}
+
+fn omit_retirement_requirement(
+    readiness: &mut RetirementReadiness,
+    requirement: RetirementRequirement,
+) {
+    match requirement {
+        RetirementRequirement::ReferenceInventoryClear => {
+            readiness
+                .reference_inventory
+                .active_and_in_flight
+                .blocking_count = 1;
+        }
+        RetirementRequirement::LegacyAdmissionClosed => {
+            readiness.legacy_admission_closed = false;
+        }
+        RetirementRequirement::ReplacementPlatformsVerified => {
+            readiness.replacement_platforms_verified = false;
+        }
+        RetirementRequirement::MigrationWindowClosed => {
+            readiness.migration_window_closed = false;
+        }
+        RetirementRequirement::RollbackWindowClosed => {
+            readiness.rollback_window_closed = false;
+        }
+        RetirementRequirement::CredentialsDisabled => readiness.credentials_disabled = false,
+        RetirementRequirement::ProcessesDisabled => readiness.processes_disabled = false,
+        RetirementRequirement::PackagesDisabled => readiness.packages_disabled = false,
+        RetirementRequirement::RemovalSuitesPassed => readiness.removal_suites_passed = false,
+        RetirementRequirement::FinalAuditAccepted => readiness.final_audit_accepted = false,
+    }
 }
 
 fn stage_context() -> MigrationCommandContext {
