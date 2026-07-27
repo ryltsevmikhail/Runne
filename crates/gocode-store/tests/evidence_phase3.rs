@@ -624,11 +624,9 @@ fn gpr(n: &str) -> types::GatePolicyRef {
 fn ru() -> types::RoutingUnit {
     types::RoutingUnit {
         deployment: types::DeploymentId::new("p").unwrap(),
-        cohort: types::CohortSelector::new(vec![types::CohortDimension::new(
-            "client_class",
-            "premium",
-        )
-        .unwrap()])
+        cohort: types::CohortSelector::new(vec![
+            types::CohortDimension::new("client_class", "premium").unwrap(),
+        ])
         .unwrap(),
         feature_profile: types::FeatureProfileRef::new("d", 1, ad(1)).unwrap(),
         contract_digest: ad(2),

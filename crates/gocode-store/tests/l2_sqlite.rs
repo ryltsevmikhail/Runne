@@ -1117,7 +1117,12 @@ fn taskrun_crash_mid_lifecycle_preserves_all_committed_events() {
     let stream = reopened_store.load_task_run(taskrun_id).unwrap();
     assert_eq!(stream.current_version, 4);
     assert_eq!(stream.events.len(), 4);
-    assert!(!TaskRun::replay(&stream.events).unwrap().state().is_terminal());
+    assert!(
+        !TaskRun::replay(&stream.events)
+            .unwrap()
+            .state()
+            .is_terminal()
+    );
 
     reopened_service
         .complete_task_run(
@@ -1129,7 +1134,14 @@ fn taskrun_crash_mid_lifecycle_preserves_all_committed_events() {
             },
         )
         .unwrap();
-    assert_eq!(reopened_store.load_task_run(taskrun_id).unwrap().events.len(), 5);
+    assert_eq!(
+        reopened_store
+            .load_task_run(taskrun_id)
+            .unwrap()
+            .events
+            .len(),
+        5
+    );
 
     cleanup_db(&db_path);
 }
@@ -1213,7 +1225,13 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
     assert_eq!(
         start
             .iter()
-            .filter(|result| matches!(result, Err(ApplicationError::VersionConflict { expected: 3, actual: 4 })))
+            .filter(|result| matches!(
+                result,
+                Err(ApplicationError::VersionConflict {
+                    expected: 3,
+                    actual: 4
+                })
+            ))
             .count(),
         1
     );
@@ -1232,11 +1250,24 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
     assert_eq!(
         complete
             .iter()
-            .filter(|result| matches!(result, Err(ApplicationError::VersionConflict { expected: 4, actual: 5 })))
+            .filter(|result| matches!(
+                result,
+                Err(ApplicationError::VersionConflict {
+                    expected: 4,
+                    actual: 5
+                })
+            ))
             .count(),
         1
     );
-    assert_eq!(open_service(&db_path).0.load_task_run(taskrun_id).unwrap().current_version, 5);
+    assert_eq!(
+        open_service(&db_path)
+            .0
+            .load_task_run(taskrun_id)
+            .unwrap()
+            .current_version,
+        5
+    );
 
     cleanup_db(&db_path);
 }
