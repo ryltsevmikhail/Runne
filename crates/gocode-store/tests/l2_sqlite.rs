@@ -1175,7 +1175,12 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
         taskrun_id
     };
 
-    let race = |counter: u16, operation: fn(&TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>, &ApplicationCommandContext, TaskRunId) -> Result<CommandOutcome, ApplicationError>| {
+    type RaceOperation = fn(
+        &TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>,
+        &ApplicationCommandContext,
+        TaskRunId,
+    ) -> Result<CommandOutcome, ApplicationError>;
+    let race = |counter: u16, operation: RaceOperation| {
         let barrier = Arc::new(Barrier::new(2));
         let mut handles = Vec::new();
         for offset in 0..2 {
