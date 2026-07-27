@@ -18,3 +18,4 @@ pub mod migration_codec;
 pub mod migration_store;
 pub mod schema;
 pub mod store;
+pub mod verification;
