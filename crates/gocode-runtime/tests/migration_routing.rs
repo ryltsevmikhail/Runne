@@ -16,6 +16,7 @@ use gocode_application::{
             FilesystemClass, PlatformArchitecture, PlatformOs, PlatformTuple, PlatformVfs,
             ProcessModel,
         },
+        rollout::PreDispatchFallbackPolicy,
         types::{
             ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
             FencingToken, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit,
@@ -124,6 +125,46 @@ async fn indeterminate_candidate_dispatch_never_falls_back_to_source() {
     assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 1);
 }
 
+#[tokio::test]
+async fn unsupported_candidate_profile_uses_only_explicit_source_fallback_route() {
+    let harness = RoutingHarness::new_with_fallback(
+        candidate_snapshot(),
+        VerifiedFeatureRegistry::default(),
+        PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+            source_profile: routing_unit().feature_profile,
+        },
+    );
+
+    let decision = harness
+        .router
+        .route_new_work(route_request())
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        decision.binding.authority,
+        RuntimeAuthority::Source(_)
+    ));
+    assert_eq!(harness.dispatch.source.load(Ordering::Acquire), 1);
+    assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn candidate_failure_after_acceptance_never_falls_back_to_source() {
+    let harness = RoutingHarness::new_with_attempt(
+        candidate_snapshot(),
+        matching_registry(),
+        DispatchAttempt::AcceptedThenFailed,
+    );
+
+    assert_eq!(
+        harness.router.route_new_work(route_request()).await,
+        Err(MigrationRoutingError::ReconciliationRequired)
+    );
+    assert_eq!(harness.dispatch.source.load(Ordering::Acquire), 0);
+    assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 1);
+}
+
 struct RoutingHarness {
     db: TestDb,
     router:
@@ -167,11 +208,41 @@ impl RoutingHarness {
         )
     }
 
+    fn new_with_fallback(
+        snapshot: RoutingSnapshot,
+        registry: VerifiedFeatureRegistry,
+        fallback_policy: PreDispatchFallbackPolicy,
+    ) -> Self {
+        Self::new_with_fence_attempt_and_fallback(
+            snapshot,
+            registry,
+            FencingToken::new([8; 32]).unwrap(),
+            DispatchAttempt::Accepted,
+            fallback_policy,
+        )
+    }
+
     fn new_with_fence_and_attempt(
         snapshot: RoutingSnapshot,
         registry: VerifiedFeatureRegistry,
         active_token: FencingToken,
         attempt: DispatchAttempt,
+    ) -> Self {
+        Self::new_with_fence_attempt_and_fallback(
+            snapshot,
+            registry,
+            active_token,
+            attempt,
+            PreDispatchFallbackPolicy::Disabled,
+        )
+    }
+
+    fn new_with_fence_attempt_and_fallback(
+        snapshot: RoutingSnapshot,
+        registry: VerifiedFeatureRegistry,
+        active_token: FencingToken,
+        attempt: DispatchAttempt,
+        fallback_policy: PreDispatchFallbackPolicy,
     ) -> Self {
         let db = TestDb::new("runtime");
         let store = Arc::new(SqliteMigrationControlStore::open(db.path()).unwrap());
@@ -186,12 +257,13 @@ impl RoutingHarness {
             candidate: AtomicUsize::new(0),
             attempt,
         });
-        let router = MigrationRouter::new(
+        let router = MigrationRouter::new_with_fallback_policy(
             store,
             Arc::new(registry),
             MigrationFenceGuard::new(fence),
             Arc::clone(&dispatch),
             Arc::new(FixedClock),
+            fallback_policy,
         );
         Self {
             db,

@@ -5,6 +5,7 @@ use std::{
 
 use gocode_application::migration::{
     ports::MigrationStoreError,
+    rollout::PreDispatchFallbackPolicy,
     routing::{
         BindRuntimeRequest, DispatchClaim, DispatchIntentStatus, DispatchResultStatus,
         MigrationRoutingStore, RouteAdmission,
@@ -53,6 +54,53 @@ fn binding_and_pending_dispatch_intent_commit_atomically_and_replay_exactly() {
     assert_eq!(intent.status, DispatchIntentStatus::Pending);
     assert_eq!(row_count(db.path(), "runtime_bindings"), 1);
     assert_eq!(row_count(db.path(), "routing_dispatch_intents"), 1);
+}
+
+#[test]
+fn explicit_pre_dispatch_fallback_binds_source_atomically() {
+    let db = TestDb::new("source-fallback");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    let snapshot = candidate_snapshot();
+    seed_routing_head(db.path(), &routing_unit(), &snapshot);
+    let mut request = bind_request(snapshot);
+    request.fallback_policy = PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+        source_profile: routing_unit().feature_profile,
+    };
+
+    let admission = store.bind_and_create_dispatch_intent(request).unwrap();
+
+    assert!(matches!(
+        admission.binding().authority,
+        RuntimeAuthority::Source(ref generation)
+            if generation == &RuntimeGenerationRef::new("source-v1").unwrap()
+    ));
+    assert_eq!(admission.intent().status, DispatchIntentStatus::Pending);
+}
+
+#[test]
+fn mismatched_fallback_profile_mutates_nothing() {
+    let db = TestDb::new("mismatched-fallback");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    let snapshot = candidate_snapshot();
+    seed_routing_head(db.path(), &routing_unit(), &snapshot);
+    let aggregate_id = AggregateId::TaskRun(taskrun_id());
+    let mut request = bind_request(snapshot);
+    request.fallback_policy = PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+        source_profile: FeatureProfileRef::new("other", 1, ArtifactDigest::from_bytes([99; 32]))
+            .unwrap(),
+    };
+
+    assert_eq!(
+        store.bind_and_create_dispatch_intent(request),
+        Err(MigrationStoreError::IntegrityViolation)
+    );
+    assert_eq!(
+        store
+            .load_runtime_binding(aggregate_id.clone(), &routing_unit())
+            .unwrap(),
+        None
+    );
+    assert_eq!(store.load_dispatch_intent(aggregate_id).unwrap(), None);
 }
 
 #[test]
@@ -200,6 +248,7 @@ fn bind_request(snapshot: RoutingSnapshot) -> BindRuntimeRequest {
         aggregate_id: AggregateId::TaskRun(taskrun_id()),
         routing_unit: routing_unit(),
         expected_snapshot: snapshot,
+        fallback_policy: PreDispatchFallbackPolicy::Disabled,
         command_id: command_id(),
         idempotency_key: IdempotencyKey::new("route-taskrun-1").unwrap(),
         request_digest: ArtifactDigest::from_bytes([11; 32]),

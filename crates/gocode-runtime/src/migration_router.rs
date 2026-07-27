@@ -12,6 +12,7 @@ use gocode_application::{
         feature_matrix::{FeatureClaimRequest, VerifiedFeatureRegistry},
         fence::{FenceError, FenceValidationPort},
         ports::{MigrationControlStore, MigrationStoreError},
+        rollout::PreDispatchFallbackPolicy,
         routing::{
             BindRuntimeRequest, DispatchClaim, DispatchIntentStatus, DispatchResultStatus,
             MigrationRoutingStore, RoutingDispatchIntent,
@@ -30,6 +31,8 @@ use crate::migration_fence::MigrationFenceGuard;
 pub enum DispatchAttempt {
     /// The selected runtime proved acceptance.
     Accepted,
+    /// The selected runtime accepted, then failed before a terminal reply.
+    AcceptedThenFailed,
     /// The selected runtime proved rejection before acceptance.
     RejectedBeforeAcceptance,
     /// Acceptance cannot be proved either way and requires reconciliation.
@@ -103,6 +106,7 @@ pub struct MigrationRouter<S, V, D, C> {
     fence: MigrationFenceGuard<V>,
     dispatch: Arc<D>,
     clock: Arc<C>,
+    fallback_policy: PreDispatchFallbackPolicy,
     aggregate_locks: Mutex<HashMap<AggregateId, Weak<AsyncMutex<()>>>>,
 }
 
@@ -121,12 +125,32 @@ where
         dispatch: Arc<D>,
         clock: Arc<C>,
     ) -> Self {
+        Self::new_with_fallback_policy(
+            store,
+            features,
+            fence,
+            dispatch,
+            clock,
+            PreDispatchFallbackPolicy::Disabled,
+        )
+    }
+
+    /// Construct a router with an explicit pre-dispatch fallback policy.
+    pub fn new_with_fallback_policy(
+        store: Arc<S>,
+        features: Arc<VerifiedFeatureRegistry>,
+        fence: MigrationFenceGuard<V>,
+        dispatch: Arc<D>,
+        clock: Arc<C>,
+        fallback_policy: PreDispatchFallbackPolicy,
+    ) -> Self {
         Self {
             store,
             features,
             fence,
             dispatch,
             clock,
+            fallback_policy,
             aggregate_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -172,9 +196,7 @@ where
                 .load_routing_head(&request.routing_unit)
                 .map_err(MigrationRoutingError::Store)?
                 .ok_or(MigrationRoutingError::RoutingHeadNotFound)?;
-            if matches!(snapshot.authority, RuntimeAuthority::Candidate(_)) {
-                validate_candidate_claim(&snapshot.authority, &request, &self.features)?;
-            }
+            let fallback_policy = self.select_pre_dispatch_policy(&snapshot.authority, &request)?;
             self.fence
                 .validate_ingress(snapshot.routing_generation, snapshot.fencing_token)
                 .map_err(MigrationRoutingError::Fence)?;
@@ -185,6 +207,7 @@ where
                     aggregate_id: request.aggregate_id.clone(),
                     routing_unit: request.routing_unit.clone(),
                     expected_snapshot: snapshot,
+                    fallback_policy,
                     command_id: request.command_id,
                     idempotency_key: request.idempotency_key.clone(),
                     request_digest: request.request_digest,
@@ -211,6 +234,31 @@ where
         }
 
         self.dispatch_pending(binding, intent).await
+    }
+
+    fn select_pre_dispatch_policy(
+        &self,
+        authority: &RuntimeAuthority,
+        request: &RouteNewWorkRequest,
+    ) -> Result<PreDispatchFallbackPolicy, MigrationRoutingError> {
+        if !matches!(authority, RuntimeAuthority::Candidate(_)) {
+            return Ok(PreDispatchFallbackPolicy::Disabled);
+        }
+        match validate_candidate_claim(authority, request, &self.features) {
+            Ok(()) => Ok(PreDispatchFallbackPolicy::Disabled),
+            Err(error @ MigrationRoutingError::Feature(_)) => {
+                self.fallback_policy
+                    .validate_routing_unit(&request.routing_unit)
+                    .map_err(|_| MigrationRoutingError::RoutingUnitMismatch)?;
+                match &self.fallback_policy {
+                    PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance { .. } => {
+                        Ok(self.fallback_policy.clone())
+                    }
+                    PreDispatchFallbackPolicy::Disabled => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn dispatch_pending(
@@ -262,7 +310,9 @@ where
             .dispatch(binding.clone(), intent.command_id)
             .await
         {
-            DispatchAttempt::Indeterminate => Err(MigrationRoutingError::ReconciliationRequired),
+            DispatchAttempt::Indeterminate | DispatchAttempt::AcceptedThenFailed => {
+                Err(MigrationRoutingError::ReconciliationRequired)
+            }
             DispatchAttempt::RejectedBeforeAcceptance => {
                 let recorded_at = self.clock.now().map_err(MigrationRoutingError::Clock)?;
                 let recorded = self

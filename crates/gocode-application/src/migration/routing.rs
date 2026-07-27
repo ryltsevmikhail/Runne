@@ -7,6 +7,7 @@ use gocode_domain::{
 
 use super::{
     ports::MigrationStoreError,
+    rollout::PreDispatchFallbackPolicy,
     types::{ArtifactDigest, RoutingSnapshot, RoutingUnit, RuntimeBinding},
 };
 
@@ -60,6 +61,8 @@ pub struct BindRuntimeRequest {
     pub routing_unit: RoutingUnit,
     /// Snapshot observed and fenced before the transaction.
     pub expected_snapshot: RoutingSnapshot,
+    /// Explicit pre-dispatch authority-selection policy.
+    pub fallback_policy: PreDispatchFallbackPolicy,
     /// Stable routed command identity.
     pub command_id: CommandId,
     /// Client retry identity.

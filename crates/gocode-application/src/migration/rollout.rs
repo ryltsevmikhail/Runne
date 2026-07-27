@@ -7,13 +7,40 @@ use gocode_domain::timestamp::Timestamp;
 use super::{
     error::MigrationError,
     ports::CutoverIntent,
-    types::{CohortSelector, GatePolicyRef, RoutingGeneration, RoutingUnit},
+    types::{CohortSelector, FeatureProfileRef, GatePolicyRef, RoutingGeneration, RoutingUnit},
 };
 
 /// Maximum number of concurrently admitted commands in the internal canary.
 pub const MAX_CANARY_ADMISSION_LIMIT: u32 = 1_024;
 /// Maximum command admission bound for one cohort rollout step.
 pub const MAX_ROLLOUT_ADMISSION_LIMIT: u32 = 1_000_000;
+
+/// Explicit policy for selecting Source before any candidate dispatch is attempted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreDispatchFallbackPolicy {
+    /// Candidate incompatibility rejects admission.
+    Disabled,
+    /// An exact unsupported candidate profile may bind directly to Source.
+    ExplicitSourceBeforeAcceptance {
+        /// Exact feature profile authorized for Source execution.
+        source_profile: FeatureProfileRef,
+    },
+}
+
+impl PreDispatchFallbackPolicy {
+    /// Require any explicit fallback profile to match the routing unit exactly.
+    pub fn validate_routing_unit(&self, unit: &RoutingUnit) -> Result<(), MigrationError> {
+        match self {
+            Self::Disabled => Ok(()),
+            Self::ExplicitSourceBeforeAcceptance { source_profile }
+                if source_profile == &unit.feature_profile =>
+            {
+                Ok(())
+            }
+            Self::ExplicitSourceBeforeAcceptance { .. } => Err(MigrationError::RoutingUnitMismatch),
+        }
+    }
+}
 
 /// Exact bounded policy for Stage 4 Internal Canary.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,14 +166,17 @@ pub enum CutoverPolicy {
     InternalCanary(CanaryPolicy),
     /// Stage 5 bounded cohort expansion.
     CohortExpansion(RolloutStep),
+    /// Stage 6 candidate-default routing with an explicit pre-dispatch fallback boundary.
+    DefaultNative(PreDispatchFallbackPolicy),
 }
 
 impl CutoverPolicy {
-    /// Non-zero admission bound authorized by this policy.
-    pub const fn admission_limit(&self) -> u32 {
+    /// Non-zero admission bound authorized by bounded rollout policies.
+    pub const fn admission_limit(&self) -> Option<u32> {
         match self {
-            Self::InternalCanary(policy) => policy.admission_limit,
-            Self::CohortExpansion(step) => step.admission_limit,
+            Self::InternalCanary(policy) => Some(policy.admission_limit),
+            Self::CohortExpansion(step) => Some(step.admission_limit),
+            Self::DefaultNative(_) => None,
         }
     }
 
@@ -177,6 +207,9 @@ impl CutoverPolicy {
                     return Err(MigrationError::ObservationWindowIncomplete);
                 }
                 Ok(())
+            }
+            (CutoverIntent::DefaultNative, Self::DefaultNative(policy)) => {
+                policy.validate_routing_unit(unit)
             }
             _ => Err(MigrationError::ProductionGatesUnavailable),
         }
@@ -220,6 +253,7 @@ impl CutoverPolicy {
             Self::CohortExpansion(step) => {
                 step.validate_for_prepare(unit, current_generation, gate_policy, evaluated_at)
             }
+            Self::DefaultNative(_) => Ok(()),
         }
     }
 }

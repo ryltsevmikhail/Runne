@@ -20,7 +20,7 @@ use gocode_application::migration::{
         MigrationReceiptLookup, MigrationStoreError, SanitizedShadowInput, ShadowDiffReport,
         ShadowExecutionError, ShadowExecutionPort,
     },
-    rollout::{CanaryPolicy, CutoverPolicy, RolloutStep},
+    rollout::{CanaryPolicy, CutoverPolicy, PreDispatchFallbackPolicy, RolloutStep},
     service::{
         BeginDrainInput, CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
         RecordEvidenceInput, RetireSourceInput, StagePlanInput, StartRollbackInput,
@@ -526,6 +526,86 @@ fn each_cohort_expansion_allocates_exactly_one_new_generation() {
         second.routing_generation.get(),
         first.routing_generation.get() + 1
     );
+}
+
+#[test]
+fn default_native_preserves_candidate_authority_and_exact_fallback_profile() {
+    let (service, _) = canary_active_service();
+    service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::CohortRollout,
+        )
+        .unwrap();
+    let cohort_evidence = current_gate_set_digest(&service, MigrationPhase::CohortRollout);
+    let cohort_prepared = service
+        .prepare_cutover(
+            next_routing_generation_context(&service, 2),
+            prepare_cohort_expansion_input(
+                cohort_evidence,
+                20,
+                valid_rollout_step(2, 2_048),
+                0,
+                80,
+            ),
+        )
+        .unwrap();
+    service
+        .commit_cutover(
+            next_routing_generation_context(&service, 2),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: cohort_prepared.outcome.transition_id,
+                observed_source_high_water: 20,
+                candidate_fencing_token: FencingToken::new([10; 32]).unwrap(),
+            },
+        )
+        .unwrap();
+    service
+        .advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::DefaultNative,
+        )
+        .unwrap();
+
+    let evidence_set_digest = current_gate_set_digest(&service, MigrationPhase::DefaultNative);
+    let mut input = prepare_cohort_expansion_input(
+        evidence_set_digest,
+        30,
+        valid_rollout_step(3, 4_096),
+        0,
+        90,
+    );
+    input.intent = CutoverIntent::DefaultNative;
+    input.rollout_policy =
+        CutoverPolicy::DefaultNative(PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+            source_profile: routing_unit().feature_profile,
+        });
+    let prepared = service
+        .prepare_cutover(next_routing_generation_context(&service, 3), input)
+        .unwrap();
+    let snapshot = service
+        .commit_cutover(
+            next_routing_generation_context(&service, 3),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: prepared.outcome.transition_id,
+                observed_source_high_water: 30,
+                candidate_fencing_token: FencingToken::new([11; 32]).unwrap(),
+            },
+        )
+        .unwrap()
+        .outcome
+        .routing_snapshot
+        .unwrap();
+
+    assert_eq!(snapshot.routing_generation.get(), 4);
+    assert!(matches!(
+        snapshot.authority,
+        RuntimeAuthority::Candidate(ref generation) if generation == &candidate_generation()
+    ));
 }
 
 #[test]
