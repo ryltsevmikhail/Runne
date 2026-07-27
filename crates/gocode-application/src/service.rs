@@ -838,4 +838,735 @@ mod tests {
 
         assert_eq!(actual, expected);
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Service-level authority port tests and helpers
+    // ══════════════════════════════════════════════════════════════════════════
+
+    use gocode_domain::agent_loop::{
+        LoopDisposition, StepOutcomeRecord, StepOutcomeRef, StepOutcomeType, WakeCondition,
+        WakeConditionKind, WakeEvidenceRef, WakeEvidenceSource,
+    };
+    use gocode_domain::context::ContextManifestRef;
+    use gocode_domain::event::{
+        CommandContext, DomainEventDraft, EventEnvelope, Sensitivity, materialize_batch,
+    };
+    use gocode_domain::id::{AggregateId, CycleId, IntegrityDigest, PlanEvaluationId};
+    use gocode_domain::plan::PlanRevisionRef;
+    use gocode_domain::reference::{BudgetReservationRef, ResultRef};
+    use gocode_domain::task_run::TaskRunEvent;
+    use gocode_domain::timestamp::Timestamp;
+    use gocode_domain::verification::{PlanEvaluationRef, PlanEvaluationResult};
+
+    const TASK: &str = "018f2e3a-7000-7000-8000-000000000001";
+    const ATTEMPT: &str = "018f2e3a-7000-7000-8000-000000000002";
+    const CYCLE: &str = "018f2e3a-7000-7000-8000-000000000003";
+    const OTHER: &str = "018f2e3a-7000-7000-8000-000000000004";
+    const ATT2: &str = "018f2e3a-7000-7000-8000-000000000005";
+
+    fn digest(byte: u8) -> IntegrityDigest {
+        IntegrityDigest::from_bytes([byte; 32])
+    }
+
+    fn context_ref() -> ContextManifestRef {
+        ContextManifestRef {
+            manifest_id: OTHER.parse().unwrap(),
+            taskrun_id: TASK.parse().unwrap(),
+            attempt_id: ATTEMPT.parse().unwrap(),
+            cycle_id: CYCLE.parse().unwrap(),
+            revision: 1,
+            policy_revision: "context-v1".into(),
+            integrity_digest: digest(1),
+        }
+    }
+
+    fn budget_ref() -> BudgetReservationRef {
+        BudgetReservationRef {
+            reservation_id: OTHER.parse().unwrap(),
+            taskrun_id: TASK.parse().unwrap(),
+            attempt_id: ATTEMPT.parse().unwrap(),
+            retry_ordinal: 1,
+            reservation_digest: digest(2),
+        }
+    }
+
+    fn plan_ref(indexes: Vec<u32>) -> PlanRevisionRef {
+        PlanRevisionRef {
+            plan_id: OTHER.parse().unwrap(),
+            taskrun_id: TASK.parse().unwrap(),
+            cycle_id: CYCLE.parse().unwrap(),
+            revision: 1,
+            context_manifest_ref: context_ref(),
+            expected_proposal_indexes: indexes,
+            proposal_batch_digest: digest(3),
+            planning_policy_ref: ResultRef::new(
+                OTHER.parse().unwrap(),
+                "application/json",
+                digest(4),
+            )
+            .unwrap(),
+            planning_budget_ref: budget_ref(),
+            parent_ref: None,
+            integrity_digest: digest(5),
+        }
+    }
+
+    fn envelope(sequence: u64, payload: TaskRunEvent) -> EventEnvelope<TaskRunEvent> {
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+        let aggregate_id = AggregateId::TaskRun(taskrun_id);
+        let draft = DomainEventDraft::new(
+            aggregate_id.clone(),
+            aggregate_id,
+            1,
+            Sensitivity::Sensitive,
+            payload,
+        );
+        let command = CommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("svc-test").unwrap(),
+            actor: Actor::new("svc-test").unwrap(),
+        };
+        let event_id: EventId = OTHER.parse().unwrap();
+        materialize_batch(vec![draft], &[event_id], None, &command)
+            .unwrap()
+            .remove(0)
+            .into_envelope(
+                sequence,
+                Timestamp::from_unix_micros(sequence as i64),
+                digest(0),
+            )
+    }
+
+    fn base_loop_stream() -> Vec<EventEnvelope<TaskRunEvent>> {
+        vec![
+            envelope(1, TaskRunEvent::TaskRunCreated),
+            envelope(2, TaskRunEvent::TaskRunQueued),
+            envelope(3, TaskRunEvent::TaskRunAdmitted),
+            envelope(
+                4,
+                TaskRunEvent::AttemptStarted {
+                    attempt_id: ATTEMPT.parse().unwrap(),
+                },
+            ),
+            envelope(
+                5,
+                TaskRunEvent::LoopCycleStarted {
+                    cycle_id: CYCLE.parse().unwrap(),
+                    attempt_id: ATTEMPT.parse().unwrap(),
+                    sequence: 0,
+                    parent_cycle_id: None,
+                },
+            ),
+        ]
+    }
+
+    // ── Mock types ───────────────────────────────────────────────────────────
+
+    struct StaticStore {
+        events: Vec<EventEnvelope<TaskRunEvent>>,
+    }
+    impl EventStore for StaticStore {
+        fn load_task_run(&self, _: TaskRunId) -> Result<LoadedStream, EventStoreError> {
+            let version = self.events.len() as u64;
+            Ok(LoadedStream {
+                current_version: version,
+                last_event_id: self.events.last().map(|e| *e.event_id()),
+                events: self.events.clone(),
+            })
+        }
+    }
+
+    struct MissUow;
+    impl UnitOfWork for MissUow {
+        fn lookup_receipt(
+            &self,
+            _: CommandId,
+            _: &IdempotencyKey,
+            _: &IdempotencyScope,
+            _: &CommandFingerprint,
+        ) -> Result<ReceiptLookup, CommitError> {
+            Ok(ReceiptLookup::Miss)
+        }
+        fn commit(&self, payload: CommandCommit) -> Result<CommitResult, CommitError> {
+            // Success path for tests that go through decide + commit.
+            let new_version = payload.expected_version + payload.events.len() as u64;
+            Ok(CommitResult::Committed { new_version })
+        }
+    }
+
+    struct StaticIds;
+    impl IdGenerator for StaticIds {
+        fn next_taskrun_id(&self) -> Result<TaskRunId, IdGenerationError> {
+            panic!("unexpected next_taskrun_id")
+        }
+        fn next_conversation_id(&self) -> Result<ConversationId, IdGenerationError> {
+            panic!("unexpected next_conversation_id")
+        }
+        fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError> {
+            panic!("unexpected next_attempt_id")
+        }
+        fn next_event_ids(&self, count: usize) -> Result<Vec<EventId>, IdGenerationError> {
+            let eid: EventId = OTHER.parse().unwrap();
+            Ok((0..count).map(|_| eid).collect())
+        }
+    }
+
+    struct RejectingWake;
+    impl WakeEvidenceQueryPort for RejectingWake {
+        fn validate_current(
+            &self,
+            _: &WakeEvidenceRef,
+            _: TaskRunId,
+            _: CycleId,
+            _: &WakeCondition,
+        ) -> Result<(), WakeEvidenceError> {
+            Err(WakeEvidenceError::Forged)
+        }
+    }
+
+    struct StaticTime {
+        now: i64,
+    }
+    impl TimePort for StaticTime {
+        fn now_unix_us(&self) -> Result<i64, TimeError> {
+            Ok(self.now)
+        }
+    }
+
+    struct StaticVerification {
+        evaluation: PlanEvaluation,
+    }
+    impl VerificationQueryPort for StaticVerification {
+        fn get_exact(
+            &self,
+            _: &PlanEvaluationRef,
+        ) -> Result<PlanEvaluation, VerificationQueryError> {
+            Ok(self.evaluation.clone())
+        }
+    }
+
+    struct FailingVerification {
+        error: VerificationQueryError,
+    }
+    impl VerificationQueryPort for FailingVerification {
+        fn get_exact(
+            &self,
+            _: &PlanEvaluationRef,
+        ) -> Result<PlanEvaluation, VerificationQueryError> {
+            Err(self.error.clone())
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // GATE-P5-008: Wake evidence rejection
+    // ══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn resume_loop_wait_rejects_invalid_wake_evidence_via_port() {
+        let mut stream = base_loop_stream();
+        let wake_condition = WakeCondition {
+            kind: WakeConditionKind::Approval,
+            condition_ref: "approval:1".into(),
+            condition_digest: digest(11),
+        };
+        stream.push(envelope(
+            6,
+            TaskRunEvent::ContextCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                manifest_ref: context_ref(),
+            },
+        ));
+        stream.push(envelope(
+            7,
+            TaskRunEvent::PlanCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                plan_revision_ref: plan_ref(vec![]),
+                input_digest: digest(9),
+                output_digest: digest(10),
+                expected_proposal_indexes: vec![],
+            },
+        ));
+        stream.push(envelope(
+            8,
+            TaskRunEvent::LoopCycleCompleted {
+                cycle_id: CYCLE.parse().unwrap(),
+                attempt_id: ATTEMPT.parse().unwrap(),
+                disposition: LoopDisposition::Wait {
+                    reason: "approval".into(),
+                    wake_condition: wake_condition.clone(),
+                },
+            },
+        ));
+        stream.push(envelope(9, TaskRunEvent::WaitStarted));
+
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+
+        let service = TaskRunService::with_agent_loop_authorities(
+            StaticStore { events: stream },
+            MissUow,
+            NoIds,
+            RuntimeAuthorityId("test".into()),
+            AgentLoopAuthorities {
+                time: NoAuthorities,
+                retry_schedule: NoAuthorities,
+                wake_evidence: RejectingWake,
+                reconciliation: NoAuthorities,
+                verification: NoAuthorities,
+            },
+        );
+
+        let context = ApplicationCommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("resume-wake-1").unwrap(),
+            principal_id: PrincipalId("principal".into()),
+            actor: Actor::new("principal").unwrap(),
+        };
+
+        let result = service.resume_loop_wait(
+            &context,
+            ResumeLoopWaitInput {
+                taskrun_id,
+                expected_version: 9,
+                wake_evidence_ref: WakeEvidenceRef {
+                    cycle_id: CYCLE.parse().unwrap(),
+                    condition_digest: digest(11),
+                    source: WakeEvidenceSource::Approval,
+                    evidence_id: OTHER.parse().unwrap(),
+                    evidence_digest: digest(12),
+                    observed_at_unix_us: 100,
+                    authority_revision: "approval-v1".into(),
+                },
+            },
+        );
+
+        assert!(
+            matches!(result, Err(ApplicationError::WakeEvidenceRejected(_))),
+            "expected WakeEvidenceRejected, got {:?}",
+            result
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // GATE-P5-015: TimePort reading tests
+    // ══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn retry_activation_reads_time_from_port() {
+        let mut stream = base_loop_stream();
+        stream.push(envelope(
+            6,
+            TaskRunEvent::ContextCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                manifest_ref: context_ref(),
+            },
+        ));
+        stream.push(envelope(
+            7,
+            TaskRunEvent::PlanCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                plan_revision_ref: plan_ref(vec![0]),
+                input_digest: digest(9),
+                output_digest: digest(10),
+                expected_proposal_indexes: vec![0],
+            },
+        ));
+        stream.push(envelope(
+            8,
+            TaskRunEvent::StepOutcomeRecorded {
+                cycle_id: CYCLE.parse().unwrap(),
+                outcome: StepOutcomeRecord {
+                    proposal_index: 0,
+                    step_id: OTHER.parse().unwrap(),
+                    outcome_type: StepOutcomeType::FailedBeforeCommit,
+                    result_ref: None,
+                    effect_id: None,
+                    evidence_digests: vec![],
+                },
+            },
+        ));
+        stream.push(envelope(
+            9,
+            TaskRunEvent::RetryScheduled {
+                ordinal: 1,
+                old_attempt_id: ATTEMPT.parse().unwrap(),
+                new_attempt_id: ATT2.parse().unwrap(),
+                abandoned_cycle_id: CYCLE.parse().unwrap(),
+                step_outcome_ref: StepOutcomeRef {
+                    cycle_id: CYCLE.parse().unwrap(),
+                    proposal_index: 0,
+                    step_id: OTHER.parse().unwrap(),
+                    outcome_digest: digest(13),
+                },
+                retry_policy_digest: digest(14),
+                budget_reservation_ref: budget_ref(),
+                delay_ms: 25,
+                due_at_unix_us: 25_100,
+            },
+        ));
+
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+
+        let service = TaskRunService::with_agent_loop_authorities(
+            StaticStore { events: stream },
+            MissUow,
+            StaticIds,
+            RuntimeAuthorityId("test".into()),
+            AgentLoopAuthorities {
+                time: StaticTime { now: 25_200 },
+                retry_schedule: NoAuthorities,
+                wake_evidence: NoAuthorities,
+                reconciliation: NoAuthorities,
+                verification: NoAuthorities,
+            },
+        );
+
+        let context = ApplicationCommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("activate-retry-1").unwrap(),
+            principal_id: PrincipalId("principal".into()),
+            actor: Actor::new("principal").unwrap(),
+        };
+
+        let result = service.activate_scheduled_retry(
+            &context,
+            ActivateScheduledRetryInput {
+                taskrun_id,
+                expected_version: 9,
+                retry_ordinal: 1,
+            },
+        );
+
+        assert!(
+            matches!(result, Ok(CommandOutcome::RetryActivated { .. })),
+            "expected RetryActivated, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn retry_activation_fails_when_not_due_based_on_time_port() {
+        let mut stream = base_loop_stream();
+        stream.push(envelope(
+            6,
+            TaskRunEvent::ContextCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                manifest_ref: context_ref(),
+            },
+        ));
+        stream.push(envelope(
+            7,
+            TaskRunEvent::PlanCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                plan_revision_ref: plan_ref(vec![0]),
+                input_digest: digest(9),
+                output_digest: digest(10),
+                expected_proposal_indexes: vec![0],
+            },
+        ));
+        stream.push(envelope(
+            8,
+            TaskRunEvent::StepOutcomeRecorded {
+                cycle_id: CYCLE.parse().unwrap(),
+                outcome: StepOutcomeRecord {
+                    proposal_index: 0,
+                    step_id: OTHER.parse().unwrap(),
+                    outcome_type: StepOutcomeType::FailedBeforeCommit,
+                    result_ref: None,
+                    effect_id: None,
+                    evidence_digests: vec![],
+                },
+            },
+        ));
+        stream.push(envelope(
+            9,
+            TaskRunEvent::RetryScheduled {
+                ordinal: 1,
+                old_attempt_id: ATTEMPT.parse().unwrap(),
+                new_attempt_id: ATT2.parse().unwrap(),
+                abandoned_cycle_id: CYCLE.parse().unwrap(),
+                step_outcome_ref: StepOutcomeRef {
+                    cycle_id: CYCLE.parse().unwrap(),
+                    proposal_index: 0,
+                    step_id: OTHER.parse().unwrap(),
+                    outcome_digest: digest(13),
+                },
+                retry_policy_digest: digest(14),
+                budget_reservation_ref: budget_ref(),
+                delay_ms: 25,
+                due_at_unix_us: 25_100,
+            },
+        ));
+
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+
+        let service = TaskRunService::with_agent_loop_authorities(
+            StaticStore { events: stream },
+            MissUow,
+            NoIds,
+            RuntimeAuthorityId("test".into()),
+            AgentLoopAuthorities {
+                time: StaticTime { now: 25_000 },
+                retry_schedule: NoAuthorities,
+                wake_evidence: NoAuthorities,
+                reconciliation: NoAuthorities,
+                verification: NoAuthorities,
+            },
+        );
+
+        let context = ApplicationCommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("activate-retry-2").unwrap(),
+            principal_id: PrincipalId("principal".into()),
+            actor: Actor::new("principal").unwrap(),
+        };
+
+        let result = service.activate_scheduled_retry(
+            &context,
+            ActivateScheduledRetryInput {
+                taskrun_id,
+                expected_version: 9,
+                retry_ordinal: 1,
+            },
+        );
+
+        assert!(
+            matches!(result, Err(ApplicationError::Domain(_))),
+            "expected Domain error (not due), got {:?}",
+            result
+        );
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // GATE-P5-018: Verification port rejection tests
+    // ══════════════════════════════════════════════════════════════════════════
+
+    fn make_running_evaluating_stream() -> Vec<EventEnvelope<TaskRunEvent>> {
+        let mut stream = base_loop_stream();
+        stream.push(envelope(
+            6,
+            TaskRunEvent::ContextCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                manifest_ref: context_ref(),
+            },
+        ));
+        stream.push(envelope(
+            7,
+            TaskRunEvent::PlanCommitted {
+                cycle_id: CYCLE.parse().unwrap(),
+                plan_revision_ref: plan_ref(vec![0]),
+                input_digest: digest(9),
+                output_digest: digest(10),
+                expected_proposal_indexes: vec![0],
+            },
+        ));
+        stream.push(envelope(
+            8,
+            TaskRunEvent::StepOutcomeRecorded {
+                cycle_id: CYCLE.parse().unwrap(),
+                outcome: StepOutcomeRecord {
+                    proposal_index: 0,
+                    step_id: OTHER.parse().unwrap(),
+                    outcome_type: StepOutcomeType::Succeeded,
+                    result_ref: Some(
+                        ResultRef::new(OTHER.parse().unwrap(), "application/json", digest(15))
+                            .unwrap(),
+                    ),
+                    effect_id: None,
+                    evidence_digests: vec![],
+                },
+            },
+        ));
+        stream
+    }
+
+    #[test]
+    fn complete_loop_cycle_rejects_failed_verification_via_port() {
+        let stream = make_running_evaluating_stream();
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+        let plan_revision_ref = plan_ref(vec![0]);
+
+        let plan_evaluation_ref = PlanEvaluationRef {
+            evaluation_id: OTHER.parse::<PlanEvaluationId>().unwrap(),
+            taskrun_id,
+            plan_id: plan_revision_ref.plan_id,
+            plan_revision: plan_revision_ref.revision,
+            evaluated_stream_head: 8,
+            result: PlanEvaluationResult::Failed,
+            gate_definitions_digest: digest(20),
+            evidence_set_digest: digest(21),
+            evaluation_digest: digest(22),
+        };
+
+        let evaluation = PlanEvaluation {
+            reference: plan_evaluation_ref.clone(),
+            gate_evaluation_refs: vec![],
+            evaluated_at_unix_us: 200,
+            superseded_by: None,
+        };
+
+        let service = TaskRunService::with_agent_loop_authorities(
+            StaticStore { events: stream },
+            MissUow,
+            NoIds,
+            RuntimeAuthorityId("test".into()),
+            AgentLoopAuthorities {
+                time: NoAuthorities,
+                retry_schedule: NoAuthorities,
+                wake_evidence: NoAuthorities,
+                reconciliation: NoAuthorities,
+                verification: StaticVerification { evaluation },
+            },
+        );
+
+        let context = ApplicationCommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("complete-cycle-1").unwrap(),
+            principal_id: PrincipalId("principal".into()),
+            actor: Actor::new("principal").unwrap(),
+        };
+
+        let result = service.complete_loop_cycle(
+            &context,
+            CompleteLoopCycleInput {
+                taskrun_id,
+                expected_version: 8,
+                cycle_id: CYCLE.parse().unwrap(),
+                disposition: LoopDisposition::Complete {
+                    plan_evaluation_ref,
+                },
+            },
+        );
+
+        assert!(
+            matches!(result, Err(ApplicationError::InvalidAuthorityResult)),
+            "expected InvalidAuthorityResult for failed evaluation, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn complete_loop_cycle_rejects_verification_query_error() {
+        let stream = make_running_evaluating_stream();
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+        let plan_revision_ref = plan_ref(vec![0]);
+
+        let plan_evaluation_ref = PlanEvaluationRef {
+            evaluation_id: OTHER.parse::<PlanEvaluationId>().unwrap(),
+            taskrun_id,
+            plan_id: plan_revision_ref.plan_id,
+            plan_revision: plan_revision_ref.revision,
+            evaluated_stream_head: 8,
+            result: PlanEvaluationResult::Passed,
+            gate_definitions_digest: digest(20),
+            evidence_set_digest: digest(21),
+            evaluation_digest: digest(22),
+        };
+
+        let service = TaskRunService::with_agent_loop_authorities(
+            StaticStore { events: stream },
+            MissUow,
+            NoIds,
+            RuntimeAuthorityId("test".into()),
+            AgentLoopAuthorities {
+                time: NoAuthorities,
+                retry_schedule: NoAuthorities,
+                wake_evidence: NoAuthorities,
+                reconciliation: NoAuthorities,
+                verification: FailingVerification {
+                    error: VerificationQueryError::Unavailable,
+                },
+            },
+        );
+
+        let context = ApplicationCommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("complete-cycle-2").unwrap(),
+            principal_id: PrincipalId("principal".into()),
+            actor: Actor::new("principal").unwrap(),
+        };
+
+        let result = service.complete_loop_cycle(
+            &context,
+            CompleteLoopCycleInput {
+                taskrun_id,
+                expected_version: 8,
+                cycle_id: CYCLE.parse().unwrap(),
+                disposition: LoopDisposition::Complete {
+                    plan_evaluation_ref,
+                },
+            },
+        );
+
+        assert!(
+            matches!(result, Err(ApplicationError::VerificationRejected(_))),
+            "expected VerificationRejected, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn complete_loop_cycle_rejects_superseded_verification() {
+        let stream = make_running_evaluating_stream();
+        let taskrun_id: TaskRunId = TASK.parse().unwrap();
+        let plan_revision_ref = plan_ref(vec![0]);
+
+        let plan_evaluation_ref = PlanEvaluationRef {
+            evaluation_id: OTHER.parse::<PlanEvaluationId>().unwrap(),
+            taskrun_id,
+            plan_id: plan_revision_ref.plan_id,
+            plan_revision: plan_revision_ref.revision,
+            evaluated_stream_head: 8,
+            result: PlanEvaluationResult::Passed,
+            gate_definitions_digest: digest(20),
+            evidence_set_digest: digest(21),
+            evaluation_digest: digest(22),
+        };
+
+        let superseded: PlanEvaluationId = OTHER.parse().unwrap();
+        let evaluation = PlanEvaluation {
+            reference: plan_evaluation_ref.clone(),
+            gate_evaluation_refs: vec![],
+            evaluated_at_unix_us: 200,
+            superseded_by: Some(superseded),
+        };
+
+        let service = TaskRunService::with_agent_loop_authorities(
+            StaticStore { events: stream },
+            MissUow,
+            NoIds,
+            RuntimeAuthorityId("test".into()),
+            AgentLoopAuthorities {
+                time: NoAuthorities,
+                retry_schedule: NoAuthorities,
+                wake_evidence: NoAuthorities,
+                reconciliation: NoAuthorities,
+                verification: StaticVerification { evaluation },
+            },
+        );
+
+        let context = ApplicationCommandContext {
+            command_id: TASK.parse().unwrap(),
+            idempotency_key: IdempotencyKey::new("complete-cycle-3").unwrap(),
+            principal_id: PrincipalId("principal".into()),
+            actor: Actor::new("principal").unwrap(),
+        };
+
+        let result = service.complete_loop_cycle(
+            &context,
+            CompleteLoopCycleInput {
+                taskrun_id,
+                expected_version: 8,
+                cycle_id: CYCLE.parse().unwrap(),
+                disposition: LoopDisposition::Complete {
+                    plan_evaluation_ref,
+                },
+            },
+        );
+
+        assert!(
+            matches!(result, Err(ApplicationError::InvalidAuthorityResult)),
+            "expected InvalidAuthorityResult for superseded evaluation, got {:?}",
+            result
+        );
+    }
 }
