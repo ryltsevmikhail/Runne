@@ -27,8 +27,25 @@ fi
 
 echo "=== CI: $MODE mode (rustc $RUSTC_VER) ==="
 
+if command -v python3 &>/dev/null; then
+    PYTHON_BIN=python3
+elif command -v python &>/dev/null; then
+    PYTHON_BIN=python
+else
+    echo "ERROR: python not found"
+    exit 1
+fi
+
+sha256_file() {
+    "$PYTHON_BIN" -c 'import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$1"
+}
+
+sha256_file_set() {
+    "$PYTHON_BIN" -c 'import hashlib, pathlib, sys; h = hashlib.sha256(); [h.update(pathlib.Path(path).read_bytes()) for path in sys.argv[1:]]; print(h.hexdigest())' "$@"
+}
+
 # Record lock digest before
-LOCK_DIGEST_BEFORE=$(shasum -a 256 Cargo.lock 2>/dev/null | awk '{print $1}')
+LOCK_DIGEST_BEFORE=$(sha256_file Cargo.lock)
 PROFILE_FILES=(
     docs/profiles/opencode-baseline-inventory-v1.json
     docs/profiles/opencode-baseline-inventory-v1.digest
@@ -37,11 +54,7 @@ PROFILE_FILES=(
     docs/schemas/opencode-baseline-inventory-v1.schema.json
     docs/schemas/opencode-baseline-inventory-v2.schema.json
 )
-PROFILE_DIGEST_BEFORE=$(
-    shasum -a 256 "${PROFILE_FILES[@]}" 2>/dev/null \
-        | shasum -a 256 \
-        | awk '{print $1}'
-)
+PROFILE_DIGEST_BEFORE=$(sha256_file_set "${PROFILE_FILES[@]}")
 
 if [ "$MODE" = "pinned" ]; then
     echo "--- fmt ---"
@@ -67,19 +80,15 @@ echo "--- doc ---"
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --locked
 
 echo "--- deps ---"
-if ! command -v python3 &>/dev/null; then
-    echo "ERROR: python3 not found in PATH"
-    exit 1
-fi
-python3 scripts/check-deps.py
+"$PYTHON_BIN" scripts/check-deps.py
 
 if [ "$MODE" = "pinned" ]; then
     echo "--- docs ---"
-    python3 scripts/validate-docs.py --strict
+    "$PYTHON_BIN" scripts/validate-docs.py --strict
 fi
 
 echo "--- lock integrity ---"
-LOCK_DIGEST_AFTER=$(shasum -a 256 Cargo.lock 2>/dev/null | awk '{print $1}')
+LOCK_DIGEST_AFTER=$(sha256_file Cargo.lock)
 if [ "$LOCK_DIGEST_BEFORE" != "$LOCK_DIGEST_AFTER" ]; then
     echo "ERROR: Cargo.lock changed during CI ($LOCK_DIGEST_BEFORE -> $LOCK_DIGEST_AFTER)"
     exit 1
@@ -87,11 +96,7 @@ fi
 echo "Cargo.lock unchanged: $LOCK_DIGEST_BEFORE"
 
 echo "--- profile artifact integrity ---"
-PROFILE_DIGEST_AFTER=$(
-    shasum -a 256 "${PROFILE_FILES[@]}" 2>/dev/null \
-        | shasum -a 256 \
-        | awk '{print $1}'
-)
+PROFILE_DIGEST_AFTER=$(sha256_file_set "${PROFILE_FILES[@]}")
 if [ "$PROFILE_DIGEST_BEFORE" != "$PROFILE_DIGEST_AFTER" ]; then
     echo "ERROR: profile artifacts changed during CI"
     exit 1
