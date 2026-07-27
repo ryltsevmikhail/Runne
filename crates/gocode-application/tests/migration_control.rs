@@ -12,7 +12,10 @@ use gocode_application::migration::{
         MigrationReceiptLookup, MigrationStoreError, SanitizedShadowInput, ShadowDiffReport,
         ShadowExecutionError, ShadowExecutionPort,
     },
-    service::{MigrationService, RecordEvidenceInput, StagePlanInput, StartRollbackInput},
+    service::{
+        BeginDrainInput, CommitCutoverInput, CutoverIntent, MigrationService, PrepareCutoverInput,
+        RecordEvidenceInput, RetireSourceInput, StagePlanInput, StartRollbackInput,
+    },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
@@ -185,6 +188,60 @@ fn canary_transition_fails_closed_before_gate_implementation() {
         Err(MigrationError::ProductionGatesUnavailable)
     );
     assert_eq!(service.load_plan(&plan_id()).unwrap(), before);
+}
+
+#[test]
+fn production_control_primitives_fail_closed_without_mutation() {
+    let (service, _) = seeded_service();
+    let before_plan = service.load_plan(&plan_id()).unwrap();
+    let before_head = service.routing_head(&routing_unit()).unwrap();
+
+    assert_eq!(
+        service.prepare_cutover(
+            command_context(0, None, 60),
+            PrepareCutoverInput {
+                plan_id: plan_id(),
+                intent: CutoverIntent::InternalCanary,
+                manifest_id: "manifest-1".to_owned(),
+                source_high_water: 10,
+                evidence_set_digest: ArtifactDigest::from_bytes([20; 32]),
+            },
+        ),
+        Err(MigrationError::ProductionGatesUnavailable)
+    );
+    assert_eq!(
+        service.commit_cutover(
+            command_context(0, None, 61),
+            CommitCutoverInput {
+                plan_id: plan_id(),
+                prepared_transition_id: "prepared-1".to_owned(),
+            },
+        ),
+        Err(MigrationError::ProductionGatesUnavailable)
+    );
+    assert_eq!(
+        service.begin_drain(
+            command_context(0, None, 62),
+            BeginDrainInput {
+                plan_id: plan_id(),
+                cohort: routing_unit().cohort,
+            },
+        ),
+        Err(MigrationError::ProductionGatesUnavailable)
+    );
+    assert_eq!(
+        service.retire_source(
+            command_context(0, None, 63),
+            RetireSourceInput {
+                plan_id: plan_id(),
+                retirement_evidence_digest: ArtifactDigest::from_bytes([21; 32]),
+            },
+        ),
+        Err(MigrationError::ProductionGatesUnavailable)
+    );
+
+    assert_eq!(service.load_plan(&plan_id()).unwrap(), before_plan);
+    assert_eq!(service.routing_head(&routing_unit()).unwrap(), before_head);
 }
 
 #[test]
