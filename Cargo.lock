@@ -396,6 +396,7 @@ dependencies = [
  "gocode-domain",
  "gocode-opencode-adapter-sqlite",
  "gocode-opencode-compat",
+ "gocode-platform",
  "gocode-store",
  "hex",
  "jsonschema",

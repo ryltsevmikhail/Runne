@@ -4,3 +4,4 @@
 //! Target platform adapter crate for Phase 3 production gates.
 
 pub mod certification;
+pub mod fence;
