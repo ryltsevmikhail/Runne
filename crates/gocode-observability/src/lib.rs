@@ -4,3 +4,4 @@
 //! Target observability adapter crate for Phase 3 production gates.
 
 pub mod health;
+pub mod metrics;
