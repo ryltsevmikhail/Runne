@@ -3,7 +3,24 @@
 use gocode_domain::timestamp::Timestamp;
 use sha2::{Digest, Sha256};
 
-use super::types::{ArtifactDigest, CohortSelector, GateFamily, GateId, RuntimeGenerationRef};
+use super::{
+    state::MigrationPhase,
+    types::{ArtifactDigest, CohortSelector, GateFamily, GateId, RuntimeGenerationRef},
+};
+
+/// Critical evidence families required before entering Internal Canary.
+pub const PHASE_4: &[GateFamily] = &[
+    GateFamily::StoreIntegrity,
+    GateFamily::CanonicalAudit,
+    GateFamily::SecurityPolicy,
+    GateFamily::PlatformCertification,
+    GateFamily::RuntimeHealth,
+    GateFamily::RecoveryReadiness,
+    GateFamily::DrainReadiness,
+    GateFamily::RollbackReadiness,
+    GateFamily::CapacitySlo,
+    GateFamily::ShadowIsolation,
+];
 
 /// Durable status of one gate evaluation.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,9 +334,159 @@ impl MigrationEvidence {
     }
 }
 
+/// Immutable gate policy for one production phase boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhaseGatePolicy {
+    target: MigrationPhase,
+    revision: u16,
+    required: &'static [GateFamily],
+}
+
+impl PhaseGatePolicy {
+    /// Resolve the currently implemented policy for a production phase.
+    pub const fn for_target(target: MigrationPhase) -> Option<Self> {
+        match target {
+            MigrationPhase::InternalCanary => Some(Self {
+                target,
+                revision: 1,
+                required: PHASE_4,
+            }),
+            MigrationPhase::Baseline
+            | MigrationPhase::Foundation
+            | MigrationPhase::ReadOnlyParity
+            | MigrationPhase::SimulatedShadow
+            | MigrationPhase::CohortRollout
+            | MigrationPhase::DefaultNative
+            | MigrationPhase::DrainDeprecate
+            | MigrationPhase::Retired => None,
+        }
+    }
+
+    /// Production phase protected by this policy.
+    pub const fn target(self) -> MigrationPhase {
+        self.target
+    }
+
+    /// Stable revision of the phase policy.
+    pub const fn revision(self) -> u16 {
+        self.revision
+    }
+
+    /// Gate families required by this policy in canonical order.
+    pub const fn required(self) -> &'static [GateFamily] {
+        self.required
+    }
+
+    /// Select and validate the latest evidence for every required family.
+    pub fn validate(
+        self,
+        history: &[MigrationEvidence],
+        context: &GateContext,
+    ) -> Result<ValidatedGateSet, GateSetValidationError> {
+        let mut members = Vec::with_capacity(self.required.len());
+        for family in self.required {
+            let evidence = history.iter().rev().find_map(|evidence| {
+                let MigrationEvidence::ProductionGate(gate) = evidence else {
+                    return None;
+                };
+                (gate.family == *family).then_some(gate)
+            });
+            let evidence = evidence.ok_or(GateSetValidationError::Missing { family: *family })?;
+            evidence.applies_to(context).map_err(|reason| {
+                GateSetValidationError::Inapplicable {
+                    family: *family,
+                    reason,
+                }
+            })?;
+            members.push(evidence.clone());
+        }
+
+        let mut hasher = Sha256::new();
+        hasher.update(b"gocode-migration-gate-set\x01");
+        hasher.update([migration_phase_tag(self.target)]);
+        hasher.update(self.revision.to_be_bytes());
+        for evidence in &members {
+            hasher.update([evidence.family as u8]);
+            hasher.update(
+                MigrationEvidence::ProductionGate(evidence.clone())
+                    .semantic_digest()
+                    .as_bytes(),
+            );
+        }
+        Ok(ValidatedGateSet {
+            target: self.target,
+            policy_revision: self.revision,
+            members,
+            digest: ArtifactDigest::from_bytes(hasher.finalize().into()),
+        })
+    }
+}
+
+/// A complete applicable evidence set in canonical family order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidatedGateSet {
+    target: MigrationPhase,
+    policy_revision: u16,
+    members: Vec<GateEvidence>,
+    digest: ArtifactDigest,
+}
+
+impl ValidatedGateSet {
+    /// Production phase authorized by this evidence set.
+    pub const fn target(&self) -> MigrationPhase {
+        self.target
+    }
+
+    /// Stable policy revision used during validation.
+    pub const fn policy_revision(&self) -> u16 {
+        self.policy_revision
+    }
+
+    /// Applicable gate evidence in canonical family order.
+    pub fn members(&self) -> &[GateEvidence] {
+        &self.members
+    }
+
+    /// Canonical digest frozen by cutover preparation.
+    pub const fn digest(&self) -> ArtifactDigest {
+        self.digest
+    }
+}
+
+/// Failure selecting an applicable evidence set for a phase policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GateSetValidationError {
+    /// No evidence exists for a required family.
+    Missing {
+        /// Missing critical family.
+        family: GateFamily,
+    },
+    /// Latest evidence for a required family is not applicable.
+    Inapplicable {
+        /// Inapplicable critical family.
+        family: GateFamily,
+        /// Exact applicability failure.
+        reason: GateApplicabilityError,
+    },
+}
+
 fn update_length_prefixed(hasher: &mut Sha256, bytes: &[u8]) {
     hasher.update((bytes.len() as u64).to_be_bytes());
     hasher.update(bytes);
+}
+
+fn migration_phase_tag(phase: MigrationPhase) -> u8 {
+    match phase {
+        MigrationPhase::Baseline => 0,
+        MigrationPhase::Foundation => 1,
+        MigrationPhase::ReadOnlyParity => 2,
+        MigrationPhase::SimulatedShadow => 3,
+        MigrationPhase::InternalCanary => 4,
+        MigrationPhase::CohortRollout => 5,
+        MigrationPhase::DefaultNative => 6,
+        MigrationPhase::DrainDeprecate => 7,
+        MigrationPhase::Retired => 8,
+    }
 }
 
 fn gate_failure_tag(code: GateFailureCode) -> u8 {

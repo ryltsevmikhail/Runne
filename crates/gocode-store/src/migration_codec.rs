@@ -5,7 +5,8 @@ use core::fmt;
 use gocode_application::migration::{
     gates::{GateEvidence, GateFailureCode, GateRevocationReason, GateStatus, MigrationEvidence},
     ports::{
-        MigrationAuditAction, MigrationAuditRecord, MigrationCommandOutcome, MigrationTransition,
+        CutoverIntent, CutoverManifest, MigrationAuditAction, MigrationAuditRecord,
+        MigrationCommandOutcome, MigrationTransition,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
@@ -326,6 +327,66 @@ pub fn decode_migration_transition(
         plan_version,
         occurred_at,
     })
+}
+
+/// Encode one immutable cutover preparation manifest.
+pub fn encode_cutover_manifest(manifest: &CutoverManifest) -> Result<Vec<u8>, MigrationCodecError> {
+    if !manifest.has_valid_identity() {
+        return Err(invalid("cutover_manifest"));
+    }
+    let mut bytes = vec![CODEC_VERSION];
+    bytes.extend_from_slice(manifest.manifest_digest.as_bytes());
+    write_string(&mut bytes, "manifest_ref", &manifest.manifest_ref)?;
+    write_string(&mut bytes, "plan_id", manifest.plan_id.as_str())?;
+    write_string(&mut bytes, "cycle_id", manifest.cycle_id.as_str())?;
+    bytes.push(cutover_intent_tag(manifest.intent));
+    bytes.extend_from_slice(&manifest.source_high_water.to_be_bytes());
+    bytes.extend_from_slice(manifest.evidence_set_digest.as_bytes());
+    write_string(
+        &mut bytes,
+        "prepared_transition_id",
+        &manifest.prepared_transition_id,
+    )?;
+    bytes.extend_from_slice(&manifest.plan_version.to_be_bytes());
+    bytes.extend_from_slice(&manifest.prepared_at.as_unix_micros().to_be_bytes());
+    Ok(bytes)
+}
+
+/// Decode one immutable cutover preparation manifest.
+pub fn decode_cutover_manifest(bytes: &[u8]) -> Result<CutoverManifest, MigrationCodecError> {
+    let mut decoder = versioned_decoder(bytes)?;
+    let manifest_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let manifest_ref = decoder.read_string("manifest_ref")?;
+    if manifest_digest != CutoverManifest::digest_for_ref(&manifest_ref) {
+        return Err(invalid("manifest_digest"));
+    }
+    let plan_id =
+        MigrationPlanId::new(decoder.read_string("plan_id")?).map_err(|_| invalid("plan_id"))?;
+    let cycle_id =
+        MigrationCycleId::new(decoder.read_string("cycle_id")?).map_err(|_| invalid("cycle_id"))?;
+    let intent = decode_cutover_intent(decoder.read_u8()?)?;
+    let source_high_water = decoder.read_u64()?;
+    let evidence_set_digest = ArtifactDigest::from_bytes(decoder.read_array()?);
+    let prepared_transition_id = decoder.read_string("prepared_transition_id")?;
+    let plan_version = decoder.read_u64()?;
+    let prepared_at = Timestamp::from_unix_micros(decoder.read_i64()?);
+    decoder.finish()?;
+    let manifest = CutoverManifest {
+        manifest_digest,
+        manifest_ref,
+        plan_id,
+        cycle_id,
+        intent,
+        source_high_water,
+        evidence_set_digest,
+        prepared_transition_id,
+        plan_version,
+        prepared_at,
+    };
+    if !manifest.has_valid_identity() {
+        return Err(invalid("cutover_manifest"));
+    }
+    Ok(manifest)
 }
 
 /// Encode immutable migration evidence.
@@ -778,6 +839,28 @@ fn audit_action_tag(action: MigrationAuditAction) -> u8 {
     }
 }
 
+fn cutover_intent_tag(intent: CutoverIntent) -> u8 {
+    match intent {
+        CutoverIntent::InternalCanary => 1,
+        CutoverIntent::CohortExpansion => 2,
+        CutoverIntent::DefaultNative => 3,
+        CutoverIntent::Rollback => 4,
+    }
+}
+
+fn decode_cutover_intent(tag: u8) -> Result<CutoverIntent, MigrationCodecError> {
+    match tag {
+        1 => Ok(CutoverIntent::InternalCanary),
+        2 => Ok(CutoverIntent::CohortExpansion),
+        3 => Ok(CutoverIntent::DefaultNative),
+        4 => Ok(CutoverIntent::Rollback),
+        actual => Err(MigrationCodecError::UnknownTag {
+            field: "cutover_intent",
+            actual,
+        }),
+    }
+}
+
 fn versioned_decoder(bytes: &[u8]) -> Result<Decoder<'_>, MigrationCodecError> {
     let mut decoder = Decoder::new(bytes);
     let version = decoder.read_u8()?;
@@ -933,9 +1016,11 @@ impl<'a> Decoder<'a> {
 
 #[cfg(test)]
 mod tests {
+    use gocode_application::migration::ports::{CutoverIntent, CutoverManifest};
     use gocode_application::migration::types::{
-        ArtifactDigest, CohortDimension, CohortSelector, FencingToken, RollbackDisposition,
-        RoutingGeneration, RoutingSnapshot, RuntimeAuthority, RuntimeGenerationRef,
+        ArtifactDigest, CohortDimension, CohortSelector, FencingToken, MigrationCycleId,
+        MigrationPlanId, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RuntimeAuthority,
+        RuntimeGenerationRef,
     };
     use gocode_domain::timestamp::Timestamp;
 
@@ -978,6 +1063,34 @@ mod tests {
         assert_eq!(
             decode_routing_snapshot(&bytes),
             Err(MigrationCodecError::TrailingBytes { remaining: 1 })
+        );
+    }
+
+    #[test]
+    fn cutover_manifest_roundtrips_and_rejects_digest_corruption() {
+        let manifest_ref = "manifest-phase4-1".to_owned();
+        let manifest = CutoverManifest {
+            manifest_digest: CutoverManifest::digest_for_ref(&manifest_ref),
+            manifest_ref,
+            plan_id: MigrationPlanId::new("plan-1").unwrap(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            intent: CutoverIntent::InternalCanary,
+            source_high_water: 42,
+            evidence_set_digest: ArtifactDigest::from_bytes([9; 32]),
+            prepared_transition_id: "cutover-prepare:v1:aa:bb".to_owned(),
+            plan_version: 18,
+            prepared_at: Timestamp::from_unix_micros(200),
+        };
+        let bytes = encode_cutover_manifest(&manifest).unwrap();
+        assert_eq!(decode_cutover_manifest(&bytes).unwrap(), manifest);
+
+        let mut corrupt = bytes;
+        corrupt[1] ^= 0xff;
+        assert_eq!(
+            decode_cutover_manifest(&corrupt),
+            Err(MigrationCodecError::InvalidValue {
+                field: "manifest_digest",
+            })
         );
     }
 

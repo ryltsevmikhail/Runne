@@ -33,6 +33,8 @@ pub enum MigrationError {
     GateRevoked {
         family: GateFamily,
     },
+    GateSetChanged,
+    PreparedCutoverNotFound,
     EvidenceMissingForPhase {
         target: MigrationPhase,
     },
