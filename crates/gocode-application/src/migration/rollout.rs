@@ -389,9 +389,10 @@ impl CutoverPolicy {
         unit: &RoutingUnit,
     ) -> Result<(), MigrationError> {
         match (intent, self) {
-            (CutoverIntent::InternalCanary, Self::InternalCanary(policy)) => {
-                policy.validate_routing_unit(unit)
-            }
+            (
+                CutoverIntent::InternalCanary | CutoverIntent::Rollback,
+                Self::InternalCanary(policy),
+            ) => policy.validate_routing_unit(unit),
             (CutoverIntent::CohortExpansion, Self::CohortExpansion(step)) => {
                 if step.target_cohort != unit.cohort {
                     return Err(MigrationError::RoutingUnitMismatch);
