@@ -3,17 +3,120 @@
 use std::time::Duration;
 
 use gocode_domain::timestamp::Timestamp;
+use sha2::{Digest, Sha256};
 
 use super::{
     error::MigrationError,
     ports::CutoverIntent,
-    types::{CohortSelector, FeatureProfileRef, GatePolicyRef, RoutingGeneration, RoutingUnit},
+    types::{
+        ArtifactDigest, CohortSelector, FeatureProfileRef, GatePolicyRef, RoutingGeneration,
+        RoutingUnit,
+    },
 };
 
 /// Maximum number of concurrently admitted commands in the internal canary.
 pub const MAX_CANARY_ADMISSION_LIMIT: u32 = 1_024;
 /// Maximum command admission bound for one cohort rollout step.
 pub const MAX_ROLLOUT_ADMISSION_LIMIT: u32 = 1_000_000;
+
+/// Closed disposition for one legacy-reference category.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyReferenceDisposition {
+    /// References remain unresolved and block retirement.
+    Unresolved,
+    /// References were fully resolved.
+    Resolved,
+    /// References were moved to immutable retention authority.
+    RetainedByPolicy,
+}
+
+/// Exact blocking count and identity digest for one legacy-reference category.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyReferenceSet {
+    /// References that still require the legacy runtime.
+    pub blocking_count: u64,
+    /// Canonical digest of the exact referenced identities.
+    pub identity_digest: ArtifactDigest,
+    /// Explicit resolution or retention disposition.
+    pub disposition: LegacyReferenceDisposition,
+}
+
+impl LegacyReferenceSet {
+    fn is_retirement_clear(&self) -> bool {
+        self.blocking_count == 0
+            && self.identity_digest.as_bytes() != &[0; 32]
+            && self.disposition != LegacyReferenceDisposition::Unresolved
+    }
+}
+
+/// Complete Stage 7 inventory of references that may retain legacy authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyReferenceInventory {
+    /// Accepted or currently executing work.
+    pub active_and_in_flight: LegacyReferenceSet,
+    /// Work that still requires recovery.
+    pub recovery_candidates: LegacyReferenceSet,
+    /// External effects without a terminal disposition.
+    pub uncertain_effects: LegacyReferenceSet,
+    /// Timers, processes, and cleanup obligations.
+    pub timers_processes_cleanup: LegacyReferenceSet,
+    /// Replay cursors and client-held references.
+    pub replay_and_client_cursors: LegacyReferenceSet,
+    /// Audit and retention references.
+    pub audit_and_retention: LegacyReferenceSet,
+    /// Artifacts that preserve a rollback path.
+    pub rollback_artifacts: LegacyReferenceSet,
+    /// Credentials, packages, and runtime processes.
+    pub credentials_packages_processes: LegacyReferenceSet,
+}
+
+impl LegacyReferenceInventory {
+    /// Verify that every category has a non-zero exact-identity digest.
+    pub fn has_valid_identity(&self) -> bool {
+        self.reference_sets()
+            .into_iter()
+            .all(|set| set.identity_digest.as_bytes() != &[0; 32])
+    }
+
+    /// Return true only when every blocking count is zero and disposed explicitly.
+    pub fn is_retirement_clear(&self) -> bool {
+        self.has_valid_identity()
+            && self
+                .reference_sets()
+                .into_iter()
+                .all(LegacyReferenceSet::is_retirement_clear)
+    }
+
+    /// Compute a canonical domain-separated digest over every category.
+    pub fn digest(&self) -> ArtifactDigest {
+        let mut hasher = Sha256::new();
+        hasher.update(b"gocode-legacy-reference-inventory\x01");
+        for (tag, reference_set) in self.reference_sets().into_iter().enumerate() {
+            hasher.update([u8::try_from(tag + 1).unwrap_or(u8::MAX)]);
+            hasher.update(reference_set.blocking_count.to_be_bytes());
+            hasher.update(reference_set.identity_digest.as_bytes());
+            hasher.update([match reference_set.disposition {
+                LegacyReferenceDisposition::Unresolved => 0,
+                LegacyReferenceDisposition::Resolved => 1,
+                LegacyReferenceDisposition::RetainedByPolicy => 2,
+            }]);
+        }
+        ArtifactDigest::from_bytes(hasher.finalize().into())
+    }
+
+    fn reference_sets(&self) -> [&LegacyReferenceSet; 8] {
+        [
+            &self.active_and_in_flight,
+            &self.recovery_candidates,
+            &self.uncertain_effects,
+            &self.timers_processes_cleanup,
+            &self.replay_and_client_cursors,
+            &self.audit_and_retention,
+            &self.rollback_artifacts,
+            &self.credentials_packages_processes,
+        ]
+    }
+}
 
 /// Explicit policy for selecting Source before any candidate dispatch is attempted.
 #[derive(Debug, Clone, PartialEq, Eq)]

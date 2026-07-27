@@ -39,6 +39,24 @@ pub enum DispatchAttempt {
     Indeterminate,
 }
 
+/// Caller intent for selecting current or explicitly retained legacy authority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteAuthorityPreference {
+    /// Follow the current routing head and verified feature claim.
+    Current,
+    /// Request the explicitly published Source fallback route.
+    LegacySource,
+}
+
+/// Stage-specific admission policy for creating new Source bindings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyAdmissionPolicy {
+    /// Explicit legacy fallback may create new bindings when otherwise authorized.
+    Open,
+    /// No new legacy binding may be created.
+    Closed,
+}
+
 /// Protected runtime dispatch boundary.
 ///
 /// Implementations must validate the binding generation and fencing token in
@@ -67,6 +85,8 @@ pub struct RouteNewWorkRequest {
     pub idempotency_key: IdempotencyKey,
     /// Canonical semantic request digest.
     pub request_digest: ArtifactDigest,
+    /// Explicit current-or-legacy authority preference.
+    pub authority_preference: RouteAuthorityPreference,
 }
 
 /// Durable routing result returned after proved acceptance.
@@ -93,6 +113,8 @@ pub enum MigrationRoutingError {
     RoutingHeadNotFound,
     /// Request fields disagree with the exact routing unit.
     RoutingUnitMismatch,
+    /// Stage 7 closed admission for every new Source binding.
+    LegacyAdmissionClosed,
     /// Dispatch may have reached the selected authority.
     ReconciliationRequired,
     /// The selected authority proved rejection before acceptance.
@@ -107,6 +129,7 @@ pub struct MigrationRouter<S, V, D, C> {
     dispatch: Arc<D>,
     clock: Arc<C>,
     fallback_policy: PreDispatchFallbackPolicy,
+    legacy_admission_policy: LegacyAdmissionPolicy,
     aggregate_locks: Mutex<HashMap<AggregateId, Weak<AsyncMutex<()>>>>,
 }
 
@@ -144,6 +167,27 @@ where
         clock: Arc<C>,
         fallback_policy: PreDispatchFallbackPolicy,
     ) -> Self {
+        Self::new_with_routing_policies(
+            store,
+            features,
+            fence,
+            dispatch,
+            clock,
+            fallback_policy,
+            LegacyAdmissionPolicy::Open,
+        )
+    }
+
+    /// Construct a router with exact fallback and legacy-admission policies.
+    pub fn new_with_routing_policies(
+        store: Arc<S>,
+        features: Arc<VerifiedFeatureRegistry>,
+        fence: MigrationFenceGuard<V>,
+        dispatch: Arc<D>,
+        clock: Arc<C>,
+        fallback_policy: PreDispatchFallbackPolicy,
+        legacy_admission_policy: LegacyAdmissionPolicy,
+    ) -> Self {
         Self {
             store,
             features,
@@ -151,6 +195,7 @@ where
             dispatch,
             clock,
             fallback_policy,
+            legacy_admission_policy,
             aggregate_locks: Mutex::new(HashMap::new()),
         }
     }
@@ -241,8 +286,27 @@ where
         authority: &RuntimeAuthority,
         request: &RouteNewWorkRequest,
     ) -> Result<PreDispatchFallbackPolicy, MigrationRoutingError> {
+        if self.legacy_admission_policy == LegacyAdmissionPolicy::Closed
+            && (matches!(authority, RuntimeAuthority::Source(_))
+                || request.authority_preference == RouteAuthorityPreference::LegacySource)
+        {
+            return Err(MigrationRoutingError::LegacyAdmissionClosed);
+        }
         if !matches!(authority, RuntimeAuthority::Candidate(_)) {
             return Ok(PreDispatchFallbackPolicy::Disabled);
+        }
+        if request.authority_preference == RouteAuthorityPreference::LegacySource {
+            self.fallback_policy
+                .validate_routing_unit(&request.routing_unit)
+                .map_err(|_| MigrationRoutingError::RoutingUnitMismatch)?;
+            return match &self.fallback_policy {
+                PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance { .. } => {
+                    Ok(self.fallback_policy.clone())
+                }
+                PreDispatchFallbackPolicy::Disabled => {
+                    Err(MigrationRoutingError::RoutingUnitMismatch)
+                }
+            };
         }
         match validate_candidate_claim(authority, request, &self.features) {
             Ok(()) => Ok(PreDispatchFallbackPolicy::Disabled),

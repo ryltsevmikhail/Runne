@@ -2,10 +2,12 @@ use std::time::Duration;
 
 use gocode_application::migration::{
     error::MigrationError,
+    manifests::{ArtifactRef, DeprecationManifest, LegacyNewBindingPolicy},
     rollout::{CanaryPolicy, MAX_ROLLOUT_ADMISSION_LIMIT, PreDispatchFallbackPolicy, RolloutStep},
+    rollout::{LegacyReferenceDisposition, LegacyReferenceInventory, LegacyReferenceSet},
     types::{
         ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
-        GatePolicyRef, RoutingGeneration, RoutingUnit,
+        GatePolicyRef, MigrationCycleId, MigrationPlanId, RoutingGeneration, RoutingUnit,
     },
 };
 use gocode_domain::timestamp::Timestamp;
@@ -133,6 +135,60 @@ fn default_native_accepts_only_the_exact_source_profile() {
     assert_eq!(policy.validate_routing_unit(&internal_unit()), Ok(()));
 }
 
+#[test]
+fn deprecation_inventory_requires_every_reference_disposition() {
+    let mut inventory = clear_legacy_inventory();
+    inventory.replay_and_client_cursors = LegacyReferenceSet {
+        blocking_count: 1,
+        identity_digest: ArtifactDigest::from_bytes([20; 32]),
+        disposition: LegacyReferenceDisposition::Unresolved,
+    };
+
+    assert!(!inventory.is_retirement_clear());
+    inventory.replay_and_client_cursors.blocking_count = 0;
+    assert!(!inventory.is_retirement_clear());
+    inventory.replay_and_client_cursors.disposition = LegacyReferenceDisposition::Resolved;
+    assert!(inventory.is_retirement_clear());
+}
+
+#[test]
+fn deprecation_manifest_publishes_closed_admission_and_exact_inventory() {
+    let manifest = DeprecationManifest {
+        manifest: artifact("deprecation", 30),
+        plan_id: MigrationPlanId::new("plan-1").unwrap(),
+        cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+        cohort: internal_cohort(),
+        replacement_profile: internal_unit().feature_profile,
+        affected_identity_digest: ArtifactDigest::from_bytes([31; 32]),
+        support_until: Timestamp::from_unix_micros(200),
+        migration_guidance: artifact("migration-guidance", 32),
+        drain_report: artifact("drain-report", 33),
+        reference_inventory: clear_legacy_inventory(),
+        new_binding_policy: LegacyNewBindingPolicy::Closed,
+        created_at: Timestamp::from_unix_micros(100),
+    };
+
+    assert!(manifest.has_valid_identity());
+}
+
+fn clear_legacy_inventory() -> LegacyReferenceInventory {
+    let cleared = |byte| LegacyReferenceSet {
+        blocking_count: 0,
+        identity_digest: ArtifactDigest::from_bytes([byte; 32]),
+        disposition: LegacyReferenceDisposition::Resolved,
+    };
+    LegacyReferenceInventory {
+        active_and_in_flight: cleared(20),
+        recovery_candidates: cleared(21),
+        uncertain_effects: cleared(22),
+        timers_processes_cleanup: cleared(23),
+        replay_and_client_cursors: cleared(24),
+        audit_and_retention: cleared(25),
+        rollback_artifacts: cleared(26),
+        credentials_packages_processes: cleared(27),
+    }
+}
+
 fn internal_unit() -> RoutingUnit {
     routing_unit("internal")
 }
@@ -158,4 +214,12 @@ fn routing_unit(client_class: &str) -> RoutingUnit {
 
 fn internal_cohort() -> CohortSelector {
     internal_unit().cohort
+}
+
+fn artifact(name: &str, byte: u8) -> ArtifactRef {
+    ArtifactRef::new(
+        format!("artifact://{name}"),
+        ArtifactDigest::from_bytes([byte; 32]),
+    )
+    .unwrap()
 }
