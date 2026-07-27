@@ -12,7 +12,7 @@ use super::{
     },
     manifests::{
         ArtifactRef, CandidateValidationReport, CutoverManifest, CutoverManifestFields,
-        DrainReportArtifact, MigrationReport, RollbackPolicy,
+        DrainReportArtifact, MigrationReport, RetirementManifest, RollbackPolicy,
     },
     ports::{
         LoadedMigrationPlan, MigrationAuditAction, MigrationAuditRecord, MigrationCommandContext,
@@ -20,7 +20,7 @@ use super::{
         MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceiptLookup,
         MigrationStoreError, MigrationTransition, ShadowExecutionPort,
     },
-    rollout::CutoverPolicy,
+    rollout::{CutoverPolicy, RetirementReadiness},
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
         ArtifactDigest, CohortSelector, FencingToken, MigrationPlanId, RollbackDisposition,
@@ -666,10 +666,21 @@ where
         if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
             return Ok(BeginDrainOutput { outcome });
         }
+        if self
+            .store
+            .load_plan(&input.plan_id)
+            .map_err(map_store_error)?
+            .is_some_and(|loaded| {
+                loaded.plan.status == MigrationPlanStatus::Retired
+                    || loaded.plan.phase == MigrationPhase::Retired
+            })
+        {
+            return Err(MigrationError::TerminalPlanImmutable);
+        }
         Err(MigrationError::ProductionGatesUnavailable)
     }
 
-    /// Reject retirement until production gates are implemented.
+    /// Validate every Stage 8 exit condition and atomically retire Source.
     pub fn retire_source(
         &self,
         context: MigrationCommandContext,
@@ -679,13 +690,76 @@ where
             8,
             vec![
                 input.plan_id.as_str().as_bytes().to_vec(),
-                input.retirement_evidence_digest.as_bytes().to_vec(),
+                artifact_fingerprint_bytes(&input.manifest.manifest),
+                input
+                    .readiness
+                    .reference_inventory
+                    .digest()
+                    .as_bytes()
+                    .to_vec(),
+                retirement_readiness_fingerprint(&input.readiness),
             ],
         );
         if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
             return Ok(RetireSourceOutput { outcome });
         }
-        Err(MigrationError::ProductionGatesUnavailable)
+        let loaded = self
+            .store
+            .load_plan(&input.plan_id)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::PlanNotFound)?;
+        if loaded.plan.phase != MigrationPhase::DrainDeprecate
+            || loaded.plan.status != MigrationPlanStatus::Active
+            || !input.readiness.is_ready()
+            || !input.manifest.has_valid_identity()
+            || input.manifest.plan_id != loaded.plan.plan_id
+            || input.manifest.cycle_id != loaded.plan.cycle_id
+            || input.manifest.reference_inventory_digest
+                != input.readiness.reference_inventory.digest()
+            || input.manifest.created_at != context.evaluated_at
+        {
+            return Err(MigrationError::RetirementBlocked);
+        }
+
+        let previous = loaded.plan.phase;
+        let mut plan = loaded.plan;
+        plan.advance(MigrationPhase::Retired, context.expected_plan_version)?;
+        plan.status = MigrationPlanStatus::Retired;
+        let transition_id = transition_identity(&context, &fingerprint);
+        let transition = MigrationTransition {
+            transition_id: transition_id.clone(),
+            plan_id: plan.plan_id.clone(),
+            cycle_id: plan.cycle_id.clone(),
+            from: previous,
+            to: MigrationPhase::Retired,
+            plan_version: plan.plan_version,
+            occurred_at: context.evaluated_at,
+        };
+        let outcome = MigrationCommandOutcome {
+            plan: plan.clone(),
+            routing_snapshot: None,
+            transition_id,
+        };
+        let audit = audit_record(
+            &context,
+            &plan,
+            MigrationAuditAction::RetireSource,
+            &fingerprint,
+        );
+        let commit = MigrationCommit::new(
+            context,
+            fingerprint,
+            plan.clone(),
+            vec![
+                MigrationMutation::AppendTransition(transition),
+                MigrationMutation::AppendRetirementManifest(Box::new(input.manifest)),
+            ],
+            outcome,
+            Some(audit),
+        )?;
+        Ok(RetireSourceOutput {
+            outcome: commit_outcome(self.store.commit(commit).map_err(map_store_error)?),
+        })
     }
 
     fn lookup_duplicate(
@@ -854,8 +928,10 @@ pub struct BeginDrainOutput {
 pub struct RetireSourceInput {
     /// Target plan.
     pub plan_id: MigrationPlanId,
-    /// Immutable retirement evidence digest.
-    pub retirement_evidence_digest: ArtifactDigest,
+    /// Immutable final retirement manifest.
+    pub manifest: RetirementManifest,
+    /// Evaluated complete exit-condition set.
+    pub readiness: RetirementReadiness,
 }
 
 /// Successful source-retirement result.
@@ -1075,6 +1151,22 @@ fn rollback_policy_fingerprint_bytes(policy: &RollbackPolicy) -> Vec<u8> {
         }
         RollbackPolicy::ManualOnly => vec![3],
     }
+}
+
+fn retirement_readiness_fingerprint(readiness: &RetirementReadiness) -> Vec<u8> {
+    let mut bytes = readiness.reference_inventory.digest().as_bytes().to_vec();
+    bytes.extend([
+        u8::from(readiness.legacy_admission_closed),
+        u8::from(readiness.replacement_platforms_verified),
+        u8::from(readiness.migration_window_closed),
+        u8::from(readiness.rollback_window_closed),
+        u8::from(readiness.credentials_disabled),
+        u8::from(readiness.processes_disabled),
+        u8::from(readiness.packages_disabled),
+        u8::from(readiness.removal_suites_passed),
+        u8::from(readiness.final_audit_accepted),
+    ]);
+    bytes
 }
 
 fn validate_evidence_scope(
