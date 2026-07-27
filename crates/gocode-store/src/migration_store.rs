@@ -1473,6 +1473,7 @@ fn audit_action_tag(action: MigrationAuditAction) -> u8 {
         MigrationAuditAction::StartRollbackCycle => 6,
         MigrationAuditAction::BeginDrain => 7,
         MigrationAuditAction::RetireSource => 8,
+        MigrationAuditAction::EmergencyRevoke => 9,
     }
 }
 
