@@ -344,6 +344,13 @@ name = "gocode-domain"
 version = "0.1.0"
 
 [[package]]
+name = "gocode-observability"
+version = "0.1.0"
+dependencies = [
+ "gocode-application",
+]
+
+[[package]]
 name = "gocode-opencode-adapter-sqlite"
 version = "0.1.0"
 dependencies = [
@@ -367,6 +374,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "tokio",
+]
+
+[[package]]
+name = "gocode-platform"
+version = "0.1.0"
+dependencies = [
+ "gocode-application",
 ]
 
 [[package]]

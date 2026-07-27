@@ -5,7 +5,12 @@ import subprocess
 import sys
 
 
-REQUIRED_PACKAGES = {"gocode-domain", "gocode-plugin-protocol"}
+POLICIES = {
+    "gocode-domain": set(),
+    "gocode-plugin-protocol": set(),
+    "gocode-observability": {"gocode-application"},
+    "gocode-platform": {"gocode-application"},
+}
 
 
 def main() -> int:
@@ -20,16 +25,24 @@ def main() -> int:
 
     for pkg in metadata["packages"]:
         name = pkg["name"]
-        if name not in REQUIRED_PACKAGES:
+        if name not in POLICIES:
             continue
         found.add(name)
 
         deps = pkg.get("dependencies", [])
-        if deps:
-            dep_names = [d["name"] for d in deps]
-            errors.append(f"FAIL: {name} has dependencies: {dep_names}")
+        production_deps = {
+            dep["name"]
+            for dep in deps
+            if dep.get("kind") != "dev"
+        }
+        disallowed = production_deps - POLICIES[name]
+        if disallowed:
+            errors.append(
+                f"FAIL: {name} has disallowed production dependencies: "
+                f"{sorted(disallowed)}"
+            )
 
-    missing = REQUIRED_PACKAGES - found
+    missing = set(POLICIES) - found
     if missing:
         errors.append(f"FAIL: workspace packages not found: {missing}")
 
@@ -46,7 +59,9 @@ def main() -> int:
             print(e, file=sys.stderr)
         return 1
 
-    print(f"OK: {len(found)}/{len(REQUIRED_PACKAGES)} workspace packages, zero dependencies")
+    print(
+        f"OK: {len(found)}/{len(POLICIES)} workspace packages satisfy dependency policies"
+    )
     return 0
 
 
