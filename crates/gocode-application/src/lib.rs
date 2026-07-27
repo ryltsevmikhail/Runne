@@ -17,6 +17,7 @@ pub mod commands;
 pub mod conversation_service;
 pub mod errors;
 pub mod fingerprint;
+pub mod migration;
 pub(crate) mod pipeline;
 pub mod ports;
 pub mod service;
