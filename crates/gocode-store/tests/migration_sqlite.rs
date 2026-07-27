@@ -7,6 +7,10 @@ use std::{
 
 use gocode_application::migration::{
     gates::{GateContext, GateEvidence, GateStatus, MigrationEvidence, PhaseGatePolicy},
+    manifests::{
+        ArtifactRef, ArtifactValidation, CandidateValidationReport, DrainReportArtifact,
+        ImportDisposition, MigrationCounts, MigrationReport, MigrationReportFields, RollbackPolicy,
+    },
     ports::{
         MigrationAuditAction, MigrationAuditRecord, MigrationCommandContext,
         MigrationCommandFingerprint, MigrationCommandOutcome, MigrationCommit,
@@ -448,18 +452,13 @@ fn prepared_gate_set_and_source_high_water_survive_reopen() {
         .digest();
     let prepared = service
         .prepare_cutover(
-            command_context(40, version, None),
-            PrepareCutoverInput {
-                plan_id: plan_id(),
-                intent: CutoverIntent::InternalCanary,
-                manifest_id: "manifest-phase4-1".to_owned(),
-                source_high_water: 4242,
-                evidence_set_digest,
-            },
+            command_context(40, version, Some(RoutingGeneration::new(1).unwrap())),
+            prepare_cutover_input(evidence_set_digest, 4242),
         )
         .unwrap();
     let before = service.load_plan(&plan_id()).unwrap().unwrap();
     assert_eq!(before.cutover_manifests.len(), 1);
+    assert_eq!(before.migration_reports.len(), 1);
     assert_eq!(before.cutover_manifests[0].source_high_water, 4242);
     assert_eq!(
         before.cutover_manifests[0].prepared_transition_id,
@@ -469,6 +468,18 @@ fn prepared_gate_set_and_source_high_water_survive_reopen() {
 
     let reopened = SqliteMigrationControlStore::open(db.path()).unwrap();
     assert_eq!(reopened.load_plan(&plan_id()).unwrap().unwrap(), before);
+    drop(reopened);
+
+    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    connection
+        .execute("DELETE FROM migration_reports", [])
+        .unwrap();
+    drop(connection);
+    let corrupted = SqliteMigrationControlStore::open(db.path()).unwrap();
+    assert_eq!(
+        corrupted.load_plan(&plan_id()),
+        Err(MigrationStoreError::CorruptData)
+    );
 }
 
 fn stage_commit() -> MigrationCommit {
@@ -666,6 +677,69 @@ fn command_context(
         expected_routing_generation,
         evaluated_at: Timestamp::from_unix_micros(100),
     }
+}
+
+fn prepare_cutover_input(
+    evidence_set_digest: ArtifactDigest,
+    source_high_water: u64,
+) -> PrepareCutoverInput {
+    PrepareCutoverInput {
+        plan_id: plan_id(),
+        intent: CutoverIntent::InternalCanary,
+        manifest: artifact("cutover-manifest", 30),
+        source_release: artifact("source-release", 31),
+        candidate_release: artifact("candidate-release", 32),
+        frozen_evidence_set: ArtifactRef::new("artifact://evidence-set", evidence_set_digest)
+            .unwrap(),
+        migration_report: MigrationReport::new(MigrationReportFields {
+            report: artifact("migration-report", 33),
+            plan_id: plan_id(),
+            cycle_id: MigrationCycleId::new("cycle-1").unwrap(),
+            source_snapshot: artifact("source-snapshot", 34),
+            source_high_water,
+            source_generation: source_generation(),
+            candidate_generation: candidate_generation(),
+            counts: MigrationCounts {
+                imported: 10,
+                skipped: 0,
+                unsupported: 0,
+                rejected: 0,
+                unknown: 0,
+                lossy: 0,
+                ambiguous: 0,
+            },
+            schema: artifact("schema", 3),
+            mapping: artifact("mapping", 35),
+            profile: artifact("profile", 1),
+            integrity: ArtifactValidation::Passed,
+            rebuild: ArtifactValidation::Passed,
+            disposition: ImportDisposition::Clean,
+            created_at: Timestamp::from_unix_micros(90),
+        })
+        .unwrap(),
+        drain_report: DrainReportArtifact {
+            report: artifact("drain-report", 36),
+            complete: true,
+            timed_out: false,
+            unresolved_effects: 0,
+            source_high_water,
+        },
+        candidate_validation: CandidateValidationReport {
+            report: artifact("candidate-validation", 37),
+            validation: ArtifactValidation::Passed,
+        },
+        rollback_policy: RollbackPolicy::BeforeCandidateWrites,
+        retention_until: Timestamp::from_unix_micros(1_000),
+        operator_authorization: artifact("operator-authorization", 38),
+    }
+}
+
+fn artifact(name: &str, byte: u8) -> ArtifactRef {
+    ArtifactRef::new(
+        format!("artifact://{name}"),
+        ArtifactDigest::from_bytes([byte; 32]),
+    )
+    .unwrap()
 }
 
 fn fingerprint(suffix: u8) -> MigrationCommandFingerprint {

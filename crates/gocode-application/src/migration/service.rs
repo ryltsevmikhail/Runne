@@ -10,11 +10,15 @@ use super::{
         GateApplicabilityError, GateContext, GateSetValidationError, MigrationEvidence,
         PhaseGatePolicy, ValidatedGateSet,
     },
+    manifests::{
+        ArtifactRef, CandidateValidationReport, CutoverManifest, CutoverManifestFields,
+        DrainReportArtifact, MigrationReport, RollbackPolicy,
+    },
     ports::{
-        CutoverManifest, LoadedMigrationPlan, MigrationAuditAction, MigrationAuditRecord,
-        MigrationCommandContext, MigrationCommandFingerprint, MigrationCommandOutcome,
-        MigrationCommit, MigrationCommitResult, MigrationControlStore, MigrationMutation,
-        MigrationReceiptLookup, MigrationStoreError, MigrationTransition, ShadowExecutionPort,
+        LoadedMigrationPlan, MigrationAuditAction, MigrationAuditRecord, MigrationCommandContext,
+        MigrationCommandFingerprint, MigrationCommandOutcome, MigrationCommit,
+        MigrationCommitResult, MigrationControlStore, MigrationMutation, MigrationReceiptLookup,
+        MigrationStoreError, MigrationTransition, ShadowExecutionPort,
     },
     state::{MigrationCycleKind, MigrationPhase, MigrationPlan, MigrationPlanStatus},
     types::{
@@ -282,16 +286,25 @@ where
             vec![
                 input.plan_id.as_str().as_bytes().to_vec(),
                 vec![cutover_intent_tag(input.intent)],
-                input.manifest_id.as_bytes().to_vec(),
-                input.source_high_water.to_be_bytes().to_vec(),
-                input.evidence_set_digest.as_bytes().to_vec(),
+                artifact_fingerprint_bytes(&input.manifest),
+                artifact_fingerprint_bytes(&input.source_release),
+                artifact_fingerprint_bytes(&input.candidate_release),
+                artifact_fingerprint_bytes(&input.migration_report.report),
+                artifact_fingerprint_bytes(&input.drain_report.report),
+                artifact_fingerprint_bytes(&input.candidate_validation.report),
+                artifact_fingerprint_bytes(&input.frozen_evidence_set),
+                artifact_fingerprint_bytes(&input.operator_authorization),
+                rollback_policy_fingerprint_bytes(&input.rollback_policy),
+                input
+                    .retention_until
+                    .as_unix_micros()
+                    .to_be_bytes()
+                    .to_vec(),
             ],
         );
         if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
             return Ok(PrepareCutoverOutput { outcome });
         }
-        validate_manifest_ref(&input.manifest_id)?;
-
         let loaded = self
             .store
             .load_plan(&input.plan_id)
@@ -309,11 +322,26 @@ where
             MigrationPhase::InternalCanary,
             context.evaluated_at,
         )?;
-        if gate_set.digest() != input.evidence_set_digest {
+        if gate_set.digest() != input.frozen_evidence_set.digest {
             return Err(MigrationError::GateSetChanged);
+        }
+        let expected_routing_generation = context
+            .expected_routing_generation
+            .ok_or(MigrationError::ExpectedRoutingGenerationRequired)?;
+        let routing_head = self
+            .store
+            .load_routing_head(&loaded.plan.routing_unit)
+            .map_err(map_store_error)?
+            .ok_or(MigrationError::StorageContractViolation)?;
+        if routing_head.routing_generation != expected_routing_generation {
+            return Err(MigrationError::RoutingGenerationConflict {
+                expected: expected_routing_generation,
+                actual: routing_head.routing_generation,
+            });
         }
 
         let mut plan = loaded.plan;
+        let expected_plan_version = context.expected_plan_version;
         plan.record_mutation(context.expected_plan_version)?;
         let transition_id = prepared_cutover_identity(&context, &plan.plan_id, gate_set.digest());
         let transition = MigrationTransition {
@@ -325,18 +353,30 @@ where
             plan_version: plan.plan_version,
             occurred_at: context.evaluated_at,
         };
-        let manifest = CutoverManifest {
-            manifest_digest: CutoverManifest::digest_for_ref(&input.manifest_id),
-            manifest_ref: input.manifest_id,
+        let manifest = CutoverManifest::new(CutoverManifestFields {
+            manifest: input.manifest,
             plan_id: plan.plan_id.clone(),
             cycle_id: plan.cycle_id.clone(),
             intent: input.intent,
-            source_high_water: input.source_high_water,
-            evidence_set_digest: gate_set.digest(),
+            routing_unit: plan.routing_unit.clone(),
+            source_release: input.source_release,
+            source_generation: plan.source.clone(),
+            candidate_release: input.candidate_release,
+            candidate_generation: plan.candidate.clone(),
+            frozen_evidence_set: input.frozen_evidence_set,
+            migration_report: input.migration_report.clone(),
+            drain_report: input.drain_report,
+            candidate_validation: input.candidate_validation,
+            expected_routing_generation,
+            routing_generation_at_prepare: routing_head.routing_generation,
+            rollback_policy: input.rollback_policy,
+            retention_until: input.retention_until,
+            operator_authorization: input.operator_authorization,
             prepared_transition_id: transition_id.clone(),
-            plan_version: plan.plan_version,
+            expected_plan_version,
+            prepared_plan_version: plan.plan_version,
             prepared_at: context.evaluated_at,
-        };
+        })?;
         let outcome = MigrationCommandOutcome {
             plan: plan.clone(),
             routing_snapshot: None,
@@ -354,7 +394,8 @@ where
             plan.clone(),
             vec![
                 MigrationMutation::AppendTransition(transition),
-                MigrationMutation::AppendCutoverManifest(manifest),
+                MigrationMutation::AppendMigrationReport(Box::new(input.migration_report)),
+                MigrationMutation::AppendCutoverManifest(Box::new(manifest)),
             ],
             outcome,
             Some(audit),
@@ -594,12 +635,26 @@ pub struct PrepareCutoverInput {
     pub plan_id: MigrationPlanId,
     /// Exact rollout intent.
     pub intent: CutoverIntent,
-    /// Immutable manifest identity.
-    pub manifest_id: String,
-    /// Captured source high-water position.
-    pub source_high_water: u64,
-    /// Digest of the frozen evidence set.
-    pub evidence_set_digest: ArtifactDigest,
+    /// Immutable content-addressed manifest identity.
+    pub manifest: ArtifactRef,
+    /// Exact source release artifact.
+    pub source_release: ArtifactRef,
+    /// Exact candidate release artifact.
+    pub candidate_release: ArtifactRef,
+    /// Frozen production gate set.
+    pub frozen_evidence_set: ArtifactRef,
+    /// Immutable one-way import report.
+    pub migration_report: MigrationReport,
+    /// Complete drain evidence.
+    pub drain_report: DrainReportArtifact,
+    /// Candidate rebuild and validation evidence.
+    pub candidate_validation: CandidateValidationReport,
+    /// Rollback policy frozen before routing CAS.
+    pub rollback_policy: RollbackPolicy,
+    /// Retention deadline for rollback artifacts.
+    pub retention_until: gocode_domain::timestamp::Timestamp,
+    /// Operator authorization evidence.
+    pub operator_authorization: ArtifactRef,
 }
 
 /// Prepared cutover result.
@@ -847,17 +902,6 @@ fn prepared_cutover_identity(
     format!("cutover-prepare:{}", digest_hex(preparation_digest))
 }
 
-fn validate_manifest_ref(manifest_ref: &str) -> Result<(), MigrationError> {
-    const MAX_MANIFEST_REF_BYTES: usize = 256;
-    if manifest_ref.is_empty()
-        || manifest_ref.len() > MAX_MANIFEST_REF_BYTES
-        || manifest_ref.bytes().any(|byte| byte < 0x20 || byte == 0x7f)
-    {
-        return Err(MigrationError::StorageContractViolation);
-    }
-    Ok(())
-}
-
 fn prepared_cutover_matches(prepared_transition_id: &str) -> bool {
     let mut parts = prepared_transition_id.split(':');
     matches!(
@@ -876,6 +920,30 @@ fn digest_hex(digest: ArtifactDigest) -> String {
         encoded.push(char::from(HEX[usize::from(*byte & 0x0f)]));
     }
     encoded
+}
+
+fn artifact_fingerprint_bytes(artifact: &ArtifactRef) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(2 + artifact.reference.len() + 32);
+    bytes.extend_from_slice(
+        &u16::try_from(artifact.reference.len())
+            .unwrap_or(u16::MAX)
+            .to_be_bytes(),
+    );
+    bytes.extend_from_slice(artifact.reference.as_bytes());
+    bytes.extend_from_slice(artifact.digest.as_bytes());
+    bytes
+}
+
+fn rollback_policy_fingerprint_bytes(policy: &RollbackPolicy) -> Vec<u8> {
+    match policy {
+        RollbackPolicy::BeforeCandidateWrites => vec![1],
+        RollbackPolicy::ReverseMigrationRequired(contract) => {
+            let mut bytes = vec![2];
+            bytes.extend_from_slice(&artifact_fingerprint_bytes(contract));
+            bytes
+        }
+        RollbackPolicy::ManualOnly => vec![3],
+    }
 }
 
 fn validate_evidence_scope(

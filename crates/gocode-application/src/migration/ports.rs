@@ -1,10 +1,12 @@
 //! Migration control-plane persistence and shadow-execution ports.
 
+pub use super::manifests::{
+    CutoverManifest, MigrationReport, RetirementManifest, RollbackManifest,
+};
 use gocode_domain::{
     id::{CommandId, IdempotencyKey},
     timestamp::Timestamp,
 };
-use sha2::{Digest, Sha256};
 
 use super::{
     error::MigrationError,
@@ -81,62 +83,6 @@ pub enum CutoverIntent {
     Rollback,
 }
 
-/// Immutable cutover preparation persisted before any authority CAS.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CutoverManifest {
-    /// Digest identity derived from the external manifest reference.
-    pub manifest_digest: ArtifactDigest,
-    /// Bounded external manifest reference supplied by the operator.
-    pub manifest_ref: String,
-    /// Owning migration plan.
-    pub plan_id: MigrationPlanId,
-    /// Owning migration cycle.
-    pub cycle_id: MigrationCycleId,
-    /// Exact rollout intent.
-    pub intent: CutoverIntent,
-    /// Source event-log high-water frozen during preparation.
-    pub source_high_water: u64,
-    /// Canonical digest of the validated gate set.
-    pub evidence_set_digest: ArtifactDigest,
-    /// Durable transition linking preparation to later revalidation.
-    pub prepared_transition_id: String,
-    /// Plan version committed by the preparation.
-    pub plan_version: u64,
-    /// Authority-supplied preparation time.
-    pub prepared_at: Timestamp,
-}
-
-impl CutoverManifest {
-    /// Derive the canonical digest identity for a bounded manifest reference.
-    pub fn digest_for_ref(manifest_ref: &str) -> ArtifactDigest {
-        let mut hasher = Sha256::new();
-        hasher.update(b"gocode-cutover-manifest-id\x01");
-        hasher.update((manifest_ref.len() as u64).to_be_bytes());
-        hasher.update(manifest_ref.as_bytes());
-        ArtifactDigest::from_bytes(hasher.finalize().into())
-    }
-
-    /// Verify bounded identity fields and the derived manifest digest.
-    pub fn has_valid_identity(&self) -> bool {
-        const MAX_MANIFEST_REF_BYTES: usize = 256;
-        const MAX_TRANSITION_ID_BYTES: usize = 128;
-        !self.manifest_ref.is_empty()
-            && self.manifest_ref.len() <= MAX_MANIFEST_REF_BYTES
-            && !self
-                .manifest_ref
-                .bytes()
-                .any(|byte| byte < 0x20 || byte == 0x7f)
-            && self.manifest_digest == Self::digest_for_ref(&self.manifest_ref)
-            && !self.prepared_transition_id.is_empty()
-            && self.prepared_transition_id.len() <= MAX_TRANSITION_ID_BYTES
-            && !self
-                .prepared_transition_id
-                .bytes()
-                .any(|byte| byte < 0x20 || byte == 0x7f)
-            && self.evidence_set_digest.as_bytes() != &[0; 32]
-    }
-}
-
 /// Atomic audit action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MigrationAuditAction {
@@ -184,8 +130,14 @@ pub struct LoadedMigrationPlan {
     pub transitions: Vec<MigrationTransition>,
     /// Append-only evidence history.
     pub evidence: Vec<MigrationEvidence>,
+    /// Append-only one-way import reports.
+    pub migration_reports: Vec<MigrationReport>,
     /// Append-only cutover preparation manifests.
     pub cutover_manifests: Vec<CutoverManifest>,
+    /// Append-only isolated rollback-cycle manifests.
+    pub rollback_manifests: Vec<RollbackManifest>,
+    /// Append-only final retirement manifests.
+    pub retirement_manifests: Vec<RetirementManifest>,
 }
 
 /// Closed semantic result stored in an idempotency receipt.
@@ -272,8 +224,14 @@ pub enum MigrationMutation {
     AppendTransition(MigrationTransition),
     /// Append immutable evidence.
     AppendEvidence(MigrationEvidence),
+    /// Append an immutable one-way import report.
+    AppendMigrationReport(Box<MigrationReport>),
     /// Append an immutable cutover preparation manifest.
-    AppendCutoverManifest(CutoverManifest),
+    AppendCutoverManifest(Box<CutoverManifest>),
+    /// Append an immutable rollback-cycle manifest.
+    AppendRollbackManifest(Box<RollbackManifest>),
+    /// Append an immutable source-retirement manifest.
+    AppendRetirementManifest(Box<RetirementManifest>),
     /// Append an immutable routing snapshot.
     AppendRoutingSnapshot(RoutingSnapshot),
     /// Compare-and-swap the routing head.
@@ -299,8 +257,17 @@ impl MigrationMutation {
             (Self::AppendEvidence(left), Self::AppendEvidence(right)) => {
                 left.identity_digest() == right.identity_digest()
             }
+            (Self::AppendMigrationReport(left), Self::AppendMigrationReport(right)) => {
+                left.report.digest == right.report.digest
+            }
             (Self::AppendCutoverManifest(left), Self::AppendCutoverManifest(right)) => {
                 left.manifest_digest == right.manifest_digest
+            }
+            (Self::AppendRollbackManifest(left), Self::AppendRollbackManifest(right)) => {
+                left.manifest.digest == right.manifest.digest
+            }
+            (Self::AppendRetirementManifest(left), Self::AppendRetirementManifest(right)) => {
+                left.manifest.digest == right.manifest.digest
             }
             (Self::AppendRoutingSnapshot(left), Self::AppendRoutingSnapshot(right)) => {
                 left.routing_generation == right.routing_generation
@@ -329,7 +296,10 @@ impl MigrationMutation {
             Self::InsertPlan(_)
             | Self::AppendTransition(_)
             | Self::AppendEvidence(_)
-            | Self::AppendCutoverManifest(_) => false,
+            | Self::AppendMigrationReport(_)
+            | Self::AppendCutoverManifest(_)
+            | Self::AppendRollbackManifest(_)
+            | Self::AppendRetirementManifest(_) => false,
         }
     }
 }

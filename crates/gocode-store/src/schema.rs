@@ -10,7 +10,7 @@
 use rusqlite::{Connection, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 5;
+pub const CURRENT_SCHEMA_VERSION: i64 = 6;
 
 /// Apply all schema migrations up to [`CURRENT_SCHEMA_VERSION`].
 ///
@@ -72,6 +72,13 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V5)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 6 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V6)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (6)", [])?;
         tx.commit()?;
     }
 
@@ -416,6 +423,90 @@ CREATE TABLE routing_dispatch_intents (
 );
 "#;
 
+// ── Migration V6: immutable artifact cycle lineage ────────────────────
+
+const MIGRATION_V6: &str = r#"
+CREATE UNIQUE INDEX idx_migration_plans_plan_cycle
+    ON migration_plans(plan_id, cycle_id);
+
+CREATE TABLE migration_reports_v6 (
+    report_id BLOB PRIMARY KEY CHECK(length(report_id) = 32),
+    plan_id TEXT NOT NULL,
+    cycle_id TEXT NOT NULL CHECK(length(cycle_id) BETWEEN 1 AND 128),
+    report_kind INTEGER NOT NULL CHECK(report_kind BETWEEN 1 AND 255),
+    report_blob BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(plan_id, cycle_id)
+        REFERENCES migration_plans(plan_id, cycle_id)
+);
+
+INSERT INTO migration_reports_v6
+    (report_id, plan_id, cycle_id, report_kind, report_blob, created_at)
+SELECT report_id, reports.plan_id, plans.cycle_id, report_kind, report_blob, reports.created_at
+FROM migration_reports AS reports
+JOIN migration_plans AS plans ON plans.plan_id = reports.plan_id;
+
+CREATE TABLE cutover_manifests_v6 (
+    manifest_id BLOB PRIMARY KEY CHECK(length(manifest_id) = 32),
+    plan_id TEXT NOT NULL,
+    cycle_id TEXT NOT NULL CHECK(length(cycle_id) BETWEEN 1 AND 128),
+    manifest_blob BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(plan_id, cycle_id)
+        REFERENCES migration_plans(plan_id, cycle_id)
+);
+
+INSERT INTO cutover_manifests_v6
+    (manifest_id, plan_id, cycle_id, manifest_blob, created_at)
+SELECT manifest_id, manifests.plan_id, plans.cycle_id, manifest_blob, manifests.created_at
+FROM cutover_manifests AS manifests
+JOIN migration_plans AS plans ON plans.plan_id = manifests.plan_id;
+
+CREATE TABLE rollback_manifests_v6 (
+    manifest_id BLOB PRIMARY KEY CHECK(length(manifest_id) = 32),
+    plan_id TEXT NOT NULL,
+    cycle_id TEXT NOT NULL CHECK(length(cycle_id) BETWEEN 1 AND 128),
+    parent_plan_id TEXT NOT NULL REFERENCES migration_plans(plan_id),
+    manifest_blob BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(plan_id, cycle_id)
+        REFERENCES migration_plans(plan_id, cycle_id)
+);
+
+INSERT INTO rollback_manifests_v6
+    (manifest_id, plan_id, cycle_id, parent_plan_id, manifest_blob, created_at)
+SELECT manifest_id, manifests.plan_id, plans.cycle_id, parent_plan_id,
+       manifest_blob, manifests.created_at
+FROM rollback_manifests AS manifests
+JOIN migration_plans AS plans ON plans.plan_id = manifests.plan_id;
+
+CREATE TABLE retirement_manifests_v6 (
+    manifest_id BLOB PRIMARY KEY CHECK(length(manifest_id) = 32),
+    plan_id TEXT NOT NULL,
+    cycle_id TEXT NOT NULL CHECK(length(cycle_id) BETWEEN 1 AND 128),
+    manifest_blob BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(plan_id, cycle_id)
+        REFERENCES migration_plans(plan_id, cycle_id)
+);
+
+INSERT INTO retirement_manifests_v6
+    (manifest_id, plan_id, cycle_id, manifest_blob, created_at)
+SELECT manifest_id, manifests.plan_id, plans.cycle_id, manifest_blob, manifests.created_at
+FROM retirement_manifests AS manifests
+JOIN migration_plans AS plans ON plans.plan_id = manifests.plan_id;
+
+DROP TABLE migration_reports;
+DROP TABLE cutover_manifests;
+DROP TABLE rollback_manifests;
+DROP TABLE retirement_manifests;
+
+ALTER TABLE migration_reports_v6 RENAME TO migration_reports;
+ALTER TABLE cutover_manifests_v6 RENAME TO cutover_manifests;
+ALTER TABLE rollback_manifests_v6 RENAME TO rollback_manifests;
+ALTER TABLE retirement_manifests_v6 RENAME TO retirement_manifests;
+"#;
+
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     let conn = Connection::open(db_path)?;
@@ -565,11 +656,11 @@ mod tests {
     }
 
     #[test]
-    fn schema_v5_adds_all_migration_control_tables_atomically() {
+    fn schema_v6_adds_migration_tables_with_cycle_lineage_atomically() {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 5);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 6);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -594,6 +685,101 @@ mod tests {
                 )
                 .unwrap();
             assert_eq!(count, 1, "missing migration table {table}");
+        }
+        for table in [
+            "migration_reports",
+            "cutover_manifests",
+            "rollback_manifests",
+            "retirement_manifests",
+        ] {
+            let cycle_column_count: i64 = conn
+                .query_row(
+                    &format!(
+                        "SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'cycle_id'"
+                    ),
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(cycle_column_count, 1, "missing cycle lineage on {table}");
+        }
+    }
+
+    #[test]
+    fn schema_v6_backfills_existing_artifacts_without_changing_identity_or_bytes() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE migration_plans (
+                 plan_id TEXT PRIMARY KEY,
+                 cycle_id TEXT NOT NULL UNIQUE
+             );
+             INSERT INTO migration_plans VALUES ('plan-1', 'cycle-1');
+             INSERT INTO migration_plans VALUES ('parent-1', 'parent-cycle-1');
+             CREATE TABLE migration_reports (
+                 report_id BLOB PRIMARY KEY,
+                 plan_id TEXT NOT NULL REFERENCES migration_plans(plan_id),
+                 report_kind INTEGER NOT NULL,
+                 report_blob BLOB NOT NULL,
+                 created_at INTEGER NOT NULL
+             );
+             CREATE TABLE cutover_manifests (
+                 manifest_id BLOB PRIMARY KEY,
+                 plan_id TEXT NOT NULL REFERENCES migration_plans(plan_id),
+                 manifest_blob BLOB NOT NULL,
+                 created_at INTEGER NOT NULL
+             );
+             CREATE TABLE rollback_manifests (
+                 manifest_id BLOB PRIMARY KEY,
+                 plan_id TEXT NOT NULL REFERENCES migration_plans(plan_id),
+                 parent_plan_id TEXT NOT NULL REFERENCES migration_plans(plan_id),
+                 manifest_blob BLOB NOT NULL,
+                 created_at INTEGER NOT NULL
+             );
+             CREATE TABLE retirement_manifests (
+                 manifest_id BLOB PRIMARY KEY,
+                 plan_id TEXT NOT NULL REFERENCES migration_plans(plan_id),
+                 manifest_blob BLOB NOT NULL,
+                 created_at INTEGER NOT NULL
+             );
+             INSERT INTO migration_reports VALUES (zeroblob(32), 'plan-1', 1, x'0102', 10);
+             INSERT INTO cutover_manifests VALUES (randomblob(32), 'plan-1', x'0304', 11);
+             INSERT INTO rollback_manifests
+                 VALUES (randomblob(32), 'plan-1', 'parent-1', x'0506', 12);
+             INSERT INTO retirement_manifests VALUES (randomblob(32), 'plan-1', x'0708', 13);",
+        )
+        .unwrap();
+
+        conn.execute_batch(MIGRATION_V6).unwrap();
+
+        for (table, expected_blob) in [
+            ("migration_reports", vec![1_u8, 2]),
+            ("cutover_manifests", vec![3_u8, 4]),
+            ("rollback_manifests", vec![5_u8, 6]),
+            ("retirement_manifests", vec![7_u8, 8]),
+        ] {
+            let (cycle_id, blob): (String, Vec<u8>) = conn
+                .query_row(
+                    &format!(
+                        "SELECT cycle_id, {}_blob FROM {table}",
+                        artifact_blob_prefix(table)
+                    ),
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .unwrap();
+            assert_eq!(cycle_id, "cycle-1");
+            assert_eq!(blob, expected_blob);
+        }
+        let mut foreign_key_check = conn.prepare("PRAGMA foreign_key_check").unwrap();
+        assert!(!foreign_key_check.exists([]).unwrap());
+    }
+
+    fn artifact_blob_prefix(table: &str) -> &'static str {
+        match table {
+            "migration_reports" => "report",
+            "cutover_manifests" | "rollback_manifests" | "retirement_manifests" => "manifest",
+            _ => unreachable!("test controls the table list"),
         }
     }
 }
