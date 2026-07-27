@@ -1,5 +1,5 @@
-use crate::verification::identity::*;
 use crate::verification::digest::VerificationDigest;
+use crate::verification::identity::*;
 
 #[derive(Clone, Debug)]
 pub struct BackupManifestRef {
@@ -32,9 +32,21 @@ pub struct RetentionPolicy {
 }
 
 impl RetentionPolicy {
-    pub fn new(retention_days: u32, keep_last_n: u32, keep_failed: u32, batch: u32) -> Result<Self, String> {
-        if retention_days == 0 { return Err("retention_days must be > 0".into()); }
-        Ok(Self { retention_days, keep_last_n_runs_per_plan: keep_last_n, keep_failed_runs_days: keep_failed, prune_batch_size: batch })
+    pub fn new(
+        retention_days: u32,
+        keep_last_n: u32,
+        keep_failed: u32,
+        batch: u32,
+    ) -> Result<Self, String> {
+        if retention_days == 0 {
+            return Err("retention_days must be > 0".into());
+        }
+        Ok(Self {
+            retention_days,
+            keep_last_n_runs_per_plan: keep_last_n,
+            keep_failed_runs_days: keep_failed,
+            prune_batch_size: batch,
+        })
     }
 }
 
@@ -71,8 +83,42 @@ pub struct PromotionPolicy {
 mod tests {
     use super::*;
 
-    #[test] fn retention_policy_valid() { assert!(RetentionPolicy::new(30, 5, 90, 100).is_ok()); }
-    #[test] fn retention_policy_zero_rejected() { assert!(RetentionPolicy::new(0, 5, 90, 100).is_err()); }
-    #[test] fn backup_manifest_has_required_fields() { let m = BackupManifestRef { backup_id: uuid::Uuid::now_v7(), runtime_version: "1.0".into(), schema_version: 1, streams: vec![], blob_inventory_digest: VerificationDigest::from_bytes([0;32]), archive_file_digest: VerificationDigest::from_bytes([0;32]), lease_ref: "lease1".into(), integrity_result: true, high_water_mark: 100, integrity_digest: VerificationDigest::from_bytes([0;32]) }; assert!(m.integrity_result); }
-    #[test] fn export_dto_has_version_fields() { let e = ExportRunJson { run_id: uuid::Uuid::now_v7(), plan_id: uuid::Uuid::now_v7(), state: "completed".into(), result: Some("passed".into()), evidence_count: 5, contract_version: "1.0".into(), schema_digest: VerificationDigest::from_bytes([1;32]), integrity_digest: VerificationDigest::from_bytes([2;32]) }; assert_eq!(e.contract_version, "1.0"); }
+    #[test]
+    fn retention_policy_valid() {
+        assert!(RetentionPolicy::new(30, 5, 90, 100).is_ok());
+    }
+    #[test]
+    fn retention_policy_zero_rejected() {
+        assert!(RetentionPolicy::new(0, 5, 90, 100).is_err());
+    }
+    #[test]
+    fn backup_manifest_has_required_fields() {
+        let m = BackupManifestRef {
+            backup_id: uuid::Uuid::now_v7(),
+            runtime_version: "1.0".into(),
+            schema_version: 1,
+            streams: vec![],
+            blob_inventory_digest: VerificationDigest::from_bytes([0; 32]),
+            archive_file_digest: VerificationDigest::from_bytes([0; 32]),
+            lease_ref: "lease1".into(),
+            integrity_result: true,
+            high_water_mark: 100,
+            integrity_digest: VerificationDigest::from_bytes([0; 32]),
+        };
+        assert!(m.integrity_result);
+    }
+    #[test]
+    fn export_dto_has_version_fields() {
+        let e = ExportRunJson {
+            run_id: uuid::Uuid::now_v7(),
+            plan_id: uuid::Uuid::now_v7(),
+            state: "completed".into(),
+            result: Some("passed".into()),
+            evidence_count: 5,
+            contract_version: "1.0".into(),
+            schema_digest: VerificationDigest::from_bytes([1; 32]),
+            integrity_digest: VerificationDigest::from_bytes([2; 32]),
+        };
+        assert_eq!(e.contract_version, "1.0");
+    }
 }

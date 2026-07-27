@@ -1,7 +1,7 @@
-use gocode_domain::verification::identity::*;
-use gocode_domain::verification::evaluation::{IntentStore, IntentError};
-use gocode_domain::verification::intent::{ConsumptionIntent, DispatchEvidence};
 use gocode_domain::verification::digest::VerificationDigest;
+use gocode_domain::verification::evaluation::{IntentError, IntentStore};
+use gocode_domain::verification::identity::*;
+use gocode_domain::verification::intent::{ConsumptionIntent, DispatchEvidence};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -11,14 +11,34 @@ pub struct InMemoryIntentStore {
 }
 
 impl InMemoryIntentStore {
-    pub fn new() -> Self { Self { store: Mutex::new(IntentStore::new()) } }
-
-    pub fn reserve(&self, intent_id: IntentID, key: &str, snapshot: VerificationDigest, target: VerificationDigest) -> Result<ConsumptionIntent, IntentError> {
-        self.store.lock().unwrap().reserve(intent_id, key, snapshot, target)
+    pub fn new() -> Self {
+        Self {
+            store: Mutex::new(IntentStore::new()),
+        }
     }
 
-    pub fn claim_dispatching(&self, intent_id: &IntentID, expected_digest: &VerificationDigest) -> Result<(), IntentError> {
-        self.store.lock().unwrap().claim_dispatching(intent_id, expected_digest)?;
+    pub fn reserve(
+        &self,
+        intent_id: IntentID,
+        key: &str,
+        snapshot: VerificationDigest,
+        target: VerificationDigest,
+    ) -> Result<ConsumptionIntent, IntentError> {
+        self.store
+            .lock()
+            .unwrap()
+            .reserve(intent_id, key, snapshot, target)
+    }
+
+    pub fn claim_dispatching(
+        &self,
+        intent_id: &IntentID,
+        expected_digest: &VerificationDigest,
+    ) -> Result<(), IntentError> {
+        self.store
+            .lock()
+            .unwrap()
+            .claim_dispatching(intent_id, expected_digest)?;
         Ok(())
     }
 
@@ -30,7 +50,11 @@ impl InMemoryIntentStore {
         self.store.lock().unwrap().settle(intent_id, success)
     }
 
-    pub fn reconcile(&self, intent_id: &IntentID, evidence: &DispatchEvidence) -> Result<(), IntentError> {
+    pub fn reconcile(
+        &self,
+        intent_id: &IntentID,
+        evidence: &DispatchEvidence,
+    ) -> Result<(), IntentError> {
         self.store.lock().unwrap().reconcile(intent_id, evidence)
     }
 }
@@ -40,7 +64,9 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
-    fn td(b: u8) -> VerificationDigest { VerificationDigest::from_bytes([b; 32]) }
+    fn td(b: u8) -> VerificationDigest {
+        VerificationDigest::from_bytes([b; 32])
+    }
 
     #[test]
     fn intent_full_lifecycle() {

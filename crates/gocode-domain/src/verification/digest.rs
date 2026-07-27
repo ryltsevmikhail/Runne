@@ -28,8 +28,7 @@ impl VerificationDigest {
             return Err(DigestError::UppercaseHex);
         }
         let mut bytes = [0u8; 32];
-        hex::decode_to_slice(hex, &mut bytes)
-            .map_err(|_| DigestError::InvalidHex)?;
+        hex::decode_to_slice(hex, &mut bytes).map_err(|_| DigestError::InvalidHex)?;
         Ok(Self(bytes))
     }
 
@@ -82,7 +81,10 @@ impl DigestContract {
     /// Compute evidence set digest over sorted refs.
     pub fn compute_evidence_set(
         &self,
-        refs: &[(crate::verification::identity::EvidenceRefID, VerificationDigest)],
+        refs: &[(
+            crate::verification::identity::EvidenceRefID,
+            VerificationDigest,
+        )],
     ) -> Result<VerificationDigest, DigestError> {
         // Check for duplicates
         let mut ids: Vec<_> = refs.iter().map(|(id, _)| id).collect();
@@ -290,7 +292,10 @@ mod tests {
         let id = Uuid::now_v7();
         let d = VerificationDigest::from_bytes([1u8; 32]);
         let refs = vec![(id, d)];
-        assert_ne!(c1.compute_evidence_set(&refs).unwrap(), c2.compute_evidence_set(&refs).unwrap());
+        assert_ne!(
+            c1.compute_evidence_set(&refs).unwrap(),
+            c2.compute_evidence_set(&refs).unwrap()
+        );
     }
 
     #[test]

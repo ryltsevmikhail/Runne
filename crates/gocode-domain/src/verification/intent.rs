@@ -1,8 +1,15 @@
-use crate::verification::identity::*;
 use crate::verification::digest::VerificationDigest;
+use crate::verification::identity::*;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum IntentState { Reserved, Dispatching, Completed, Failed, Invalidated, Abandoned }
+pub enum IntentState {
+    Reserved,
+    Dispatching,
+    Completed,
+    Failed,
+    Invalidated,
+    Abandoned,
+}
 
 #[derive(Clone, Debug)]
 pub struct ConsumptionIntent {

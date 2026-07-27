@@ -18,13 +18,10 @@ pub mod conversation;
 pub mod error;
 pub mod event;
 pub mod id;
-<<<<<<< HEAD
-pub mod security;
-=======
 pub mod plan;
 pub mod recovery;
 pub mod reference;
->>>>>>> dcc4d82 (feat(agent-loop): implement phase 5 core contracts)
+pub mod security;
 pub mod task_run;
 pub mod timestamp;
 pub mod verification;

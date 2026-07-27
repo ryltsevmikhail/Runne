@@ -1,5 +1,5 @@
-use crate::verification::identity::*;
 use crate::verification::digest::{DigestContract, VerificationDigest};
+use crate::verification::identity::*;
 
 /// Immutable evaluation profile — builder pattern with validation.
 #[derive(Clone, Debug)]
@@ -19,8 +19,12 @@ impl EvaluationProfile {
     }
 
     fn compute_digest(
-        profile_id: ProfileID, plan_id: PlanID, plan_revision: u64,
-        seed: Option<u64>, layer: &str, harness: &VerificationDigest,
+        profile_id: ProfileID,
+        plan_id: PlanID,
+        plan_revision: u64,
+        seed: Option<u64>,
+        layer: &str,
+        harness: &VerificationDigest,
     ) -> VerificationDigest {
         let contract = DigestContract::new("gocode:evaluation-profile:v1");
         let seed_bytes = seed.map(|s| s.to_be_bytes().to_vec()).unwrap_or_default();
@@ -46,28 +50,64 @@ pub struct ProfileBuilder {
 }
 
 impl ProfileBuilder {
-    pub fn profile_id(mut self, id: ProfileID) -> Self { self.profile_id = Some(id); self }
-    pub fn plan_id(mut self, id: PlanID) -> Self { self.plan_id = Some(id); self }
-    pub fn plan_revision(mut self, rev: u64) -> Self { self.plan_revision = rev; self }
-    pub fn deterministic_seed(mut self, seed: u64) -> Self { self.deterministic_seed = Some(seed); self }
-    pub fn evidence_layer(mut self, layer: &str) -> Self { self.evidence_layer = Some(layer.to_string()); self }
-    pub fn harness_digest(mut self, d: VerificationDigest) -> Self { self.harness_digest = Some(d); self }
+    pub fn profile_id(mut self, id: ProfileID) -> Self {
+        self.profile_id = Some(id);
+        self
+    }
+    pub fn plan_id(mut self, id: PlanID) -> Self {
+        self.plan_id = Some(id);
+        self
+    }
+    pub fn plan_revision(mut self, rev: u64) -> Self {
+        self.plan_revision = rev;
+        self
+    }
+    pub fn deterministic_seed(mut self, seed: u64) -> Self {
+        self.deterministic_seed = Some(seed);
+        self
+    }
+    pub fn evidence_layer(mut self, layer: &str) -> Self {
+        self.evidence_layer = Some(layer.to_string());
+        self
+    }
+    pub fn harness_digest(mut self, d: VerificationDigest) -> Self {
+        self.harness_digest = Some(d);
+        self
+    }
 
     pub fn build(self) -> Result<EvaluationProfile, ProfileError> {
-        let profile_id = self.profile_id.ok_or(ProfileError::MissingField("profile_id"))?;
+        let profile_id = self
+            .profile_id
+            .ok_or(ProfileError::MissingField("profile_id"))?;
         let plan_id = self.plan_id.ok_or(ProfileError::MissingField("plan_id"))?;
         let layer = self.evidence_layer.unwrap_or_else(|| "L0".to_string());
-        let harness = self.harness_digest.unwrap_or_else(|| VerificationDigest::from_bytes([0; 32]));
+        let harness = self
+            .harness_digest
+            .unwrap_or_else(|| VerificationDigest::from_bytes([0; 32]));
         let integrity_digest = EvaluationProfile::compute_digest(
-            profile_id, plan_id, self.plan_revision, self.deterministic_seed, &layer, &harness,
+            profile_id,
+            plan_id,
+            self.plan_revision,
+            self.deterministic_seed,
+            &layer,
+            &harness,
         );
-        Ok(EvaluationProfile { profile_id, plan_id, plan_revision: self.plan_revision,
-            deterministic_seed: self.deterministic_seed, integrity_digest, evidence_layer: layer, harness_digest: harness })
+        Ok(EvaluationProfile {
+            profile_id,
+            plan_id,
+            plan_revision: self.plan_revision,
+            deterministic_seed: self.deterministic_seed,
+            integrity_digest,
+            evidence_layer: layer,
+            harness_digest: harness,
+        })
     }
 }
 
 #[derive(Debug)]
-pub enum ProfileError { MissingField(&'static str) }
+pub enum ProfileError {
+    MissingField(&'static str),
+}
 
 impl std::fmt::Display for ProfileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,9 +121,67 @@ mod tests {
     use super::*;
     use uuid::Uuid;
 
-    #[test] fn profile_build_minimal() { let p = EvaluationProfile::builder().profile_id(Uuid::now_v7()).plan_id(Uuid::now_v7()).build().unwrap(); assert_eq!(p.plan_revision, 0); }
-    #[test] fn profile_digest_stable() { let pid = Uuid::now_v7(); let plan = Uuid::now_v7(); let p1 = EvaluationProfile::builder().profile_id(pid).plan_id(plan).deterministic_seed(42).build().unwrap(); let p2 = EvaluationProfile::builder().profile_id(pid).plan_id(plan).deterministic_seed(42).build().unwrap(); assert_eq!(p1.integrity_digest, p2.integrity_digest); }
-    #[test] fn profile_digest_changes_with_seed() { let id = Uuid::now_v7(); let pid = Uuid::now_v7(); let p1 = EvaluationProfile::builder().profile_id(id).plan_id(pid).deterministic_seed(42).build().unwrap(); let p2 = EvaluationProfile::builder().profile_id(id).plan_id(pid).deterministic_seed(43).build().unwrap(); assert_ne!(p1.integrity_digest, p2.integrity_digest); }
-    #[test] fn profile_missing_plan_id_rejected() { assert!(EvaluationProfile::builder().profile_id(Uuid::now_v7()).build().is_err()); }
-    #[test] fn profile_missing_profile_id_rejected() { assert!(EvaluationProfile::builder().plan_id(Uuid::now_v7()).build().is_err()); }
+    #[test]
+    fn profile_build_minimal() {
+        let p = EvaluationProfile::builder()
+            .profile_id(Uuid::now_v7())
+            .plan_id(Uuid::now_v7())
+            .build()
+            .unwrap();
+        assert_eq!(p.plan_revision, 0);
+    }
+    #[test]
+    fn profile_digest_stable() {
+        let pid = Uuid::now_v7();
+        let plan = Uuid::now_v7();
+        let p1 = EvaluationProfile::builder()
+            .profile_id(pid)
+            .plan_id(plan)
+            .deterministic_seed(42)
+            .build()
+            .unwrap();
+        let p2 = EvaluationProfile::builder()
+            .profile_id(pid)
+            .plan_id(plan)
+            .deterministic_seed(42)
+            .build()
+            .unwrap();
+        assert_eq!(p1.integrity_digest, p2.integrity_digest);
+    }
+    #[test]
+    fn profile_digest_changes_with_seed() {
+        let id = Uuid::now_v7();
+        let pid = Uuid::now_v7();
+        let p1 = EvaluationProfile::builder()
+            .profile_id(id)
+            .plan_id(pid)
+            .deterministic_seed(42)
+            .build()
+            .unwrap();
+        let p2 = EvaluationProfile::builder()
+            .profile_id(id)
+            .plan_id(pid)
+            .deterministic_seed(43)
+            .build()
+            .unwrap();
+        assert_ne!(p1.integrity_digest, p2.integrity_digest);
+    }
+    #[test]
+    fn profile_missing_plan_id_rejected() {
+        assert!(
+            EvaluationProfile::builder()
+                .profile_id(Uuid::now_v7())
+                .build()
+                .is_err()
+        );
+    }
+    #[test]
+    fn profile_missing_profile_id_rejected() {
+        assert!(
+            EvaluationProfile::builder()
+                .plan_id(Uuid::now_v7())
+                .build()
+                .is_err()
+        );
+    }
 }

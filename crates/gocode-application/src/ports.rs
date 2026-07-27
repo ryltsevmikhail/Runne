@@ -525,6 +525,12 @@ pub struct ApplicationCommandContext {
     pub actor: gocode_domain::event::Actor,
 }
 
+// ── ReplayService re-exports ──────────────────────────────────────────────
+
+pub use crate::replay_service::{
+    ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

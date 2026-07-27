@@ -20,6 +20,7 @@ pub mod fingerprint;
 pub mod migration;
 pub(crate) mod pipeline;
 pub mod ports;
+pub mod replay_service;
 pub mod security;
 pub mod service;
 pub mod verification;

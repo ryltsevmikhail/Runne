@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use gocode_domain::verification::identity::*;
-use gocode_domain::verification::evidence::*;
 use gocode_domain::verification::digest::VerificationDigest;
+use gocode_domain::verification::evidence::*;
+use gocode_domain::verification::identity::*;
 
 /// Public entry point for recording verification evidence.
 /// record_raw is the ONLY public method — no scanner bypass possible.
@@ -23,7 +23,10 @@ pub trait EvidenceRecorder: Send + Sync {
 
     async fn validate(&self, ref_id: &EvidenceRefID) -> Result<(), EvidenceRecorderError>;
     async fn get(&self, ref_id: &EvidenceRefID) -> Result<EvidenceItem, EvidenceRecorderError>;
-    async fn list_for_run(&self, run_id: &RunID) -> Result<Vec<EvidenceRefID>, EvidenceRecorderError>;
+    async fn list_for_run(
+        &self,
+        run_id: &RunID,
+    ) -> Result<Vec<EvidenceRefID>, EvidenceRecorderError>;
 }
 
 #[derive(Debug, thiserror::Error)]

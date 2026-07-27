@@ -27,9 +27,22 @@ impl VerificationPlan {
     ) -> Self {
         let revision = 1;
         let integrity_digest = Self::compute_digest(
-            plan_id, revision, &target, &acceptance_criteria, &gates, &policy_revision,
+            plan_id,
+            revision,
+            &target,
+            &acceptance_criteria,
+            &gates,
+            &policy_revision,
         );
-        Self { plan_id, revision, integrity_digest, target, acceptance_criteria, gates, policy_revision }
+        Self {
+            plan_id,
+            revision,
+            integrity_digest,
+            target,
+            acceptance_criteria,
+            gates,
+            policy_revision,
+        }
     }
 
     /// Create next revision (consumes self to prevent mutation of committed plan).
@@ -42,9 +55,22 @@ impl VerificationPlan {
     ) -> Self {
         let revision = self.revision + 1;
         let integrity_digest = Self::compute_digest(
-            self.plan_id, revision, &target, &acceptance_criteria, &gates, &policy_revision,
+            self.plan_id,
+            revision,
+            &target,
+            &acceptance_criteria,
+            &gates,
+            &policy_revision,
         );
-        Self { plan_id: self.plan_id, revision, integrity_digest, target, acceptance_criteria, gates, policy_revision }
+        Self {
+            plan_id: self.plan_id,
+            revision,
+            integrity_digest,
+            target,
+            acceptance_criteria,
+            gates,
+            policy_revision,
+        }
     }
 
     fn compute_digest(
@@ -92,9 +118,18 @@ impl GateDefinition {
             return Err(PlanError::SelfDependency(gate_id));
         }
         let definition_digest = Self::compute_definition_digest(
-            &gate_id, &criteria, &required_evidence_layers, &dependencies,
+            &gate_id,
+            &criteria,
+            &required_evidence_layers,
+            &dependencies,
         );
-        Ok(Self { gate_id, definition_digest, criteria, required_evidence_layers, dependencies })
+        Ok(Self {
+            gate_id,
+            definition_digest,
+            criteria,
+            required_evidence_layers,
+            dependencies,
+        })
     }
 
     fn compute_definition_digest(
@@ -123,7 +158,10 @@ pub fn validate_gate_dependencies(gates: &[GateDefinition]) -> Result<(), PlanEr
     for gate in gates {
         for dep in &gate.dependencies {
             if !gates.iter().any(|g| g.gate_id == *dep) {
-                return Err(PlanError::MissingDependency(gate.gate_id.clone(), dep.clone()));
+                return Err(PlanError::MissingDependency(
+                    gate.gate_id.clone(),
+                    dep.clone(),
+                ));
             }
         }
     }
@@ -160,8 +198,12 @@ impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SelfDependency(id) => write!(f, "gate '{}' cannot depend on itself", id),
-            Self::MissingDependency(gate, dep) => write!(f, "gate '{}' depends on missing gate '{}'", gate, dep),
-            Self::CircularDependency(id) => write!(f, "circular dependency involving gate '{}'", id),
+            Self::MissingDependency(gate, dep) => {
+                write!(f, "gate '{}' depends on missing gate '{}'", gate, dep)
+            }
+            Self::CircularDependency(id) => {
+                write!(f, "circular dependency involving gate '{}'", id)
+            }
             Self::EmptyGates => write!(f, "plan must have at least one gate"),
         }
     }
@@ -176,10 +218,19 @@ mod tests {
 
     #[test]
     fn create_plan_with_gates() {
-        let gate = GateDefinition::new("G1".into(), "pass all tests".into(), vec!["L0".into()], vec![]).unwrap();
+        let gate = GateDefinition::new(
+            "G1".into(),
+            "pass all tests".into(),
+            vec!["L0".into()],
+            vec![],
+        )
+        .unwrap();
         let plan = VerificationPlan::new(
-            Uuid::now_v7(), "subsystem-x".into(), "all gates pass".into(),
-            vec![gate], "v1".into(),
+            Uuid::now_v7(),
+            "subsystem-x".into(),
+            "all gates pass".into(),
+            vec![gate],
+            "v1".into(),
         );
         assert_eq!(plan.revision, 1);
         assert_eq!(plan.gates.len(), 1);
@@ -189,11 +240,15 @@ mod tests {
     fn plan_revision_is_immutable_after_next() {
         let gate = GateDefinition::new("G1".into(), "criteria".into(), vec![], vec![]).unwrap();
         let plan_v1 = VerificationPlan::new(
-            Uuid::now_v7(), "target".into(), "accept".into(),
-            vec![gate.clone()], "v1".into(),
+            Uuid::now_v7(),
+            "target".into(),
+            "accept".into(),
+            vec![gate.clone()],
+            "v1".into(),
         );
         let digest_v1 = plan_v1.integrity_digest.clone();
-        let plan_v2 = plan_v1.next_revision("target2".into(), "accept2".into(), vec![gate], "v2".into());
+        let plan_v2 =
+            plan_v1.next_revision("target2".into(), "accept2".into(), vec![gate], "v2".into());
         assert_eq!(plan_v2.revision, 2);
         assert_ne!(digest_v1.to_hex(), plan_v2.integrity_digest.to_hex()); // just verify digest exists
     }

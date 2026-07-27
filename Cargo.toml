@@ -12,6 +12,8 @@ members = [
   "crates/gocode-platform",
   "crates/gocode-runtime",
   "crates/gocode-security",
+  "crates/gocode-daemon",
+  "crates/gocode-http",
 ]
 
 [workspace.package]

@@ -7,10 +7,12 @@
 //! - `events` — committed event rows
 //! - `command_receipts` — idempotency receipt store
 
+use rand::RngCore;
+use rand::rngs::OsRng;
 use rusqlite::{Connection, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 7;
+pub const CURRENT_SCHEMA_VERSION: i64 = 8;
 
 /// Apply all schema migrations up to [`CURRENT_SCHEMA_VERSION`].
 ///
@@ -86,6 +88,13 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V7)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (7)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 8 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V8)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (8)", [])?;
         tx.commit()?;
     }
 
@@ -546,6 +555,42 @@ CREATE TABLE security_permit_claims (
 );
 "#;
 
+// ── Migration V8: daemon tables + authority ID ─────────────────────────
+
+const MIGRATION_V8: &str = r#"
+CREATE TABLE IF NOT EXISTS _authority (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    authority_id BLOB NOT NULL CHECK (length(authority_id) = 16)
+);
+
+CREATE TABLE IF NOT EXISTS _daemon_info (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS _replay_subscriptions (
+    session_id BLOB PRIMARY KEY CHECK (length(session_id) = 16),
+    principal_id TEXT NOT NULL,
+    session_generation INTEGER NOT NULL CHECK (session_generation > 0),
+    authority_id BLOB NOT NULL CHECK (length(authority_id) = 16),
+    authorization_epoch INTEGER NOT NULL CHECK (authorization_epoch >= 0),
+    aggregate_type INTEGER NOT NULL,
+    aggregate_id BLOB NOT NULL CHECK (length(aggregate_id) = 16),
+    retained_floor INTEGER,
+    retention_generation INTEGER NOT NULL CHECK (retention_generation = 0),
+    high_water_position INTEGER NOT NULL CHECK (high_water_position >= 0),
+    next_page_position INTEGER,
+    last_delivered_position INTEGER,
+    last_acked_position INTEGER,
+    state TEXT NOT NULL CHECK (state IN
+      ('catching_up','catch_up_complete','activating_live','live','closed')),
+    high_water_ref BLOB NOT NULL,
+    catch_up_completion BLOB,
+    live_delivery_id BLOB,
+    created_at TEXT NOT NULL
+);
+"#;
+
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     let conn = Connection::open(db_path)?;
@@ -564,6 +609,75 @@ pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     }
 
     Ok(conn)
+}
+
+// ── Authority ID ────────────────────────────────────────────────────────
+
+/// Generate a new random authority ID.
+pub fn generate_authority_id() -> [u8; 16] {
+    let mut id = [0u8; 16];
+    OsRng.fill_bytes(&mut id);
+    id
+}
+
+/// Read the authority ID from the database.
+/// Returns None if no row exists.
+pub fn read_authority_id(conn: &Connection) -> SqliteResult<Option<[u8; 16]>> {
+    let mut stmt = conn.prepare("SELECT authority_id FROM _authority WHERE id = 1")?;
+    let mut rows = stmt.query([])?;
+    match rows.next()? {
+        Some(row) => {
+            let blob: Vec<u8> = row.get(0)?;
+            let mut arr = [0u8; 16];
+            arr.copy_from_slice(&blob);
+            Ok(Some(arr))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Insert authority ID (only if no row exists — idempotent).
+pub fn ensure_authority_id(conn: &Connection, authority_id: &[u8; 16]) -> SqliteResult<()> {
+    conn.execute(
+        "INSERT OR IGNORE INTO _authority (id, authority_id) VALUES (1, ?1)",
+        rusqlite::params![authority_id.as_slice()],
+    )?;
+    Ok(())
+}
+
+// ── Startup purge ───────────────────────────────────────────────────────
+
+/// Purge stale replay subscriptions at startup.
+pub fn purge_replay_subscriptions(conn: &Connection) -> SqliteResult<()> {
+    conn.execute("DELETE FROM _replay_subscriptions", [])?;
+    Ok(())
+}
+
+// ── Platform-specific file ACL ──────────────────────────────────────────
+
+/// Platform-specific file ACL (Windows: private DACL, Unix: 0600).
+#[cfg(unix)]
+pub fn secure_file_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(windows)]
+pub fn secure_file_permissions(_path: &std::path::Path) -> std::io::Result<()> {
+    // Windows ACL is handled during file creation in lock.rs
+    Ok(())
+}
+
+/// Protect parent directory: 0700 (Unix) / private DACL (Windows).
+#[cfg(unix)]
+pub fn secure_dir_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(windows)]
+pub fn secure_dir_permissions(_path: &std::path::Path) -> std::io::Result<()> {
+    Ok(())
 }
 
 #[cfg(test)]
@@ -699,7 +813,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 7);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
         for table in [
             "migration_plans",
             "migration_transitions",

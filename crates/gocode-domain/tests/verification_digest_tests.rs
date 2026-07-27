@@ -55,8 +55,5 @@ fn domain_tag_separation() {
     let c1 = DigestContract::new("gocode:foo:v1");
     let c2 = DigestContract::new("gocode:bar:v1");
     let d = VerificationDigest::from_bytes([1u8; 32]);
-    assert_ne!(
-        c1.compute(&[d.as_bytes()]),
-        c2.compute(&[d.as_bytes()])
-    );
+    assert_ne!(c1.compute(&[d.as_bytes()]), c2.compute(&[d.as_bytes()]));
 }
