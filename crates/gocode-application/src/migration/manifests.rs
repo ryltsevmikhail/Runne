@@ -7,15 +7,62 @@ use gocode_domain::timestamp::Timestamp;
 use super::{
     error::MigrationError,
     ports::CutoverIntent,
-    rollout::CutoverPolicy,
+    rollout::{CutoverPolicy, LegacyReferenceInventory},
     types::{
-        ArtifactDigest, MigrationCycleId, MigrationPlanId, RoutingGeneration, RoutingUnit,
-        RuntimeGenerationRef,
+        ArtifactDigest, CohortSelector, FeatureProfileRef, MigrationCycleId, MigrationPlanId,
+        RoutingGeneration, RoutingUnit, RuntimeGenerationRef,
     },
 };
 
 const MAX_ARTIFACT_REF_BYTES: usize = 256;
 const MAX_TRANSITION_ID_BYTES: usize = 128;
+
+/// New-binding policy published with a legacy deprecation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyNewBindingPolicy {
+    /// No new binding may select Source authority.
+    Closed,
+}
+
+/// Immutable Stage 7 descriptor and exact legacy-reference inventory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeprecationManifest {
+    /// Content-addressed manifest identity.
+    pub manifest: ArtifactRef,
+    /// Owning migration plan.
+    pub plan_id: MigrationPlanId,
+    /// Owning migration cycle.
+    pub cycle_id: MigrationCycleId,
+    /// Exact affected cohort.
+    pub cohort: CohortSelector,
+    /// Verified replacement feature profile.
+    pub replacement_profile: FeatureProfileRef,
+    /// Digest of every exact identity affected by deprecation.
+    pub affected_identity_digest: ArtifactDigest,
+    /// Last instant in the published support window.
+    pub support_until: Timestamp,
+    /// Content-addressed operator migration guidance.
+    pub migration_guidance: ArtifactRef,
+    /// Content-addressed cohort drain report.
+    pub drain_report: ArtifactRef,
+    /// Complete categorized legacy-reference inventory.
+    pub reference_inventory: LegacyReferenceInventory,
+    /// Closed new-binding policy.
+    pub new_binding_policy: LegacyNewBindingPolicy,
+    /// Persistence-authoritative creation time.
+    pub created_at: Timestamp,
+}
+
+impl DeprecationManifest {
+    /// Validate identity, time, artifacts, inventory, and closed admission.
+    pub fn has_valid_identity(&self) -> bool {
+        self.support_until >= self.created_at
+            && self.affected_identity_digest.as_bytes() != &[0; 32]
+            && self.reference_inventory.has_valid_identity()
+            && self.new_binding_policy == LegacyNewBindingPolicy::Closed
+            && all_artifacts_unique([&self.manifest, &self.migration_guidance, &self.drain_report])
+    }
+}
 
 /// Immutable content-addressed artifact reference.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

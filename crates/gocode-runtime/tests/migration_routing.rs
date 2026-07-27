@@ -17,6 +17,7 @@ use gocode_application::{
             ProcessModel,
         },
         rollout::PreDispatchFallbackPolicy,
+        routing::{BindRuntimeRequest, MigrationRoutingStore},
         types::{
             ArtifactDigest, CohortDimension, CohortSelector, DeploymentId, FeatureProfileRef,
             FencingToken, RollbackDisposition, RoutingGeneration, RoutingSnapshot, RoutingUnit,
@@ -33,8 +34,8 @@ use gocode_platform::fence::FenceRegistry;
 use gocode_runtime::{
     migration_fence::MigrationFenceGuard,
     migration_router::{
-        DispatchAttempt, MigrationDispatchPort, MigrationRouter, MigrationRoutingError,
-        RouteNewWorkRequest,
+        DispatchAttempt, LegacyAdmissionPolicy, MigrationDispatchPort, MigrationRouter,
+        MigrationRoutingError, RouteAuthorityPreference, RouteNewWorkRequest,
     },
 };
 use gocode_store::{
@@ -165,8 +166,69 @@ async fn candidate_failure_after_acceptance_never_falls_back_to_source() {
     assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 1);
 }
 
+#[tokio::test]
+async fn legacy_admission_closed_rejects_every_new_legacy_binding() {
+    let harness = RoutingHarness::new_with_policies(
+        candidate_snapshot(),
+        matching_registry(),
+        PreDispatchFallbackPolicy::ExplicitSourceBeforeAcceptance {
+            source_profile: routing_unit().feature_profile,
+        },
+        LegacyAdmissionPolicy::Closed,
+    );
+    let before = harness.row_count("runtime_bindings");
+    let mut request = route_request();
+    request.authority_preference = RouteAuthorityPreference::LegacySource;
+
+    assert_eq!(
+        harness.router.route_new_work(request).await,
+        Err(MigrationRoutingError::LegacyAdmissionClosed)
+    );
+    assert_eq!(harness.row_count("runtime_bindings"), before);
+    assert_eq!(harness.dispatch.source.load(Ordering::Acquire), 0);
+    assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 0);
+}
+
+#[tokio::test]
+async fn existing_legacy_binding_remains_pinned_during_deprecation() {
+    let snapshot = source_snapshot(8);
+    let harness = RoutingHarness::new_with_policies(
+        snapshot.clone(),
+        VerifiedFeatureRegistry::default(),
+        PreDispatchFallbackPolicy::Disabled,
+        LegacyAdmissionPolicy::Closed,
+    );
+    harness
+        .store
+        .bind_and_create_dispatch_intent(BindRuntimeRequest {
+            aggregate_id: AggregateId::TaskRun(taskrun_id()),
+            routing_unit: routing_unit(),
+            expected_snapshot: snapshot,
+            fallback_policy: PreDispatchFallbackPolicy::Disabled,
+            command_id: command_id(),
+            idempotency_key: IdempotencyKey::new("migration-route-1").unwrap(),
+            request_digest: ArtifactDigest::from_bytes([11; 32]),
+            bound_at: Timestamp::from_unix_micros(20),
+        })
+        .unwrap();
+
+    let decision = harness
+        .router
+        .route_new_work(route_request())
+        .await
+        .unwrap();
+
+    assert!(matches!(
+        decision.binding.authority,
+        RuntimeAuthority::Source(_)
+    ));
+    assert_eq!(harness.dispatch.source.load(Ordering::Acquire), 1);
+    assert_eq!(harness.dispatch.candidate.load(Ordering::Acquire), 0);
+}
+
 struct RoutingHarness {
     db: TestDb,
+    store: Arc<SqliteMigrationControlStore>,
     router:
         MigrationRouter<SqliteMigrationControlStore, FenceRegistry, CountingDispatch, FixedClock>,
     dispatch: Arc<CountingDispatch>,
@@ -222,6 +284,22 @@ impl RoutingHarness {
         )
     }
 
+    fn new_with_policies(
+        snapshot: RoutingSnapshot,
+        registry: VerifiedFeatureRegistry,
+        fallback_policy: PreDispatchFallbackPolicy,
+        legacy_admission_policy: LegacyAdmissionPolicy,
+    ) -> Self {
+        Self::new_with_fence_attempt_and_policies(
+            snapshot,
+            registry,
+            FencingToken::new([8; 32]).unwrap(),
+            DispatchAttempt::Accepted,
+            fallback_policy,
+            legacy_admission_policy,
+        )
+    }
+
     fn new_with_fence_and_attempt(
         snapshot: RoutingSnapshot,
         registry: VerifiedFeatureRegistry,
@@ -244,6 +322,24 @@ impl RoutingHarness {
         attempt: DispatchAttempt,
         fallback_policy: PreDispatchFallbackPolicy,
     ) -> Self {
+        Self::new_with_fence_attempt_and_policies(
+            snapshot,
+            registry,
+            active_token,
+            attempt,
+            fallback_policy,
+            LegacyAdmissionPolicy::Open,
+        )
+    }
+
+    fn new_with_fence_attempt_and_policies(
+        snapshot: RoutingSnapshot,
+        registry: VerifiedFeatureRegistry,
+        active_token: FencingToken,
+        attempt: DispatchAttempt,
+        fallback_policy: PreDispatchFallbackPolicy,
+        legacy_admission_policy: LegacyAdmissionPolicy,
+    ) -> Self {
         let db = TestDb::new("runtime");
         let store = Arc::new(SqliteMigrationControlStore::open(db.path()).unwrap());
         seed_routing_head(db.path(), &routing_unit(), &snapshot);
@@ -257,16 +353,18 @@ impl RoutingHarness {
             candidate: AtomicUsize::new(0),
             attempt,
         });
-        let router = MigrationRouter::new_with_fallback_policy(
-            store,
+        let router = MigrationRouter::new_with_routing_policies(
+            Arc::clone(&store),
             Arc::new(registry),
             MigrationFenceGuard::new(fence),
             Arc::clone(&dispatch),
             Arc::new(FixedClock),
             fallback_policy,
+            legacy_admission_policy,
         );
         Self {
             db,
+            store,
             router,
             dispatch,
         }
@@ -353,6 +451,7 @@ fn route_request() -> RouteNewWorkRequest {
         command_id: command_id(),
         idempotency_key: IdempotencyKey::new("migration-route-1").unwrap(),
         request_digest: ArtifactDigest::from_bytes([11; 32]),
+        authority_preference: RouteAuthorityPreference::Current,
     }
 }
 
