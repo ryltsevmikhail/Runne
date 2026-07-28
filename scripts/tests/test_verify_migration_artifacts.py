@@ -2,6 +2,7 @@ import importlib.util
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT_PATH = pathlib.Path(__file__).parents[1] / "verify-migration-artifacts.py"
@@ -39,6 +40,24 @@ class VerifyMigrationArtifactsTests(unittest.TestCase):
 
         self.assertEqual(args.golden_dir, "/tmp/golden")
         self.assertEqual(args.schema, "/tmp/schema.json")
+
+    def test_display_path_falls_back_when_windows_drives_differ(self) -> None:
+        with (
+            mock.patch.object(verifier.os.path, "relpath", side_effect=ValueError),
+            mock.patch.object(
+                verifier.os.path,
+                "abspath",
+                return_value=r"C:\Users\runneradmin\AppData\Local\Temp\fixture.json",
+            ),
+        ):
+            displayed = verifier.display_path(
+                r"C:\Users\runneradmin\AppData\Local\Temp\fixture.json"
+            )
+
+        self.assertEqual(
+            displayed,
+            r"C:\Users\runneradmin\AppData\Local\Temp\fixture.json",
+        )
 
 
 if __name__ == "__main__":
