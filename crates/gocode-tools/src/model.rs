@@ -125,6 +125,63 @@ impl ToolRef {
     }
 }
 
+/// Exact external authority binding carried through ToolGateway admission.
+///
+/// The binding is descriptive, not self-authorizing. Admission authorities
+/// must revalidate every field and atomically claim effect permission.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolDispatchBinding {
+    tool_ref: ToolRef,
+    activation_id: String,
+    package_digest: [u8; 32],
+    generation: u64,
+    descriptor_snapshot_digest: [u8; 32],
+}
+
+impl ToolDispatchBinding {
+    /// Constructs a complete authority binding for gateway revalidation.
+    pub fn new(
+        tool_ref: ToolRef,
+        activation_id: String,
+        package_digest: [u8; 32],
+        generation: u64,
+        descriptor_snapshot_digest: [u8; 32],
+    ) -> Self {
+        Self {
+            tool_ref,
+            activation_id,
+            package_digest,
+            generation,
+            descriptor_snapshot_digest,
+        }
+    }
+
+    /// Exact immutable tool reference.
+    pub const fn tool_ref(&self) -> &ToolRef {
+        &self.tool_ref
+    }
+
+    /// External activation owner identity.
+    pub fn activation_id(&self) -> &str {
+        &self.activation_id
+    }
+
+    /// Content-addressed owner digest.
+    pub const fn package_digest(&self) -> &[u8; 32] {
+        &self.package_digest
+    }
+
+    /// External authority generation.
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Accepted descriptor-set digest.
+    pub const fn descriptor_snapshot_digest(&self) -> &[u8; 32] {
+        &self.descriptor_snapshot_digest
+    }
+}
+
 /// Tool execution class.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolClass {

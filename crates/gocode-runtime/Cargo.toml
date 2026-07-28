@@ -8,6 +8,8 @@ rust-version.workspace = true
 gocode-api = { path = "../gocode-api" }
 gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
+gocode-mcp = { path = "../gocode-mcp" }
+gocode-plugin-host = { path = "../gocode-plugin-host" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-tools = { path = "../gocode-tools" }
 hex = "=0.4.3"

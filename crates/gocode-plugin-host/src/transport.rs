@@ -1,6 +1,16 @@
 //! Project-owned process and bootstrap transport ports for plugin activation.
 
 use crate::{PluginActivationId, PluginDigest, PluginGeneration};
+use gocode_plugin_protocol::digest::ProtocolNegotiationSnapshotDigest;
+
+/// Durable origin of a plugin-start intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PluginStartIntentOrigin {
+    /// The journal row was created by this reservation call.
+    Fresh,
+    /// The exact journal row already existed and must be reconciled.
+    Existing,
+}
 
 /// Opaque host-created reservation for one exact process start request.
 #[derive(Debug, PartialEq, Eq)]
@@ -9,6 +19,7 @@ pub struct PluginStartIntent {
     package_digest: PluginDigest,
     generation: PluginGeneration,
     reservation: [u8; 32],
+    origin: PluginStartIntentOrigin,
 }
 
 impl PluginStartIntent {
@@ -19,11 +30,28 @@ impl PluginStartIntent {
         generation: PluginGeneration,
         reservation: [u8; 32],
     ) -> Self {
+        Self::with_origin(
+            activation_id,
+            package_digest,
+            generation,
+            reservation,
+            PluginStartIntentOrigin::Fresh,
+        )
+    }
+
+    pub(crate) fn with_origin(
+        activation_id: PluginActivationId,
+        package_digest: PluginDigest,
+        generation: PluginGeneration,
+        reservation: [u8; 32],
+        origin: PluginStartIntentOrigin,
+    ) -> Self {
         Self {
             activation_id,
             package_digest,
             generation,
             reservation,
+            origin,
         }
     }
 
@@ -40,6 +68,10 @@ impl PluginStartIntent {
 
     pub(crate) const fn reservation(&self) -> &[u8; 32] {
         &self.reservation
+    }
+
+    pub(crate) const fn origin(&self) -> PluginStartIntentOrigin {
+        self.origin
     }
 }
 
@@ -157,18 +189,21 @@ impl<J: PluginStartIntentJournal> PluginStartIntentPort for DurablePluginStartIn
                     }
                     PluginStartIntentJournalError::Conflict => PluginStartIntentPortError::Conflict,
                 })?;
-        let reservation = match reservation {
-            PluginStartIntentJournalResult::Fresh(value)
-            | PluginStartIntentJournalResult::Existing(value) => value,
+        let (reservation, origin) = match reservation {
+            PluginStartIntentJournalResult::Fresh(value) => (value, PluginStartIntentOrigin::Fresh),
+            PluginStartIntentJournalResult::Existing(value) => {
+                (value, PluginStartIntentOrigin::Existing)
+            }
         };
         if reservation == [0; 32] {
             return Err(PluginStartIntentPortError::Unavailable);
         }
-        Ok(PluginStartIntent::issued(
+        Ok(PluginStartIntent::with_origin(
             activation_id.clone(),
             package_digest,
             generation,
             reservation,
+            origin,
         ))
     }
 }
@@ -211,11 +246,75 @@ pub struct PluginProcessLease {
     reservation: [u8; 32],
 }
 
+/// Opaque backend evidence that the exact process accepted a drain boundary.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PluginDrainEvidence {
+    activation_id: PluginActivationId,
+    package_digest: PluginDigest,
+    generation: PluginGeneration,
+    reservation: [u8; 32],
+}
+
+/// Opaque backend evidence that cleanup closed containment for the exact
+/// terminal process.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PluginCleanupEvidence {
+    activation_id: PluginActivationId,
+    package_digest: PluginDigest,
+    generation: PluginGeneration,
+    reservation: [u8; 32],
+}
+
 /// Registry-owned generation read lease held across activation negotiation.
 #[derive(Debug, PartialEq, Eq)]
 pub struct PluginGenerationReadLease {
     activation_id: PluginActivationId,
     generation: PluginGeneration,
+}
+
+/// Registry-issued binding proving an activation became ready under one exact
+/// generation and negotiation snapshot.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PluginActiveFence {
+    activation_id: PluginActivationId,
+    generation: PluginGeneration,
+    negotiation_snapshot: ProtocolNegotiationSnapshotDigest,
+}
+
+impl PluginActiveFence {
+    pub(crate) fn issued(
+        lease: &PluginGenerationReadLease,
+        negotiation_snapshot: ProtocolNegotiationSnapshotDigest,
+    ) -> Self {
+        Self {
+            activation_id: lease.activation_id.clone(),
+            generation: lease.generation,
+            negotiation_snapshot,
+        }
+    }
+
+    pub(crate) fn matches(
+        &self,
+        activation_id: &PluginActivationId,
+        generation: PluginGeneration,
+        negotiation_snapshot: ProtocolNegotiationSnapshotDigest,
+    ) -> bool {
+        self.activation_id == *activation_id
+            && self.generation == generation
+            && self.negotiation_snapshot == negotiation_snapshot
+    }
+
+    pub(crate) fn activation_id(&self) -> &PluginActivationId {
+        &self.activation_id
+    }
+
+    pub(crate) const fn generation(&self) -> PluginGeneration {
+        self.generation
+    }
+
+    pub(crate) const fn negotiation_snapshot(&self) -> ProtocolNegotiationSnapshotDigest {
+        self.negotiation_snapshot
+    }
 }
 
 impl PluginGenerationReadLease {
@@ -232,6 +331,10 @@ impl PluginGenerationReadLease {
         generation: PluginGeneration,
     ) -> bool {
         self.activation_id == *activation_id && self.generation == generation
+    }
+
+    pub(crate) fn activation_id(&self) -> &PluginActivationId {
+        &self.activation_id
     }
 
     pub(crate) const fn generation(&self) -> PluginGeneration {
@@ -256,6 +359,64 @@ impl PluginProcessLease {
             && self.package_digest == intent.package_digest
             && self.generation == intent.generation
             && self.reservation == *intent.reservation()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn activation_id(&self) -> &PluginActivationId {
+        &self.activation_id
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn package_digest(&self) -> PluginDigest {
+        self.package_digest
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn generation(&self) -> PluginGeneration {
+        self.generation
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn reservation(&self) -> &[u8; 32] {
+        &self.reservation
+    }
+}
+
+impl PluginDrainEvidence {
+    #[cfg(test)]
+    pub(crate) fn certified(lease: &PluginProcessLease) -> Self {
+        Self {
+            activation_id: lease.activation_id.clone(),
+            package_digest: lease.package_digest,
+            generation: lease.generation,
+            reservation: lease.reservation,
+        }
+    }
+
+    pub(crate) fn matches(&self, lease: &PluginProcessLease) -> bool {
+        self.activation_id == lease.activation_id
+            && self.package_digest == lease.package_digest
+            && self.generation == lease.generation
+            && self.reservation == lease.reservation
+    }
+}
+
+impl PluginCleanupEvidence {
+    #[cfg(test)]
+    pub(crate) fn certified(lease: &PluginProcessLease) -> Self {
+        Self {
+            activation_id: lease.activation_id.clone(),
+            package_digest: lease.package_digest,
+            generation: lease.generation,
+            reservation: lease.reservation,
+        }
+    }
+
+    pub(crate) fn matches(&self, lease: &PluginProcessLease) -> bool {
+        self.activation_id == lease.activation_id
+            && self.package_digest == lease.package_digest
+            && self.generation == lease.generation
+            && self.reservation == lease.reservation
     }
 }
 
@@ -301,6 +462,22 @@ pub trait PluginGenerationPort {
         &self,
         lease: &PluginGenerationReadLease,
     ) -> Result<(), PluginGenerationPortError>;
+
+    /// Atomically publishes the exact ready binding after the generation CAS.
+    fn publish_active(
+        &self,
+        lease: &PluginGenerationReadLease,
+        negotiation_snapshot: ProtocolNegotiationSnapshotDigest,
+    ) -> Result<PluginActiveFence, PluginGenerationPortError> {
+        self.ready_compare_and_set(lease)?;
+        Ok(PluginActiveFence::issued(lease, negotiation_snapshot))
+    }
+
+    /// Revalidates an active binding before dispatch. Implementations must fail
+    /// closed when the registry epoch or negotiation snapshot changed.
+    fn validate_active(&self, _: &PluginActiveFence) -> Result<(), PluginGenerationPortError> {
+        Err(PluginGenerationPortError::Unavailable)
+    }
 }
 
 /// Project-owned process activation port; it exposes no OS process handles.
@@ -321,13 +498,32 @@ pub trait PluginProcessPort {
         Err(PluginProcessPortError::ResponseLost)
     }
 
-    /// Requests certified draining for an active process.
-    fn begin_draining(&mut self, _: &PluginProcessLease) -> Result<(), PluginProcessPortError> {
+    /// Requests certified draining for an active process. Exact duplicate calls
+    /// for the same lease must be idempotent and return the same evidence.
+    fn begin_draining(
+        &mut self,
+        _: &PluginProcessLease,
+    ) -> Result<PluginDrainEvidence, PluginProcessPortError> {
         Err(PluginProcessPortError::BackendUnavailable)
     }
 
     /// Requests certified terminal reconciliation for a draining process.
-    fn terminal(&mut self, _: &PluginProcessLease) -> Result<(), PluginProcessPortError> {
+    /// Exact duplicate calls for the same lease/evidence must be idempotent.
+    fn terminal(
+        &mut self,
+        _: &PluginProcessLease,
+        _: &PluginDrainEvidence,
+    ) -> Result<crate::PluginTerminalEvidence, PluginProcessPortError> {
+        Err(PluginProcessPortError::BackendUnavailable)
+    }
+
+    /// Closes containment and cleanup only after exact terminal evidence.
+    /// Exact duplicate calls must be idempotent and return the same evidence.
+    fn cleanup(
+        &mut self,
+        _: &PluginProcessLease,
+        _: &crate::PluginTerminalEvidence,
+    ) -> Result<PluginCleanupEvidence, PluginProcessPortError> {
         Err(PluginProcessPortError::BackendUnavailable)
     }
 }
@@ -335,8 +531,14 @@ pub trait PluginProcessPort {
 /// Failure reported by the bounded plugin bootstrap transport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PluginTransportPortError {
+    /// Transport proved that no outbound bytes were accepted.
+    NotSent,
     /// The transport could not produce a response frame.
     Unavailable,
+    /// Outbound bytes may have crossed the effect boundary but no response is known.
+    ResponseLost,
+    /// Trusted deadline elapsed after dispatch may have crossed the effect boundary.
+    DeadlineExceeded,
 }
 
 /// Project-owned bootstrap transport port; it exposes no raw OS handles.
@@ -344,8 +546,28 @@ pub trait PluginTransportPort {
     /// Sends one bounded host-owned frame.
     fn send(&mut self, outbound: PluginBootstrapFrame) -> Result<(), PluginTransportPortError>;
 
+    /// Sends one frame under a trusted monotonic deadline.
+    ///
+    /// Implementations that cannot prove deadline enforcement fail closed and
+    /// are ineligible for hook dispatch.
+    fn send_before(
+        &mut self,
+        _: u64,
+        _: PluginBootstrapFrame,
+    ) -> Result<(), PluginTransportPortError> {
+        Err(PluginTransportPortError::NotSent)
+    }
+
     /// Receives one response into the host-owned bounded buffer.
     fn receive(&mut self, inbound: &mut [u8]) -> Result<usize, PluginTransportPortError>;
+
+    /// Receives one response under a trusted monotonic deadline.
+    ///
+    /// Implementations that cannot enforce the deadline fail closed and are
+    /// ineligible for hook dispatch.
+    fn receive_before(&mut self, _: u64, _: &mut [u8]) -> Result<usize, PluginTransportPortError> {
+        Err(PluginTransportPortError::Unavailable)
+    }
 }
 
 #[cfg(test)]
@@ -470,6 +692,8 @@ mod tests {
             .reserve(&activation, digest, PluginGeneration::INITIAL)
             .unwrap();
         assert_eq!(first.reservation(), replay.reservation());
+        assert_eq!(first.origin(), PluginStartIntentOrigin::Fresh);
+        assert_eq!(replay.origin(), PluginStartIntentOrigin::Existing);
 
         let different = DurablePluginStartIntentAuthority::new(journal).reserve(
             &activation,
@@ -522,6 +746,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(first.reservation(), replay.reservation());
+        assert_eq!(first.origin(), PluginStartIntentOrigin::Fresh);
+        assert_eq!(replay.origin(), PluginStartIntentOrigin::Existing);
         assert_ne!(first.reservation(), distinct.reservation());
         assert_eq!(journal.row_count(), 2);
     }

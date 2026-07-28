@@ -3,8 +3,9 @@ use std::sync::{Arc, Mutex};
 use gocode_tools::{
     BlobRef, EffectAdmission, GateStage, RawToolOutput, ToolAdmissionDecision, ToolAdmissionError,
     ToolAdmissionPort, ToolCancelDisposition, ToolCancelRequest, ToolCloseEvidence,
-    ToolCloseRequest, ToolDispatchRequest, ToolExecutionHandle, ToolExecutorError,
-    ToolExecutorPort, ToolGateway, ToolGatewayError, ToolOutputBounds, ToolTerminalDisposition,
+    ToolCloseRequest, ToolDispatchBinding, ToolDispatchRequest, ToolExecutionHandle,
+    ToolExecutorError, ToolExecutorPort, ToolGateway, ToolGatewayError, ToolId, ToolOutputBounds,
+    ToolRef, ToolTerminalDisposition, ToolVersion,
 };
 
 #[derive(Clone)]
@@ -66,6 +67,16 @@ fn request(digest: u8) -> ToolDispatchRequest {
     ToolDispatchRequest {
         invocation_id: "invocation-1".into(),
         request_digest: [digest; 32],
+        binding: ToolDispatchBinding::new(
+            ToolRef::new(
+                ToolId::new("fixture::tool").unwrap(),
+                ToolVersion::new("1.0.0").unwrap(),
+            ),
+            "fixture-activation".into(),
+            [1; 32],
+            1,
+            [2; 32],
+        ),
     }
 }
 
@@ -170,6 +181,21 @@ fn exact_dispatch_replay_returns_handle_and_changed_digest_conflicts() {
     assert_eq!(
         gateway.dispatch(request(2)),
         Err(ToolGatewayError::DigestConflict)
+    );
+    let mut changed_binding = request(1);
+    changed_binding.binding = ToolDispatchBinding::new(
+        ToolRef::new(
+            ToolId::new("fixture::tool").unwrap(),
+            ToolVersion::new("1.0.0").unwrap(),
+        ),
+        "fixture-activation".into(),
+        [1; 32],
+        2,
+        [2; 32],
+    );
+    assert_eq!(
+        gateway.dispatch(changed_binding),
+        Err(ToolGatewayError::AuthorityBindingConflict)
     );
 }
 

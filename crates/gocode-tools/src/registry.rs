@@ -62,6 +62,76 @@ impl ToolRegistry {
         Ok(RegisterToolOutcome::Registered)
     }
 
+    /// Atomically registers a complete immutable definition batch.
+    ///
+    /// Duplicate references inside the batch or against the current registry
+    /// reject before any definition becomes visible.
+    pub fn register_batch(
+        &mut self,
+        definitions: Vec<ToolDefinition>,
+    ) -> Result<Vec<RegisterToolOutcome>, ToolRegistryError> {
+        let mut refs = definitions
+            .iter()
+            .map(|definition| definition.tool_ref().clone())
+            .collect::<Vec<_>>();
+        refs.sort();
+        if let Some(duplicate) = refs
+            .windows(2)
+            .find(|pair| pair[0] == pair[1])
+            .map(|pair| pair[0].clone())
+        {
+            return Err(ToolRegistryError::DuplicateTool(duplicate));
+        }
+        if let Some(existing) = refs
+            .iter()
+            .find(|tool_ref| self.definitions.contains_key(*tool_ref))
+        {
+            return Err(ToolRegistryError::DuplicateTool(existing.clone()));
+        }
+        let outcomes = definitions
+            .into_iter()
+            .map(|definition| {
+                self.definitions
+                    .insert(definition.tool_ref().clone(), definition);
+                RegisterToolOutcome::Registered
+            })
+            .collect();
+        Ok(outcomes)
+    }
+
+    /// Atomically registers and snapshots the exact supplied versions.
+    ///
+    /// Unlike [`Self::snapshot`], this never performs latest-version
+    /// resolution or ToolID deduplication.
+    pub fn register_batch_snapshot_exact(
+        &mut self,
+        definitions: Vec<ToolDefinition>,
+    ) -> Result<ToolsetSnapshot, ToolRegistryError> {
+        let mut refs = definitions
+            .iter()
+            .map(|definition| definition.tool_ref().clone())
+            .collect::<Vec<_>>();
+        refs.sort();
+        if let Some(duplicate) = refs
+            .windows(2)
+            .find(|pair| pair[0] == pair[1])
+            .map(|pair| pair[0].clone())
+        {
+            return Err(ToolRegistryError::DuplicateTool(duplicate));
+        }
+        if let Some(existing) = refs
+            .iter()
+            .find(|tool_ref| self.definitions.contains_key(*tool_ref))
+        {
+            return Err(ToolRegistryError::DuplicateTool(existing.clone()));
+        }
+        for definition in definitions {
+            self.definitions
+                .insert(definition.tool_ref().clone(), definition);
+        }
+        Ok(ToolsetSnapshot::new(refs))
+    }
+
     /// Resolves one exact immutable version.
     pub fn resolve(&self, tool_ref: &ToolRef) -> Result<&ToolDefinition, ToolRegistryError> {
         self.definitions
