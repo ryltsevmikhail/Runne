@@ -82,11 +82,12 @@ impl VerificationPlan {
         policy_revision: &str,
     ) -> VerificationDigest {
         let contract = DigestContract::new("gocode:verification-plan:v1");
-        let mut components: Vec<Vec<u8>> = Vec::new();
-        components.push(plan_id.as_bytes().to_vec());
-        components.push(revision.to_be_bytes().to_vec());
-        components.push(target.as_bytes().to_vec());
-        components.push(acceptance_criteria.as_bytes().to_vec());
+        let mut components: Vec<Vec<u8>> = vec![
+            plan_id.as_bytes().to_vec(),
+            revision.to_be_bytes().to_vec(),
+            target.as_bytes().to_vec(),
+            acceptance_criteria.as_bytes().to_vec(),
+        ];
         for gate in gates {
             components.push(gate.definition_digest.as_bytes().to_vec());
         }

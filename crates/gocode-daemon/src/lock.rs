@@ -611,7 +611,7 @@ mod tests {
         use std::io::Write;
         let mut file = locks.path_lock.file();
         file.set_len(0).unwrap();
-        (&*file).seek(SeekFrom::Start(0)).unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
         file.write_all(&[0xFFu8; 25]).unwrap();
         file.sync_all().unwrap();
 

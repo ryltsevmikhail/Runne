@@ -1,15 +1,43 @@
+#[cfg(not(target_os = "windows"))]
 use std::fs;
-use std::io::{Read, Seek, SeekFrom, Write};
+#[cfg(all(test, target_os = "windows"))]
+use std::fs;
+#[cfg(not(target_os = "windows"))]
+use std::io::Read;
+#[cfg(all(not(unix), not(target_os = "windows")))]
+use std::io::{Seek, SeekFrom, Write};
 use std::path::PathBuf;
+#[cfg(not(target_os = "windows"))]
+use std::sync::Arc;
 
-#[cfg(not(unix))]
+#[cfg(all(not(unix), not(target_os = "windows")))]
 use std::fs::OpenOptions;
 #[cfg(unix)]
 use std::os::fd::OwnedFd;
 
 /// FilesystemBroker — единственный путь для filesystem access в protected контексте.
 pub struct FilesystemBroker {
+    #[cfg(not(target_os = "windows"))]
     roots: Vec<WorkspaceRoot>,
+    #[cfg(not(target_os = "windows"))]
+    binding: BrokerBinding,
+    #[cfg(all(target_os = "windows", test))]
+    roots: Vec<WorkspaceRoot>,
+}
+
+#[cfg(not(target_os = "windows"))]
+#[derive(Debug, Clone)]
+struct BrokerBinding(Arc<()>);
+
+#[cfg(not(target_os = "windows"))]
+impl BrokerBinding {
+    fn new() -> Self {
+        Self(Arc::new(()))
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 pub struct WorkspaceRoot {
@@ -30,7 +58,6 @@ pub struct WorkspacePolicy {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymlinkPolicy {
     NoFollow,
-    Follow,
     Forbidden,
 }
 
@@ -65,29 +92,80 @@ pub struct FsIdentity {
     pub device: u64,
 }
 
+/// ```compile_fail
+/// use gocode_security::broker::fs::RootHandle;
+///
+/// let _ = RootHandle {
+///     root_id: "workspace".into(),
+/// };
+/// ```
+#[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone)]
 pub struct RootHandle {
-    pub root_id: String,
+    root_id: String,
+    binding: BrokerBinding,
 }
 
+/// Opaque Windows marker: the backend always fails closed before using a handle.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone)]
+pub struct RootHandle;
+
+/// ```compile_fail
+/// use gocode_security::broker::fs::FsHandle;
+/// use std::path::PathBuf;
+///
+/// let _ = FsHandle {
+///     root_id: "workspace".into(),
+///     path: PathBuf::from("file.txt"),
+/// };
+/// ```
+#[cfg(not(target_os = "windows"))]
 #[derive(Debug)]
 pub struct FsHandle {
-    pub root_id: String,
-    pub path: PathBuf,
+    root_id: String,
+    binding: BrokerBinding,
+    #[cfg(not(unix))]
+    path: PathBuf,
     #[cfg(unix)]
     fd: Option<OwnedFd>,
 }
 
+/// Opaque Windows marker: the backend always fails closed before using a handle.
+#[cfg(target_os = "windows")]
+#[derive(Debug)]
+pub struct FsHandle;
+
 /// CreatedFsHandle — отдельный тип для freshly-created файлов.
 /// Несовместим с FsHandle. Типовая система предотвращает bypass.
+/// ```compile_fail
+/// use gocode_security::broker::fs::CreatedFsHandle;
+/// use std::path::PathBuf;
+///
+/// let _ = CreatedFsHandle {
+///     root_id: "workspace".into(),
+///     path: PathBuf::from("file.txt"),
+/// };
+/// ```
+#[cfg(not(target_os = "windows"))]
 #[derive(Debug, Clone)]
 pub struct CreatedFsHandle {
-    pub root_id: String,
-    pub path: PathBuf,
+    #[cfg(all(not(unix), not(target_os = "windows")))]
+    root_id: String,
+    binding: BrokerBinding,
+    #[cfg(all(not(unix), not(target_os = "windows")))]
+    path: PathBuf,
 }
+
+/// Opaque Windows marker: the backend always fails closed before using a handle.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone)]
+pub struct CreatedFsHandle;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum FsBrokerError {
+    #[error("filesystem broker backend unavailable")]
+    BackendUnavailable,
     #[error("path is not relative")]
     PathNotRelative,
     #[error("path escapes root boundary")]
@@ -104,12 +182,15 @@ pub enum FsBrokerError {
     RootNotFound,
     #[error("permission denied by workspace policy")]
     PermissionDenied,
+    #[error("filesystem mutations are unavailable")]
+    MutationUnavailable,
     #[error("file not found")]
     NotFound,
     #[error("io error: {0}")]
     Io(String),
 }
 
+#[cfg(not(target_os = "windows"))]
 const SENSITIVE_PATTERNS: &[&str] = &[
     ".git/",
     ".svn/",
@@ -125,13 +206,35 @@ const SENSITIVE_PATTERNS: &[&str] = &[
 
 impl FilesystemBroker {
     pub fn new(roots: Vec<WorkspaceRoot>) -> Self {
-        Self { roots }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Self {
+                roots,
+                binding: BrokerBinding::new(),
+            }
+        }
+        #[cfg(all(target_os = "windows", test))]
+        {
+            Self { roots }
+        }
+        #[cfg(all(target_os = "windows", not(test)))]
+        {
+            let _ = roots;
+            Self {}
+        }
     }
 
     pub fn open_root(&self, root_id: &str) -> Result<RootHandle, FsBrokerError> {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (self, root_id);
+            return Err(FsBrokerError::BackendUnavailable);
+        }
+        #[cfg(not(target_os = "windows"))]
         if self.roots.iter().any(|root| root.root_id == root_id) {
             Ok(RootHandle {
                 root_id: root_id.to_string(),
+                binding: self.binding.clone(),
             })
         } else {
             Err(FsBrokerError::RootNotFound)
@@ -143,27 +246,26 @@ impl FilesystemBroker {
         root: &RootHandle,
         relative: &CanonicalPath,
     ) -> Result<FsHandle, FsBrokerError> {
-        let workspace_root = self.find_root(&root.root_id)?;
-        let full_path = workspace_root
-            .canonical_path
-            .join(relative.components.join("/"));
-        #[cfg(unix)]
-        let (canonical, fd) = if workspace_root.policy.symlink_policy != SymlinkPolicy::Follow {
-            let resolution = super::fs_unix::resolve_nofollow(
-                &workspace_root.canonical_path,
-                &relative.components,
-                rustix::fs::OFlags::RDONLY,
-            )?;
-            (resolution.path, resolution.file_fd)
-        } else {
-            let canonical = fs::canonicalize(&full_path)
-                .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-            let fd = super::fs_unix::open_follow(&canonical, rustix::fs::OFlags::RDONLY)?;
-            (canonical, fd)
-        };
-        #[cfg(not(unix))]
-        let canonical = {
-            if workspace_root.policy.symlink_policy != SymlinkPolicy::Follow {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (self, root, relative);
+            return Err(FsBrokerError::BackendUnavailable);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.validate_root_handle(root)?;
+            let workspace_root = self.find_root_for_root_handle(root)?;
+            #[cfg(unix)]
+            let (canonical, fd) = {
+                let resolution = super::fs_unix::resolve_nofollow(
+                    &workspace_root.canonical_path,
+                    &relative.components,
+                    rustix::fs::OFlags::RDONLY,
+                )?;
+                (resolution.path, resolution.file_fd)
+            };
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            let canonical = {
                 let mut current = workspace_root.canonical_path.clone();
                 for component in &relative.components {
                     current.push(component);
@@ -173,29 +275,35 @@ impl FilesystemBroker {
                         return Err(FsBrokerError::SymlinkEscapesRoot);
                     }
                 }
+                let full_path = workspace_root
+                    .canonical_path
+                    .join(relative.components.join("/"));
+                fs::canonicalize(&full_path)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?
+            };
+            if !canonical.starts_with(&workspace_root.canonical_path) {
+                return Err(FsBrokerError::SymlinkEscapesRoot);
             }
-            fs::canonicalize(&full_path).map_err(|error| FsBrokerError::Io(error.to_string()))?
-        };
-        if !canonical.starts_with(&workspace_root.canonical_path) {
-            return Err(FsBrokerError::SymlinkEscapesRoot);
-        }
-        let path_string = canonical.to_string_lossy();
-        for pattern in SENSITIVE_PATTERNS {
-            if pattern.contains('*') {
-                let extension = pattern.trim_start_matches('*');
-                if path_string.ends_with(extension) {
+            let path_string = canonical.to_string_lossy();
+            for pattern in SENSITIVE_PATTERNS {
+                if pattern.contains('*') {
+                    let extension = pattern.trim_start_matches('*');
+                    if path_string.ends_with(extension) {
+                        return Err(FsBrokerError::SensitivePathDenied);
+                    }
+                } else if path_string.contains(pattern) {
                     return Err(FsBrokerError::SensitivePathDenied);
                 }
-            } else if path_string.contains(pattern) {
-                return Err(FsBrokerError::SensitivePathDenied);
             }
+            Ok(FsHandle {
+                root_id: root.root_id.clone(),
+                binding: self.binding.clone(),
+                #[cfg(not(unix))]
+                path: canonical,
+                #[cfg(unix)]
+                fd: Some(fd),
+            })
         }
-        Ok(FsHandle {
-            root_id: root.root_id.clone(),
-            path: canonical,
-            #[cfg(unix)]
-            fd: Some(fd),
-        })
     }
 
     pub fn resolve_and_identity(
@@ -203,31 +311,39 @@ impl FilesystemBroker {
         root: &RootHandle,
         path: &CanonicalPath,
     ) -> Result<(FsHandle, FsIdentity), FsBrokerError> {
-        let handle = self.resolve(root, path)?;
-        #[cfg(unix)]
+        #[cfg(target_os = "windows")]
         {
-            let stat = rustix::fs::fstat(handle_fd(&handle)?)
-                .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-            Ok((
-                handle,
-                FsIdentity {
-                    inode: stat.st_ino,
-                    device: u64::try_from(stat.st_dev)
-                        .map_err(|_| FsBrokerError::Io("negative device identity".into()))?,
-                },
-            ))
+            let _ = (self, root, path);
+            return Err(FsBrokerError::BackendUnavailable);
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "windows"))]
         {
-            let _metadata =
-                fs::metadata(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))?;
-            Ok((
-                handle,
-                FsIdentity {
-                    inode: 0,
-                    device: 0,
-                },
-            ))
+            let handle = self.resolve(root, path)?;
+            #[cfg(unix)]
+            {
+                let stat = rustix::fs::fstat(handle_fd(&handle)?)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                Ok((
+                    handle,
+                    FsIdentity {
+                        inode: stat.st_ino,
+                        device: u64::try_from(stat.st_dev)
+                            .map_err(|_| FsBrokerError::Io("negative device identity".into()))?,
+                    },
+                ))
+            }
+            #[cfg(not(unix))]
+            {
+                let _metadata = fs::metadata(&handle.path)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                Ok((
+                    handle,
+                    FsIdentity {
+                        inode: 0,
+                        device: 0,
+                    },
+                ))
+            }
         }
     }
 
@@ -238,45 +354,44 @@ impl FilesystemBroker {
         data: &[u8],
         expected_identity: &FsIdentity,
     ) -> Result<(), FsBrokerError> {
-        let workspace_root = self.find_root(&root.root_id)?;
-        if !workspace_root.policy.write_allowed {
-            return Err(FsBrokerError::PermissionDenied);
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (self, root, path, data, expected_identity);
+            return Err(FsBrokerError::BackendUnavailable);
         }
         #[cfg(unix)]
-        let handle = self.resolve_for_write(root, path)?;
-        #[cfg(not(unix))]
-        let handle = self.resolve(root, path)?;
-        #[cfg(unix)]
-        let mut file = file_from_held_fd(&handle)?;
-        #[cfg(not(unix))]
-        let mut file = OpenOptions::new()
-            .write(true)
-            .open(&handle.path)
-            .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-        let metadata = file
-            .metadata()
-            .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-        #[cfg(unix)]
-        let current_identity = {
-            use std::os::unix::fs::MetadataExt;
-            FsIdentity {
-                inode: metadata.ino(),
-                device: metadata.dev(),
+        {
+            let _ = (self, root, path, data, expected_identity);
+            Err(FsBrokerError::MutationUnavailable)
+        }
+        #[cfg(all(not(unix), not(target_os = "windows")))]
+        {
+            self.validate_root_handle(root)?;
+            let workspace_root = self.find_root_for_root_handle(root)?;
+            if !workspace_root.policy.write_allowed {
+                return Err(FsBrokerError::PermissionDenied);
             }
-        };
-        #[cfg(not(unix))]
-        let current_identity = FsIdentity {
-            inode: 0,
-            device: 0,
-        };
-        if current_identity != *expected_identity {
-            return Err(FsBrokerError::IdentityMismatch);
+            let handle = self.resolve(root, path)?;
+            let mut file = OpenOptions::new()
+                .write(true)
+                .open(&handle.path)
+                .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+            let metadata = file
+                .metadata()
+                .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+            let current_identity = FsIdentity {
+                inode: 0,
+                device: 0,
+            };
+            if current_identity != *expected_identity {
+                return Err(FsBrokerError::IdentityMismatch);
+            }
+            file.set_len(0)
+                .and_then(|()| file.seek(SeekFrom::Start(0)).map(|_| ()))
+                .and_then(|()| file.write_all(data))
+                .and_then(|()| file.flush())
+                .map_err(|error| FsBrokerError::Io(error.to_string()))
         }
-        file.set_len(0)
-            .and_then(|()| file.seek(SeekFrom::Start(0)).map(|_| ()))
-            .and_then(|()| file.write_all(data))
-            .and_then(|()| file.flush())
-            .map_err(|error| FsBrokerError::Io(error.to_string()))
     }
 
     pub fn write_created(
@@ -284,57 +399,96 @@ impl FilesystemBroker {
         handle: &CreatedFsHandle,
         data: &[u8],
     ) -> Result<(), FsBrokerError> {
-        let workspace_root = self.find_root(&handle.root_id)?;
-        if !workspace_root.policy.write_allowed {
-            return Err(FsBrokerError::PermissionDenied);
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (self, handle, data);
+            return Err(FsBrokerError::BackendUnavailable);
         }
-        fs::write(&handle.path, data).map_err(|error| FsBrokerError::Io(error.to_string()))
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.validate_created_handle(handle)?;
+            #[cfg(unix)]
+            {
+                let _ = (handle, data);
+                Err(FsBrokerError::MutationUnavailable)
+            }
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            {
+                let workspace_root = self.find_root(&handle.root_id)?;
+                if !workspace_root.policy.write_allowed {
+                    return Err(FsBrokerError::PermissionDenied);
+                }
+                fs::write(&handle.path, data).map_err(|error| FsBrokerError::Io(error.to_string()))
+            }
+        }
     }
 
     pub fn read(&self, handle: &FsHandle) -> Result<Vec<u8>, FsBrokerError> {
-        let workspace_root = self.find_root(&handle.root_id)?;
-        if !workspace_root.policy.read_allowed {
-            return Err(FsBrokerError::PermissionDenied);
-        }
-        #[cfg(unix)]
+        #[cfg(target_os = "windows")]
         {
-            let mut file = file_from_held_fd(handle)?;
-            let mut contents = Vec::new();
-            file.read_to_end(&mut contents)
-                .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-            Ok(contents)
+            let _ = (self, handle);
+            return Err(FsBrokerError::BackendUnavailable);
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "windows"))]
         {
-            fs::read(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))
+            self.validate_fs_handle(handle)?;
+            let workspace_root = self.find_root(&handle.root_id)?;
+            if !workspace_root.policy.read_allowed {
+                return Err(FsBrokerError::PermissionDenied);
+            }
+            #[cfg(unix)]
+            {
+                let mut file = file_from_held_fd(handle)?;
+                let mut contents = Vec::new();
+                file.read_to_end(&mut contents)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                Ok(contents)
+            }
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            {
+                fs::read(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))
+            }
         }
     }
 
     pub fn list(&self, handle: &FsHandle) -> Result<Vec<String>, FsBrokerError> {
-        #[cfg(unix)]
+        #[cfg(target_os = "windows")]
         {
-            rustix::fs::Dir::read_from(handle_fd(handle)?)
-                .map_err(|error| FsBrokerError::Io(error.to_string()))?
-                .filter_map(|entry| match entry {
-                    Ok(entry) => {
-                        let name = entry.file_name().to_string_lossy().into_owned();
-                        (!matches!(name.as_str(), "." | "..")).then_some(Ok(name))
-                    }
-                    Err(error) => Some(Err(FsBrokerError::Io(error.to_string()))),
-                })
-                .collect()
+            let _ = (self, handle);
+            return Err(FsBrokerError::BackendUnavailable);
         }
-        #[cfg(not(unix))]
+        #[cfg(not(target_os = "windows"))]
         {
-            let entries =
-                fs::read_dir(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))?;
-            entries
-                .map(|entry| {
-                    entry
-                        .map(|entry| entry.file_name().to_string_lossy().to_string())
-                        .map_err(|error| FsBrokerError::Io(error.to_string()))
-                })
-                .collect()
+            self.validate_fs_handle(handle)?;
+            let workspace_root = self.find_root(&handle.root_id)?;
+            if !workspace_root.policy.read_allowed {
+                return Err(FsBrokerError::PermissionDenied);
+            }
+            #[cfg(unix)]
+            {
+                rustix::fs::Dir::read_from(handle_fd(handle)?)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?
+                    .filter_map(|entry| match entry {
+                        Ok(entry) => {
+                            let name = entry.file_name().to_string_lossy().into_owned();
+                            (!matches!(name.as_str(), "." | "..")).then_some(Ok(name))
+                        }
+                        Err(error) => Some(Err(FsBrokerError::Io(error.to_string()))),
+                    })
+                    .collect()
+            }
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            {
+                let entries = fs::read_dir(&handle.path)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                entries
+                    .map(|entry| {
+                        entry
+                            .map(|entry| entry.file_name().to_string_lossy().to_string())
+                            .map_err(|error| FsBrokerError::Io(error.to_string()))
+                    })
+                    .collect()
+            }
         }
     }
 
@@ -343,33 +497,70 @@ impl FilesystemBroker {
         root: &RootHandle,
         relative: &CanonicalPath,
     ) -> Result<CreatedFsHandle, FsBrokerError> {
-        let workspace_root = self.find_root(&root.root_id)?;
-        if !workspace_root.policy.create_allowed {
-            return Err(FsBrokerError::PermissionDenied);
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (self, root, relative);
+            return Err(FsBrokerError::BackendUnavailable);
         }
-        let full_path = workspace_root
-            .canonical_path
-            .join(relative.components.join("/"));
-        if let Some(parent) = full_path.parent() {
-            fs::create_dir_all(parent).map_err(|error| FsBrokerError::Io(error.to_string()))?;
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.validate_root_handle(root)?;
+            #[cfg(unix)]
+            {
+                let _ = (root, relative);
+                Err(FsBrokerError::MutationUnavailable)
+            }
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            {
+                let workspace_root = self.find_root(&root.root_id)?;
+                if !workspace_root.policy.create_allowed {
+                    return Err(FsBrokerError::PermissionDenied);
+                }
+                let full_path = workspace_root
+                    .canonical_path
+                    .join(relative.components.join("/"));
+                if let Some(parent) = full_path.parent() {
+                    fs::create_dir_all(parent)
+                        .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                }
+                fs::write(&full_path, b"").map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                let canonical = fs::canonicalize(&full_path)
+                    .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                Ok(CreatedFsHandle {
+                    root_id: root.root_id.clone(),
+                    binding: self.binding.clone(),
+                    path: canonical,
+                })
+            }
         }
-        fs::write(&full_path, b"").map_err(|error| FsBrokerError::Io(error.to_string()))?;
-        let canonical =
-            fs::canonicalize(&full_path).map_err(|error| FsBrokerError::Io(error.to_string()))?;
-        Ok(CreatedFsHandle {
-            root_id: root.root_id.clone(),
-            path: canonical,
-        })
     }
 
     pub fn delete(&self, handle: &FsHandle) -> Result<(), FsBrokerError> {
-        let workspace_root = self.find_root(&handle.root_id)?;
-        if !workspace_root.policy.delete_allowed {
-            return Err(FsBrokerError::PermissionDenied);
+        #[cfg(target_os = "windows")]
+        {
+            let _ = (self, handle);
+            return Err(FsBrokerError::BackendUnavailable);
         }
-        fs::remove_file(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))
+        #[cfg(not(target_os = "windows"))]
+        {
+            self.validate_fs_handle(handle)?;
+            #[cfg(unix)]
+            {
+                let _ = handle;
+                Err(FsBrokerError::MutationUnavailable)
+            }
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            {
+                let workspace_root = self.find_root(&handle.root_id)?;
+                if !workspace_root.policy.delete_allowed {
+                    return Err(FsBrokerError::PermissionDenied);
+                }
+                fs::remove_file(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))
+            }
+        }
     }
 
+    #[cfg(any(not(target_os = "windows"), test))]
     fn find_root(&self, root_id: &str) -> Result<&WorkspaceRoot, FsBrokerError> {
         self.roots
             .iter()
@@ -377,48 +568,37 @@ impl FilesystemBroker {
             .ok_or(FsBrokerError::RootNotFound)
     }
 
-    #[cfg(unix)]
-    fn resolve_for_write(
+    #[cfg(not(target_os = "windows"))]
+    fn find_root_for_root_handle(
         &self,
         root: &RootHandle,
-        relative: &CanonicalPath,
-    ) -> Result<FsHandle, FsBrokerError> {
-        let workspace_root = self.find_root(&root.root_id)?;
-        let full_path = workspace_root
-            .canonical_path
-            .join(relative.components.join("/"));
-        let (canonical, fd) = if workspace_root.policy.symlink_policy != SymlinkPolicy::Follow {
-            let resolution = super::fs_unix::resolve_nofollow(
-                &workspace_root.canonical_path,
-                &relative.components,
-                rustix::fs::OFlags::RDWR,
-            )?;
-            (resolution.path, resolution.file_fd)
-        } else {
-            let canonical = fs::canonicalize(&full_path)
-                .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-            let fd = super::fs_unix::open_follow(&canonical, rustix::fs::OFlags::RDWR)?;
-            (canonical, fd)
-        };
-        if !canonical.starts_with(&workspace_root.canonical_path) {
-            return Err(FsBrokerError::SymlinkEscapesRoot);
-        }
-        let path_string = canonical.to_string_lossy();
-        for pattern in SENSITIVE_PATTERNS {
-            if pattern.contains('*') {
-                let extension = pattern.trim_start_matches('*');
-                if path_string.ends_with(extension) {
-                    return Err(FsBrokerError::SensitivePathDenied);
-                }
-            } else if path_string.contains(pattern) {
-                return Err(FsBrokerError::SensitivePathDenied);
-            }
-        }
-        Ok(FsHandle {
-            root_id: root.root_id.clone(),
-            path: canonical,
-            fd: Some(fd),
-        })
+    ) -> Result<&WorkspaceRoot, FsBrokerError> {
+        self.validate_root_handle(root)?;
+        self.find_root(&root.root_id)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn validate_root_handle(&self, handle: &RootHandle) -> Result<(), FsBrokerError> {
+        self.binding
+            .matches(&handle.binding)
+            .then_some(())
+            .ok_or(FsBrokerError::PermissionDenied)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn validate_fs_handle(&self, handle: &FsHandle) -> Result<(), FsBrokerError> {
+        self.binding
+            .matches(&handle.binding)
+            .then_some(())
+            .ok_or(FsBrokerError::PermissionDenied)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn validate_created_handle(&self, handle: &CreatedFsHandle) -> Result<(), FsBrokerError> {
+        self.binding
+            .matches(&handle.binding)
+            .then_some(())
+            .ok_or(FsBrokerError::PermissionDenied)
     }
 }
 
@@ -474,6 +654,7 @@ mod tests {
         assert!(CanonicalPath::new("../escape").is_err());
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn resolve_and_read_valid_path() {
         let broker = test_broker();
@@ -486,6 +667,7 @@ mod tests {
         assert_eq!(broker.read(&handle).unwrap(), b"hello");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn read_rejected_when_policy_read_allowed_false() {
         let mut broker = test_broker();
@@ -500,6 +682,61 @@ mod tests {
         let result = broker.read(&handle);
 
         assert!(matches!(result, Err(FsBrokerError::PermissionDenied)));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn handles_are_rejected_by_a_different_broker_with_the_same_root_id() {
+        let temporary_root_a = std::env::temp_dir().join(format!(
+            "gocode_fs_cross_broker_a_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let temporary_root_b = std::env::temp_dir().join(format!(
+            "gocode_fs_cross_broker_b_{}_{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = fs::remove_dir_all(&temporary_root_a);
+        let _ = fs::remove_dir_all(&temporary_root_b);
+        fs::create_dir_all(temporary_root_a.join("directory")).unwrap();
+        fs::create_dir_all(&temporary_root_b).unwrap();
+        fs::write(temporary_root_a.join("secret.txt"), b"secret").unwrap();
+        fs::write(temporary_root_a.join("directory/entry.txt"), b"entry").unwrap();
+
+        let policy = WorkspacePolicy {
+            read_allowed: true,
+            write_allowed: true,
+            create_allowed: true,
+            delete_allowed: true,
+            symlink_policy: SymlinkPolicy::NoFollow,
+        };
+        let broker_a = FilesystemBroker::new(vec![WorkspaceRoot {
+            root_id: "shared".into(),
+            canonical_path: fs::canonicalize(&temporary_root_a).unwrap(),
+            policy: policy.clone(),
+        }]);
+        let broker_b = FilesystemBroker::new(vec![WorkspaceRoot {
+            root_id: "shared".into(),
+            canonical_path: fs::canonicalize(&temporary_root_b).unwrap(),
+            policy,
+        }]);
+        let root_a = broker_a.open_root("shared").unwrap();
+        let file_handle = broker_a
+            .resolve(&root_a, &CanonicalPath::new("secret.txt").unwrap())
+            .unwrap();
+        let directory_handle = broker_a
+            .resolve(&root_a, &CanonicalPath::new("directory").unwrap())
+            .unwrap();
+
+        assert!(matches!(
+            broker_b.read(&file_handle),
+            Err(FsBrokerError::PermissionDenied)
+        ));
+        assert!(matches!(
+            broker_b.list(&directory_handle),
+            Err(FsBrokerError::PermissionDenied)
+        ));
     }
 
     #[cfg(unix)]
@@ -520,8 +757,9 @@ mod tests {
         assert_eq!(broker.read(&handle).unwrap(), b"original");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn write_detects_toc_tou_race() {
+    fn write_is_unavailable_before_identity_revalidation() {
         let broker = test_broker();
         let root = broker.open_root("ws1").unwrap();
         let path = CanonicalPath::new("file.txt").unwrap();
@@ -536,11 +774,16 @@ mod tests {
         )
         .unwrap();
         let result = broker.write_with_revalidation(&root, &path, b"data", &identity_before);
-        assert!(matches!(result, Err(FsBrokerError::IdentityMismatch)));
+        assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
+        assert_eq!(
+            fs::read(workspace_root.canonical_path.join("file.txt")).unwrap(),
+            b"new content"
+        );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn write_revalidates_and_mutates_the_opened_file() {
+    fn write_is_unavailable_without_changing_file_bytes() {
         let broker = test_broker();
         let root = broker.open_root("ws1").unwrap();
         let path = CanonicalPath::new("file.txt").unwrap();
@@ -548,16 +791,32 @@ mod tests {
         fs::write(workspace_root.canonical_path.join("file.txt"), b"original").unwrap();
         let (_, identity) = broker.resolve_and_identity(&root, &path).unwrap();
 
-        broker
-            .write_with_revalidation(&root, &path, b"replacement", &identity)
-            .unwrap();
+        let result = broker.write_with_revalidation(&root, &path, b"replacement", &identity);
 
+        assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
         assert_eq!(
             fs::read(workspace_root.canonical_path.join("file.txt")).unwrap(),
-            b"replacement"
+            b"original"
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn write_is_unavailable_when_policy_write_allowed_false() {
+        let mut broker = test_broker();
+        let root = broker.open_root("ws1").unwrap();
+        let path = CanonicalPath::new("file.txt").unwrap();
+        let workspace_root = broker.find_root("ws1").unwrap();
+        fs::write(workspace_root.canonical_path.join("file.txt"), b"original").unwrap();
+        let (_, identity) = broker.resolve_and_identity(&root, &path).unwrap();
+        broker.roots[0].policy.write_allowed = false;
+
+        let result = broker.write_with_revalidation(&root, &path, b"replacement", &identity);
+
+        assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
+    }
+
+    #[cfg(all(not(unix), not(target_os = "windows")))]
     #[test]
     fn write_rejected_when_policy_write_allowed_false() {
         let mut broker = test_broker();
@@ -573,61 +832,143 @@ mod tests {
         assert!(matches!(result, Err(FsBrokerError::PermissionDenied)));
     }
 
+    #[cfg(unix)]
     #[test]
-    fn create_returns_created_fs_handle() {
+    fn create_is_unavailable_without_creating_files_or_directories() {
         let broker = test_broker();
         let root = broker.open_root("ws1").unwrap();
-        let created = broker
-            .create(&root, &CanonicalPath::new("new.txt").unwrap())
-            .unwrap();
-        broker.write_created(&created, b"hello").unwrap();
-        let handle = broker
-            .resolve(&root, &CanonicalPath::new("new.txt").unwrap())
-            .unwrap();
-        assert_eq!(broker.read(&handle).unwrap(), b"hello");
+        let workspace_root = broker.find_root("ws1").unwrap();
+        fs::write(
+            workspace_root.canonical_path.join("existing.txt"),
+            b"original",
+        )
+        .unwrap();
+        let entries_before = directory_entry_names(&workspace_root.canonical_path);
+
+        let result = broker.create(&root, &CanonicalPath::new("new/nested.txt").unwrap());
+
+        assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
+        assert_eq!(
+            fs::read(workspace_root.canonical_path.join("existing.txt")).unwrap(),
+            b"original"
+        );
+        assert_eq!(
+            directory_entry_names(&workspace_root.canonical_path),
+            entries_before
+        );
+        assert!(!workspace_root.canonical_path.join("new").exists());
     }
 
+    #[cfg(unix)]
     #[test]
-    fn create_rejected_when_policy_create_allowed_false() {
-        let mut broker = test_broker();
-        let root = broker.open_root("ws1").unwrap();
-        broker.roots[0].policy.create_allowed = false;
+    fn write_created_is_unavailable_without_changing_file_bytes() {
+        let broker = test_broker();
+        let workspace_root = broker.find_root("ws1").unwrap();
+        fs::write(
+            workspace_root.canonical_path.join("existing.txt"),
+            b"original",
+        )
+        .unwrap();
+        let entries_before = directory_entry_names(&workspace_root.canonical_path);
+        let created = CreatedFsHandle {
+            binding: broker.binding.clone(),
+        };
 
-        let result = broker.create(&root, &CanonicalPath::new("new.txt").unwrap());
+        let result = broker.write_created(&created, b"replacement");
 
-        assert!(matches!(result, Err(FsBrokerError::PermissionDenied)));
+        assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
+        assert_eq!(
+            fs::read(workspace_root.canonical_path.join("existing.txt")).unwrap(),
+            b"original"
+        );
+        assert_eq!(
+            directory_entry_names(&workspace_root.canonical_path),
+            entries_before
+        );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn delete_rejected_when_policy_delete_allowed_false() {
-        let mut broker = test_broker();
+    fn delete_is_unavailable_without_removing_file_or_directory_entries() {
+        let broker = test_broker();
         let root = broker.open_root("ws1").unwrap();
         let workspace_root = broker.find_root("ws1").unwrap();
         fs::write(workspace_root.canonical_path.join("test.txt"), b"hello").unwrap();
         let handle = broker
             .resolve(&root, &CanonicalPath::new("test.txt").unwrap())
             .unwrap();
-        broker.roots[0].policy.delete_allowed = false;
+        let entries_before = directory_entry_names(&workspace_root.canonical_path);
 
         let result = broker.delete(&handle);
 
-        assert!(matches!(result, Err(FsBrokerError::PermissionDenied)));
+        assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
+        assert_eq!(
+            fs::read(workspace_root.canonical_path.join("test.txt")).unwrap(),
+            b"hello"
+        );
+        assert_eq!(
+            directory_entry_names(&workspace_root.canonical_path),
+            entries_before
+        );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn write_created_rejected_when_policy_write_allowed_false() {
+    fn list_rejected_when_policy_read_allowed_false() {
         let mut broker = test_broker();
         let root = broker.open_root("ws1").unwrap();
-        let created = broker
-            .create(&root, &CanonicalPath::new("new.txt").unwrap())
+        let workspace_root = broker.find_root("ws1").unwrap();
+        fs::create_dir_all(workspace_root.canonical_path.join("directory")).unwrap();
+        fs::write(
+            workspace_root.canonical_path.join("directory/entry.txt"),
+            b"data",
+        )
+        .unwrap();
+        let handle = broker
+            .resolve(&root, &CanonicalPath::new("directory").unwrap())
             .unwrap();
-        broker.roots[0].policy.write_allowed = false;
+        broker.roots[0].policy.read_allowed = false;
 
-        let result = broker.write_created(&created, b"hello");
+        let result = broker.list(&handle);
 
         assert!(matches!(result, Err(FsBrokerError::PermissionDenied)));
     }
 
+    #[cfg(all(not(unix), not(target_os = "windows")))]
+    #[test]
+    fn fallback_list_rejected_when_policy_read_allowed_false_without_entry_disclosure() {
+        let mut broker = test_broker();
+        let root = broker.open_root("ws1").unwrap();
+        let workspace_root = broker.find_root("ws1").unwrap();
+        fs::create_dir_all(workspace_root.canonical_path.join("directory")).unwrap();
+        fs::write(
+            workspace_root
+                .canonical_path
+                .join("directory/secret-entry.txt"),
+            b"data",
+        )
+        .unwrap();
+        let handle = broker
+            .resolve(&root, &CanonicalPath::new("directory").unwrap())
+            .unwrap();
+        broker.roots[0].policy.read_allowed = false;
+
+        let result = broker.list(&handle);
+
+        assert!(matches!(result, Err(FsBrokerError::PermissionDenied)));
+    }
+
+    #[cfg(unix)]
+    fn directory_entry_names(directory: &std::path::Path) -> Vec<String> {
+        let mut entries = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries
+    }
+
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn sensitive_path_denied() {
         let broker = test_broker();
@@ -682,5 +1023,89 @@ mod tests {
         let result = broker.resolve(&root, &CanonicalPath::new("linked-dir/target.txt").unwrap());
 
         assert!(matches!(result, Err(FsBrokerError::NotDirectory)));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn protected_operations_are_unavailable_before_filesystem_effects() {
+        let broker = test_broker();
+        let workspace_root = broker.find_root("ws1").unwrap();
+        let file_path = workspace_root.canonical_path.join("file.txt");
+        let directory_path = workspace_root.canonical_path.join("directory");
+        fs::write(&file_path, b"original").unwrap();
+        fs::create_dir(&directory_path).unwrap();
+        fs::write(directory_path.join("entry.txt"), b"entry").unwrap();
+        let entries_before = directory_entry_names(&workspace_root.canonical_path);
+        let root = RootHandle;
+        let file_handle = FsHandle;
+        let directory_handle = FsHandle;
+        let created_handle = CreatedFsHandle;
+        let path = CanonicalPath::new("file.txt").unwrap();
+
+        assert!(matches!(
+            broker.open_root("ws1"),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+
+        assert!(matches!(
+            broker.resolve(&root, &path),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.resolve_and_identity(&root, &path),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.read(&file_handle),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.list(&directory_handle),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.write_with_revalidation(
+                &root,
+                &path,
+                b"replacement",
+                &FsIdentity {
+                    inode: 0,
+                    device: 0,
+                },
+            ),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.create(&root, &CanonicalPath::new("new/nested.txt").unwrap()),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.write_created(&created_handle, b"replacement"),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert!(matches!(
+            broker.delete(&file_handle),
+            Err(FsBrokerError::BackendUnavailable)
+        ));
+        assert_eq!(
+            fs::read(workspace_root.canonical_path.join("file.txt")).unwrap(),
+            b"original"
+        );
+        assert_eq!(
+            directory_entry_names(&workspace_root.canonical_path),
+            entries_before
+        );
+        assert!(!workspace_root.canonical_path.join("new").exists());
+        assert!(!workspace_root.canonical_path.join("created.txt").exists());
+    }
+
+    #[cfg(target_os = "windows")]
+    fn directory_entry_names(directory: &std::path::Path) -> Vec<String> {
+        let mut entries = fs::read_dir(directory)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        entries.sort();
+        entries
     }
 }

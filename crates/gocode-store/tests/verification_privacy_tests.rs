@@ -1,12 +1,12 @@
 use gocode_application::verification::evidence_recorder::EvidenceRecorder;
 use gocode_domain::verification::digest::VerificationDigest;
 use gocode_domain::verification::evidence::{EvidenceLayer, EvidenceType, SensitivityLabel};
-use gocode_store::verification::evidence_store::InMemoryEvidenceStore;
+use gocode_store::verification::evidence_store::SqliteEvidenceStore;
 use uuid::Uuid;
 
 #[tokio::test]
 async fn secret_content_rejected_before_persistence() {
-    let store = InMemoryEvidenceStore::new();
+    let store = SqliteEvidenceStore::open_in_memory().unwrap();
     let d = VerificationDigest::from_bytes([1; 32]);
     let rid = Uuid::now_v7();
     let pid = Uuid::now_v7();
@@ -33,7 +33,7 @@ async fn secret_content_rejected_before_persistence() {
 
 #[tokio::test]
 async fn private_key_content_rejected() {
-    let store = InMemoryEvidenceStore::new();
+    let store = SqliteEvidenceStore::open_in_memory().unwrap();
     let d = VerificationDigest::from_bytes([1; 32]);
     let result = store
         .record_raw(
@@ -52,7 +52,7 @@ async fn private_key_content_rejected() {
 
 #[tokio::test]
 async fn cross_profile_evidence_isolation() {
-    let store = InMemoryEvidenceStore::new();
+    let store = SqliteEvidenceStore::open_in_memory().unwrap();
     let d1 = VerificationDigest::from_bytes([1; 32]);
     let d2 = VerificationDigest::from_bytes([2; 32]);
 

@@ -10,6 +10,9 @@ pub enum MigrationError {
         from: MigrationPhase,
         to: MigrationPhase,
     },
+    SpecializedTransitionRequired {
+        target: MigrationPhase,
+    },
     TerminalPlanImmutable,
     PlanVersionConflict {
         expected: u64,
@@ -55,6 +58,7 @@ pub enum MigrationError {
     ReverseMigrationUnavailable,
     EmergencyRevokeIneligible,
     RetirementBlocked,
+    DrainBlocked,
     StorageContractViolation,
     ArithmeticOverflow,
 }

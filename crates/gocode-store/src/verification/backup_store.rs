@@ -11,6 +11,12 @@ pub struct InMemoryBackupStore {
     gc_barrier_active: Mutex<bool>,
 }
 
+impl Default for InMemoryBackupStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryBackupStore {
     pub fn new() -> Self {
         Self {

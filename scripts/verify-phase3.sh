@@ -8,7 +8,7 @@ EVIDENCE_TEST=crates/gocode-store/tests/evidence_phase3.rs
 REQUIRED_TESTS=(
     evidence_fixtures_deterministic
     evidence_shadow_import_e2e_sqlite
-    evidence_full_forward_lifecycle_stage_to_retired
+    evidence_direct_store_lineage_stops_at_default_native
     evidence_rollback_recovery_e2e
 )
 

@@ -8,6 +8,12 @@ pub struct InMemoryRetentionStore {
     active_refs: Mutex<HashSet<RunID>>,
 }
 
+impl Default for InMemoryRetentionStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl InMemoryRetentionStore {
     pub fn new() -> Self {
         Self {

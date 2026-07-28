@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use gocode_platform::containment::{
-    ContainmentError, ContainmentRequest, NativeCertificate, RuntimeProbe,
+    AttestationVerdict, ContainmentError, ContainmentRequest, NativeCertificate, RuntimeProbe,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,59 +42,6 @@ pub struct LaunchedProcess;
 
 pub trait ProcessLauncher {
     fn launch(&self, spec: &ProcessSpec) -> Result<LaunchedProcess, ProcessError>;
-}
-
-pub trait ContainmentAdmission {
-    fn admit(
-        &self,
-        request: &ContainmentRequest,
-        certificate: Option<&NativeCertificate>,
-        probes: &[RuntimeProbe],
-    ) -> Result<(), ContainmentError>;
-}
-
-pub struct UnavailableContainmentAdmission;
-
-impl ContainmentAdmission for UnavailableContainmentAdmission {
-    fn admit(
-        &self,
-        request: &ContainmentRequest,
-        certificate: Option<&NativeCertificate>,
-        probes: &[RuntimeProbe],
-    ) -> Result<(), ContainmentError> {
-        #[cfg(target_os = "linux")]
-        match gocode_platform::containment::linux::LinuxContainment::attest(
-            request,
-            certificate,
-            probes,
-        ) {
-            Ok(_) | Err(_) => Err(ContainmentError::BackendUnavailable),
-        }
-
-        #[cfg(target_os = "macos")]
-        match gocode_platform::containment::macos::MacOsContainment::attest(
-            request,
-            certificate,
-            probes,
-        ) {
-            Ok(_) | Err(_) => Err(ContainmentError::BackendUnavailable),
-        }
-
-        #[cfg(target_os = "windows")]
-        match gocode_platform::containment::windows::WindowsContainment::attest(
-            request,
-            certificate,
-            probes,
-        ) {
-            Ok(_) | Err(_) => Err(ContainmentError::BackendUnavailable),
-        }
-
-        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-        {
-            let _ = (request, certificate, probes);
-            Err(ContainmentError::BackendUnavailable)
-        }
-    }
 }
 
 pub struct ProcessBroker {
@@ -143,11 +90,10 @@ impl ProcessBroker {
         request: &ContainmentRequest,
         certificate: Option<&NativeCertificate>,
         probes: &[RuntimeProbe],
-        admission: &dyn ContainmentAdmission,
         launcher: &dyn ProcessLauncher,
     ) -> Result<LaunchedProcess, ProcessError> {
         self.validate_spec(spec)?;
-        match admission.admit(request, certificate, probes) {
+        match current_platform_admission(request, certificate, probes) {
             Ok(()) => {}
             Err(ContainmentError::BackendUnavailable) => {
                 return Err(ProcessError::ContainmentUnavailable);
@@ -155,6 +101,40 @@ impl ProcessBroker {
             Err(error) => return Err(ProcessError::Containment(error)),
         }
         launcher.launch(spec)
+    }
+}
+
+fn current_platform_admission(
+    request: &ContainmentRequest,
+    certificate: Option<&NativeCertificate>,
+    probes: &[RuntimeProbe],
+) -> Result<(), ContainmentError> {
+    #[cfg(target_os = "linux")]
+    let verdict = gocode_platform::containment::linux::LinuxContainment::attest(
+        request,
+        certificate,
+        probes,
+    )?;
+    #[cfg(target_os = "macos")]
+    let verdict = gocode_platform::containment::macos::MacOsContainment::attest(
+        request,
+        certificate,
+        probes,
+    )?;
+    #[cfg(target_os = "windows")]
+    let verdict = gocode_platform::containment::windows::WindowsContainment::attest(
+        request,
+        certificate,
+        probes,
+    )?;
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        let _ = (request, certificate, probes);
+        return Err(ContainmentError::BackendUnavailable);
+    }
+
+    match verdict {
+        AttestationVerdict::Unavailable => Err(ContainmentError::BackendUnavailable),
     }
 }
 

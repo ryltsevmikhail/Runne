@@ -158,7 +158,7 @@ fn malformed_metadata_detected() {
     use std::io::SeekFrom;
     let mut f = locks.path_lock.file();
     f.set_len(0).unwrap();
-    (&*f).seek(SeekFrom::Start(0)).unwrap();
+    f.seek(SeekFrom::Start(0)).unwrap();
     f.write_all(&[0xFFu8; 25]).unwrap();
     f.sync_all().unwrap();
 

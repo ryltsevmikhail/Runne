@@ -1,7 +1,6 @@
 use gocode_domain::verification::backup::ExportRunJson;
 use gocode_domain::verification::digest::{DigestContract, VerificationDigest};
 use gocode_domain::verification::identity::RunID;
-use uuid::Uuid;
 
 pub struct ExportScope {
     pub principal: String,

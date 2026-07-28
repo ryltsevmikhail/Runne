@@ -119,6 +119,7 @@ pub struct ReplayEvent {
 /// (`principal_id`, `generation`, `authority_id`, `epoch`) to prevent
 /// session hijacking and to enforce lease fencing.
 #[async_trait]
+#[allow(clippy::too_many_arguments)]
 pub trait ReplayStorePort: Send + Sync {
     /// Atomically open a replay session.
     ///

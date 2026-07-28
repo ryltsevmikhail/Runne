@@ -1,17 +1,15 @@
 mod process_containment_admission {
     use std::{
         collections::HashMap,
-        error::Error as _,
         sync::atomic::{AtomicUsize, Ordering},
     };
 
     use gocode_platform::containment::{
-        ContainmentBackendId, ContainmentBackendVersion, ContainmentError, ContainmentGate,
-        ContainmentRequest, HostPlatform, NativeCertificate, RunnerIdentity, RuntimeProbe,
+        ContainmentBackendId, ContainmentBackendVersion, ContainmentGate, ContainmentRequest,
+        HostPlatform, NativeCertificate, RunnerIdentity, RuntimeProbe,
     };
     use gocode_security::broker::process::{
-        CommandPolicy, ContainmentAdmission, LaunchedProcess, ProcessBroker, ProcessError,
-        ProcessLauncher, ProcessSpec, UnavailableContainmentAdmission,
+        CommandPolicy, LaunchedProcess, ProcessBroker, ProcessError, ProcessLauncher, ProcessSpec,
     };
 
     #[derive(Default)]
@@ -29,19 +27,6 @@ mod process_containment_admission {
         fn launch(&self, _spec: &ProcessSpec) -> Result<LaunchedProcess, ProcessError> {
             self.launch_count.fetch_add(1, Ordering::SeqCst);
             Ok(LaunchedProcess)
-        }
-    }
-
-    struct ProfileUnsupportedAdmission;
-
-    impl ContainmentAdmission for ProfileUnsupportedAdmission {
-        fn admit(
-            &self,
-            _request: &ContainmentRequest,
-            _certificate: Option<&NativeCertificate>,
-            _probes: &[RuntimeProbe],
-        ) -> Result<(), ContainmentError> {
-            Err(ContainmentError::ProfileUnsupported("test-profile".into()))
         }
     }
 
@@ -143,22 +128,15 @@ mod process_containment_admission {
         vec![RuntimeProbe::new("probe-a", "stale-digest").unwrap()]
     }
 
-    fn unavailable_admission() -> UnavailableContainmentAdmission {
-        UnavailableContainmentAdmission
-    }
-
     #[test]
     fn missing_certificate_returns_typed_error_without_launching() {
         let launcher = RecordingLauncher::default();
-        let admission = unavailable_admission();
-
         let error = broker()
             .prepare_contained(
                 &valid_spec(),
                 &current_platform_request(),
                 None,
                 &runtime_probes(),
-                &admission,
                 &launcher,
             )
             .unwrap_err();
@@ -170,15 +148,12 @@ mod process_containment_admission {
     #[test]
     fn mismatched_certificate_never_uses_unrestricted_fallback() {
         let launcher = RecordingLauncher::default();
-        let admission = unavailable_admission();
-
         let error = broker()
             .prepare_contained(
                 &valid_spec(),
                 &current_platform_request(),
                 Some(&wrong_platform_certificate()),
                 &runtime_probes(),
-                &admission,
                 &launcher,
             )
             .unwrap_err();
@@ -190,7 +165,6 @@ mod process_containment_admission {
     #[test]
     fn invalid_structured_argv_returns_validation_error_without_launching() {
         let launcher = RecordingLauncher::default();
-        let admission = unavailable_admission();
         let mut spec = valid_spec();
         spec.argv.push("input;fallback".into());
 
@@ -200,7 +174,6 @@ mod process_containment_admission {
                 &current_platform_request(),
                 None,
                 &runtime_probes(),
-                &admission,
                 &launcher,
             )
             .unwrap_err();
@@ -212,15 +185,12 @@ mod process_containment_admission {
     #[test]
     fn stale_probe_returns_typed_error_without_launching() {
         let launcher = RecordingLauncher::default();
-        let admission = unavailable_admission();
-
         let error = broker()
             .prepare_contained(
                 &valid_spec(),
                 &current_platform_request(),
                 Some(&matching_certificate()),
                 &stale_runtime_probes(),
-                &admission,
                 &launcher,
             )
             .unwrap_err();
@@ -230,29 +200,20 @@ mod process_containment_admission {
     }
 
     #[test]
-    fn non_unavailable_containment_error_is_preserved_without_launching() {
+    fn matching_caller_constructed_certificate_is_unavailable_without_launching() {
         let launcher = RecordingLauncher::default();
-        let admission = ProfileUnsupportedAdmission;
 
         let error = broker()
             .prepare_contained(
                 &valid_spec(),
                 &current_platform_request(),
-                None,
+                Some(&matching_certificate()),
                 &runtime_probes(),
-                &admission,
                 &launcher,
             )
             .unwrap_err();
 
-        assert!(matches!(
-            &error,
-            ProcessError::Containment(ContainmentError::ProfileUnsupported(profile))
-                if profile == "test-profile"
-        ));
-        assert!(
-            matches!(error.source(), Some(source) if source.to_string() == "profile not supported: test-profile")
-        );
+        assert!(matches!(error, ProcessError::ContainmentUnavailable));
         assert_eq!(launcher.launch_count(), 0);
     }
 }

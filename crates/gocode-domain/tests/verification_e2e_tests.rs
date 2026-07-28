@@ -82,7 +82,7 @@ fn phase9_e2e_run_to_promotion() {
     // 5. Dashboard — projections
     // 6. Export — DTO
     // 7. Promotion — passed → promoted
-    assert!(true); // full lifecycle executed without panics
+    // full lifecycle executed without panics
 }
 
 #[test]

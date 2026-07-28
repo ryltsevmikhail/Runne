@@ -281,7 +281,7 @@ impl ReplayStorePort for ReplayStore {
 
                 stmt.query_map(
                     params![aggregate_type, aggregate_id_copy.as_slice()],
-                    |row| read_replay_event(row),
+                    read_replay_event,
                 )
                 .map_err(|e| ReplayError::Storage(format!("query events: {}", e)))?
                 .collect::<Result<Vec<_>, _>>()
@@ -292,10 +292,8 @@ impl ReplayStorePort for ReplayStore {
             let last_delivered = events.last().map(|e| e.global_position);
             let next_page = if events.len() < 100 {
                 None
-            } else if let Some(pos) = last_delivered {
-                Some(pos + 1)
             } else {
-                None
+                last_delivered.map(|pos| pos + 1)
             };
 
             // Insert session row with computed cursors
@@ -342,7 +340,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .map_err(|e| ReplayError::Storage(format!("re-read session: {}", e)))?;
 
@@ -383,7 +381,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .optional()
                 .map_err(|e| ReplayError::Storage(format!("read session: {}", e)))?
@@ -424,7 +422,7 @@ impl ReplayStorePort for ReplayStore {
                         cursor,
                         limit as i64
                     ],
-                    |row| read_replay_event(row),
+                    read_replay_event,
                 )
                 .map_err(|e| ReplayError::Storage(format!("query events: {}", e)))?
                 .collect::<Result<Vec<_>, _>>()
@@ -486,7 +484,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .optional()
                 .map_err(|e| ReplayError::Storage(format!("read session: {}", e)))?
@@ -540,7 +538,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .map_err(|e| ReplayError::Storage(format!("re-read session: {}", e)))?;
 
@@ -580,7 +578,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .optional()
                 .map_err(|e| ReplayError::Storage(format!("read session: {}", e)))?
@@ -664,7 +662,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .map_err(|e| ReplayError::Storage(format!("re-read session: {}", e)))?;
 
@@ -704,7 +702,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .optional()
                 .map_err(|e| ReplayError::Storage(format!("read session: {}", e)))?
@@ -739,7 +737,7 @@ impl ReplayStorePort for ReplayStore {
             let events = stmt
                 .query_map(
                     params![aggregate_type, aggregate_id.as_slice(), cursor],
-                    |row| read_replay_event(row),
+                    read_replay_event,
                 )
                 .map_err(|e| ReplayError::Storage(format!("query events: {}", e)))?
                 .collect::<Result<Vec<_>, _>>()
@@ -792,7 +790,7 @@ impl ReplayStorePort for ReplayStore {
                      FROM _replay_subscriptions
                      WHERE session_id = ?1",
                     params![session_id.as_slice()],
-                    |row| read_replay_session(row),
+                    read_replay_session,
                 )
                 .optional()
                 .map_err(|e| ReplayError::Storage(format!("read session: {}", e)))?
