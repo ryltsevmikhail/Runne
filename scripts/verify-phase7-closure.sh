@@ -28,6 +28,8 @@ fi
 
 python3 - "$evidence" "$traceability" "$phase6_evidence" <<'PY'
 import pathlib
+import re
+import subprocess
 import sys
 
 evidence = pathlib.Path(sys.argv[1]).read_text()
@@ -35,12 +37,10 @@ traceability = pathlib.Path(sys.argv[2]).read_text()
 phase6 = pathlib.Path(sys.argv[3]).read_text()
 
 required_evidence = [
-    "source_commit: WORKTREE_UNCOMMITTED",
     "phase7_verdict: IMPLEMENTED_CANDIDATE",
     "phase7b_plugin_host: IMPLEMENTED_CANDIDATE",
     "phase7c_mcp_adapter: IMPLEMENTED_CANDIDATE",
     "production_mcp_sdk_profile: DISABLED_BY_POLICY",
-    "reviewed_commit: OPEN",
     "pinned_ci: OPEN",
     "msrv_ci: OPEN",
     "phase6_evidence_ref: docs/evidence/PHASE6_SECURITY_PLATFORM_EVIDENCE.md",
@@ -48,6 +48,14 @@ required_evidence = [
 missing = [item for item in required_evidence if item not in evidence]
 if missing:
     raise SystemExit(f"missing Phase 7 closure evidence fields: {missing}")
+
+source = re.search(r"^source_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
+reviewed = re.search(r"^reviewed_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
+if source is None or reviewed is None or source.group(1) != reviewed.group(1):
+    raise SystemExit("Phase 7 exact source/reviewed commit evidence is invalid")
+commit = source.group(1)
+subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], check=True)
+subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=True)
 
 for stale in ["phase7b_plugin_host: OPEN", "phase7c_mcp_adapter: OPEN"]:
     if stale in evidence:
