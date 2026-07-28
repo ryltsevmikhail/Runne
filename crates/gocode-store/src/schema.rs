@@ -10,7 +10,6 @@
 use rand::RngCore;
 use rand::rngs::OsRng;
 use std::{
-    collections::HashSet,
     fmt, fs,
     path::{Path, PathBuf},
     sync::{Mutex, OnceLock},
@@ -47,11 +46,16 @@ fn diagnostic_error(diagnostic: SchemaOpenDiagnostic) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(diagnostic))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg(unix)]
+#[derive(Debug, PartialEq, Eq)]
 struct FileIdentity {
     volume: u64,
     file: u64,
 }
+
+#[cfg(windows)]
+#[derive(Debug, PartialEq, Eq)]
+struct FileIdentity(same_file::Handle);
 
 fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     if fs::symlink_metadata(path)
@@ -73,44 +77,45 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     }
     #[cfg(windows)]
     {
-        use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Storage::FileSystem::{
-            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
-        };
-
-        let file = fs::File::open(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-        let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
-        let succeeded =
-            unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
-        if succeeded == 0 {
-            return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
-        }
-        let info = unsafe { info.assume_init() };
-        Ok(FileIdentity {
-            volume: u64::from(info.dwVolumeSerialNumber),
-            file: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
-        })
+        same_file::Handle::from_path(path)
+            .map(FileIdentity)
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
     }
 }
 
-fn admitted_identities() -> &'static Mutex<HashSet<FileIdentity>> {
-    static IDENTITIES: OnceLock<Mutex<HashSet<FileIdentity>>> = OnceLock::new();
-    IDENTITIES.get_or_init(|| Mutex::new(HashSet::new()))
+fn admitted_paths() -> &'static Mutex<Vec<PathBuf>> {
+    static PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
+    PATHS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-fn identity_is_admitted(identity: FileIdentity) -> Result<bool, SchemaOpenDiagnostic> {
-    admitted_identities()
+fn identity_is_admitted(path: &Path) -> Result<bool, SchemaOpenDiagnostic> {
+    admitted_paths()
         .lock()
-        .map(|identities| identities.contains(&identity))
+        .map(|paths| {
+            paths.iter().any(|admitted| {
+                #[cfg(unix)]
+                {
+                    file_identity(admitted).ok() == file_identity(path).ok()
+                }
+                #[cfg(windows)]
+                {
+                    same_file::is_same_file(admitted, path).unwrap_or(false)
+                }
+            })
+        })
         .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
 }
 
 fn admit_identity(path: &Path) -> Result<(), SchemaOpenDiagnostic> {
-    let identity = file_identity(path)?;
-    admitted_identities()
+    file_identity(path)?;
+    let canonical =
+        fs::canonicalize(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    let mut paths = admitted_paths()
         .lock()
-        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?
-        .insert(identity);
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    if !paths.iter().any(|admitted| admitted == &canonical) {
+        paths.push(canonical);
+    }
     Ok(())
 }
 
@@ -141,7 +146,7 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
     let sidecar_present = ["-wal", "-shm"]
         .into_iter()
         .any(|suffix| sidecar_path(db_path, suffix).exists());
-    if sidecar_present && !identity_is_admitted(identity).map_err(diagnostic_error)? {
+    if sidecar_present && !identity_is_admitted(db_path).map_err(diagnostic_error)? {
         return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
     }
     if sidecar_present {
