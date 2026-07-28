@@ -8,8 +8,11 @@ rust-version.workspace = true
 gocode-api = { path = "../gocode-api" }
 gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
+gocode-provider = { path = "../gocode-provider" }
+gocode-tools = { path = "../gocode-tools" }
 hex = "=0.4.3"
 sha2 = { workspace = true }
+thiserror.workspace = true
 tokio = { version = "=1.44.0", features = ["sync", "rt", "macros", "time"] }
 tokio-util = { version = "=0.7.14", features = ["rt"] }
 

@@ -11,10 +11,10 @@ use rand::RngCore;
 use rand::rngs::OsRng;
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags, Result as SqliteResult};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 9;
+pub const CURRENT_SCHEMA_VERSION: i64 = 11;
 
 /// Reject unsupported existing database schemas without changing the file.
 ///
@@ -45,9 +45,14 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
         [],
         |row| row.get(0),
     )?;
-    if schema_version > CURRENT_SCHEMA_VERSION
-        || (schema_version >= 9 && !is_released_strict_v9(conn, schema_version)?)
-    {
+    let compatible = match schema_version {
+        0..=8 => true,
+        9 => is_released_strict_v9(&conn, schema_version)?,
+        10 => is_released_provider_v10(&conn, schema_version)?,
+        11 => is_released_provider_v11(&conn, schema_version)?,
+        _ => false,
+    };
+    if !compatible {
         return Err(rusqlite::Error::InvalidQuery);
     }
 
@@ -69,7 +74,14 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
             [],
             |row| row.get(0),
         )?;
-        if existing_version > 8 && !is_released_strict_v9(conn, existing_version)? {
+        let compatible = match existing_version {
+            0..=8 => true,
+            9 => is_released_strict_v9(conn, existing_version)?,
+            10 => is_released_provider_v10(conn, existing_version)?,
+            11 => is_released_provider_v11(conn, existing_version)?,
+            _ => false,
+        };
+        if !compatible {
             return Err(rusqlite::Error::InvalidQuery);
         }
     }
@@ -160,63 +172,264 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         tx.commit()?;
     }
 
+    if current_version < 10 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V10)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (10)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 11 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V11)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (11)", [])?;
+        tx.commit()?;
+    }
+
     Ok(())
 }
 
 fn is_released_strict_v9(conn: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != CURRENT_SCHEMA_VERSION {
+    if version != 9 {
         return Ok(false);
     }
-    let has_lineage_table: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_lineage')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_lineage_table {
+    if !table_shape_matches(
+        conn,
+        "verification_evidence",
+        &VERIFICATION_EVIDENCE_COLUMNS,
+    )? || !table_sql_matches_migration(conn, "verification_evidence", MIGRATION_V9)?
+        || !table_shape_matches(conn, "consumption_intents", &CONSUMPTION_INTENT_COLUMNS)?
+        || !table_sql_matches_migration(conn, "consumption_intents", MIGRATION_V9)?
+        || !table_shape_matches(conn, "schema_lineage", &SCHEMA_LINEAGE_COLUMNS)?
+        || !table_sql_matches_migration(conn, "schema_lineage", MIGRATION_V9)?
+        || !index_shape_matches(
+            conn,
+            "idx_evidence_run",
+            "verification_evidence",
+            &["run_id"],
+        )?
+    {
         return Ok(false);
     }
+
+    let lineage_rows: i64 =
+        conn.query_row("SELECT COUNT(*) FROM schema_lineage", [], |row| row.get(0))?;
     let provenance_matches: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM schema_lineage WHERE schema_version = 9 AND provenance = 'released-v8-to-strict-v9')",
         [],
         |row| row.get(0),
     )?;
-    if !provenance_matches {
+    Ok(lineage_rows == 1 && provenance_matches)
+}
+
+fn is_released_provider_v10(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != 10 || !is_released_strict_v9(conn, 9)? {
         return Ok(false);
     }
-    for (table, required_fragments) in [
-        (
-            "consumption_intents",
-            [
-                "length(intent_id) = 16",
-                "idempotency_key TEXT NOT NULL UNIQUE",
-                "length(integrity_digest) = 32",
-            ]
-            .as_slice(),
-        ),
-        (
-            "verification_evidence",
-            [
-                "length(evidence_id) = 16",
-                "layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5))",
-                "length(verified_by) > 0",
-            ]
-            .as_slice(),
-        ),
-    ] {
-        let schema_sql: Option<String> = conn.query_row(
+    Ok(table_shape_matches(
+        conn,
+        "provider_prepared_requests",
+        &PROVIDER_PREPARED_COLUMNS,
+    )? && table_sql_matches_migration(conn, "provider_prepared_requests", MIGRATION_V10)?
+        && table_shape_matches(
+            conn,
+            "provider_dispatch_attempts",
+            &PROVIDER_DISPATCH_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_dispatch_attempts", MIGRATION_V10)?)
+}
+
+fn is_released_provider_v11(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != CURRENT_SCHEMA_VERSION || !is_released_provider_v10(conn, 10)? {
+        return Ok(false);
+    }
+    Ok(table_shape_matches(
+        conn,
+        "provider_effect_authorities",
+        &PROVIDER_EFFECT_AUTHORITY_COLUMNS,
+    )? && table_sql_matches_migration(conn, "provider_effect_authorities", MIGRATION_V11)?)
+}
+
+type ColumnShape = (&'static str, &'static str, bool, i64);
+
+const VERIFICATION_EVIDENCE_COLUMNS: [ColumnShape; 12] = [
+    ("evidence_id", "BLOB", false, 1),
+    ("run_id", "BLOB", true, 0),
+    ("profile_id", "BLOB", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("layer", "INTEGER", true, 0),
+    ("evidence_type", "INTEGER", true, 0),
+    ("evidence_digest", "BLOB", true, 0),
+    ("content_ref", "TEXT", true, 0),
+    ("source", "TEXT", true, 0),
+    ("producer_identity", "TEXT", true, 0),
+    ("sensitivity", "INTEGER", true, 0),
+    ("verified_by", "TEXT", true, 0),
+];
+
+const CONSUMPTION_INTENT_COLUMNS: [ColumnShape; 6] = [
+    ("intent_id", "BLOB", false, 1),
+    ("idempotency_key", "TEXT", true, 0),
+    ("state", "TEXT", true, 0),
+    ("gate_head_snapshot_digest", "BLOB", true, 0),
+    ("target_artifact_digest", "BLOB", true, 0),
+    ("integrity_digest", "BLOB", true, 0),
+];
+
+const SCHEMA_LINEAGE_COLUMNS: [ColumnShape; 2] = [
+    ("schema_version", "INTEGER", false, 1),
+    ("provenance", "TEXT", true, 0),
+];
+
+const PROVIDER_PREPARED_COLUMNS: [ColumnShape; 5] = [
+    ("call_id", "BLOB", false, 1),
+    ("prepared_digest", "BLOB", true, 0),
+    ("render_digest", "BLOB", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("record_digest", "BLOB", true, 0),
+];
+
+const PROVIDER_DISPATCH_COLUMNS: [ColumnShape; 13] = [
+    ("attempt_id", "BLOB", false, 1),
+    ("call_id", "BLOB", true, 0),
+    ("permit_id", "BLOB", true, 0),
+    ("token_reservation_id", "BLOB", true, 0),
+    ("cost_reservation_id", "BLOB", true, 0),
+    ("fencing_token", "INTEGER", true, 0),
+    ("provider_idempotency_key", "TEXT", true, 0),
+    ("prepared_digest", "BLOB", true, 0),
+    ("render_digest", "BLOB", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("state", "INTEGER", true, 0),
+    ("stream_id", "BLOB", false, 0),
+    ("settlement_digest", "BLOB", false, 0),
+];
+
+const PROVIDER_EFFECT_AUTHORITY_COLUMNS: [ColumnShape; 17] = [
+    ("authority_id", "BLOB", true, 1),
+    ("revision", "INTEGER", true, 2),
+    ("attempt_id", "BLOB", true, 0),
+    ("permit_id", "BLOB", true, 0),
+    ("capability_grant_id", "TEXT", true, 0),
+    ("token_reservation_id", "BLOB", true, 0),
+    ("cost_reservation_id", "BLOB", true, 0),
+    ("prepared_digest", "BLOB", true, 0),
+    ("render_digest", "BLOB", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("owner_id", "TEXT", true, 0),
+    ("scope", "TEXT", true, 0),
+    ("fencing_token", "INTEGER", true, 0),
+    ("expires_at", "INTEGER", true, 0),
+    ("revoked", "INTEGER", true, 0),
+    ("consumed", "INTEGER", true, 0),
+    ("consumed_intent_id", "TEXT", false, 0),
+];
+
+fn table_shape_matches(
+    conn: &Connection,
+    table: &str,
+    expected: &[ColumnShape],
+) -> SqliteResult<bool> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info('{table}')"))?;
+    let rows = statement.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)? != 0,
+            row.get::<_, i64>(5)?,
+        ))
+    })?;
+    let actual = rows.collect::<SqliteResult<Vec<_>>>()?;
+    Ok(actual.len() == expected.len()
+        && actual
+            .iter()
+            .zip(expected)
+            .all(|((name, kind, not_null, primary_key), expected)| {
+                name == expected.0
+                    && kind == expected.1
+                    && *not_null == expected.2
+                    && *primary_key == expected.3
+            }))
+}
+
+fn table_sql_matches_migration(
+    conn: &Connection,
+    table: &str,
+    migration: &str,
+) -> SqliteResult<bool> {
+    let ddl: Option<String> = conn
+        .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
             [table],
             |row| row.get(0),
-        )?;
-        if !schema_sql.is_some_and(|sql| {
-            required_fragments
-                .iter()
-                .all(|fragment| sql.contains(fragment))
-        }) {
-            return Ok(false);
+        )
+        .optional()?;
+    let Some(ddl) = ddl else {
+        return Ok(false);
+    };
+    let expected = migration
+        .split(';')
+        .map(str::trim)
+        .find(|statement| statement.starts_with(&format!("CREATE TABLE {table} ")));
+    Ok(expected.is_some_and(|expected| normalize_ddl(&ddl) == normalize_ddl(expected)))
+}
+
+fn normalize_ddl(ddl: &str) -> String {
+    let mut normalized = String::with_capacity(ddl.len());
+    let mut characters = ddl.chars().peekable();
+    let mut quoted = false;
+    while let Some(character) = characters.next() {
+        if quoted {
+            normalized.extend(character.to_lowercase());
+            if character == '\'' {
+                quoted = false;
+            }
+            continue;
+        }
+        if character == '\'' {
+            quoted = true;
+            normalized.push(character);
+        } else if character == '-' && characters.peek() == Some(&'-') {
+            characters.next();
+            while characters.next().is_some_and(|next| next != '\n') {}
+        } else if character == '/' && characters.peek() == Some(&'*') {
+            characters.next();
+            while let Some(next) = characters.next() {
+                if next == '*' && characters.peek() == Some(&'/') {
+                    characters.next();
+                    break;
+                }
+            }
+        } else if !character.is_whitespace() {
+            normalized.extend(character.to_lowercase());
         }
     }
-    Ok(true)
+    normalized
+}
+
+fn index_shape_matches(
+    conn: &Connection,
+    index: &str,
+    expected_table: &str,
+    expected_columns: &[&str],
+) -> SqliteResult<bool> {
+    let index_table: Option<String> = conn
+        .query_row(
+            "SELECT tbl_name FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            [index],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if index_table.as_deref() != Some(expected_table) {
+        return Ok(false);
+    }
+    let mut statement = conn.prepare(&format!("PRAGMA index_info('{index}')"))?;
+    let rows = statement.query_map([], |row| row.get::<_, String>(2))?;
+    let actual = rows.collect::<SqliteResult<Vec<_>>>()?;
+    Ok(actual
+        .iter()
+        .map(String::as_str)
+        .eq(expected_columns.iter().copied()))
 }
 
 /// Run startup gates: integrity check, FK check, and PRAGMA profile
@@ -748,6 +961,64 @@ INSERT INTO schema_lineage (schema_version, provenance)
     VALUES (9, 'released-v8-to-strict-v9');
 "#;
 
+// ── Migration V10: provider prepare/dispatch durability ─────────────────
+
+const MIGRATION_V10: &str = r#"
+CREATE TABLE provider_prepared_requests (
+    call_id BLOB PRIMARY KEY CHECK(length(call_id) = 16),
+    prepared_digest BLOB NOT NULL CHECK(length(prepared_digest) = 32),
+    render_digest BLOB NOT NULL CHECK(length(render_digest) = 32),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    record_digest BLOB NOT NULL CHECK(length(record_digest) = 32)
+);
+
+CREATE TABLE provider_dispatch_attempts (
+    attempt_id BLOB PRIMARY KEY CHECK(length(attempt_id) = 16),
+    call_id BLOB NOT NULL UNIQUE REFERENCES provider_prepared_requests(call_id),
+    permit_id BLOB NOT NULL UNIQUE CHECK(length(permit_id) = 16),
+    token_reservation_id BLOB NOT NULL CHECK(length(token_reservation_id) = 16),
+    cost_reservation_id BLOB NOT NULL CHECK(length(cost_reservation_id) = 16),
+    fencing_token INTEGER NOT NULL CHECK(fencing_token > 0),
+    provider_idempotency_key TEXT NOT NULL UNIQUE
+        CHECK(length(provider_idempotency_key) BETWEEN 1 AND 256),
+    prepared_digest BLOB NOT NULL CHECK(length(prepared_digest) = 32),
+    render_digest BLOB NOT NULL CHECK(length(render_digest) = 32),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    state INTEGER NOT NULL CHECK(state IN (1, 2, 3, 4)),
+    stream_id BLOB CHECK(stream_id IS NULL OR length(stream_id) = 16),
+    settlement_digest BLOB CHECK(
+        settlement_digest IS NULL OR length(settlement_digest) = 32
+    )
+);
+"#;
+
+// ── Migration V11: provider effect authority admission ──────────────────
+
+const MIGRATION_V11: &str = r#"
+CREATE TABLE provider_effect_authorities (
+    authority_id BLOB NOT NULL CHECK(length(authority_id) = 16 AND authority_id != zeroblob(16)),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    attempt_id BLOB NOT NULL CHECK(length(attempt_id) = 16),
+    permit_id BLOB NOT NULL CHECK(length(permit_id) = 16),
+    capability_grant_id TEXT NOT NULL CHECK(length(capability_grant_id) BETWEEN 1 AND 256),
+    token_reservation_id BLOB NOT NULL CHECK(length(token_reservation_id) = 16),
+    cost_reservation_id BLOB NOT NULL CHECK(length(cost_reservation_id) = 16),
+    prepared_digest BLOB NOT NULL CHECK(length(prepared_digest) = 32),
+    render_digest BLOB NOT NULL CHECK(length(render_digest) = 32),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    owner_id TEXT NOT NULL CHECK(length(owner_id) BETWEEN 1 AND 256),
+    scope TEXT NOT NULL CHECK(length(scope) BETWEEN 1 AND 256),
+    fencing_token INTEGER NOT NULL CHECK(fencing_token > 0),
+    expires_at INTEGER NOT NULL,
+    revoked INTEGER NOT NULL CHECK(revoked IN (0, 1)),
+    consumed INTEGER NOT NULL CHECK(consumed IN (0, 1)),
+    consumed_intent_id TEXT UNIQUE,
+    PRIMARY KEY(authority_id, revision),
+    CHECK((consumed = 0 AND consumed_intent_id IS NULL) OR
+          (consumed = 1 AND consumed_intent_id IS NOT NULL))
+);
+"#;
+
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     let is_new_file = db_path != ":memory:" && !Path::new(db_path).exists();
@@ -990,7 +1261,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -1163,12 +1434,12 @@ mod tests {
 
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 11);
         assert_eq!(
             conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
                 .unwrap(),
-            9
+            CURRENT_SCHEMA_VERSION
         );
         assert!(
             conn.execute(
