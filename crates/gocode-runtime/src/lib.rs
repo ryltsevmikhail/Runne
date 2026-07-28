@@ -12,10 +12,13 @@ pub mod controller;
 pub mod error;
 pub mod gate;
 pub mod handle;
+pub mod mcp;
 pub mod migration_drain;
 pub mod migration_fence;
 pub mod migration_router;
 pub mod migration_shadow;
+pub mod plugin_host;
+pub mod provider_tool;
 pub mod session_host;
 pub mod types;
 
@@ -27,3 +30,10 @@ pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };
 pub mod bundle;
+
+pub use mcp::{McpActivationError, McpActivationRequest, McpRuntimeActivation};
+pub use plugin_host::{
+    ExtensionRootBinding, ExtensionRootExit, ExtensionRootKind, ExtensionRootPort,
+    ExtensionRootReceipt, ExtensionRootState, ExtensionSupervisorError, RuntimeExtensionSupervisor,
+    RuntimeRootLease,
+};

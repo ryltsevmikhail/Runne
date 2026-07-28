@@ -232,10 +232,8 @@ impl DeterministicCodec for BootstrapMessage {
     }
 
     fn decode(_type_id: u32, dec: &mut CborDecoder) -> Result<Self, DecodeError> {
-        // Dispatch based on map length to determine variant.
-        // ProfileSelected and SelectionAcknowledged have identical wire format
-        // (both 5-key maps with the same key types); they are decoded as
-        // ProfileSelected. Re-encode check ensures deterministic roundtrip.
+        // Dispatch by canonical map length. Selection acknowledgement carries
+        // a mandatory direction marker and therefore cannot reflect selection.
         let map_len = dec.read_map_header(64)?;
         match map_len {
             1 => decode_negotiation_rejected(dec),
@@ -347,8 +345,6 @@ fn decode_negotiation_rejected(dec: &mut CborDecoder) -> Result<BootstrapMessage
 }
 
 fn decode_profile_selected(dec: &mut CborDecoder) -> Result<BootstrapMessage, DecodeError> {
-    // Note: ProfileSelected and SelectionAcknowledged have identical wire format.
-    // Both are decoded as ProfileSelected; re-encode check ensures determinism.
     let mut host_nonce = None;
     let mut plugin_nonce = None;
     let mut session_id = None;

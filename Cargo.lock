@@ -626,8 +626,11 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures",
  "gocode-api",
  "gocode-domain",
+ "gocode-provider",
+ "serde_json",
  "sha2",
  "thiserror",
  "tokio",
@@ -708,6 +711,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gocode-mcp"
+version = "0.1.0"
+dependencies = [
+ "gocode-tools",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "gocode-observability"
 version = "0.1.0"
 dependencies = [
@@ -751,8 +763,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "gocode-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "gocode-plugin-protocol",
+ "gocode-tools",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "gocode-plugin-protocol"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
+
+[[package]]
+name = "gocode-provider"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "serde",
+ "serde_jcs",
+ "serde_json",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
+name = "gocode-provider-http"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "gocode-provider",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "zeroize",
+]
 
 [[package]]
 name = "gocode-runtime"
@@ -761,15 +810,20 @@ dependencies = [
  "gocode-api",
  "gocode-application",
  "gocode-domain",
+ "gocode-mcp",
  "gocode-opencode-adapter-sqlite",
  "gocode-opencode-compat",
  "gocode-platform",
+ "gocode-plugin-host",
+ "gocode-provider",
  "gocode-store",
+ "gocode-tools",
  "hex",
  "jsonschema",
  "rusqlite",
  "serde_json",
  "sha2",
+ "thiserror",
  "tokio",
  "tokio-util",
 ]
@@ -800,13 +854,28 @@ dependencies = [
  "gocode-api",
  "gocode-application",
  "gocode-domain",
+ "gocode-provider",
  "hmac",
  "rand",
  "rusqlite",
  "same-file",
  "sha2",
+ "thiserror",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "gocode-tools"
+version = "0.1.0"
+dependencies = [
+ "gocode-platform",
+ "gocode-security",
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]

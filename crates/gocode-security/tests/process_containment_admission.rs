@@ -37,9 +37,17 @@ mod process_containment_admission {
     fn valid_spec() -> ProcessSpec {
         ProcessSpec {
             executable: "/usr/bin/tool".into(),
+            executable_digest: Some([1; 32]),
             argv: vec!["--input".into(), "file.txt".into()],
             env: HashMap::new(),
+            allowed_env_keys: Vec::new(),
+            inherit_environment: false,
             cwd: "/tmp".into(),
+            authorized_cwd: Some("/tmp".into()),
+            cleanup_reservation_id: Some("cleanup-1".into()),
+            worker_generation: 1,
+            expected_generation: 1,
+            timeout_ms: 1_000,
             command_policy: CommandPolicy::StructuredOnly,
         }
     }

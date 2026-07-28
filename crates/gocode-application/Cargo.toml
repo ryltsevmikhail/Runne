@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+gocode-provider = { path = "../gocode-provider" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-api = { path = "../gocode-api" }
 async-trait = { workspace = true }
@@ -16,3 +17,5 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
+futures = "0.3"
+serde_json.workspace = true

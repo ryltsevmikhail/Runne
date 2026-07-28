@@ -28,10 +28,13 @@ fn fresh_v8_db() -> Connection {
 fn released_v8_db() -> Connection {
     let conn = fresh_v8_db();
     conn.execute_batch(
-        "DROP TABLE schema_lineage;
+        "DROP TABLE provider_effect_authorities;
+         DROP TABLE provider_dispatch_attempts;
+         DROP TABLE provider_prepared_requests;
+         DROP TABLE schema_lineage;
          DROP TABLE consumption_intents;
          DROP TABLE verification_evidence;
-         DELETE FROM schema_version WHERE version = 9;",
+         DELETE FROM schema_version WHERE version >= 9;",
     )
     .unwrap();
     conn
@@ -234,8 +237,8 @@ fn released_v8_upgrades_to_strict_v9_and_rejects_invalid_values() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(version, 9);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+    assert_eq!(version, CURRENT_SCHEMA_VERSION);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 11);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));

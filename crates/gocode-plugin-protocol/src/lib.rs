@@ -25,6 +25,7 @@
 //! * **Profile** — support profiles, limits, validation errors ([`profile`])
 
 pub mod bootstrap;
+pub mod bootstrap_v2;
 pub mod cbor;
 pub mod digest;
 pub mod frame;
