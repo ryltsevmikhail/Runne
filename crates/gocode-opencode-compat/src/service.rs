@@ -21,6 +21,10 @@ use crate::profile::{
     OPENCODE_BASELINE_INVENTORY_PROFILE_ID, ProfileRef, SESSION_CREATE_PROFILE_REVISION,
 };
 
+const MAX_PROMPT_PARTS: usize = 256;
+const MAX_PROMPT_TEXT_BYTES: usize = 1024 * 1024;
+const MAX_PROMPT_RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+
 /// Baseline `Session.create` wire payload.
 ///
 /// `title` and `workspaceID` are currently supported. The other optional
@@ -424,6 +428,9 @@ impl<H: SessionV1HostPort> OpenCodeSessionV1Service<H> {
             .await
             .map_err(crate::error::SessionV1Error::Host)?;
         if result.session_id != session_id
+            || serde_json::to_vec(&result.response)
+                .map(|bytes| bytes.len() > MAX_PROMPT_RESPONSE_BYTES)
+                .unwrap_or(true)
             || !self.prompt_response_schema.is_valid(&result.response)
             || !valid_prompt_response(session_id, &result.response)
         {
@@ -545,7 +552,13 @@ fn parse_prompt(
         .ok_or(crate::error::SessionV1Error::InvalidRequest {
             detail: "parts must be an array",
         })?;
+    if parts.len() > MAX_PROMPT_PARTS {
+        return Err(crate::error::SessionV1Error::InvalidRequest {
+            detail: "too many prompt parts",
+        });
+    }
     let mut text_parts = Vec::with_capacity(parts.len());
+    let mut text_bytes = 0usize;
     for (index, part) in parts.iter().enumerate() {
         let Some(part) = part.as_object() else {
             return Err(crate::error::SessionV1Error::UnsupportedPart { index });
@@ -556,6 +569,16 @@ fn parse_prompt(
         let Some(text) = part.get("text").and_then(serde_json::Value::as_str) else {
             return Err(crate::error::SessionV1Error::UnsupportedPart { index });
         };
+        text_bytes = text_bytes.checked_add(text.len()).ok_or(
+            crate::error::SessionV1Error::InvalidRequest {
+                detail: "prompt text exceeds its bound",
+            },
+        )?;
+        if text_bytes > MAX_PROMPT_TEXT_BYTES {
+            return Err(crate::error::SessionV1Error::InvalidRequest {
+                detail: "prompt text exceeds its bound",
+            });
+        }
         text_parts.push(text.to_owned());
     }
     Ok(CanonicalPrompt {

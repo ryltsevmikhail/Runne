@@ -9,6 +9,7 @@ gocode-domain = { path = "../gocode-domain" }
 gocode-application = { path = "../gocode-application" }
 gocode-store = { path = "../gocode-store" }
 gocode-observability = { path = "../gocode-observability" }
+gocode-opencode-compat = { path = "../gocode-opencode-compat" }
 
 axum = "0.8"
 tokio = { workspace = true }
@@ -33,3 +34,4 @@ tracing = "0.1"
 tokio-test = "0.4"
 tokio = { workspace = true }
 reqwest = { version = "0.12", features = ["json"] }
+jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }

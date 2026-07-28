@@ -10,6 +10,7 @@ pub mod error;
 pub mod health;
 pub mod limits;
 pub mod middleware;
+pub mod opencode;
 pub mod queries;
 pub mod replay;
 pub mod router;
