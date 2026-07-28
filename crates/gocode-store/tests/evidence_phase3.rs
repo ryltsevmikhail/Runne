@@ -133,7 +133,7 @@ fn evidence_shadow_import_e2e_sqlite() {
 }
 
 #[test]
-fn evidence_full_forward_lifecycle_stage_to_retired() {
+fn evidence_direct_store_lineage_stops_at_default_native() {
     let db = Tdb::new("lifecycle");
     let store = SqliteMigrationControlStore::open(db.p()).unwrap();
     let svc = service::MigrationService::new(store.clone(), PS);
@@ -183,8 +183,6 @@ fn evidence_full_forward_lifecycle_stage_to_retired() {
     for phase in [
         state::MigrationPhase::CohortRollout,
         state::MigrationPhase::DefaultNative,
-        state::MigrationPhase::DrainDeprecate,
-        state::MigrationPhase::Retired,
     ] {
         direct_advance(&store, &pi, phase, &mut c);
         let reopened = SqliteMigrationControlStore::open(db.p()).unwrap();
@@ -194,7 +192,7 @@ fn evidence_full_forward_lifecycle_stage_to_retired() {
     let loaded = store.load_plan(&pi).unwrap().unwrap();
     assert_eq!(
         loaded.transitions.last().unwrap().to,
-        state::MigrationPhase::Retired
+        state::MigrationPhase::DefaultNative
     );
     assert!(matches!(
         store.load_routing_head(&ru()).unwrap().unwrap().authority,
@@ -406,9 +404,6 @@ fn direct_advance(
     let from = loaded.plan.phase;
     let mut plan = loaded.plan;
     plan.advance(target, plan.plan_version).unwrap();
-    if target == state::MigrationPhase::Retired {
-        plan.status = state::MigrationPlanStatus::Retired;
-    }
     let ctx = mkctx(c, plan.plan_version - 1, None, |ctx| ctx);
     let transition = ports::MigrationTransition {
         transition_id: format!("evidence-direct-{}", plan.plan_version),

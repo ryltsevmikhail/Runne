@@ -22,8 +22,8 @@ fn fresh_file_db(name: &str) -> (String, ReplayStore) {
 
     // Clean up any previous test run
     let _ = std::fs::remove_file(&db_path);
-    let _ = std::fs::remove_file(format!("{}-wal", &db_path));
-    let _ = std::fs::remove_file(format!("{}-shm", &db_path));
+    let _ = std::fs::remove_file(format!("{}-wal", db_path));
+    let _ = std::fs::remove_file(format!("{}-shm", db_path));
 
     let conn = Connection::open(&db_path).unwrap();
     conn.execute_batch(

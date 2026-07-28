@@ -215,6 +215,11 @@ pub enum MigrationStoreError {
     DispatchIntentConflict,
     /// Dispatch state transition is invalid or cannot be proved safe.
     InvalidDispatchTransition,
+    /// Stage 7/8 transition lacks a certified durable admission authority.
+    LifecycleAuthorityRequired {
+        /// Requested lifecycle phase that requires certified admission authority.
+        target: MigrationPhase,
+    },
 }
 
 /// Closed atomic mutations understood by the control store.

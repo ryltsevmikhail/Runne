@@ -134,7 +134,7 @@ mod tests {
     fn evidence_set_duplicate_ref_rejected() {
         let rid = Uuid::now_v7();
         let d = crate::verification::digest::VerificationDigest::from_bytes([1u8; 32]);
-        let mut i1 = test_item(rid, d.clone());
+        let i1 = test_item(rid, d.clone());
         let i2 = i1.clone();
         assert!(EvidenceSet::new(vec![i1, i2]).is_err());
     }

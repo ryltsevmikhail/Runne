@@ -9,15 +9,70 @@
 
 use rand::RngCore;
 use rand::rngs::OsRng;
-use rusqlite::{Connection, Result as SqliteResult};
+use std::path::Path;
+
+use rusqlite::{Connection, OpenFlags, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 8;
+pub const CURRENT_SCHEMA_VERSION: i64 = 9;
+
+/// Reject unsupported existing database schemas without changing the file.
+///
+/// File-backed verification stores call this before enabling WAL or applying
+/// migrations, so an unsupported future or candidate schema remains untouched.
+pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
+    if !db_path.exists() {
+        return Ok(());
+    }
+
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let user_version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if user_version > CURRENT_SCHEMA_VERSION {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+
+    let has_version_table: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_version_table {
+        return Ok(());
+    }
+
+    let schema_version: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+        [],
+        |row| row.get(0),
+    )?;
+    if schema_version > CURRENT_SCHEMA_VERSION
+        || (schema_version >= 9 && !is_released_strict_v9(&conn, schema_version)?)
+    {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+
+    Ok(())
+}
 
 /// Apply all schema migrations up to [`CURRENT_SCHEMA_VERSION`].
 ///
 /// Idempotent — only runs migrations not yet applied.
 pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
+    let has_version_table: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_version_table {
+        let existing_version: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )?;
+        if existing_version > 8 && !is_released_strict_v9(conn, existing_version)? {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+    }
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER PRIMARY KEY,
@@ -98,7 +153,70 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         tx.commit()?;
     }
 
+    if current_version < 9 {
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(MIGRATION_V9)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (9)", [])?;
+        tx.commit()?;
+    }
+
     Ok(())
+}
+
+fn is_released_strict_v9(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != CURRENT_SCHEMA_VERSION {
+        return Ok(false);
+    }
+    let has_lineage_table: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_lineage')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_lineage_table {
+        return Ok(false);
+    }
+    let provenance_matches: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM schema_lineage WHERE schema_version = 9 AND provenance = 'released-v8-to-strict-v9')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !provenance_matches {
+        return Ok(false);
+    }
+    for (table, required_fragments) in [
+        (
+            "consumption_intents",
+            [
+                "length(intent_id) = 16",
+                "idempotency_key TEXT NOT NULL UNIQUE",
+                "length(integrity_digest) = 32",
+            ]
+            .as_slice(),
+        ),
+        (
+            "verification_evidence",
+            [
+                "length(evidence_id) = 16",
+                "layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5))",
+                "length(verified_by) > 0",
+            ]
+            .as_slice(),
+        ),
+    ] {
+        let schema_sql: Option<String> = conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            [table],
+            |row| row.get(0),
+        )?;
+        if !schema_sql.is_some_and(|sql| {
+            required_fragments
+                .iter()
+                .all(|fragment| sql.contains(fragment))
+        }) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Run startup gates: integrity check, FK check, and PRAGMA profile
@@ -591,9 +709,55 @@ CREATE TABLE IF NOT EXISTS _replay_subscriptions (
 );
 "#;
 
+// ── Migration V9: strict verification tables from released V8 ───────────
+
+const MIGRATION_V9: &str = r#"
+CREATE TABLE verification_evidence (
+    evidence_id BLOB PRIMARY KEY CHECK(length(evidence_id) = 16),
+    run_id BLOB NOT NULL CHECK(length(run_id) = 16),
+    profile_id BLOB NOT NULL CHECK(length(profile_id) = 16),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5)),
+    evidence_type INTEGER NOT NULL CHECK(evidence_type IN (0, 1, 2, 3, 4)),
+    evidence_digest BLOB NOT NULL CHECK(length(evidence_digest) = 32),
+    content_ref TEXT NOT NULL CHECK(length(content_ref) > 0),
+    source TEXT NOT NULL CHECK(length(source) > 0),
+    producer_identity TEXT NOT NULL CHECK(length(producer_identity) > 0),
+    sensitivity INTEGER NOT NULL CHECK(sensitivity IN (0, 1, 2)),
+    verified_by TEXT NOT NULL CHECK(length(verified_by) > 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_run
+    ON verification_evidence(run_id);
+
+CREATE TABLE consumption_intents (
+    intent_id BLOB PRIMARY KEY CHECK(length(intent_id) = 16),
+    idempotency_key TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 1 AND 256),
+    state TEXT NOT NULL CHECK(state IN
+        ('Reserved','Dispatching','Completed','Failed',
+         'Invalidated','Abandoned')),
+    gate_head_snapshot_digest BLOB NOT NULL CHECK(length(gate_head_snapshot_digest) = 32),
+    target_artifact_digest BLOB NOT NULL CHECK(length(target_artifact_digest) = 32),
+    integrity_digest BLOB NOT NULL CHECK(length(integrity_digest) = 32)
+);
+CREATE TABLE schema_lineage (
+    schema_version INTEGER PRIMARY KEY CHECK(schema_version = 9),
+    provenance TEXT NOT NULL CHECK(provenance = 'released-v8-to-strict-v9')
+);
+INSERT INTO schema_lineage (schema_version, provenance)
+    VALUES (9, 'released-v8-to-strict-v9');
+"#;
+
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
+    let is_new_file = db_path != ":memory:" && !Path::new(db_path).exists();
     let conn = Connection::open(db_path)?;
+
+    if is_new_file {
+        #[cfg(unix)]
+        secure_file_permissions(Path::new(db_path))
+            .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    }
 
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;
@@ -606,6 +770,19 @@ pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     #[cfg(target_os = "macos")]
     {
         conn.execute_batch("PRAGMA fullfsync = ON;")?;
+    }
+
+    // WAL sidecars are created by the PRAGMA above. Secure them before this
+    // newly created database is returned for writable migrations.
+    if is_new_file {
+        #[cfg(unix)]
+        for suffix in ["-wal", "-shm"] {
+            let sidecar = std::path::PathBuf::from(format!("{db_path}{suffix}"));
+            if sidecar.exists() {
+                secure_file_permissions(&sidecar)
+                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+            }
+        }
     }
 
     Ok(conn)
@@ -813,7 +990,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 8);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -951,6 +1128,131 @@ mod tests {
         let mut foreign_key_check = conn.prepare("PRAGMA foreign_key_check").unwrap();
         assert!(!foreign_key_check.exists([]).unwrap());
     }
+
+    fn initialize_released_v8(conn: &Connection) {
+        initialize_v1(conn);
+        let tx = conn.unchecked_transaction().unwrap();
+        tx.execute_batch(MIGRATION_V2).unwrap();
+        tx.execute("UPDATE events SET correlation_id = taskrun_id, correlation_type = 1, integrity_profile = 1", []).unwrap();
+        tx.execute("INSERT INTO schema_version (version) VALUES (2)", [])
+            .unwrap();
+        tx.commit().unwrap();
+        for (version, migration) in [
+            (3, MIGRATION_V3),
+            (4, MIGRATION_V4),
+            (5, MIGRATION_V5),
+            (6, MIGRATION_V6),
+            (7, MIGRATION_V7),
+            (8, MIGRATION_V8),
+        ] {
+            let tx = conn.unchecked_transaction().unwrap();
+            tx.execute_batch(migration).unwrap();
+            tx.execute(
+                "INSERT INTO schema_version (version) VALUES (?1)",
+                [version],
+            )
+            .unwrap();
+            tx.commit().unwrap();
+        }
+    }
+
+    #[test]
+    fn released_v8_upgrades_atomically_to_strict_v9() {
+        let conn = Connection::open_in_memory().unwrap();
+        initialize_released_v8(&conn);
+
+        apply_migrations(&conn).unwrap();
+
+        assert_eq!(CURRENT_SCHEMA_VERSION, 9);
+        assert_eq!(
+            conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            9
+        );
+        assert!(
+            conn.execute(
+                "INSERT INTO consumption_intents VALUES (?1, 'key', 'Reserved', ?2, ?2, ?2)",
+                params![[1_u8; 15].as_slice(), [2_u8; 32].as_slice()]
+            )
+            .is_err()
+        );
+        assert!(conn.execute("INSERT INTO verification_evidence VALUES (?1, ?1, ?1, ?2, 6, 0, ?2, 'blob:test', 'store', 'producer', 0, 'sqlite')", params![[1_u8; 16].as_slice(), [2_u8; 32].as_slice()]).is_err());
+    }
+
+    #[test]
+    fn candidate_or_future_markers_are_rejected_without_mutation() {
+        for marker in [9, 10, 11, 12] {
+            let conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now'))); CREATE TABLE candidate_data (value TEXT NOT NULL);").unwrap();
+            conn.execute("INSERT INTO schema_version (version) VALUES (?1)", [marker])
+                .unwrap();
+            conn.execute("INSERT INTO candidate_data VALUES ('unchanged')", [])
+                .unwrap();
+            let before: Vec<(String, String)> = conn
+                .prepare("SELECT type, name FROM sqlite_master ORDER BY type, name")
+                .unwrap()
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<SqliteResult<_>>()
+                .unwrap();
+
+            assert!(
+                apply_migrations(&conn).is_err(),
+                "candidate marker V{marker} must fail closed"
+            );
+
+            let after: Vec<(String, String)> = conn
+                .prepare("SELECT type, name FROM sqlite_master ORDER BY type, name")
+                .unwrap()
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .unwrap()
+                .collect::<SqliteResult<_>>()
+                .unwrap();
+            assert_eq!(after, before);
+            assert_eq!(
+                conn.query_row("SELECT value FROM candidate_data", [], |row| row
+                    .get::<_, String>(0))
+                    .unwrap(),
+                "unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn tampered_candidate_intent_digest_is_rejected_not_recomputed() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now')));
+             CREATE TABLE consumption_intents (intent_id BLOB PRIMARY KEY, idempotency_key TEXT NOT NULL, state TEXT NOT NULL, gate_head_snapshot_digest BLOB NOT NULL, target_artifact_digest BLOB NOT NULL, integrity_digest BLOB NOT NULL);",
+        )
+        .unwrap();
+        conn.execute("INSERT INTO schema_version (version) VALUES (9)", [])
+            .unwrap();
+        conn.execute(
+            "INSERT INTO consumption_intents VALUES (?1, 'legacy', 'Reserved', ?2, ?2, ?3)",
+            params![
+                [1_u8; 16].as_slice(),
+                [2_u8; 32].as_slice(),
+                [0xA5_u8; 32].as_slice()
+            ],
+        )
+        .unwrap();
+
+        assert!(apply_migrations(&conn).is_err());
+
+        let digest: Vec<u8> = conn
+            .query_row(
+                "SELECT integrity_digest FROM consumption_intents",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(digest, vec![0xA5; 32]);
+    }
+
+    // Released V8 has no verification tables, so no released legacy intent
+    // digest exists to validate or rewrite. Candidate V9+ inputs reject above.
 
     fn artifact_blob_prefix(table: &str) -> &'static str {
         match table {

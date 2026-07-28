@@ -156,7 +156,7 @@ async fn race_toc_tou_replacement_is_rejected_by_production_broker() {
 
     let (_, result) = tokio::join!(writer, checker);
 
-    assert!(matches!(result, Err(FsBrokerError::IdentityMismatch)));
+    assert!(matches!(result, Err(FsBrokerError::MutationUnavailable)));
     assert_eq!(
         std::fs::read(test_root.join("target.txt")).unwrap(),
         b"replacement"

@@ -1,5 +1,6 @@
 use crate::verification::digest::VerificationDigest;
 use crate::verification::identity::*;
+use crate::verification::intent::{ConsumptionIntent, DispatchEvidence, IntentState};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -606,31 +607,36 @@ impl IntentStore {
 #[derive(Debug)]
 pub enum IntentError {
     AlreadyReserved,
+    IdempotencyConflict,
     IntentNotFound,
     IntentInvalidated,
     InvalidTransition,
     DigestMismatch,
+    CorruptStore,
 }
 
 impl std::fmt::Display for IntentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AlreadyReserved => write!(f, "intent already reserved"),
+            Self::IdempotencyConflict => {
+                write!(f, "idempotency reservation conflicts with stored intent")
+            }
             Self::IntentNotFound => write!(f, "intent not found"),
             Self::IntentInvalidated => write!(f, "intent invalidated"),
             Self::InvalidTransition => write!(f, "invalid state transition"),
             Self::DigestMismatch => write!(f, "digest mismatch"),
+            Self::CorruptStore => write!(f, "intent store contains malformed data"),
         }
     }
 }
 impl std::error::Error for IntentError {}
 
-use crate::verification::digest::*;
-use crate::verification::intent::*;
-
 #[cfg(test)]
 mod intent_tests {
     use super::*;
+    use crate::verification::digest::*;
+    use crate::verification::intent::*;
 
     fn td(b: u8) -> VerificationDigest {
         VerificationDigest::from_bytes([b; 32])

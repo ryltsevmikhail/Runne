@@ -85,6 +85,61 @@ fn two_writers_racing_same_routing_generation_have_one_winner() {
 }
 
 #[test]
+fn direct_stage_seven_commit_is_rejected_without_durable_effects() {
+    let db = TempDb::new("stage-seven-direct-commit");
+    let store = SqliteMigrationControlStore::open(db.path()).unwrap();
+    store.commit(stage_commit()).unwrap();
+    let before = durable_counts(&Connection::open(db.path()).unwrap());
+
+    let loaded = store.load_plan(&plan_id()).unwrap().unwrap();
+    let mut plan = loaded.plan;
+    plan.phase = MigrationPhase::DrainDeprecate;
+    plan.plan_version += 1;
+    let context = command_context(9, 0, None);
+    let transition = MigrationTransition {
+        transition_id: "direct-stage-seven".into(),
+        plan_id: plan.plan_id.clone(),
+        cycle_id: plan.cycle_id.clone(),
+        from: MigrationPhase::DefaultNative,
+        to: MigrationPhase::DrainDeprecate,
+        plan_version: plan.plan_version,
+        occurred_at: context.evaluated_at,
+    };
+    let outcome = MigrationCommandOutcome {
+        plan: plan.clone(),
+        routing_snapshot: None,
+        transition_id: transition.transition_id.clone(),
+    };
+    let commit = MigrationCommit::new(
+        context.clone(),
+        fingerprint(9),
+        plan.clone(),
+        vec![MigrationMutation::AppendTransition(transition)],
+        outcome,
+        Some(audit(
+            &context,
+            &plan,
+            MigrationAuditAction::AdvancePhase,
+            9,
+        )),
+    )
+    .unwrap();
+
+    let result = store.commit(commit);
+
+    assert_eq!(
+        result,
+        Err(MigrationStoreError::LifecycleAuthorityRequired {
+            target: MigrationPhase::DrainDeprecate,
+        })
+    );
+    assert_eq!(
+        durable_counts(&Connection::open(db.path()).unwrap()),
+        before
+    );
+}
+
+#[test]
 fn audit_failure_rolls_back_plan_snapshot_head_and_receipt() {
     let db = TempDb::new("audit-rollback");
     let store = SqliteMigrationControlStore::open(db.path()).unwrap();

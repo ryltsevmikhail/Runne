@@ -8,7 +8,7 @@ use gocode_daemon::lock::LockSet;
 use gocode_daemon::recovery::{RecoveryState, enumerate_recovery_tasks};
 use gocode_store::schema;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -30,7 +30,7 @@ fn token_path(config: &ConfigurationSnapshot) -> PathBuf {
 }
 
 /// Extract daemon_dir from db_path.
-fn daemon_dir(db: &PathBuf) -> &std::path::Path {
+fn daemon_dir(db: &Path) -> &std::path::Path {
     db.parent().unwrap()
 }
 

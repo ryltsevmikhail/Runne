@@ -53,11 +53,6 @@ pub(super) fn resolve_nofollow(
     })
 }
 
-pub(super) fn open_follow(path: &Path, flags: OFlags) -> Result<OwnedFd, FsBrokerError> {
-    let fd = open(path, flags | OFlags::CLOEXEC, Mode::empty()).map_err(map_open_error)?;
-    Ok(fd)
-}
-
 /// Классифицирует ошибки `open`/`openat` как boundary violations.
 ///
 /// Linux: `openat(O_NOFOLLOW)` на symlink возвращает `ELOOP`.

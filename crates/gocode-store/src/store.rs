@@ -34,7 +34,9 @@ use crate::codec::{
 use crate::integrity::{
     compute_integrity_digest_v2_with_global_position, compute_integrity_digest_with_global_position,
 };
-use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
+use crate::schema::{
+    apply_migrations, open_with_pragmas, preflight_existing_file, run_startup_gates,
+};
 
 /// Maximum event count per commit (safety bound).
 const MAX_EVENTS_PER_COMMIT: usize = 1_000;
@@ -111,6 +113,13 @@ impl StoreTransaction {
         db_path: &str,
         runtime_authority_id: RuntimeAuthorityId,
     ) -> Result<Self, CommitError> {
+        if db_path != ":memory:" {
+            preflight_existing_file(std::path::Path::new(db_path)).map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::Unavailable,
+                )
+            })?;
+        }
         let writer = open_with_pragmas(db_path).map_err(|_| {
             CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
         })?;

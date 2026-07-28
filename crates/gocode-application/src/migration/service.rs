@@ -209,6 +209,12 @@ where
         plan_id: MigrationPlanId,
         target: MigrationPhase,
     ) -> Result<AdvancePhaseOutput, MigrationError> {
+        if matches!(
+            target,
+            MigrationPhase::DrainDeprecate | MigrationPhase::Retired
+        ) {
+            return Err(MigrationError::SpecializedTransitionRequired { target });
+        }
         let fingerprint = fingerprint(
             3,
             vec![
@@ -242,11 +248,6 @@ where
             MigrationPhase::InternalCanary | MigrationPhase::CohortRollout
         ) {
             validate_production_gates(&loaded, &plan, target, context.evaluated_at)?;
-        } else if matches!(
-            target,
-            MigrationPhase::DrainDeprecate | MigrationPhase::Retired
-        ) {
-            return Err(MigrationError::ProductionGatesUnavailable);
         }
 
         let transition_id = transition_identity(&context, &fingerprint);
@@ -665,116 +666,23 @@ where
         ))
     }
 
-    /// Reject drain until production gates are implemented.
+    /// Close admission for one cohort and advance the plan to DrainDeprecate.
     pub fn begin_drain(
         &self,
-        context: MigrationCommandContext,
-        input: BeginDrainInput,
+        _context: MigrationCommandContext,
+        _input: BeginDrainInput,
     ) -> Result<BeginDrainOutput, MigrationError> {
-        let fingerprint = fingerprint(
-            7,
-            vec![
-                input.plan_id.as_str().as_bytes().to_vec(),
-                cohort_digest(&input.cohort).as_bytes().to_vec(),
-            ],
-        );
-        if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
-            return Ok(BeginDrainOutput { outcome });
-        }
-        if self
-            .store
-            .load_plan(&input.plan_id)
-            .map_err(map_store_error)?
-            .is_some_and(|loaded| {
-                loaded.plan.status == MigrationPlanStatus::Retired
-                    || loaded.plan.phase == MigrationPhase::Retired
-            })
-        {
-            return Err(MigrationError::TerminalPlanImmutable);
-        }
-        Err(MigrationError::ProductionGatesUnavailable)
+        // Durable admission closure is not available yet; never claim a drain.
+        Err(MigrationError::DrainBlocked)
     }
 
     /// Validate every Stage 8 exit condition and atomically retire Source.
     pub fn retire_source(
         &self,
-        context: MigrationCommandContext,
-        input: RetireSourceInput,
+        _context: MigrationCommandContext,
+        _input: RetireSourceInput,
     ) -> Result<RetireSourceOutput, MigrationError> {
-        let fingerprint = fingerprint(
-            8,
-            vec![
-                input.plan_id.as_str().as_bytes().to_vec(),
-                artifact_fingerprint_bytes(&input.manifest.manifest),
-                input
-                    .readiness
-                    .reference_inventory
-                    .digest()
-                    .as_bytes()
-                    .to_vec(),
-                retirement_readiness_fingerprint(&input.readiness),
-            ],
-        );
-        if let Some(outcome) = self.lookup_duplicate(&context, &fingerprint)? {
-            return Ok(RetireSourceOutput { outcome });
-        }
-        let loaded = self
-            .store
-            .load_plan(&input.plan_id)
-            .map_err(map_store_error)?
-            .ok_or(MigrationError::PlanNotFound)?;
-        if loaded.plan.phase != MigrationPhase::DrainDeprecate
-            || loaded.plan.status != MigrationPlanStatus::Active
-            || !input.readiness.is_ready()
-            || !input.manifest.has_valid_identity()
-            || input.manifest.plan_id != loaded.plan.plan_id
-            || input.manifest.cycle_id != loaded.plan.cycle_id
-            || input.manifest.reference_inventory_digest
-                != input.readiness.reference_inventory.digest()
-            || input.manifest.created_at != context.evaluated_at
-        {
-            return Err(MigrationError::RetirementBlocked);
-        }
-
-        let previous = loaded.plan.phase;
-        let mut plan = loaded.plan;
-        plan.advance(MigrationPhase::Retired, context.expected_plan_version)?;
-        plan.status = MigrationPlanStatus::Retired;
-        let transition_id = transition_identity(&context, &fingerprint);
-        let transition = MigrationTransition {
-            transition_id: transition_id.clone(),
-            plan_id: plan.plan_id.clone(),
-            cycle_id: plan.cycle_id.clone(),
-            from: previous,
-            to: MigrationPhase::Retired,
-            plan_version: plan.plan_version,
-            occurred_at: context.evaluated_at,
-        };
-        let outcome = MigrationCommandOutcome {
-            plan: plan.clone(),
-            routing_snapshot: None,
-            transition_id,
-        };
-        let audit = audit_record(
-            &context,
-            &plan,
-            MigrationAuditAction::RetireSource,
-            &fingerprint,
-        );
-        let commit = MigrationCommit::new(
-            context,
-            fingerprint,
-            plan.clone(),
-            vec![
-                MigrationMutation::AppendTransition(transition),
-                MigrationMutation::AppendRetirementManifest(Box::new(input.manifest)),
-            ],
-            outcome,
-            Some(audit),
-        )?;
-        Ok(RetireSourceOutput {
-            outcome: commit_outcome(self.store.commit(commit).map_err(map_store_error)?),
-        })
+        Err(MigrationError::RetirementBlocked)
     }
 
     /// Immediately revoke candidate routing authority and restore Source.
@@ -1308,22 +1216,6 @@ fn rollback_policy_fingerprint_bytes(policy: &RollbackPolicy) -> Vec<u8> {
     }
 }
 
-fn retirement_readiness_fingerprint(readiness: &RetirementReadiness) -> Vec<u8> {
-    let mut bytes = readiness.reference_inventory.digest().as_bytes().to_vec();
-    bytes.extend([
-        u8::from(readiness.legacy_admission_closed),
-        u8::from(readiness.replacement_platforms_verified),
-        u8::from(readiness.migration_window_closed),
-        u8::from(readiness.rollback_window_closed),
-        u8::from(readiness.credentials_disabled),
-        u8::from(readiness.processes_disabled),
-        u8::from(readiness.packages_disabled),
-        u8::from(readiness.removal_suites_passed),
-        u8::from(readiness.final_audit_accepted),
-    ]);
-    bytes
-}
-
 fn validate_evidence_scope(
     plan: &MigrationPlan,
     evidence: &MigrationEvidence,
@@ -1578,6 +1470,7 @@ fn map_store_error(error: MigrationStoreError) -> MigrationError {
             MigrationError::RoutingGenerationConflict { expected, actual }
         }
         MigrationStoreError::ArithmeticOverflow => MigrationError::ArithmeticOverflow,
+        MigrationStoreError::LifecycleAuthorityRequired { .. } => MigrationError::DrainBlocked,
         MigrationStoreError::CorruptData
         | MigrationStoreError::UnsupportedSchema
         | MigrationStoreError::Unavailable

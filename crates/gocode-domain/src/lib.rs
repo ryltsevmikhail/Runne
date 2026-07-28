@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+// TODO: add doc comments to all public items, then remove this allow.
 #![allow(missing_docs)]
 
 //! gocode-domain — core domain types, commands, events, aggregates.

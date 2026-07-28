@@ -6,6 +6,7 @@ use gocode_domain::verification::identity::*;
 /// Public entry point for recording verification evidence.
 /// record_raw is the ONLY public method — no scanner bypass possible.
 #[async_trait]
+#[allow(clippy::too_many_arguments)]
 pub trait EvidenceRecorder: Send + Sync {
     /// Scan raw content for secrets → compute digest → commit metadata.
     /// Rejects BEFORE persistence if content contains secrets.
@@ -43,4 +44,6 @@ pub enum EvidenceRecorderError {
     UntrustedSource,
     #[error("evidence not found")]
     NotFound,
+    #[error("corrupt evidence store data")]
+    CorruptData,
 }

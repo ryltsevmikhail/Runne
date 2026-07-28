@@ -647,7 +647,7 @@ fn production_control_primitives_fail_closed_without_mutation() {
                 cohort: routing_unit().cohort,
             },
         ),
-        Err(MigrationError::ProductionGatesUnavailable)
+        Err(MigrationError::DrainBlocked)
     );
     assert_eq!(
         service.retire_source(command_context(0, None, 63), retirement_input(),),
@@ -656,6 +656,70 @@ fn production_control_primitives_fail_closed_without_mutation() {
 
     assert_eq!(service.load_plan(&plan_id()).unwrap(), before_plan);
     assert_eq!(service.routing_head(&routing_unit()).unwrap(), before_head);
+}
+
+#[test]
+fn lifecycle_generic_transition_to_drain_deprecate_has_no_durable_effect() {
+    let (service, store) = seeded_service();
+    {
+        let mut state = store.state.lock().unwrap();
+        let loaded = state.plans.get_mut(plan_id().as_str()).unwrap();
+        loaded.plan.phase = MigrationPhase::DefaultNative;
+        loaded.plan.plan_version = 6;
+    }
+    let before = lifecycle_state(&service, &store);
+
+    assert_eq!(
+        service.advance_phase(
+            next_context(&service),
+            plan_id(),
+            MigrationPhase::DrainDeprecate,
+        ),
+        Err(MigrationError::SpecializedTransitionRequired {
+            target: MigrationPhase::DrainDeprecate,
+        })
+    );
+    assert_eq!(lifecycle_state(&service, &store), before);
+}
+
+#[test]
+fn lifecycle_generic_transition_to_retired_has_no_durable_effect() {
+    let (service, store) = draining_service();
+    let before = lifecycle_state(&service, &store);
+
+    assert_eq!(
+        service.advance_phase(next_context(&service), plan_id(), MigrationPhase::Retired),
+        Err(MigrationError::SpecializedTransitionRequired {
+            target: MigrationPhase::Retired,
+        })
+    );
+    assert_eq!(lifecycle_state(&service, &store), before);
+}
+
+#[test]
+fn lifecycle_begin_drain_has_no_durable_effect() {
+    let (service, store) = seeded_service();
+    {
+        let mut state = store.state.lock().unwrap();
+        let loaded = state.plans.get_mut(plan_id().as_str()).unwrap();
+        loaded.plan.phase = MigrationPhase::DefaultNative;
+        loaded.plan.plan_version = 6;
+        let head = state.heads.get_mut(&routing_unit().digest()).unwrap();
+        head.authority = RuntimeAuthority::Candidate(candidate_generation());
+    }
+    let before = lifecycle_state(&service, &store);
+
+    assert_eq!(
+        service.begin_drain(
+            next_context(&service),
+            BeginDrainInput {
+                plan_id: plan_id(),
+                cohort: routing_unit().cohort,
+            },
+        ),
+        Err(MigrationError::DrainBlocked)
+    );
+    assert_eq!(lifecycle_state(&service, &store), before);
 }
 
 #[test]
@@ -675,32 +739,16 @@ fn retirement_requires_every_exit_condition_without_mutation() {
 }
 
 #[test]
-fn successful_retirement_is_terminal_and_preserves_history() {
-    let (service, _) = draining_service();
-    let before = service.load_plan(&plan_id()).unwrap().unwrap();
+fn lifecycle_retire_source_has_no_durable_effect() {
+    let (service, store) = draining_service();
+    let before = lifecycle_state(&service, &store);
 
-    let output = service
-        .retire_source(next_context(&service), retirement_input())
-        .unwrap();
+    assert_eq!(
+        service.retire_source(next_context(&service), retirement_input()),
+        Err(MigrationError::RetirementBlocked)
+    );
 
-    assert_eq!(output.outcome.plan.phase, MigrationPhase::Retired);
-    assert_eq!(output.outcome.plan.status, MigrationPlanStatus::Retired);
-    let after = service.load_plan(&plan_id()).unwrap().unwrap();
-    assert_eq!(
-        &after.transitions[..before.transitions.len()],
-        before.transitions.as_slice()
-    );
-    assert_eq!(after.retirement_manifests.len(), 1);
-    assert_eq!(
-        service.begin_drain(
-            next_context(&service),
-            BeginDrainInput {
-                plan_id: plan_id(),
-                cohort: routing_unit().cohort,
-            },
-        ),
-        Err(MigrationError::TerminalPlanImmutable)
-    );
+    assert_eq!(lifecycle_state(&service, &store), before);
 }
 
 #[test]
@@ -989,6 +1037,7 @@ struct MemoryState {
             gocode_application::migration::ports::MigrationCommandOutcome,
         ),
     >,
+    audits: Vec<gocode_application::migration::ports::MigrationAuditRecord>,
 }
 
 impl MemoryMigrationStore {
@@ -1017,6 +1066,16 @@ impl MemoryMigrationStore {
             .plans
             .values()
             .map(|loaded| loaded.evidence.len())
+            .sum()
+    }
+
+    fn retirement_manifest_count(&self) -> usize {
+        self.state
+            .lock()
+            .unwrap()
+            .plans
+            .values()
+            .map(|loaded| loaded.retirement_manifests.len())
             .sum()
     }
 }
@@ -1178,6 +1237,7 @@ impl MigrationControlStore for MemoryMigrationStore {
             .plan = commit.plan().clone();
 
         let outcome = commit.outcome().clone();
+        state.audits.push(commit.audit().clone());
         let receipt = MigrationReceipt {
             command_id: commit.context().command_id,
             idempotency_key: commit.context().idempotency_key.clone(),
@@ -1306,6 +1366,42 @@ fn draining_service() -> (
     }
     (service, store)
 }
+
+fn lifecycle_state(
+    service: &MigrationService<MemoryMigrationStore, PureShadow>,
+    store: &MemoryMigrationStore,
+) -> LifecycleState {
+    let plan = service.load_plan(&plan_id()).unwrap();
+    let head = service.routing_head(&routing_unit()).unwrap();
+    let transition_count = store.transition_count();
+    let retirement_manifest_count = store.retirement_manifest_count();
+    let state = store.state.lock().unwrap();
+
+    (
+        plan,
+        head,
+        transition_count,
+        retirement_manifest_count,
+        state.receipts.clone(),
+        state.audits.clone(),
+    )
+}
+
+type LifecycleState = (
+    Option<LoadedMigrationPlan>,
+    Option<RoutingSnapshot>,
+    usize,
+    usize,
+    BTreeMap<
+        String,
+        (
+            IdempotencyKey,
+            MigrationCommandFingerprint,
+            gocode_application::migration::ports::MigrationCommandOutcome,
+        ),
+    >,
+    Vec<gocode_application::migration::ports::MigrationAuditRecord>,
+);
 
 fn record_phase4_evidence_except(
     service: &MigrationService<MemoryMigrationStore, PureShadow>,

@@ -55,6 +55,33 @@ pub struct DigestContract {
     domain_tag: &'static str,
 }
 
+/// Canonical input for gate evaluation digest computation.
+pub struct GateEvaluationInput<'a> {
+    pub definition_digest: &'a VerificationDigest,
+    pub run_id_bytes: &'a [u8],
+    pub profile_digest: &'a VerificationDigest,
+    pub policy_revision: &'a str,
+    pub evidence_set_digest: &'a VerificationDigest,
+    pub result: &'a str,
+    pub reason: &'a str,
+    pub predecessor_ref_bytes: &'a [u8],
+    pub head_generation: u64,
+}
+
+/// Canonical input for plan evaluation digest computation.
+pub struct PlanEvaluationInput<'a> {
+    pub run_id_bytes: &'a [u8],
+    pub profile_digest: &'a VerificationDigest,
+    pub plan_binding_bytes: &'a [u8],
+    pub gate_refs_canonical_bytes: &'a [u8],
+    pub gate_head_snapshot_digest: &'a VerificationDigest,
+    pub policy_revision: &'a str,
+    pub result: &'a str,
+    pub reason: &'a str,
+    pub predecessor_ref_bytes: &'a [u8],
+    pub head_generation: u64,
+}
+
 impl DigestContract {
     /// Create a new contract with a domain tag (e.g. "gocode:evidence-set:v1").
     pub const fn new(domain_tag: &'static str) -> Self {
@@ -110,63 +137,38 @@ impl DigestContract {
     }
 
     /// Compute gate evaluation digest.
-    pub fn compute_gate_evaluation(
-        &self,
-        definition_digest: &VerificationDigest,
-        run_id_bytes: &[u8],
-        profile_digest: &VerificationDigest,
-        policy_revision: &str,
-        evidence_set_digest: &VerificationDigest,
-        result: &str,
-        reason: &str,
-        predecessor_ref_bytes: &[u8],
-        head_generation: u64,
-    ) -> VerificationDigest {
-        let mut components: Vec<&[u8]> = Vec::new();
-        let mut tmp;
-
-        components.push(definition_digest.as_bytes());
-        components.push(run_id_bytes);
-        components.push(profile_digest.as_bytes());
-        components.push(policy_revision.as_bytes());
-        components.push(evidence_set_digest.as_bytes());
-        components.push(result.as_bytes());
-        components.push(reason.as_bytes());
-        components.push(predecessor_ref_bytes);
-        tmp = head_generation.to_be_bytes();
-        components.push(&tmp);
+    pub fn compute_gate_evaluation(&self, input: &GateEvaluationInput<'_>) -> VerificationDigest {
+        let tmp = input.head_generation.to_be_bytes();
+        let components = vec![
+            input.definition_digest.as_bytes(),
+            input.run_id_bytes,
+            input.profile_digest.as_bytes(),
+            input.policy_revision.as_bytes(),
+            input.evidence_set_digest.as_bytes(),
+            input.result.as_bytes(),
+            input.reason.as_bytes(),
+            input.predecessor_ref_bytes,
+            &tmp,
+        ];
 
         self.compute(&components)
     }
 
     /// Compute plan evaluation digest.
-    pub fn compute_plan_evaluation(
-        &self,
-        run_id_bytes: &[u8],
-        profile_digest: &VerificationDigest,
-        plan_binding_bytes: &[u8],
-        gate_refs_canonical_bytes: &[u8],
-        gate_head_snapshot_digest: &VerificationDigest,
-        policy_revision: &str,
-        result: &str,
-        reason: &str,
-        predecessor_ref_bytes: &[u8],
-        head_generation: u64,
-    ) -> VerificationDigest {
-        let mut components: Vec<&[u8]> = Vec::new();
-        let mut tmp;
-
-        components.push(run_id_bytes);
-        components.push(profile_digest.as_bytes());
-        components.push(plan_binding_bytes);
-        components.push(gate_refs_canonical_bytes);
-        components.push(gate_head_snapshot_digest.as_bytes());
-        components.push(policy_revision.as_bytes());
-        components.push(result.as_bytes());
-        components.push(reason.as_bytes());
-        components.push(predecessor_ref_bytes);
-        tmp = head_generation.to_be_bytes();
-        components.push(&tmp);
+    pub fn compute_plan_evaluation(&self, input: &PlanEvaluationInput<'_>) -> VerificationDigest {
+        let tmp = input.head_generation.to_be_bytes();
+        let components = vec![
+            input.run_id_bytes,
+            input.profile_digest.as_bytes(),
+            input.plan_binding_bytes,
+            input.gate_refs_canonical_bytes,
+            input.gate_head_snapshot_digest.as_bytes(),
+            input.policy_revision.as_bytes(),
+            input.result.as_bytes(),
+            input.reason.as_bytes(),
+            input.predecessor_ref_bytes,
+            &tmp,
+        ];
 
         self.compute(&components)
     }
@@ -301,35 +303,37 @@ mod tests {
     #[test]
     fn gate_evaluation_digest_formula() {
         let contract = DigestContract::new("gocode:gate-evaluation:v1");
-        let result = contract.compute_gate_evaluation(
-            &VerificationDigest::from_bytes([1u8; 32]),
-            &[2u8; 16],
-            &VerificationDigest::from_bytes([3u8; 32]),
-            "v1",
-            &VerificationDigest::from_bytes([4u8; 32]),
-            "passed",
-            "all criteria met",
-            &[],
-            1,
-        );
+        let input = GateEvaluationInput {
+            definition_digest: &VerificationDigest::from_bytes([1u8; 32]),
+            run_id_bytes: &[2u8; 16],
+            profile_digest: &VerificationDigest::from_bytes([3u8; 32]),
+            policy_revision: "v1",
+            evidence_set_digest: &VerificationDigest::from_bytes([4u8; 32]),
+            result: "passed",
+            reason: "all criteria met",
+            predecessor_ref_bytes: &[],
+            head_generation: 1,
+        };
+        let result = contract.compute_gate_evaluation(&input);
         assert!(!result.as_bytes().iter().all(|b| *b == 0));
     }
 
     #[test]
     fn plan_evaluation_digest_formula() {
         let contract = DigestContract::new("gocode:plan-evaluation:v1");
-        let result = contract.compute_plan_evaluation(
-            &[1u8; 16],
-            &VerificationDigest::from_bytes([2u8; 32]),
-            b"plan-binding",
-            b"gate-refs",
-            &VerificationDigest::from_bytes([3u8; 32]),
-            "v1",
-            "passed",
-            "all gates passed",
-            &[],
-            1,
-        );
+        let input = PlanEvaluationInput {
+            run_id_bytes: &[1u8; 16],
+            profile_digest: &VerificationDigest::from_bytes([2u8; 32]),
+            plan_binding_bytes: b"plan-binding",
+            gate_refs_canonical_bytes: b"gate-refs",
+            gate_head_snapshot_digest: &VerificationDigest::from_bytes([3u8; 32]),
+            policy_revision: "v1",
+            result: "passed",
+            reason: "all gates passed",
+            predecessor_ref_bytes: &[],
+            head_generation: 1,
+        };
+        let result = contract.compute_plan_evaluation(&input);
         assert!(!result.as_bytes().iter().all(|b| *b == 0));
     }
 }

@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/migration-evidence-v1.schema.json",
+  "title": "Migration Evidence Envelope V1",
+  "description": "Envelope for L3 migration golden fixtures: baseline, import-report, shadow-diff, cutover-manifest, rollback-manifest.",
+  "type": "object",
+  "required": [
+    "artifact_kind",
+    "artifact_revision",
+    "source_sha",
+    "profile_digest",
+    "schema_digest",
+    "routing_unit_digest",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_kind": {
+      "type": "string",
+      "enum": [
+        "migration-baseline",
+        "migration-import-report",
+        "migration-shadow-diff",
+        "migration-cutover-manifest",
+        "migration-rollback-manifest"
+      ]
+    },
+    "artifact_revision": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "profile_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "schema_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "routing_unit_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "artifact_kind": { "const": "migration-baseline" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "plan_id",
+              "cycle_id",
+              "cycle_kind",
+              "phase",
+              "deployment",
+              "cohort_class",
+              "source_generation",
+              "candidate_generation",
+              "provenance"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "plan_id": { "type": "string", "minLength": 1 },
+              "cycle_id": { "type": "string", "minLength": 1 },
+              "cycle_kind": { "type": "string", "enum": ["forward", "rollback"] },
+              "phase": { "type": "string", "enum": ["baseline"] },
+              "deployment": { "type": "string", "minLength": 1 },
+              "cohort_class": { "type": "string", "minLength": 1 },
+              "source_generation": { "type": "string", "minLength": 1 },
+              "candidate_generation": { "type": "string", "minLength": 1 },
+              "provenance": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_kind": { "const": "migration-import-report" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "plan_id",
+              "cycle_id",
+              "phase",
+              "deployment",
+              "counts",
+              "provenance"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "plan_id": { "type": "string", "minLength": 1 },
+              "cycle_id": { "type": "string", "minLength": 1 },
+              "phase": { "type": "string", "enum": ["import"] },
+              "deployment": { "type": "string", "minLength": 1 },
+              "counts": {
+                "type": "object",
+                "required": [
+                  "imported",
+                  "skipped",
+                  "unsupported",
+                  "rejected",
+                  "unknown",
+                  "lossy",
+                  "ambiguous"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "imported": { "type": "integer", "minimum": 0 },
+                  "skipped": { "type": "integer", "minimum": 0 },
+                  "unsupported": { "type": "integer", "minimum": 0 },
+                  "rejected": { "type": "integer", "minimum": 0 },
+                  "unknown": { "type": "integer", "minimum": 0 },
+                  "lossy": { "type": "integer", "minimum": 0 },
+                  "ambiguous": { "type": "integer", "minimum": 0 }
+                }
+              },
+              "provenance": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_kind": { "const": "migration-shadow-diff" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "plan_id",
+              "cycle_id",
+              "phase",
+              "deployment",
+              "canonical_write_count",
+              "external_effect_count",
+              "client_acknowledgement_count",
+              "diff_report",
+              "provenance"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "plan_id": { "type": "string", "minLength": 1 },
+              "cycle_id": { "type": "string", "minLength": 1 },
+              "phase": { "type": "string", "enum": ["shadow"] },
+              "deployment": { "type": "string", "minLength": 1 },
+              "canonical_write_count": { "type": "integer", "minimum": 0 },
+              "external_effect_count": { "type": "integer", "minimum": 0 },
+              "client_acknowledgement_count": { "type": "integer", "minimum": 0 },
+              "diff_report": { "type": "string", "minLength": 1 },
+              "provenance": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_kind": { "const": "migration-cutover-manifest" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "plan_id",
+              "cycle_id",
+              "phase",
+              "deployment",
+              "cutover_timestamp",
+              "source_release_ref",
+              "candidate_release_ref",
+              "migration_audit",
+              "drain_audit",
+              "provenance"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "plan_id": { "type": "string", "minLength": 1 },
+              "cycle_id": { "type": "string", "minLength": 1 },
+              "phase": { "type": "string", "enum": ["cutover"] },
+              "deployment": { "type": "string", "minLength": 1 },
+              "cutover_timestamp": { "type": "string", "minLength": 1 },
+              "source_release_ref": { "type": "string", "minLength": 1 },
+              "candidate_release_ref": { "type": "string", "minLength": 1 },
+              "migration_audit": { "type": "string", "minLength": 1 },
+              "drain_audit": { "type": "string", "minLength": 1 },
+              "provenance": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_kind": { "const": "migration-rollback-manifest" }
+        }
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "type": "object",
+            "required": [
+              "plan_id",
+              "cycle_id",
+              "phase",
+              "deployment",
+              "rollback_timestamp",
+              "from_release_ref",
+              "to_release_ref",
+              "rollback_audit",
+              "revert_audit",
+              "provenance"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "plan_id": { "type": "string", "minLength": 1 },
+              "cycle_id": { "type": "string", "minLength": 1 },
+              "phase": { "type": "string", "enum": ["rollback"] },
+              "deployment": { "type": "string", "minLength": 1 },
+              "rollback_timestamp": { "type": "string", "minLength": 1 },
+              "from_release_ref": { "type": "string", "minLength": 1 },
+              "to_release_ref": { "type": "string", "minLength": 1 },
+              "rollback_audit": { "type": "string", "minLength": 1 },
+              "revert_audit": { "type": "string", "minLength": 1 },
+              "provenance": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$comment": "Target schema. Per-kind payload validation uses Draft 2020-12 if/then discriminators. Digest fields must match sha256:<hex> pattern; semantic verification against .digest sidecar is performed by verify-migration-artifacts.py."
+}
