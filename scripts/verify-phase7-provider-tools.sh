@@ -25,9 +25,9 @@ evidence = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
 required = [
     f"fixture_sha256: {digest}",
-    "phase7a_verdict: IMPLEMENTED_CANDIDATE",
-    "phase7b_plugin_host: IMPLEMENTED_CANDIDATE",
-    "phase7c_mcp_adapter: IMPLEMENTED_CANDIDATE",
+    "phase7a_verdict: COMPLETED",
+    "phase7b_plugin_host: COMPLETED",
+    "phase7c_mcp_adapter: COMPLETED",
     "production_mcp_sdk_profile: DISABLED_BY_POLICY",
     "live_provider_evaluation: NOT_RUN",
 ]
@@ -37,11 +37,16 @@ if missing:
 
 source = re.search(r"^source_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
 reviewed = re.search(r"^reviewed_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
+integrated = re.search(r"^integrated_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
 if source is None or reviewed is None or source.group(1) != reviewed.group(1):
     raise SystemExit("Phase 7 exact source/reviewed commit evidence is invalid")
 commit = source.group(1)
 subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], check=True)
 subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=True)
+if integrated is None:
+    raise SystemExit("Phase 7 integrated commit evidence is missing")
+subprocess.run(["git", "cat-file", "-e", f"{integrated.group(1)}^{{commit}}"], check=True)
+subprocess.run(["git", "merge-base", "--is-ancestor", integrated.group(1), "HEAD"], check=True)
 PY
 
 cargo test -p gocode-provider --all-targets --locked
