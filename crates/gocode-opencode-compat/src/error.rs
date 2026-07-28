@@ -39,3 +39,23 @@ pub enum RecoveryListError {
     /// The binding adapter failed to list pending entries.
     Binding(BindingError),
 }
+
+/// Closed host failures for the OpenCode V1 session compatibility surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionV1HostError {
+    NotFound,
+    Conflict,
+    StorageFailure,
+    Timeout,
+}
+
+/// Fail-closed error from the OpenCode V1 session compatibility surface.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionV1Error {
+    InvalidSessionId,
+    InvalidRequest { detail: &'static str },
+    UnsupportedField { field: &'static str },
+    UnsupportedPart { index: usize },
+    HostOutputMismatch,
+    Host(SessionV1HostError),
+}
