@@ -20,7 +20,7 @@ if cargo tree -p gocode-mcp --edges normal | grep -E '(^|[[:space:]])(rmcp|reqwe
   exit 1
 fi
 
-if rg -n 'McpSdkIntegrationAuthorityPort|PRODUCTION_MCP_SDK_ENABLED:[[:space:]]*bool[[:space:]]*=[[:space:]]*true' \
+if grep -R -n -E 'McpSdkIntegrationAuthorityPort|PRODUCTION_MCP_SDK_ENABLED:[[:space:]]*bool[[:space:]]*=[[:space:]]*true' \
   crates/gocode-mcp/src crates/gocode-runtime/src; then
   echo "production MCP SDK activation must remain structurally disabled" >&2
   exit 1
@@ -32,9 +32,9 @@ import re
 import subprocess
 import sys
 
-evidence = pathlib.Path(sys.argv[1]).read_text()
-traceability = pathlib.Path(sys.argv[2]).read_text()
-phase6 = pathlib.Path(sys.argv[3]).read_text()
+evidence = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+traceability = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
+phase6 = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
 
 required_evidence = [
     "phase7_verdict: IMPLEMENTED_CANDIDATE",

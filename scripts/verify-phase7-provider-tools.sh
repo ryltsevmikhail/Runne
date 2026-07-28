@@ -21,7 +21,7 @@ import subprocess
 import sys
 
 fixture = pathlib.Path(sys.argv[1])
-evidence = pathlib.Path(sys.argv[2]).read_text()
+evidence = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
 required = [
     f"fixture_sha256: {digest}",
