@@ -151,6 +151,20 @@ async fn unknown_part_type_is_rejected_before_host_dispatch() {
 }
 
 #[tokio::test]
+async fn oversized_prompt_is_rejected_before_host_dispatch() {
+    let host = FakeHost::default();
+    let service = service(host.clone());
+    let input = serde_json::json!({
+        "parts": [{"type": "text", "text": "x".repeat(1024 * 1024 + 1)}]
+    });
+    assert!(matches!(
+        service.prompt(SESSION_ID, input).await.unwrap_err(),
+        SessionV1Error::InvalidRequest { .. }
+    ));
+    assert!(host.calls().is_empty());
+}
+
+#[tokio::test]
 async fn status_response_matches_the_pinned_golden_bytes() {
     let service = service(FakeHost::default());
     let actual = serde_jcs::to_vec(&service.status().await.unwrap()).unwrap();

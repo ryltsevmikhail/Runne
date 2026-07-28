@@ -17,6 +17,7 @@ pub mod migration_drain;
 pub mod migration_fence;
 pub mod migration_router;
 pub mod migration_shadow;
+pub mod opencode_session;
 pub mod plugin_host;
 pub mod provider_tool;
 pub mod session_host;
