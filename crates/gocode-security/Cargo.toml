@@ -7,6 +7,7 @@ rust-version.workspace = true
 [dependencies]
 gocode-domain = { path = "../gocode-domain" }
 gocode-application = { path = "../gocode-application" }
+gocode-platform = { path = "../gocode-platform" }
 serde = { version = "1", features = ["derive"] }
 uuid = { version = "1", features = ["v4", "v7"] }
 chrono = { version = "0.4", features = ["serde"] }

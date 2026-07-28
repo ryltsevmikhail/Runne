@@ -6,3 +6,9 @@
 pub mod certification;
 pub mod containment;
 pub mod fence;
+
+pub use containment::{
+    AttestationVerdict, ContainmentBackendId, ContainmentBackendVersion, ContainmentError,
+    ContainmentGate, ContainmentRequest, HostPlatform, NativeCertificate, RunnerIdentity,
+    RuntimeProbe, StartupAttestor,
+};

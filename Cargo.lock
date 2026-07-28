@@ -780,6 +780,7 @@ dependencies = [
  "chrono",
  "gocode-application",
  "gocode-domain",
+ "gocode-platform",
  "gocode-store",
  "rustix",
  "serde",
