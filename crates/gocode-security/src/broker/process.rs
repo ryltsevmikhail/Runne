@@ -136,7 +136,21 @@ impl ProcessBroker {
             if Path::new(&spec.executable)
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| matches!(name, "sh" | "bash" | "zsh" | "fish"))
+                .map(str::to_ascii_lowercase)
+                .is_some_and(|name| {
+                    matches!(
+                        name.as_str(),
+                        "sh" | "bash"
+                            | "zsh"
+                            | "fish"
+                            | "cmd"
+                            | "cmd.exe"
+                            | "powershell"
+                            | "powershell.exe"
+                            | "pwsh"
+                            | "pwsh.exe"
+                    )
+                })
             {
                 return Err(ProcessError::ShellCommandForbidden);
             }
@@ -217,18 +231,44 @@ fn current_platform_admission(
 mod tests {
     use super::*;
 
+    fn absolute_executable() -> String {
+        std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn absolute_cwd() -> String {
+        std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn absolute_shell() -> String {
+        #[cfg(windows)]
+        {
+            r"C:\Windows\System32\cmd.exe".into()
+        }
+        #[cfg(not(windows))]
+        {
+            "/bin/sh".into()
+        }
+    }
+
     #[test]
     fn shell_metacharacters_rejected() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
+        let cwd = absolute_cwd();
         let spec = ProcessSpec {
-            executable: "/bin/sh".into(),
+            executable: absolute_shell(),
             executable_digest: Some([1; 32]),
             argv: vec!["-c".into(), "rm -rf /".into()],
             env: HashMap::new(),
             allowed_env_keys: Vec::new(),
             inherit_environment: false,
-            cwd: "/tmp".into(),
-            authorized_cwd: Some("/tmp".into()),
+            cwd: cwd.clone(),
+            authorized_cwd: Some(cwd),
             cleanup_reservation_id: Some("cleanup-1".into()),
             worker_generation: 1,
             expected_generation: 1,
@@ -241,15 +281,16 @@ mod tests {
     #[test]
     fn secret_in_argv_rejected() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
+        let cwd = absolute_cwd();
         let spec = ProcessSpec {
-            executable: "/usr/bin/tool".into(),
+            executable: absolute_executable(),
             executable_digest: Some([1; 32]),
             argv: vec!["--token".into(), "sk-abc123".into()],
             env: HashMap::new(),
             allowed_env_keys: Vec::new(),
             inherit_environment: false,
-            cwd: "/tmp".into(),
-            authorized_cwd: Some("/tmp".into()),
+            cwd: cwd.clone(),
+            authorized_cwd: Some(cwd),
             cleanup_reservation_id: Some("cleanup-1".into()),
             worker_generation: 1,
             expected_generation: 1,
@@ -265,15 +306,16 @@ mod tests {
     #[test]
     fn valid_spec_accepted() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
+        let cwd = absolute_cwd();
         let spec = ProcessSpec {
-            executable: "/usr/bin/tool".into(),
+            executable: absolute_executable(),
             executable_digest: Some([1; 32]),
             argv: vec!["--input".into(), "file.txt".into()],
             env: HashMap::from([("HOME".into(), "/var/empty".into())]),
             allowed_env_keys: vec!["HOME".into()],
             inherit_environment: false,
-            cwd: "/tmp".into(),
-            authorized_cwd: Some("/tmp".into()),
+            cwd: cwd.clone(),
+            authorized_cwd: Some(cwd),
             cleanup_reservation_id: Some("cleanup-1".into()),
             worker_generation: 1,
             expected_generation: 1,
@@ -355,7 +397,7 @@ mod tests {
         assert_eq!(broker.validate_spec(&spec), Err(ProcessError::ArgvTooLarge));
 
         let mut spec = valid_spec();
-        spec.executable = "/bin/sh".into();
+        spec.executable = absolute_shell();
         assert_eq!(
             broker.validate_spec(&spec),
             Err(ProcessError::ShellCommandForbidden)
@@ -363,15 +405,16 @@ mod tests {
     }
 
     fn valid_spec() -> ProcessSpec {
+        let cwd = absolute_cwd();
         ProcessSpec {
-            executable: "/usr/bin/tool".into(),
+            executable: absolute_executable(),
             executable_digest: Some([1; 32]),
             argv: vec!["--input".into(), "file.txt".into()],
             env: HashMap::from([("HOME".into(), "/var/empty".into())]),
             allowed_env_keys: vec!["HOME".into()],
             inherit_environment: false,
-            cwd: "/tmp".into(),
-            authorized_cwd: Some("/tmp".into()),
+            cwd: cwd.clone(),
+            authorized_cwd: Some(cwd),
             cleanup_reservation_id: Some("cleanup-1".into()),
             worker_generation: 1,
             expected_generation: 1,

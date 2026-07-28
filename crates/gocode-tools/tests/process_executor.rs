@@ -22,15 +22,22 @@ impl ProcessLauncher for PanicLauncher {
 }
 
 fn spec() -> ProcessSpec {
+    let cwd = std::env::current_dir()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     ProcessSpec {
-        executable: "/usr/bin/tool".into(),
+        executable: std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
         executable_digest: Some([7; 32]),
         argv: vec!["--version".into()],
         env: HashMap::new(),
         allowed_env_keys: Vec::new(),
         inherit_environment: false,
-        cwd: "/workspace".into(),
-        authorized_cwd: Some("/workspace".into()),
+        cwd: cwd.clone(),
+        authorized_cwd: Some(cwd),
         cleanup_reservation_id: Some("cleanup-1".into()),
         worker_generation: 4,
         expected_generation: 4,
@@ -40,10 +47,19 @@ fn spec() -> ProcessSpec {
 }
 
 fn containment() -> ContainmentRequest {
+    #[cfg(target_os = "linux")]
+    let platform = HostPlatform::Linux;
+    #[cfg(target_os = "macos")]
+    let platform = HostPlatform::MacOs;
+    #[cfg(target_os = "windows")]
+    let platform = HostPlatform::Windows;
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    let platform = HostPlatform::Other("unsupported".into());
+
     ContainmentRequest::new(
         ContainmentBackendId::new("native").unwrap(),
         ContainmentBackendVersion::new("1").unwrap(),
-        HostPlatform::MacOs,
+        platform,
         RunnerIdentity::new("runner").unwrap(),
         vec![
             ContainmentGate::DirectEgressDenied,

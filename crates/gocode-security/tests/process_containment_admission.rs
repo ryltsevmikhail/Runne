@@ -35,15 +35,22 @@ mod process_containment_admission {
     }
 
     fn valid_spec() -> ProcessSpec {
+        let cwd = std::env::current_dir()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
         ProcessSpec {
-            executable: "/usr/bin/tool".into(),
+            executable: std::env::current_exe()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
             executable_digest: Some([1; 32]),
             argv: vec!["--input".into(), "file.txt".into()],
             env: HashMap::new(),
             allowed_env_keys: Vec::new(),
             inherit_environment: false,
-            cwd: "/tmp".into(),
-            authorized_cwd: Some("/tmp".into()),
+            cwd: cwd.clone(),
+            authorized_cwd: Some(cwd),
             cleanup_reservation_id: Some("cleanup-1".into()),
             worker_generation: 1,
             expected_generation: 1,
