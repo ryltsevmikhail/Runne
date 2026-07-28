@@ -5,11 +5,13 @@ use gocode_application::{
     ports::{CommitError, RuntimeAuthorityId, StorageFailureKind},
     security::atomic_transaction::AtomicTransactionError,
 };
-use gocode_store::{
-    atomic_pre_effect::SqliteAtomicPreEffectStore, migration_store::SqliteMigrationControlStore,
-    store::StoreTransaction,
-};
 use gocode_store::schema::preflight_existing_file;
+use gocode_store::{
+    atomic_pre_effect::SqliteAtomicPreEffectStore,
+    migration_store::SqliteMigrationControlStore,
+    store::StoreTransaction,
+    verification::{evidence_store::SqliteEvidenceStore, intent_store::SqliteIntentStore},
+};
 use rusqlite::Connection;
 
 fn candidate_database(name: &str) -> PathBuf {
@@ -95,13 +97,23 @@ fn atomic_pre_effect_store_rejects_candidate_schema_without_side_effects() {
 }
 
 #[test]
+fn verification_stores_reject_candidate_schema_without_side_effects() {
+    let path = candidate_database("verification-stores");
+    let before = snapshot(&path);
+
+    assert!(SqliteEvidenceStore::open(&path).is_err());
+    assert_unchanged(&path, &before);
+    assert!(SqliteIntentStore::open(&path).is_err());
+    assert_unchanged(&path, &before);
+}
+
+#[test]
 fn preflight_rejects_partial_v9_that_contains_legacy_required_fragments() {
     let path = candidate_database("partial-v9");
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE candidate_data;
-             CREATE TABLE schema_lineage (schema_version INTEGER PRIMARY KEY, provenance TEXT NOT NULL);
+            "CREATE TABLE schema_lineage (schema_version INTEGER PRIMARY KEY, provenance TEXT NOT NULL);
              INSERT INTO schema_lineage VALUES (9, 'released-v8-to-strict-v9');
              CREATE TABLE verification_evidence (
                  evidence_id BLOB PRIMARY KEY CHECK(length(evidence_id) = 16),
