@@ -19,7 +19,6 @@ pub struct SqliteIntentStore {
 impl SqliteIntentStore {
     /// Open a durable intent store using the canonical schema migrations.
     pub fn open(db_path: &Path) -> Result<Self, rusqlite::Error> {
-        schema::preflight_existing_file(db_path)?;
         let conn = schema::open_with_pragmas(&db_path.to_string_lossy())?;
         schema::apply_migrations(&conn)?;
         schema::run_startup_gates(&conn, &db_path.to_string_lossy())?;

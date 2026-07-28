@@ -11,7 +11,7 @@ use rand::RngCore;
 use rand::rngs::OsRng;
 use std::path::Path;
 
-use rusqlite::{Connection, OpenFlags, Result as SqliteResult};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
 pub const CURRENT_SCHEMA_VERSION: i64 = 9;
@@ -24,8 +24,29 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
     if !db_path.exists() {
         return Ok(());
     }
+    let is_empty = db_path
+        .metadata()
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?
+        .len()
+        == 0;
+    if is_empty {
+        return Ok(());
+    }
 
-    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    // `immutable=1` prevents SQLite from updating the shared-memory lock
+    // region while inspecting a hot WAL candidate. Classification only reads
+    // main-database lineage, which must already be durable before admission.
+    let uri = format!("file:{}?immutable=1", db_path.to_string_lossy());
+    let conn = Connection::open_with_flags(
+        uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )?;
+    classify_existing_connection(&conn)
+}
+
+/// Classify an existing database before any pragma or statement that can
+/// mutate the main database or its sidecars.
+fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
     let user_version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
     if user_version > CURRENT_SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
@@ -37,7 +58,7 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
         |row| row.get(0),
     )?;
     if !has_version_table {
-        return Ok(());
+        return Err(rusqlite::Error::InvalidQuery);
     }
 
     let schema_version: i64 = conn.query_row(
@@ -45,13 +66,65 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
         [],
         |row| row.get(0),
     )?;
-    if schema_version > CURRENT_SCHEMA_VERSION
-        || (schema_version >= 9 && !is_released_strict_v9(conn, schema_version)?)
-    {
+    if schema_version == 8 && is_released_v8(conn)? {
+        return Ok(());
+    }
+    if schema_version == CURRENT_SCHEMA_VERSION && is_released_strict_v9(conn, schema_version)? {
+        return Ok(());
+    }
+    if schema_version != 8 && schema_version != CURRENT_SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
     }
+    Err(rusqlite::Error::InvalidQuery)
+}
 
-    Ok(())
+fn is_released_v8(conn: &Connection) -> SqliteResult<bool> {
+    let version_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))?;
+    let min_version: i64 = conn.query_row(
+        "SELECT COALESCE(MIN(version), 0) FROM schema_version",
+        [],
+        |row| row.get(0),
+    )?;
+    if version_count != 8 || min_version != 1 {
+        return Ok(false);
+    }
+
+    const RELEASED_V8_TABLES: &[&str] = &[
+        "event_log_state",
+        "aggregate_streams",
+        "events",
+        "command_receipts",
+        "migration_plans",
+        "migration_transitions",
+        "migration_evidence",
+        "routing_snapshots",
+        "routing_head",
+        "runtime_bindings",
+        "migration_reports",
+        "cutover_manifests",
+        "rollback_manifests",
+        "retirement_manifests",
+        "migration_receipts",
+        "migration_audit",
+        "routing_dispatch_intents",
+        "security_dispatch_intents",
+        "security_authorization_decisions",
+        "security_budget_consumptions",
+        "security_audit_pre_effect",
+        "security_permit_claims",
+        "_authority",
+        "_daemon_info",
+        "_replay_subscriptions",
+    ];
+    RELEASED_V8_TABLES.iter().try_fold(true, |matches, table| {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+            [table],
+            |row| row.get(0),
+        )?;
+        Ok(matches && exists)
+    })
 }
 
 /// Apply all schema migrations up to [`CURRENT_SCHEMA_VERSION`].
@@ -160,6 +233,13 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         tx.commit()?;
     }
 
+    if current_version < CURRENT_SCHEMA_VERSION {
+        // Preflight classifies the immutable main database without consulting
+        // a hot WAL. Publish completed schema migrations before another
+        // process or connection attempts admission.
+        conn.execute_batch("PRAGMA wal_checkpoint(FULL);")?;
+    }
+
     Ok(())
 }
 
@@ -167,56 +247,196 @@ fn is_released_strict_v9(conn: &Connection, version: i64) -> SqliteResult<bool> 
     if version != CURRENT_SCHEMA_VERSION {
         return Ok(false);
     }
-    let has_lineage_table: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_lineage')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !has_lineage_table {
+    if !table_shape_matches(
+        conn,
+        "verification_evidence",
+        &VERIFICATION_EVIDENCE_COLUMNS,
+    )? || !table_shape_matches(conn, "consumption_intents", &CONSUMPTION_INTENT_COLUMNS)?
+        || !table_shape_matches(conn, "schema_lineage", &SCHEMA_LINEAGE_COLUMNS)?
+        || !table_sql_matches(
+            conn,
+            "verification_evidence",
+            CANONICAL_VERIFICATION_EVIDENCE_SQL,
+        )?
+        || !table_sql_matches(
+            conn,
+            "consumption_intents",
+            CANONICAL_CONSUMPTION_INTENTS_SQL,
+        )?
+        || !table_sql_matches(conn, "schema_lineage", CANONICAL_SCHEMA_LINEAGE_SQL)?
+        || !index_matches(
+            conn,
+            "idx_evidence_run",
+            "verification_evidence",
+            &["run_id"],
+        )?
+    {
         return Ok(false);
     }
-    let provenance_matches: bool = conn.query_row(
+
+    let marker_count: i64 =
+        conn.query_row("SELECT COUNT(*) FROM schema_lineage", [], |row| row.get(0))?;
+    let marker_matches: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM schema_lineage WHERE schema_version = 9 AND provenance = 'released-v8-to-strict-v9')",
         [],
         |row| row.get(0),
     )?;
-    if !provenance_matches {
+    if marker_count != 1 || !marker_matches || has_candidate_remnant(conn)? {
         return Ok(false);
     }
-    for (table, required_fragments) in [
-        (
-            "consumption_intents",
-            [
-                "length(intent_id) = 16",
-                "idempotency_key TEXT NOT NULL UNIQUE",
-                "length(integrity_digest) = 32",
-            ]
-            .as_slice(),
-        ),
-        (
-            "verification_evidence",
-            [
-                "length(evidence_id) = 16",
-                "layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5))",
-                "length(verified_by) > 0",
-            ]
-            .as_slice(),
-        ),
-    ] {
-        let schema_sql: Option<String> = conn.query_row(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
-            [table],
-            |row| row.get(0),
-        )?;
-        if !schema_sql.is_some_and(|sql| {
-            required_fragments
-                .iter()
-                .all(|fragment| sql.contains(fragment))
-        }) {
-            return Ok(false);
-        }
-    }
     Ok(true)
+}
+
+type ColumnShape = (&'static str, &'static str, bool, i64);
+
+const VERIFICATION_EVIDENCE_COLUMNS: [ColumnShape; 12] = [
+    ("evidence_id", "BLOB", false, 1),
+    ("run_id", "BLOB", true, 0),
+    ("profile_id", "BLOB", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("layer", "INTEGER", true, 0),
+    ("evidence_type", "INTEGER", true, 0),
+    ("evidence_digest", "BLOB", true, 0),
+    ("content_ref", "TEXT", true, 0),
+    ("source", "TEXT", true, 0),
+    ("producer_identity", "TEXT", true, 0),
+    ("sensitivity", "INTEGER", true, 0),
+    ("verified_by", "TEXT", true, 0),
+];
+const CONSUMPTION_INTENT_COLUMNS: [ColumnShape; 6] = [
+    ("intent_id", "BLOB", false, 1),
+    ("idempotency_key", "TEXT", true, 0),
+    ("state", "TEXT", true, 0),
+    ("gate_head_snapshot_digest", "BLOB", true, 0),
+    ("target_artifact_digest", "BLOB", true, 0),
+    ("integrity_digest", "BLOB", true, 0),
+];
+const SCHEMA_LINEAGE_COLUMNS: [ColumnShape; 2] = [
+    ("schema_version", "INTEGER", false, 1),
+    ("provenance", "TEXT", true, 0),
+];
+
+const CANONICAL_VERIFICATION_EVIDENCE_SQL: &str = "CREATE TABLE verification_evidence (evidence_id BLOB PRIMARY KEY CHECK(length(evidence_id) = 16), run_id BLOB NOT NULL CHECK(length(run_id) = 16), profile_id BLOB NOT NULL CHECK(length(profile_id) = 16), profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32), layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5)), evidence_type INTEGER NOT NULL CHECK(evidence_type IN (0, 1, 2, 3, 4)), evidence_digest BLOB NOT NULL CHECK(length(evidence_digest) = 32), content_ref TEXT NOT NULL CHECK(length(content_ref) > 0), source TEXT NOT NULL CHECK(length(source) > 0), producer_identity TEXT NOT NULL CHECK(length(producer_identity) > 0), sensitivity INTEGER NOT NULL CHECK(sensitivity IN (0, 1, 2)), verified_by TEXT NOT NULL CHECK(length(verified_by) > 0))";
+const CANONICAL_CONSUMPTION_INTENTS_SQL: &str = "CREATE TABLE consumption_intents (intent_id BLOB PRIMARY KEY CHECK(length(intent_id) = 16), idempotency_key TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 1 AND 256), state TEXT NOT NULL CHECK(state IN ('Reserved','Dispatching','Completed','Failed','Invalidated','Abandoned')), gate_head_snapshot_digest BLOB NOT NULL CHECK(length(gate_head_snapshot_digest) = 32), target_artifact_digest BLOB NOT NULL CHECK(length(target_artifact_digest) = 32), integrity_digest BLOB NOT NULL CHECK(length(integrity_digest) = 32))";
+const CANONICAL_SCHEMA_LINEAGE_SQL: &str = "CREATE TABLE schema_lineage (schema_version INTEGER PRIMARY KEY CHECK(schema_version = 9), provenance TEXT NOT NULL CHECK(provenance = 'released-v8-to-strict-v9'))";
+
+fn table_shape_matches(
+    conn: &Connection,
+    table: &str,
+    expected: &[ColumnShape],
+) -> SqliteResult<bool> {
+    let mut statement = conn.prepare(&format!("PRAGMA table_info('{table}')"))?;
+    let actual = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)? != 0,
+                row.get::<_, i64>(5)?,
+            ))
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?;
+    Ok(actual.len() == expected.len()
+        && actual.iter().zip(expected).all(
+            |(
+                (name, ty, not_null, pk),
+                (expected_name, expected_ty, expected_not_null, expected_pk),
+            )| {
+                name == expected_name
+                    && ty == expected_ty
+                    && not_null == expected_not_null
+                    && pk == expected_pk
+            },
+        ))
+}
+
+fn table_sql_matches(conn: &Connection, table: &str, expected: &str) -> SqliteResult<bool> {
+    let actual: Option<String> = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        [table],
+        |row| row.get(0),
+    )?;
+    Ok(actual.is_some_and(|sql| normalize_sql(&sql) == normalize_sql(expected)))
+}
+
+fn index_matches(
+    conn: &Connection,
+    index: &str,
+    table: &str,
+    columns: &[&str],
+) -> SqliteResult<bool> {
+    let actual_table: Option<String> = conn
+        .query_row(
+            "SELECT tbl_name FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            [index],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if actual_table.as_deref() != Some(table) {
+        return Ok(false);
+    }
+    let mut list = conn.prepare(&format!("PRAGMA index_list('{table}')"))?;
+    let exact_semantics = list
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)? == 0,
+                row.get::<_, String>(3)? == "c",
+                row.get::<_, i64>(4)? == 0,
+            ))
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?
+        .into_iter()
+        .any(|(name, non_unique, created, not_partial)| {
+            name == index && non_unique && created && not_partial
+        });
+    if !exact_semantics {
+        return Ok(false);
+    }
+    let mut statement = conn.prepare(&format!("PRAGMA index_info('{index}')"))?;
+    let actual = statement
+        .query_map([], |row| row.get::<_, String>(2))?
+        .collect::<SqliteResult<Vec<_>>>()?;
+    Ok(actual
+        .iter()
+        .map(String::as_str)
+        .eq(columns.iter().copied()))
+}
+
+fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
+    let mut statement = conn.prepare(
+        "SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger', 'view')",
+    )?;
+    let objects = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<SqliteResult<Vec<_>>>()?;
+    Ok(objects.iter().any(|(kind, name, table)| {
+        let targets_owned_table = matches!(
+            table.as_str(),
+            "verification_evidence" | "consumption_intents" | "schema_lineage"
+        );
+        targets_owned_table
+            && !matches!(
+                (kind.as_str(), name.as_str()),
+                ("table", "verification_evidence")
+                    | ("table", "consumption_intents")
+                    | ("table", "schema_lineage")
+                    | ("index", "idx_evidence_run")
+                    | ("index", "sqlite_autoindex_consumption_intents_1")
+                    | ("index", "sqlite_autoindex_consumption_intents_2")
+                    | ("index", "sqlite_autoindex_verification_evidence_1")
+            )
+    }))
+}
+
+fn normalize_sql(sql: &str) -> String {
+    sql.split_whitespace().collect()
 }
 
 /// Run startup gates: integrity check, FK check, and PRAGMA profile
@@ -751,6 +971,11 @@ INSERT INTO schema_lineage (schema_version, provenance)
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     let is_new_file = db_path != ":memory:" && !Path::new(db_path).exists();
+    if db_path != ":memory:" && !is_new_file {
+        // Existing non-empty files must be classified by a read-only handle
+        // before opening any writable connection or configuring WAL.
+        preflight_existing_file(Path::new(db_path))?;
+    }
     let conn = Connection::open(db_path)?;
 
     if is_new_file {
