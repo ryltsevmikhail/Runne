@@ -136,7 +136,8 @@ fn shared_opener_rejects_existing_sidecars_before_recovery_or_wal() {
 
 #[test]
 fn shared_opener_rejects_uri_metacharacter_path_without_mapping_another_file() {
-    let path = candidate_database("uri?query");
+    // Percent is an URI metacharacter and remains a valid filename on Windows.
+    let path = candidate_database("uri%query");
     let before = snapshot_file_set(&path);
 
     assert_diagnostic(
