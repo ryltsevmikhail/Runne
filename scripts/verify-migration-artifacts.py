@@ -40,6 +40,14 @@ errors: list[str] = []
 warnings: list[str] = []
 
 
+def display_path(path: str) -> str:
+    """Prefer a repository-relative path, falling back across Windows drives."""
+    try:
+        return os.path.relpath(path, BASE)
+    except ValueError:
+        return os.path.abspath(path)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -281,7 +289,7 @@ def verify_digest_sidecar(json_path: str, instance: dict) -> None:
     """Compare JCS-canonical digest against .digest sidecar."""
     digest_path = json_path + ".digest"
     if not os.path.exists(digest_path):
-        errors.append(f"{os.path.relpath(json_path, BASE)}: missing .digest sidecar")
+        errors.append(f"{display_path(json_path)}: missing .digest sidecar")
         return
 
     expected = open(digest_path).read().strip()
@@ -289,7 +297,7 @@ def verify_digest_sidecar(json_path: str, instance: dict) -> None:
 
     if actual != expected:
         errors.append(
-            f"{os.path.relpath(json_path, BASE)}: digest mismatch — "
+            f"{display_path(json_path)}: digest mismatch — "
             f"expected {expected}, computed {actual}"
         )
     else:
@@ -337,13 +345,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"=== GOCODE Migration Artifact Verifier ===")
     print(f"Baseline SHA: {BASELINE_SHA[:12]}")
-    print(f"Schema: {os.path.relpath(schema_path, BASE)}")
-    print(f"Golden dir: {os.path.relpath(golden_dir, BASE)}")
+    print(f"Schema: {display_path(schema_path)}")
+    print(f"Golden dir: {display_path(golden_dir)}")
     print()
 
     for filename in golden_files:
         json_path = os.path.join(golden_dir, filename)
-        rel = os.path.relpath(json_path, BASE)
+        rel = display_path(json_path)
         print(f"{rel}:")
 
         # Load fixture
