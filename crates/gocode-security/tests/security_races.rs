@@ -119,6 +119,7 @@ fn valid_tx(intent: &str, permit_id: &str) -> AtomicPreEffectTransaction {
 }
 
 #[tokio::test]
+#[cfg(not(target_os = "windows"))]
 async fn race_toc_tou_replacement_is_rejected_by_production_broker() {
     let test_root =
         std::env::temp_dir().join(format!("gocode-security-race-{}", uuid::Uuid::now_v7()));
@@ -161,6 +162,35 @@ async fn race_toc_tou_replacement_is_rejected_by_production_broker() {
         std::fs::read(test_root.join("target.txt")).unwrap(),
         b"replacement"
     );
+    std::fs::remove_dir_all(test_root).unwrap();
+}
+
+#[tokio::test]
+#[cfg(target_os = "windows")]
+async fn race_toc_tou_production_broker_fails_closed_before_setup() {
+    let test_root =
+        std::env::temp_dir().join(format!("gocode-security-race-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&test_root).unwrap();
+    let target = test_root.join("target.txt");
+    std::fs::write(&target, b"original").unwrap();
+    let broker = FilesystemBroker::new(vec![WorkspaceRoot {
+        root_id: "race-root".into(),
+        canonical_path: std::fs::canonicalize(&test_root).unwrap(),
+        policy: WorkspacePolicy {
+            read_allowed: true,
+            write_allowed: true,
+            create_allowed: true,
+            delete_allowed: true,
+            symlink_policy: SymlinkPolicy::NoFollow,
+        },
+    }]);
+
+    assert!(matches!(
+        broker.open_root("race-root"),
+        Err(FsBrokerError::BackendUnavailable)
+    ));
+    assert_eq!(std::fs::read(&target).unwrap(), b"original");
+
     std::fs::remove_dir_all(test_root).unwrap();
 }
 
