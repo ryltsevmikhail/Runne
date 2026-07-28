@@ -19,6 +19,9 @@ const SCHEMA_PATH: &str = "../../docs/schemas/opencode-baseline-inventory-v1.sch
 const V2_ARTIFACT_PATH: &str = "../../docs/profiles/opencode-baseline-inventory-v2.json";
 const V2_DIGEST_PATH: &str = "../../docs/profiles/opencode-baseline-inventory-v2.digest";
 const V2_SCHEMA_PATH: &str = "../../docs/schemas/opencode-baseline-inventory-v2.schema.json";
+const V3_ARTIFACT_PATH: &str = "../../docs/profiles/opencode-baseline-inventory-v3.json";
+const V3_DIGEST_PATH: &str = "../../docs/profiles/opencode-baseline-inventory-v3.digest";
+const V3_SCHEMA_PATH: &str = "../../docs/schemas/opencode-baseline-inventory-v3.schema.json";
 
 #[test]
 fn test_inventory_completeness() {
@@ -46,15 +49,25 @@ fn test_inventory_completeness() {
 }
 
 #[test]
-fn test_all_routes_reject() {
+fn profile_revisions_expose_only_their_verified_routes() {
     let pid = ProfileId::new(PROFILE_ID).expect("profile");
-    for entry in INVENTORY.iter() {
-        let sel = entry.selector.clone();
-        let decision = translate_request(&pid, 1, sel);
-        match decision {
-            TranslationDecision::Reject(rej) => {
-                assert!(rej.inventory_id.is_some(), "must find inventory_id");
-            }
+    for revision in [1, 2, 3] {
+        for entry in INVENTORY.iter() {
+            let accepted = matches!(
+                translate_request(&pid, revision, entry.selector.clone()),
+                TranslationDecision::Accept(_)
+            );
+            let expected = match revision {
+                1 => false,
+                2 => entry.inventory_id == "session.create",
+                3 => true,
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                accepted, expected,
+                "unexpected disposition for revision {revision} and {}",
+                entry.inventory_id
+            );
         }
     }
 }
@@ -75,6 +88,20 @@ fn test_unknown_operation() {
                 gocode_opencode_compat::classify::RejectionCode::UnknownOperation
             ));
         }
+        TranslationDecision::Accept(_) => panic!("unknown operation must fail closed"),
+    }
+}
+
+#[test]
+fn unknown_profile_revision_fails_closed() {
+    let pid = ProfileId::new(PROFILE_ID).expect("profile");
+    let decision = translate_request(&pid, 4, INVENTORY[0].selector.clone());
+    match decision {
+        TranslationDecision::Reject(rej) => assert!(matches!(
+            rej.code,
+            gocode_opencode_compat::classify::RejectionCode::ProfileMismatch
+        )),
+        TranslationDecision::Accept(_) => panic!("unknown revision must fail closed"),
     }
 }
 
@@ -142,6 +169,40 @@ fn profile_v2_is_canonical_schema_valid_and_has_exact_digests() {
 }
 
 #[test]
+fn profile_v3_is_canonical_schema_valid_and_verifies_all_five_routes() {
+    use sha2::{Digest, Sha256};
+
+    let generated = serialize::canonicalize_profile_v3();
+    let committed = fs::read(V3_ARTIFACT_PATH).unwrap();
+    assert_eq!(committed, generated, "committed V3 artifact is stale");
+    assert_eq!(
+        fs::read_to_string(V3_DIGEST_PATH).unwrap(),
+        serialize::compute_digest(&generated)
+    );
+    let artifact: serde_json::Value = serde_json::from_slice(&committed).unwrap();
+    let schema_bytes = fs::read(V3_SCHEMA_PATH).unwrap();
+    let schema_value: serde_json::Value = serde_json::from_slice(&schema_bytes).unwrap();
+    let schema = jsonschema::JSONSchema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .compile(&schema_value)
+        .unwrap();
+    assert!(schema.is_valid(&artifact));
+    assert_eq!(
+        artifact["digests"]["profile_schema_digest"],
+        format!("sha256:{:x}", Sha256::digest(&schema_bytes))
+    );
+    assert_eq!(
+        artifact["inventory"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|entry| entry["status"] == "Verified")
+            .count(),
+        5
+    );
+}
+
+#[test]
 #[ignore = "explicit profile regeneration command"]
 fn regenerate_profile_artifacts() {
     let v1 = serialize::canonicalize_inventory();
@@ -151,4 +212,8 @@ fn regenerate_profile_artifacts() {
     let v2 = serialize::canonicalize_profile_v2();
     fs::write(V2_ARTIFACT_PATH, &v2).unwrap();
     fs::write(V2_DIGEST_PATH, serialize::compute_digest(&v2)).unwrap();
+
+    let v3 = serialize::canonicalize_profile_v3();
+    fs::write(V3_ARTIFACT_PATH, &v3).unwrap();
+    fs::write(V3_DIGEST_PATH, serialize::compute_digest(&v3)).unwrap();
 }
