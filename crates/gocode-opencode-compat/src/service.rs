@@ -1,5 +1,6 @@
 //! Fail-closed `POST /session` compatibility orchestration.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use gocode_api::{
@@ -342,4 +343,242 @@ fn build_session_info(
         value["workspaceID"] = serde_json::Value::String(workspace_id.clone());
     }
     OpenCodeSessionInfo::from_json(value, schema).map_err(SessionCreateError::Validation)
+}
+
+/// Canonical, provider-neutral prompt accepted by the V3 compatibility port.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CanonicalPrompt {
+    pub session_id: String,
+    pub message_id: Option<String>,
+    pub text_parts: Vec<String>,
+}
+
+/// Canonical host result for a synchronous prompt.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanonicalPromptResult {
+    pub session_id: String,
+    pub response: serde_json::Value,
+}
+
+/// Canonical status values that preserve the pinned OpenCode V1 read model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CanonicalSessionStatus {
+    Idle,
+    Busy,
+    Retry {
+        attempt: u64,
+        message: String,
+        next: u64,
+    },
+}
+
+/// Runtime boundary consumed by the OpenCode V1 compatibility service.
+pub trait SessionV1HostPort: Send + Sync {
+    fn prompt(
+        &self,
+        input: CanonicalPrompt,
+    ) -> impl std::future::Future<
+        Output = Result<CanonicalPromptResult, crate::error::SessionV1HostError>,
+    > + Send;
+
+    fn prompt_async(
+        &self,
+        input: CanonicalPrompt,
+    ) -> impl std::future::Future<Output = Result<(), crate::error::SessionV1HostError>> + Send;
+
+    fn status(
+        &self,
+    ) -> impl std::future::Future<
+        Output = Result<Vec<(String, CanonicalSessionStatus)>, crate::error::SessionV1HostError>,
+    > + Send;
+
+    fn abort(
+        &self,
+        session_id: String,
+    ) -> impl std::future::Future<Output = Result<bool, crate::error::SessionV1HostError>> + Send;
+}
+
+/// Strict compatibility boundary for the four V3 OpenCode V1 session routes.
+pub struct OpenCodeSessionV1Service<H: SessionV1HostPort> {
+    host: H,
+    prompt_response_schema: Arc<JSONSchema>,
+}
+
+impl<H: SessionV1HostPort> OpenCodeSessionV1Service<H> {
+    pub fn new(host: H, prompt_response_schema: Arc<JSONSchema>) -> Self {
+        Self {
+            host,
+            prompt_response_schema,
+        }
+    }
+
+    pub async fn prompt(
+        &self,
+        session_id: &str,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, crate::error::SessionV1Error> {
+        let prompt = parse_prompt(session_id, input)?;
+        let result = self
+            .host
+            .prompt(prompt)
+            .await
+            .map_err(crate::error::SessionV1Error::Host)?;
+        if result.session_id != session_id
+            || !self.prompt_response_schema.is_valid(&result.response)
+            || !valid_prompt_response(session_id, &result.response)
+        {
+            return Err(crate::error::SessionV1Error::HostOutputMismatch);
+        }
+        Ok(result.response)
+    }
+
+    pub async fn prompt_async(
+        &self,
+        session_id: &str,
+        input: serde_json::Value,
+    ) -> Result<(), crate::error::SessionV1Error> {
+        let prompt = parse_prompt(session_id, input)?;
+        self.host
+            .prompt_async(prompt)
+            .await
+            .map_err(crate::error::SessionV1Error::Host)
+    }
+
+    pub async fn status(&self) -> Result<serde_json::Value, crate::error::SessionV1Error> {
+        let statuses = self
+            .host
+            .status()
+            .await
+            .map_err(crate::error::SessionV1Error::Host)?;
+        let mut output = BTreeMap::new();
+        for (session_id, status) in statuses {
+            validate_session_id(&session_id)?;
+            if output.contains_key(&session_id) {
+                return Err(crate::error::SessionV1Error::HostOutputMismatch);
+            }
+            let value = match status {
+                CanonicalSessionStatus::Idle => serde_json::json!({"type": "idle"}),
+                CanonicalSessionStatus::Busy => serde_json::json!({"type": "busy"}),
+                CanonicalSessionStatus::Retry {
+                    attempt,
+                    message,
+                    next,
+                } => serde_json::json!({
+                    "type": "retry",
+                    "attempt": attempt,
+                    "message": message,
+                    "next": next,
+                }),
+            };
+            output.insert(session_id, value);
+        }
+        serde_json::to_value(output).map_err(|_| crate::error::SessionV1Error::HostOutputMismatch)
+    }
+
+    pub async fn abort(&self, session_id: &str) -> Result<bool, crate::error::SessionV1Error> {
+        validate_session_id(session_id)?;
+        self.host
+            .abort(session_id.to_owned())
+            .await
+            .map_err(crate::error::SessionV1Error::Host)
+    }
+}
+
+fn validate_session_id(session_id: &str) -> Result<(), crate::error::SessionV1Error> {
+    if session_id.starts_with("ses")
+        && session_id.len() <= 256
+        && !session_id
+            .bytes()
+            .any(|byte| byte == 0 || byte < 0x20 || byte == 0x7f)
+    {
+        Ok(())
+    } else {
+        Err(crate::error::SessionV1Error::InvalidSessionId)
+    }
+}
+
+fn parse_prompt(
+    session_id: &str,
+    input: serde_json::Value,
+) -> Result<CanonicalPrompt, crate::error::SessionV1Error> {
+    validate_session_id(session_id)?;
+    let object = input
+        .as_object()
+        .ok_or(crate::error::SessionV1Error::InvalidRequest {
+            detail: "prompt body must be an object",
+        })?;
+    for field in [
+        "model", "agent", "noReply", "tools", "format", "system", "variant",
+    ] {
+        if object.contains_key(field) {
+            return Err(crate::error::SessionV1Error::UnsupportedField { field });
+        }
+    }
+    if object
+        .keys()
+        .any(|field| field != "messageID" && field != "parts")
+    {
+        return Err(crate::error::SessionV1Error::InvalidRequest {
+            detail: "unknown prompt field",
+        });
+    }
+    let message_id = match object.get("messageID") {
+        Some(serde_json::Value::String(value))
+            if value.starts_with("msg")
+                && value.len() <= 256
+                && !value
+                    .bytes()
+                    .any(|byte| byte == 0 || byte < 0x20 || byte == 0x7f) =>
+        {
+            Some(value.clone())
+        }
+        Some(_) => {
+            return Err(crate::error::SessionV1Error::InvalidRequest {
+                detail: "invalid messageID",
+            });
+        }
+        None => None,
+    };
+    let parts = object
+        .get("parts")
+        .and_then(serde_json::Value::as_array)
+        .ok_or(crate::error::SessionV1Error::InvalidRequest {
+            detail: "parts must be an array",
+        })?;
+    let mut text_parts = Vec::with_capacity(parts.len());
+    for (index, part) in parts.iter().enumerate() {
+        let Some(part) = part.as_object() else {
+            return Err(crate::error::SessionV1Error::UnsupportedPart { index });
+        };
+        if part.len() != 2 || part.get("type").and_then(serde_json::Value::as_str) != Some("text") {
+            return Err(crate::error::SessionV1Error::UnsupportedPart { index });
+        }
+        let Some(text) = part.get("text").and_then(serde_json::Value::as_str) else {
+            return Err(crate::error::SessionV1Error::UnsupportedPart { index });
+        };
+        text_parts.push(text.to_owned());
+    }
+    Ok(CanonicalPrompt {
+        session_id: session_id.to_owned(),
+        message_id,
+        text_parts,
+    })
+}
+
+fn valid_prompt_response(session_id: &str, response: &serde_json::Value) -> bool {
+    let Some(object) = response.as_object() else {
+        return false;
+    };
+    if object.keys().any(|key| key != "info" && key != "parts") {
+        return false;
+    }
+    let Some(info) = object.get("info").and_then(serde_json::Value::as_object) else {
+        return false;
+    };
+    info.get("sessionID").and_then(serde_json::Value::as_str) == Some(session_id)
+        && info.get("role").and_then(serde_json::Value::as_str) == Some("assistant")
+        && object
+            .get("parts")
+            .and_then(serde_json::Value::as_array)
+            .is_some()
 }
