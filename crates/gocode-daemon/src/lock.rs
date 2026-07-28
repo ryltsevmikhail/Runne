@@ -432,12 +432,22 @@ fn write_lock_metadata(file: &std::fs::File, metadata: &LockMetadata) -> Result<
 
 /// Canonicalise a path, resolving all symlinks.
 fn canonicalize_path(path: &Path) -> Result<PathBuf, DaemonError> {
-    fs::canonicalize(path).map_err(|e| {
-        DaemonError::Lock(format!(
-            "failed to canonicalise path {path}: {e}",
-            path = path.display()
-        ))
-    })
+    fs::canonicalize(path)
+        .or_else(|_| -> std::io::Result<PathBuf> {
+            let parent = path.parent().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
+            })?;
+            let name = path.file_name().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no file name")
+            })?;
+            Ok(fs::canonicalize(parent)?.join(name))
+        })
+        .map_err(|e| {
+            DaemonError::Lock(format!(
+                "failed to canonicalise path {path}: {e}",
+                path = path.display()
+            ))
+        })
 }
 
 /// Get a platform-level file identity string.

@@ -96,19 +96,6 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     // ── Step 6: check DB existence BEFORE any file creation ─────────
     let db_existed = db_path.exists();
 
-    // ── First-start bootstrap: create empty DB file so path locking
-    //    (which uses fs::canonicalize) can resolve the path. ─────────
-    if !db_existed {
-        // Ensure parent dir exists
-        if let Some(parent) = db_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        // Create empty file — SQLite treats empty files as new databases.
-        let f = fs::File::create(&db_path)?;
-        f.sync_all()?;
-        drop(f);
-    }
-
     // ── Step 4: acquire provisional path lock ───────────────────────
     let mut locks = LockSet::acquire_path(&db_path, &runtime_dir)
         .map_err(|e| DaemonError::Bootstrap(format!("path lock: {e}")))?;
@@ -135,12 +122,6 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
             .acquire_file_lock(&db_handle, &runtime_dir)
             .map_err(|e| DaemonError::Bootstrap(format!("file lock: {e}")))?;
     }
-    // For new DBs: the empty file already exists; just secure permissions
-    if !db_existed {
-        schema::secure_file_permissions(&db_path)
-            .map_err(|e| DaemonError::Bootstrap(format!("secure DB file: {e}")))?;
-    }
-
     // ── Step 10: open SQLite writable ───────────────────────────────
     let db_conn = schema::open_with_pragmas(&config.db_path)
         .map_err(|e| DaemonError::Bootstrap(format!("open DB: {e}")))?;

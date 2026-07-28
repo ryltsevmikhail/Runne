@@ -228,7 +228,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, root_id);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         if self.roots.iter().any(|root| root.root_id == root_id) {
@@ -249,7 +249,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, root, relative);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -306,6 +306,9 @@ impl FilesystemBroker {
         }
     }
 
+    // `st_dev` signedness differs across Unix targets, so the checked
+    // conversion is meaningful even where a given target aliases it to `u64`.
+    #[allow(clippy::useless_conversion)]
     pub fn resolve_and_identity(
         &self,
         root: &RootHandle,
@@ -314,7 +317,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, root, path);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -357,7 +360,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, root, path, data, expected_identity);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(unix)]
         {
@@ -402,7 +405,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, handle, data);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -427,7 +430,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, handle);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -455,7 +458,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, handle);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -500,7 +503,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, root, relative);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {
@@ -539,7 +542,7 @@ impl FilesystemBroker {
         #[cfg(target_os = "windows")]
         {
             let _ = (self, handle);
-            return Err(FsBrokerError::BackendUnavailable);
+            Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
         {

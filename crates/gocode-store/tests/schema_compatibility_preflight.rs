@@ -5,7 +5,9 @@ use gocode_application::{
     ports::{CommitError, RuntimeAuthorityId, StorageFailureKind},
     security::atomic_transaction::AtomicTransactionError,
 };
-use gocode_store::schema::{apply_migrations, open_with_pragmas, preflight_existing_file};
+use gocode_store::schema::{
+    SchemaOpenDiagnostic, apply_migrations, open_with_pragmas, preflight_existing_file,
+};
 use gocode_store::{
     atomic_pre_effect::SqliteAtomicPreEffectStore,
     migration_store::SqliteMigrationControlStore,
@@ -44,10 +46,14 @@ fn candidate_database_version(name: &str, version: i64) -> PathBuf {
 }
 
 fn canonical_v9_database(name: &str) -> PathBuf {
-    let path = candidate_database(name);
-    for suffix in ["", "-wal", "-shm"] {
-        let _ = std::fs::remove_file(format!("{}{suffix}", path.display()));
-    }
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "gocode-schema-preflight-canonical-{name}-{}-{nonce}.sqlite",
+        std::process::id()
+    ));
     let connection = open_with_pragmas(path.to_str().unwrap()).unwrap();
     apply_migrations(&connection).unwrap();
     drop(connection);
@@ -89,6 +95,73 @@ fn assert_file_set_unchanged(before: &[(PathBuf, Vec<u8>)]) {
             path.display()
         );
     }
+}
+
+fn assert_diagnostic<T: std::fmt::Debug>(
+    result: Result<T, rusqlite::Error>,
+    diagnostic: SchemaOpenDiagnostic,
+) {
+    let error = result.unwrap_err();
+    assert_eq!(error.to_string(), diagnostic.to_string());
+}
+
+#[test]
+fn shared_opener_rejects_existing_zero_byte_database_before_writable_open() {
+    let path = candidate_database("zero-byte");
+    std::fs::write(&path, []).unwrap();
+    let before = snapshot_file_set(&path);
+
+    assert_diagnostic(
+        open_with_pragmas(path.to_str().unwrap()),
+        SchemaOpenDiagnostic::ZeroByteDatabase,
+    );
+    assert_file_set_unchanged(&before);
+}
+
+#[test]
+fn shared_opener_rejects_existing_sidecars_before_recovery_or_wal() {
+    for suffix in ["-wal", "-shm"] {
+        let path = candidate_database(&format!("sidecar-{}", &suffix[1..]));
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        std::fs::write(&sidecar, b"preserve-sidecar").unwrap();
+        let before = snapshot_file_set(&path);
+
+        assert_diagnostic(
+            open_with_pragmas(path.to_str().unwrap()),
+            SchemaOpenDiagnostic::SidecarPresent,
+        );
+        assert_file_set_unchanged(&before);
+    }
+}
+
+#[test]
+fn shared_opener_rejects_uri_metacharacter_path_without_mapping_another_file() {
+    let path = candidate_database("uri?query");
+    let before = snapshot_file_set(&path);
+
+    assert_diagnostic(
+        open_with_pragmas(path.to_str().unwrap()),
+        SchemaOpenDiagnostic::UnsafePath,
+    );
+    assert_file_set_unchanged(&before);
+}
+
+#[cfg(unix)]
+#[test]
+fn shared_opener_rejects_symlink_when_file_identity_cannot_be_confirmed() {
+    use std::os::unix::fs::symlink;
+
+    let target = candidate_database("identity-target");
+    let link = target.with_file_name("gocode-schema-preflight-identity-link.sqlite");
+    let _ = std::fs::remove_file(&link);
+    symlink(&target, &link).unwrap();
+    let before = snapshot_file_set(&target);
+
+    assert_diagnostic(
+        open_with_pragmas(link.to_str().unwrap()),
+        SchemaOpenDiagnostic::FileIdentityUncertain,
+    );
+    assert_file_set_unchanged(&before);
 }
 
 #[test]
@@ -258,20 +331,30 @@ fn shared_opener_rejects_hot_wal_candidate_without_changing_any_file() {
 
 #[test]
 fn preflight_rejects_index_semantic_changes_and_unnamed_critical_objects() {
-    let index_path = canonical_v9_database("unique-index");
-    let connection = Connection::open(&index_path).unwrap();
-    connection
-        .execute_batch(
-            "DROP INDEX idx_evidence_run;
-             CREATE UNIQUE INDEX idx_evidence_run ON verification_evidence(run_id);",
-        )
-        .unwrap();
-    drop(connection);
-    let before = snapshot(&index_path);
-    assert!(preflight_existing_file(&index_path).is_err());
-    assert_eq!(snapshot(&index_path), before);
-    assert!(!PathBuf::from(format!("{}-wal", index_path.display())).exists());
-    assert!(!PathBuf::from(format!("{}-shm", index_path.display())).exists());
+    for (name, definition) in [
+        (
+            "unique-index",
+            "CREATE UNIQUE INDEX idx_evidence_run ON verification_evidence(run_id);",
+        ),
+        (
+            "descending-index",
+            "CREATE INDEX idx_evidence_run ON verification_evidence(run_id DESC);",
+        ),
+        (
+            "nocase-index",
+            "CREATE INDEX idx_evidence_run ON verification_evidence(run_id COLLATE NOCASE);",
+        ),
+    ] {
+        let index_path = canonical_v9_database(name);
+        let connection = Connection::open(&index_path).unwrap();
+        connection
+            .execute_batch(&format!("DROP INDEX idx_evidence_run; {definition}"))
+            .unwrap();
+        drop(connection);
+        let before = snapshot_file_set(&index_path);
+        assert!(preflight_existing_file(&index_path).is_err());
+        assert_file_set_unchanged(&before);
+    }
 
     let trigger_path = canonical_v9_database("anonymous-trigger");
     let connection = Connection::open(&trigger_path).unwrap();
@@ -282,11 +365,29 @@ fn preflight_rejects_index_semantic_changes_and_unnamed_critical_objects() {
         )
         .unwrap();
     drop(connection);
-    let before = snapshot(&trigger_path);
+    let before = snapshot_file_set(&trigger_path);
     assert!(preflight_existing_file(&trigger_path).is_err());
-    assert_eq!(snapshot(&trigger_path), before);
-    assert!(!PathBuf::from(format!("{}-wal", trigger_path.display())).exists());
-    assert!(!PathBuf::from(format!("{}-shm", trigger_path.display())).exists());
+    assert_file_set_unchanged(&before);
+}
+
+#[test]
+fn preflight_rejects_explicit_candidate_remnant_catalog_entries() {
+    for remnant in [
+        "verification_evidence_v10",
+        "consumption_intents_v11",
+        "candidate_backup",
+    ] {
+        let path = canonical_v9_database(remnant);
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute_batch(&format!("CREATE TABLE {remnant} (value TEXT NOT NULL);"))
+            .unwrap();
+        drop(connection);
+        let before = snapshot_file_set(&path);
+
+        assert!(preflight_existing_file(&path).is_err(), "{remnant}");
+        assert_file_set_unchanged(&before);
+    }
 }
 
 #[test]
