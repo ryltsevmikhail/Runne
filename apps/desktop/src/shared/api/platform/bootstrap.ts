@@ -2,7 +2,37 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 
 export interface BootstrapState {
   readonly theme: 'dark' | 'light'
-  readonly runtime: 'contract_pending'
+  readonly runtime: RuntimeConnectionState
+}
+
+export type RuntimeConnectionState =
+  | 'unconfigured'
+  | 'connecting'
+  | 'authenticating'
+  | 'reconciling'
+  | 'live'
+  | 'stale'
+  | 'reconnecting'
+  | 'incompatible'
+  | 'revoked'
+  | 'fatal'
+
+const runtimeConnectionStates: readonly RuntimeConnectionState[] = [
+  'unconfigured',
+  'connecting',
+  'authenticating',
+  'reconciling',
+  'live',
+  'stale',
+  'reconnecting',
+  'incompatible',
+  'revoked',
+  'fatal',
+]
+
+export function isRuntimeConnectionState(value: unknown): value is RuntimeConnectionState {
+  return typeof value === 'string'
+    && runtimeConnectionStates.includes(value as RuntimeConnectionState)
 }
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -30,6 +60,6 @@ function isBootstrapState(value: unknown): value is BootstrapState {
   return (
     Object.keys(record).length === 2
     && (record.theme === 'dark' || record.theme === 'light')
-    && record.runtime === 'contract_pending'
+    && isRuntimeConnectionState(record.runtime)
   )
 }

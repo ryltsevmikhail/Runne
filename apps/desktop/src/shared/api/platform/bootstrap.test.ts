@@ -6,12 +6,12 @@ describe('bootstrap IPC adapter', () => {
   it('accepts the closed sanitized bootstrap response', async () => {
     const state = await loadBootstrap(async () => ({
       theme: 'light',
-      runtime: 'contract_pending',
+      runtime: 'unconfigured',
     }))
 
     expect(state).toEqual({
       theme: 'light',
-      runtime: 'contract_pending',
+      runtime: 'unconfigured',
     })
   })
 

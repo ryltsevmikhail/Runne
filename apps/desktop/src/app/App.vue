@@ -15,11 +15,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
+import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
 import brandIcon from '@/shared/assets/gocode-app-icon.png'
 import brandLockup from '@/shared/assets/gocode-lockup.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 
 const theme = ref<'dark' | 'light'>('dark')
+const runtimeState = ref<RuntimeConnectionState>('unconfigured')
 const sidebarCollapsed = ref(false)
 const route = useRoute()
 const router = useRouter()
@@ -34,6 +36,7 @@ onMounted(async () => {
   if (isTauri()) {
     const bootstrap = await loadBootstrap()
     theme.value = bootstrap.theme
+    runtimeState.value = bootstrap.runtime
   }
 })
 
@@ -116,12 +119,12 @@ async function navigateSidebar(id: string) {
       <div class="sidebar-status">
         <div
           class="runtime-status"
-          title="Runtime contract pending"
+          :title="`Runtime ${runtimeState}`"
         >
           <span class="status-dot" />
           <span class="status-copy">
-            <strong>Runtime offline</strong>
-            <small>Contract pending</small>
+            <strong>{{ runtimeState === 'live' ? 'Runtime live' : 'Runtime offline' }}</strong>
+            <small>{{ runtimeState }}</small>
           </span>
         </div>
 
