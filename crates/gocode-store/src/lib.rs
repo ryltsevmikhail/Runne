@@ -17,6 +17,7 @@ pub mod codec;
 pub mod integrity;
 pub mod migration_codec;
 pub mod migration_store;
+pub mod provider;
 pub mod replay_store;
 pub mod schema;
 pub mod store;

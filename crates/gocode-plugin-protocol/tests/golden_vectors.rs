@@ -7,12 +7,15 @@
 
 use gocode_plugin_protocol::bootstrap::{
     BootstrapMessage, HostExecutionIdentity, HostHello, NegotiationRejectReason,
-    NegotiationRejected,
+    NegotiationRejected, ProfileSelected, SelectionAcknowledged,
 };
+use gocode_plugin_protocol::bootstrap_v2::SelectionAcknowledgedV2;
 use gocode_plugin_protocol::cbor::{CborDecoder, CborEncoder, DeterministicCodec};
 use gocode_plugin_protocol::digest::{ProfileDigest, ProtocolNegotiationSnapshotDigest};
-use gocode_plugin_protocol::frame::{FrameLimits, decode_frame, encode_frame};
-use gocode_plugin_protocol::id::{Nonce, PluginIdentity, ProfileId};
+use gocode_plugin_protocol::frame::{
+    FrameLimits, decode_codec_frame, decode_frame, encode_codec_frame, encode_frame,
+};
+use gocode_plugin_protocol::id::{Nonce, PluginIdentity, ProfileId, ProtocolSessionId};
 use gocode_plugin_protocol::profile::{BoundedProfileRefVec, DecodeLimits, ProtocolProfileRef};
 
 fn default_limits() -> DecodeLimits {
@@ -111,6 +114,70 @@ fn golden_frame_roundtrip_host_hello() {
         }
         _ => panic!("type mismatch"),
     }
+}
+
+#[test]
+fn acknowledgement_has_a_distinct_direction_bound_encoding() {
+    let selected = BootstrapMessage::ProfileSelected(ProfileSelected {
+        host_nonce: Nonce::from_bytes([1; 16]),
+        plugin_nonce: Nonce::from_bytes([2; 16]),
+        session_id: ProtocolSessionId::from_bytes([
+            7, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1,
+        ]),
+        profile_id: ProfileId::new("p1").unwrap(),
+        profile_digest: ProfileDigest::from_bytes([3; 32]),
+    });
+    // V1 remains wire-identical for bootstrap compatibility. The host's
+    // activation protocol requires this separately versioned, direction-bound
+    // V2 acknowledgement instead.
+    let acknowledged = SelectionAcknowledgedV2 {
+        host_nonce: Nonce::from_bytes([1; 16]),
+        plugin_nonce: Nonce::from_bytes([2; 16]),
+        session_id: ProtocolSessionId::from_bytes([
+            7, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1,
+        ]),
+        profile_id: ProfileId::new("p1").unwrap(),
+        profile_digest: ProfileDigest::from_bytes([3; 32]),
+    };
+    let selected_frame = encode_frame(&selected, &frame_limits()).unwrap();
+    let v1_ack = BootstrapMessage::SelectionAcknowledged(SelectionAcknowledged {
+        host_nonce: Nonce::from_bytes([1; 16]),
+        plugin_nonce: Nonce::from_bytes([2; 16]),
+        session_id: ProtocolSessionId::from_bytes([
+            7, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1,
+        ]),
+        profile_id: ProfileId::new("p1").unwrap(),
+        profile_digest: ProfileDigest::from_bytes([3; 32]),
+    });
+    let v1_ack_frame = encode_frame(&v1_ack, &frame_limits()).unwrap();
+    let acknowledged_frame = encode_codec_frame(&acknowledged, &frame_limits()).unwrap();
+
+    // Hand-authored compatibility vectors: v1 selection and acknowledgement
+    // deliberately share bytes; v2 ACK binds its direction in field 6.
+    let v1 = vec![
+        0, 0, 0, 94, 165, 1, 80, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 80, 2, 2, 2, 2,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 80, 7, 0, 0, 0, 0, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0,
+        1, 4, 98, 112, 49, 5, 88, 32, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+        3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+    ];
+    assert_eq!(selected_frame, v1);
+    assert_eq!(v1_ack_frame, v1); // v1 SelectionAcknowledged is identical by schema.
+
+    assert_ne!(selected_frame, acknowledged_frame);
+    assert_eq!(
+        acknowledged_frame,
+        vec![
+            0, 0, 0, 96, 166, 1, 80, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 80, 2, 2,
+            2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 80, 7, 0, 0, 0, 0, 0, 112, 0, 128, 0, 0,
+            0, 0, 0, 0, 1, 4, 98, 112, 49, 5, 88, 32, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 6, 2,
+        ]
+    );
+    assert!(matches!(
+        decode_codec_frame::<SelectionAcknowledgedV2>(&acknowledged_frame, &default_limits())
+            .unwrap(),
+        _
+    ));
 }
 
 // ─── Negative: Duplicate map keys ─────────────────────────────────────────
