@@ -50,6 +50,9 @@ pub const OPENCODE_BASELINE_INVENTORY_PROFILE_ID: &str = "opencode-baseline-inve
 /// The sole profile revision that currently enables `session.create`.
 pub const SESSION_CREATE_PROFILE_REVISION: ProfileRevision = 2;
 
+/// Profile revision that enables the complete pinned five-route V1 surface.
+pub const SESSION_V1_COMPAT_PROFILE_REVISION: ProfileRevision = 3;
+
 /// Reference to the loaded compatibility profile used by a service instance.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileRef {
@@ -88,8 +91,19 @@ pub struct ProfileRejection {
     pub detail: Option<String>,
 }
 
-/// Phase 2a: все операции — Reject.
+/// Typed acceptance for one exact inventory entry in one profile revision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileAcceptance {
+    pub profile_id: ProfileId,
+    pub profile_revision: ProfileRevision,
+    pub selector: OperationSelector,
+    pub inventory_id: String,
+    pub upstream_operation_id: String,
+}
+
+/// Revision-aware compatibility disposition.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TranslationDecision {
+    Accept(ProfileAcceptance),
     Reject(ProfileRejection),
 }
