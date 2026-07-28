@@ -5,6 +5,5 @@
 #[cfg(target_os = "windows")]
 #[test]
 fn windows_smoke_platform_check() {
-    // Windows-specific: verify we're on windows
-    assert!(cfg!(windows));
+    assert!(std::path::Path::new(r"C:\").has_root());
 }
