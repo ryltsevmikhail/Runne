@@ -46,7 +46,7 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
         |row| row.get(0),
     )?;
     if schema_version > CURRENT_SCHEMA_VERSION
-        || (schema_version >= 9 && !is_released_strict_v9(&conn, schema_version)?)
+        || (schema_version >= 9 && !is_released_strict_v9(conn, schema_version)?)
     {
         return Err(rusqlite::Error::InvalidQuery);
     }
