@@ -9,39 +9,154 @@
 
 use rand::RngCore;
 use rand::rngs::OsRng;
-use std::path::Path;
+use std::{
+    collections::HashSet,
+    fmt, fs,
+    path::{Path, PathBuf},
+    sync::{Mutex, OnceLock},
+};
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Result as SqliteResult};
 
 /// Current schema version. Increment when adding new DDL migrations.
 pub const CURRENT_SCHEMA_VERSION: i64 = 9;
 
+/// Fail-closed reason returned before a file-backed database is made writable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchemaOpenDiagnostic {
+    ZeroByteDatabase,
+    SidecarPresent,
+    FileIdentityUncertain,
+    UnsafePath,
+}
+
+impl fmt::Display for SchemaOpenDiagnostic {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::ZeroByteDatabase => "ZeroByteDatabase",
+            Self::SidecarPresent => "SidecarPresent",
+            Self::FileIdentityUncertain => "FileIdentityUncertain",
+            Self::UnsafePath => "UnsafePath",
+        })
+    }
+}
+
+impl std::error::Error for SchemaOpenDiagnostic {}
+
+fn diagnostic_error(diagnostic: SchemaOpenDiagnostic) -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(diagnostic))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct FileIdentity {
+    volume: u64,
+    file: u64,
+}
+
+fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
+    if fs::symlink_metadata(path)
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata =
+            fs::metadata(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        Ok(FileIdentity {
+            volume: metadata.dev(),
+            file: metadata.ino(),
+        })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+
+        let file = fs::File::open(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+        let succeeded =
+            unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+        if succeeded == 0 {
+            return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
+        }
+        let info = unsafe { info.assume_init() };
+        Ok(FileIdentity {
+            volume: u64::from(info.dwVolumeSerialNumber),
+            file: (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+        })
+    }
+}
+
+fn admitted_identities() -> &'static Mutex<HashSet<FileIdentity>> {
+    static IDENTITIES: OnceLock<Mutex<HashSet<FileIdentity>>> = OnceLock::new();
+    IDENTITIES.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+fn identity_is_admitted(identity: FileIdentity) -> Result<bool, SchemaOpenDiagnostic> {
+    admitted_identities()
+        .lock()
+        .map(|identities| identities.contains(&identity))
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+}
+
+fn admit_identity(path: &Path) -> Result<(), SchemaOpenDiagnostic> {
+    let identity = file_identity(path)?;
+    admitted_identities()
+        .lock()
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?
+        .insert(identity);
+    Ok(())
+}
+
+fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
+    let mut sidecar = path.as_os_str().to_os_string();
+    sidecar.push(suffix);
+    PathBuf::from(sidecar)
+}
+
+fn path_is_safe(path: &Path) -> bool {
+    !path.to_string_lossy().contains(['?', '#', '%'])
+}
+
 /// Reject unsupported existing database schemas without changing the file.
 ///
 /// File-backed verification stores call this before enabling WAL or applying
 /// migrations, so an unsupported future or candidate schema remains untouched.
 pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
-    if !db_path.exists() {
-        return Ok(());
+    if !path_is_safe(db_path) {
+        return Err(diagnostic_error(SchemaOpenDiagnostic::UnsafePath));
     }
-    let is_empty = db_path
-        .metadata()
-        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?
-        .len()
-        == 0;
-    if is_empty {
+    let identity = file_identity(db_path).map_err(diagnostic_error)?;
+    let metadata = fs::metadata(db_path)
+        .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
+    if metadata.len() == 0 {
+        return Err(diagnostic_error(SchemaOpenDiagnostic::ZeroByteDatabase));
+    }
+    let sidecar_present = ["-wal", "-shm"]
+        .into_iter()
+        .any(|suffix| sidecar_path(db_path, suffix).exists());
+    if sidecar_present && !identity_is_admitted(identity).map_err(diagnostic_error)? {
+        return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
+    }
+    if sidecar_present {
         return Ok(());
     }
 
-    // `immutable=1` prevents SQLite from updating the shared-memory lock
-    // region while inspecting a hot WAL candidate. Classification only reads
-    // main-database lineage, which must already be durable before admission.
-    let uri = format!("file:{}?immutable=1", db_path.to_string_lossy());
-    let conn = Connection::open_with_flags(
-        uri,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-    )?;
-    classify_existing_connection(&conn)
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    classify_existing_connection(&conn)?;
+    drop(conn);
+    if file_identity(db_path).map_err(diagnostic_error)? != identity {
+        return Err(diagnostic_error(
+            SchemaOpenDiagnostic::FileIdentityUncertain,
+        ));
+    }
+    Ok(())
 }
 
 /// Classify an existing database before any pragma or statement that can
@@ -393,14 +508,33 @@ fn index_matches(
     if !exact_semantics {
         return Ok(false);
     }
-    let mut statement = conn.prepare(&format!("PRAGMA index_info('{index}')"))?;
+    let mut statement = conn.prepare(&format!("PRAGMA index_xinfo('{index}')"))?;
     let actual = statement
-        .query_map([], |row| row.get::<_, String>(2))?
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, i64>(5)?,
+            ))
+        })?
         .collect::<SqliteResult<Vec<_>>>()?;
-    Ok(actual
+    let key_columns = actual
         .iter()
-        .map(String::as_str)
-        .eq(columns.iter().copied()))
+        .filter(|(_, _, _, _, _, key)| *key != 0)
+        .collect::<Vec<_>>();
+    Ok(key_columns.len() == columns.len()
+        && key_columns.iter().zip(columns).all(
+            |((sequence, column_id, name, descending, collation, _), expected)| {
+                *sequence >= 0
+                    && *column_id >= 0
+                    && name.as_deref() == Some(*expected)
+                    && *descending == 0
+                    && collation == "BINARY"
+            },
+        ))
 }
 
 fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
@@ -417,21 +551,26 @@ fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
     Ok(objects.iter().any(|(kind, name, table)| {
+        let is_candidate_named = name.starts_with("verification_evidence_v")
+            || name.starts_with("consumption_intents_v")
+            || name.starts_with("schema_lineage_v")
+            || name.starts_with("candidate_");
         let targets_owned_table = matches!(
             table.as_str(),
             "verification_evidence" | "consumption_intents" | "schema_lineage"
         );
-        targets_owned_table
-            && !matches!(
-                (kind.as_str(), name.as_str()),
-                ("table", "verification_evidence")
-                    | ("table", "consumption_intents")
-                    | ("table", "schema_lineage")
-                    | ("index", "idx_evidence_run")
-                    | ("index", "sqlite_autoindex_consumption_intents_1")
-                    | ("index", "sqlite_autoindex_consumption_intents_2")
-                    | ("index", "sqlite_autoindex_verification_evidence_1")
-            )
+        is_candidate_named
+            || (targets_owned_table
+                && !matches!(
+                    (kind.as_str(), name.as_str()),
+                    ("table", "verification_evidence")
+                        | ("table", "consumption_intents")
+                        | ("table", "schema_lineage")
+                        | ("index", "idx_evidence_run")
+                        | ("index", "sqlite_autoindex_consumption_intents_1")
+                        | ("index", "sqlite_autoindex_consumption_intents_2")
+                        | ("index", "sqlite_autoindex_verification_evidence_1")
+                ))
     }))
 }
 
@@ -970,17 +1109,37 @@ INSERT INTO schema_lineage (schema_version, provenance)
 
 /// Open a database connection with the standard set of PRAGMAs.
 pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
-    let is_new_file = db_path != ":memory:" && !Path::new(db_path).exists();
-    if db_path != ":memory:" && !is_new_file {
-        // Existing non-empty files must be classified by a read-only handle
-        // before opening any writable connection or configuring WAL.
-        preflight_existing_file(Path::new(db_path))?;
+    let is_memory = db_path == ":memory:";
+    let path = Path::new(db_path);
+    let is_new_file = !is_memory && !path.exists();
+    if !is_memory && !path_is_safe(path) {
+        return Err(diagnostic_error(SchemaOpenDiagnostic::UnsafePath));
+    }
+    if !is_memory && !is_new_file {
+        preflight_existing_file(path)?;
+    }
+    if is_new_file {
+        match fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)
+        {
+            Ok(file) => drop(file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                // A competing creator won the race. Treat its file as existing
+                // and never initialise it through this caller.
+                return Err(diagnostic_error(
+                    SchemaOpenDiagnostic::FileIdentityUncertain,
+                ));
+            }
+            Err(error) => return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(error))),
+        }
     }
     let conn = Connection::open(db_path)?;
 
     if is_new_file {
         #[cfg(unix)]
-        secure_file_permissions(Path::new(db_path))
+        secure_file_permissions(path)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     }
 
@@ -1002,12 +1161,16 @@ pub fn open_with_pragmas(db_path: &str) -> SqliteResult<Connection> {
     if is_new_file {
         #[cfg(unix)]
         for suffix in ["-wal", "-shm"] {
-            let sidecar = std::path::PathBuf::from(format!("{db_path}{suffix}"));
+            let sidecar = sidecar_path(path, suffix);
             if sidecar.exists() {
                 secure_file_permissions(&sidecar)
                     .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
             }
         }
+    }
+
+    if !is_memory {
+        admit_identity(path).map_err(diagnostic_error)?;
     }
 
     Ok(conn)
