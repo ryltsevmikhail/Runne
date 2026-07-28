@@ -48,6 +48,12 @@ def display_path(path: str) -> str:
         return os.path.abspath(path)
 
 
+def load_json(path: str) -> Any:
+    """Load repository artifacts as UTF-8 regardless of the host locale."""
+    with open(path, encoding="utf-8") as json_file:
+        return json.load(json_file)
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -292,7 +298,8 @@ def verify_digest_sidecar(json_path: str, instance: dict) -> None:
         errors.append(f"{display_path(json_path)}: missing .digest sidecar")
         return
 
-    expected = open(digest_path).read().strip()
+    with open(digest_path, encoding="utf-8") as digest_file:
+        expected = digest_file.read().strip()
     actual = compute_digest(instance)
 
     if actual != expected:
@@ -317,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         return print_summary(2)
 
     try:
-        schema = json.load(open(schema_path))
+        schema = load_json(schema_path)
     except json.JSONDecodeError as e:
         errors.append(f"Invalid JSON in schema: {e}")
         return print_summary(2)
@@ -356,7 +363,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Load fixture
         try:
-            instance = json.load(open(json_path))
+            instance = load_json(json_path)
         except json.JSONDecodeError as e:
             errors.append(f"{rel}: invalid JSON — {e}")
             continue
