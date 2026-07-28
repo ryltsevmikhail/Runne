@@ -1,4 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { isRuntimeConnectionState } from './bootstrap'
+import type { RuntimeConnectionState } from './bootstrap'
 
 export interface DiagnosticsSnapshot {
   readonly appVersion: string
@@ -6,7 +8,7 @@ export interface DiagnosticsSnapshot {
   readonly databaseSchemaVersion: number
   readonly databaseGeneration: number
   readonly projectCount: number
-  readonly runtime: 'contract_pending'
+  readonly runtime: RuntimeConnectionState
 }
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -33,6 +35,6 @@ function isDiagnosticsSnapshot(value: unknown): value is DiagnosticsSnapshot {
     && Number.isSafeInteger(record.databaseSchemaVersion)
     && Number.isSafeInteger(record.databaseGeneration)
     && Number.isSafeInteger(record.projectCount)
-    && record.runtime === 'contract_pending'
+    && isRuntimeConnectionState(record.runtime)
   )
 }

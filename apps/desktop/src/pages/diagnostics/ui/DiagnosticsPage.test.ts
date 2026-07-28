@@ -13,7 +13,7 @@ describe('diagnostics page', () => {
           databaseSchemaVersion: 3,
           databaseGeneration: 4,
           projectCount: 2,
-          runtime: 'contract_pending',
+          runtime: 'unconfigured',
         }),
       },
     })

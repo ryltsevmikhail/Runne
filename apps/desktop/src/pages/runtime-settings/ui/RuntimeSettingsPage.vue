@@ -9,7 +9,7 @@ import { GcAlert, GcBadge } from '@gocode/product/shared/ui'
         <h1 id="runtime-settings-title">
           Runtime
         </h1>
-        <p>Runtime integration is unavailable until the canonical profile is frozen.</p>
+        <p>No runtime profile configured. Desktop will not guess an endpoint.</p>
       </div>
     </header>
 
@@ -18,7 +18,7 @@ import { GcAlert, GcBadge } from '@gocode/product/shared/ui'
       title="Runtime offline"
     >
       <GcBadge status="offline">
-        Contract pending
+        Unconfigured
       </GcBadge>
     </GcAlert>
   </section>
