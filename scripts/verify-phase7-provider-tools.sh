@@ -25,9 +25,9 @@ required = [
     f"fixture_sha256: {digest}",
     "source_commit: WORKTREE_UNCOMMITTED",
     "phase7a_verdict: IMPLEMENTED_CANDIDATE",
-    "phase6b_native_containment: OPEN",
-    "phase7b_plugin_host: OPEN",
-    "phase7c_mcp_adapter: OPEN",
+    "phase7b_plugin_host: IMPLEMENTED_CANDIDATE",
+    "phase7c_mcp_adapter: IMPLEMENTED_CANDIDATE",
+    "production_mcp_sdk_profile: DISABLED_BY_POLICY",
     "live_provider_evaluation: NOT_RUN",
 ]
 missing = [value for value in required if value not in evidence]

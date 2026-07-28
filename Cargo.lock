@@ -710,6 +710,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gocode-mcp"
+version = "0.1.0"
+dependencies = [
+ "gocode-tools",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "gocode-observability"
 version = "0.1.0"
 dependencies = [
@@ -757,12 +766,17 @@ name = "gocode-plugin-host"
 version = "0.1.0"
 dependencies = [
  "gocode-plugin-protocol",
+ "gocode-tools",
+ "serde_json",
  "sha2",
 ]
 
 [[package]]
 name = "gocode-plugin-protocol"
 version = "0.1.0"
+dependencies = [
+ "sha2",
+]
 
 [[package]]
 name = "gocode-provider"
@@ -795,9 +809,11 @@ dependencies = [
  "gocode-api",
  "gocode-application",
  "gocode-domain",
+ "gocode-mcp",
  "gocode-opencode-adapter-sqlite",
  "gocode-opencode-compat",
  "gocode-platform",
+ "gocode-plugin-host",
  "gocode-provider",
  "gocode-store",
  "gocode-tools",

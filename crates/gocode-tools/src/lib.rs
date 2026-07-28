@@ -17,8 +17,8 @@ pub use gateway::{
     ToolGatewayError, ToolTerminalDisposition,
 };
 pub use model::{
-    InvalidToolIdentity, SandboxProfile, ToolClass, ToolDefinition, ToolId, ToolRef, ToolVersion,
-    ToolsetSnapshot,
+    InvalidToolDefinition, InvalidToolIdentity, SandboxProfile, ToolClass, ToolDefinition,
+    ToolDispatchBinding, ToolId, ToolRef, ToolVersion, ToolsetSnapshot,
 };
 pub use output::{BlobRef, InvalidOutputContract, RawToolOutput, ToolOutput, ToolOutputBounds};
 pub use process::{

@@ -76,6 +76,10 @@ bounded_plugin_identifier!(
 );
 bounded_plugin_identifier!(PluginActivationId, "Bounded plugin activation identity.");
 bounded_plugin_identifier!(PluginHookId, "Bounded plugin hook identity.");
+bounded_plugin_identifier!(
+    PluginHookInvocationId,
+    "Bounded plugin hook invocation identity."
+);
 
 /// Monotonic plugin activation generation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

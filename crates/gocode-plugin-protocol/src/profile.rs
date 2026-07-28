@@ -1,10 +1,15 @@
 //! Protocol profile constants and decode limits.
 
+use crate::cbor::CborEncoder;
 use crate::digest::{
-    BootstrapSchemaDigest, BoundsProfileDigest, ProfileDigest, SchemaBundleDigest,
+    BootstrapSchemaDigest, BoundsProfileDigest, ProfileDigest, SchemaBundleDigest, Sha256Provider,
     WireContractDigest,
 };
 use crate::id::{ProfileId, ProtocolVersion};
+
+const PROFILE_DIGEST_DOMAIN: &[u8] = b"GOCODE_PLUGIN_PROTOCOL_PROFILE_V1\0";
+/// Maximum explicitly enabled features in one exact profile.
+pub const MAX_ENABLED_FEATURES: usize = 64;
 
 /// Decoding safety limits — cap wire sizes, nesting, and cardinalities.
 ///
@@ -155,6 +160,96 @@ pub struct ProtocolSupportProfile {
     pub session_schema_bundle_digest: SchemaBundleDigest,
     /// Digest of the bounds profile definition.
     pub bounds_profile_digest: BoundsProfileDigest,
+    /// Sorted, unique, bounded feature identifiers selected with this tuple.
+    enabled_features: Box<[String]>,
+}
+
+impl ProtocolSupportProfile {
+    /// Builds an exact profile only from an ASCII, sorted and unique feature set.
+    pub fn new(
+        profile_id: ProfileId,
+        version: ProtocolVersion,
+        bootstrap_schema_digest: BootstrapSchemaDigest,
+        wire_contract_digest: WireContractDigest,
+        session_schema_bundle_digest: SchemaBundleDigest,
+        bounds_profile_digest: BoundsProfileDigest,
+        enabled_features: Vec<String>,
+    ) -> Result<Self, ProfileFeatureError> {
+        if enabled_features.len() > MAX_ENABLED_FEATURES
+            || enabled_features.iter().any(|feature| {
+                feature.is_empty()
+                    || feature.len() > 128
+                    || !feature
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-' || b == b'.')
+            })
+            || enabled_features.windows(2).any(|pair| pair[0] >= pair[1])
+        {
+            return Err(ProfileFeatureError::InvalidSet);
+        }
+        Ok(Self {
+            profile_id,
+            version,
+            bootstrap_schema_digest,
+            wire_contract_digest,
+            session_schema_bundle_digest,
+            bounds_profile_digest,
+            enabled_features: enabled_features.into_boxed_slice(),
+        })
+    }
+
+    /// Returns the exact ordered feature set bound into profile identity.
+    pub fn enabled_features(&self) -> &[String] {
+        &self.enabled_features
+    }
+
+    /// Canonical deterministic-CBOR normalized profile tuple.
+    pub fn profile_bytes(&self) -> Vec<u8> {
+        let mut enc = CborEncoder::new();
+        enc.write_map_header(7);
+        enc.write_unsigned(1);
+        enc.write_text_string(self.profile_id.as_str());
+        enc.write_unsigned(2);
+        enc.write_array_header(2);
+        enc.write_unsigned(self.version.major() as u64);
+        enc.write_unsigned(self.version.minor() as u64);
+        enc.write_unsigned(3);
+        enc.write_byte_string(self.bootstrap_schema_digest.as_bytes());
+        enc.write_unsigned(4);
+        enc.write_byte_string(self.wire_contract_digest.as_bytes());
+        enc.write_unsigned(5);
+        enc.write_byte_string(self.session_schema_bundle_digest.as_bytes());
+        enc.write_unsigned(6);
+        enc.write_array_header(self.enabled_features.len() as u64);
+        for feature in &self.enabled_features {
+            enc.write_text_string(feature);
+        }
+        enc.write_unsigned(7);
+        enc.write_byte_string(self.bounds_profile_digest.as_bytes());
+        enc.into_bytes()
+    }
+
+    /// ADR-0015 profile digest over the pinned wire contract and canonical bytes.
+    pub fn profile_digest(&self, sha256: &dyn Sha256Provider) -> ProfileDigest {
+        let bytes = self.profile_bytes();
+        let mut input = Vec::with_capacity(
+            PROFILE_DIGEST_DOMAIN.len()
+                + self.wire_contract_digest.as_bytes().len()
+                + size_of::<u64>()
+                + bytes.len(),
+        );
+        input.extend_from_slice(PROFILE_DIGEST_DOMAIN);
+        input.extend_from_slice(self.wire_contract_digest.as_bytes());
+        input.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
+        input.extend_from_slice(&bytes);
+        ProfileDigest::from_bytes(sha256.sha256(&input).into_bytes())
+    }
+}
+
+/// Rejection of a non-canonical enabled feature set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProfileFeatureError {
+    InvalidSet,
 }
 
 // ── DirectionBounds / BoundsProfile ────────────────────────────────────────
@@ -249,6 +344,16 @@ impl std::error::Error for ProtocolValidationError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::digest::{Sha256Digest, Sha256Provider};
+    use sha2::{Digest, Sha256};
+
+    struct TestSha256;
+
+    impl Sha256Provider for TestSha256 {
+        fn sha256(&self, data: &[u8]) -> Sha256Digest {
+            Sha256Digest::from_bytes(Sha256::digest(data).into())
+        }
+    }
 
     #[test]
     fn test_profile_ref_vec_bounded() {
@@ -277,16 +382,46 @@ mod tests {
 
     #[test]
     fn test_protocol_support_profile_fields() {
-        let p = ProtocolSupportProfile {
-            profile_id: ProfileId::new("test").unwrap(),
-            version: ProtocolVersion::V1_0,
-            bootstrap_schema_digest: BootstrapSchemaDigest::from_bytes([1; 32]),
-            wire_contract_digest: WireContractDigest::from_bytes([2; 32]),
-            session_schema_bundle_digest: SchemaBundleDigest::from_bytes([3; 32]),
-            bounds_profile_digest: BoundsProfileDigest::from_bytes([4; 32]),
-        };
+        let p = ProtocolSupportProfile::new(
+            ProfileId::new("test").unwrap(),
+            ProtocolVersion::V1_0,
+            BootstrapSchemaDigest::from_bytes([1; 32]),
+            WireContractDigest::from_bytes([2; 32]),
+            SchemaBundleDigest::from_bytes([3; 32]),
+            BoundsProfileDigest::from_bytes([4; 32]),
+            vec!["feature-a".to_owned(), "feature-b".to_owned()],
+        )
+        .unwrap();
         assert_eq!(p.version, ProtocolVersion::V1_0);
         assert_eq!(p.profile_id.as_str(), "test");
+        assert_ne!(
+            p.profile_digest(&TestSha256),
+            ProfileDigest::from_bytes([0; 32])
+        );
+        assert_eq!(p.enabled_features(), ["feature-a", "feature-b"]);
+    }
+
+    #[test]
+    fn canonical_profile_digest_matches_pinned_vector() {
+        let profile = ProtocolSupportProfile::new(
+            ProfileId::new("builtin-profile-v2").unwrap(),
+            ProtocolVersion::V1_0,
+            BootstrapSchemaDigest::from_bytes([0x11; 32]),
+            WireContractDigest::from_bytes([0x22; 32]),
+            SchemaBundleDigest::from_bytes([0x33; 32]),
+            BoundsProfileDigest::from_bytes([0x44; 32]),
+            vec!["bootstrap-v2".to_owned()],
+        )
+        .unwrap();
+
+        assert_eq!(
+            profile.profile_digest(&TestSha256),
+            ProfileDigest::from_bytes([
+                0x6d, 0xbd, 0xdb, 0xd7, 0x54, 0xf8, 0xbf, 0xf3, 0xd6, 0x2c, 0xfe, 0xfd, 0x31, 0x09,
+                0x5b, 0xce, 0x32, 0x56, 0x3a, 0xc2, 0x62, 0x77, 0x05, 0xc9, 0x24, 0x26, 0x1c, 0x0b,
+                0xfe, 0x4f, 0x6c, 0x5d,
+            ])
+        );
     }
 
     #[test]

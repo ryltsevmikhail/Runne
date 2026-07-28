@@ -9,13 +9,16 @@ use gocode_plugin_protocol::digest::{
     DigestAlgorithm, PackageDigest, ProtocolNegotiationSnapshotDigest,
 };
 use gocode_plugin_protocol::frame::{FrameLimits, decode_codec_frame, decode_frame, encode_frame};
+use gocode_plugin_protocol::id::PluginId;
 use gocode_plugin_protocol::id::{Nonce, ProtocolSessionId};
 use gocode_plugin_protocol::profile::DecodeLimits;
 
 use crate::{
-    PluginActivationId, PluginBootstrapFrame, PluginDigest, PluginGeneration, PluginGenerationPort,
+    PluginActivationId, PluginActiveFence, PluginBootstrapFrame, PluginCleanupEvidence,
+    PluginDigest, PluginDrainEvidence, PluginGeneration, PluginGenerationPort,
     PluginGenerationReadLease, PluginProcessLease, PluginProcessPort, PluginProcessPortError,
-    PluginStartIntent, PluginStartIntentPort, PluginTransportPort, VerifiedPluginPackage,
+    PluginStartIntent, PluginStartIntentOrigin, PluginStartIntentPort, PluginStartReconciliation,
+    PluginTransportPort, VerifiedPluginPackage,
 };
 
 const MAX_BOOTSTRAP_FRAME_BYTES: usize = 64 * 1024;
@@ -38,11 +41,13 @@ pub enum ActivationState {
 pub enum PluginActivationReceipt {
     StartAttempted,
     StartProvenNotStarted,
+    ReconciliationAttempted,
 }
 
 /// Linear lifecycle result. Active and uncertain snapshots retain the exact leases.
 #[derive(Debug)]
 pub struct PluginActivationSnapshot {
+    plugin_id: PluginId,
     activation_id: PluginActivationId,
     package_digest: PluginDigest,
     generation: PluginGeneration,
@@ -50,8 +55,21 @@ pub struct PluginActivationSnapshot {
     state: ActivationState,
     start_intent: Option<PluginStartIntent>,
     process_lease: Option<PluginProcessLease>,
+    drain_evidence: Option<PluginDrainEvidence>,
+    terminal_evidence: Option<PluginTerminalEvidence>,
     generation_lease: Option<PluginGenerationReadLease>,
+    active_fence: Option<PluginActiveFence>,
     history: Box<[ActivationState]>,
+    receipts: Box<[PluginActivationReceipt]>,
+}
+
+struct StartedActivation {
+    state: ActivationState,
+    start_intent: PluginStartIntent,
+    process_lease: Option<PluginProcessLease>,
+    generation_lease: PluginGenerationReadLease,
+    active_fence: Option<PluginActiveFence>,
+    negotiated: bool,
     receipts: Box<[PluginActivationReceipt]>,
 }
 
@@ -63,6 +81,7 @@ impl PluginActivationSnapshot {
 
     fn pre_start(request: &PluginActivationRequest, state: ActivationState) -> Self {
         Self {
+            plugin_id: request.package.plugin_hello_metadata().package_id,
             activation_id: request.activation_id.clone(),
             package_digest: request.package.package_digest(),
             generation: request.package.generation(),
@@ -70,7 +89,10 @@ impl PluginActivationSnapshot {
             state,
             start_intent: None,
             process_lease: None,
+            drain_evidence: None,
+            terminal_evidence: None,
             generation_lease: None,
+            active_fence: None,
             history: vec![state].into_boxed_slice(),
             receipts: Self::bounded_receipts(Vec::new()),
         }
@@ -82,9 +104,11 @@ impl PluginActivationSnapshot {
         start_intent: PluginStartIntent,
         process_lease: Option<PluginProcessLease>,
         generation_lease: PluginGenerationReadLease,
+        active_fence: Option<PluginActiveFence>,
         receipts: Box<[PluginActivationReceipt]>,
     ) -> Self {
         Self {
+            plugin_id: request.package.plugin_hello_metadata().package_id,
             activation_id: request.activation_id.clone(),
             package_digest: request.package.package_digest(),
             generation: request.package.generation(),
@@ -92,40 +116,40 @@ impl PluginActivationSnapshot {
             state,
             start_intent: Some(start_intent),
             process_lease,
+            drain_evidence: None,
+            terminal_evidence: None,
             generation_lease: Some(generation_lease),
+            active_fence,
             history: Vec::new().into_boxed_slice(),
             receipts,
         }
     }
 
-    fn started(
-        request: &PluginActivationRequest,
-        state: ActivationState,
-        start_intent: PluginStartIntent,
-        process_lease: Option<PluginProcessLease>,
-        generation_lease: PluginGenerationReadLease,
-        negotiated: bool,
-        receipts: Box<[PluginActivationReceipt]>,
-    ) -> Self {
+    fn started(request: &PluginActivationRequest, started: StartedActivation) -> Self {
         let mut snapshot = Self::post_start(
             request,
-            state,
-            start_intent,
-            process_lease,
-            generation_lease,
-            receipts,
+            started.state,
+            started.start_intent,
+            started.process_lease,
+            started.generation_lease,
+            started.active_fence,
+            started.receipts,
         );
         let mut history = vec![ActivationState::Verified, ActivationState::Starting];
-        if negotiated {
+        if started.negotiated {
             history.push(ActivationState::Negotiating);
         }
-        history.push(state);
+        history.push(started.state);
         snapshot.history = history.into_boxed_slice();
         snapshot
     }
 
     pub fn activation_id(&self) -> &PluginActivationId {
         &self.activation_id
+    }
+    /// Exact verified package identity owning this activation channel.
+    pub const fn plugin_id(&self) -> &PluginId {
+        &self.plugin_id
     }
     pub const fn package_digest(&self) -> PluginDigest {
         self.package_digest
@@ -158,37 +182,246 @@ impl PluginActivationSnapshot {
         &self.receipts
     }
 
+    /// Revalidates the registry-owned active binding before hook/tool dispatch.
+    pub fn is_dispatchable(&self, generations: &dyn PluginGenerationPort) -> bool {
+        self.state == ActivationState::Active
+            && self.active_fence.as_ref().is_some_and(|fence| {
+                fence.matches(
+                    &self.activation_id,
+                    self.generation,
+                    self.negotiation_snapshot,
+                ) && generations.validate_active(fence).is_ok()
+            })
+    }
+
+    /// Reconciles an uncertain process start without issuing another start.
+    pub fn reconcile_process(
+        mut self,
+        process: &mut dyn PluginProcessPort,
+    ) -> Result<Self, Box<(Self, PluginLifecycleError)>> {
+        if self.state != ActivationState::Uncertain {
+            return Err(Box::new((self, PluginLifecycleError::InvalidTransition)));
+        }
+        let (Some(start_intent), Some(generation_lease)) =
+            (self.start_intent.as_ref(), self.generation_lease.as_ref())
+        else {
+            return Err(Box::new((self, PluginLifecycleError::InvalidTransition)));
+        };
+        let mut receipts = self.receipts.to_vec();
+        receipts.push(PluginActivationReceipt::ReconciliationAttempted);
+        match process.reconcile(start_intent, generation_lease) {
+            Ok(PluginStartReconciliation::NotStarted) => {
+                receipts.push(PluginActivationReceipt::StartProvenNotStarted);
+                self.state = ActivationState::Verified;
+                self.start_intent = None;
+                self.process_lease = None;
+                self.generation_lease = None;
+                self.active_fence = None;
+                self.record(ActivationState::Verified);
+                self.receipts = Self::bounded_receipts(receipts);
+                Ok(self)
+            }
+            Ok(PluginStartReconciliation::Started(lease))
+                if lease.matches(
+                    self.start_intent
+                        .as_ref()
+                        .expect("start intent is retained while reconciling"),
+                ) =>
+            {
+                self.process_lease = Some(lease);
+                self.receipts = Self::bounded_receipts(receipts);
+                Ok(self)
+            }
+            Ok(PluginStartReconciliation::Started(_) | PluginStartReconciliation::Uncertain)
+            | Err(_) => {
+                self.receipts = Self::bounded_receipts(receipts);
+                Ok(self)
+            }
+        }
+    }
+
     fn record(&mut self, state: ActivationState) {
         let mut history = self.history.to_vec();
         history.push(state);
         self.history = history.into_boxed_slice();
     }
 
-    /// Consumes Active and closes dispatch admission without duplicating its lease.
+    /// Consumes Active only after the process backend certifies the drain boundary.
+    pub fn begin_draining_with_backend(
+        mut self,
+        process: &mut dyn PluginProcessPort,
+    ) -> Result<Self, Box<(Self, PluginLifecycleError)>> {
+        if !matches!(
+            self.state,
+            ActivationState::Active | ActivationState::Uncertain
+        ) || self.drain_evidence.is_some()
+            || self.terminal_evidence.is_some()
+        {
+            return Err(Box::new((self, PluginLifecycleError::InvalidTransition)));
+        }
+        let Some(process_lease) = self.process_lease.as_ref() else {
+            return Err(Box::new((
+                self,
+                PluginLifecycleError::InvalidBackendEvidence,
+            )));
+        };
+        let evidence = match process.begin_draining(process_lease) {
+            Ok(evidence) if evidence.matches(process_lease) => evidence,
+            Ok(_) => {
+                self.state = ActivationState::Uncertain;
+                self.active_fence = None;
+                if self.history.last() != Some(&ActivationState::Uncertain) {
+                    self.record(ActivationState::Uncertain);
+                }
+                return Ok(self);
+            }
+            Err(PluginProcessPortError::ResponseLost) => {
+                self.state = ActivationState::Uncertain;
+                self.active_fence = None;
+                if self.history.last() != Some(&ActivationState::Uncertain) {
+                    self.record(ActivationState::Uncertain);
+                }
+                return Ok(self);
+            }
+            Err(_) => return Err(Box::new((self, PluginLifecycleError::BackendUnavailable))),
+        };
+        self.state = ActivationState::Draining;
+        self.drain_evidence = Some(evidence);
+        self.active_fence = None;
+        self.record(ActivationState::Draining);
+        Ok(self)
+    }
+
+    /// Consumes Draining only after terminal and cleanup evidence are certified
+    /// by the backend for the exact retained process lease.
+    pub fn terminal_with_backend(
+        mut self,
+        process: &mut dyn PluginProcessPort,
+    ) -> Result<Self, Box<(Self, PluginLifecycleError)>> {
+        if !matches!(
+            self.state,
+            ActivationState::Draining | ActivationState::Uncertain
+        ) {
+            return Err(Box::new((self, PluginLifecycleError::InvalidTransition)));
+        }
+        let (Some(process_lease), Some(drain_evidence)) =
+            (self.process_lease.as_ref(), self.drain_evidence.as_ref())
+        else {
+            return Err(Box::new((
+                self,
+                PluginLifecycleError::InvalidBackendEvidence,
+            )));
+        };
+        let terminal = match self.terminal_evidence.take() {
+            Some(evidence) => evidence,
+            None => match process.terminal(process_lease, drain_evidence) {
+                Ok(evidence) if evidence.matches(&self) => evidence,
+                Ok(_) => {
+                    return Err(Box::new((
+                        self,
+                        PluginLifecycleError::InvalidTerminalEvidence,
+                    )));
+                }
+                Err(PluginProcessPortError::ResponseLost) => {
+                    self.state = ActivationState::Uncertain;
+                    if self.history.last() != Some(&ActivationState::Uncertain) {
+                        self.record(ActivationState::Uncertain);
+                    }
+                    return Ok(self);
+                }
+                Err(_) => {
+                    return Err(Box::new((self, PluginLifecycleError::BackendUnavailable)));
+                }
+            },
+        };
+        let cleanup = match process.cleanup(process_lease, &terminal) {
+            Ok(evidence) if evidence.matches(process_lease) => evidence,
+            Ok(_) => {
+                self.terminal_evidence = Some(terminal);
+                self.state = ActivationState::Uncertain;
+                if self.history.last() != Some(&ActivationState::Uncertain) {
+                    self.record(ActivationState::Uncertain);
+                }
+                return Ok(self);
+            }
+            Err(_) => {
+                self.terminal_evidence = Some(terminal);
+                self.state = ActivationState::Uncertain;
+                if self.history.last() != Some(&ActivationState::Uncertain) {
+                    self.record(ActivationState::Uncertain);
+                }
+                return Ok(self);
+            }
+        };
+        self.commit_terminal(terminal, cleanup)
+    }
+
+    /// Test-only in-memory helper; production lifecycle must call
+    /// [`Self::begin_draining_with_backend`].
+    #[cfg(test)]
     pub fn begin_draining(mut self) -> Result<Self, Box<(Self, PluginLifecycleError)>> {
         if self.state != ActivationState::Active {
             return Err(Box::new((self, PluginLifecycleError::InvalidTransition)));
         }
         self.state = ActivationState::Draining;
+        self.drain_evidence = self
+            .process_lease
+            .as_ref()
+            .map(PluginDrainEvidence::certified);
+        self.active_fence = None;
         self.record(ActivationState::Draining);
         Ok(self)
     }
 
-    /// Consumes Draining only when opaque backend evidence is bound to this exact activation.
+    #[cfg(test)]
     pub fn terminal(
-        mut self,
+        self,
         evidence: PluginTerminalEvidence,
     ) -> Result<Self, Box<(Self, PluginLifecycleError)>> {
-        if self.state != ActivationState::Draining || !evidence.matches(&self) {
+        let cleanup = match self.process_lease.as_ref() {
+            Some(lease) => PluginCleanupEvidence::certified(lease),
+            None => {
+                return Err(Box::new((
+                    self,
+                    PluginLifecycleError::InvalidTerminalEvidence,
+                )));
+            }
+        };
+        self.commit_terminal(evidence, cleanup)
+    }
+
+    fn commit_terminal(
+        mut self,
+        evidence: PluginTerminalEvidence,
+        cleanup: PluginCleanupEvidence,
+    ) -> Result<Self, Box<(Self, PluginLifecycleError)>> {
+        if !matches!(
+            self.state,
+            ActivationState::Draining | ActivationState::Uncertain
+        ) || !evidence.matches(&self)
+        {
             return Err(Box::new((
                 self,
                 PluginLifecycleError::InvalidTerminalEvidence,
             )));
         }
+        if !self
+            .process_lease
+            .as_ref()
+            .is_some_and(|lease| cleanup.matches(lease))
+        {
+            return Err(Box::new((
+                self,
+                PluginLifecycleError::InvalidBackendEvidence,
+            )));
+        }
         self.state = ActivationState::Terminal;
         self.record(ActivationState::Terminal);
         self.process_lease = None;
+        self.drain_evidence = None;
+        self.terminal_evidence = None;
         self.generation_lease = None;
+        self.active_fence = None;
         Ok(self)
     }
 
@@ -236,6 +469,16 @@ impl PluginTerminalEvidence {
                 .reservation(),
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn certified_process(lease: &PluginProcessLease) -> Self {
+        Self {
+            activation_id: lease.activation_id().clone(),
+            package_digest: lease.package_digest(),
+            generation: lease.generation(),
+            reservation: *lease.reservation(),
+        }
+    }
 }
 
 /// Invalid activation lifecycle operation.
@@ -243,6 +486,8 @@ impl PluginTerminalEvidence {
 pub enum PluginLifecycleError {
     InvalidTransition,
     InvalidTerminalEvidence,
+    InvalidBackendEvidence,
+    BackendUnavailable,
 }
 
 /// Caller-supplied correlation values plus one registry-verified package.
@@ -316,28 +561,57 @@ impl PluginActivationRequest {
             self.package.package_digest(),
             generation
         ));
-        let receipts = PluginActivationSnapshot::bounded_receipts(vec![
-            PluginActivationReceipt::StartAttempted,
-        ]);
-        let process_lease = match process.start(&start_intent, &generation_lease) {
+        let mut receipt_values = Vec::new();
+        let process_result = if start_intent.origin() == PluginStartIntentOrigin::Existing {
+            receipt_values.push(PluginActivationReceipt::ReconciliationAttempted);
+            match process.reconcile(&start_intent, &generation_lease) {
+                Ok(PluginStartReconciliation::Started(lease)) => Ok(lease),
+                Ok(PluginStartReconciliation::NotStarted) => {
+                    receipt_values.push(PluginActivationReceipt::StartProvenNotStarted);
+                    receipt_values.push(PluginActivationReceipt::StartAttempted);
+                    process.start(&start_intent, &generation_lease)
+                }
+                Ok(PluginStartReconciliation::Uncertain) | Err(_) => {
+                    return PluginActivationSnapshot::started(
+                        self,
+                        StartedActivation {
+                            state: ActivationState::Uncertain,
+                            start_intent,
+                            process_lease: None,
+                            generation_lease,
+                            active_fence: None,
+                            negotiated: false,
+                            receipts: PluginActivationSnapshot::bounded_receipts(receipt_values),
+                        },
+                    );
+                }
+            }
+        } else {
+            receipt_values.push(PluginActivationReceipt::StartAttempted);
+            process.start(&start_intent, &generation_lease)
+        };
+        let receipts = PluginActivationSnapshot::bounded_receipts(receipt_values);
+        let process_lease = match process_result {
             Ok(lease) if lease.matches(&start_intent) => lease,
             Ok(_) | Err(PluginProcessPortError::ResponseLost) => {
                 return PluginActivationSnapshot::started(
                     self,
-                    ActivationState::Uncertain,
-                    start_intent,
-                    None,
-                    generation_lease,
-                    false,
-                    receipts,
+                    StartedActivation {
+                        state: ActivationState::Uncertain,
+                        start_intent,
+                        process_lease: None,
+                        generation_lease,
+                        active_fence: None,
+                        negotiated: false,
+                        receipts,
+                    },
                 );
             }
             Err(PluginProcessPortError::BackendUnavailable | PluginProcessPortError::Rejected) => {
+                let mut receipt_values = receipts.to_vec();
+                receipt_values.push(PluginActivationReceipt::StartProvenNotStarted);
                 let snapshot = PluginActivationSnapshot {
-                    receipts: PluginActivationSnapshot::bounded_receipts(vec![
-                        PluginActivationReceipt::StartAttempted,
-                        PluginActivationReceipt::StartProvenNotStarted,
-                    ]),
+                    receipts: PluginActivationSnapshot::bounded_receipts(receipt_values),
                     ..PluginActivationSnapshot::pre_start(self, ActivationState::Verified)
                 };
                 return snapshot;
@@ -346,12 +620,15 @@ impl PluginActivationRequest {
         let uncertain = |start_intent, lease, generation_lease, negotiated| {
             PluginActivationSnapshot::started(
                 self,
-                ActivationState::Uncertain,
-                start_intent,
-                lease,
-                generation_lease,
-                negotiated,
-                receipts.clone(),
+                StartedActivation {
+                    state: ActivationState::Uncertain,
+                    start_intent,
+                    process_lease: lease,
+                    generation_lease,
+                    active_fence: None,
+                    negotiated,
+                    receipts: receipts.clone(),
+                },
             )
         };
         let hello = match self.exchange_host_hello(transport) {
@@ -365,20 +642,31 @@ impl PluginActivationRequest {
         if !self.exchange_profile_selection(transport, plugin_nonce) {
             return uncertain(start_intent, Some(process_lease), generation_lease, true);
         }
-        if generations
-            .ready_compare_and_set(&generation_lease)
-            .is_err()
+        let active_fence = match generations
+            .publish_active(&generation_lease, self.package.negotiation_snapshot())
         {
-            return uncertain(start_intent, Some(process_lease), generation_lease, true);
-        }
+            Ok(fence)
+                if fence.matches(
+                    &self.activation_id,
+                    generation,
+                    self.package.negotiation_snapshot(),
+                ) =>
+            {
+                fence
+            }
+            _ => return uncertain(start_intent, Some(process_lease), generation_lease, true),
+        };
         PluginActivationSnapshot::started(
             self,
-            ActivationState::Active,
-            start_intent,
-            Some(process_lease),
-            generation_lease,
-            true,
-            receipts,
+            StartedActivation {
+                state: ActivationState::Active,
+                start_intent,
+                process_lease: Some(process_lease),
+                generation_lease,
+                active_fence: Some(active_fence),
+                negotiated: true,
+                receipts,
+            },
         )
     }
 
@@ -516,18 +804,195 @@ impl PluginActivationRequest {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::Cell;
+    use std::{
+        cell::Cell,
+        collections::BTreeMap,
+        sync::{Arc, Mutex},
+    };
 
     use super::*;
     use crate::{
         PluginAuthorityPort, PluginAuthorityRegistry, PluginClass, PluginGenerationPortError,
-        PluginProcessPortError, PluginTransportPortError,
+        PluginHookClockPort, PluginHookDefinition, PluginHookDescriptorAuthorityPort,
+        PluginHookDispatchAuthorityPort, PluginHookDispatchError, PluginHookDispatchJournal,
+        PluginHookDispatchJournalError, PluginHookDispatchJournalKey,
+        PluginHookDispatchJournalResult, PluginHookDisposition, PluginHookFailurePolicy,
+        PluginHookId, PluginHookInvocation, PluginHookInvocationId, PluginProcessPortError,
+        PluginToolDescriptor, PluginToolDescriptorAuthorityPort, PluginTransportPortError,
+        activate_plugin_tools, dispatch_hooks, verify_plugin_hook_descriptors,
+        verify_plugin_tool_descriptors,
     };
     use gocode_plugin_protocol::bootstrap::{HostExecutionIdentity, PluginHello};
     use gocode_plugin_protocol::digest::ProfileDigest;
-    use gocode_plugin_protocol::id::PluginIdentity;
-    use gocode_plugin_protocol::id::ProfileId;
+    use gocode_plugin_protocol::id::{PluginId, PluginIdentity, ProfileId};
     use gocode_plugin_protocol::profile::{BoundedProfileRefVec, ProtocolProfileRef};
+    use gocode_tools::{
+        EffectAdmission, GateStage, ToolAdmissionDecision, ToolAdmissionError, ToolAdmissionPort,
+        ToolDispatchRequest, ToolExecutionHandle, ToolExecutorError, ToolExecutorPort, ToolGateway,
+        ToolId, ToolOutputBounds, ToolVersion,
+    };
+    use serde_json::json;
+
+    type SharedHookRecord = ([u8; 32], Option<PluginHookDisposition>);
+    type SharedHookRecords = BTreeMap<PluginHookDispatchJournalKey, SharedHookRecord>;
+
+    #[derive(Default)]
+    struct SharedHookJournal {
+        records: Mutex<SharedHookRecords>,
+        prior_owner_fenced: Mutex<bool>,
+    }
+
+    impl SharedHookJournal {
+        fn fence_prior_owner_for_recovery(&self) {
+            *self.prior_owner_fenced.lock().unwrap() = true;
+        }
+    }
+
+    impl PluginHookDispatchJournal for SharedHookJournal {
+        fn claim_or_lookup(
+            &self,
+            key: &PluginHookDispatchJournalKey,
+            request_digest: [u8; 32],
+        ) -> Result<PluginHookDispatchJournalResult, PluginHookDispatchJournalError> {
+            let mut records = self
+                .records
+                .lock()
+                .map_err(|_| PluginHookDispatchJournalError::Unavailable)?;
+            match records.get(key) {
+                Some((stored_digest, outcome)) => Ok(PluginHookDispatchJournalResult::Existing {
+                    request_digest: *stored_digest,
+                    outcome: *outcome,
+                }),
+                None => {
+                    records.insert(key.clone(), (request_digest, None));
+                    Ok(PluginHookDispatchJournalResult::Fresh)
+                }
+            }
+        }
+
+        fn complete(
+            &self,
+            key: &PluginHookDispatchJournalKey,
+            request_digest: [u8; 32],
+            disposition: PluginHookDisposition,
+        ) -> Result<(), PluginHookDispatchJournalError> {
+            let mut records = self
+                .records
+                .lock()
+                .map_err(|_| PluginHookDispatchJournalError::Unavailable)?;
+            match records.get_mut(key) {
+                Some((stored_digest, outcome))
+                    if stored_digest == &request_digest && outcome.is_none() =>
+                {
+                    *outcome = Some(disposition);
+                    Ok(())
+                }
+                Some((stored_digest, Some(stored_outcome)))
+                    if stored_digest == &request_digest && stored_outcome == &disposition =>
+                {
+                    Ok(())
+                }
+                Some(_) => Err(PluginHookDispatchJournalError::Conflict),
+                None => Err(PluginHookDispatchJournalError::Unavailable),
+            }
+        }
+
+        fn has_open_dispatches(&self) -> Result<bool, PluginHookDispatchJournalError> {
+            Ok(self
+                .records
+                .lock()
+                .map_err(|_| PluginHookDispatchJournalError::Unavailable)?
+                .values()
+                .any(|(_, outcome)| outcome.is_none()))
+        }
+
+        fn next_recovered_dispatch(
+            &self,
+        ) -> Result<Option<crate::PluginHookRecoveredDispatch>, PluginHookDispatchJournalError>
+        {
+            if !*self
+                .prior_owner_fenced
+                .lock()
+                .map_err(|_| PluginHookDispatchJournalError::Unavailable)?
+            {
+                return Ok(None);
+            }
+            let records = self
+                .records
+                .lock()
+                .map_err(|_| PluginHookDispatchJournalError::Unavailable)?;
+            Ok(records
+                .iter()
+                .find(|(_, (_, outcome))| outcome.is_none())
+                .map(|(key, (digest, _))| {
+                    crate::PluginHookRecoveredDispatch::new(key.clone(), *digest, [0xa5; 32])
+                }))
+        }
+
+        fn quarantine_recovered(
+            &self,
+            recovered: &crate::PluginHookRecoveredDispatch,
+        ) -> Result<(), PluginHookDispatchJournalError> {
+            if !*self
+                .prior_owner_fenced
+                .lock()
+                .map_err(|_| PluginHookDispatchJournalError::Unavailable)?
+                || recovered.recovery_token() != &[0xa5; 32]
+            {
+                return Err(PluginHookDispatchJournalError::Conflict);
+            }
+            self.complete(
+                recovered.key(),
+                *recovered.request_digest(),
+                PluginHookDisposition::Uncertain,
+            )
+        }
+    }
+
+    struct AllowToolAdmission;
+
+    impl ToolAdmissionPort for AllowToolAdmission {
+        fn check(
+            &self,
+            stage: GateStage,
+            _: &ToolDispatchRequest,
+        ) -> Result<ToolAdmissionDecision, ToolAdmissionError> {
+            Ok(if stage == GateStage::EffectAdmission {
+                ToolAdmissionDecision::Winner(EffectAdmission {
+                    permit_id: "plugin-tool-permit".into(),
+                })
+            } else {
+                ToolAdmissionDecision::Passed
+            })
+        }
+    }
+
+    struct CountingToolExecutor {
+        starts: Arc<Mutex<usize>>,
+    }
+
+    impl ToolExecutorPort for CountingToolExecutor {
+        fn start(
+            &self,
+            request: &ToolDispatchRequest,
+            admission: &EffectAdmission,
+        ) -> Result<ToolExecutionHandle, ToolExecutorError> {
+            assert_eq!(admission.permit_id, "plugin-tool-permit");
+            assert_eq!(
+                request.binding.generation(),
+                PluginGeneration::INITIAL.get()
+            );
+            *self.starts.lock().unwrap() += 1;
+            Ok(ToolExecutionHandle {
+                execution_id: "plugin-tool-execution".into(),
+            })
+        }
+
+        fn signal_cancel(&self, _: &ToolExecutionHandle) -> Result<(), ToolExecutorError> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn certified_evidence_can_terminalize_exact_draining_snapshot_once() {
         let id = PluginActivationId::new("fixture").unwrap();
@@ -764,7 +1229,9 @@ mod tests {
             &initial_generation,
             (1, 2, 2, 1),
         );
+        assert!(active.is_dispatchable(&registry));
         registry.advance().unwrap();
+        assert!(!active.is_dispatchable(&registry));
 
         let mut stale_process = CountingProcess::success();
         let mut stale_transport = CountingTransport::new(vec![]);
@@ -823,6 +1290,7 @@ mod tests {
             &renewed_generation,
             (1, 2, 2, 1),
         );
+        assert!(renewed.is_dispatchable(&registry));
         assert_ne!(active.generation(), renewed.generation());
         assert_eq!(
             active.retained_generation_lease_generation(),
@@ -837,6 +1305,805 @@ mod tests {
             renewed.negotiation_snapshot()
         );
     }
+
+    #[test]
+    fn hook_dispatch_is_ordered_fenced_and_applies_failure_policy() {
+        let mut registry = PluginAuthorityRegistry::built_in();
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "hook-dispatch");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definitions = vec![
+            PluginHookDefinition::new(
+                20,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("optional").unwrap(),
+                PluginHookFailurePolicy::Optional,
+            ),
+            PluginHookDefinition::new(
+                10,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("required").unwrap(),
+                PluginHookFailurePolicy::Required,
+            ),
+            PluginHookDefinition::new(
+                10,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("security").unwrap(),
+                PluginHookFailurePolicy::Security,
+            ),
+        ];
+        let definitions =
+            verify_plugin_hook_descriptors(&definitions, &active, &registry, &AcceptDescriptors)
+                .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("dispatch-1").unwrap(),
+            100,
+            b"immutable-input".to_vec(),
+        )
+        .unwrap();
+        let mut transport = HookTransport::new(vec![0, 2, 2]);
+
+        let dispatch = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut transport,
+        )
+        .unwrap();
+        assert_eq!(
+            dispatch
+                .results()
+                .iter()
+                .map(|result| result.definition().hook_id().as_str())
+                .collect::<Vec<_>>(),
+            ["required", "security", "optional"]
+        );
+        assert_eq!(
+            dispatch
+                .results()
+                .iter()
+                .map(|result| result.disposition())
+                .collect::<Vec<_>>(),
+            [
+                PluginHookDisposition::Completed,
+                PluginHookDisposition::Failed,
+                PluginHookDisposition::Failed,
+            ]
+        );
+        assert!(!dispatch.guarded_operation_allowed());
+        assert_eq!(transport.send_calls, 3);
+
+        registry.advance().unwrap();
+        let mut fenced_transport = HookTransport::new(vec![]);
+        let fenced = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut fenced_transport,
+        )
+        .unwrap();
+        assert!(
+            fenced
+                .results()
+                .iter()
+                .all(|result| result.disposition() == PluginHookDisposition::Denied)
+        );
+        assert_eq!(fenced_transport.send_calls, 0);
+    }
+
+    #[test]
+    fn optional_hook_transport_loss_is_uncertain_but_isolated() {
+        let registry = PluginAuthorityRegistry::built_in();
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "optional-hook");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definitions = [PluginHookDefinition::new(
+            0,
+            PluginId::new("builtin").unwrap(),
+            PluginHookId::new("optional").unwrap(),
+            PluginHookFailurePolicy::Optional,
+        )];
+        let definitions =
+            verify_plugin_hook_descriptors(&definitions, &active, &registry, &AcceptDescriptors)
+                .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("dispatch-2").unwrap(),
+            100,
+            vec![],
+        )
+        .unwrap();
+        let mut transport = HookTransport::lost_response();
+
+        let dispatch = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut transport,
+        )
+        .unwrap();
+        assert_eq!(
+            dispatch.results()[0].disposition(),
+            PluginHookDisposition::Uncertain
+        );
+        assert!(dispatch.guarded_operation_allowed());
+    }
+
+    #[test]
+    fn uncertain_hook_response_stops_channel_before_next_hook() {
+        let registry = PluginAuthorityRegistry::built_in();
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "uncertain-channel");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definitions = [
+            PluginHookDefinition::new(
+                0,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("first").unwrap(),
+                PluginHookFailurePolicy::Optional,
+            ),
+            PluginHookDefinition::new(
+                1,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("security").unwrap(),
+                PluginHookFailurePolicy::Security,
+            ),
+        ];
+        let definitions =
+            verify_plugin_hook_descriptors(&definitions, &active, &registry, &AcceptDescriptors)
+                .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("dispatch-uncertain").unwrap(),
+            100,
+            vec![],
+        )
+        .unwrap();
+        let mut transport = HookTransport::new(vec![3]);
+
+        let dispatch = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut transport,
+        )
+        .unwrap();
+
+        assert_eq!(
+            dispatch
+                .results()
+                .iter()
+                .map(|result| result.disposition())
+                .collect::<Vec<_>>(),
+            [
+                PluginHookDisposition::Uncertain,
+                PluginHookDisposition::Denied
+            ]
+        );
+        assert_eq!(transport.send_calls, 1);
+        assert!(!dispatch.guarded_operation_allowed());
+    }
+
+    #[test]
+    fn exact_hook_replay_returns_prior_outcome_without_second_send() {
+        let registry = PluginAuthorityRegistry::built_in();
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "exact-hook-replay");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definitions = [PluginHookDefinition::new(
+            0,
+            PluginId::new("builtin").unwrap(),
+            PluginHookId::new("effect").unwrap(),
+            PluginHookFailurePolicy::Required,
+        )];
+        let definitions =
+            verify_plugin_hook_descriptors(&definitions, &active, &registry, &AcceptDescriptors)
+                .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("same-invocation").unwrap(),
+            100,
+            b"same-payload".to_vec(),
+        )
+        .unwrap();
+
+        let mut first_transport = HookTransport::new(vec![0]);
+        let first = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut first_transport,
+        )
+        .unwrap();
+        let mut replay_transport = HookTransport::new(vec![2]);
+        let replay = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut replay_transport,
+        )
+        .unwrap();
+
+        assert_eq!(
+            first.results()[0].disposition(),
+            PluginHookDisposition::Completed
+        );
+        assert_eq!(
+            replay.results()[0].disposition(),
+            PluginHookDisposition::Completed
+        );
+        assert_eq!(first_transport.send_calls, 1);
+        assert_eq!(replay_transport.send_calls, 0);
+
+        let changed = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("same-invocation").unwrap(),
+            100,
+            b"changed-payload".to_vec(),
+        )
+        .unwrap();
+        let mut conflict_transport = HookTransport::new(vec![0]);
+        assert_eq!(
+            dispatch_hooks(
+                &definitions,
+                &changed,
+                &active,
+                &registry,
+                &registry,
+                &Clock(1),
+                &mut conflict_transport,
+            ),
+            Err(PluginHookDispatchError::IntentConflict)
+        );
+        assert_eq!(conflict_transport.send_calls, 0);
+    }
+
+    #[test]
+    fn hook_replay_survives_authority_reconstruction_with_shared_journal() {
+        let journal: Arc<dyn PluginHookDispatchJournal> = Arc::new(SharedHookJournal::default());
+        let registry =
+            PluginAuthorityRegistry::built_in_with_hook_dispatch_journal(Arc::clone(&journal));
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "restart-hook-replay");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definitions = [PluginHookDefinition::new(
+            0,
+            PluginId::new("builtin").unwrap(),
+            PluginHookId::new("effect").unwrap(),
+            PluginHookFailurePolicy::Required,
+        )];
+        let definitions =
+            verify_plugin_hook_descriptors(&definitions, &active, &registry, &AcceptDescriptors)
+                .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("restart-invocation").unwrap(),
+            100,
+            b"same-payload".to_vec(),
+        )
+        .unwrap();
+        let mut first_transport = HookTransport::new(vec![0]);
+        let first = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &registry,
+            &registry,
+            &Clock(1),
+            &mut first_transport,
+        )
+        .unwrap();
+        assert_eq!(
+            first.results()[0].disposition(),
+            PluginHookDisposition::Completed
+        );
+        assert_eq!(first_transport.send_calls, 1);
+        drop(registry);
+
+        let reconstructed = PluginAuthorityRegistry::built_in_with_hook_dispatch_journal(journal);
+        let source = fixture_source();
+        let package = reconstructed
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "restart-hook-replay");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&reconstructed),
+            &Starts,
+        );
+        let definitions = [PluginHookDefinition::new(
+            0,
+            PluginId::new("builtin").unwrap(),
+            PluginHookId::new("effect").unwrap(),
+            PluginHookFailurePolicy::Required,
+        )];
+        let verified = verify_plugin_hook_descriptors(
+            &definitions,
+            &active,
+            &reconstructed,
+            &AcceptDescriptors,
+        )
+        .unwrap();
+        let mut replay_transport = HookTransport::new(vec![2]);
+        let replay = dispatch_hooks(
+            &verified,
+            &invocation,
+            &active,
+            &reconstructed,
+            &reconstructed,
+            &Clock(1),
+            &mut replay_transport,
+        )
+        .unwrap();
+
+        assert_eq!(
+            replay.results()[0].disposition(),
+            PluginHookDisposition::Completed
+        );
+        assert_eq!(replay_transport.send_calls, 0);
+    }
+
+    #[test]
+    fn open_hook_claim_blocks_generation_advance_until_closed() {
+        let journal = Arc::new(SharedHookJournal::default());
+        let mut registry =
+            PluginAuthorityRegistry::built_in_with_hook_dispatch_journal(journal.clone());
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "open-claim");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definition = PluginHookDefinition::new(
+            0,
+            PluginId::new("builtin").unwrap(),
+            PluginHookId::new("effect").unwrap(),
+            PluginHookFailurePolicy::Required,
+        );
+        let _verified = verify_plugin_hook_descriptors(
+            std::slice::from_ref(&definition),
+            &active,
+            &registry,
+            &AcceptDescriptors,
+        )
+        .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("open-invocation").unwrap(),
+            100,
+            vec![],
+        )
+        .unwrap();
+        let claim = match registry
+            .claim(&active, &definition, &invocation, [9; 32])
+            .unwrap()
+        {
+            crate::PluginHookDispatchClaimResult::Fresh(claim) => claim,
+            crate::PluginHookDispatchClaimResult::Existing(_) => panic!("fresh fixture"),
+        };
+
+        assert_eq!(
+            registry.advance(),
+            Err(crate::package::RegistryAdvanceError::OpenDispatch)
+        );
+        assert!(journal.next_recovered_dispatch().unwrap().is_none());
+        drop(claim);
+        drop(registry);
+        journal.fence_prior_owner_for_recovery();
+        let recovered = journal.next_recovered_dispatch().unwrap().unwrap();
+        assert_eq!(recovered.key().activation_id(), active.activation_id());
+        assert_eq!(recovered.key().generation(), active.generation());
+        assert_eq!(recovered.key().plugin_id(), active.plugin_id());
+
+        let mut reconstructed =
+            PluginAuthorityRegistry::built_in_with_hook_dispatch_journal(journal);
+        let forged = crate::PluginHookRecoveredDispatch::new(
+            recovered.key().clone(),
+            *recovered.request_digest(),
+            [0; 32],
+        );
+        assert_eq!(
+            reconstructed.quarantine_recovered(&forged),
+            Err(PluginHookDispatchError::IntentConflict)
+        );
+        reconstructed.quarantine_recovered(&recovered).unwrap();
+        assert!(reconstructed.advance().is_ok());
+    }
+
+    #[test]
+    fn active_toolset_is_descriptor_bound_and_fenced_after_generation_advance() {
+        let mut registry = PluginAuthorityRegistry::built_in();
+        let activation_source = fixture_source();
+        let activation_package = registry
+            .verifier_for(&activation_source)
+            .unwrap()
+            .verify(activation_source)
+            .unwrap();
+        let descriptor_source = fixture_source();
+        let descriptor_package = registry
+            .verifier_for(&descriptor_source)
+            .unwrap()
+            .verify(descriptor_source)
+            .unwrap();
+        let request = request_with(activation_package, "active-tools");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let verified = verify_plugin_tool_descriptors(
+            &descriptor_package,
+            &active,
+            &registry,
+            vec![PluginToolDescriptor::new(
+                PluginId::new("builtin").unwrap(),
+                ToolId::new("builtin::search").unwrap(),
+                ToolVersion::new("1.0.0").unwrap(),
+                json!({"type": "object"}),
+            )],
+            &AcceptToolDescriptors,
+        )
+        .unwrap();
+        let toolset = activate_plugin_tools(verified, &active, &registry).unwrap();
+        let tool_ref = &toolset.snapshot().tool_refs()[0];
+        let binding = toolset.bind_dispatch(tool_ref, &active, &registry).unwrap();
+        assert_eq!(binding.tool_ref(), tool_ref);
+        assert_eq!(binding.activation_id(), active.activation_id().as_str());
+        assert_eq!(binding.generation(), active.generation().get());
+        assert_eq!(
+            binding.descriptor_snapshot_digest(),
+            toolset.descriptor_snapshot_digest()
+        );
+        let starts = Arc::new(Mutex::new(0));
+        let gateway = ToolGateway::new(
+            AllowToolAdmission,
+            CountingToolExecutor {
+                starts: Arc::clone(&starts),
+            },
+            ToolOutputBounds::new(1024, 16, 16).unwrap(),
+        );
+        assert!(
+            toolset
+                .dispatch_via_gateway(
+                    tool_ref,
+                    &active,
+                    &registry,
+                    &gateway,
+                    "plugin-tool-invocation".into(),
+                    [7; 32],
+                )
+                .is_ok()
+        );
+        assert_eq!(*starts.lock().unwrap(), 1);
+
+        registry.advance().unwrap();
+        assert!(toolset.bind_dispatch(tool_ref, &active, &registry).is_err());
+        assert!(
+            toolset
+                .dispatch_via_gateway(
+                    tool_ref,
+                    &active,
+                    &registry,
+                    &gateway,
+                    "stale-plugin-tool-invocation".into(),
+                    [8; 32],
+                )
+                .is_err()
+        );
+        assert_eq!(*starts.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn hook_owner_mismatch_rejects_before_transport() {
+        let registry = PluginAuthorityRegistry::built_in();
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "owner-mismatch");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definition = [PluginHookDefinition::new(
+            0,
+            PluginId::new("other").unwrap(),
+            PluginHookId::new("hook").unwrap(),
+            PluginHookFailurePolicy::Security,
+        )];
+        assert!(matches!(
+            verify_plugin_hook_descriptors(&definition, &active, &registry, &AcceptDescriptors,),
+            Err(PluginHookDispatchError::OwnerMismatch)
+        ));
+    }
+
+    #[test]
+    fn hook_fence_is_revalidated_before_each_send() {
+        let registry = PluginAuthorityRegistry::built_in();
+        let source = fixture_source();
+        let package = registry
+            .verifier_for(&source)
+            .unwrap()
+            .verify(source)
+            .unwrap();
+        let request = request_with(package, "mid-batch-fence");
+        let mut process = CountingProcess::success();
+        let mut handshake = exact_v2_transport(&request);
+        let active = request.activate_with_reservation(
+            &mut process,
+            &mut handshake,
+            &CountingRegistry::new(&registry),
+            &Starts,
+        );
+        let definitions = [
+            PluginHookDefinition::new(
+                0,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("first").unwrap(),
+                PluginHookFailurePolicy::Optional,
+            ),
+            PluginHookDefinition::new(
+                1,
+                PluginId::new("builtin").unwrap(),
+                PluginHookId::new("second").unwrap(),
+                PluginHookFailurePolicy::Required,
+            ),
+        ];
+        let definitions =
+            verify_plugin_hook_descriptors(&definitions, &active, &registry, &AcceptDescriptors)
+                .unwrap();
+        let invocation = PluginHookInvocation::try_new(
+            PluginHookInvocationId::new("dispatch-4").unwrap(),
+            100,
+            vec![],
+        )
+        .unwrap();
+        let mut transport = HookTransport::new(vec![0]);
+        let fence = FenceAfterFirst {
+            validations: Cell::new(0),
+        };
+
+        let dispatch = dispatch_hooks(
+            &definitions,
+            &invocation,
+            &active,
+            &fence,
+            &registry,
+            &Clock(1),
+            &mut transport,
+        )
+        .unwrap();
+
+        assert_eq!(
+            dispatch
+                .results()
+                .iter()
+                .map(|result| result.disposition())
+                .collect::<Vec<_>>(),
+            [
+                PluginHookDisposition::Completed,
+                PluginHookDisposition::Denied
+            ]
+        );
+        assert_eq!(transport.send_calls, 1);
+        assert!(!dispatch.guarded_operation_allowed());
+    }
+
+    struct FenceAfterFirst {
+        validations: Cell<usize>,
+    }
+
+    impl PluginGenerationPort for FenceAfterFirst {
+        fn acquire_read_lease(
+            &self,
+            _: &PluginActivationId,
+        ) -> Result<PluginGenerationReadLease, PluginGenerationPortError> {
+            Err(PluginGenerationPortError::Unavailable)
+        }
+
+        fn ready_compare_and_set(
+            &self,
+            _: &PluginGenerationReadLease,
+        ) -> Result<(), PluginGenerationPortError> {
+            Err(PluginGenerationPortError::Unavailable)
+        }
+
+        fn validate_active(&self, _: &PluginActiveFence) -> Result<(), PluginGenerationPortError> {
+            let current = self.validations.get();
+            self.validations.set(current + 1);
+            if current == 0 {
+                Ok(())
+            } else {
+                Err(PluginGenerationPortError::Unavailable)
+            }
+        }
+    }
+
+    struct Clock(u64);
+
+    struct AcceptDescriptors;
+
+    impl PluginHookDescriptorAuthorityPort for AcceptDescriptors {
+        fn accepts(&self, _: &PluginActivationSnapshot, _: [u8; 32]) -> bool {
+            true
+        }
+    }
+
+    struct AcceptToolDescriptors;
+
+    impl PluginToolDescriptorAuthorityPort for AcceptToolDescriptors {
+        fn accepts(&self, _: &PluginActivationSnapshot, _: [u8; 32]) -> bool {
+            true
+        }
+    }
+
+    impl PluginHookClockPort for Clock {
+        fn now_tick(&self) -> u64 {
+            self.0
+        }
+    }
+
+    struct HookTransport {
+        responses: Vec<u8>,
+        request_digest: Option<[u8; 32]>,
+        send_calls: usize,
+        lost_response: bool,
+    }
+
+    impl HookTransport {
+        fn new(mut responses: Vec<u8>) -> Self {
+            responses.reverse();
+            Self {
+                responses,
+                request_digest: None,
+                send_calls: 0,
+                lost_response: false,
+            }
+        }
+
+        fn lost_response() -> Self {
+            Self {
+                responses: vec![],
+                request_digest: None,
+                send_calls: 0,
+                lost_response: true,
+            }
+        }
+    }
+
+    impl PluginTransportPort for HookTransport {
+        fn send(&mut self, outbound: PluginBootstrapFrame) -> Result<(), PluginTransportPortError> {
+            assert!(!outbound.as_bytes().is_empty());
+            Ok(())
+        }
+
+        fn send_before(
+            &mut self,
+            _: u64,
+            outbound: PluginBootstrapFrame,
+        ) -> Result<(), PluginTransportPortError> {
+            self.send_calls += 1;
+            let digest = outbound
+                .as_bytes()
+                .get(outbound.as_bytes().len().saturating_sub(32)..)
+                .ok_or(PluginTransportPortError::NotSent)?;
+            self.request_digest = Some(digest.try_into().unwrap());
+            Ok(())
+        }
+
+        fn receive(&mut self, inbound: &mut [u8]) -> Result<usize, PluginTransportPortError> {
+            self.receive_before(u64::MAX, inbound)
+        }
+
+        fn receive_before(
+            &mut self,
+            _: u64,
+            inbound: &mut [u8],
+        ) -> Result<usize, PluginTransportPortError> {
+            if self.lost_response {
+                return Err(PluginTransportPortError::ResponseLost);
+            }
+            inbound[..32].copy_from_slice(&self.request_digest.take().unwrap());
+            inbound[32] = self.responses.pop().unwrap();
+            Ok(33)
+        }
+    }
+
     fn active_snapshot(
         id: PluginActivationId,
         digest: PluginDigest,
@@ -844,14 +2111,18 @@ mod tests {
     ) -> PluginActivationSnapshot {
         let intent = PluginStartIntent::issued(id.clone(), digest, generation, [1; 32]);
         PluginActivationSnapshot {
+            plugin_id: PluginId::new("builtin").unwrap(),
             activation_id: id.clone(),
             package_digest: digest,
             generation,
             negotiation_snapshot: ProtocolNegotiationSnapshotDigest::from_bytes([1; 32]),
             state: ActivationState::Active,
             process_lease: Some(PluginProcessLease::certified(&intent)),
+            drain_evidence: None,
+            terminal_evidence: None,
             start_intent: Some(intent),
             generation_lease: Some(PluginGenerationReadLease::issued(id, generation)),
+            active_fence: None,
             history: vec![
                 ActivationState::Verified,
                 ActivationState::Starting,
@@ -1143,6 +2414,331 @@ mod tests {
             [PluginActivationReceipt::StartAttempted]
         );
         assert_terminal_reconciliation_leases_cleared(&terminal);
+    }
+
+    #[test]
+    fn backend_lifecycle_commits_only_after_drain_terminal_and_cleanup_evidence() {
+        let active = active_snapshot(
+            PluginActivationId::new("backend-lifecycle").unwrap(),
+            PluginDigest::from_bytes([4; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let mut backend = CertifiedLifecycleProcess::default();
+
+        let draining = active.begin_draining_with_backend(&mut backend).unwrap();
+        assert_eq!(draining.state(), ActivationState::Draining);
+        assert_eq!(
+            (
+                backend.drain_calls,
+                backend.terminal_calls,
+                backend.cleanup_calls
+            ),
+            (1, 0, 0)
+        );
+
+        let terminal = draining.terminal_with_backend(&mut backend).unwrap();
+        assert_eq!(terminal.state(), ActivationState::Terminal);
+        assert_eq!(
+            (
+                backend.drain_calls,
+                backend.terminal_calls,
+                backend.cleanup_calls
+            ),
+            (1, 1, 1)
+        );
+        assert_eq!(
+            terminal.transition_history(),
+            [
+                ActivationState::Verified,
+                ActivationState::Starting,
+                ActivationState::Negotiating,
+                ActivationState::Active,
+                ActivationState::Draining,
+                ActivationState::Terminal,
+            ]
+        );
+        assert_terminal_reconciliation_leases_cleared(&terminal);
+    }
+
+    #[test]
+    fn lost_drain_response_fences_dispatch_and_retries_only_idempotent_drain() {
+        let active = active_snapshot(
+            PluginActivationId::new("lost-drain").unwrap(),
+            PluginDigest::from_bytes([5; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let mut backend = LostDrainThenSuccess::default();
+
+        let uncertain = active.begin_draining_with_backend(&mut backend).unwrap();
+        assert_eq!(uncertain.state(), ActivationState::Uncertain);
+        assert_eq!(backend.drain_calls, 1);
+
+        let draining = uncertain.begin_draining_with_backend(&mut backend).unwrap();
+        assert_eq!(draining.state(), ActivationState::Draining);
+        assert_eq!(backend.drain_calls, 2);
+    }
+
+    #[test]
+    fn cleanup_retry_does_not_repeat_terminal_boundary() {
+        let active = active_snapshot(
+            PluginActivationId::new("cleanup-retry").unwrap(),
+            PluginDigest::from_bytes([6; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let mut backend = LostCleanupThenSuccess::default();
+        let draining = active.begin_draining_with_backend(&mut backend).unwrap();
+
+        let uncertain = draining.terminal_with_backend(&mut backend).unwrap();
+        assert_eq!(uncertain.state(), ActivationState::Uncertain);
+        assert_eq!((backend.terminal_calls, backend.cleanup_calls), (1, 1));
+
+        let terminal = uncertain.terminal_with_backend(&mut backend).unwrap();
+        assert_eq!(terminal.state(), ActivationState::Terminal);
+        assert_eq!((backend.terminal_calls, backend.cleanup_calls), (1, 2));
+    }
+
+    #[test]
+    fn mismatched_drain_evidence_fences_dispatch_and_becomes_uncertain() {
+        let active = active_snapshot(
+            PluginActivationId::new("mismatched-drain").unwrap(),
+            PluginDigest::from_bytes([7; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let other = active_snapshot(
+            PluginActivationId::new("other-drain").unwrap(),
+            PluginDigest::from_bytes([8; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let mut backend = MismatchedDrain {
+            evidence: Some(PluginDrainEvidence::certified(
+                other.process_lease.as_ref().unwrap(),
+            )),
+        };
+
+        let uncertain = active.begin_draining_with_backend(&mut backend).unwrap();
+        assert_eq!(uncertain.state(), ActivationState::Uncertain);
+        assert!(uncertain.active_fence.is_none());
+    }
+
+    #[test]
+    fn mismatched_cleanup_retains_terminal_evidence_for_retry() {
+        let active = active_snapshot(
+            PluginActivationId::new("mismatched-cleanup").unwrap(),
+            PluginDigest::from_bytes([9; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let other = active_snapshot(
+            PluginActivationId::new("other-cleanup").unwrap(),
+            PluginDigest::from_bytes([10; 32]),
+            PluginGeneration::INITIAL,
+        );
+        let mut backend = MismatchedCleanupThenSuccess {
+            terminal_calls: 0,
+            cleanup_calls: 0,
+            mismatched: Some(PluginCleanupEvidence::certified(
+                other.process_lease.as_ref().unwrap(),
+            )),
+        };
+        let draining = active.begin_draining_with_backend(&mut backend).unwrap();
+
+        let uncertain = draining.terminal_with_backend(&mut backend).unwrap();
+        assert_eq!(uncertain.state(), ActivationState::Uncertain);
+        assert_eq!((backend.terminal_calls, backend.cleanup_calls), (1, 1));
+
+        let terminal = uncertain.terminal_with_backend(&mut backend).unwrap();
+        assert_eq!(terminal.state(), ActivationState::Terminal);
+        assert_eq!((backend.terminal_calls, backend.cleanup_calls), (1, 2));
+    }
+
+    #[derive(Default)]
+    struct CertifiedLifecycleProcess {
+        drain_calls: usize,
+        terminal_calls: usize,
+        cleanup_calls: usize,
+    }
+
+    #[derive(Default)]
+    struct LostDrainThenSuccess {
+        drain_calls: usize,
+    }
+
+    struct MismatchedDrain {
+        evidence: Option<PluginDrainEvidence>,
+    }
+
+    impl PluginProcessPort for MismatchedDrain {
+        fn start(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+
+        fn begin_draining(
+            &mut self,
+            _: &PluginProcessLease,
+        ) -> Result<PluginDrainEvidence, PluginProcessPortError> {
+            Ok(self.evidence.take().unwrap())
+        }
+    }
+
+    impl PluginProcessPort for LostDrainThenSuccess {
+        fn start(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+
+        fn begin_draining(
+            &mut self,
+            lease: &PluginProcessLease,
+        ) -> Result<PluginDrainEvidence, PluginProcessPortError> {
+            self.drain_calls += 1;
+            if self.drain_calls == 1 {
+                Err(PluginProcessPortError::ResponseLost)
+            } else {
+                Ok(PluginDrainEvidence::certified(lease))
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct LostCleanupThenSuccess {
+        terminal_calls: usize,
+        cleanup_calls: usize,
+    }
+
+    struct MismatchedCleanupThenSuccess {
+        terminal_calls: usize,
+        cleanup_calls: usize,
+        mismatched: Option<PluginCleanupEvidence>,
+    }
+
+    impl PluginProcessPort for MismatchedCleanupThenSuccess {
+        fn start(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+
+        fn begin_draining(
+            &mut self,
+            lease: &PluginProcessLease,
+        ) -> Result<PluginDrainEvidence, PluginProcessPortError> {
+            Ok(PluginDrainEvidence::certified(lease))
+        }
+
+        fn terminal(
+            &mut self,
+            lease: &PluginProcessLease,
+            _: &PluginDrainEvidence,
+        ) -> Result<PluginTerminalEvidence, PluginProcessPortError> {
+            self.terminal_calls += 1;
+            Ok(PluginTerminalEvidence::certified_process(lease))
+        }
+
+        fn cleanup(
+            &mut self,
+            lease: &PluginProcessLease,
+            _: &PluginTerminalEvidence,
+        ) -> Result<PluginCleanupEvidence, PluginProcessPortError> {
+            self.cleanup_calls += 1;
+            Ok(self
+                .mismatched
+                .take()
+                .unwrap_or_else(|| PluginCleanupEvidence::certified(lease)))
+        }
+    }
+
+    impl PluginProcessPort for LostCleanupThenSuccess {
+        fn start(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+
+        fn begin_draining(
+            &mut self,
+            lease: &PluginProcessLease,
+        ) -> Result<PluginDrainEvidence, PluginProcessPortError> {
+            Ok(PluginDrainEvidence::certified(lease))
+        }
+
+        fn terminal(
+            &mut self,
+            lease: &PluginProcessLease,
+            _: &PluginDrainEvidence,
+        ) -> Result<PluginTerminalEvidence, PluginProcessPortError> {
+            self.terminal_calls += 1;
+            Ok(PluginTerminalEvidence::certified_process(lease))
+        }
+
+        fn cleanup(
+            &mut self,
+            lease: &PluginProcessLease,
+            _: &PluginTerminalEvidence,
+        ) -> Result<PluginCleanupEvidence, PluginProcessPortError> {
+            self.cleanup_calls += 1;
+            if self.cleanup_calls == 1 {
+                Err(PluginProcessPortError::ResponseLost)
+            } else {
+                Ok(PluginCleanupEvidence::certified(lease))
+            }
+        }
+    }
+
+    impl PluginProcessPort for CertifiedLifecycleProcess {
+        fn start(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+
+        fn begin_draining(
+            &mut self,
+            lease: &PluginProcessLease,
+        ) -> Result<PluginDrainEvidence, PluginProcessPortError> {
+            self.drain_calls += 1;
+            Ok(PluginDrainEvidence::certified(lease))
+        }
+
+        fn terminal(
+            &mut self,
+            lease: &PluginProcessLease,
+            drain: &PluginDrainEvidence,
+        ) -> Result<PluginTerminalEvidence, PluginProcessPortError> {
+            self.terminal_calls += 1;
+            if !drain.matches(lease) {
+                return Err(PluginProcessPortError::Rejected);
+            }
+            Ok(PluginTerminalEvidence::certified_process(lease))
+        }
+
+        fn cleanup(
+            &mut self,
+            lease: &PluginProcessLease,
+            terminal: &PluginTerminalEvidence,
+        ) -> Result<PluginCleanupEvidence, PluginProcessPortError> {
+            self.cleanup_calls += 1;
+            let snapshot = active_snapshot(
+                lease.activation_id().clone(),
+                lease.package_digest(),
+                lease.generation(),
+            );
+            if !terminal.matches(&snapshot) {
+                return Err(PluginProcessPortError::Rejected);
+            }
+            Ok(PluginCleanupEvidence::certified(lease))
+        }
     }
 
     #[test]
@@ -1544,6 +3140,83 @@ mod tests {
     }
 
     #[test]
+    fn exact_replay_reconciles_running_process_without_duplicate_start() {
+        let request = request();
+        let mut process = ReconciledProcess::started();
+        let mut transport = exact_v2_transport(&request);
+        let snapshot = request.activate_with_reservation(
+            &mut process,
+            &mut transport,
+            &Generation::current(),
+            &ExistingStarts,
+        );
+
+        assert_eq!(snapshot.state(), ActivationState::Active);
+        assert_eq!(process.reconcile_calls, 1);
+        assert_eq!(process.start_calls, 0);
+        assert_eq!(
+            snapshot.attempt_receipts(),
+            [PluginActivationReceipt::ReconciliationAttempted]
+        );
+    }
+
+    #[test]
+    fn unavailable_existing_reconciliation_retains_intent_without_start_or_no_start_claim() {
+        let mut process = UnavailableReconcileProcess::default();
+        let snapshot = request().activate_with_reservation(
+            &mut process,
+            &mut Transport::new(vec![]),
+            &Generation::current(),
+            &ExistingStarts,
+        );
+
+        assert_eq!(snapshot.state(), ActivationState::Uncertain);
+        assert_eq!(process.reconcile_calls, 1);
+        assert_eq!(process.start_calls, 0);
+        assert_eq!(
+            snapshot.attempt_receipts(),
+            [PluginActivationReceipt::ReconciliationAttempted]
+        );
+        assert!(snapshot.start_intent.is_some());
+        assert!(snapshot.generation_lease.is_some());
+    }
+
+    #[test]
+    fn uncertain_start_can_be_reconciled_to_proven_not_started_without_retry() {
+        let mut process = LostResponseProcess::default();
+        let uncertain = request().activate_with_reservation(
+            &mut process,
+            &mut Transport::new(vec![]),
+            &Generation::current(),
+            &Starts,
+        );
+        let mut reconciliation = ReconciledProcess::not_started();
+
+        let verified = uncertain.reconcile_process(&mut reconciliation).unwrap();
+
+        assert_eq!(verified.state(), ActivationState::Verified);
+        assert_eq!(reconciliation.reconcile_calls, 1);
+        assert_eq!(reconciliation.start_calls, 0);
+        assert_eq!(
+            verified.transition_history(),
+            [
+                ActivationState::Verified,
+                ActivationState::Starting,
+                ActivationState::Uncertain,
+                ActivationState::Verified,
+            ]
+        );
+        assert_eq!(
+            verified.attempt_receipts(),
+            [
+                PluginActivationReceipt::StartAttempted,
+                PluginActivationReceipt::ReconciliationAttempted,
+                PluginActivationReceipt::StartProvenNotStarted,
+            ]
+        );
+    }
+
+    #[test]
     fn mismatched_start_reservation_is_uncertain_after_process_boundary() {
         let request = request();
         let mut process = WrongReservationProcess::default();
@@ -1671,6 +3344,102 @@ mod tests {
             _: PluginGeneration,
         ) -> Result<PluginStartIntent, crate::PluginStartIntentPortError> {
             Err(crate::PluginStartIntentPortError::Unavailable)
+        }
+    }
+    struct ExistingStarts;
+    impl PluginStartIntentPort for ExistingStarts {
+        fn reserve(
+            &self,
+            activation_id: &PluginActivationId,
+            package_digest: PluginDigest,
+            generation: PluginGeneration,
+        ) -> Result<PluginStartIntent, crate::PluginStartIntentPortError> {
+            let mut reservation = [0; 32];
+            reservation[..8].copy_from_slice(&generation.get().to_be_bytes());
+            reservation[8..].copy_from_slice(&package_digest.as_bytes()[..24]);
+            Ok(PluginStartIntent::with_origin(
+                activation_id.clone(),
+                package_digest,
+                generation,
+                reservation,
+                PluginStartIntentOrigin::Existing,
+            ))
+        }
+    }
+
+    struct ReconciledProcess {
+        reconcile_calls: usize,
+        start_calls: usize,
+        started: bool,
+    }
+
+    #[derive(Default)]
+    struct UnavailableReconcileProcess {
+        reconcile_calls: usize,
+        start_calls: usize,
+    }
+
+    impl PluginProcessPort for UnavailableReconcileProcess {
+        fn start(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            self.start_calls += 1;
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+
+        fn reconcile(
+            &mut self,
+            _: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginStartReconciliation, PluginProcessPortError> {
+            self.reconcile_calls += 1;
+            Err(PluginProcessPortError::BackendUnavailable)
+        }
+    }
+
+    impl ReconciledProcess {
+        fn started() -> Self {
+            Self {
+                reconcile_calls: 0,
+                start_calls: 0,
+                started: true,
+            }
+        }
+
+        fn not_started() -> Self {
+            Self {
+                reconcile_calls: 0,
+                start_calls: 0,
+                started: false,
+            }
+        }
+    }
+
+    impl PluginProcessPort for ReconciledProcess {
+        fn start(
+            &mut self,
+            intent: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginProcessLease, PluginProcessPortError> {
+            self.start_calls += 1;
+            Ok(PluginProcessLease::certified(intent))
+        }
+
+        fn reconcile(
+            &mut self,
+            intent: &PluginStartIntent,
+            _: &PluginGenerationReadLease,
+        ) -> Result<PluginStartReconciliation, PluginProcessPortError> {
+            self.reconcile_calls += 1;
+            if self.started {
+                Ok(PluginStartReconciliation::Started(
+                    PluginProcessLease::certified(intent),
+                ))
+            } else {
+                Ok(PluginStartReconciliation::NotStarted)
+            }
         }
     }
     impl Generation {
@@ -1839,6 +3608,22 @@ mod tests {
         ) -> Result<(), PluginGenerationPortError> {
             self.ready_cas_calls.set(self.ready_cas_calls.get() + 1);
             self.registry.ready_compare_and_set(lease)
+        }
+
+        fn publish_active(
+            &self,
+            lease: &PluginGenerationReadLease,
+            negotiation_snapshot: ProtocolNegotiationSnapshotDigest,
+        ) -> Result<PluginActiveFence, PluginGenerationPortError> {
+            self.ready_cas_calls.set(self.ready_cas_calls.get() + 1);
+            self.registry.publish_active(lease, negotiation_snapshot)
+        }
+
+        fn validate_active(
+            &self,
+            fence: &PluginActiveFence,
+        ) -> Result<(), PluginGenerationPortError> {
+            self.registry.validate_active(fence)
         }
     }
 

@@ -6,8 +6,8 @@ use std::{
 use thiserror::Error;
 
 use crate::{
-    EffectAdmission, RawToolOutput, ToolExecutionHandle, ToolExecutorError, ToolExecutorPort,
-    ToolOutput, ToolOutputBounds,
+    EffectAdmission, RawToolOutput, ToolDispatchBinding, ToolExecutionHandle, ToolExecutorError,
+    ToolExecutorPort, ToolOutput, ToolOutputBounds,
 };
 
 /// Ordered pre-effect gate.
@@ -66,6 +66,8 @@ pub struct ToolDispatchRequest {
     pub invocation_id: String,
     /// Canonical request digest.
     pub request_digest: [u8; 32],
+    /// Exact authority binding revalidated at every admission stage.
+    pub binding: ToolDispatchBinding,
 }
 
 /// Idempotent cancellation request.
@@ -138,6 +140,9 @@ pub enum ToolGatewayError {
     /// Same invocation identity was reused with different bytes.
     #[error("tool invocation digest conflict")]
     DigestConflict,
+    /// Same invocation identity was reused with a different authority binding.
+    #[error("tool invocation authority binding conflict")]
+    AuthorityBindingConflict,
     /// Invocation or execution handle was not found.
     #[error("tool execution was not found")]
     ExecutionNotFound,
@@ -155,6 +160,7 @@ pub enum ToolGatewayError {
 #[derive(Debug, Clone)]
 struct InvocationState {
     digest: [u8; 32],
+    binding: ToolDispatchBinding,
     handle: Option<ToolExecutionHandle>,
     cancel_signalled: bool,
     terminal: Option<ToolTerminalDisposition>,
@@ -190,7 +196,7 @@ where
     ) -> Result<ToolExecutionHandle, ToolGatewayError> {
         let mut state = self.lock_state()?;
         if let Some(existing) = state.get(&request.invocation_id) {
-            ensure_digest(existing, request.request_digest)?;
+            ensure_request(existing, &request)?;
             return existing
                 .handle
                 .clone()
@@ -214,6 +220,7 @@ where
                     request.invocation_id,
                     InvocationState {
                         digest: request.request_digest,
+                        binding: request.binding,
                         handle: Some(handle.clone()),
                         cancel_signalled: false,
                         terminal: None,
@@ -226,6 +233,7 @@ where
                     request.invocation_id,
                     InvocationState {
                         digest: request.request_digest,
+                        binding: request.binding,
                         handle: None,
                         cancel_signalled: false,
                         terminal: Some(ToolTerminalDisposition::Uncertain),
@@ -244,6 +252,7 @@ where
                     request.invocation_id,
                     InvocationState {
                         digest: request.request_digest,
+                        binding: request.binding,
                         handle: None,
                         cancel_signalled: false,
                         terminal: Some(ToolTerminalDisposition::Uncertain),
@@ -256,6 +265,7 @@ where
             request.invocation_id,
             InvocationState {
                 digest: request.request_digest,
+                binding: request.binding,
                 handle: Some(handle.clone()),
                 cancel_signalled: false,
                 terminal: None,
@@ -333,6 +343,18 @@ fn ensure_digest(invocation: &InvocationState, digest: [u8; 32]) -> Result<(), T
         Ok(())
     } else {
         Err(ToolGatewayError::DigestConflict)
+    }
+}
+
+fn ensure_request(
+    invocation: &InvocationState,
+    request: &ToolDispatchRequest,
+) -> Result<(), ToolGatewayError> {
+    ensure_digest(invocation, request.request_digest)?;
+    if invocation.binding == request.binding {
+        Ok(())
+    } else {
+        Err(ToolGatewayError::AuthorityBindingConflict)
     }
 }
 
