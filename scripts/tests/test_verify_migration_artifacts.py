@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import json
 import pathlib
 import tempfile
@@ -71,6 +73,18 @@ class VerifyMigrationArtifactsTests(unittest.TestCase):
             parsed = verifier.load_json(str(fixture_path))
 
         self.assertEqual(parsed["description"], "миграция")
+
+    def test_error_summary_is_safe_for_ascii_windows_console(self) -> None:
+        verifier.errors.append("fixture: blacklisted key 'prompt' found")
+        bytes_output = io.BytesIO()
+        ascii_output = io.TextIOWrapper(bytes_output, encoding="ascii")
+
+        with contextlib.redirect_stdout(ascii_output):
+            exit_code = verifier.print_summary(1)
+        ascii_output.flush()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(b"blacklisted key 'prompt' found", bytes_output.getvalue())
 
 
 if __name__ == "__main__":

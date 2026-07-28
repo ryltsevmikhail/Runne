@@ -304,11 +304,11 @@ def verify_digest_sidecar(json_path: str, instance: dict) -> None:
 
     if actual != expected:
         errors.append(
-            f"{display_path(json_path)}: digest mismatch — "
+            f"{display_path(json_path)}: digest mismatch - "
             f"expected {expected}, computed {actual}"
         )
     else:
-        print(f"  ✓ digest matches: {actual}")
+        print(f"  OK digest matches: {actual}")
 
 
 # ── Main ────────────────────────────────────────────────────────────────
@@ -365,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             instance = load_json(json_path)
         except json.JSONDecodeError as e:
-            errors.append(f"{rel}: invalid JSON — {e}")
+            errors.append(f"{rel}: invalid JSON - {e}")
             continue
 
         # 1. Schema validation
@@ -390,19 +390,19 @@ def print_summary(exit_code: int) -> int:
     print(f"Warnings: {len(warnings)}")
 
     if errors:
-        print(f"\n❌ ERRORS:")
+        print("\nERRORS:")
         for e in errors:
-            print(f"  • {e}")
+            print(f"  - {e}")
 
     if warnings:
-        print(f"\n⚠️ WARNINGS:")
+        print("\nWARNINGS:")
         for w in warnings:
-            print(f"  • {w}")
+            print(f"  - {w}")
 
     if not errors and not warnings:
-        print("\n✓ All checks passed.")
+        print("\nOK All checks passed.")
     elif not errors:
-        print("\n✓ No errors (warnings only).")
+        print("\nOK No errors (warnings only).")
 
     return exit_code
 
