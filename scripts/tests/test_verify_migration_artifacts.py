@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import tempfile
 import unittest
@@ -58,6 +59,18 @@ class VerifyMigrationArtifactsTests(unittest.TestCase):
             displayed,
             r"C:\Users\runneradmin\AppData\Local\Temp\fixture.json",
         )
+
+    def test_verifier_reads_utf8_fixture_independent_of_platform_locale(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            fixture_path = pathlib.Path(temporary_directory) / "fixture.json"
+            fixture_path.write_text(
+                json.dumps({"description": "миграция"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            parsed = verifier.load_json(str(fixture_path))
+
+        self.assertEqual(parsed["description"], "миграция")
 
 
 if __name__ == "__main__":
