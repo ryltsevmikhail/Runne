@@ -7,6 +7,11 @@ Usage:
 """
 import os, json, re, sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 UPSTREAM_DIR = os.path.join(BASE, "upstream", "opencode")
 DOCS_DIR = os.path.join(BASE, "docs")
@@ -53,7 +58,8 @@ for f in sorted(os.listdir(schemas_dir)):
         continue
     fp = os.path.join(schemas_dir, f)
     try:
-        data = json.load(open(fp))
+        with open(fp, encoding="utf-8") as schema_file:
+            data = json.load(schema_file)
     except json.JSONDecodeError as e:
         err(f"Invalid JSON: {f} — {e}")
         continue
@@ -88,7 +94,8 @@ for f in sorted(os.listdir(schemas_dir)):
 for fp in walk_files(DOCS_DIR, ".md"):
     if is_implementation_plan(fp):
         continue
-    head = open(fp).read(200)
+    with open(fp, encoding="utf-8") as doc_file:
+        head = doc_file.read(200)
     if not head.startswith("---"):
         err(f"Missing front matter: {os.path.relpath(fp, BASE)}")
 
@@ -101,7 +108,7 @@ for fp in walk_files(DOCS_DIR, ".md"):
         continue
     rel = os.path.relpath(fp, BASE)
     seen_sections = {}
-    for i, line in enumerate(open(fp, errors="replace"), 1):
+    for i, line in enumerate(open(fp, encoding="utf-8", errors="replace"), 1):
         section = numbered_h2_re.match(line)
         if section:
             number = section.group(1)
@@ -124,7 +131,7 @@ for subsystem in os.listdir(subsystems_dir):
     fp = os.path.join(subsystems_dir, subsystem, "REQUIREMENTS.md")
     if not os.path.isfile(fp):
         continue
-    for line in open(fp, errors="replace"):
+    for line in open(fp, encoding="utf-8", errors="replace"):
         match = requirement_row_re.match(line)
         if match:
             defined_requirements.add(match.group(1))
@@ -134,7 +141,7 @@ for fp in walk_files(DOCS_DIR, (".md", ".json")):
     if is_implementation_plan(fp) or "templates" in fp.split(os.sep):
         continue
     rel = os.path.relpath(fp, BASE)
-    for i, line in enumerate(open(fp, errors="replace"), 1):
+    for i, line in enumerate(open(fp, encoding="utf-8", errors="replace"), 1):
         for requirement in requirement_re.findall(line):
             prefix = requirement.split("-", 2)[1]
             if (
@@ -155,7 +162,8 @@ for fp in walk_files(BASE):
 
 link_re = re.compile(r'\[([^\]]*)\]\(([^)]*\.md[^)]*)\)')
 for fp in walk_files(BASE, ".md"):
-    content = open(fp, errors='replace').read()
+    with open(fp, encoding="utf-8", errors="replace") as doc_file:
+        content = doc_file.read()
     for m in link_re.finditer(content):
         target = m.group(2).split('#')[0]
         if not target or target.startswith(('http://', 'https://')):
@@ -192,7 +200,7 @@ for fp in walk_files(BASE, ".md"):
     if is_implementation_plan(fp):
         continue
     rel = os.path.relpath(fp, BASE)
-    for i, line in enumerate(open(fp, errors='replace'), 1):
+    for i, line in enumerate(open(fp, encoding="utf-8", errors="replace"), 1):
         # Check URL patterns
         m = url_branch_re.search(line)
         if m:
@@ -209,7 +217,8 @@ for fp in walk_files(BASE, ".md"):
 
 sha_re = re.compile(r'[0-9a-f]{40}')
 for fp in walk_files(BASE, (".md", ".json")):
-    content = open(fp, errors='replace').read()
+    with open(fp, encoding="utf-8", errors="replace") as doc_file:
+        content = doc_file.read()
     for sha in sha_re.findall(content):
         if sha != BASELINE_SHA:
             # Allow sha-like strings that aren't actually git SHAs in context
@@ -227,7 +236,7 @@ for fp in walk_files(BASE, ".md"):
     if is_implementation_plan(fp):
         continue
     rel = os.path.relpath(fp, BASE)
-    for i, line in enumerate(open(fp, errors='replace'), 1):
+    for i, line in enumerate(open(fp, encoding="utf-8", errors="replace"), 1):
         if impl_re.search(line):
             # Allow in ADRs/decisions that explicitly document decisions, not claims
             if 'adr' in rel.lower() or 'decision' in rel.lower():
