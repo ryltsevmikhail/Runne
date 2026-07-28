@@ -16,6 +16,8 @@ fi
 python3 - "$fixture" "$evidence" <<'PY'
 import hashlib
 import pathlib
+import re
+import subprocess
 import sys
 
 fixture = pathlib.Path(sys.argv[1])
@@ -23,7 +25,6 @@ evidence = pathlib.Path(sys.argv[2]).read_text()
 digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
 required = [
     f"fixture_sha256: {digest}",
-    "source_commit: WORKTREE_UNCOMMITTED",
     "phase7a_verdict: IMPLEMENTED_CANDIDATE",
     "phase7b_plugin_host: IMPLEMENTED_CANDIDATE",
     "phase7c_mcp_adapter: IMPLEMENTED_CANDIDATE",
@@ -33,6 +34,14 @@ required = [
 missing = [value for value in required if value not in evidence]
 if missing:
     raise SystemExit(f"missing Phase 7A evidence fields: {missing}")
+
+source = re.search(r"^source_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
+reviewed = re.search(r"^reviewed_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
+if source is None or reviewed is None or source.group(1) != reviewed.group(1):
+    raise SystemExit("Phase 7 exact source/reviewed commit evidence is invalid")
+commit = source.group(1)
+subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], check=True)
+subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=True)
 PY
 
 cargo test -p gocode-provider --all-targets --locked
