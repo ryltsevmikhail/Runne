@@ -5,8 +5,10 @@ use gocode_security::atomic::{
     AtomicPreEffectTransaction, AtomicTransactionError, AuthorizationDecision,
     PreEffectTransactionOutcome,
 };
+#[cfg(not(target_os = "windows"))]
+use gocode_security::broker::fs::CanonicalPath;
 use gocode_security::broker::fs::{
-    CanonicalPath, FilesystemBroker, FsBrokerError, SymlinkPolicy, WorkspacePolicy, WorkspaceRoot,
+    FilesystemBroker, FsBrokerError, SymlinkPolicy, WorkspacePolicy, WorkspaceRoot,
 };
 use gocode_security::broker::network::{
     EgressPolicy, NetworkBroker, NetworkDestination, NetworkError,
