@@ -445,13 +445,12 @@ fn canonicalize_path(path: &Path) -> Result<PathBuf, DaemonError> {
 /// Unix: `"{dev}:{ino}"` (device + inode).
 /// Windows: `"{vol_serial}:{file_id}"` (volume serial + file ID).
 fn platform_file_identity(file: &std::fs::File) -> Result<String, DaemonError> {
-    let meta = file
-        .metadata()
-        .map_err(|e| DaemonError::Lock(format!("failed to read file metadata: {e}")))?;
-
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
+        let meta = file
+            .metadata()
+            .map_err(|e| DaemonError::Lock(format!("failed to read file metadata: {e}")))?;
         let dev = meta.dev();
         let ino = meta.ino();
         Ok(format!("{dev}:{ino}"))
@@ -459,9 +458,23 @@ fn platform_file_identity(file: &std::fs::File) -> Result<String, DaemonError> {
 
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
-        let vol_serial = meta.volume_serial_number();
-        let file_index = meta.file_index();
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+        };
+
+        let mut info = std::mem::MaybeUninit::<BY_HANDLE_FILE_INFORMATION>::uninit();
+        let succeeded =
+            unsafe { GetFileInformationByHandle(file.as_raw_handle(), info.as_mut_ptr()) };
+        if succeeded == 0 {
+            return Err(DaemonError::Lock(format!(
+                "failed to read Windows file identity: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        let info = unsafe { info.assume_init() };
+        let vol_serial = info.dwVolumeSerialNumber;
+        let file_index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
         Ok(format!("{vol_serial}:{file_index}"))
     }
 }

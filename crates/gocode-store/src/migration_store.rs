@@ -43,7 +43,7 @@ use crate::{
         encode_retirement_manifest, encode_rollback_manifest, encode_routing_snapshot,
         encode_runtime_binding,
     },
-    schema::{apply_migrations, open_with_pragmas, preflight_existing_file, run_startup_gates},
+    schema::{apply_migrations, open_with_pragmas, run_startup_gates},
 };
 
 /// SQLite-backed migration control-plane store.
@@ -63,7 +63,6 @@ impl SqliteMigrationControlStore {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, MigrationStoreError> {
         let path = path.as_ref().to_path_buf();
         let path_text = path.to_str().ok_or(MigrationStoreError::Unavailable)?;
-        preflight_existing_file(&path).map_err(map_open_error)?;
         let writer = open_with_pragmas(path_text).map_err(map_open_error)?;
         apply_migrations(&writer).map_err(|_| MigrationStoreError::CorruptData)?;
         run_startup_gates(&writer, path_text)

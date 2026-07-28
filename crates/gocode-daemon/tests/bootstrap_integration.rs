@@ -7,6 +7,7 @@ use gocode_daemon::config::{BuiltInDefaults, ConfigurationSnapshot};
 use gocode_daemon::lock::LockSet;
 use gocode_daemon::recovery::{RecoveryState, enumerate_recovery_tasks};
 use gocode_store::schema;
+use rusqlite::Connection;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -298,4 +299,36 @@ fn token_missing_for_existing_db_is_fatal() {
         msg.contains("token") || msg.contains("missing"),
         "expected token-missing error, got: {msg}"
     );
+}
+
+#[test]
+fn bootstrap_rejects_candidate_schema_before_wal_or_main_db_mutation() {
+    for version in [9, 10, 11] {
+        let temp = TempDir::new().unwrap();
+        let config = test_config(&temp);
+        let initial = bootstrap(&config).unwrap();
+        drop(initial);
+        let db = db_path(&config);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = fs::remove_file(format!("{}{suffix}", db.display()));
+        }
+        let connection = Connection::open(&db).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
+                 CREATE TABLE candidate_data (value TEXT NOT NULL);
+                 INSERT INTO candidate_data VALUES ('unchanged');",
+            )
+            .unwrap();
+        connection
+            .execute("INSERT INTO schema_version VALUES (?1)", [version])
+            .unwrap();
+        drop(connection);
+        let before = fs::read(&db).unwrap();
+
+        assert!(bootstrap(&config).is_err(), "candidate V{version}");
+        assert_eq!(fs::read(&db).unwrap(), before);
+        assert!(!PathBuf::from(format!("{}-wal", db.display())).exists());
+        assert!(!PathBuf::from(format!("{}-shm", db.display())).exists());
+    }
 }

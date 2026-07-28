@@ -9,9 +9,7 @@ use gocode_application::security::atomic_transaction::{
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 
-use crate::schema::{
-    apply_migrations, open_with_pragmas, preflight_existing_file, run_startup_gates,
-};
+use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
 
 /// Repository-owned SQLite store для security pre-effect boundary.
 pub struct SqliteAtomicPreEffectStore {
@@ -24,8 +22,6 @@ impl SqliteAtomicPreEffectStore {
         let path = path
             .to_str()
             .ok_or(AtomicTransactionError::StoreUnavailable)?;
-        preflight_existing_file(Path::new(path))
-            .map_err(|_| AtomicTransactionError::StoreUnavailable)?;
         let connection =
             open_with_pragmas(path).map_err(|_| AtomicTransactionError::StoreUnavailable)?;
         apply_migrations(&connection).map_err(|_| AtomicTransactionError::StoreUnavailable)?;
