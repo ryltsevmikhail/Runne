@@ -101,8 +101,14 @@ pub(crate) fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidIdReason> {
         out[byte_idx] = (hi_val << 4) | lo_val;
         byte_idx += 1;
     }
+    validate_uuid_v7_bytes(&out)?;
+    Ok(out)
+}
+
+/// Validate UUIDv7 version and RFC 9562 variant bits in raw UUID bytes.
+pub fn validate_uuid_v7_bytes(bytes: &[u8; 16]) -> Result<(), InvalidIdReason> {
     // Version: upper nibble of byte 6 must be 0x7
-    let version = out[6] >> 4;
+    let version = bytes[6] >> 4;
     if version != 7 {
         return Err(InvalidIdReason::InvalidUuidVersion {
             expected: 7,
@@ -110,11 +116,11 @@ pub(crate) fn parse_uuid_v7(s: &str) -> Result<[u8; 16], InvalidIdReason> {
         });
     }
     // Variant: top 2 bits of byte 8 must be 0b10
-    let variant = out[8] >> 6;
+    let variant = bytes[8] >> 6;
     if variant != 0b10 {
         return Err(InvalidIdReason::InvalidUuidVariant);
     }
-    Ok(out)
+    Ok(())
 }
 
 /// Interpret a byte as a hex nibble value.
@@ -251,6 +257,10 @@ uuid_v7_newtype!(
 uuid_v7_newtype!(
     EventLogLineageId,
     "UUIDv7 identifier for the event log lineage."
+);
+uuid_v7_newtype!(
+    DaemonInstanceId,
+    "UUIDv7 identifier for one daemon process instance."
 );
 
 // ── IdempotencyKey ────────────────────────────────────────────────────────
