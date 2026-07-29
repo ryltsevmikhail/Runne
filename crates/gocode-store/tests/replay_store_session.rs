@@ -1,589 +1,806 @@
-//! Integration tests for ReplayStore SQLite implementation.
-//!
-//! Tests cover: session lifecycle, authorization, HMAC integrity,
-//! state transitions, and error conditions.
+//! Интеграционные тесты server-issued catch-up и acknowledge ReplayStore.
 
-use gocode_application::ports::{ReplayError, ReplayState, ReplayStorePort};
-use gocode_store::replay_store::{ReplayStore, build_test_high_water_ref};
+use gocode_application::ports::{
+    ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
+};
+use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
+use gocode_domain::id::{
+    AggregateId, CommandId, EventId, EventLogLineageId, IdempotencyKey, IntegrityDigest, TaskRunId,
+};
+use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope};
+use gocode_domain::task_run::TaskRunEvent;
+use gocode_domain::timestamp::Timestamp;
+use gocode_store::codec::{StoreCodec, TaskRunEventCodec};
+use gocode_store::integrity::compute_integrity_digest_with_global_position;
+use gocode_store::replay_store::ReplayStore;
 use gocode_store::schema::apply_migrations;
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
+use tempfile::TempDir;
 
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-const AUTH_ID: [u8; 16] = [0xAA; 16];
-const AGG_ID: [u8; 16] = [0xBB; 16];
+const AUTHORITY: [u8; 16] = [0xAA; 16];
+const AGGREGATE: [u8; 16] = [
+    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0xbb,
+];
 const SECRET: [u8; 32] = [0xCC; 32];
-const PRINCIPAL: &str = "test-principal";
 
-fn fresh_file_db(name: &str) -> (String, ReplayStore) {
-    let mut path = std::env::temp_dir();
-    path.push(format!("gocode-test-replay-{}.sqlite", name));
-    let db_path = path.to_str().unwrap().to_string();
-
-    // Clean up any previous test run
-    let _ = std::fs::remove_file(&db_path);
-    let _ = std::fs::remove_file(format!("{}-wal", db_path));
-    let _ = std::fs::remove_file(format!("{}-shm", db_path));
-
-    let conn = Connection::open(&db_path).unwrap();
-    conn.execute_batch(
-        "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = FULL;
-         PRAGMA foreign_keys = ON;
-         PRAGMA busy_timeout = 5000;",
-    )
-    .unwrap();
-    apply_migrations(&conn).unwrap();
-    let store = ReplayStore::new(conn);
-    (db_path, store)
+struct TaskRunRow {
+    event_id: [u8; 16],
+    idempotency_key: Vec<u8>,
+    actor: &'static [u8],
+    payload: Vec<u8>,
+    integrity_digest: [u8; 32],
 }
 
-fn cleanup_db(db_path: &str) {
-    let _ = std::fs::remove_file(db_path);
-    let _ = std::fs::remove_file(format!("{}-wal", db_path));
-    let _ = std::fs::remove_file(format!("{}-shm", db_path));
-}
-
-/// Open a second connection to the same file-based DB.
-fn open_read_conn(db_path: &str) -> Connection {
-    let conn = Connection::open(db_path).unwrap();
-    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")
-        .unwrap();
-    conn
-}
-
-/// Insert an aggregate stream row so events can reference it.
-fn insert_aggregate_stream(conn: &Connection, aggregate_type: i32, aggregate_id: &[u8; 16]) {
-    conn.execute(
-        "INSERT OR IGNORE INTO aggregate_streams
-         (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at)
-         VALUES (?1, ?2, 0, NULL, NULL, 0)",
-        params![aggregate_type, aggregate_id.as_slice()],
-    )
-    .unwrap();
-}
-
-/// Insert a test event row.
-fn insert_event(
-    conn: &Connection,
-    global_position: i64,
-    event_id: &[u8; 16],
-    aggregate_type: i32,
-    aggregate_id: &[u8; 16],
-    payload: &[u8],
-    timestamp: i64,
-) {
-    let integrity_digest = [0u8; 32];
-    conn.execute(
-        "INSERT INTO events
-         (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp,
-          sensitivity, schema_version, causation_id, command_id, idempotency_key,
-          actor, payload, integrity_digest, correlation_id, correlation_type,
-          integrity_profile)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 8, NULL, ?1, x'01', x'02', ?7, ?8, ?1, 1, 1)",
-        params![
-            event_id.as_slice(),
-            aggregate_type,
-            aggregate_id.as_slice(),
-            global_position, // sequence = global_position for simplicity
-            global_position,
-            timestamp,
-            payload,
-            integrity_digest.as_slice(),
-        ],
-    )
-    .unwrap();
-}
-
-// ── open_session ─────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn open_session_atomic_commit() {
-    let (db_path, store) = fresh_file_db("open_session_atomic_commit");
-    let read_conn = open_read_conn(&db_path);
-
-    // Insert aggregate stream and one event
-    insert_aggregate_stream(&read_conn, 1, &AGG_ID);
-    insert_event(&read_conn, 1, &[0x01; 16], 1, &AGG_ID, b"hello", 1000);
-
-    let (session, events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].global_position, 1);
-    assert_eq!(session.state, ReplayState::CatchingUp);
-    assert_eq!(session.principal_id, PRINCIPAL);
-    assert_eq!(session.high_water_position, 1);
-    assert_eq!(session.high_water_ref.len(), 77);
-
-    // Verify row exists in _replay_subscriptions
-    let count: i64 = read_conn
-        .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(count, 1);
-
-    cleanup_db(&db_path);
-}
-
-#[tokio::test]
-async fn open_session_returns_multiple_events() {
-    let (db_path, store) = fresh_file_db("open_session_multiple");
-    let read_conn = open_read_conn(&db_path);
-
-    insert_aggregate_stream(&read_conn, 1, &AGG_ID);
-    for i in 1..=5 {
-        let mut eid = [0u8; 16];
-        eid[0] = i as u8;
-        insert_event(&read_conn, i, &eid, 1, &AGG_ID, b"data", i * 100);
-    }
-
-    let (_session, events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    assert_eq!(events.len(), 5);
-    assert!(
-        events
-            .windows(2)
-            .all(|w| w[0].global_position < w[1].global_position),
-        "events must be in global_position order"
+fn event_id(global_position: i64) -> [u8; 16] {
+    let mut bytes = [
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0,
+    ];
+    bytes[14..].copy_from_slice(
+        &u16::try_from(global_position)
+            .expect("test position fits u16")
+            .to_be_bytes(),
     );
-
-    cleanup_db(&db_path);
+    bytes
 }
 
-// ── read_page ────────────────────────────────────────────────────────────
+fn taskrun_row(aggregate: [u8; 16], sequence: i64, global_position: i64) -> TaskRunRow {
+    let event_id_bytes = event_id(global_position);
+    let taskrun_id = TaskRunId::from_bytes(aggregate);
+    let event_id = EventId::from_bytes(event_id_bytes);
+    let command_id = CommandId::from_bytes(event_id_bytes);
+    let idempotency_key = IdempotencyKey::new(format!("replay-event-{global_position}")).unwrap();
+    let actor = Actor::new("test-actor").unwrap();
+    let payload = TaskRunEvent::TaskRunCreated;
+    let payload_bytes = TaskRunEventCodec.encode(&payload).unwrap();
+    let envelope = EventEnvelope::from_parts(
+        event_id,
+        AggregateId::TaskRun(taskrun_id),
+        AggregateId::TaskRun(taskrun_id),
+        None,
+        command_id,
+        idempotency_key.clone(),
+        1,
+        actor,
+        Sensitivity::Public,
+        payload,
+        u64::try_from(sequence).unwrap(),
+        Timestamp::from_unix_micros(0),
+        IntegrityDigest::from_bytes([0; 32]),
+    );
+    let integrity_digest =
+        compute_integrity_digest_with_global_position(&envelope, global_position, &payload_bytes)
+            .unwrap()
+            .into_bytes();
+    TaskRunRow {
+        event_id: event_id_bytes,
+        idempotency_key: idempotency_key.as_str().as_bytes().to_vec(),
+        actor: b"test-actor",
+        payload: payload_bytes,
+        integrity_digest,
+    }
+}
+
+fn store() -> ReplayStore {
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations(&connection).unwrap();
+    ReplayStore::new(connection)
+}
+
+fn store_with_events(count: i64) -> ReplayStore {
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations(&connection).unwrap();
+    connection
+        .execute(
+            "INSERT INTO aggregate_streams \
+             (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) \
+             VALUES (1, ?1, ?2, ?3, 0, 0)",
+            rusqlite::params![AGGREGATE.as_slice(), count, event_id(count).as_slice()],
+        )
+        .unwrap();
+    for position in 1..=count {
+        let row = taskrun_row(AGGREGATE, position, position);
+        connection
+            .execute(
+                "INSERT INTO events \
+                 (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+                  sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+                  payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+                 VALUES (?1, 1, ?2, ?3, ?3, 0, 0, 1, NULL, ?1, ?4, ?5, ?6, ?7, ?2, 1, 1)",
+                rusqlite::params![
+                    row.event_id.as_slice(),
+                    AGGREGATE.as_slice(),
+                    position,
+                    row.idempotency_key,
+                    row.actor,
+                    row.payload,
+                    row.integrity_digest.as_slice(),
+                ],
+            )
+            .unwrap();
+    }
+    ReplayStore::new(connection)
+}
+
+fn store_with_scoped_and_unrelated_event() -> ReplayStore {
+    const OTHER_AGGREGATE: [u8; 16] = [
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0xdd,
+    ];
+
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations(&connection).unwrap();
+    for (aggregate_id, position) in [(AGGREGATE, 1_i64), (OTHER_AGGREGATE, 2_i64)] {
+        let row = taskrun_row(aggregate_id, 1, position);
+        connection
+            .execute(
+                "INSERT INTO aggregate_streams \
+                 (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) \
+                 VALUES (1, ?1, 1, ?2, 0, 0)",
+                rusqlite::params![aggregate_id.as_slice(), row.event_id.as_slice()],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO events \
+                 (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+                  sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+                  payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+                 VALUES (?1, 1, ?2, 1, ?3, 0, 0, 1, NULL, ?1, ?4, ?5, ?6, ?7, ?2, 1, 1)",
+                rusqlite::params![
+                    row.event_id.as_slice(),
+                    aggregate_id.as_slice(),
+                    position,
+                    row.idempotency_key,
+                    row.actor,
+                    row.payload,
+                    row.integrity_digest.as_slice(),
+                ],
+            )
+            .unwrap();
+    }
+    ReplayStore::new(connection)
+}
+
+fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("replay.sqlite");
+    let connection = Connection::open(&path).unwrap();
+    apply_migrations(&connection).unwrap();
+    connection
+        .execute(
+            "INSERT INTO aggregate_streams \
+             (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) \
+             VALUES (1, ?1, ?2, ?3, 0, 0)",
+            rusqlite::params![AGGREGATE.as_slice(), count, event_id(count).as_slice()],
+        )
+        .unwrap();
+    for position in 1..=count {
+        let row = taskrun_row(AGGREGATE, position, position);
+        connection
+            .execute(
+                "INSERT INTO events \
+                 (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+                  sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+                  payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+                 VALUES (?1, 1, ?2, ?3, ?3, 0, 0, 1, NULL, ?1, ?4, ?5, ?6, ?7, ?2, 1, 1)",
+                rusqlite::params![
+                    row.event_id.as_slice(),
+                    AGGREGATE.as_slice(),
+                    position,
+                    row.idempotency_key,
+                    row.actor,
+                    row.payload,
+                    row.integrity_digest.as_slice(),
+                ],
+            )
+            .unwrap();
+    }
+    let writer = Connection::open(&path).unwrap();
+    (ReplayStore::new(connection), writer, directory)
+}
+
+async fn open(
+    store: &ReplayStore,
+    from_cursor: Option<&ReplayCursor>,
+) -> (ReplaySession, Vec<ReplayEvent>) {
+    store
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            &AGGREGATE,
+            from_cursor,
+            &SECRET,
+        )
+        .await
+        .unwrap()
+}
+
+fn cursor(position: i64) -> ReplayCursor {
+    ReplayCursor {
+        event_id: EventId::from_bytes(event_id(position)),
+        aggregate_id: AggregateId::TaskRun(TaskRunId::from_bytes(AGGREGATE)),
+        sequence: position as u64,
+        global_position: position,
+        lineage_id: EventLogLineageId::from_bytes([2; 16]),
+        scope: ReplayScope::Aggregate {
+            aggregate_type: 1,
+            aggregate_id: AGGREGATE,
+        },
+        schema_version: CURSOR_SCHEMA_VERSION,
+        sensitivity: Sensitivity::Public,
+        event_type: "TaskRunCreated".into(),
+        integrity: IntegrityDigest::from_bytes([0; 32]),
+    }
+}
 
 #[tokio::test]
-async fn read_page_returns_empty_for_new_db() {
-    let (db_path, store) = fresh_file_db("read_page_empty");
-
+async fn empty_catch_up_has_server_issued_proof() {
+    let store = store();
     let (session, events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
+        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
         .await
         .unwrap();
+    assert!(events.is_empty());
+    let (completed, last_ack_event) = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+    assert_eq!(completed.state, ReplayState::CatchUpComplete);
+    assert!(last_ack_event.is_none());
+    assert_eq!(
+        completed.catch_up_completion.as_ref().map(Vec::len),
+        Some(32)
+    );
+}
+
+#[tokio::test]
+async fn nonempty_catch_up_requires_acknowledgement() {
+    let store = store();
+    let (session, _) = store
+        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .await
+        .unwrap();
+    let error = store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, ReplayError::NotAcknowledged));
+}
+
+#[tokio::test]
+async fn test_open_session_returns_empty_for_empty_db() {
+    let store = store();
+
+    let (_, events) = open(&store, None).await;
 
     assert!(events.is_empty());
-
-    let page = store
-        .read_page(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, 100)
-        .await
-        .unwrap();
-
-    assert!(page.is_empty());
-
-    cleanup_db(&db_path);
 }
 
 #[tokio::test]
-async fn read_page_returns_next_page() {
-    let (db_path, store) = fresh_file_db("read_page_next");
-    let read_conn = open_read_conn(&db_path);
+async fn test_open_session_with_events_returns_all_events() {
+    let store = store_with_events(3);
 
-    insert_aggregate_stream(&read_conn, 1, &AGG_ID);
-    for i in 1..=200 {
-        let mut eid = [0u8; 16];
-        eid[7..15].copy_from_slice(&(i as u64).to_be_bytes());
-        insert_event(&read_conn, i, &eid, 1, &AGG_ID, b"data", i * 100);
-    }
+    let (_, events) = open(&store, None).await;
 
-    let (session, first_page) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    // open_session returns up to 100 events
-    assert_eq!(first_page.len(), 100);
-
-    // read_page returns next events
-    let page2 = store
-        .read_page(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, 100)
-        .await
-        .unwrap();
-
-    assert_eq!(page2.len(), 100);
-    assert_eq!(page2[0].global_position, 101);
-    assert_eq!(page2[99].global_position, 200);
-
-    cleanup_db(&db_path);
-}
-
-// ── complete_catch_up ────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn complete_catch_up_transitions_state() {
-    let (db_path, store) = fresh_file_db("complete_catch_up");
-    let read_conn = open_read_conn(&db_path);
-
-    insert_aggregate_stream(&read_conn, 1, &AGG_ID);
-    insert_event(&read_conn, 1, &[0x01; 16], 1, &AGG_ID, b"data", 1000);
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    assert_eq!(session.state, ReplayState::CatchingUp);
-
-    let proof = b"catch-up-done";
-    let updated = store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, proof)
-        .await
-        .unwrap();
-
-    assert_eq!(updated.state, ReplayState::CatchUpComplete);
-    assert_eq!(updated.catch_up_completion, Some(proof.to_vec()));
-
-    cleanup_db(&db_path);
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.global_position)
+            .collect::<Vec<_>>(),
+        [1, 2, 3]
+    );
 }
 
 #[tokio::test]
-async fn complete_catch_up_fails_on_wrong_state() {
-    let (db_path, store) = fresh_file_db("complete_catch_up_wrong_state");
+async fn test_from_cursor_inclusive() {
+    let store = store_with_events(3);
 
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
+    let (_, events) = open(&store, Some(&cursor(2))).await;
 
-    // Transition to catch_up_complete
-    store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, b"proof")
-        .await
-        .unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.global_position)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
+}
 
-    // Second call should fail — not in CatchingUp
-    let err = store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, b"proof2")
+#[tokio::test]
+async fn open_session_rejects_cursor_for_unknown_event_position() {
+    let store = store_with_events(1);
+
+    let error = store
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            &AGGREGATE,
+            Some(&cursor(2)),
+            &SECRET,
+        )
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ReplayError::InvalidState(_)));
-
-    cleanup_db(&db_path);
+    assert!(matches!(error, ReplayError::CursorInvalid { reason: _ }));
 }
 
-// ── continue_live ────────────────────────────────────────────────────────
-
 #[tokio::test]
-async fn continue_live_cas() {
-    let (db_path, store) = fresh_file_db("continue_live");
+async fn test_read_page_pagination() {
+    let store = store_with_events(102);
+    let (session, initial_events) = open(&store, None).await;
+    assert_eq!(initial_events.len(), 100);
 
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
+    let first_page = store
+        .read_page(&session.session_id, "principal", 1, &AUTHORITY, 0, 1)
         .await
         .unwrap();
+    let second_page = store
+        .read_page(&session.session_id, "principal", 1, &AUTHORITY, 0, 1)
+        .await
+        .unwrap();
+
+    assert_eq!(first_page.1[0].global_position, 101);
+    assert_eq!(second_page.1[0].global_position, 102);
+    assert!(first_page.0.next_page_position.is_some());
+    assert!(second_page.0.next_page_position.is_none());
+}
+
+#[tokio::test]
+async fn exact_full_initial_page_can_complete_after_acknowledgement() {
+    let store = store_with_events(100);
+    let (session, initial_events) = open(&store, None).await;
+    assert_eq!(initial_events.len(), 100);
 
     store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, b"proof")
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(100),
+        )
         .await
         .unwrap();
 
-    let updated = store
-        .continue_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
+    let (completed, last_ack_event) = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
         .await
         .unwrap();
 
-    assert_eq!(updated.state, ReplayState::Live);
-    assert!(updated.live_delivery_id.is_some());
-
-    cleanup_db(&db_path);
+    assert_eq!(completed.state, ReplayState::CatchUpComplete);
+    assert_eq!(last_ack_event.unwrap().global_position, 100);
 }
 
 #[tokio::test]
-async fn continue_live_fails_without_catch_up_complete() {
-    let (db_path, store) = fresh_file_db("continue_live_without_catchup");
+async fn catch_up_completion_uses_last_event_in_scope() {
+    let store = store_with_scoped_and_unrelated_event();
+    let (session, initial_events) = open(&store, None).await;
+    assert_eq!(
+        initial_events
+            .iter()
+            .map(|event| event.global_position)
+            .collect::<Vec<_>>(),
+        [1]
+    );
 
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
         .await
         .unwrap();
 
-    // Should fail — state is CatchingUp, not CatchUpComplete
-    let err = store
-        .continue_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
+    let (completed, last_ack_event) = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+
+    assert_eq!(completed.state, ReplayState::CatchUpComplete);
+    assert_eq!(last_ack_event.unwrap().global_position, 1);
+}
+
+#[tokio::test]
+async fn test_acknowledge_monotonic() {
+    let store = store_with_events(2);
+    let (session, _) = open(&store, None).await;
+
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap();
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(2),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_acknowledge_duplicate_idempotent() {
+    let store = store_with_events(1);
+    let (session, _) = open(&store, None).await;
+
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap();
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn acknowledge_rejects_cursor_not_delivered_by_session() {
+    let store = store_with_events(1);
+    let (session, _) = open(&store, None).await;
+    let mut forged_cursor = cursor(1);
+    forged_cursor.event_id = EventId::from_bytes([0xEE; 16]);
+
+    let error = store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &forged_cursor,
+        )
         .await
         .unwrap_err();
 
-    assert!(matches!(err, ReplayError::InvalidState(_)));
-
-    cleanup_db(&db_path);
+    assert!(matches!(error, ReplayError::CursorInvalid { reason: _ }));
 }
 
-// ── close_session ────────────────────────────────────────────────────────
+#[tokio::test]
+async fn test_complete_catch_up_requires_ack() {
+    let store = store_with_events(1);
+    let (session, _) = open(&store, None).await;
+
+    let error = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ReplayError::NotAcknowledged));
+}
 
 #[tokio::test]
-async fn close_session_transitions_to_closed() {
-    let (db_path, store) = fresh_file_db("close_session");
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
+async fn test_complete_catch_up_success() {
+    let store = store_with_events(2);
+    let (session, _) = open(&store, None).await;
     store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, b"proof")
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(2),
+        )
         .await
         .unwrap();
 
+    let (completed, last_ack_event) = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+
+    assert_eq!(completed.state, ReplayState::CatchUpComplete);
+    assert_eq!(last_ack_event.unwrap().global_position, 2);
+}
+
+#[tokio::test]
+async fn duplicate_complete_catch_up_returns_same_server_proof() {
+    let store = store_with_events(1);
+    let (session, _) = open(&store, None).await;
     store
-        .close_session(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
         .await
         .unwrap();
 
-    // Verify state is 'closed' in DB
-    let read_conn = open_read_conn(&db_path);
-    let state: String = read_conn
-        .query_row(
-            "SELECT state FROM _replay_subscriptions WHERE session_id = ?1",
-            params![session.session_id.as_slice()],
-            |r| r.get(0),
+    let first = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+    let second = store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+
+    assert_eq!(first.0.catch_up_completion, second.0.catch_up_completion);
+    assert_eq!(first.1.unwrap().global_position, 1);
+    assert_eq!(second.1.unwrap().global_position, 1);
+    assert_eq!(second.0.state, ReplayState::CatchUpComplete);
+}
+
+#[tokio::test]
+async fn test_continue_live_cas() {
+    let store = store_with_events(1);
+    let (session, _) = open(&store, None).await;
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap();
+    store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+
+    let first = store
+        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await;
+    let second = store
+        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await;
+
+    assert!(matches!(
+        first,
+        Ok(ReplaySession {
+            state: ReplayState::Live,
+            ..
+        })
+    ));
+    assert!(matches!(second, Err(ReplayError::InvalidState(_))));
+}
+
+#[tokio::test]
+async fn poll_live_advances_past_delivered_events() {
+    let (store, writer, _directory) = file_store_with_events(1);
+    let (session, _) = open(&store, None).await;
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap();
+    store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+    store
+        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await
+        .unwrap();
+
+    let row = taskrun_row(AGGREGATE, 2, 2);
+    writer
+        .execute(
+            "INSERT INTO events \
+             (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+              sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+              payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+             VALUES (?1, 1, ?2, 2, 2, 0, 0, 1, NULL, ?1, ?3, ?4, ?5, ?6, ?2, 1, 1)",
+            rusqlite::params![
+                row.event_id.as_slice(),
+                AGGREGATE.as_slice(),
+                row.idempotency_key,
+                row.actor,
+                row.payload,
+                row.integrity_digest.as_slice(),
+            ],
         )
         .unwrap();
-    assert_eq!(state, "closed");
-
-    cleanup_db(&db_path);
-}
-
-// ── poll_live ────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn poll_live_returns_new_events() {
-    let (db_path, store) = fresh_file_db("poll_live");
-    let read_conn = open_read_conn(&db_path);
-
-    insert_aggregate_stream(&read_conn, 1, &AGG_ID);
-
-    // Insert one event before session open (high_water = 1)
-    insert_event(&read_conn, 1, &[0x01; 16], 1, &AGG_ID, b"before", 1000);
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, b"proof")
-        .await
-        .unwrap();
-
-    store
-        .continue_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
-        .await
-        .unwrap();
-
-    // Insert new events after high_water
-    insert_event(&read_conn, 2, &[0x02; 16], 1, &AGG_ID, b"after1", 2000);
-    insert_event(&read_conn, 3, &[0x03; 16], 1, &AGG_ID, b"after2", 3000);
-
-    let live_events = store
-        .poll_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
-        .await
-        .unwrap();
-
-    // Should return events with global_position > high_water (1)
-    assert_eq!(live_events.len(), 2);
-    assert_eq!(live_events[0].global_position, 2);
-    assert_eq!(live_events[1].global_position, 3);
-
-    cleanup_db(&db_path);
-}
-
-#[tokio::test]
-async fn poll_live_fails_on_non_live_state() {
-    let (db_path, store) = fresh_file_db("poll_live_non_live");
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    let err = store
-        .poll_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
-        .await
-        .unwrap_err();
-
-    assert!(matches!(err, ReplayError::InvalidState(_)));
-
-    cleanup_db(&db_path);
-}
-
-// ── Authorization ────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn forged_session_id_rejected() {
-    let (db_path, store) = fresh_file_db("forged_session");
-
-    let (_session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    // Use a random session_id that doesn't exist
-    let fake_id = [0xFF; 16];
-    let err = store
-        .read_page(&fake_id, PRINCIPAL, 1, &AUTH_ID, 0, 100)
-        .await
-        .unwrap_err();
-
-    assert!(matches!(err, ReplayError::SessionNotFound));
-
-    cleanup_db(&db_path);
-}
-
-#[tokio::test]
-async fn unauthorized_principal_rejected() {
-    let (db_path, store) = fresh_file_db("unauth_principal");
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    let err = store
-        .read_page(&session.session_id, "evil-principal", 1, &AUTH_ID, 0, 100)
-        .await
-        .unwrap_err();
-
-    assert!(matches!(err, ReplayError::Unauthorized(_)));
-
-    cleanup_db(&db_path);
-}
-
-#[tokio::test]
-async fn stale_generation_rejected() {
-    let (db_path, store) = fresh_file_db("stale_gen");
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    let err = store
-        .read_page(&session.session_id, PRINCIPAL, 2, &AUTH_ID, 0, 100)
-        .await
-        .unwrap_err();
-
-    assert!(matches!(err, ReplayError::StaleGeneration));
-
-    cleanup_db(&db_path);
-}
-
-#[tokio::test]
-async fn wrong_authority_rejected() {
-    let (db_path, store) = fresh_file_db("wrong_auth");
-
-    let (session, _events) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-
-    let other_auth = [0xDD; 16];
-    let err = store
-        .read_page(&session.session_id, PRINCIPAL, 1, &other_auth, 0, 100)
-        .await
-        .unwrap_err();
-
-    assert!(matches!(err, ReplayError::Unauthorized(_)));
-
-    cleanup_db(&db_path);
-}
-
-// ── HMAC ────────────────────────────────────────────────────────────────
-
-#[test]
-fn hmac_high_water_ref_deterministic() {
-    let auth = [0x01u8; 16];
-    let sess = [0x02u8; 16];
-    let secret = [0x03u8; 32];
-
-    let ref1 = build_test_high_water_ref(&auth, None, 42, &secret, &sess);
-    let ref2 = build_test_high_water_ref(&auth, None, 42, &secret, &sess);
-
-    assert_eq!(ref1, ref2);
-    assert_eq!(ref1.len(), 77);
-}
-
-#[test]
-fn hmac_high_water_ref_differs() {
-    let auth = [0x01u8; 16];
-    let sess = [0x02u8; 16];
-    let secret = [0x03u8; 32];
-
-    let ref1 = build_test_high_water_ref(&auth, None, 42, &secret, &sess);
-    let ref2 = build_test_high_water_ref(&auth, None, 43, &secret, &sess);
-
-    assert_ne!(ref1, ref2);
-}
-
-// ── Full lifecycle ───────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn full_lifecycle_open_read_complete_live_poll_close() {
-    let (db_path, store) = fresh_file_db("full_lifecycle");
-    let read_conn = open_read_conn(&db_path);
-
-    insert_aggregate_stream(&read_conn, 1, &AGG_ID);
-    insert_event(&read_conn, 1, &[0x01; 16], 1, &AGG_ID, b"ev1", 1000);
-
-    // 1. Open session
-    let (session, page) = store
-        .open_session(PRINCIPAL, 1, &AUTH_ID, 0, 1, &AGG_ID, &SECRET)
-        .await
-        .unwrap();
-    assert_eq!(session.state, ReplayState::CatchingUp);
-    assert_eq!(page.len(), 1);
-
-    // 2. Read page
-    let page2 = store
-        .read_page(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, 100)
-        .await
-        .unwrap();
-    assert!(page2.is_empty());
-
-    // 3. Complete catch-up
-    let session = store
-        .complete_catch_up(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0, b"proof")
-        .await
-        .unwrap();
-    assert_eq!(session.state, ReplayState::CatchUpComplete);
-
-    // 4. Activate live
-    let session = store
-        .continue_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
-        .await
-        .unwrap();
-    assert_eq!(session.state, ReplayState::Live);
-
-    // 5. Insert new event and poll
-    insert_event(&read_conn, 2, &[0x02; 16], 1, &AGG_ID, b"ev2", 2000);
-    let live = store
-        .poll_live(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
-        .await
-        .unwrap();
-    assert_eq!(live.len(), 1);
-    assert_eq!(live[0].global_position, 2);
-
-    // 6. Close
-    store
-        .close_session(&session.session_id, PRINCIPAL, 1, &AUTH_ID, 0)
-        .await
-        .unwrap();
-
-    // Verify closed
-    let state: String = read_conn
-        .query_row(
-            "SELECT state FROM _replay_subscriptions WHERE session_id = ?1",
-            params![session.session_id.as_slice()],
-            |r| r.get(0),
+    writer
+        .execute(
+            "UPDATE aggregate_streams
+             SET current_version = 2, last_event_id = ?1
+             WHERE aggregate_type = 1 AND aggregate_id = ?2",
+            rusqlite::params![row.event_id.as_slice(), AGGREGATE.as_slice()],
         )
         .unwrap();
-    assert_eq!(state, "closed");
 
-    cleanup_db(&db_path);
+    let first = store
+        .poll_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await
+        .unwrap();
+    let second = store
+        .poll_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        first
+            .1
+            .iter()
+            .map(|event| event.global_position)
+            .collect::<Vec<_>>(),
+        [2]
+    );
+    assert!(second.1.is_empty());
+}
+
+#[tokio::test]
+async fn replay_rejects_interior_sequence_gap() {
+    let (store, writer, _directory) = file_store_with_events(3);
+    writer
+        .execute("DELETE FROM events WHERE global_position = 2", [])
+        .unwrap();
+
+    let result = store
+        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .await;
+
+    assert!(matches!(result, Err(ReplayError::Integrity(_))));
+}
+
+#[tokio::test]
+async fn poll_live_rejects_sequence_jump() {
+    let (store, writer, _directory) = file_store_with_events(1);
+    let (session, _) = open(&store, None).await;
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(1),
+        )
+        .await
+        .unwrap();
+    store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+    store
+        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await
+        .unwrap();
+
+    let row = taskrun_row(AGGREGATE, 3, 2);
+    writer
+        .execute(
+            "INSERT INTO events \
+             (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+              sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+              payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+             VALUES (?1, 1, ?2, 3, 2, 0, 0, 1, NULL, ?1, ?3, ?4, ?5, ?6, ?2, 1, 1)",
+            rusqlite::params![
+                row.event_id.as_slice(),
+                AGGREGATE.as_slice(),
+                row.idempotency_key,
+                row.actor,
+                row.payload,
+                row.integrity_digest.as_slice(),
+            ],
+        )
+        .unwrap();
+    writer
+        .execute(
+            "UPDATE aggregate_streams
+             SET current_version = 3, last_event_id = ?1
+             WHERE aggregate_type = 1 AND aggregate_id = ?2",
+            rusqlite::params![row.event_id.as_slice(), AGGREGATE.as_slice()],
+        )
+        .unwrap();
+
+    let result = store
+        .poll_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await;
+
+    assert!(matches!(result, Err(ReplayError::Integrity(_))));
+}
+
+#[tokio::test]
+async fn replay_rejects_payload_changed_without_integrity_digest_update() {
+    let (store, writer, _directory) = file_store_with_events(1);
+    writer
+        .execute(
+            "UPDATE events SET payload = x'000102' WHERE global_position = 1",
+            [],
+        )
+        .unwrap();
+
+    let result = store
+        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .await;
+
+    assert!(matches!(result, Err(ReplayError::Integrity(_))));
+}
+
+#[tokio::test]
+async fn test_close_session() {
+    let store = store();
+    let (session, _) = open(&store, None).await;
+    store
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .await
+        .unwrap();
+
+    store
+        .close_session(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_reconnect_from_ack() {
+    let store = store_with_events(3);
+    let (session, _) = open(&store, None).await;
+    store
+        .acknowledge(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &cursor(2),
+        )
+        .await
+        .unwrap();
+
+    let (_, events) = open(&store, Some(&cursor(2))).await;
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.global_position)
+            .collect::<Vec<_>>(),
+        [2, 3]
+    );
 }

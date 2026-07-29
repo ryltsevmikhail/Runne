@@ -155,7 +155,9 @@ pub(crate) fn format_uuid(bytes: &[u8; 16]) -> String {
 macro_rules! uuid_v7_newtype {
     ($name:ident, $doc:expr) => {
         #[doc = $doc]
-        #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(
+            Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+        )]
         pub struct $name([u8; 16]);
 
         impl $name {
@@ -209,6 +211,7 @@ uuid_v7_newtype!(
     ConversationId,
     "UUIDv7 identifier for a conversation aggregate."
 );
+uuid_v7_newtype!(MessageId, "UUIDv7 identifier for a durable message.");
 uuid_v7_newtype!(WorkspaceId, "UUIDv7 identifier for a workspace aggregate.");
 uuid_v7_newtype!(
     AttemptId,
@@ -244,6 +247,10 @@ uuid_v7_newtype!(PlanEvaluationId, "UUIDv7 identifier for a plan evaluation.");
 uuid_v7_newtype!(
     WakeEvidenceId,
     "UUIDv7 identifier for accepted wake evidence."
+);
+uuid_v7_newtype!(
+    EventLogLineageId,
+    "UUIDv7 identifier for the event log lineage."
 );
 
 // ── IdempotencyKey ────────────────────────────────────────────────────────
@@ -296,7 +303,9 @@ impl fmt::Display for IdempotencyKey {
 // ── IntegrityDigest ────────────────────────────────────────────────────────
 
 /// SHA-256 integrity digest (32 bytes).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub struct IntegrityDigest([u8; 32]);
 
 impl IntegrityDigest {
@@ -331,7 +340,7 @@ use crate::event::AggregateType;
 
 /// Typed aggregate identifier — disambiguates aggregates of different types
 /// that happen to share the same UUIDv7 bytes.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum AggregateId {
     /// A `TaskRun` aggregate.
     TaskRun(TaskRunId),

@@ -33,7 +33,12 @@ pub use startup::{
 };
 pub use task_run_host::RuntimeTaskRunHost;
 pub mod bundle;
+pub mod canonical_conversation_host;
 
+pub use canonical_conversation_host::{
+    DeterministicTextProvider, LocalTextProvider, LocalTextProviderError,
+    RuntimeCanonicalConversationHost,
+};
 pub use mcp::{McpActivationError, McpActivationRequest, McpRuntimeActivation};
 pub use plugin_host::{
     ExtensionRootBinding, ExtensionRootExit, ExtensionRootKind, ExtensionRootPort,

@@ -1,33 +1,30 @@
-//! ReplayService — event replay coordination with durable session cursors.
-//!
-//! Provides:
-//! - [`ReplayStorePort`] — async port for replay subscription persistence
-//! - [`ReplayService`] — coordinator that delegates to the store
-//! - [`ReplaySession`], [`ReplayEvent`], [`ReplayState`] — domain data types
-//! - [`ReplayError`] — closed, typed replay errors
+//! ReplayService — coordination durable replay с cursor-based progress.
 
-use async_trait::async_trait;
 use std::sync::Arc;
 
-// ── Domain types ────────────────────────────────────────────────────────────
+use async_trait::async_trait;
+use gocode_domain::event::Sensitivity;
+use gocode_domain::id::{
+    AggregateId, ConversationId, EventId, EventLogLineageId, IntegrityDigest, TaskRunId,
+};
+use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, CatchUpCompletion, ReplayCursor, ReplayScope};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
-/// Replay subscription state machine states.
+type HmacSha256 = Hmac<Sha256>;
+const MAX_EVENT_TYPE_BYTES: usize = 256;
+
+/// Состояние durable replay session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ReplayState {
-    /// Initial catch-up phase: events are being read from the event log.
     CatchingUp,
-    /// All pre-existing events have been delivered and acknowledged.
     CatchUpComplete,
-    /// The activator is transitioning to live delivery.
     ActivatingLive,
-    /// Live delivery: poller is active for new events.
     Live,
-    /// Session is terminated.
     Closed,
 }
 
 impl ReplayState {
-    /// Parse from the SQL TEXT representation.
     pub fn from_db(value: &str) -> Option<Self> {
         match value {
             "catching_up" => Some(Self::CatchingUp),
@@ -39,7 +36,6 @@ impl ReplayState {
         }
     }
 
-    /// Convert to SQL TEXT representation.
     pub fn as_db(&self) -> &'static str {
         match self {
             Self::CatchingUp => "catching_up",
@@ -51,80 +47,67 @@ impl ReplayState {
     }
 }
 
-/// Session data stored in `_replay_subscriptions` table.
+/// Данные session из `_replay_subscriptions`.
 #[derive(Clone, Debug)]
 pub struct ReplaySession {
-    /// Unique session identifier (16 bytes).
     pub session_id: [u8; 16],
-    /// Authenticated principal that owns this session.
     pub principal_id: String,
-    /// Monotonic generation counter for lease fencing.
     pub session_generation: i64,
-    /// The runtime authority that created this session.
     pub authority_id: [u8; 16],
-    /// Authorization epoch for revocation fencing.
     pub authorization_epoch: i64,
-    /// Aggregate type discriminant (1 = TaskRun, 2 = Conversation).
     pub aggregate_type: i32,
-    /// Aggregate identity (16-byte UUID).
     pub aggregate_id: [u8; 16],
-    /// Retained event floor (None before pruning).
     pub retained_floor: Option<i64>,
-    /// Retention generation (always 0 in Phase 4).
     pub retention_generation: i64,
-    /// Global position of the high-water mark at session open.
     pub high_water_position: i64,
-    /// Next page cursor for catch-up reads.
     pub next_page_position: Option<i64>,
-    /// Last delivered position to the client.
     pub last_delivered_position: Option<i64>,
-    /// Last acknowledged position by the client.
     pub last_acked_position: Option<i64>,
-    /// Current state machine state.
     pub state: ReplayState,
-    /// HMAC-protected high-water reference (77 bytes).
     pub high_water_ref: Vec<u8>,
-    /// Catch-up completion proof (opaque to clients).
     pub catch_up_completion: Option<Vec<u8>>,
-    /// Live delivery identifier (opaque to clients).
     pub live_delivery_id: Option<Vec<u8>>,
-    /// Session creation timestamp (ISO-8601).
     pub created_at: String,
 }
 
-/// Event row from the `events` table.
+/// Canonical event row delivered by replay.
 #[derive(Clone, Debug)]
 pub struct ReplayEvent {
-    /// Global commit position of the event.
     pub global_position: i64,
-    /// Event identity (16-byte UUID).
     pub event_id: [u8; 16],
-    /// Aggregate type discriminant.
     pub aggregate_type: i32,
-    /// Aggregate identity (16-byte UUID).
     pub aggregate_id: [u8; 16],
-    /// Serialized event payload.
     pub payload: Vec<u8>,
-    /// Event timestamp (Unix microseconds).
     pub timestamp: i64,
-    /// Event type string for dispatch.
     pub event_type: String,
+    /// Aggregate-local sequence.
+    pub sequence: i64,
+    /// 0=Public, 1=Internal, 2=Sensitive.
+    pub sensitivity: i32,
+    /// Event schema version.
+    pub schema_version: u32,
+    /// Optional causal predecessor.
+    pub causation_id: Option<[u8; 16]>,
+    /// Command that produced the event.
+    pub command_id: [u8; 16],
+    /// Opaque idempotency key bytes decoded as validated UTF-8.
+    pub idempotency_key: String,
+    /// Validated actor identity.
+    pub actor: String,
+    /// Stored event integrity digest.
+    pub integrity_digest: [u8; 32],
+    /// Correlation aggregate identity.
+    pub correlation_id: [u8; 16],
+    /// 1=TaskRun, 2=Conversation.
+    pub correlation_type: i32,
+    /// Stored integrity profile version.
+    pub integrity_profile: i32,
 }
 
-// ── Port ─────────────────────────────────────────────────────────────────────
-
-/// ReplayStore port — thread-safe async trait for replay subscription persistence.
-///
-/// All methods require the full authorization binding
-/// (`principal_id`, `generation`, `authority_id`, `epoch`) to prevent
-/// session hijacking and to enforce lease fencing.
+/// Durable storage port for replay sessions.
 #[async_trait]
 #[allow(clippy::too_many_arguments)]
 pub trait ReplayStorePort: Send + Sync {
-    /// Atomically open a replay session.
-    ///
-    /// Captures the high-water mark, inserts a session row, and returns
-    /// the first page of events — all in one transaction.
     async fn open_session(
         &self,
         principal_id: &str,
@@ -133,10 +116,10 @@ pub trait ReplayStorePort: Send + Sync {
         authorization_epoch: i64,
         aggregate_type: i32,
         aggregate_id: &[u8; 16],
+        from_cursor: Option<&ReplayCursor>,
         server_secret: &[u8; 32],
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
 
-    /// Read the next page of events after the last delivered position.
     async fn read_page(
         &self,
         session_id: &[u8; 16],
@@ -145,12 +128,18 @@ pub trait ReplayStorePort: Send + Sync {
         authority_id: &[u8; 16],
         epoch: i64,
         limit: usize,
-    ) -> Result<Vec<ReplayEvent>, ReplayError>;
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
 
-    /// Mark catch-up as complete with a proof.
-    ///
-    /// The session must be in `CatchingUp` state. The proof is stored
-    /// in the session row and returned to the client as an opaque blob.
+    async fn acknowledge(
+        &self,
+        session_id: &[u8; 16],
+        principal_id: &str,
+        generation: i64,
+        authority_id: &[u8; 16],
+        epoch: i64,
+        cursor: &ReplayCursor,
+    ) -> Result<(), ReplayError>;
+
     async fn complete_catch_up(
         &self,
         session_id: &[u8; 16],
@@ -158,13 +147,9 @@ pub trait ReplayStorePort: Send + Sync {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
-        catch_up_completion_proof: &[u8],
-    ) -> Result<ReplaySession, ReplayError>;
+        server_secret: &[u8; 32],
+    ) -> Result<(ReplaySession, Option<ReplayEvent>), ReplayError>;
 
-    /// CAS-activate live delivery.
-    ///
-    /// Transitions `CatchUpComplete → ActivatingLive → Live` atomically.
-    /// Only one activator succeeds; others fail with `InvalidState`.
     async fn continue_live(
         &self,
         session_id: &[u8; 16],
@@ -174,7 +159,6 @@ pub trait ReplayStorePort: Send + Sync {
         epoch: i64,
     ) -> Result<ReplaySession, ReplayError>;
 
-    /// Poll for new events after the high-water mark (live delivery).
     async fn poll_live(
         &self,
         session_id: &[u8; 16],
@@ -182,11 +166,8 @@ pub trait ReplayStorePort: Send + Sync {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
-    ) -> Result<Vec<ReplayEvent>, ReplayError>;
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
 
-    /// Close the session.
-    ///
-    /// Session must be in `CatchUpComplete` or `Live` state.
     async fn close_session(
         &self,
         session_id: &[u8; 16],
@@ -197,57 +178,197 @@ pub trait ReplayStorePort: Send + Sync {
     ) -> Result<(), ReplayError>;
 }
 
-// ── Errors ───────────────────────────────────────────────────────────────────
-
-/// Closed set of replay errors.
+/// Закрытый набор ошибок replay.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum ReplayError {
-    /// The session was not found in the store.
     #[error("session not found")]
     SessionNotFound,
-
-    /// Authorization binding mismatch (principal, generation, authority, epoch).
     #[error("unauthorized: {0}")]
     Unauthorized(String),
-
-    /// Invalid state transition (e.g., attempting to close from `CatchingUp`).
     #[error("invalid state transition from {0}")]
     InvalidState(String),
-
-    /// The session generation is stale (lease fencing).
     #[error("stale generation")]
     StaleGeneration,
-
-    /// A persistent storage failure.
     #[error("storage error: {0}")]
     Storage(String),
-
-    /// A data integrity violation.
     #[error("integrity error: {0}")]
     Integrity(String),
+    #[error("invalid cursor: {reason}")]
+    CursorInvalid { reason: String },
+    #[error("event sensitivity is not permitted")]
+    SensitivityDenied,
+    #[error("replay cursor precedes retained history")]
+    RetentionGap,
+    #[error("delivered events have not been acknowledged")]
+    NotAcknowledged,
+    #[error("cursor was already acknowledged")]
+    AlreadyAcknowledged,
+    #[error("stream terminated")]
+    StreamTerminated,
+    #[error("delivery backpressure exceeded")]
+    BackpressureExceeded,
 }
 
-// ── Service ──────────────────────────────────────────────────────────────────
-
-/// ReplayService coordinates replay sessions.
-///
-/// Delegates all persistence to a [`ReplayStorePort`] implementation.
-/// Holds the in-memory `server_secret` for HMAC-protected `HighWaterRef` construction.
+/// Координатор cursor-based durable replay.
 pub struct ReplayService {
     store: Arc<dyn ReplayStorePort>,
     server_secret: [u8; 32],
+    lineage_id: EventLogLineageId,
 }
 
 impl ReplayService {
-    /// Create a new `ReplayService`.
-    pub fn new(store: Arc<dyn ReplayStorePort>, server_secret: [u8; 32]) -> Self {
+    pub fn new(
+        store: Arc<dyn ReplayStorePort>,
+        server_secret: [u8; 32],
+        lineage_id: EventLogLineageId,
+    ) -> Self {
         Self {
             store,
             server_secret,
+            lineage_id,
         }
     }
 
-    /// Open a replay session and return the first page of events.
+    fn cursor_message(cursor: &ReplayCursor) -> Result<Vec<u8>, ReplayError> {
+        let event_type = cursor.event_type.as_bytes();
+        if event_type.is_empty()
+            || event_type.len() > MAX_EVENT_TYPE_BYTES
+            || event_type.iter().any(|byte| byte.is_ascii_control())
+        {
+            return Err(ReplayError::CursorInvalid {
+                reason: "invalid cursor event type".to_owned(),
+            });
+        }
+        let event_type_len =
+            u16::try_from(event_type.len()).map_err(|_| ReplayError::CursorInvalid {
+                reason: "invalid cursor event type".to_owned(),
+            })?;
+        let mut message =
+            Vec::with_capacity(16 + 1 + 16 + 8 + 8 + 16 + 32 + 4 + 1 + 2 + event_type.len());
+        message.extend_from_slice(cursor.event_id.as_bytes());
+        message.push(match &cursor.aggregate_id {
+            AggregateId::TaskRun(_) => 1,
+            AggregateId::Conversation(_) => 2,
+            AggregateId::Workspace(_) => 3,
+        });
+        match &cursor.aggregate_id {
+            AggregateId::TaskRun(id) => message.extend_from_slice(id.as_bytes()),
+            AggregateId::Conversation(id) => message.extend_from_slice(id.as_bytes()),
+            AggregateId::Workspace(id) => message.extend_from_slice(id.as_bytes()),
+        }
+        message.extend_from_slice(&cursor.sequence.to_be_bytes());
+        message.extend_from_slice(&cursor.global_position.to_be_bytes());
+        message.extend_from_slice(cursor.lineage_id.as_bytes());
+        message.extend_from_slice(&cursor.scope.canonical_digest());
+        message.extend_from_slice(&cursor.schema_version.to_be_bytes());
+        message.push(match cursor.sensitivity {
+            Sensitivity::Public => 0,
+            Sensitivity::Internal => 1,
+            Sensitivity::Sensitive => 2,
+        });
+        message.extend_from_slice(&event_type_len.to_be_bytes());
+        message.extend_from_slice(event_type);
+        Ok(message)
+    }
+
+    /// Строит ackable cursor из delivered event и границ session.
+    fn build_cursor(
+        &self,
+        event: &ReplayEvent,
+        scope: &ReplayScope,
+    ) -> Result<ReplayCursor, ReplayError> {
+        if event.global_position <= 0
+            || event.sequence <= 0
+            || event.schema_version == 0
+            || event.event_type.is_empty()
+            || event.event_type.len() > MAX_EVENT_TYPE_BYTES
+            || event
+                .event_type
+                .as_bytes()
+                .iter()
+                .any(|byte| byte.is_ascii_control())
+            || !matches!(
+                scope,
+                ReplayScope::Aggregate {
+                    aggregate_type,
+                    aggregate_id,
+                } if i32::from(*aggregate_type) == event.aggregate_type
+                    && aggregate_id == &event.aggregate_id
+            )
+        {
+            return Err(ReplayError::Integrity(
+                "invalid delivered replay event metadata".to_owned(),
+            ));
+        }
+        let aggregate_id = match event.aggregate_type {
+            1 => AggregateId::TaskRun(TaskRunId::from_bytes(event.aggregate_id)),
+            2 => AggregateId::Conversation(ConversationId::from_bytes(event.aggregate_id)),
+            _ => {
+                return Err(ReplayError::Integrity(
+                    "unsupported delivered replay aggregate".to_owned(),
+                ));
+            }
+        };
+        let sensitivity = match event.sensitivity {
+            0 => Sensitivity::Public,
+            1 => Sensitivity::Internal,
+            2 => Sensitivity::Sensitive,
+            _ => {
+                return Err(ReplayError::Integrity(
+                    "invalid delivered replay sensitivity".to_owned(),
+                ));
+            }
+        };
+        let mut cursor = ReplayCursor {
+            event_id: EventId::from_bytes(event.event_id),
+            aggregate_id,
+            sequence: u64::try_from(event.sequence).map_err(|_| {
+                ReplayError::Integrity("invalid delivered replay sequence".to_owned())
+            })?,
+            global_position: event.global_position,
+            lineage_id: self.lineage_id,
+            scope: scope.clone(),
+            schema_version: CURSOR_SCHEMA_VERSION,
+            sensitivity,
+            event_type: event.event_type.clone(),
+            integrity: IntegrityDigest::from_bytes([0; 32]),
+        };
+        let mut mac = HmacSha256::new_from_slice(&self.server_secret).expect("fixed HMAC key size");
+        mac.update(&Self::cursor_message(&cursor)?);
+        cursor.integrity = IntegrityDigest::from_bytes(mac.finalize().into_bytes().into());
+        Ok(cursor)
+    }
+
+    /// Проверяет integrity cursor относительно server secret.
+    pub fn validate_cursor_integrity(&self, cursor: &ReplayCursor) -> Result<(), ReplayError> {
+        if cursor.schema_version != CURSOR_SCHEMA_VERSION {
+            return Err(ReplayError::CursorInvalid {
+                reason: "unsupported cursor schema".to_string(),
+            });
+        }
+        if cursor.lineage_id != self.lineage_id {
+            return Err(ReplayError::CursorInvalid {
+                reason: "event log lineage mismatch".to_string(),
+            });
+        }
+        let mut mac = HmacSha256::new_from_slice(&self.server_secret).expect("fixed HMAC key size");
+        mac.update(&Self::cursor_message(cursor)?);
+        mac.verify_slice(cursor.integrity.as_bytes())
+            .map_err(|_| ReplayError::CursorInvalid {
+                reason: "cursor integrity mismatch".to_string(),
+            })
+    }
+
+    /// Публичный helper для transport adapter, формирующий cursor delivered event.
+    pub fn build_cursor_from_event(
+        &self,
+        event: &ReplayEvent,
+        scope: &ReplayScope,
+    ) -> Result<ReplayCursor, ReplayError> {
+        self.build_cursor(event, scope)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub async fn open_session(
         &self,
         principal_id: &str,
@@ -256,7 +377,20 @@ impl ReplayService {
         authorization_epoch: i64,
         aggregate_type: i32,
         aggregate_id: &[u8; 16],
+        from_cursor: Option<ReplayCursor>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+        if let Some(cursor) = &from_cursor {
+            self.validate_cursor_integrity(cursor)?;
+            if !matches!(
+                &cursor.scope,
+                ReplayScope::Aggregate { aggregate_type: cursor_type, aggregate_id: cursor_id }
+                    if i32::from(*cursor_type) == aggregate_type && cursor_id == aggregate_id
+            ) {
+                return Err(ReplayError::CursorInvalid {
+                    reason: "cursor scope mismatch".to_string(),
+                });
+            }
+        }
         self.store
             .open_session(
                 principal_id,
@@ -265,12 +399,13 @@ impl ReplayService {
                 authorization_epoch,
                 aggregate_type,
                 aggregate_id,
+                from_cursor.as_ref(),
                 &self.server_secret,
             )
             .await
     }
 
-    /// Read the next page of events for a catch-up session.
+    /// Читает следующую страницу; cursor каждого event строится transport adapter через `build_cursor_from_event`.
     pub async fn read_page(
         &self,
         session_id: &[u8; 16],
@@ -279,7 +414,7 @@ impl ReplayService {
         authority_id: &[u8; 16],
         epoch: i64,
         limit: usize,
-    ) -> Result<Vec<ReplayEvent>, ReplayError> {
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         self.store
             .read_page(
                 session_id,
@@ -292,7 +427,30 @@ impl ReplayService {
             .await
     }
 
-    /// Complete catch-up with a proof.
+    /// Подтверждает cursor после проверки его integrity на application boundary.
+    pub async fn acknowledge(
+        &self,
+        session_id: &[u8; 16],
+        principal_id: &str,
+        generation: i64,
+        authority_id: &[u8; 16],
+        epoch: i64,
+        cursor: &ReplayCursor,
+    ) -> Result<(), ReplayError> {
+        self.validate_cursor_integrity(cursor)?;
+        self.store
+            .acknowledge(
+                session_id,
+                principal_id,
+                generation,
+                authority_id,
+                epoch,
+                cursor,
+            )
+            .await
+    }
+
+    /// Завершает catch-up и возвращает server-issued proof.
     pub async fn complete_catch_up(
         &self,
         session_id: &[u8; 16],
@@ -300,21 +458,45 @@ impl ReplayService {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
-        proof: &[u8],
-    ) -> Result<ReplaySession, ReplayError> {
-        self.store
+    ) -> Result<CatchUpCompletion, ReplayError> {
+        let (session, last_ack_event) = self
+            .store
             .complete_catch_up(
                 session_id,
                 principal_id,
                 generation,
                 authority_id,
                 epoch,
-                proof,
+                &self.server_secret,
             )
-            .await
+            .await?;
+        let scope = ReplayScope::Aggregate {
+            aggregate_type: u8::try_from(session.aggregate_type)
+                .map_err(|_| ReplayError::Integrity("invalid completed replay scope".to_owned()))?,
+            aggregate_id: session.aggregate_id,
+        };
+        let last_ack_cursor = last_ack_event
+            .as_ref()
+            .map(|event| self.build_cursor(event, &scope))
+            .transpose()?;
+        let proof = session.catch_up_completion.ok_or_else(|| {
+            ReplayError::Integrity("missing catch-up completion proof".to_string())
+        })?;
+        if proof.len() != 32 {
+            return Err(ReplayError::Integrity(
+                "invalid catch-up completion proof length".to_string(),
+            ));
+        }
+        let mut proof_bytes = [0; 32];
+        proof_bytes.copy_from_slice(&proof);
+        Ok(CatchUpCompletion {
+            session_id: session.session_id,
+            high_water_ref: session.high_water_ref,
+            last_ack_cursor,
+            proof: IntegrityDigest::from_bytes(proof_bytes),
+        })
     }
 
-    /// CAS-activate live delivery.
     pub async fn continue_live(
         &self,
         session_id: &[u8; 16],
@@ -328,7 +510,6 @@ impl ReplayService {
             .await
     }
 
-    /// Poll for new live events.
     pub async fn poll_live(
         &self,
         session_id: &[u8; 16],
@@ -336,13 +517,12 @@ impl ReplayService {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
-    ) -> Result<Vec<ReplayEvent>, ReplayError> {
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         self.store
             .poll_live(session_id, principal_id, generation, authority_id, epoch)
             .await
     }
 
-    /// Close the session.
     pub async fn close_session(
         &self,
         session_id: &[u8; 16],
@@ -354,111 +534,5 @@ impl ReplayService {
         self.store
             .close_session(session_id, principal_id, generation, authority_id, epoch)
             .await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_replay_state_roundtrip() {
-        let states = vec![
-            ReplayState::CatchingUp,
-            ReplayState::CatchUpComplete,
-            ReplayState::ActivatingLive,
-            ReplayState::Live,
-            ReplayState::Closed,
-        ];
-
-        for state in &states {
-            let db = state.as_db();
-            let parsed = ReplayState::from_db(db).unwrap();
-            assert_eq!(parsed, *state);
-        }
-    }
-
-    #[test]
-    fn test_replay_state_from_db_unknown() {
-        assert!(ReplayState::from_db("bogus").is_none());
-    }
-
-    #[test]
-    fn test_replay_service_new() {
-        use std::sync::Arc;
-
-        struct DummyStore;
-        #[async_trait]
-        impl ReplayStorePort for DummyStore {
-            async fn open_session(
-                &self,
-                _p: &str,
-                _g: i64,
-                _a: &[u8; 16],
-                _e: i64,
-                _t: i32,
-                _id: &[u8; 16],
-                _s: &[u8; 32],
-            ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
-                Err(ReplayError::Storage("dummy".into()))
-            }
-            async fn read_page(
-                &self,
-                _s: &[u8; 16],
-                _p: &str,
-                _g: i64,
-                _a: &[u8; 16],
-                _e: i64,
-                _l: usize,
-            ) -> Result<Vec<ReplayEvent>, ReplayError> {
-                Err(ReplayError::Storage("dummy".into()))
-            }
-            async fn complete_catch_up(
-                &self,
-                _s: &[u8; 16],
-                _p: &str,
-                _g: i64,
-                _a: &[u8; 16],
-                _e: i64,
-                _proof: &[u8],
-            ) -> Result<ReplaySession, ReplayError> {
-                Err(ReplayError::Storage("dummy".into()))
-            }
-            async fn continue_live(
-                &self,
-                _s: &[u8; 16],
-                _p: &str,
-                _g: i64,
-                _a: &[u8; 16],
-                _e: i64,
-            ) -> Result<ReplaySession, ReplayError> {
-                Err(ReplayError::Storage("dummy".into()))
-            }
-            async fn poll_live(
-                &self,
-                _s: &[u8; 16],
-                _p: &str,
-                _g: i64,
-                _a: &[u8; 16],
-                _e: i64,
-            ) -> Result<Vec<ReplayEvent>, ReplayError> {
-                Err(ReplayError::Storage("dummy".into()))
-            }
-            async fn close_session(
-                &self,
-                _s: &[u8; 16],
-                _p: &str,
-                _g: i64,
-                _a: &[u8; 16],
-                _e: i64,
-            ) -> Result<(), ReplayError> {
-                Err(ReplayError::Storage("dummy".into()))
-            }
-        }
-
-        let secret = [0xAAu8; 32];
-        let svc = ReplayService::new(Arc::new(DummyStore), secret);
-        // Just check construction succeeds
-        assert!(!svc.server_secret.is_empty());
     }
 }

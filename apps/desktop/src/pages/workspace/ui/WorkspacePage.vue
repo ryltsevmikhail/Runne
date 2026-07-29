@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GcAlert, GcButton, GcWorkspacePanel } from '@gocode/product/shared/ui'
+import { GcAlert, GcButton } from '@gocode/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { Folder, PanelRight } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
@@ -7,6 +7,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
 import { getProject } from '@/entities/project'
+import { ConversationChat } from '@/widgets/conversation-chat'
 
 type LoadProject = (id: number) => Promise<Project | null>
 
@@ -66,7 +67,10 @@ async function returnToProjects() {
     >
       The saved local project could not be restored.
     </GcAlert>
-    <GcButton variant="secondary" @click="returnToProjects">
+    <GcButton
+      variant="secondary"
+      @click="returnToProjects"
+    >
       Back to projects
     </GcButton>
   </section>
@@ -99,12 +103,8 @@ async function returnToProjects() {
         <p>{{ project.name }}</p>
       </aside>
 
-      <div class="workspace-panel workspace-panel--main">
-        <GcWorkspacePanel
-          :tabs="[{ id: 'overview', label: 'Overview' }]"
-          active-tab="overview"
-          panel-state="empty"
-        />
+      <div class="workspace-panel workspace-panel--main workspace-panel--chat">
+        <ConversationChat :project-id="project.id" />
       </div>
 
       <aside class="workspace-panel workspace-panel--details">
@@ -119,7 +119,7 @@ async function returnToProjects() {
           <dt>Location</dt>
           <dd>{{ project.path }}</dd>
           <dt>Runtime</dt>
-          <dd>Offline</dd>
+          <dd>Canonical Conversation API</dd>
         </dl>
       </aside>
     </div>

@@ -4,11 +4,12 @@
 //! Decoding must reject: unknown tags, trailing bytes, oversized values,
 //! and unsupported codec versions.
 
-use core::fmt;
+use core::{fmt, str::FromStr};
 
 use gocode_application::commands::CommandOutcome;
 use gocode_application::ports::{
-    AggregateScope, ConversationReceipt, IdempotencyScope, OperationTag,
+    AggregateScope, ConversationReceipt, IdempotencyScope, OperationTag, TextGenerationPhase,
+    TextGenerationReceipt,
 };
 use gocode_domain::agent_loop::{
     LoopCheckpointBody, LoopDisposition, StepOutcomeRecord, StepOutcomeRef, StepOutcomeType,
@@ -19,9 +20,10 @@ use gocode_domain::context::ContextManifestRef;
 use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::id::{
     AttemptId, BudgetReservationId, CheckpointId, ContextManifestId, ConversationId, CycleId,
-    EffectId, IntegrityDigest, PlanEvaluationId, PlanId, ReconciliationRunId, ResultId, StepId,
-    TaskRunId, WakeEvidenceId, WorkspaceId,
+    EffectId, IntegrityDigest, MessageId, PlanEvaluationId, PlanId, ReconciliationRunId, ResultId,
+    StepId, TaskRunId, WakeEvidenceId, WorkspaceId,
 };
+use gocode_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
 use gocode_domain::plan::{PlanParentRef, PlanRevisionRef};
 use gocode_domain::recovery::{ReconciliationResultRef, ReconciliationStatus};
 use gocode_domain::reference::{BudgetReservationRef, CheckpointRef, ResultRef};
@@ -1390,6 +1392,8 @@ impl StoreCodec<TaskRunEvent> for TaskRunEventCodec {
 
 const TAG_CONVERSATION_CREATED: u8 = 0x20;
 const TAG_CONVERSATION_CLOSED: u8 = 0x21;
+const TAG_USER_MESSAGE_APPENDED: u8 = 0x22;
+const TAG_ASSISTANT_MESSAGE_APPENDED: u8 = 0x23;
 
 /// Codec for [`ConversationEvent`] payload BLOBs.
 pub struct ConversationEventCodec;
@@ -1398,7 +1402,7 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
     const CODEC_VERSION: u16 = 1;
 
     fn encode(&self, value: &ConversationEvent) -> Result<Vec<u8>, StoreCodecError> {
-        let mut buffer = Vec::with_capacity(19);
+        let mut buffer = Vec::with_capacity(67);
         write_u16_be(&mut buffer, Self::CODEC_VERSION);
         match value {
             ConversationEvent::ConversationCreated { workspace_id } => {
@@ -1406,6 +1410,24 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                 write_uuid(&mut buffer, workspace_id.as_bytes());
             }
             ConversationEvent::ConversationClosed => buffer.push(TAG_CONVERSATION_CLOSED),
+            ConversationEvent::UserMessageAppended {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text,
+            } => {
+                buffer.push(TAG_USER_MESSAGE_APPENDED);
+                encode_message_event(&mut buffer, *message_id, *taskrun_id, *attempt_id, text);
+            }
+            ConversationEvent::AssistantMessageAppended {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text,
+            } => {
+                buffer.push(TAG_ASSISTANT_MESSAGE_APPENDED);
+                encode_message_event(&mut buffer, *message_id, *taskrun_id, *attempt_id, text);
+            }
         }
         Ok(buffer)
     }
@@ -1435,6 +1457,26 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                 ConversationEvent::ConversationCreated { workspace_id }
             }
             TAG_CONVERSATION_CLOSED => ConversationEvent::ConversationClosed,
+            TAG_USER_MESSAGE_APPENDED => {
+                let (message_id, taskrun_id, attempt_id, text) =
+                    decode_message_event(bytes, &mut position)?;
+                ConversationEvent::UserMessageAppended {
+                    message_id,
+                    taskrun_id,
+                    attempt_id,
+                    text,
+                }
+            }
+            TAG_ASSISTANT_MESSAGE_APPENDED => {
+                let (message_id, taskrun_id, attempt_id, text) =
+                    decode_message_event(bytes, &mut position)?;
+                ConversationEvent::AssistantMessageAppended {
+                    message_id,
+                    taskrun_id,
+                    attempt_id,
+                    text,
+                }
+            }
             _ => {
                 return Err(StoreCodecError::UnknownTag {
                     tag,
@@ -1448,6 +1490,99 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
             });
         }
         Ok(event)
+    }
+}
+
+fn encode_message_event(
+    buffer: &mut Vec<u8>,
+    message_id: MessageId,
+    taskrun_id: TaskRunId,
+    attempt_id: AttemptId,
+    text: &MessageText,
+) {
+    write_uuid(buffer, message_id.as_bytes());
+    write_uuid(buffer, taskrun_id.as_bytes());
+    write_uuid(buffer, attempt_id.as_bytes());
+    write_u64_be(buffer, text.as_str().len() as u64);
+    buffer.extend_from_slice(text.as_str().as_bytes());
+}
+
+fn decode_message_event(
+    bytes: &[u8],
+    position: &mut usize,
+) -> Result<(MessageId, TaskRunId, AttemptId, MessageText), StoreCodecError> {
+    let message_id = parse_codec_uuid::<MessageId>(read_uuid(bytes, position)?, "MessageId")?;
+    let taskrun_id = parse_codec_uuid::<TaskRunId>(read_uuid(bytes, position)?, "TaskRunId")?;
+    let attempt_id = parse_codec_uuid::<AttemptId>(read_uuid(bytes, position)?, "AttemptId")?;
+    let length =
+        usize::try_from(read_u64_be(bytes, position)?).map_err(|_| StoreCodecError::Oversized {
+            field: "message_text",
+            max: MAX_MESSAGE_TEXT_BYTES,
+            actual: usize::MAX,
+        })?;
+    if length > MAX_MESSAGE_TEXT_BYTES {
+        return Err(StoreCodecError::Oversized {
+            field: "message_text",
+            max: MAX_MESSAGE_TEXT_BYTES,
+            actual: length,
+        });
+    }
+    let end = position
+        .checked_add(length)
+        .ok_or(StoreCodecError::Truncated)?;
+    let text = bytes
+        .get(*position..end)
+        .ok_or(StoreCodecError::Truncated)?;
+    *position = end;
+    let text = String::from_utf8(text.to_vec()).map_err(|_| StoreCodecError::UnknownTag {
+        tag: 0,
+        context: "Conversation message UTF-8",
+    })?;
+    let text = MessageText::new(text).map_err(|_| StoreCodecError::Oversized {
+        field: "message_text",
+        max: MAX_MESSAGE_TEXT_BYTES,
+        actual: length,
+    })?;
+    Ok((message_id, taskrun_id, attempt_id, text))
+}
+
+fn parse_codec_uuid<T>(bytes: [u8; 16], context: &'static str) -> Result<T, StoreCodecError>
+where
+    T: FromStr<Err = gocode_domain::id::InvalidIdReason>,
+    T: FromUuidBytes,
+{
+    let value = T::from_uuid_bytes(bytes);
+    value
+        .to_string()
+        .parse::<T>()
+        .map_err(|_| StoreCodecError::UnknownTag { tag: 0, context })
+}
+
+trait FromUuidBytes: Sized + core::fmt::Display {
+    fn from_uuid_bytes(bytes: [u8; 16]) -> Self;
+}
+
+impl FromUuidBytes for MessageId {
+    fn from_uuid_bytes(bytes: [u8; 16]) -> Self {
+        Self::from_bytes(bytes)
+    }
+}
+
+impl FromUuidBytes for ConversationId {
+    fn from_uuid_bytes(bytes: [u8; 16]) -> Self {
+        Self::from_bytes(bytes)
+    }
+}
+
+impl FromUuidBytes for TaskRunId {
+    fn from_uuid_bytes(bytes: [u8; 16]) -> Self {
+        Self::from_bytes(bytes)
+    }
+}
+
+impl FromUuidBytes for AttemptId {
+    fn from_uuid_bytes(bytes: [u8; 16]) -> Self {
+        Self::from_bytes(bytes)
     }
 }
 
@@ -1952,6 +2087,96 @@ impl StoreCodec<ConversationReceipt> for ConversationReceiptCodec {
     }
 }
 
+// ── TextGenerationReceipt codec ─────────────────────────────────────────
+
+/// Codec for durable Conversation/TaskRun text coordination receipts.
+pub struct TextGenerationReceiptCodec;
+
+impl StoreCodec<TextGenerationReceipt> for TextGenerationReceiptCodec {
+    const CODEC_VERSION: u16 = 1;
+
+    fn encode(&self, value: &TextGenerationReceipt) -> Result<Vec<u8>, StoreCodecError> {
+        let mut buffer = Vec::with_capacity(115);
+        write_u16_be(&mut buffer, Self::CODEC_VERSION);
+        buffer.push(match value.phase {
+            TextGenerationPhase::Started => 0,
+            TextGenerationPhase::Completed => 1,
+        });
+        write_uuid(&mut buffer, value.conversation_id.as_bytes());
+        write_uuid(&mut buffer, value.workspace_id.as_bytes());
+        write_uuid(&mut buffer, value.taskrun_id.as_bytes());
+        write_uuid(&mut buffer, value.attempt_id.as_bytes());
+        write_uuid(&mut buffer, value.user_message_id.as_bytes());
+        write_uuid(&mut buffer, value.assistant_message_id.as_bytes());
+        write_u64_be(&mut buffer, value.conversation_version);
+        write_u64_be(&mut buffer, value.taskrun_version);
+        Ok(buffer)
+    }
+
+    fn decode(&self, bytes: &[u8]) -> Result<TextGenerationReceipt, StoreCodecError> {
+        let mut position = 0;
+        let version = read_u16_be(bytes, &mut position)?;
+        if version != Self::CODEC_VERSION {
+            return Err(StoreCodecError::UnsupportedVersion {
+                found: version,
+                supported: Self::CODEC_VERSION,
+            });
+        }
+        let phase = match *bytes.get(position).ok_or(StoreCodecError::Truncated)? {
+            0 => TextGenerationPhase::Started,
+            1 => TextGenerationPhase::Completed,
+            tag => {
+                return Err(StoreCodecError::UnknownTag {
+                    tag,
+                    context: "TextGenerationPhase",
+                });
+            }
+        };
+        position += 1;
+        let receipt = TextGenerationReceipt {
+            phase,
+            conversation_id: parse_codec_uuid(
+                read_uuid(bytes, &mut position)?,
+                "TextGenerationReceipt ConversationId",
+            )?,
+            workspace_id: {
+                let workspace_id = WorkspaceId::from_bytes(read_uuid(bytes, &mut position)?);
+                workspace_id
+                    .to_string()
+                    .parse::<WorkspaceId>()
+                    .map_err(|_| StoreCodecError::UnknownTag {
+                        tag: 0,
+                        context: "TextGenerationReceipt WorkspaceId",
+                    })?
+            },
+            taskrun_id: parse_codec_uuid(
+                read_uuid(bytes, &mut position)?,
+                "TextGenerationReceipt TaskRunId",
+            )?,
+            attempt_id: parse_codec_uuid(
+                read_uuid(bytes, &mut position)?,
+                "TextGenerationReceipt AttemptId",
+            )?,
+            user_message_id: parse_codec_uuid(
+                read_uuid(bytes, &mut position)?,
+                "TextGenerationReceipt user MessageId",
+            )?,
+            assistant_message_id: parse_codec_uuid(
+                read_uuid(bytes, &mut position)?,
+                "TextGenerationReceipt assistant MessageId",
+            )?,
+            conversation_version: read_u64_be(bytes, &mut position)?,
+            taskrun_version: read_u64_be(bytes, &mut position)?,
+        };
+        if position != bytes.len() {
+            return Err(StoreCodecError::TrailingBytes {
+                remaining: bytes.len() - position,
+            });
+        }
+        Ok(receipt)
+    }
+}
+
 // ── IdempotencyScope codec ───────────────────────────────────────────────
 
 /// Codec for [`IdempotencyScope`] — stored in `command_receipts`.
@@ -1996,6 +2221,10 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
                 buf.push(0x02);
                 write_uuid(&mut buf, conversation_id.as_bytes());
                 write_uuid(&mut buf, workspace_id.as_bytes());
+            }
+            AggregateScope::ExistingConversation { conversation_id } => {
+                buf.push(0x03);
+                write_uuid(&mut buf, conversation_id.as_bytes());
             }
         }
 
@@ -2051,6 +2280,7 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
             15 => OperationTag::CommitRecoveryResume,
             16 => OperationTag::CommitLoopCheckpoint,
             17 => OperationTag::ResumeLoopWait,
+            18 => OperationTag::GenerateConversationText,
             t => {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,
@@ -2087,6 +2317,9 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
                     workspace_id,
                 }
             }
+            0x03 => AggregateScope::ExistingConversation {
+                conversation_id: ConversationId::from_bytes(read_uuid(bytes, &mut pos)?),
+            },
             t => {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,
@@ -2544,6 +2777,50 @@ mod tests {
             codec.decode(&bytes).unwrap(),
             ConversationEvent::ConversationClosed
         );
+    }
+
+    #[test]
+    fn conversation_message_events_roundtrip_sensitive_text_and_execution_ids() {
+        let codec = ConversationEventCodec;
+        let message_id: MessageId = CONV_ID.parse().unwrap();
+        let taskrun_id: TaskRunId = TR_ID.parse().unwrap();
+        let attempt_id: AttemptId = ATT_ID.parse().unwrap();
+
+        for original in [
+            ConversationEvent::UserMessageAppended {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text: MessageText::new("hello").unwrap(),
+            },
+            ConversationEvent::AssistantMessageAppended {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text: MessageText::new("world").unwrap(),
+            },
+        ] {
+            let bytes = codec.encode(&original).unwrap();
+            assert_eq!(codec.decode(&bytes).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn conversation_message_codec_rejects_oversized_text_before_allocation() {
+        let codec = ConversationEventCodec;
+        let mut bytes = vec![0x00, 0x01, TAG_USER_MESSAGE_APPENDED];
+        bytes.extend_from_slice(CONV_ID.parse::<MessageId>().unwrap().as_bytes());
+        bytes.extend_from_slice(TR_ID.parse::<TaskRunId>().unwrap().as_bytes());
+        bytes.extend_from_slice(ATT_ID.parse::<AttemptId>().unwrap().as_bytes());
+        bytes.extend_from_slice(&((MAX_MESSAGE_TEXT_BYTES as u64) + 1).to_be_bytes());
+
+        assert!(matches!(
+            codec.decode(&bytes),
+            Err(StoreCodecError::Oversized {
+                field: "message_text",
+                ..
+            })
+        ));
     }
 
     #[test]

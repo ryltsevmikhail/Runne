@@ -3,10 +3,10 @@
 use std::sync::Arc;
 
 use gocode_application::commands::{
-    AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
-    StartAttemptInput,
+    AdmitTaskRunInput, BeginConversationTextInput, CommandOutcome, CompleteTaskRunInput,
+    CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput, StartAttemptInput,
 };
-use gocode_application::ports::ApplicationCommandContext;
+use gocode_application::ports::{ApplicationCommandContext, TextGenerationReceipt};
 use tokio::sync::{Semaphore, mpsc};
 
 use crate::error::{QueueKind, RuntimeError};
@@ -80,6 +80,35 @@ impl RuntimeHandle {
             .and_then(|r| r)
     }
 
+    async fn send_text_request(
+        &self,
+        build: impl FnOnce(crate::types::ConversationTextReply) -> RuntimeRequest,
+    ) -> Result<TextGenerationReceipt, RuntimeError> {
+        let in_flight_permit = self
+            .in_flight_sem
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| RuntimeError::RuntimeClosed)?;
+        let lease = InFlightLease::new(in_flight_permit);
+        let reservation = self.gate.try_reserve().ok_or(RuntimeError::RuntimeClosed)?;
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let admitted = AdmittedRequest {
+            request: build(reply_tx),
+            lease,
+        };
+        self.sender
+            .try_send(admitted)
+            .map_err(|_| RuntimeError::Backpressure {
+                queue: QueueKind::Ingress,
+            })?;
+        drop(reservation);
+        reply_rx
+            .await
+            .map_err(|_| RuntimeError::RuntimeClosed)
+            .and_then(|result| result)
+    }
+
     pub async fn create_task_run(
         &self,
         context: ApplicationCommandContext,
@@ -138,6 +167,34 @@ impl RuntimeHandle {
         input: CompleteTaskRunInput,
     ) -> Result<CommandOutcome, RuntimeError> {
         self.send_request(move |reply| RuntimeRequest::Complete {
+            context,
+            input,
+            reply,
+        })
+        .await
+    }
+
+    /// Durably appends a user message and starts its coordinated TaskRun.
+    pub async fn begin_conversation_text(
+        &self,
+        context: ApplicationCommandContext,
+        input: BeginConversationTextInput,
+    ) -> Result<TextGenerationReceipt, RuntimeError> {
+        self.send_text_request(move |reply| RuntimeRequest::BeginConversationText {
+            context,
+            input,
+            reply,
+        })
+        .await
+    }
+
+    /// Durably appends assistant output and completes its coordinated TaskRun.
+    pub async fn finish_conversation_text(
+        &self,
+        context: ApplicationCommandContext,
+        input: FinishConversationTextInput,
+    ) -> Result<TextGenerationReceipt, RuntimeError> {
+        self.send_text_request(move |reply| RuntimeRequest::FinishConversationText {
             context,
             input,
             reply,

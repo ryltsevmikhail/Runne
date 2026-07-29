@@ -22,4 +22,5 @@ same-file = "1"
 
 [dev-dependencies]
 gocode-api = { path = "../gocode-api" }
+tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt"] }
