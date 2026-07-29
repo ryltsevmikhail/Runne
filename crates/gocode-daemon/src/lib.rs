@@ -6,6 +6,7 @@
 pub mod bootstrap;
 pub mod config;
 pub mod error;
+pub mod host;
 pub mod lock;
 pub mod recovery;
 pub mod shutdown;

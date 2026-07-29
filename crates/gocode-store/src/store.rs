@@ -180,10 +180,15 @@ impl StoreTransaction {
 
 impl AppEventStore for StoreTransaction {
     fn load_task_run(&self, taskrun_id: TaskRunId) -> Result<LoadedStream, EventStoreError> {
-        let conn = self.inner.reader.lock().unwrap();
+        let mut conn = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| EventStoreError::Unavailable)?;
+        let tx = conn.transaction().map_err(map_event_store_read_error)?;
         let taskrun_bytes = taskrun_id.as_bytes();
 
-        let stream: Option<(i64, Option<Vec<u8>>)> = conn
+        let stream: Option<(i64, Option<Vec<u8>>)> = tx
             .query_row(
                 "SELECT current_version, last_event_id
                  FROM aggregate_streams
@@ -191,7 +196,8 @@ impl AppEventStore for StoreTransaction {
                 params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes],
                 |row| Ok((row.get(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
             )
-            .ok();
+            .optional()
+            .map_err(map_event_store_read_error)?;
 
         let (current_version, last_event_id_bytes) = match stream {
             Some((cv, lei)) => (cv as u64, lei),
@@ -200,7 +206,7 @@ impl AppEventStore for StoreTransaction {
             }
         };
 
-        let mut stmt = conn
+        let mut stmt = tx
             .prepare(
                 "SELECT event_id, sequence, timestamp, schema_version,
                         causation_id, command_id, idempotency_key, actor,
@@ -210,7 +216,7 @@ impl AppEventStore for StoreTransaction {
                  WHERE aggregate_type = ?1 AND aggregate_id = ?2
                  ORDER BY sequence ASC",
             )
-            .map_err(|_| EventStoreError::CorruptData)?;
+            .map_err(map_event_store_read_error)?;
 
         let event_rows = stmt
             .query_map(params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes], |row| {
@@ -245,7 +251,7 @@ impl AppEventStore for StoreTransaction {
                     global_position,
                 ))
             })
-            .map_err(|_| EventStoreError::CorruptData)?;
+            .map_err(map_event_store_read_error)?;
 
         let codec = TaskRunEventCodec;
         let mut events = Vec::new();
@@ -266,7 +272,7 @@ impl AppEventStore for StoreTransaction {
                 correlation_type,
                 integrity_profile,
                 global_position,
-            ) = row.map_err(|_| EventStoreError::CorruptData)?;
+            ) = row.map_err(map_event_store_read_error)?;
 
             let event_id = EventId::from_bytes(
                 eid_bytes
@@ -344,6 +350,8 @@ impl AppEventStore for StoreTransaction {
             let arr: [u8; 16] = b.try_into().unwrap_or([0u8; 16]);
             EventId::from_bytes(arr)
         });
+        drop(stmt);
+        tx.commit().map_err(map_event_store_read_error)?;
 
         Ok(LoadedStream {
             events,
@@ -853,6 +861,35 @@ const fn storage_failure(kind: StorageFailureKind) -> CommitError {
     CommitError::StorageFailure(kind)
 }
 
+fn map_event_store_read_error(error: rusqlite::Error) -> EventStoreError {
+    match error {
+        rusqlite::Error::SqliteFailure(inner, _)
+            if matches!(
+                inner.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            ) =>
+        {
+            EventStoreError::Unavailable
+        }
+        _ => EventStoreError::CorruptData,
+    }
+}
+
+fn map_commit_read_error(error: rusqlite::Error) -> CommitError {
+    let kind = match error {
+        rusqlite::Error::SqliteFailure(inner, _)
+            if matches!(
+                inner.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            ) =>
+        {
+            StorageFailureKind::Unavailable
+        }
+        _ => StorageFailureKind::CorruptData,
+    };
+    storage_failure(kind)
+}
+
 // ── UnitOfWork impl ──────────────────────────────────────────────────────
 
 impl UnitOfWork for StoreTransaction {
@@ -863,7 +900,12 @@ impl UnitOfWork for StoreTransaction {
         idempotency_scope: &IdempotencyScope,
         fingerprint: &CommandFingerprint,
     ) -> Result<ReceiptLookup, CommitError> {
-        let conn = self.inner.reader.lock().unwrap();
+        let mut conn = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
+        let tx = conn.transaction().map_err(map_commit_read_error)?;
 
         let scope_codec = IdempotencyScopeCodec;
         let scope_bytes = scope_codec.encode(idempotency_scope).map_err(|_| {
@@ -876,7 +918,7 @@ impl UnitOfWork for StoreTransaction {
         let ikey_bytes = idempotency_key.as_str().as_bytes();
 
         // Check by command_id first
-        let by_cmd_id: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = conn
+        let by_cmd_id: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = tx
             .query_row(
                 "SELECT idempotency_scope_bytes, fingerprint, command_outcome
                  FROM command_receipts
@@ -884,7 +926,8 @@ impl UnitOfWork for StoreTransaction {
                 params![cmd_id_bytes],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
-            .ok();
+            .optional()
+            .map_err(map_commit_read_error)?;
 
         if let Some((stored_scope, stored_fp, outcome_bytes)) = by_cmd_id {
             let stored_fp_arr: [u8; 32] = stored_fp.try_into().unwrap_or([0; 32]);
@@ -909,7 +952,7 @@ impl UnitOfWork for StoreTransaction {
         }
 
         // Check by (scope_bytes, idempotency_key)
-        let by_scope: Option<(Vec<u8>, Vec<u8>)> = conn
+        let by_scope: Option<(Vec<u8>, Vec<u8>)> = tx
             .query_row(
                 "SELECT command_id, fingerprint
                  FROM command_receipts
@@ -917,7 +960,8 @@ impl UnitOfWork for StoreTransaction {
                 params![scope_bytes, ikey_bytes],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
-            .ok();
+            .optional()
+            .map_err(map_commit_read_error)?;
 
         if let Some((stored_cmd, stored_fp)) = by_scope {
             let stored_cmd_id = CommandId::from_bytes(stored_cmd.try_into().unwrap_or([0; 16]));
@@ -931,6 +975,7 @@ impl UnitOfWork for StoreTransaction {
             });
         }
 
+        tx.commit().map_err(map_commit_read_error)?;
         Ok(ReceiptLookup::Miss)
     }
 
@@ -1341,5 +1386,87 @@ impl Clock for StoreTransaction {
             .map_err(|_| ClockError::Unavailable)?
             .as_micros() as i64;
         Ok(Timestamp::from_unix_micros(micros))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gocode_domain::id::IdempotencyKey;
+
+    fn temp_db_path(name: &str) -> String {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock must be after Unix epoch")
+            .as_nanos();
+        std::env::temp_dir()
+            .join(format!("gocode-store-{name}-{unique}.sqlite"))
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    fn cleanup_db(db_path: &str) {
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{db_path}{suffix}"));
+        }
+    }
+
+    #[test]
+    fn failed_stream_query_is_not_reported_as_missing() {
+        let db_path = temp_db_path("reader-query-failure");
+        let store =
+            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        store
+            .inner
+            .writer
+            .lock()
+            .unwrap()
+            .execute_batch(
+                "PRAGMA foreign_keys = OFF;
+                 DROP TABLE events;
+                 DROP TABLE aggregate_streams;",
+            )
+            .unwrap();
+
+        let result = store.load_task_run(TaskRunId::from_bytes([1; 16]));
+
+        assert_eq!(result.unwrap_err(), EventStoreError::CorruptData);
+        drop(store);
+        cleanup_db(&db_path);
+    }
+
+    #[test]
+    fn failed_receipt_query_is_not_reported_as_a_miss() {
+        let db_path = temp_db_path("receipt-query-failure");
+        let store =
+            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        store
+            .inner
+            .writer
+            .lock()
+            .unwrap()
+            .execute_batch("DROP TABLE command_receipts;")
+            .unwrap();
+        let taskrun_id = TaskRunId::from_bytes([1; 16]);
+        let scope = IdempotencyScope {
+            runtime_authority_id: RuntimeAuthorityId("test-host".into()),
+            principal_id: gocode_application::ports::PrincipalId("test-principal".into()),
+            operation: OperationTag::StartAttempt,
+            aggregate_scope: AggregateScope::ExistingTaskRun { taskrun_id },
+        };
+
+        let result = store.lookup_receipt(
+            CommandId::from_bytes([2; 16]),
+            &IdempotencyKey::new("test-key").unwrap(),
+            &scope,
+            &CommandFingerprint::from_bytes([3; 32]),
+        );
+
+        assert_eq!(
+            result.unwrap_err(),
+            CommitError::StorageFailure(StorageFailureKind::CorruptData)
+        );
+        drop(store);
+        cleanup_db(&db_path);
     }
 }

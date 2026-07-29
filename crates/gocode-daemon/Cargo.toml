@@ -11,6 +11,10 @@ gocode-store = { path = "../gocode-store" }
 gocode-observability = { path = "../gocode-observability" }
 gocode-platform = { path = "../gocode-platform" }
 gocode-http = { path = "../gocode-http" }
+axum = "0.8"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }
+tower = "0.5"
 
 tokio = { workspace = true }
 serde = { workspace = true }
