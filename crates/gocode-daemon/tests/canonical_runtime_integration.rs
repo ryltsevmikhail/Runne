@@ -20,12 +20,13 @@ struct RunningDaemon {
     address: SocketAddr,
     stop: oneshot::Sender<()>,
     task: JoinHandle<Result<(), DaemonError>>,
+    stop_deadline: Duration,
 }
 
 impl RunningDaemon {
     async fn stop(self) {
         self.stop.send(()).unwrap();
-        tokio::time::timeout(Duration::from_secs(5), self.task)
+        tokio::time::timeout(self.stop_deadline, self.task)
             .await
             .expect("daemon shutdown must finish")
             .expect("daemon task must not panic")
@@ -42,6 +43,10 @@ fn test_config(directory: &TempDir) -> ConfigurationSnapshot {
 async fn start(config: &ConfigurationSnapshot) -> RunningDaemon {
     let application = DaemonApplication::start(config).await.unwrap();
     let address = application.local_addr().unwrap();
+    let stop_deadline = Duration::from_millis(config.shutdown_timeout_ms)
+        .checked_mul(3)
+        .and_then(|duration| duration.checked_add(Duration::from_secs(5)))
+        .expect("test shutdown deadline must fit in Duration");
     let (stop, stopped) = oneshot::channel();
     let task = tokio::spawn(application.run(async move {
         stopped
@@ -52,6 +57,7 @@ async fn start(config: &ConfigurationSnapshot) -> RunningDaemon {
         address,
         stop,
         task,
+        stop_deadline,
     }
 }
 
