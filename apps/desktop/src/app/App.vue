@@ -14,7 +14,11 @@ import { isTauri } from '@tauri-apps/api/core'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
+import {
+  connectRuntime,
+  loadBootstrap,
+  saveTheme,
+} from '@/shared/api/platform/bootstrap'
 import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
 import brandIcon from '@/shared/assets/gocode-app-icon.png'
 import brandLockup from '@/shared/assets/gocode-lockup.png'
@@ -37,6 +41,12 @@ onMounted(async () => {
     const bootstrap = await loadBootstrap()
     theme.value = bootstrap.theme
     runtimeState.value = bootstrap.runtime
+    try {
+      runtimeState.value = await connectRuntime()
+    }
+    catch {
+      runtimeState.value = (await loadBootstrap()).runtime
+    }
   }
 })
 

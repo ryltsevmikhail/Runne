@@ -544,6 +544,12 @@ nav {
   text-align: center;
 }
 
+.workspace-panel--chat {
+  display: block;
+  padding: 0;
+  text-align: left;
+}
+
 .workspace-panel--main > svg {
   color: var(--primary);
 }

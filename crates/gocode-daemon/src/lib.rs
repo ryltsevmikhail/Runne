@@ -5,6 +5,7 @@
 
 pub mod application;
 pub mod bootstrap;
+mod client_profile;
 pub mod config;
 pub mod error;
 pub mod host;

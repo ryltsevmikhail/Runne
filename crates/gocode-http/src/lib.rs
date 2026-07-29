@@ -6,6 +6,7 @@
 pub mod admission;
 pub mod auth;
 pub mod commands;
+pub mod conversations;
 pub mod error;
 pub mod health;
 pub mod limits;
@@ -14,5 +15,6 @@ pub mod opencode;
 pub mod queries;
 pub mod replay;
 pub mod router;
+pub mod runtime_profile;
 pub mod sse;
 pub mod task_runs;

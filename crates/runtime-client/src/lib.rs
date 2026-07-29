@@ -1,13 +1,26 @@
 //! Runtime transport and schema bundle verification.
 //!
 //! The canonical schema bundle (`gocode-ui-client/1`) is generated
-//! byte-for-byte by the runtime at `/crates/gocode-domain/src/bundle.rs`.
+//! byte-for-byte by the runtime at `/crates/gocode-runtime/src/bundle.rs`.
 //! This module verifies the bundle hash matches the pinned runtime commit.
 
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::time::Duration;
 use thiserror::Error;
+
+mod canonical;
+mod local_profile;
+
+pub use canonical::{
+    AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationCreated,
+    ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
+    CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
+    RuntimeApiErrorKind, RuntimeCredential, RuntimeSessionInfo,
+};
+pub use local_profile::{
+    LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
+};
 
 /// Pinned runtime commit — the source of truth for the canonical bundle.
 /// Updated when a new runtime commit containing the bundle is accepted.

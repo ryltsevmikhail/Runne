@@ -3,6 +3,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use gocode_application::conversation_text_service::ConversationTextCommandService;
 use gocode_application::ports::{EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
 use tokio::sync::{Semaphore, mpsc, oneshot};
@@ -80,6 +81,35 @@ impl Runtime {
         U: UnitOfWork + Send + Sync + 'static,
         I: IdGenerator + Send + Sync + 'static,
     {
+        Self::start_internal(ctx, service, None, config)
+    }
+
+    /// Starts the runtime with the canonical Conversation text coordinator.
+    pub fn start_borrowed_with_conversations<E, U, I>(
+        ctx: TokioRuntimeContext,
+        service: Arc<TaskRunService<E, U, I>>,
+        conversation_service: Arc<dyn ConversationTextCommandService>,
+        config: RuntimeConfig,
+    ) -> Result<(RuntimeHandle, RuntimeController), RuntimeStartError>
+    where
+        E: EventStore + Send + Sync + 'static,
+        U: UnitOfWork + Send + Sync + 'static,
+        I: IdGenerator + Send + Sync + 'static,
+    {
+        Self::start_internal(ctx, service, Some(conversation_service), config)
+    }
+
+    fn start_internal<E, U, I>(
+        ctx: TokioRuntimeContext,
+        service: Arc<TaskRunService<E, U, I>>,
+        conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+        config: RuntimeConfig,
+    ) -> Result<(RuntimeHandle, RuntimeController), RuntimeStartError>
+    where
+        E: EventStore + Send + Sync + 'static,
+        U: UnitOfWork + Send + Sync + 'static,
+        I: IdGenerator + Send + Sync + 'static,
+    {
         config.validate()?;
 
         // Create channels
@@ -111,6 +141,7 @@ impl Runtime {
                 config2,
                 cancel2,
                 service,
+                conversation_service,
                 drain_complete_tx,
             )
             .await;

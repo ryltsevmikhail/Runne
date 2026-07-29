@@ -1,11 +1,14 @@
 //! Request/response envelope types for the runtime dispatch layer.
 
 use gocode_application::commands::{
-    AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
-    StartAttemptInput,
+    AdmitTaskRunInput, BeginConversationTextInput, CommandOutcome, CompleteTaskRunInput,
+    CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput, StartAttemptInput,
 };
+use gocode_application::conversation_text_service::ConversationTextCommandService;
 use gocode_application::errors::ApplicationError;
-use gocode_application::ports::{ApplicationCommandContext, EventStore, IdGenerator, UnitOfWork};
+use gocode_application::ports::{
+    ApplicationCommandContext, EventStore, IdGenerator, TextGenerationReceipt, UnitOfWork,
+};
 use gocode_application::service::TaskRunService;
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
@@ -15,6 +18,10 @@ use crate::error::RuntimeError;
 
 /// A one-shot reply channel for sending command results back to the caller.
 pub(crate) type Reply = oneshot::Sender<Result<CommandOutcome, RuntimeError>>;
+
+/// Reply channel for Conversation text coordination phases.
+pub(crate) type ConversationTextReply =
+    oneshot::Sender<Result<TextGenerationReceipt, RuntimeError>>;
 
 // ── InFlightLease ───────────────────────────────────────────────────────────
 
@@ -66,6 +73,16 @@ pub(crate) enum RuntimeRequest {
         input: CompleteTaskRunInput,
         reply: Reply,
     },
+    BeginConversationText {
+        context: ApplicationCommandContext,
+        input: BeginConversationTextInput,
+        reply: ConversationTextReply,
+    },
+    FinishConversationText {
+        context: ApplicationCommandContext,
+        input: FinishConversationTextInput,
+        reply: ConversationTextReply,
+    },
 }
 
 impl RuntimeRequest {
@@ -78,6 +95,36 @@ impl RuntimeRequest {
             Self::Admit { input, .. } => Some(input.taskrun_id),
             Self::StartAttempt { input, .. } => Some(input.taskrun_id),
             Self::Complete { input, .. } => Some(input.taskrun_id),
+            Self::BeginConversationText { .. } => None,
+            Self::FinishConversationText { input, .. } => Some(input.started.taskrun_id),
+        }
+    }
+}
+
+/// Callable Conversation text phase after its reply channel is separated.
+pub(crate) enum ConversationTextCall {
+    Begin {
+        context: ApplicationCommandContext,
+        input: BeginConversationTextInput,
+    },
+    Finish {
+        context: ApplicationCommandContext,
+        input: FinishConversationTextInput,
+    },
+}
+
+impl ConversationTextCall {
+    /// Executes against the object-safe application coordinator.
+    pub(crate) fn execute(
+        self,
+        service: &dyn ConversationTextCommandService,
+    ) -> Result<
+        TextGenerationReceipt,
+        gocode_application::conversation_text_service::ConversationTextServiceError,
+    > {
+        match self {
+            Self::Begin { context, input } => service.begin_text(&context, input),
+            Self::Finish { context, input } => service.finish_text(&context, input),
         }
     }
 }
