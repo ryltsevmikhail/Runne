@@ -642,6 +642,7 @@ name = "gocode-daemon"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
  "crc32fast",
  "dirs",
@@ -653,6 +654,8 @@ dependencies = [
  "gocode-platform",
  "gocode-store",
  "hex",
+ "hyper",
+ "hyper-util",
  "rand",
  "rusqlite",
  "serde",
@@ -663,6 +666,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+ "tower",
  "tracing",
  "tracing-subscriber",
  "uuid",

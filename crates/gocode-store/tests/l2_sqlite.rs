@@ -1221,7 +1221,11 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
             },
         )
     });
-    assert_eq!(start.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        start.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "unexpected start race outcomes: {start:?}"
+    );
     assert_eq!(
         start
             .iter()
@@ -1233,7 +1237,8 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
                 })
             ))
             .count(),
-        1
+        1,
+        "unexpected start race outcomes: {start:?}"
     );
 
     let complete = race(20, |service, context, taskrun_id| {
@@ -1246,7 +1251,11 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
             },
         )
     });
-    assert_eq!(complete.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        complete.iter().filter(|result| result.is_ok()).count(),
+        1,
+        "unexpected completion race outcomes: {complete:?}"
+    );
     assert_eq!(
         complete
             .iter()
@@ -1258,7 +1267,8 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
                 })
             ))
             .count(),
-        1
+        1,
+        "unexpected completion race outcomes: {complete:?}"
     );
     assert_eq!(
         open_service(&db_path)
