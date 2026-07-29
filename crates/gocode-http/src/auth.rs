@@ -80,19 +80,19 @@ impl RuntimeApiError {
 pub struct SessionAuthLayer {
     service: Arc<Mutex<LocalSessionService>>,
     binding: RuntimeSessionBinding,
-    now: Duration,
+    clock: Arc<dyn Fn() -> Duration + Send + Sync>,
 }
 impl SessionAuthLayer {
     /// Creates a composable layer over the real bounded authority service.
     pub fn new(
         service: Arc<Mutex<LocalSessionService>>,
         binding: RuntimeSessionBinding,
-        now: Duration,
+        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     ) -> Self {
         Self {
             service,
             binding,
-            now,
+            clock,
         }
     }
 }
@@ -103,7 +103,7 @@ impl<S> tower::Layer<S> for SessionAuthLayer {
             inner,
             service: self.service.clone(),
             binding: self.binding.clone(),
-            now: self.now,
+            clock: self.clock.clone(),
         }
     }
 }
@@ -112,7 +112,7 @@ pub struct SessionAuthMiddleware<S> {
     inner: S,
     service: Arc<Mutex<LocalSessionService>>,
     binding: RuntimeSessionBinding,
-    now: Duration,
+    clock: Arc<dyn Fn() -> Duration + Send + Sync>,
 }
 impl<S> tower::Service<Request<Body>> for SessionAuthMiddleware<S>
 where
@@ -126,10 +126,21 @@ where
         self.inner.poll_ready(cx)
     }
     fn call(&mut self, mut req: Request<Body>) -> Self::Future {
+        let inbound_authorization: Vec<_> = req
+            .headers()
+            .get_all("authorization")
+            .iter()
+            .cloned()
+            .collect();
+        req.headers_mut().remove("authorization");
+        for mut value in inbound_authorization {
+            value.set_sensitive(true);
+            req.headers_mut().append("authorization", value);
+        }
         let authenticated = extract_session_authority(req.headers()).and_then(|authority| {
             self.service.lock().ok().and_then(|mut service| {
                 service
-                    .authorize_wire_for_binding(&authority, &self.binding, self.now)
+                    .authorize_wire_for_binding(&authority, &self.binding, (self.clock)())
                     .ok()
             })
         });

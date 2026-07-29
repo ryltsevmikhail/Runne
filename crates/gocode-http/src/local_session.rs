@@ -1,6 +1,9 @@
 //! TLS-only HTTP bootstrap endpoints for local runtime sessions.
 
-use std::sync::{Arc, Mutex};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use axum::{
     Json, Router,
@@ -21,15 +24,40 @@ const MAX_LOCAL_SESSION_BODY_BYTES: usize = 8 * 1024;
 #[derive(Clone)]
 pub struct LocalSessionHttpState {
     service: Arc<Mutex<LocalSessionService>>,
-    tls_verified: bool,
+    clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    _verified_tls: VerifiedLocalTls,
 }
+
+/// Capability minted only by verified local-TLS listener composition.
+#[derive(Clone)]
+pub struct VerifiedLocalTls(());
+
+impl VerifiedLocalTls {
+    pub(crate) const fn from_verified_listener() -> Self {
+        Self(())
+    }
+}
+
 impl LocalSessionHttpState {
-    /// Creates a bootstrap route state. `tls_verified` must be true only behind the pinned local TLS listener.
-    pub fn new(service: LocalSessionService, tls_verified: bool) -> Self {
+    /// Creates bootstrap state after the pinned local TLS listener has verified its identity.
+    pub(crate) fn new(
+        service: LocalSessionService,
+        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+        verified_tls: VerifiedLocalTls,
+    ) -> Self {
         Self {
             service: Arc::new(Mutex::new(service)),
-            tls_verified,
+            clock,
+            _verified_tls: verified_tls,
         }
+    }
+
+    #[doc(hidden)]
+    pub fn for_test(
+        service: LocalSessionService,
+        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    ) -> Self {
+        Self::new(service, clock, VerifiedLocalTls::from_verified_listener())
     }
 
     /// Shares the bounded service with a composable session-auth layer.
@@ -43,7 +71,6 @@ impl LocalSessionHttpState {
 struct ChallengeRequest {
     client_nonce: String,
     server_nonce: String,
-    now_millis: u64,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -57,7 +84,6 @@ struct AuthenticateRequest {
     challenge_id: String,
     proof: String,
     authority: String,
-    now_millis: u64,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,9 +104,6 @@ async fn challenge(
     State(state): State<LocalSessionHttpState>,
     body: Result<Json<ChallengeRequest>, JsonRejection>,
 ) -> Response {
-    if !state.tls_verified {
-        return unavailable();
-    }
     let Json(body) = match body {
         Ok(body) => body,
         Err(error) => {
@@ -102,11 +125,7 @@ async fn challenge(
         .lock()
         .map_err(|_| LocalSessionError::Unavailable)
         .and_then(|mut service| {
-            service.issue_challenge(
-                client_nonce,
-                server_nonce,
-                std::time::Duration::from_millis(body.now_millis),
-            )
+            service.issue_challenge(client_nonce, server_nonce, (state.clock)())
         });
     match result {
         Ok(value) => Json(ChallengeResponse {
@@ -123,9 +142,6 @@ async fn authenticate(
     State(state): State<LocalSessionHttpState>,
     body: Result<Json<AuthenticateRequest>, JsonRejection>,
 ) -> Response {
-    if !state.tls_verified {
-        return unavailable();
-    }
     let Json(body) = match body {
         Ok(body) => body,
         Err(error) => {
@@ -153,7 +169,7 @@ async fn authenticate(
                 gocode_application::local_session::LocalSessionChallengeId(id),
                 BootstrapProof::new(proof),
                 authority,
-                std::time::Duration::from_millis(body.now_millis),
+                (state.clock)(),
             )
         });
     match result {

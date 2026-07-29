@@ -2,8 +2,7 @@ use std::time::Duration;
 
 use gocode_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding};
 use gocode_application::local_session::{
-    BootstrapProof, LocalSessionError, LocalSessionService, RuntimeSessionAuthority,
-    bootstrap_proof_transcript,
+    BootstrapProof, LocalSessionError, LocalSessionService, bootstrap_proof_transcript,
 };
 use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
 use hmac::{Hmac, Mac};
@@ -85,7 +84,6 @@ fn golden_transcript_and_correct_proof_issue_a_memory_only_authority() {
             .authorize_wire(&[0x88; 32], Duration::from_secs(1))
             .is_ok()
     );
-    assert_not_debug_or_display::<RuntimeSessionAuthority>();
 }
 
 #[test]
@@ -222,5 +220,3 @@ fn epoch_revocation_and_restart_generation_mismatch_revoke_sessions() {
         Err(LocalSessionError::Unauthorized)
     ));
 }
-
-fn assert_not_debug_or_display<T>() {}
