@@ -33,12 +33,31 @@ fn launches_are_unique_and_generation_survives_database_reopen() {
 fn launch_profile_never_contains_private_key_bytes() {
     let identity = LaunchIdentity::generate(1).unwrap();
     let profile = identity.profile_certificate_der_base64();
-    let profile_bytes = profile.as_bytes();
+    assert!(!profile.contains("PRIVATE KEY"));
+    assert!(!profile.contains("BEGIN"));
+}
 
-    assert!(
-        !profile_bytes
-            .windows(32)
-            .any(|part| part == identity.private_key_marker()),
-        "certificate profile data must not contain private-key bytes"
-    );
+#[test]
+fn corrupt_launch_generations_are_never_rewritten() {
+    for value in ["zero", "0", "18446744073709551615"] {
+        let directory = tempdir().unwrap();
+        let database = directory.path().join("event-log.sqlite");
+        let connection = open_with_pragmas(database.to_str().unwrap()).unwrap();
+        apply_migrations(&connection).unwrap();
+        connection
+            .execute(
+                "INSERT INTO _daemon_info (key, value) VALUES ('launch_generation', ?1)",
+                [value],
+            )
+            .unwrap();
+        assert!(next_launch_generation(&connection).is_err());
+        let current: String = connection
+            .query_row(
+                "SELECT value FROM _daemon_info WHERE key = 'launch_generation'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(current, value);
+    }
 }

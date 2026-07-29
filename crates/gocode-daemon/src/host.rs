@@ -260,11 +260,11 @@ where
             _ = &mut shutdown => return stop_connections(&mut connections).await,
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
+                    let Ok(permit) = Arc::clone(&handshakes).try_acquire_owned() else { continue };
                     let app = app.clone();
                     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::clone(&server_config));
-                    let handshakes = Arc::clone(&handshakes);
                     connections.spawn(async move {
-                        let Ok(_permit) = handshakes.acquire_owned().await else { return };
+                        let _permit = permit;
                         let Ok(stream) = acceptor.accept(stream).await else { return };
                         let service = service_fn(move |request| {
                             let app = app.clone();

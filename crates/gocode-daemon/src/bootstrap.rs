@@ -69,7 +69,7 @@ impl std::fmt::Debug for BootstrapOutcome {
             .field("authority_id", &hex::encode(self.authority_id))
             .field("db_existed", &self.db_existed)
             .field("startup_mode", &self.startup_mode)
-            .field("launch_identity", &self.launch_identity)
+            .field("launch_identity", &"<redacted>")
             .field("launch_generation", &self.launch_generation)
             .field("token", &self.token)
             .finish()
