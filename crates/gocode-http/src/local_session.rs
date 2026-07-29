@@ -103,7 +103,7 @@ async fn challenge(
         Err(error) => {
             let response = error.into_response();
             return if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                response
+                payload_too_large()
             } else {
                 invalid_request()
             };
@@ -141,7 +141,7 @@ async fn authenticate(
         Err(error) => {
             let response = error.into_response();
             return if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                response
+                payload_too_large()
             } else {
                 invalid_request()
             };
@@ -204,6 +204,13 @@ fn invalid_request() -> Response {
         &RequestId::generate(),
     )
 }
+fn payload_too_large() -> Response {
+    canonical_error_response(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "invalid_request",
+        &RequestId::generate(),
+    )
+}
 
 #[cfg(test)]
 mod tests {
@@ -219,6 +226,31 @@ mod tests {
     use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
     use hmac::{Hmac, Mac};
     use tower::ServiceExt;
+
+    async fn assert_canonical_error(response: Response, status: StatusCode, code: &str) {
+        assert_eq!(response.status(), status);
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .expect("canonical error must include request identity")
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"code": code, "requestId": request_id})
+        );
+    }
+
+    fn state() -> LocalSessionHttpState {
+        LocalSessionHttpState::new(
+            LocalSessionService::new(binding(), [7; 32]),
+            Arc::new(|| Duration::ZERO),
+            VerifiedLocalTls::from_verified_listener(),
+        )
+    }
 
     fn binding() -> RuntimeSessionBinding {
         RuntimeSessionBinding::new(
@@ -313,5 +345,122 @@ mod tests {
                 .unwrap()
                 .contains("unauthorized")
         );
+    }
+
+    #[tokio::test]
+    async fn verified_tls_router_rejects_unknown_challenge_fields_with_canonical_json() {
+        let response = local_session_router(state())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/local-session/challenges")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "clientNonce": URL_SAFE_NO_PAD.encode([9; 32]),
+                            "serverNonce": URL_SAFE_NO_PAD.encode([8; 32]),
+                            "unexpected": true,
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_canonical_error(response, StatusCode::BAD_REQUEST, "invalid_request").await;
+    }
+
+    #[tokio::test]
+    async fn verified_tls_router_rejects_unknown_authentication_fields_with_canonical_json() {
+        let response = local_session_router(state())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/local-session/authenticate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "challengeId": URL_SAFE_NO_PAD.encode([1; 16]),
+                            "proof": URL_SAFE_NO_PAD.encode([2; 32]),
+                            "authority": URL_SAFE_NO_PAD.encode([3; 32]),
+                            "unexpected": true,
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_canonical_error(response, StatusCode::BAD_REQUEST, "invalid_request").await;
+    }
+
+    #[tokio::test]
+    async fn verified_tls_router_rejects_bodies_larger_than_eight_kib_with_canonical_json() {
+        let response = local_session_router(state())
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/local-session/challenges")
+                    .header("content-type", "application/json")
+                    .body(Body::from("x".repeat(MAX_LOCAL_SESSION_BODY_BYTES + 1)))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_canonical_error(response, StatusCode::PAYLOAD_TOO_LARGE, "invalid_request").await;
+    }
+
+    #[tokio::test]
+    async fn verified_tls_router_maps_challenge_exhaustion_to_canonical_unavailable() {
+        let app = local_session_router(state());
+        for value in 0..32_u8 {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/v1/local-session/challenges")
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::json!({
+                                "clientNonce": URL_SAFE_NO_PAD.encode([value; 32]),
+                                "serverNonce": URL_SAFE_NO_PAD.encode([value.wrapping_add(32); 32]),
+                            })
+                            .to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/local-session/challenges")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({
+                            "clientNonce": URL_SAFE_NO_PAD.encode([64; 32]),
+                            "serverNonce": URL_SAFE_NO_PAD.encode([96; 32]),
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_canonical_error(
+            response,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "local_session_unavailable",
+        )
+        .await;
     }
 }
