@@ -10,7 +10,7 @@ describe('diagnostics platform API', () => {
       databaseSchemaVersion: 3,
       databaseGeneration: 4,
       projectCount: 2,
-      runtime: 'contract_pending',
+      runtime: 'unconfigured',
     }))
 
     expect(snapshot.databaseGeneration).toBe(4)
@@ -23,7 +23,7 @@ describe('diagnostics platform API', () => {
       databaseSchemaVersion: 3,
       databaseGeneration: 4,
       projectCount: 2,
-      runtime: 'contract_pending',
+      runtime: 'unconfigured',
       projectPath: '/private/project',
     }))).rejects.toThrow('Invalid diagnostics response')
   })

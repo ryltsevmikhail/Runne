@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
         databaseSchemaVersion: 3,
         databaseGeneration: 1,
         projectCount: 0,
-        runtime: 'contract_pending',
+        runtime: 'unconfigured',
       },
 })
 
@@ -94,7 +94,7 @@ onMounted(async () => {
       </div>
       <div>
         <dt>Runtime</dt>
-        <dd>Contract pending</dd>
+        <dd>{{ diagnostics.runtime }}</dd>
       </div>
     </dl>
   </section>
