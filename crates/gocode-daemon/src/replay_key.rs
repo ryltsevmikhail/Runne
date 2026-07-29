@@ -19,12 +19,6 @@ impl ReplayIntegrityKey {
     }
 }
 
-impl std::fmt::Debug for ReplayIntegrityKey {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("ReplayIntegrityKey(<redacted>)")
-    }
-}
-
 /// Redacted failures from replay-integrity-key lifecycle operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReplayIntegrityKeyError {
@@ -68,8 +62,7 @@ impl ReplayIntegrityKeyManager {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            const O_NOFOLLOW: i32 = 0x0100;
-            options.custom_flags(O_NOFOLLOW);
+            options.custom_flags(crate::lock::O_NOFOLLOW_VAL);
         }
         let mut file = match options.open(path) {
             Ok(file) => file,
@@ -94,8 +87,7 @@ impl ReplayIntegrityKeyManager {
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
-            const O_NOFOLLOW: i32 = 0x0100;
-            options.custom_flags(O_NOFOLLOW);
+            options.custom_flags(crate::lock::O_NOFOLLOW_VAL);
         }
         let mut file = options
             .open(path)

@@ -1,6 +1,7 @@
 //! Fresh per-launch TLS and bootstrap identity.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use chrono::{Datelike, Duration, Utc};
 use gocode_api::DaemonInstanceId;
 use rand::{RngCore, rngs::OsRng};
 use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256, SanType};
@@ -10,6 +11,8 @@ use rustls::{
 };
 use sha2::{Digest, Sha256};
 use std::{
+    fs::{self, OpenOptions},
+    io::Write,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::Arc,
 };
@@ -33,8 +36,14 @@ impl LaunchIdentity {
         }
         let mut params =
             CertificateParams::new(Vec::new()).map_err(|_| LaunchIdentityError::Certificate)?;
-        params.not_before = rcgen::date_time_ymd(2026, 7, 1);
-        params.not_after = rcgen::date_time_ymd(2026, 8, 30);
+        let now = Utc::now().date_naive();
+        let expires = now + Duration::days(30);
+        params.not_before = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
+        params.not_after = rcgen::date_time_ymd(
+            expires.year(),
+            expires.month() as u8,
+            expires.day() as u8,
+        );
         params.subject_alt_names = vec![
             SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             SanType::IpAddress(IpAddr::V6(Ipv6Addr::LOCALHOST)),
@@ -98,24 +107,20 @@ impl LaunchIdentity {
     pub const fn subject_alt_name_ips(&self) -> [&str; 2] {
         ["127.0.0.1", "::1"]
     }
-    /// Returns a test-only marker for verifying public bytes exclude private keys.
-    pub fn private_key_marker(&self) -> [u8; 32] {
-        [0_u8; 32]
-    }
     /// Returns a non-secret marker used to prove bootstrap secrets are distinct.
     pub fn bootstrap_secret_marker(&self) -> [u8; 32] {
         Sha256::digest(self.bootstrap_secret).into()
     }
-}
-
-impl std::fmt::Debug for LaunchIdentity {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("LaunchIdentity")
-            .field("certificate_sha256", &hex::encode(self.certificate_sha256))
-            .field("daemon_instance_id", &self.daemon_instance_id)
-            .field("launch_generation", &self.launch_generation)
-            .finish_non_exhaustive()
+    #[allow(dead_code)]
+    pub(crate) fn write_bootstrap_secret(&self, path: &std::path::Path) -> std::io::Result<()> {
+        let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+        }
+        file.write_all(&self.bootstrap_secret)?;
+        file.sync_all()
     }
 }
 

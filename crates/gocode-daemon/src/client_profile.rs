@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::DaemonError;
+use crate::launch_identity::LaunchIdentity;
 
 const CLIENT_PROFILE_SCHEMA_VERSION: u32 = 1;
 #[allow(dead_code)]
@@ -67,6 +68,58 @@ impl ClientProfileV2Wire {
             daemon_instance_id: daemon_instance_id.to_string(),
             launch_generation,
         })
+    }
+}
+
+/// Lifetime guard for one inactive v2 profile and its bootstrap secret.
+#[allow(dead_code)]
+pub(crate) struct PublishedClientProfileV2 {
+    profile_path: PathBuf,
+    profile_bytes: Vec<u8>,
+    secret_path: PathBuf,
+    secret_bytes: [u8; 32],
+}
+
+#[allow(dead_code)]
+impl PublishedClientProfileV2 {
+    pub(crate) fn publish(
+        directory: &Path,
+        endpoint: SocketAddr,
+        identity: &LaunchIdentity,
+        authority_id: [u8; 16],
+        lineage_id: uuid::Uuid,
+    ) -> Result<Self, DaemonError> {
+        let directory = std::fs::canonicalize(directory)
+            .map_err(|_| DaemonError::Bootstrap("canonicalize v2 profile directory".into()))?;
+        let secret_path = directory.join(format!("bootstrap-{}.secret", identity.daemon_instance_id()));
+        identity.write_bootstrap_secret(&secret_path).map_err(|_| DaemonError::Bootstrap("write v2 bootstrap secret".into()))?;
+        let wire = ClientProfileV2Wire::new(
+            endpoint, identity.profile_certificate_der_base64(), *identity.certificate_sha256(),
+            secret_path.clone(), authority_id, lineage_id, uuid::Uuid::from_bytes(identity.daemon_instance_id().into_bytes()), identity.launch_generation(),
+        )?;
+        let profile_bytes = serde_json::to_vec(&wire).map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
+        let profile_path = directory.join("client-profile-v2.json");
+        let temporary = directory.join(format!(".client-profile-v2.{}.tmp", uuid::Uuid::now_v7()));
+        if let Err(error) = write_owner_only(&temporary, &profile_bytes)
+            .and_then(|()| replace_profile(&temporary, &profile_path))
+            .and_then(|()| sync_directory(&directory)) {
+            let _ = fs::remove_file(&temporary);
+            let _ = fs::remove_file(&secret_path);
+            return Err(DaemonError::Bootstrap(format!("publish v2 local client profile: {error}")));
+        }
+        let secret_bytes = fs::read(&secret_path).map_err(|_| DaemonError::Bootstrap("read v2 bootstrap secret".into()))?
+            .try_into().map_err(|_| DaemonError::Bootstrap("invalid v2 bootstrap secret".into()))?;
+        Ok(Self { profile_path, profile_bytes, secret_path, secret_bytes })
+    }
+}
+
+impl Drop for PublishedClientProfileV2 {
+    fn drop(&mut self) {
+        for (path, bytes) in [(&self.profile_path, self.profile_bytes.as_slice()), (&self.secret_path, self.secret_bytes.as_slice())] {
+            if fs::read(path).map(|current| current == bytes).unwrap_or(false) {
+                let _ = fs::remove_file(path);
+            }
+        }
     }
 }
 
