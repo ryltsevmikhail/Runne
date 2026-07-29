@@ -70,29 +70,36 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
         .unwrap();
     let shared = Arc::new(Mutex::new(local));
     let encoded = URL_SAFE_NO_PAD.encode([10; 32]);
+    let marker = format!("GocodeSession {encoded}");
     let header: axum::http::HeaderValue = format!("GocodeSession {encoded}").parse().unwrap();
     assert!(!header.is_sensitive());
     let outbound = session_authorization_header(&encoded).unwrap();
     assert!(outbound.is_sensitive());
     assert!(!format!("{outbound:?}").contains(&encoded));
+    let captured = Arc::new(Mutex::new(String::new()));
+    let captured_handler = captured.clone();
     let app = Router::new()
         .route(
             "/",
-            get(|request: Request<Body>| async move {
-                assert!(
-                    request
-                        .headers()
-                        .get("authorization")
-                        .unwrap()
-                        .is_sensitive()
-                );
-                assert!(
-                    request
-                        .extensions()
-                        .get::<gocode_application::local_session::AuthenticatedRuntimeSession>()
-                        .is_some()
-                );
-                "ok"
+            get(move |request: Request<Body>| {
+                let captured = captured_handler.clone();
+                async move {
+                    assert!(
+                        request
+                            .headers()
+                            .get("authorization")
+                            .unwrap()
+                            .is_sensitive()
+                    );
+                    assert!(
+                        request
+                            .extensions()
+                            .get::<gocode_application::local_session::AuthenticatedRuntimeSession>()
+                            .is_some()
+                    );
+                    *captured.lock().unwrap() = format!("{request:?}");
+                    "ok"
+                }
             }),
         )
         .layer(SessionAuthLayer::new(
@@ -112,6 +119,7 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    assert!(!captured.lock().unwrap().contains(&marker));
     for request in [
         Request::builder().uri("/").body(Body::empty()).unwrap(),
         Request::builder()

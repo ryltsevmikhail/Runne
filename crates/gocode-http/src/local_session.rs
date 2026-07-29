@@ -33,10 +33,7 @@ pub struct LocalSessionHttpState {
 pub struct VerifiedLocalTls(());
 
 impl VerifiedLocalTls {
-    #[expect(
-        dead_code,
-        reason = "the verified listener composition is introduced in Task 4"
-    )]
+    #[allow(dead_code)] // Constructed by the verified listener in Task 4.
     pub(crate) const fn from_verified_listener() -> Self {
         Self(())
     }
@@ -44,10 +41,7 @@ impl VerifiedLocalTls {
 
 impl LocalSessionHttpState {
     /// Creates bootstrap state after the pinned local TLS listener has verified its identity.
-    #[expect(
-        dead_code,
-        reason = "the verified listener composition is introduced in Task 4"
-    )]
+    #[allow(dead_code)] // Constructed by the verified listener in Task 4.
     pub(crate) fn new(
         service: LocalSessionService,
         clock: Arc<dyn Fn() -> Duration + Send + Sync>,
@@ -209,4 +203,115 @@ fn invalid_request() -> Response {
         "invalid_request",
         &RequestId::generate(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use gocode_api::{
+        ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding,
+    };
+    use gocode_application::local_session::bootstrap_proof_transcript;
+    use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
+    use hmac::{Hmac, Mac};
+    use tower::ServiceExt;
+
+    fn binding() -> RuntimeSessionBinding {
+        RuntimeSessionBinding::new(
+            StableRuntimeBinding::new(
+                [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 1],
+                ApiPrincipalId::new("local-owner").unwrap(),
+                "018f2e3a-7000-7000-8000-000000000003"
+                    .parse::<EventLogLineageId>()
+                    .unwrap(),
+                "gocode-ui-client/1",
+                [3; 32],
+                [4; 32],
+            )
+            .unwrap(),
+            DaemonInstanceId::from_bytes([
+                1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 2,
+            ]),
+            7,
+            [5; 16],
+            3,
+            Sensitivity::Internal,
+            [6; 32],
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn verified_tls_router_issues_and_consumes_a_challenge() {
+        let now = Arc::new(Mutex::new(Duration::ZERO));
+        let clock = {
+            let now = now.clone();
+            Arc::new(move || *now.lock().unwrap()) as Arc<dyn Fn() -> Duration + Send + Sync>
+        };
+        let state = LocalSessionHttpState::new(
+            LocalSessionService::new(binding(), [7; 32]),
+            clock,
+            VerifiedLocalTls::from_verified_listener(),
+        );
+        let app = local_session_router(state);
+        let client = URL_SAFE_NO_PAD.encode([9; 32]);
+        let server = URL_SAFE_NO_PAD.encode([8; 32]);
+        let request = Request::builder()
+            .method("POST")
+            .uri("/v1/local-session/challenges")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"clientNonce":client,"serverNonce":server}).to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let dto: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+        assert_eq!(dto["serverNonce"], URL_SAFE_NO_PAD.encode([8; 32]));
+        assert!(dto["challengeId"].is_string());
+        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&[7; 32]).unwrap();
+        mac.update(&bootstrap_proof_transcript(&binding(), [8; 32], [9; 32]));
+        let payload = serde_json::json!({"challengeId":dto["challengeId"],"proof":URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()),"authority":URL_SAFE_NO_PAD.encode([10;32])});
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/local-session/authenticate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 4096).await.unwrap();
+        assert!(
+            std::str::from_utf8(&body)
+                .unwrap()
+                .contains("expiresAtMonotonicMillis")
+        );
+        let replay = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/v1/local-session/authenticate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
+        assert!(
+            std::str::from_utf8(&to_bytes(replay.into_body(), 4096).await.unwrap())
+                .unwrap()
+                .contains("unauthorized")
+        );
+    }
 }
