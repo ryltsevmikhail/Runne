@@ -145,7 +145,10 @@ where
             })
         });
         if let Some(authenticated) = authenticated {
+            let principal =
+                AuthenticatedPrincipal(authenticated.binding.stable().principal_id().clone());
             req.extensions_mut().insert(authenticated);
+            req.extensions_mut().insert(principal);
             let mut inner = self.inner.clone();
             Box::pin(async move { inner.call(req).await })
         } else {

@@ -22,7 +22,7 @@ const MAX_LOCAL_SESSION_BODY_BYTES: usize = 8 * 1024;
 
 /// State for bootstrap routes, restricted to an already verified TLS listener.
 #[derive(Clone)]
-pub struct LocalSessionHttpState {
+pub(crate) struct LocalSessionHttpState {
     service: Arc<Mutex<LocalSessionService>>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     _verified_tls: VerifiedLocalTls,
@@ -30,7 +30,7 @@ pub struct LocalSessionHttpState {
 
 /// Capability minted only by verified local-TLS listener composition.
 #[derive(Clone)]
-pub struct VerifiedLocalTls(());
+pub(crate) struct VerifiedLocalTls(());
 
 impl VerifiedLocalTls {
     #[allow(dead_code)] // Constructed by the verified listener in Task 4.
@@ -43,19 +43,19 @@ impl LocalSessionHttpState {
     /// Creates bootstrap state after the pinned local TLS listener has verified its identity.
     #[allow(dead_code)] // Constructed by the verified listener in Task 4.
     pub(crate) fn new(
-        service: LocalSessionService,
+        service: Arc<Mutex<LocalSessionService>>,
         clock: Arc<dyn Fn() -> Duration + Send + Sync>,
         verified_tls: VerifiedLocalTls,
     ) -> Self {
         Self {
-            service: Arc::new(Mutex::new(service)),
+            service,
             clock,
             _verified_tls: verified_tls,
         }
     }
 
     /// Shares the bounded service with a composable session-auth layer.
-    pub fn service(&self) -> Arc<Mutex<LocalSessionService>> {
+    pub(crate) fn service(&self) -> Arc<Mutex<LocalSessionService>> {
         self.service.clone()
     }
 }
@@ -86,7 +86,7 @@ struct AuthenticateResponse {
 }
 
 /// Builds the two bounded bootstrap endpoints. The caller must mount this router only on TLS.
-pub fn local_session_router(state: LocalSessionHttpState) -> Router {
+pub(crate) fn local_session_router(state: LocalSessionHttpState) -> Router {
     Router::new()
         .route("/v1/local-session/challenges", post(challenge))
         .route("/v1/local-session/authenticate", post(authenticate))
@@ -246,7 +246,7 @@ mod tests {
 
     fn state() -> LocalSessionHttpState {
         LocalSessionHttpState::new(
-            LocalSessionService::new(binding(), [7; 32]),
+            Arc::new(Mutex::new(LocalSessionService::new(binding(), [7; 32]))),
             Arc::new(|| Duration::ZERO),
             VerifiedLocalTls::from_verified_listener(),
         )
@@ -285,7 +285,7 @@ mod tests {
             Arc::new(move || *now.lock().unwrap()) as Arc<dyn Fn() -> Duration + Send + Sync>
         };
         let state = LocalSessionHttpState::new(
-            LocalSessionService::new(binding(), [7; 32]),
+            Arc::new(Mutex::new(LocalSessionService::new(binding(), [7; 32]))),
             clock,
             VerifiedLocalTls::from_verified_listener(),
         );
