@@ -3,6 +3,7 @@ use gocode_api::{
     LocalSessionContractError, ReplayContractError, RetentionManifest, RuntimeSessionBinding,
     StableRuntimeBinding,
 };
+use gocode_domain::event::EventType;
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::EventLogLineageId;
 use gocode_domain::replay::ReplayScope;
@@ -123,5 +124,16 @@ fn replay_binding_uses_an_opaque_id_and_validated_event_schema_pairs() {
     let capability = ApiReplayEventSchema::new("conversation.message_added", 1)
         .expect("a canonical event/schema pair must be accepted");
     assert_eq!(capability.event_type(), "conversation.message_added");
+    assert_eq!(capability.schema_version(), 1);
+}
+
+#[test]
+fn replay_capability_accepts_every_valid_canonical_event_type() {
+    let canonical_event_type = EventType::new("conversation\nmessage_added")
+        .expect("the domain accepts non-empty event types within its byte bound");
+    let capability = ApiReplayEventSchema::new(canonical_event_type.as_str(), 1)
+        .expect("replay capabilities must accept valid canonical event types");
+
+    assert_eq!(capability.event_type(), canonical_event_type.as_str());
     assert_eq!(capability.schema_version(), 1);
 }
