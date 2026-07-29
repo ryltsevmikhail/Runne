@@ -1,101 +1,77 @@
-//! Main Axum application router.
+//! Production Axum router composition.
 //!
-//! Composes health (unauthenticated), commands, queries, and replay
-//! (protected by auth, request-id, and admission middleware) into a
-//! single `Router`.
+//! Only implemented canonical routes are mounted. Legacy command, query and
+//! replay stubs remain outside this production surface.
 
 use axum::{Router, middleware as axum_mw};
+use gocode_api::{TaskRunCommandHostPort, TaskRunQueryHostPort};
 
 use crate::admission::{AdmissionState, admission_middleware};
 use crate::auth::AuthLayer;
-use crate::commands::{CommandState, command_router};
 use crate::health::{HealthState, health_router};
 use crate::middleware::request_id_middleware;
 use crate::opencode::{OpenCodeSessionState, opencode_session_router};
-use crate::queries::{QueryState, query_router};
-use crate::replay::{ReplayState, replay_router};
+use crate::task_runs::{TaskRunHttpState, task_run_router};
 
-// ── AppState ────────────────────────────────────────────────────────────
-
-/// Bundle of all shared application state.
+/// Builds the production canonical HTTP surface.
 ///
-/// Useful for callers that want to hold all pieces together, e.g.
-/// the daemon that owns the HTTP host.
-#[allow(dead_code)]
-pub struct AppState<C, Q, R> {
-    pub health_state: HealthState,
-    pub admission_state: AdmissionState,
-    pub command_state: CommandState<C>,
-    pub query_state: QueryState<Q>,
-    pub replay_state: ReplayState<R>,
-}
-
-// ── create_router ───────────────────────────────────────────────────────
-
-/// Build the full Axum `Router` for the GOCODE HTTP host.
-///
-/// The returned router includes:
-/// - `GET /health` — unauthenticated health endpoint
-/// - All command, query, and replay endpoints, protected by:
-///   1. `AuthLayer` (bearer token authentication)
-///   2. `request_id_middleware` (x-request-id injection)
-///   3. `admission_middleware` (recovery-state gating)
-pub fn create_router<C, Q, R>(
+/// `/health` remains unauthenticated. Every `/v1/task-runs/*` route is wrapped
+/// by one request identity, bearer authentication, and admission gating.
+pub fn create_router<H>(
     token: [u8; 32],
     health_state: HealthState,
     admission_state: AdmissionState,
-    replay_state: ReplayState<R>,
+    task_run_state: TaskRunHttpState<H>,
 ) -> Router
 where
-    C: Clone + Send + Sync + 'static,
-    Q: Clone + Send + Sync + 'static,
-    R: Clone + Send + Sync + 'static,
+    H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
 {
-    let auth_layer = AuthLayer::new(token);
-
-    let health = health_router(health_state);
-
-    let protected = Router::new()
-        .merge(command_router::<C>())
-        .merge(query_router::<Q>())
-        .merge(replay_router::<R>(replay_state))
-        .layer(axum_mw::from_fn_with_state(
-            admission_state.clone(),
-            admission_middleware,
-        ))
-        .layer(axum_mw::from_fn(request_id_middleware))
-        .layer(auth_layer);
-
-    Router::new().merge(health).merge(protected)
+    let protected = protected_task_run_router(token, admission_state, task_run_state);
+    Router::new()
+        .merge(health_router(health_state))
+        .merge(protected)
 }
 
-/// Builds the full host with the strict OpenCode V1 session surface included
-/// under the same authentication, request identity and admission gates.
-pub fn create_router_with_opencode<C, Q, R, H>(
+/// Builds the canonical surface plus the pinned OpenCode V1 compatibility
+/// routes under the same protection contour.
+pub fn create_router_with_opencode<T, O>(
     token: [u8; 32],
     health_state: HealthState,
     admission_state: AdmissionState,
-    replay_state: ReplayState<R>,
-    opencode_state: OpenCodeSessionState<H>,
+    task_run_state: TaskRunHttpState<T>,
+    opencode_state: OpenCodeSessionState<O>,
 ) -> Router
 where
-    C: Clone + Send + Sync + 'static,
-    Q: Clone + Send + Sync + 'static,
-    R: Clone + Send + Sync + 'static,
-    H: gocode_opencode_compat::SessionV1HostPort + 'static,
+    T: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
+    O: gocode_opencode_compat::SessionV1HostPort + 'static,
 {
-    let auth_layer = AuthLayer::new(token);
-    let health = health_router(health_state);
     let protected = Router::new()
-        .merge(command_router::<C>())
-        .merge(query_router::<Q>())
-        .merge(replay_router::<R>(replay_state))
+        .merge(task_run_router(task_run_state))
         .merge(opencode_session_router(opencode_state))
         .layer(axum_mw::from_fn_with_state(
-            admission_state.clone(),
+            admission_state,
             admission_middleware,
         ))
+        .layer(AuthLayer::new(token))
+        .layer(axum_mw::from_fn(request_id_middleware));
+    Router::new()
+        .merge(health_router(health_state))
+        .merge(protected)
+}
+
+fn protected_task_run_router<H>(
+    token: [u8; 32],
+    admission_state: AdmissionState,
+    task_run_state: TaskRunHttpState<H>,
+) -> Router
+where
+    H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
+{
+    task_run_router(task_run_state)
+        .layer(axum_mw::from_fn_with_state(
+            admission_state,
+            admission_middleware,
+        ))
+        .layer(AuthLayer::new(token))
         .layer(axum_mw::from_fn(request_id_middleware))
-        .layer(auth_layer);
-    Router::new().merge(health).merge(protected)
 }

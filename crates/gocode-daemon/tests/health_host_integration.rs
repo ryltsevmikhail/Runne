@@ -1,12 +1,13 @@
 //! Integration coverage for the daemon-owned health HTTP host.
 
-use gocode_daemon::host::{HealthHost, stop_health_host};
+use gocode_daemon::host::{HttpHost, stop_http_host};
+use gocode_http::health::{HealthState, RecoveryState, health_router};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
 async fn configured_listener_stops_accepting_before_drain_stage() {
-    let host = HealthHost::bind("127.0.0.1:0").await.unwrap();
+    let host = health_host().await;
     let address = host.local_addr().unwrap();
     let mut host_task = host.start();
 
@@ -20,7 +21,7 @@ async fn configured_listener_stops_accepting_before_drain_stage() {
     assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "{response}");
     assert!(response.contains("{\"status\":\"ok\""), "{response}");
 
-    stop_health_host(&mut host_task)
+    stop_http_host(&mut host_task)
         .await
         .expect("host must stop before drain");
     assert_listener_is_not_serving(address).await;
@@ -28,7 +29,7 @@ async fn configured_listener_stops_accepting_before_drain_stage() {
 
 #[tokio::test]
 async fn partial_connection_receives_no_response_after_host_stop_returns() {
-    let host = HealthHost::bind("127.0.0.1:0").await.unwrap();
+    let host = health_host().await;
     let address = host.local_addr().unwrap();
     let mut host_task = host.start();
     let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
@@ -45,7 +46,7 @@ async fn partial_connection_receives_no_response_after_host_stop_returns() {
         .await
         .unwrap();
 
-    stop_health_host(&mut host_task)
+    stop_http_host(&mut host_task)
         .await
         .expect("host and all accepted connections must stop before drain");
 
@@ -58,6 +59,17 @@ async fn partial_connection_receives_no_response_after_host_stop_returns() {
         Ok(bytes) => panic!("stopped host must not respond to partial request: {bytes} bytes"),
     }
     assert_listener_is_not_serving(address).await;
+}
+
+async fn health_host() -> HttpHost {
+    HttpHost::bind(
+        "127.0.0.1:0",
+        health_router(HealthState {
+            recovery_state: RecoveryState::Ready,
+        }),
+    )
+    .await
+    .unwrap()
 }
 
 async fn read_http_response(stream: &mut tokio::net::TcpStream) -> String {

@@ -12,8 +12,8 @@ use crate::commands::CommandOutcome;
 use crate::errors::{ApplicationError, StreamConsistencyViolation};
 use crate::fingerprint::CommandFingerprint;
 use crate::ports::{
-    CommandCommit, CommitResult, EventStore, IdGenerator, IdempotencyScope, LoadedStream,
-    ReceiptLookup, UnitOfWork,
+    ApplicationCommandContext, CommandCommit, CommitResult, EventStore, IdGenerator,
+    IdempotencyScope, LoadedStream, ReceiptLookup, UnitOfWork,
 };
 
 pub(crate) struct Pipeline<E, U, I> {
@@ -26,9 +26,7 @@ pub(crate) struct Pipeline<E, U, I> {
 impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
     pub(crate) fn execute_create(
         &self,
-        command_id: CommandId,
-        idempotency_key: &IdempotencyKey,
-        principal_id: &crate::ports::PrincipalId,
+        context: &ApplicationCommandContext,
         conversation_id: gocode_domain::id::ConversationId,
         workspace_id: gocode_domain::id::WorkspaceId,
         fingerprint: &CommandFingerprint,
@@ -40,7 +38,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
 
         let scope = IdempotencyScope {
             runtime_authority_id: self.runtime_authority_id.clone(),
-            principal_id: principal_id.clone(),
+            principal_id: context.principal_id.clone(),
             operation: crate::ports::OperationTag::CreateTaskRun,
             aggregate_scope: crate::ports::AggregateScope::NewTaskRun {
                 conversation_id,
@@ -50,7 +48,12 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
 
         let lookup = self
             .unit_of_work
-            .lookup_receipt(command_id, idempotency_key, &scope, fingerprint)
+            .lookup_receipt(
+                context.command_id,
+                &context.idempotency_key,
+                &scope,
+                fingerprint,
+            )
             .map_err(ApplicationError::from)?;
         if let ReceiptLookup::Duplicate { stored_result } = lookup {
             return Ok(stored_result);
@@ -63,13 +66,9 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         };
 
         let domain_ctx = CommandContext {
-            command_id,
-            idempotency_key: idempotency_key.clone(),
-            actor: Actor::new("system").map_err(|_| {
-                ApplicationError::Domain(gocode_domain::error::DomainError::TerminalImmutable {
-                    current: gocode_domain::task_run::TaskRunState::Created,
-                })
-            })?,
+            command_id: context.command_id,
+            idempotency_key: context.idempotency_key.clone(),
+            actor: context.actor.clone(),
         };
 
         let draft = TaskRun::decide_create(cmd).map_err(ApplicationError::Domain)?;
@@ -91,8 +90,8 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         };
 
         let commit_payload = CommandCommit {
-            command_id,
-            idempotency_key: idempotency_key.clone(),
+            command_id: context.command_id,
+            idempotency_key: context.idempotency_key.clone(),
             idempotency_scope: scope,
             command_fingerprint: *fingerprint,
             expected_version: 0,
@@ -126,6 +125,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         command_id: CommandId,
         idempotency_key: &IdempotencyKey,
         principal_id: &crate::ports::PrincipalId,
+        actor: &Actor,
         taskrun_id: TaskRunId,
         expected_version: u64,
         domain_command: TaskRunCommand,
@@ -137,6 +137,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
             command_id,
             idempotency_key,
             principal_id,
+            actor,
             taskrun_id,
             expected_version,
             fingerprint,
@@ -154,6 +155,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         command_id: CommandId,
         idempotency_key: &IdempotencyKey,
         principal_id: &crate::ports::PrincipalId,
+        actor: &Actor,
         taskrun_id: TaskRunId,
         expected_version: u64,
         fingerprint: &CommandFingerprint,
@@ -191,11 +193,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> Pipeline<E, U, I> {
         let domain_ctx = CommandContext {
             command_id,
             idempotency_key: idempotency_key.clone(),
-            actor: Actor::new("system").map_err(|_| {
-                ApplicationError::Domain(gocode_domain::error::DomainError::TerminalImmutable {
-                    current: gocode_domain::task_run::TaskRunState::Created,
-                })
-            })?,
+            actor: actor.clone(),
         };
 
         let agg = if stream.events.is_empty() {
