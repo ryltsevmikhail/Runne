@@ -20,6 +20,18 @@ const MAX_SESSIONS: usize = 32;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Opaque, memory-only authority for one authenticated local runtime session.
+///
+/// ```compile_fail
+/// use gocode_application::local_session::RuntimeSessionAuthority;
+/// fn requires_debug<T: core::fmt::Debug>() {}
+/// requires_debug::<RuntimeSessionAuthority>();
+/// ```
+///
+/// ```compile_fail
+/// use gocode_application::local_session::RuntimeSessionAuthority;
+/// fn requires_display<T: core::fmt::Display>() {}
+/// requires_display::<RuntimeSessionAuthority>();
+/// ```
 #[derive(Clone)]
 pub struct RuntimeSessionAuthority(Zeroizing<[u8; 32]>);
 
@@ -38,6 +50,11 @@ impl BootstrapProof {
     /// Wraps exactly 32 HMAC-SHA-256 bytes.
     pub const fn new(bytes: [u8; 32]) -> Self {
         Self(bytes)
+    }
+
+    /// Returns the transmitted HMAC proof bytes.
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
     }
 }
 

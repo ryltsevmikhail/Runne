@@ -49,6 +49,9 @@ fn binding() -> RuntimeSessionBinding {
 fn service() -> LocalSessionService {
     LocalSessionService::new(binding(), [7; 32])
 }
+fn clock(now: Arc<Mutex<Duration>>) -> Arc<dyn Fn() -> Duration + Send + Sync> {
+    Arc::new(move || *now.lock().unwrap())
+}
 fn proof(server: [u8; 32], client: [u8; 32]) -> BootstrapProof {
     let mut mac = Hmac::<Sha256>::new_from_slice(&[7; 32]).unwrap();
     mac.update(&bootstrap_proof_transcript(&binding(), server, client));
@@ -57,7 +60,11 @@ fn proof(server: [u8; 32], client: [u8; 32]) -> BootstrapProof {
 
 #[tokio::test]
 async fn actual_bootstrap_routes_are_tls_only_and_reject_unknown_and_oversized_bodies() {
-    let app = create_local_session_bootstrap_router(LocalSessionHttpState::new(service(), true));
+    let now = Arc::new(Mutex::new(Duration::ZERO));
+    let app = create_local_session_bootstrap_router(LocalSessionHttpState::for_test(
+        service(),
+        clock(now),
+    ));
     let response = app.clone().oneshot(Request::builder().method("POST").uri("/v1/local-session/challenges").header("content-type", "application/json").body(Body::from(r#"{"clientNonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","serverNonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","nowMillis":0,"unexpected":true}"#)).unwrap()).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let response = app
@@ -72,8 +79,48 @@ async fn actual_bootstrap_routes_are_tls_only_and_reject_unknown_and_oversized_b
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-    let disabled = create_local_session_bootstrap_router(LocalSessionHttpState::new(service(), false)).oneshot(Request::builder().method("POST").uri("/v1/local-session/challenges").header("content-type", "application/json").body(Body::from(r#"{"clientNonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","serverNonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","nowMillis":0}"#)).unwrap()).await.unwrap();
-    assert_eq!(disabled.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    let app = create_local_session_bootstrap_router(LocalSessionHttpState::for_test(
+        service(),
+        clock(Arc::new(Mutex::new(Duration::ZERO))),
+    ));
+    let client_nonce = URL_SAFE_NO_PAD.encode([9; 32]);
+    let server_nonce = URL_SAFE_NO_PAD.encode([8; 32]);
+    let challenge_payload =
+        serde_json::json!({"clientNonce": client_nonce, "serverNonce": server_nonce});
+    let request = Request::builder()
+        .method("POST")
+        .uri("/v1/local-session/challenges")
+        .header("content-type", "application/json")
+        .body(Body::from(challenge_payload.to_string()))
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let challenge: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    let payload = serde_json::json!({"challengeId": challenge["challengeId"], "proof": URL_SAFE_NO_PAD.encode(proof([8; 32], [9; 32]).as_bytes()), "authority": URL_SAFE_NO_PAD.encode([10; 32])});
+    let authenticate = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/local-session/authenticate")
+                .header("content-type", "application/json")
+                .body(Body::from(payload.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(authenticate.status(), StatusCode::OK);
+    let replay_payload = serde_json::json!({"challengeId": challenge["challengeId"], "proof": URL_SAFE_NO_PAD.encode([0; 32]), "authority": URL_SAFE_NO_PAD.encode([11; 32])});
+    let replay_request = Request::builder()
+        .method("POST")
+        .uri("/v1/local-session/authenticate")
+        .header("content-type", "application/json")
+        .body(Body::from(replay_payload.to_string()))
+        .unwrap();
+    let replay = app.oneshot(replay_request).await.unwrap();
+    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
@@ -107,6 +154,13 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
             get(|request: Request<Body>| async move {
                 assert!(
                     request
+                        .headers()
+                        .get("authorization")
+                        .unwrap()
+                        .is_sensitive()
+                );
+                assert!(
+                    request
                         .extensions()
                         .get::<gocode_application::local_session::AuthenticatedRuntimeSession>()
                         .is_some()
@@ -114,7 +168,11 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
                 "ok"
             }),
         )
-        .layer(SessionAuthLayer::new(shared, binding(), Duration::ZERO));
+        .layer(SessionAuthLayer::new(
+            shared,
+            binding(),
+            clock(Arc::new(Mutex::new(Duration::ZERO))),
+        ));
     let response = app
         .clone()
         .oneshot(
