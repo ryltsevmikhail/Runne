@@ -1,0 +1,12 @@
+[package]
+name = "gocode-platform-mobile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-platform-ports = { path = "../platform-ports" }
+
+[lints]
+workspace = true

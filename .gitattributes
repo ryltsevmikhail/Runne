@@ -1,0 +1,5 @@
+docs/golden/*.json text eol=lf
+docs/profiles/*.json text eol=lf
+docs/profiles/*.digest text eol=lf
+docs/schemas/opencode-baseline-inventory-*.schema.json text eol=lf
+crates/gocode-provider-http/tests/fixtures/synthetic_stream.json text eol=lf

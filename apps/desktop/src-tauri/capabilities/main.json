@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Minimum capability set for the primary GOCODE window.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

@@ -1,0 +1,25 @@
+[package]
+name = "gocode-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-application = { path = "../gocode-application" }
+gocode-domain = { path = "../gocode-domain" }
+gocode-provider = { path = "../gocode-provider" }
+rand = "0.8"
+rusqlite = { version = "=0.34.0", features = ["bundled"] }
+sha2 = "=0.10.8"
+hmac = "0.12"
+async-trait = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+same-file = "1"
+
+[dev-dependencies]
+gocode-api = { path = "../gocode-api" }
+tokio = { workspace = true, features = ["macros", "rt"] }

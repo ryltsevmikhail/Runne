@@ -1,0 +1,19 @@
+[package]
+name = "gocode-app-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-local-store = { path = "../local-store" }
+gocode-runtime-client = { path = "../runtime-client" }
+rusqlite.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true
