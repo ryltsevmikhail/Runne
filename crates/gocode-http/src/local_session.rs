@@ -33,6 +33,10 @@ pub struct LocalSessionHttpState {
 pub struct VerifiedLocalTls(());
 
 impl VerifiedLocalTls {
+    #[expect(
+        dead_code,
+        reason = "the verified listener composition is introduced in Task 4"
+    )]
     pub(crate) const fn from_verified_listener() -> Self {
         Self(())
     }
@@ -40,6 +44,10 @@ impl VerifiedLocalTls {
 
 impl LocalSessionHttpState {
     /// Creates bootstrap state after the pinned local TLS listener has verified its identity.
+    #[expect(
+        dead_code,
+        reason = "the verified listener composition is introduced in Task 4"
+    )]
     pub(crate) fn new(
         service: LocalSessionService,
         clock: Arc<dyn Fn() -> Duration + Send + Sync>,
@@ -50,14 +58,6 @@ impl LocalSessionHttpState {
             clock,
             _verified_tls: verified_tls,
         }
-    }
-
-    #[doc(hidden)]
-    pub fn for_test(
-        service: LocalSessionService,
-        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
-    ) -> Self {
-        Self::new(service, clock, VerifiedLocalTls::from_verified_listener())
     }
 
     /// Shares the bounded service with a composable session-auth layer.

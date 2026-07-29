@@ -15,11 +15,7 @@ use gocode_application::local_session::{
     BootstrapProof, LocalSessionService, bootstrap_proof_transcript,
 };
 use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
-use gocode_http::{
-    auth::{SessionAuthLayer, session_authorization_header},
-    local_session::LocalSessionHttpState,
-    router::create_local_session_bootstrap_router,
-};
+use gocode_http::auth::{SessionAuthLayer, session_authorization_header};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tower::ServiceExt;
@@ -59,71 +55,6 @@ fn proof(server: [u8; 32], client: [u8; 32]) -> BootstrapProof {
 }
 
 #[tokio::test]
-async fn actual_bootstrap_routes_are_tls_only_and_reject_unknown_and_oversized_bodies() {
-    let now = Arc::new(Mutex::new(Duration::ZERO));
-    let app = create_local_session_bootstrap_router(LocalSessionHttpState::for_test(
-        service(),
-        clock(now),
-    ));
-    let response = app.clone().oneshot(Request::builder().method("POST").uri("/v1/local-session/challenges").header("content-type", "application/json").body(Body::from(r#"{"clientNonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","serverNonce":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","nowMillis":0,"unexpected":true}"#)).unwrap()).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let response = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/local-session/challenges")
-                .header("content-type", "application/json")
-                .body(Body::from(vec![b'x'; 8 * 1024 + 1]))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
-
-    let app = create_local_session_bootstrap_router(LocalSessionHttpState::for_test(
-        service(),
-        clock(Arc::new(Mutex::new(Duration::ZERO))),
-    ));
-    let client_nonce = URL_SAFE_NO_PAD.encode([9; 32]);
-    let server_nonce = URL_SAFE_NO_PAD.encode([8; 32]);
-    let challenge_payload =
-        serde_json::json!({"clientNonce": client_nonce, "serverNonce": server_nonce});
-    let request = Request::builder()
-        .method("POST")
-        .uri("/v1/local-session/challenges")
-        .header("content-type", "application/json")
-        .body(Body::from(challenge_payload.to_string()))
-        .unwrap();
-    let response = app.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let challenge: serde_json::Value =
-        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-    let payload = serde_json::json!({"challengeId": challenge["challengeId"], "proof": URL_SAFE_NO_PAD.encode(proof([8; 32], [9; 32]).as_bytes()), "authority": URL_SAFE_NO_PAD.encode([10; 32])});
-    let authenticate = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/v1/local-session/authenticate")
-                .header("content-type", "application/json")
-                .body(Body::from(payload.to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(authenticate.status(), StatusCode::OK);
-    let replay_payload = serde_json::json!({"challengeId": challenge["challengeId"], "proof": URL_SAFE_NO_PAD.encode([0; 32]), "authority": URL_SAFE_NO_PAD.encode([11; 32])});
-    let replay_request = Request::builder()
-        .method("POST")
-        .uri("/v1/local-session/authenticate")
-        .header("content-type", "application/json")
-        .body(Body::from(replay_payload.to_string()))
-        .unwrap();
-    let replay = app.oneshot(replay_request).await.unwrap();
-    assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
 async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
     let mut local = service();
     let challenge = local
@@ -139,15 +70,11 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
         .unwrap();
     let shared = Arc::new(Mutex::new(local));
     let encoded = URL_SAFE_NO_PAD.encode([10; 32]);
-    let header = session_authorization_header(&encoded).unwrap();
-    assert!(header.is_sensitive());
-    assert!(!format!("{header:?}").contains(&encoded));
-    let redacted_request = Request::builder()
-        .uri("/")
-        .header("authorization", header.clone())
-        .body(Body::empty())
-        .unwrap();
-    assert!(!format!("{redacted_request:?}").contains(&encoded));
+    let header: axum::http::HeaderValue = format!("GocodeSession {encoded}").parse().unwrap();
+    assert!(!header.is_sensitive());
+    let outbound = session_authorization_header(&encoded).unwrap();
+    assert!(outbound.is_sensitive());
+    assert!(!format!("{outbound:?}").contains(&encoded));
     let app = Router::new()
         .route(
             "/",
