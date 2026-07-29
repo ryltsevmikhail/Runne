@@ -13,11 +13,18 @@ use crate::admission::{AdmissionState, admission_middleware};
 use crate::auth::AuthLayer;
 use crate::conversations::{ConversationHttpState, conversation_router};
 use crate::health::{HealthState, health_router};
+use crate::local_session::{LocalSessionHttpState, local_session_router};
 use crate::middleware::request_id_middleware;
 use crate::opencode::{OpenCodeSessionState, opencode_session_router};
 use crate::replay::{ReplayHttpState, replay_router};
 use crate::runtime_profile::{RuntimeProfileHttpState, runtime_profile_router};
 use crate::task_runs::{TaskRunHttpState, task_run_router};
+
+/// Builds the TLS-gated local-session bootstrap surface without changing the
+/// legacy bearer-protected production router before the Task 4 cutover.
+pub fn create_local_session_bootstrap_router(state: LocalSessionHttpState) -> Router {
+    local_session_router(state)
+}
 
 /// Builds the production canonical HTTP surface.
 ///

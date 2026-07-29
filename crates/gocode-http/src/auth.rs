@@ -7,10 +7,15 @@ use axum::{
     body::Body,
     http::{HeaderMap, Request, Response, StatusCode},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use gocode_api::ApiPrincipalId;
+use gocode_api::RuntimeSessionBinding;
+use gocode_application::local_session::LocalSessionService;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
+use std::time::Duration;
 use subtle::ConstantTimeEq;
 
 use crate::error::{RequestId, canonical_error_response};
@@ -48,6 +53,115 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Option<Vec<u8>> {
         return None;
     }
     hex::decode(token).ok()
+}
+
+/// Builds a redacted local-session authorization header.
+pub fn session_authorization_header(
+    authority: &str,
+) -> Result<axum::http::HeaderValue, RuntimeApiError> {
+    let wire_value = format!("GocodeSession {authority}");
+    let mut header = axum::http::HeaderValue::from_str(&wire_value)
+        .map_err(|_| RuntimeApiError::invalid_request())?;
+    header.set_sensitive(true);
+    Ok(header)
+}
+
+/// Redacted invalid-request marker returned only by the header builder.
+#[derive(Debug, Clone, Copy)]
+pub struct RuntimeApiError;
+impl RuntimeApiError {
+    fn invalid_request() -> Self {
+        Self
+    }
+}
+
+/// Session middleware validating exactly one base64url-no-pad authority.
+#[derive(Clone)]
+pub struct SessionAuthLayer {
+    service: Arc<Mutex<LocalSessionService>>,
+    binding: RuntimeSessionBinding,
+    now: Duration,
+}
+impl SessionAuthLayer {
+    /// Creates a composable layer over the real bounded authority service.
+    pub fn new(
+        service: Arc<Mutex<LocalSessionService>>,
+        binding: RuntimeSessionBinding,
+        now: Duration,
+    ) -> Self {
+        Self {
+            service,
+            binding,
+            now,
+        }
+    }
+}
+impl<S> tower::Layer<S> for SessionAuthLayer {
+    type Service = SessionAuthMiddleware<S>;
+    fn layer(&self, inner: S) -> Self::Service {
+        SessionAuthMiddleware {
+            inner,
+            service: self.service.clone(),
+            binding: self.binding.clone(),
+            now: self.now,
+        }
+    }
+}
+#[derive(Clone)]
+pub struct SessionAuthMiddleware<S> {
+    inner: S,
+    service: Arc<Mutex<LocalSessionService>>,
+    binding: RuntimeSessionBinding,
+    now: Duration,
+}
+impl<S> tower::Service<Request<Body>> for SessionAuthMiddleware<S>
+where
+    S: tower::Service<Request<Body>, Response = Response<Body>> + Clone + Send + 'static,
+    S::Future: Send + 'static,
+{
+    type Response = Response<Body>;
+    type Error = S::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+    fn call(&mut self, mut req: Request<Body>) -> Self::Future {
+        let authenticated = extract_session_authority(req.headers()).and_then(|authority| {
+            self.service.lock().ok().and_then(|mut service| {
+                service
+                    .authorize_wire_for_binding(&authority, &self.binding, self.now)
+                    .ok()
+            })
+        });
+        if let Some(authenticated) = authenticated {
+            req.extensions_mut().insert(authenticated);
+            let mut inner = self.inner.clone();
+            Box::pin(async move { inner.call(req).await })
+        } else {
+            let response = canonical_error_response(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                &RequestId::generate(),
+            );
+            Box::pin(async move { Ok(response) })
+        }
+    }
+}
+fn extract_session_authority(headers: &HeaderMap) -> Option<[u8; 32]> {
+    let mut values = headers.get_all("authorization").iter();
+    let value = values.next()?.to_str().ok()?;
+    if values.next().is_some() {
+        return None;
+    }
+    let (scheme, token) = value.split_once(' ')?;
+    if scheme != "GocodeSession"
+        || token.is_empty()
+        || token.contains('=')
+        || token.contains(char::is_whitespace)
+    {
+        return None;
+    }
+    URL_SAFE_NO_PAD.decode(token).ok()?.try_into().ok()
 }
 
 // ── AuthLayer ─────────────────────────────────────────────────────────
