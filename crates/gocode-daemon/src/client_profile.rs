@@ -5,11 +5,70 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::DaemonError;
 
 const CLIENT_PROFILE_SCHEMA_VERSION: u32 = 1;
+#[allow(dead_code)]
+pub(crate) const LOCAL_RUNTIME_PROFILE_V2: &str = "gocode-local-runtime/2";
+
+/// Strict inactive profile-v2 wire representation for pinned TLS clients.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[allow(dead_code)]
+pub(crate) struct ClientProfileV2Wire {
+    schema_version: u32,
+    transport_profile_id: String,
+    profile_id: String,
+    schema_hash: String,
+    capability_digest: String,
+    endpoint: String,
+    certificate_der_base64: String,
+    certificate_sha256: String,
+    bootstrap_secret_path: PathBuf,
+    authority_id: String,
+    principal_id: String,
+    event_log_lineage_id: String,
+    daemon_instance_id: String,
+    launch_generation: u64,
+}
+
+#[allow(dead_code)]
+impl ClientProfileV2Wire {
+    /// Serializes the exact profile-v2 wire shape. Publication remains inactive until Task 4.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        endpoint: SocketAddr,
+        certificate_der_base64: String,
+        certificate_sha256: [u8; 32],
+        bootstrap_secret_path: PathBuf,
+        authority_id: [u8; 16],
+        event_log_lineage_id: uuid::Uuid,
+        daemon_instance_id: uuid::Uuid,
+        launch_generation: u64,
+    ) -> Result<Self, DaemonError> {
+        if !bootstrap_secret_path.is_absolute() || launch_generation == 0 {
+            return Err(DaemonError::Bootstrap("invalid profile-v2 identity".into()));
+        }
+        Ok(Self {
+            schema_version: 2,
+            transport_profile_id: LOCAL_RUNTIME_PROFILE_V2.to_owned(),
+            profile_id: gocode_runtime::bundle::BUNDLE_ID.to_owned(),
+            schema_hash: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
+            capability_digest: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
+            endpoint: format!("https://{endpoint}"),
+            certificate_der_base64,
+            certificate_sha256: hex::encode(certificate_sha256),
+            bootstrap_secret_path,
+            authority_id: hex::encode(authority_id),
+            principal_id: "local-owner".to_owned(),
+            event_log_lineage_id: event_log_lineage_id.to_string(),
+            daemon_instance_id: daemon_instance_id.to_string(),
+            launch_generation,
+        })
+    }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

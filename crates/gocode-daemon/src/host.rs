@@ -16,7 +16,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio::sync::{Semaphore, oneshot};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tower::ServiceExt;
 
@@ -44,6 +44,27 @@ pub struct HttpHost {
 pub struct HttpHostTask {
     shutdown: Option<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), DaemonError>>,
+}
+
+/// A bound TLS-only local HTTP host for a caller-composed router.
+pub struct TlsHttpHost {
+    listener: TcpListener,
+    app: Router,
+    server_config: Arc<rustls::ServerConfig>,
+}
+
+/// An owned TLS HTTP-host task and its ingress-stop signal.
+pub struct TlsHttpHostTask {
+    shutdown: Option<oneshot::Sender<()>>,
+    task: JoinHandle<Result<(), DaemonError>>,
+}
+
+/// Stops TLS HTTP ingress and confirms every accepted connection task has exited.
+pub async fn stop_tls_http_host(host_task: &mut TlsHttpHostTask) -> Result<(), DaemonError> {
+    if let Some(shutdown) = host_task.shutdown.take() {
+        let _ = shutdown.send(());
+    }
+    http_host_result((&mut host_task.task).await)
 }
 
 /// Stops HTTP ingress and confirms every accepted connection task has exited.
@@ -114,6 +135,48 @@ impl HttpHost {
     }
 }
 
+impl TlsHttpHost {
+    /// Binds a TCP listener which accepts only TLS connections.
+    pub async fn bind(
+        http_bind: &str,
+        app: Router,
+        server_config: Arc<rustls::ServerConfig>,
+    ) -> Result<Self, DaemonError> {
+        Ok(Self {
+            listener: TcpListener::bind(http_bind).await?,
+            app,
+            server_config,
+        })
+    }
+
+    /// Returns the exact hard limit for unauthenticated TLS handshakes.
+    pub const fn pre_auth_handshake_limit(&self) -> usize {
+        32
+    }
+
+    /// Returns the actual bound address, including an OS-assigned port.
+    pub fn local_addr(&self) -> Result<SocketAddr, DaemonError> {
+        Ok(self.listener.local_addr()?)
+    }
+
+    /// Starts the TLS-only accept loop.
+    pub fn start(self) -> TlsHttpHostTask {
+        let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let task = tokio::spawn(serve_tls_http(
+            self.listener,
+            self.app,
+            self.server_config,
+            async move {
+                let _ = shutdown_rx.await;
+            },
+        ));
+        TlsHttpHostTask {
+            shutdown: Some(shutdown_tx),
+            task,
+        }
+    }
+}
+
 fn start_http_host<L>(listener: L, app: Router) -> HttpHostTask
 where
     L: HttpListener,
@@ -174,6 +237,59 @@ where
                     return Err(DaemonError::Bootstrap(format!(
                         "HTTP connection task failed: {error}"
                     )));
+                }
+            }
+        }
+    }
+}
+
+async fn serve_tls_http<F>(
+    listener: TcpListener,
+    app: Router,
+    server_config: Arc<rustls::ServerConfig>,
+    shutdown: F,
+) -> Result<(), DaemonError>
+where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let mut connections = JoinSet::new();
+    let handshakes = Arc::new(Semaphore::new(32));
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            _ = &mut shutdown => return stop_connections(&mut connections).await,
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => {
+                    let app = app.clone();
+                    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::clone(&server_config));
+                    let handshakes = Arc::clone(&handshakes);
+                    connections.spawn(async move {
+                        let Ok(_permit) = handshakes.acquire_owned().await else { return };
+                        let Ok(stream) = acceptor.accept(stream).await else { return };
+                        let service = service_fn(move |request| {
+                            let app = app.clone();
+                            async move {
+                                let response = match app.oneshot(request.map(axum::body::Body::new)).await {
+                                    Ok(response) => response,
+                                    Err(never) => match never {},
+                                };
+                                Ok::<_, std::convert::Infallible>(response)
+                            }
+                        });
+                        let _ = ConnectionBuilder::new(TokioExecutor::new())
+                            .serve_connection(TokioIo::new(stream), service)
+                            .await;
+                    });
+                }
+                Err(error) => {
+                    stop_connections(&mut connections).await?;
+                    return Err(error.into());
+                }
+            },
+            joined = connections.join_next(), if !connections.is_empty() => {
+                if let Some(Err(error)) = joined {
+                    stop_connections(&mut connections).await?;
+                    return Err(DaemonError::Bootstrap(format!("TLS HTTP connection task failed: {error}")));
                 }
             }
         }

@@ -15,6 +15,7 @@
 
 use crate::config::ConfigurationSnapshot;
 use crate::error::DaemonError;
+use crate::launch_identity::LaunchIdentity;
 use crate::lock::{LockSet, MetadataSnapshot};
 use crate::token::{DaemonToken, TokenManager};
 use std::fs;
@@ -52,6 +53,10 @@ pub struct BootstrapOutcome {
     pub db_existed: bool,
     /// How the daemon started.
     pub startup_mode: StartupMode,
+    /// Fresh TLS and bootstrap identity for this daemon launch.
+    pub launch_identity: LaunchIdentity,
+    /// Durable positive generation allocated for this launch.
+    pub launch_generation: u64,
     /// Provisioned or loaded daemon token.
     pub token: DaemonToken,
 }
@@ -64,6 +69,8 @@ impl std::fmt::Debug for BootstrapOutcome {
             .field("authority_id", &hex::encode(self.authority_id))
             .field("db_existed", &self.db_existed)
             .field("startup_mode", &self.startup_mode)
+            .field("launch_identity", &self.launch_identity)
+            .field("launch_generation", &self.launch_generation)
             .field("token", &self.token)
             .finish()
     }
@@ -129,6 +136,10 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     // ── Step 11: schema migration ───────────────────────────────────
     schema::apply_migrations(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("schema migration: {e}")))?;
+    let launch_generation = schema::next_launch_generation(&db_conn)
+        .map_err(|_| DaemonError::Bootstrap("allocate launch generation: corrupt state".into()))?;
+    let launch_identity = LaunchIdentity::generate(launch_generation)
+        .map_err(|_| DaemonError::Bootstrap("generate launch TLS identity".into()))?;
 
     // ── Step 12: authority ID ───────────────────────────────────────
     let (authority_id, db_authority_after) =
@@ -159,6 +170,8 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
         authority_id,
         db_existed,
         startup_mode,
+        launch_identity,
+        launch_generation,
         token,
     })
 }

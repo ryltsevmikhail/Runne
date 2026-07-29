@@ -1441,6 +1441,61 @@ pub fn ensure_event_log_lineage_id(conn: &Connection) -> SqliteResult<EventLogLi
     })
 }
 
+/// Allocates the next durable positive daemon launch generation.
+///
+/// The read, validation, increment, and write occur under one `BEGIN
+/// IMMEDIATE` transaction. Corrupt state is never rewritten.
+pub fn next_launch_generation(conn: &Connection) -> SqliteResult<u64> {
+    const KEY: &str = "launch_generation";
+    conn.execute_batch("BEGIN IMMEDIATE")?;
+    let result = (|| {
+        let current: Option<String> = conn
+            .query_row(
+                "SELECT value FROM _daemon_info WHERE key = ?1",
+                [KEY],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let generation = match current {
+            None => 1,
+            Some(value) => {
+                let parsed = value
+                    .parse::<u64>()
+                    .map_err(|_| launch_generation_corruption())?;
+                if parsed == 0 || parsed.to_string() != value {
+                    return Err(launch_generation_corruption());
+                }
+                parsed
+                    .checked_add(1)
+                    .ok_or_else(launch_generation_corruption)?
+            }
+        };
+        conn.execute(
+            "INSERT INTO _daemon_info (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (KEY, generation.to_string()),
+        )?;
+        Ok(generation)
+    })();
+    match result {
+        Ok(generation) => {
+            conn.execute_batch("COMMIT")?;
+            Ok(generation)
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(error)
+        }
+    }
+}
+
+fn launch_generation_corruption() -> rusqlite::Error {
+    rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+        std::io::ErrorKind::InvalidData,
+        "corrupt launch generation",
+    )))
+}
+
 // ── Startup purge ───────────────────────────────────────────────────────
 
 /// Purge stale replay subscriptions at startup.
