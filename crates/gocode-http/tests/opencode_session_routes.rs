@@ -4,13 +4,18 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode},
 };
+use gocode_api::{
+    ApiActor, CompleteTaskRunCommand, CreateTaskRunCommand, ExistingTaskRunCommand,
+    TaskRunCommandAck, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
+    TaskRunQueryHostPort, TaskRunSnapshot,
+};
+use gocode_domain::id::TaskRunId;
 use gocode_http::opencode::{OpenCodeSessionState, opencode_session_router};
 use gocode_http::{
     admission::AdmissionState,
     health::{HealthState, RecoveryState},
-    limits::LimitsConfig,
-    replay::ReplayState,
     router::create_router_with_opencode,
+    task_runs::TaskRunHttpState,
 };
 use gocode_opencode_compat::{
     CanonicalPrompt, CanonicalPromptResult, CanonicalSessionStatus, OpenCodeSessionV1Service,
@@ -20,6 +25,54 @@ use tower::ServiceExt;
 
 #[derive(Clone)]
 struct Host;
+
+impl TaskRunCommandHostPort for Host {
+    async fn create_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: CreateTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn queue_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn admit_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn start_attempt(
+        &self,
+        _: TaskRunCommandContext,
+        _: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn complete_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: CompleteTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+}
+
+impl TaskRunQueryHostPort for Host {
+    async fn get_task_run(&self, _: TaskRunId) -> Result<TaskRunSnapshot, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+}
 
 impl SessionV1HostPort for Host {
     async fn prompt(
@@ -169,16 +222,13 @@ async fn malformed_and_unsupported_inputs_fail_closed() {
 
 #[tokio::test]
 async fn parent_router_applies_auth_and_admission_to_compatibility_routes() {
-    let app = create_router_with_opencode::<(), (), (), Host>(
+    let app = create_router_with_opencode::<Host, Host>(
         [7; 32],
         HealthState {
             recovery_state: RecoveryState::Ready,
         },
         AdmissionState::new(RecoveryState::Ready),
-        ReplayState {
-            service: Arc::new(()),
-            limits: LimitsConfig::default(),
-        },
+        TaskRunHttpState::new(Host, ApiActor::new("gocode-http-test").unwrap()),
         state(),
     );
     let response = app

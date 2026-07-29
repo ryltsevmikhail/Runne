@@ -75,6 +75,14 @@ fn verify_short_input() {
 }
 
 #[test]
+fn debug_output_never_contains_raw_or_hex_token_material() {
+    let token = DaemonToken([0xABu8; 32]);
+    let debug = format!("{token:?}");
+    assert_eq!(debug, "DaemonToken(<redacted>)");
+    assert!(!debug.contains(&hex::encode(token.0)));
+}
+
+#[test]
 fn load_nonexistent_fails() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("nonexistent");

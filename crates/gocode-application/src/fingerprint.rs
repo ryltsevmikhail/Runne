@@ -24,15 +24,14 @@ use gocode_domain::recovery::ReconciliationResultRef;
 use gocode_domain::reference::{BudgetReservationRef, CheckpointRef, ResultRef};
 use sha2::{Digest, Sha256};
 
+pub use gocode_api::MAX_CANONICAL_TERMINAL_REASON_BYTES as MAX_TERMINAL_REASON_BYTES;
+
 use crate::commands::{
     ActivateScheduledRetryInput, CommitContextInput, CommitLoopCheckpointInput, CommitPlanInput,
     CommitRecoveryResumeInput, CompleteLoopCycleInput, CreateNextCycleInput,
     RecordStepOutcomeInput, ResumeLoopWaitInput, ScheduleRetryInput, StartLoopCycleInput,
 };
 use crate::errors::FingerprintError;
-
-/// Maximum bytes for a `TerminalResult::Failure.reason`.
-pub const MAX_TERMINAL_REASON_BYTES: usize = 4096;
 
 /// Domain-separation prefix for command fingerprints.
 const DOMAIN_PREFIX: &[u8] = b"gocode-cmd\x01";

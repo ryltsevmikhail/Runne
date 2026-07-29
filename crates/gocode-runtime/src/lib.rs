@@ -21,6 +21,7 @@ pub mod opencode_session;
 pub mod plugin_host;
 pub mod provider_tool;
 pub mod session_host;
+pub mod task_run_host;
 pub mod types;
 
 mod supervisor;
@@ -30,6 +31,7 @@ mod startup;
 pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };
+pub use task_run_host::RuntimeTaskRunHost;
 pub mod bundle;
 
 pub use mcp::{McpActivationError, McpActivationRequest, McpRuntimeActivation};

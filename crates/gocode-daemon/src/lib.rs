@@ -3,6 +3,7 @@
 //! Exports the public API for the daemon process:
 //! configuration, error types, and future subsystems.
 
+pub mod application;
 pub mod bootstrap;
 pub mod config;
 pub mod error;

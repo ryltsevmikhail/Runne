@@ -10,6 +10,8 @@
 use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use std::sync::{Arc, RwLock};
 
+use crate::error::{RequestId, canonical_error_response};
+
 /// Cloneable admission state shared across requests.
 #[derive(Clone)]
 pub struct AdmissionState {
@@ -40,11 +42,22 @@ pub async fn admission_middleware(
     axum::extract::State(state): axum::extract::State<AdmissionState>,
     request: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> Response {
     match state.current() {
         super::health::RecoveryState::Ready | super::health::RecoveryState::RecoveryBlocked => {
-            Ok(next.run(request).await)
+            next.run(request).await
         }
-        _ => Err(StatusCode::SERVICE_UNAVAILABLE),
+        _ => {
+            let request_id = request
+                .extensions()
+                .get::<RequestId>()
+                .cloned()
+                .unwrap_or_else(RequestId::generate);
+            canonical_error_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "runtime_unavailable",
+                &request_id,
+            )
+        }
     }
 }
