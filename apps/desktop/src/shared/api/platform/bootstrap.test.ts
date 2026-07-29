@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { loadBootstrap, saveTheme } from './bootstrap'
+import { connectRuntime, loadBootstrap, saveTheme } from './bootstrap'
 
 describe('bootstrap IPC adapter', () => {
   it('accepts the closed sanitized bootstrap response', async () => {
@@ -32,5 +32,20 @@ describe('bootstrap IPC adapter', () => {
     })
 
     expect(calls).toEqual([['set_theme', { theme: 'light' }]])
+  })
+
+  it('accepts only a closed runtime state from the host connection command', async () => {
+    const calls: string[] = []
+    const state = await connectRuntime(async (command) => {
+      calls.push(command)
+      return 'live'
+    })
+
+    expect(state).toBe('live')
+    expect(calls).toEqual(['connect_runtime'])
+
+    await expect(connectRuntime(async () => 'connected')).rejects.toThrow(
+      'Invalid runtime connection response',
+    )
   })
 })

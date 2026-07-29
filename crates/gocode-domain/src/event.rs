@@ -19,7 +19,9 @@ use crate::timestamp::Timestamp;
 /// Data sensitivity classification for an event.
 ///
 /// Determined deterministically from the event type — not a runtime choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum Sensitivity {
     /// May be logged, relayed, and stored without special handling.
     Public,

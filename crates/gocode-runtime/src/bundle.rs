@@ -18,6 +18,24 @@ use sha2::{Digest, Sha256};
 /// Bundle name + major version.
 pub const BUNDLE_ID: &str = "gocode-ui-client/1";
 
+/// Runtime commit whose canonical bundle bytes were accepted for profile V1.
+pub const PUBLISHED_RUNTIME_COMMIT: &str = "6311992cea0551dab406a93b855ce2c49507e07e";
+
+/// SHA-256 of the published V1 bundle generated from
+/// [`PUBLISHED_RUNTIME_COMMIT`].
+pub const PUBLISHED_BUNDLE_HASH: &str =
+    "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429";
+
+/// Exact additive command/query surface published by the current local daemon.
+///
+/// The client verifies this ordered set in addition to the accepted V1 bundle
+/// hash. Provider/tool execution remains intentionally absent.
+pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+];
+
 /// Placeholder — replaced at generation with the actual runtime commit.
 pub const RUNTIME_COMMIT_PLACEHOLDER: &str = "0000000000000000000000000000000000000000";
 
@@ -216,6 +234,14 @@ mod tests {
         assert_eq!(
             hash,
             "6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b"
+        );
+    }
+
+    #[test]
+    fn published_profile_hash_matches_the_accepted_runtime_commit() {
+        assert_eq!(
+            BundleManifest::v1(PUBLISHED_RUNTIME_COMMIT).golden_hash(),
+            PUBLISHED_BUNDLE_HASH
         );
     }
 

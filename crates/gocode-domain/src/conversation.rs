@@ -1,7 +1,8 @@
 //! Conversation aggregate — session lifecycle state machine.
 
 use crate::event::{DomainEventDraft, EventEnvelope, Sensitivity};
-use crate::id::{AggregateId, ConversationId, WorkspaceId};
+use crate::id::{AggregateId, AttemptId, ConversationId, MessageId, TaskRunId, WorkspaceId};
+use crate::message::{ConversationMessage, MessageRole, MessageText};
 
 pub use crate::command::ConversationCommand;
 
@@ -23,6 +24,10 @@ pub enum ConversationState {
 pub enum ConversationEventKind {
     /// [`ConversationEvent::ConversationCreated`]
     ConversationCreated,
+    /// [`ConversationEvent::UserMessageAppended`]
+    UserMessageAppended,
+    /// [`ConversationEvent::AssistantMessageAppended`]
+    AssistantMessageAppended,
     /// [`ConversationEvent::ConversationClosed`]
     ConversationClosed,
 }
@@ -37,6 +42,28 @@ pub enum ConversationEvent {
         /// The workspace that owns the conversation.
         workspace_id: WorkspaceId,
     },
+    /// A user message was appended and bound to one exact execution attempt.
+    UserMessageAppended {
+        /// Message identity.
+        message_id: MessageId,
+        /// Coordinating TaskRun.
+        taskrun_id: TaskRunId,
+        /// Exact running attempt.
+        attempt_id: AttemptId,
+        /// Validated bounded text.
+        text: MessageText,
+    },
+    /// The active execution produced its assistant message.
+    AssistantMessageAppended {
+        /// Message identity.
+        message_id: MessageId,
+        /// Coordinating TaskRun.
+        taskrun_id: TaskRunId,
+        /// Exact running attempt.
+        attempt_id: AttemptId,
+        /// Validated bounded text.
+        text: MessageText,
+    },
     /// The conversation was closed.
     ConversationClosed,
 }
@@ -46,7 +73,22 @@ impl ConversationEvent {
     pub fn kind(&self) -> ConversationEventKind {
         match self {
             Self::ConversationCreated { .. } => ConversationEventKind::ConversationCreated,
+            Self::UserMessageAppended { .. } => ConversationEventKind::UserMessageAppended,
+            Self::AssistantMessageAppended { .. } => {
+                ConversationEventKind::AssistantMessageAppended
+            }
             Self::ConversationClosed => ConversationEventKind::ConversationClosed,
+        }
+    }
+
+    /// Deterministic sensitivity classification for this event type.
+    #[must_use]
+    pub const fn sensitivity(&self) -> Sensitivity {
+        match self {
+            Self::ConversationCreated { .. } | Self::ConversationClosed => Sensitivity::Public,
+            Self::UserMessageAppended { .. } | Self::AssistantMessageAppended { .. } => {
+                Sensitivity::Sensitive
+            }
         }
     }
 }
@@ -58,6 +100,27 @@ impl ConversationEvent {
 pub enum ConversationError {
     /// A close was requested for an already closed conversation.
     AlreadyClosed,
+    /// A user message cannot start while another generation is active.
+    GenerationAlreadyActive {
+        /// TaskRun already bound to the active generation.
+        taskrun_id: TaskRunId,
+    },
+    /// An assistant message has no matching active generation.
+    NoActiveGeneration,
+    /// Assistant output referenced a different TaskRun or attempt.
+    GenerationMismatch,
+    /// A message identity was already used in this Conversation.
+    DuplicateMessageId {
+        /// Reused message identity.
+        message_id: MessageId,
+    },
+    /// Stored sensitivity did not match the event's deterministic class.
+    SensitivityMismatch {
+        /// Expected event classification.
+        expected: Sensitivity,
+        /// Stored classification.
+        actual: Sensitivity,
+    },
     /// An event is invalid from the aggregate's current state.
     InvalidTransition {
         /// The aggregate's current state.
@@ -106,6 +169,19 @@ pub struct Conversation {
     pub workspace_id: WorkspaceId,
     /// The current lifecycle state.
     pub state: ConversationState,
+    messages: Vec<ConversationMessage>,
+    active_generation: Option<ActiveTextGeneration>,
+}
+
+/// Active durable user-to-assistant execution binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ActiveTextGeneration {
+    /// User message awaiting an assistant response.
+    pub user_message_id: MessageId,
+    /// Coordinating TaskRun.
+    pub taskrun_id: TaskRunId,
+    /// Exact running attempt.
+    pub attempt_id: AttemptId,
 }
 
 impl Conversation {
@@ -119,9 +195,21 @@ impl Conversation {
             aggregate_id.clone(),
             aggregate_id,
             1,
-            Sensitivity::Public,
+            ConversationEvent::ConversationCreated { workspace_id }.sensitivity(),
             ConversationEvent::ConversationCreated { workspace_id },
         )
+    }
+
+    /// Returns the durable message timeline.
+    #[must_use]
+    pub fn messages(&self) -> &[ConversationMessage] {
+        &self.messages
+    }
+
+    /// Returns the currently active text generation, if any.
+    #[must_use]
+    pub const fn active_generation(&self) -> Option<&ActiveTextGeneration> {
+        self.active_generation.as_ref()
     }
 
     /// Handle a command against an existing aggregate.
@@ -129,20 +217,74 @@ impl Conversation {
         &self,
         command: ConversationCommand,
     ) -> Result<Vec<DomainEventDraft<ConversationEvent>>, ConversationError> {
+        if self.state == ConversationState::Closed {
+            return match command {
+                ConversationCommand::Close => Err(ConversationError::AlreadyClosed),
+                ConversationCommand::AppendUserMessage { .. } => {
+                    Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::UserMessageAppended,
+                    })
+                }
+                ConversationCommand::AppendAssistantMessage { .. } => {
+                    Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::AssistantMessageAppended,
+                    })
+                }
+            };
+        }
+        let aggregate_id = AggregateId::Conversation(self.id);
+        let draft = |payload: ConversationEvent| {
+            DomainEventDraft::new(
+                aggregate_id.clone(),
+                aggregate_id.clone(),
+                1,
+                payload.sensitivity(),
+                payload,
+            )
+        };
         match command {
-            ConversationCommand::Close if self.state == ConversationState::Closed => {
-                Err(ConversationError::AlreadyClosed)
+            ConversationCommand::AppendUserMessage {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text,
+            } => {
+                if let Some(active) = self.active_generation {
+                    return Err(ConversationError::GenerationAlreadyActive {
+                        taskrun_id: active.taskrun_id,
+                    });
+                }
+                self.require_unique_message_id(message_id)?;
+                Ok(vec![draft(ConversationEvent::UserMessageAppended {
+                    message_id,
+                    taskrun_id,
+                    attempt_id,
+                    text,
+                })])
             }
-            ConversationCommand::Close => {
-                let aggregate_id = AggregateId::Conversation(self.id);
-                Ok(vec![DomainEventDraft::new(
-                    aggregate_id.clone(),
-                    aggregate_id,
-                    1,
-                    Sensitivity::Public,
-                    ConversationEvent::ConversationClosed,
-                )])
+            ConversationCommand::AppendAssistantMessage {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text,
+            } => {
+                let active = self
+                    .active_generation
+                    .ok_or(ConversationError::NoActiveGeneration)?;
+                if active.taskrun_id != taskrun_id || active.attempt_id != attempt_id {
+                    return Err(ConversationError::GenerationMismatch);
+                }
+                self.require_unique_message_id(message_id)?;
+                Ok(vec![draft(ConversationEvent::AssistantMessageAppended {
+                    message_id,
+                    taskrun_id,
+                    attempt_id,
+                    text,
+                })])
             }
+            ConversationCommand::Close => Ok(vec![draft(ConversationEvent::ConversationClosed)]),
         }
     }
 
@@ -164,6 +306,12 @@ impl Conversation {
                 actual: event.correlation_id().clone(),
             });
         }
+        if *event.sensitivity() != event.payload().sensitivity() {
+            return Err(ConversationError::SensitivityMismatch {
+                expected: event.payload().sensitivity(),
+                actual: *event.sensitivity(),
+            });
+        }
 
         self.apply_payload(event.payload())
     }
@@ -177,6 +325,12 @@ impl Conversation {
         }
 
         let first = &events[0];
+        if *first.sensitivity() != first.payload().sensitivity() {
+            return Err(ConversationError::SensitivityMismatch {
+                expected: first.payload().sensitivity(),
+                actual: *first.sensitivity(),
+            });
+        }
         if first.sequence() != 1 {
             return Err(ConversationError::InvalidInitialSequence {
                 expected: 1,
@@ -203,7 +357,9 @@ impl Conversation {
 
         let workspace_id = match first.payload() {
             ConversationEvent::ConversationCreated { workspace_id } => *workspace_id,
-            ConversationEvent::ConversationClosed => {
+            ConversationEvent::UserMessageAppended { .. }
+            | ConversationEvent::AssistantMessageAppended { .. }
+            | ConversationEvent::ConversationClosed => {
                 return Err(ConversationError::MissingCreationEvent);
             }
         };
@@ -211,6 +367,8 @@ impl Conversation {
             id: conversation_id,
             workspace_id,
             state: ConversationState::Active,
+            messages: Vec::new(),
+            active_generation: None,
         };
 
         for (expected_sequence, event) in (2_u64..).zip(&events[1..]) {
@@ -236,6 +394,12 @@ impl Conversation {
             if event.payload().kind() == ConversationEventKind::ConversationCreated {
                 return Err(ConversationError::DuplicateCreationEvent { conversation_id });
             }
+            if *event.sensitivity() != event.payload().sensitivity() {
+                return Err(ConversationError::SensitivityMismatch {
+                    expected: event.payload().sensitivity(),
+                    actual: *event.sensitivity(),
+                });
+            }
             aggregate.apply_payload(event.payload())?;
         }
 
@@ -251,6 +415,67 @@ impl Conversation {
                     event: ConversationEventKind::ConversationCreated,
                 })
             }
+            ConversationEvent::UserMessageAppended {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text,
+            } => {
+                if self.state == ConversationState::Closed {
+                    return Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::UserMessageAppended,
+                    });
+                }
+                if let Some(active) = self.active_generation {
+                    return Err(ConversationError::GenerationAlreadyActive {
+                        taskrun_id: active.taskrun_id,
+                    });
+                }
+                self.require_unique_message_id(*message_id)?;
+                self.messages.push(ConversationMessage {
+                    message_id: *message_id,
+                    role: MessageRole::User,
+                    taskrun_id: *taskrun_id,
+                    attempt_id: *attempt_id,
+                    text: text.clone(),
+                });
+                self.active_generation = Some(ActiveTextGeneration {
+                    user_message_id: *message_id,
+                    taskrun_id: *taskrun_id,
+                    attempt_id: *attempt_id,
+                });
+                Ok(())
+            }
+            ConversationEvent::AssistantMessageAppended {
+                message_id,
+                taskrun_id,
+                attempt_id,
+                text,
+            } => {
+                if self.state == ConversationState::Closed {
+                    return Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::AssistantMessageAppended,
+                    });
+                }
+                let active = self
+                    .active_generation
+                    .ok_or(ConversationError::NoActiveGeneration)?;
+                if active.taskrun_id != *taskrun_id || active.attempt_id != *attempt_id {
+                    return Err(ConversationError::GenerationMismatch);
+                }
+                self.require_unique_message_id(*message_id)?;
+                self.messages.push(ConversationMessage {
+                    message_id: *message_id,
+                    role: MessageRole::Assistant,
+                    taskrun_id: *taskrun_id,
+                    attempt_id: *attempt_id,
+                    text: text.clone(),
+                });
+                self.active_generation = None;
+                Ok(())
+            }
             ConversationEvent::ConversationClosed if self.state == ConversationState::Closed => {
                 Err(ConversationError::AlreadyClosed)
             }
@@ -259,6 +484,17 @@ impl Conversation {
                 Ok(())
             }
         }
+    }
+
+    fn require_unique_message_id(&self, message_id: MessageId) -> Result<(), ConversationError> {
+        if self
+            .messages
+            .iter()
+            .any(|message| message.message_id == message_id)
+        {
+            return Err(ConversationError::DuplicateMessageId { message_id });
+        }
+        Ok(())
     }
 }
 
@@ -273,6 +509,9 @@ mod tests {
     const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000001";
     const TASKRUN_ID: &str = "018f2e3a-7000-7000-8000-000000000002";
     const OTHER_WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000003";
+    const ATTEMPT_ID: &str = "018f2e3a-7000-7000-8000-000000000004";
+    const USER_MESSAGE_ID: &str = "018f2e3a-7000-7000-8000-000000000005";
+    const ASSISTANT_MESSAGE_ID: &str = "018f2e3a-7000-7000-8000-000000000006";
 
     fn make_envelope(
         sequence: u64,
@@ -280,13 +519,8 @@ mod tests {
         aggregate_id: AggregateId,
         correlation_id: AggregateId,
     ) -> EventEnvelope<ConversationEvent> {
-        let draft = DomainEventDraft::new(
-            aggregate_id,
-            correlation_id,
-            1,
-            Sensitivity::Public,
-            payload,
-        );
+        let sensitivity = payload.sensitivity();
+        let draft = DomainEventDraft::new(aggregate_id, correlation_id, 1, sensitivity, payload);
         let context = CommandContext {
             command_id: CONVERSATION_ID.parse().expect("valid UUIDv7"),
             idempotency_key: IdempotencyKey::new("test").expect("valid idempotency key"),
@@ -318,6 +552,32 @@ mod tests {
 
     fn conversation_aggregate_id() -> AggregateId {
         AggregateId::Conversation(conversation_id())
+    }
+
+    fn taskrun_id() -> TaskRunId {
+        TASKRUN_ID.parse().expect("valid UUIDv7")
+    }
+
+    fn attempt_id() -> AttemptId {
+        ATTEMPT_ID.parse().expect("valid UUIDv7")
+    }
+
+    fn user_message_id() -> MessageId {
+        USER_MESSAGE_ID.parse().expect("valid UUIDv7")
+    }
+
+    fn assistant_message_id() -> MessageId {
+        ASSISTANT_MESSAGE_ID.parse().expect("valid UUIDv7")
+    }
+
+    fn conversation(state: ConversationState) -> Conversation {
+        Conversation {
+            id: conversation_id(),
+            workspace_id: workspace_id(),
+            state,
+            messages: Vec::new(),
+            active_generation: None,
+        }
     }
 
     #[test]
@@ -377,12 +637,110 @@ mod tests {
     }
 
     #[test]
+    fn user_and_assistant_messages_are_sensitive_and_replay_as_one_exchange() {
+        let created = make_envelope(
+            1,
+            ConversationEvent::ConversationCreated {
+                workspace_id: workspace_id(),
+            },
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+        let aggregate = Conversation::replay(std::slice::from_ref(&created)).unwrap();
+        let user_draft = aggregate
+            .decide(ConversationCommand::AppendUserMessage {
+                message_id: user_message_id(),
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                text: MessageText::new("hello").unwrap(),
+            })
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(user_draft.sensitivity(), &Sensitivity::Sensitive);
+        let user = make_envelope(
+            2,
+            user_draft.into_payload(),
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+        let aggregate = Conversation::replay(&[created.clone(), user.clone()]).unwrap();
+        assert_eq!(
+            aggregate.active_generation(),
+            Some(&ActiveTextGeneration {
+                user_message_id: user_message_id(),
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+            })
+        );
+
+        let assistant_draft = aggregate
+            .decide(ConversationCommand::AppendAssistantMessage {
+                message_id: assistant_message_id(),
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                text: MessageText::new("world").unwrap(),
+            })
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(assistant_draft.sensitivity(), &Sensitivity::Sensitive);
+        let assistant = make_envelope(
+            3,
+            assistant_draft.into_payload(),
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+
+        let replayed = Conversation::replay(&[created, user, assistant]).unwrap();
+        assert_eq!(replayed.active_generation(), None);
+        assert_eq!(replayed.messages().len(), 2);
+        assert_eq!(replayed.messages()[0].role, MessageRole::User);
+        assert_eq!(replayed.messages()[0].text.as_str(), "hello");
+        assert_eq!(replayed.messages()[1].role, MessageRole::Assistant);
+        assert_eq!(replayed.messages()[1].text.as_str(), "world");
+    }
+
+    #[test]
+    fn assistant_message_must_match_the_active_taskrun_and_attempt() {
+        let events = [
+            make_envelope(
+                1,
+                ConversationEvent::ConversationCreated {
+                    workspace_id: workspace_id(),
+                },
+                conversation_aggregate_id(),
+                conversation_aggregate_id(),
+            ),
+            make_envelope(
+                2,
+                ConversationEvent::UserMessageAppended {
+                    message_id: user_message_id(),
+                    taskrun_id: taskrun_id(),
+                    attempt_id: attempt_id(),
+                    text: MessageText::new("hello").unwrap(),
+                },
+                conversation_aggregate_id(),
+                conversation_aggregate_id(),
+            ),
+        ];
+        let aggregate = Conversation::replay(&events).unwrap();
+
+        assert!(matches!(
+            aggregate.decide(ConversationCommand::AppendAssistantMessage {
+                message_id: assistant_message_id(),
+                taskrun_id: "018f2e3a-7000-7000-8000-000000000007".parse().unwrap(),
+                attempt_id: attempt_id(),
+                text: MessageText::new("wrong").unwrap(),
+            }),
+            Err(ConversationError::GenerationMismatch)
+        ));
+        assert_eq!(aggregate.messages().len(), 1);
+    }
+
+    #[test]
     fn decide_close_emits_close_event_for_active_conversation() {
-        let conversation = Conversation {
-            id: conversation_id(),
-            workspace_id: workspace_id(),
-            state: ConversationState::Active,
-        };
+        let conversation = conversation(ConversationState::Active);
 
         let events = conversation
             .decide(ConversationCommand::Close)
@@ -396,11 +754,7 @@ mod tests {
 
     #[test]
     fn decide_rejects_closing_closed_conversation() {
-        let conversation = Conversation {
-            id: conversation_id(),
-            workspace_id: workspace_id(),
-            state: ConversationState::Closed,
-        };
+        let conversation = conversation(ConversationState::Closed);
 
         assert!(matches!(
             conversation.decide(ConversationCommand::Close),
@@ -410,11 +764,7 @@ mod tests {
 
     #[test]
     fn apply_rejects_creation_after_create_without_mutation() {
-        let mut conversation = Conversation {
-            id: conversation_id(),
-            workspace_id: workspace_id(),
-            state: ConversationState::Active,
-        };
+        let mut conversation = conversation(ConversationState::Active);
         let event = make_envelope(
             2,
             ConversationEvent::ConversationCreated {
@@ -437,11 +787,7 @@ mod tests {
 
     #[test]
     fn apply_rejects_creation_after_close_without_mutation() {
-        let mut conversation = Conversation {
-            id: conversation_id(),
-            workspace_id: workspace_id(),
-            state: ConversationState::Closed,
-        };
+        let mut conversation = conversation(ConversationState::Closed);
         let event = make_envelope(
             3,
             ConversationEvent::ConversationCreated {
@@ -464,11 +810,7 @@ mod tests {
 
     #[test]
     fn apply_rejects_non_conversation_aggregate_id() {
-        let mut conversation = Conversation {
-            id: conversation_id(),
-            workspace_id: workspace_id(),
-            state: ConversationState::Active,
-        };
+        let mut conversation = conversation(ConversationState::Active);
         let taskrun_id: TaskRunId = TASKRUN_ID.parse().expect("valid UUIDv7");
         let event = make_envelope(
             2,
@@ -489,11 +831,7 @@ mod tests {
 
     #[test]
     fn apply_rejects_non_conversation_correlation_id() {
-        let mut conversation = Conversation {
-            id: conversation_id(),
-            workspace_id: workspace_id(),
-            state: ConversationState::Active,
-        };
+        let mut conversation = conversation(ConversationState::Active);
         let taskrun_id: TaskRunId = TASKRUN_ID.parse().expect("valid UUIDv7");
         let event = make_envelope(
             2,

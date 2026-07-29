@@ -11,6 +11,7 @@ use gocode_domain::id::{
     AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, StepId, TaskRunId,
     WorkspaceId,
 };
+use gocode_domain::message::MessageText;
 use gocode_domain::plan::PlanRevisionRef;
 use gocode_domain::recovery::ReconciliationResultRef;
 use gocode_domain::reference::{BudgetReservationRef, CheckpointRef};
@@ -61,6 +62,28 @@ pub struct CompleteTaskRunInput {
     pub result: TerminalResult,
     /// The version the caller expects.
     pub expected_version: u64,
+}
+
+/// Input for the durable first phase of a Conversation text execution.
+#[derive(Debug, Clone)]
+pub struct BeginConversationTextInput {
+    /// Target Conversation.
+    pub conversation_id: ConversationId,
+    /// Conversation version expected before the user message.
+    pub expected_version: u64,
+    /// Validated user message.
+    pub text: MessageText,
+}
+
+/// Input for completing a started Conversation text execution.
+#[derive(Debug, Clone)]
+pub struct FinishConversationTextInput {
+    /// Original semantic input, required to revalidate the command fingerprint.
+    pub original: BeginConversationTextInput,
+    /// Started durable coordination receipt.
+    pub started: crate::ports::TextGenerationReceipt,
+    /// Deterministic provider output.
+    pub assistant_text: MessageText,
 }
 
 #[derive(Debug, Clone)]

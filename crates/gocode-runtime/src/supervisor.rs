@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gocode_application::commands::{CommandOutcome, CreateTaskRunInput};
+use gocode_application::conversation_text_service::ConversationTextCommandService;
 use gocode_application::ports::{ApplicationCommandContext, EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
 use gocode_domain::id::TaskRunId;
@@ -16,7 +17,8 @@ use crate::controller::{ControlCommand, ShutdownMode, ShutdownOutcome};
 use crate::error::{QueueKind, RuntimeError};
 use crate::gate::AdmissionGate;
 use crate::types::{
-    AdmittedPerRunRequest, AdmittedRequest, InFlightLease, PerRunRequest, Reply, RuntimeRequest,
+    AdmittedPerRunRequest, AdmittedRequest, ConversationTextCall, ConversationTextReply,
+    InFlightLease, PerRunRequest, Reply, RuntimeRequest,
 };
 use crate::worker::{self, WorkerExit, WorkerGeneration};
 
@@ -37,6 +39,10 @@ enum RuntimeTaskExit {
         outcome: Result<CommandOutcome, RuntimeError>,
         reply: Reply,
     },
+    ConversationText {
+        outcome: Result<gocode_application::ports::TextGenerationReceipt, RuntimeError>,
+        reply: ConversationTextReply,
+    },
 }
 
 // ── WorkerRegistry ──────────────────────────────────────────────────────────
@@ -53,6 +59,7 @@ where
     config: RuntimeConfig,
     cancel: CancellationToken,
     service: Arc<TaskRunService<E, U, I>>,
+    conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
 }
 
 impl<E, U, I> WorkerRegistry<E, U, I>
@@ -65,6 +72,7 @@ where
         config: RuntimeConfig,
         cancel: CancellationToken,
         service: Arc<TaskRunService<E, U, I>>,
+        conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
     ) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_max_concurrent_blocking));
         Self {
@@ -74,6 +82,7 @@ where
             config,
             cancel,
             service,
+            conversation_service,
         }
     }
 
@@ -144,6 +153,23 @@ where
         });
     }
 
+    fn spawn_conversation_text_task(
+        &mut self,
+        call: ConversationTextCall,
+        reply: ConversationTextReply,
+    ) {
+        let Some(service) = self.conversation_service.clone() else {
+            let _ = reply.send(Err(RuntimeError::RuntimeClosed));
+            return;
+        };
+        self.join_set.spawn(async move {
+            let outcome = call
+                .execute(service.as_ref())
+                .map_err(RuntimeError::ConversationApplication);
+            RuntimeTaskExit::ConversationText { outcome, reply }
+        });
+    }
+
     fn remove_worker(&mut self, exit: &WorkerExit) {
         if let Some(handle) = self.workers.get(&exit.taskrun_id) {
             if handle.generation == exit.generation {
@@ -181,6 +207,10 @@ fn reject_request(request: RuntimeRequest) {
         | RuntimeRequest::Admit { reply, .. }
         | RuntimeRequest::StartAttempt { reply, .. }
         | RuntimeRequest::Complete { reply, .. } => {
+            let _ = reply.send(Err(RuntimeError::RuntimeClosed));
+        }
+        RuntimeRequest::BeginConversationText { reply, .. }
+        | RuntimeRequest::FinishConversationText { reply, .. } => {
             let _ = reply.send(Err(RuntimeError::RuntimeClosed));
         }
     }
@@ -333,6 +363,28 @@ fn dispatch_admitted<E, U, I>(
             };
             route_to_worker(tid, per_run, lease, registry);
         }
+        RuntimeRequest::BeginConversationText {
+            context,
+            input,
+            reply,
+        } => {
+            registry.spawn_conversation_text_task(
+                ConversationTextCall::Begin { context, input },
+                reply,
+            );
+            drop(lease);
+        }
+        RuntimeRequest::FinishConversationText {
+            context,
+            input,
+            reply,
+        } => {
+            registry.spawn_conversation_text_task(
+                ConversationTextCall::Finish { context, input },
+                reply,
+            );
+            drop(lease);
+        }
     }
 }
 
@@ -345,13 +397,19 @@ pub(crate) async fn run_supervisor<E, U, I>(
     config: RuntimeConfig,
     cancel: CancellationToken,
     service: Arc<TaskRunService<E, U, I>>,
+    conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
     drain_complete_tx: oneshot::Sender<ShutdownOutcome>,
 ) where
     E: EventStore + Send + Sync + 'static,
     U: UnitOfWork + Send + Sync + 'static,
     I: IdGenerator + Send + Sync + 'static,
 {
-    let mut registry = WorkerRegistry::new(config, cancel.clone(), service.clone());
+    let mut registry = WorkerRegistry::new(
+        config,
+        cancel.clone(),
+        service.clone(),
+        conversation_service,
+    );
     let mut draining = false;
     let mut ingress_open = true;
     let mut control_open = true;
@@ -419,6 +477,9 @@ pub(crate) async fn run_supervisor<E, U, I>(
                 match exit {
                     Some(Ok(RuntimeTaskExit::Worker(we))) => { registry.remove_worker(&we); }
                     Some(Ok(RuntimeTaskExit::Create { reply, outcome, .. })) => {
+                        let _ = reply.send(outcome);
+                    }
+                    Some(Ok(RuntimeTaskExit::ConversationText { reply, outcome })) => {
                         let _ = reply.send(outcome);
                     }
                     _ => {}
@@ -526,6 +587,7 @@ mod tests {
             config,
             cancel,
             service,
+            None,
             drain_complete_tx,
         ));
 

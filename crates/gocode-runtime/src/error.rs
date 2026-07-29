@@ -2,6 +2,7 @@
 
 use core::fmt;
 
+use gocode_application::conversation_text_service::ConversationTextServiceError;
 use gocode_application::errors::ApplicationError;
 use gocode_domain::id::TaskRunId;
 
@@ -46,6 +47,8 @@ pub enum RuntimeError {
     },
     /// An application-level error occurred.
     Application(ApplicationError),
+    /// A Conversation text coordinator rejected or failed the command.
+    ConversationApplication(ConversationTextServiceError),
 }
 
 impl fmt::Display for RuntimeError {
@@ -65,6 +68,9 @@ impl fmt::Display for RuntimeError {
                 )
             }
             Self::Application(e) => write!(f, "application error: {}", e),
+            Self::ConversationApplication(error) => {
+                write!(f, "conversation application error: {error:?}")
+            }
         }
     }
 }

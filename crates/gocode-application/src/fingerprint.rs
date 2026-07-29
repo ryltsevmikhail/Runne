@@ -19,6 +19,7 @@ use gocode_domain::agent_loop::{
 use gocode_domain::command::TerminalResult;
 use gocode_domain::context::ContextManifestRef;
 use gocode_domain::id::{ConversationId, IntegrityDigest, TaskRunId, WorkspaceId};
+use gocode_domain::message::MessageText;
 use gocode_domain::plan::PlanRevisionRef;
 use gocode_domain::recovery::ReconciliationResultRef;
 use gocode_domain::reference::{BudgetReservationRef, CheckpointRef, ResultRef};
@@ -57,6 +58,7 @@ const TAG_ACTIVATE_RETRY: u8 = 14;
 const TAG_COMMIT_RECOVERY_RESUME: u8 = 15;
 const TAG_COMMIT_LOOP_CHECKPOINT: u8 = 16;
 const TAG_RESUME_LOOP_WAIT: u8 = 17;
+const TAG_GENERATE_CONVERSATION_TEXT: u8 = 18;
 const CHECKPOINT_BODY_PREFIX: &[u8] = b"gocode-loop-checkpoint-body\x01";
 
 fn begin(tag: u8) -> Sha256 {
@@ -313,6 +315,19 @@ impl CommandFingerprint {
         hasher.update([TAG_CREATE_CONVERSATION]);
         hasher.update(conversation_id.as_bytes());
         hasher.update(workspace_id.as_bytes());
+        Self(hasher.finalize().into())
+    }
+
+    /// Create a fingerprint for one Conversation text execution.
+    pub fn for_generate_conversation_text(
+        conversation_id: &ConversationId,
+        expected_version: u64,
+        text: &MessageText,
+    ) -> Self {
+        let mut hasher = begin(TAG_GENERATE_CONVERSATION_TEXT);
+        hasher.update(conversation_id.as_bytes());
+        hasher.update(expected_version.to_be_bytes());
+        update_string(&mut hasher, text.as_str());
         Self(hasher.finalize().into())
     }
 

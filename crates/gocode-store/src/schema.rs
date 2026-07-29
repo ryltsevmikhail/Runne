@@ -7,6 +7,7 @@
 //! - `events` — committed event rows
 //! - `command_receipts` — idempotency receipt store
 
+use gocode_domain::id::EventLogLineageId;
 use rand::RngCore;
 use rand::rngs::OsRng;
 use std::{
@@ -1419,6 +1420,25 @@ pub fn ensure_authority_id(conn: &Connection, authority_id: &[u8; 16]) -> Sqlite
         rusqlite::params![authority_id.as_slice()],
     )?;
     Ok(())
+}
+
+/// Returns the durable UUIDv7 identity of the current Event Log lineage,
+/// creating it once for a newly initialized database.
+pub fn ensure_event_log_lineage_id(conn: &Connection) -> SqliteResult<EventLogLineageId> {
+    const KEY: &str = "event_log_lineage_id";
+
+    conn.execute(
+        "INSERT OR IGNORE INTO _daemon_info (key, value) VALUES (?1, ?2)",
+        (KEY, uuid::Uuid::now_v7().to_string()),
+    )?;
+    let value: String = conn.query_row(
+        "SELECT value FROM _daemon_info WHERE key = ?1",
+        [KEY],
+        |row| row.get(0),
+    )?;
+    value.parse().map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+    })
 }
 
 // ── Startup purge ───────────────────────────────────────────────────────

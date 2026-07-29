@@ -1607,8 +1607,10 @@ dependencies = [
  "gocode-runtime-client",
  "rusqlite",
  "serde",
+ "serde_json",
  "tempfile",
  "thiserror 2.0.18",
+ "tokio",
 ]
 
 [[package]]
@@ -1621,11 +1623,23 @@ dependencies = [
  "gocode-api",
  "gocode-domain",
  "gocode-provider",
+ "hmac",
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "gocode-cli"
+version = "0.1.0"
+dependencies = [
+ "gocode-daemon",
+ "gocode-runtime-client",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1639,12 +1653,14 @@ dependencies = [
  "dirs",
  "fs2",
  "gocode-api",
+ "gocode-app-core",
  "gocode-application",
  "gocode-domain",
  "gocode-http",
  "gocode-observability",
  "gocode-platform",
  "gocode-runtime",
+ "gocode-runtime-client",
  "gocode-store",
  "hex",
  "hyper",
@@ -1710,10 +1726,12 @@ dependencies = [
  "http",
  "jsonschema",
  "reqwest 0.12.28",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "subtle",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
@@ -1890,11 +1908,18 @@ dependencies = [
 name = "gocode-runtime-client"
 version = "0.1.0"
 dependencies = [
+ "dirs",
+ "hex",
+ "libc",
  "reqwest 0.12.28",
+ "rustix",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1937,6 +1962,7 @@ dependencies = [
  "rusqlite",
  "same-file",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "uuid",

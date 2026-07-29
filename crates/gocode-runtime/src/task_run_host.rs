@@ -294,6 +294,7 @@ fn map_runtime_error(error: RuntimeError) -> TaskRunHostError {
             TaskRunHostError::Unavailable
         }
         RuntimeError::Application(error) => map_application_error(error),
+        RuntimeError::ConversationApplication(_) => TaskRunHostError::InvariantViolation,
     }
 }
 

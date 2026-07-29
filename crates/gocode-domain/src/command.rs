@@ -8,8 +8,10 @@ use crate::agent_loop::{
 };
 use crate::context::ContextManifestRef;
 use crate::id::{
-    AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, TaskRunId, WorkspaceId,
+    AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, MessageId, TaskRunId,
+    WorkspaceId,
 };
+use crate::message::MessageText;
 use crate::plan::PlanRevisionRef;
 use crate::recovery::ReconciliationResultRef;
 use crate::reference::{BudgetReservationRef, CheckpointRef};
@@ -20,6 +22,28 @@ use crate::reference::{BudgetReservationRef, CheckpointRef};
 /// [`Conversation`](crate::conversation::Conversation) aggregate.
 #[derive(Debug, Clone)]
 pub enum ConversationCommand {
+    /// Append a user message and durably bind it to a running execution.
+    AppendUserMessage {
+        /// Server-generated message identity.
+        message_id: MessageId,
+        /// Coordinating TaskRun.
+        taskrun_id: TaskRunId,
+        /// Exact active attempt.
+        attempt_id: AttemptId,
+        /// Validated bounded user text.
+        text: MessageText,
+    },
+    /// Append the assistant output for the active text execution.
+    AppendAssistantMessage {
+        /// Server-generated message identity.
+        message_id: MessageId,
+        /// Coordinating TaskRun.
+        taskrun_id: TaskRunId,
+        /// Exact active attempt.
+        attempt_id: AttemptId,
+        /// Validated bounded assistant text.
+        text: MessageText,
+    },
     /// Close the conversation permanently.
     Close,
 }

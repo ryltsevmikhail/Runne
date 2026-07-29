@@ -1,8 +1,8 @@
 //! Integration tests for schema v8: daemon tables, authority ID, and startup purge.
 
 use gocode_store::schema::{
-    CURRENT_SCHEMA_VERSION, apply_migrations, ensure_authority_id, generate_authority_id,
-    purge_replay_subscriptions, read_authority_id,
+    CURRENT_SCHEMA_VERSION, apply_migrations, ensure_authority_id, ensure_event_log_lineage_id,
+    generate_authority_id, purge_replay_subscriptions, read_authority_id,
 };
 use rusqlite::{Connection, params};
 
@@ -65,6 +65,19 @@ fn v8_migration_creates_tables() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
+}
+
+#[test]
+fn event_log_lineage_is_persisted_as_stable_uuid_v7() {
+    let conn = fresh_v8_db();
+
+    let first = ensure_event_log_lineage_id(&conn).unwrap();
+    let second = ensure_event_log_lineage_id(&conn).unwrap();
+
+    assert_eq!(first, second);
+    let parsed = uuid::Uuid::from_bytes(first.into_bytes());
+    assert_eq!(parsed.get_version_num(), 7);
+    assert_eq!(parsed.get_variant(), uuid::Variant::RFC4122);
 }
 
 // ── authority ID ────────────────────────────────────────────────────────

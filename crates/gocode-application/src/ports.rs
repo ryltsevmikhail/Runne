@@ -7,7 +7,7 @@ use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{EventEnvelope, UncommittedEvent};
 use gocode_domain::id::{
     AttemptId, CheckpointId, CommandId, ConversationId, CycleId, EventId, IdempotencyKey,
-    IntegrityDigest, PlanEvaluationId, TaskRunId, WorkspaceId,
+    IntegrityDigest, MessageId, PlanEvaluationId, TaskRunId, WorkspaceId,
 };
 use gocode_domain::recovery::ReconciliationResultRef;
 use gocode_domain::reference::BudgetReservationRef;
@@ -50,6 +50,32 @@ pub trait ConversationRepository {
         &self,
         payload: ConversationCommit,
     ) -> Result<ConversationCommitResult, CommitError>;
+}
+
+/// Atomic persistence boundary for coordinated Conversation text execution.
+pub trait ConversationTextRepository {
+    /// Looks up the durable phase of an idempotent text-generation command.
+    fn lookup_text_generation_receipt(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &IdempotencyKey,
+        idempotency_scope: &IdempotencyScope,
+        fingerprint: &CommandFingerprint,
+    ) -> Result<TextGenerationReceiptLookup, CommitError>;
+
+    /// Atomically appends the user message, starts its TaskRun, and stores a
+    /// `Started` receipt before provider execution.
+    fn begin_text_generation(
+        &self,
+        payload: BeginTextGenerationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError>;
+
+    /// Atomically appends assistant output, completes its TaskRun, and advances
+    /// the original receipt to `Completed`.
+    fn finish_text_generation(
+        &self,
+        payload: FinishTextGenerationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError>;
 }
 
 /// A committed conversation stream.
@@ -119,6 +145,109 @@ pub enum ConversationCommitResult {
     Duplicate {
         /// Original durable create result.
         stored_result: ConversationReceipt,
+    },
+}
+
+/// Durable phase of one idempotent Conversation text execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextGenerationPhase {
+    /// User message and running TaskRun are durable; provider output is pending.
+    Started,
+    /// Assistant message and successful terminal TaskRun are durable.
+    Completed,
+}
+
+/// Durable coordination receipt linking Conversation messages to TaskRun.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TextGenerationReceipt {
+    /// Current durable phase.
+    pub phase: TextGenerationPhase,
+    /// Target Conversation.
+    pub conversation_id: ConversationId,
+    /// Conversation workspace.
+    pub workspace_id: WorkspaceId,
+    /// Coordinating TaskRun.
+    pub taskrun_id: TaskRunId,
+    /// Exact execution attempt.
+    pub attempt_id: AttemptId,
+    /// Durable user message.
+    pub user_message_id: MessageId,
+    /// Reserved assistant message identity, stable across retries.
+    pub assistant_message_id: MessageId,
+    /// Current Conversation version for this phase.
+    pub conversation_version: u64,
+    /// Current TaskRun version for this phase.
+    pub taskrun_version: u64,
+}
+
+/// Result of a text-generation receipt lookup.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextGenerationReceiptLookup {
+    /// No matching command was committed.
+    Miss,
+    /// The exact command has a durable started or completed phase.
+    Duplicate {
+        /// Original durable coordination result.
+        stored_result: TextGenerationReceipt,
+    },
+}
+
+/// Atomic phase-one commit for a Conversation text execution.
+#[derive(Debug, Clone)]
+pub struct BeginTextGenerationCommit {
+    /// Unique command identity.
+    pub command_id: CommandId,
+    /// Client-provided idempotency key.
+    pub idempotency_key: IdempotencyKey,
+    /// Full uniqueness scope.
+    pub idempotency_scope: IdempotencyScope,
+    /// Deterministic semantic input fingerprint.
+    pub command_fingerprint: CommandFingerprint,
+    /// Expected Conversation stream version.
+    pub expected_conversation_version: u64,
+    /// User message event to append.
+    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
+    /// TaskRun create-through-start event batch.
+    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
+    /// Started coordination receipt.
+    pub receipt: TextGenerationReceipt,
+}
+
+/// Atomic phase-two commit for a Conversation text execution.
+#[derive(Debug, Clone)]
+pub struct FinishTextGenerationCommit {
+    /// Original command identity.
+    pub command_id: CommandId,
+    /// Original client idempotency key.
+    pub idempotency_key: IdempotencyKey,
+    /// Original uniqueness scope.
+    pub idempotency_scope: IdempotencyScope,
+    /// Original semantic input fingerprint.
+    pub command_fingerprint: CommandFingerprint,
+    /// Expected Conversation version from the started phase.
+    pub expected_conversation_version: u64,
+    /// Expected TaskRun version from the started phase.
+    pub expected_taskrun_version: u64,
+    /// Assistant message event to append.
+    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
+    /// Successful TaskRun completion event.
+    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
+    /// Completed coordination receipt.
+    pub receipt: TextGenerationReceipt,
+}
+
+/// Result of an atomic text-generation phase commit.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextGenerationCommitResult {
+    /// The requested phase committed.
+    Committed {
+        /// New durable coordination result.
+        result: TextGenerationReceipt,
+    },
+    /// Another identical request already committed this or a later phase.
+    Duplicate {
+        /// Existing durable coordination result.
+        stored_result: TextGenerationReceipt,
     },
 }
 
@@ -283,6 +412,11 @@ pub trait IdGenerator {
 
     /// Generate a new unique [`AttemptId`].
     fn next_attempt_id(&self) -> Result<AttemptId, IdGenerationError>;
+
+    /// Generate a new unique [`MessageId`].
+    fn next_message_id(&self) -> Result<MessageId, IdGenerationError> {
+        Err(IdGenerationError::Unavailable)
+    }
 
     /// Generate a new unique loop cycle ID.
     fn next_cycle_id(&self) -> Result<CycleId, IdGenerationError> {
@@ -472,6 +606,8 @@ pub enum OperationTag {
     CommitRecoveryResume = 15,
     CommitLoopCheckpoint = 16,
     ResumeLoopWait = 17,
+    /// Append a user message and execute deterministic local text generation.
+    GenerateConversationText = 18,
 }
 
 /// The aggregate scope within which idempotency is enforced.
@@ -495,6 +631,11 @@ pub enum AggregateScope {
         conversation_id: ConversationId,
         /// Workspace that owns the conversation.
         workspace_id: WorkspaceId,
+    },
+    /// An existing Conversation.
+    ExistingConversation {
+        /// Target Conversation.
+        conversation_id: ConversationId,
     },
 }
 
@@ -530,6 +671,7 @@ pub struct ApplicationCommandContext {
 pub use crate::replay_service::{
     ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
 };
+pub use gocode_domain::replay::{CatchUpCompletion, ReplayCursor, ReplayScope};
 
 #[cfg(test)]
 mod tests {
@@ -554,6 +696,7 @@ mod tests {
         assert_eq!(OperationTag::CommitRecoveryResume as u8, 15);
         assert_eq!(OperationTag::CommitLoopCheckpoint as u8, 16);
         assert_eq!(OperationTag::ResumeLoopWait as u8, 17);
+        assert_eq!(OperationTag::GenerateConversationText as u8, 18);
     }
 
     #[test]
