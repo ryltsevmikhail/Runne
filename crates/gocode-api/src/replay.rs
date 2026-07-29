@@ -2,8 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use gocode_domain::event::Sensitivity;
-use gocode_domain::id::MAX_EVENT_TYPE_BYTES;
+use gocode_domain::event::{EventType, Sensitivity};
 use gocode_domain::replay::ReplayScope;
 
 use crate::{
@@ -96,13 +95,10 @@ impl ApiReplayEventSchema {
         if event_type.is_empty() {
             return Err(ReplayContractError::EmptyEventType);
         }
-        if event_type.len() > MAX_EVENT_TYPE_BYTES
-            || event_type
-                .bytes()
-                .any(|byte| byte == 0 || byte < 0x20 || byte == 0x7f)
-        {
-            return Err(ReplayContractError::InvalidEventType);
-        }
+        let event_type = EventType::new(event_type)
+            .map_err(|_| ReplayContractError::InvalidEventType)?
+            .as_str()
+            .to_owned();
         if schema_version == 0 {
             return Err(ReplayContractError::InvalidEventSchemaVersion);
         }
