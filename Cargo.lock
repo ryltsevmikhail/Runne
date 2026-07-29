@@ -1623,12 +1623,15 @@ dependencies = [
  "gocode-api",
  "gocode-domain",
  "gocode-provider",
+ "hex",
  "hmac",
  "serde_json",
  "sha2",
+ "subtle",
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -1720,6 +1723,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "axum",
+ "base64 0.22.1",
  "bytes",
  "futures",
  "gocode-api",
@@ -1729,6 +1733,7 @@ dependencies = [
  "gocode-opencode-compat",
  "gocode-store",
  "hex",
+ "hmac",
  "http",
  "jsonschema",
  "reqwest 0.12.28",
