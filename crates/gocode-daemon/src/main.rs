@@ -5,7 +5,8 @@
 
 use gocode_daemon::bootstrap::bootstrap;
 use gocode_daemon::config::load_config;
-use gocode_daemon::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
+use gocode_daemon::host::{HealthHost, run_health_host_until_shutdown};
+use gocode_daemon::shutdown::RuntimeTaskSupervisor;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
@@ -30,11 +31,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async {
-        // Wait for signal
-        let _handle = supervisor.register();
+        let host = HealthHost::bind(&config.http_bind).await?;
         tracing::info!("daemon ready, press Ctrl+C to stop");
-        tokio::signal::ctrl_c().await?;
-        graceful_shutdown(&supervisor, config.shutdown_timeout_ms).await?;
+        run_health_host_until_shutdown(
+            host.start(),
+            &supervisor,
+            config.shutdown_timeout_ms,
+            async { tokio::signal::ctrl_c().await.map_err(Into::into) },
+        )
+        .await?;
         Ok::<_, Box<dyn std::error::Error>>(())
     })?;
 
