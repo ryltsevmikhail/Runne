@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use gocode_domain::event::Sensitivity;
+use gocode_domain::id::MAX_EVENT_TYPE_BYTES;
 use gocode_domain::replay::ReplayScope;
 
 use crate::{
@@ -48,6 +49,78 @@ pub enum ReplayContractError {
     InvalidRetentionManifest,
     /// A gap-range reference was empty.
     InvalidGapRangeRef,
+    /// An opaque replay binding identity was empty.
+    EmptyBindingId,
+    /// A supported canonical event type was empty.
+    EmptyEventType,
+    /// A supported canonical event type contained a forbidden control byte.
+    InvalidEventType,
+    /// A supported canonical event schema version was zero.
+    InvalidEventSchemaVersion,
+}
+
+/// Opaque public replay-binding identity.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ApiReplayBindingId([u8; 16]);
+
+impl ApiReplayBindingId {
+    /// Creates a non-empty opaque replay-binding identity.
+    pub fn new(value: [u8; 16]) -> Result<Self, ReplayContractError> {
+        if value == [0; 16] {
+            return Err(ReplayContractError::EmptyBindingId);
+        }
+        Ok(Self(value))
+    }
+}
+
+impl core::fmt::Debug for ApiReplayBindingId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ApiReplayBindingId([redacted])")
+    }
+}
+
+/// A supported canonical event type and its schema version.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ApiReplayEventSchema {
+    event_type: String,
+    schema_version: u32,
+}
+
+impl ApiReplayEventSchema {
+    /// Creates a validated public event-type/schema capability.
+    pub fn new(
+        event_type: impl Into<String>,
+        schema_version: u32,
+    ) -> Result<Self, ReplayContractError> {
+        let event_type = event_type.into();
+        if event_type.is_empty() {
+            return Err(ReplayContractError::EmptyEventType);
+        }
+        if event_type.len() > MAX_EVENT_TYPE_BYTES
+            || event_type
+                .bytes()
+                .any(|byte| byte == 0 || byte < 0x20 || byte == 0x7f)
+        {
+            return Err(ReplayContractError::InvalidEventType);
+        }
+        if schema_version == 0 {
+            return Err(ReplayContractError::InvalidEventSchemaVersion);
+        }
+        Ok(Self {
+            event_type,
+            schema_version,
+        })
+    }
+
+    /// Returns the canonical event type.
+    pub fn event_type(&self) -> &str {
+        &self.event_type
+    }
+
+    /// Returns the supported event schema version.
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
 }
 
 /// Retention generation and opaque manifest digest for replay continuity.
@@ -89,9 +162,10 @@ impl GapRangeRef {
 /// Public replay binding version one.
 #[derive(Clone, PartialEq, Eq)]
 pub struct ApiReplayBindingV1 {
+    binding_id: ApiReplayBindingId,
     stable: StableRuntimeBinding,
     ephemeral: EphemeralRuntimeBinding,
-    supported_event_schema_versions: BTreeSet<u32>,
+    supported_event_schemas: BTreeSet<ApiReplayEventSchema>,
     replay_session_id: [u8; 16],
     retention_manifest: RetentionManifest,
 }
@@ -99,10 +173,11 @@ pub struct ApiReplayBindingV1 {
 impl ApiReplayBindingV1 {
     /// Creates a replay binding tied exactly to one local runtime session.
     pub fn new(
+        binding_id: ApiReplayBindingId,
         session: RuntimeSessionBinding,
         authorization_epoch: u64,
         sensitivity_ceiling: Sensitivity,
-        supported_event_schema_versions: impl IntoIterator<Item = u32>,
+        supported_event_schemas: impl IntoIterator<Item = ApiReplayEventSchema>,
         replay_session_id: [u8; 16],
         retention_manifest: RetentionManifest,
     ) -> Result<Self, LocalSessionContractError> {
@@ -113,9 +188,10 @@ impl ApiReplayBindingV1 {
             return Err(LocalSessionContractError::SensitivityCeilingMismatch);
         }
         Ok(Self {
+            binding_id,
             stable: session.stable().clone(),
             ephemeral: session.ephemeral().clone(),
-            supported_event_schema_versions: supported_event_schema_versions.into_iter().collect(),
+            supported_event_schemas: supported_event_schemas.into_iter().collect(),
             replay_session_id,
             retention_manifest,
         })
@@ -126,14 +202,19 @@ impl ApiReplayBindingV1 {
         &self.stable
     }
 
+    /// Returns the opaque replay-binding identity.
+    pub const fn binding_id(&self) -> &ApiReplayBindingId {
+        &self.binding_id
+    }
+
     /// Returns the ephemeral runtime binding.
     pub const fn ephemeral(&self) -> &EphemeralRuntimeBinding {
         &self.ephemeral
     }
 
-    /// Returns the supported event schema versions.
-    pub fn supported_event_schema_versions(&self) -> impl Iterator<Item = u32> + '_ {
-        self.supported_event_schema_versions.iter().copied()
+    /// Returns the supported canonical event-type/schema pairs.
+    pub fn supported_event_schemas(&self) -> impl Iterator<Item = &ApiReplayEventSchema> {
+        self.supported_event_schemas.iter()
     }
 
     /// Returns the opaque replay-session identity.
@@ -152,10 +233,7 @@ impl core::fmt::Debug for ApiReplayBindingV1 {
         f.debug_struct("ApiReplayBindingV1")
             .field("stable", &self.stable)
             .field("ephemeral", &self.ephemeral)
-            .field(
-                "supported_event_schema_versions",
-                &self.supported_event_schema_versions,
-            )
+            .field("supported_event_schemas", &self.supported_event_schemas)
             .field("retention_manifest", &self.retention_manifest)
             .finish_non_exhaustive()
     }

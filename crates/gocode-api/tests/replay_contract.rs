@@ -1,6 +1,7 @@
 use gocode_api::{
-    ApiReplayAggregateKind, ApiReplayBindingV1, LocalSessionContractError, ReplayContractError,
-    RetentionManifest, RuntimeSessionBinding, StableRuntimeBinding,
+    ApiReplayAggregateKind, ApiReplayBindingId, ApiReplayBindingV1, ApiReplayEventSchema,
+    LocalSessionContractError, ReplayContractError, RetentionManifest, RuntimeSessionBinding,
+    StableRuntimeBinding,
 };
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::EventLogLineageId;
@@ -9,6 +10,12 @@ use gocode_domain::replay::ReplayScope;
 const UUID_V7: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ];
+const SESSION_ID: [u8; 16] = [7; 16];
+const CERTIFICATE_SHA256: [u8; 32] = [8; 32];
+
+fn event_schema_capabilities() -> [ApiReplayEventSchema; 1] {
+    [ApiReplayEventSchema::new("conversation.message_added", 1).unwrap()]
+}
 
 #[test]
 fn replay_scope_allows_only_conversation_and_taskrun_aggregates() {
@@ -65,17 +72,20 @@ fn replay_binding_rejects_session_inconsistent_authorization_and_sensitivity() {
         stable,
         gocode_api::DaemonInstanceId::from_bytes(UUID_V7),
         1,
+        SESSION_ID,
         7,
         Sensitivity::Internal,
+        CERTIFICATE_SHA256,
     )
     .unwrap();
 
     assert_eq!(
         ApiReplayBindingV1::new(
+            ApiReplayBindingId::new([6; 16]).unwrap(),
             session.clone(),
             8,
             Sensitivity::Internal,
-            [1],
+            event_schema_capabilities(),
             UUID_V7,
             RetentionManifest::new(1, [9; 32]).unwrap(),
         ),
@@ -83,13 +93,35 @@ fn replay_binding_rejects_session_inconsistent_authorization_and_sensitivity() {
     );
     assert_eq!(
         ApiReplayBindingV1::new(
+            ApiReplayBindingId::new([6; 16]).unwrap(),
             session,
             7,
             Sensitivity::Sensitive,
-            [1],
+            event_schema_capabilities(),
             UUID_V7,
             RetentionManifest::new(1, [9; 32]).unwrap(),
         ),
         Err(LocalSessionContractError::SensitivityCeilingMismatch)
     );
+}
+
+#[test]
+fn replay_binding_uses_an_opaque_id_and_validated_event_schema_pairs() {
+    assert_eq!(
+        ApiReplayBindingId::new([0; 16]),
+        Err(ReplayContractError::EmptyBindingId)
+    );
+    assert_eq!(
+        ApiReplayEventSchema::new("", 1),
+        Err(ReplayContractError::EmptyEventType)
+    );
+    assert_eq!(
+        ApiReplayEventSchema::new("conversation.message_added", 0),
+        Err(ReplayContractError::InvalidEventSchemaVersion)
+    );
+
+    let capability = ApiReplayEventSchema::new("conversation.message_added", 1)
+        .expect("a canonical event/schema pair must be accepted");
+    assert_eq!(capability.event_type(), "conversation.message_added");
+    assert_eq!(capability.schema_version(), 1);
 }
