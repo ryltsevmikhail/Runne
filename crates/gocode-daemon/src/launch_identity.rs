@@ -11,7 +11,7 @@ use rustls::{
 };
 use sha2::{Digest, Sha256};
 use std::{
-    fs::{self, OpenOptions},
+    fs::OpenOptions,
     io::Write,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::Arc,
@@ -31,6 +31,13 @@ pub struct LaunchIdentity {
 impl LaunchIdentity {
     /// Creates one loopback-only TLS identity and bootstrap secret.
     pub fn generate(launch_generation: u64) -> Result<Self, LaunchIdentityError> {
+        Self::generate_inner(launch_generation, None)
+    }
+
+    fn generate_inner(
+        launch_generation: u64,
+        marker_out: Option<&mut [u8; 32]>,
+    ) -> Result<Self, LaunchIdentityError> {
         if launch_generation == 0 {
             return Err(LaunchIdentityError::InvalidGeneration);
         }
@@ -39,11 +46,8 @@ impl LaunchIdentity {
         let now = Utc::now().date_naive();
         let expires = now + Duration::days(30);
         params.not_before = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8);
-        params.not_after = rcgen::date_time_ymd(
-            expires.year(),
-            expires.month() as u8,
-            expires.day() as u8,
-        );
+        params.not_after =
+            rcgen::date_time_ymd(expires.year(), expires.month() as u8, expires.day() as u8);
         params.subject_alt_names = vec![
             SanType::IpAddress(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             SanType::IpAddress(IpAddr::V6(Ipv6Addr::LOCALHOST)),
@@ -56,6 +60,9 @@ impl LaunchIdentity {
         let certificate_der = certificate.der().to_vec();
         let certificate_sha256 = Sha256::digest(&certificate_der).into();
         let private_key_der = Zeroizing::new(key_pair.serialize_der());
+        if let Some(marker) = marker_out {
+            *marker = private_key_marker(&private_key_der);
+        }
         let server_config =
             ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
                 .with_protocol_versions(&[&rustls::version::TLS13, &rustls::version::TLS12])
@@ -113,15 +120,32 @@ impl LaunchIdentity {
     }
     #[allow(dead_code)]
     pub(crate) fn write_bootstrap_secret(&self, path: &std::path::Path) -> std::io::Result<()> {
-        let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(fs::Permissions::from_mode(0o600))?;
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
         }
+        let mut file = options.open(path)?;
         file.write_all(&self.bootstrap_secret)?;
         file.sync_all()
     }
+
+    #[cfg(test)]
+    pub(crate) fn generate_with_private_key_marker_for_test(
+        launch_generation: u64,
+    ) -> Result<(Self, [u8; 32]), LaunchIdentityError> {
+        let mut marker = [0; 32];
+        let identity = Self::generate_inner(launch_generation, Some(&mut marker))?;
+        Ok((identity, marker))
+    }
+}
+
+fn private_key_marker(key_der: &[u8]) -> [u8; 32] {
+    key_der[..32]
+        .try_into()
+        .expect("P-256 PKCS#8 key is at least 32 bytes")
 }
 
 /// Redacted failures during launch identity construction.
