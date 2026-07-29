@@ -91,32 +91,71 @@ impl PublishedClientProfileV2 {
     ) -> Result<Self, DaemonError> {
         let directory = std::fs::canonicalize(directory)
             .map_err(|_| DaemonError::Bootstrap("canonicalize v2 profile directory".into()))?;
-        let secret_path = directory.join(format!("bootstrap-{}.secret", identity.daemon_instance_id()));
-        identity.write_bootstrap_secret(&secret_path).map_err(|_| DaemonError::Bootstrap("write v2 bootstrap secret".into()))?;
+        let secret_path = directory.join(format!(
+            "bootstrap-{}.secret",
+            identity.daemon_instance_id()
+        ));
+        identity
+            .write_bootstrap_secret(&secret_path)
+            .map_err(|_| DaemonError::Bootstrap("write v2 bootstrap secret".into()))?;
+        let secret_bytes: [u8; 32] = fs::read(&secret_path)
+            .map_err(|_| DaemonError::Bootstrap("read v2 bootstrap secret".into()))?
+            .try_into()
+            .map_err(|_| DaemonError::Bootstrap("invalid v2 bootstrap secret".into()))?;
         let wire = ClientProfileV2Wire::new(
-            endpoint, identity.profile_certificate_der_base64(), *identity.certificate_sha256(),
-            secret_path.clone(), authority_id, lineage_id, uuid::Uuid::from_bytes(identity.daemon_instance_id().into_bytes()), identity.launch_generation(),
+            endpoint,
+            identity.profile_certificate_der_base64(),
+            *identity.certificate_sha256(),
+            secret_path.clone(),
+            authority_id,
+            lineage_id,
+            uuid::Uuid::from_bytes(identity.daemon_instance_id().into_bytes()),
+            identity.launch_generation(),
         )?;
-        let profile_bytes = serde_json::to_vec(&wire).map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
+        let profile_bytes = serde_json::to_vec(&wire)
+            .map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
         let profile_path = directory.join("client-profile-v2.json");
         let temporary = directory.join(format!(".client-profile-v2.{}.tmp", uuid::Uuid::now_v7()));
         if let Err(error) = write_owner_only(&temporary, &profile_bytes)
             .and_then(|()| replace_profile(&temporary, &profile_path))
-            .and_then(|()| sync_directory(&directory)) {
+            .and_then(|()| sync_directory(&directory))
+        {
             let _ = fs::remove_file(&temporary);
-            let _ = fs::remove_file(&secret_path);
-            return Err(DaemonError::Bootstrap(format!("publish v2 local client profile: {error}")));
+            remove_if_matches(&profile_path, &profile_bytes);
+            remove_if_matches(&secret_path, &secret_bytes);
+            let _ = sync_directory(&directory);
+            return Err(DaemonError::Bootstrap(format!(
+                "publish v2 local client profile: {error}"
+            )));
         }
-        let secret_bytes = fs::read(&secret_path).map_err(|_| DaemonError::Bootstrap("read v2 bootstrap secret".into()))?
-            .try_into().map_err(|_| DaemonError::Bootstrap("invalid v2 bootstrap secret".into()))?;
-        Ok(Self { profile_path, profile_bytes, secret_path, secret_bytes })
+        Ok(Self {
+            profile_path,
+            profile_bytes,
+            secret_path,
+            secret_bytes,
+        })
+    }
+}
+
+fn remove_if_matches(path: &Path, bytes: &[u8]) {
+    if fs::read(path)
+        .map(|current| current == bytes)
+        .unwrap_or(false)
+    {
+        let _ = fs::remove_file(path);
     }
 }
 
 impl Drop for PublishedClientProfileV2 {
     fn drop(&mut self) {
-        for (path, bytes) in [(&self.profile_path, self.profile_bytes.as_slice()), (&self.secret_path, self.secret_bytes.as_slice())] {
-            if fs::read(path).map(|current| current == bytes).unwrap_or(false) {
+        for (path, bytes) in [
+            (&self.profile_path, self.profile_bytes.as_slice()),
+            (&self.secret_path, self.secret_bytes.as_slice()),
+        ] {
+            if fs::read(path)
+                .map(|current| current == bytes)
+                .unwrap_or(false)
+            {
                 let _ = fs::remove_file(path);
             }
         }
@@ -221,4 +260,29 @@ fn sync_directory(path: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn sync_directory(_: &Path) -> std::io::Result<()> {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn v2_profile_and_published_files_exclude_private_key_marker() {
+        let directory = tempfile::tempdir().unwrap();
+        let (identity, marker) =
+            LaunchIdentity::generate_with_private_key_marker_for_test(1).unwrap();
+        let published = PublishedClientProfileV2::publish(
+            directory.path(),
+            "127.0.0.1:3000".parse().unwrap(),
+            &identity,
+            [1; 16],
+            uuid::Uuid::now_v7(),
+        )
+        .unwrap();
+        for entry in std::fs::read_dir(directory.path()).unwrap() {
+            let bytes = std::fs::read(entry.unwrap().path()).unwrap();
+            assert!(!bytes.windows(marker.len()).any(|part| part == marker));
+        }
+        drop(published);
+    }
 }
