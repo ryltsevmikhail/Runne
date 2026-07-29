@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/session-info-v1.schema.json",
+  "title": "OpenCode Session.Info V1",
+  "type": "object",
+  "required": ["id", "slug", "projectID", "directory", "title", "version", "time"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "slug": { "type": "string" },
+    "projectID": { "type": "string" },
+    "parentID": { "type": "string" },
+    "path": { "type": "string" },
+    "workspaceID": { "type": "string" },
+    "directory": { "type": "string" },
+    "title": { "type": "string" },
+    "version": { "type": "string" },
+    "summary": {
+      "type": "object",
+      "required": ["additions", "deletions", "files"],
+      "additionalProperties": false,
+      "properties": {
+        "additions": { "type": "number" },
+        "deletions": { "type": "number" },
+        "files": { "type": "number" },
+        "diffs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["additions", "deletions"],
+            "additionalProperties": false,
+            "properties": {
+              "file": { "type": "string" },
+              "patch": { "type": "string" },
+              "additions": { "type": "number" },
+              "deletions": { "type": "number" },
+              "status": { "enum": ["added", "deleted", "modified"] }
+            }
+          }
+        }
+      }
+    },
+    "time": {
+      "type": "object",
+      "required": ["created", "updated"],
+      "additionalProperties": false,
+      "properties": {
+        "created": { "type": "integer", "minimum": 0 },
+        "updated": { "type": "integer", "minimum": 0 },
+        "compacting": { "type": "integer", "minimum": 0 },
+        "archived": { "type": "number" }
+      }
+    },
+    "cost": { "type": "number" },
+    "agent": { "type": "string" },
+    "model": {
+      "type": "object",
+      "required": ["id", "providerID"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "providerID": { "type": "string" },
+        "variant": { "type": "string" }
+      }
+    },
+    "tokens": {
+      "type": "object",
+      "required": ["input", "output", "reasoning", "cache"],
+      "additionalProperties": false,
+      "properties": {
+        "input": { "type": "number" },
+        "output": { "type": "number" },
+        "reasoning": { "type": "number" },
+        "cache": {
+          "type": "object",
+          "required": ["read", "write"],
+          "additionalProperties": false,
+          "properties": {
+            "read": { "type": "number" },
+            "write": { "type": "number" }
+          }
+        }
+      }
+    },
+    "metadata": { "type": "object" },
+    "permission": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["permission", "pattern", "action"],
+        "additionalProperties": false,
+        "properties": {
+          "permission": { "type": "string" },
+          "pattern": { "type": "string" },
+          "action": { "enum": ["allow", "deny", "ask"] }
+        }
+      }
+    },
+    "share": {
+      "type": "object",
+      "required": ["url"],
+      "additionalProperties": false,
+      "properties": { "url": { "type": "string" } }
+    },
+    "revert": {
+      "type": "object",
+      "required": ["messageID"],
+      "additionalProperties": false,
+      "properties": {
+        "messageID": { "type": "string" },
+        "partID": { "type": "string" },
+        "snapshot": { "type": "string" },
+        "diff": { "type": "string" }
+      }
+    }
+  }
+}

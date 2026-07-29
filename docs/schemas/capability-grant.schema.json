@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/capability-grant.schema.json",
+  "title": "CapabilityGrant",
+  "description": "Immutable capability grant aligned with the Permissions domain model.",
+  "type": "object",
+  "properties": {
+    "grant_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1
+    },
+    "constraints": {
+      "type": "object"
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issuer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "type": "string",
+      "enum": [
+        "project",
+        "task",
+        "invocation"
+      ]
+    },
+    "expires_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "remaining_invocations": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "delegation_limit": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "issued_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "active",
+        "revoked",
+        "expired"
+      ]
+    }
+  },
+  "required": [
+    "grant_id",
+    "action",
+    "resource",
+    "constraints",
+    "subject",
+    "issuer",
+    "scope",
+    "expires_at",
+    "remaining_invocations",
+    "delegation_limit",
+    "issued_at",
+    "state"
+  ],
+  "additionalProperties": false,
+  "$comment": "Target schema. Null expiration fields mean the corresponding limit is not configured; policy evaluation still fails closed."
+}

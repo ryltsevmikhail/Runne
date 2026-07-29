@@ -1,0 +1,25 @@
+{
+  "baseline_sha": "66495a2a22cd0a57efcc4f721e65532f0987b4e8",
+  "routes": {
+    "session.prompt": {
+      "success": {"status": 200, "body": "AssistantMessage+Part[]"},
+      "error": {"status": 422, "body": {"error": "unsupported"}},
+      "loss": {"status": 502, "body": {"error": "host_output_mismatch"}}
+    },
+    "session.prompt_async": {
+      "success": {"status": 204, "body": null},
+      "error": {"status": 409, "body": {"error": "conflict"}},
+      "loss": {"status": 504, "body": {"error": "timeout"}}
+    },
+    "session.status": {
+      "success": {"status": 200, "body": "SessionStatusMap"},
+      "error": {"status": 503, "body": {"error": "storage_unavailable"}},
+      "loss": {"status": 502, "body": {"error": "host_output_mismatch"}}
+    },
+    "session.abort": {
+      "success": {"status": 200, "body": true},
+      "error": {"status": 404, "body": {"error": "not_found"}},
+      "loss": {"status": 504, "body": {"error": "timeout"}}
+    }
+  }
+}

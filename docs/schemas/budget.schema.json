@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/budget.schema.json",
+  "title": "BudgetPolicySnapshot",
+  "description": "Immutable typed hard-limit policy for one TaskRun, as accepted by ADR-0012.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "taskrun_id": {
+      "type": "string"
+    },
+    "policy_revision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "active_time_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provider_cost_micros": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "provider_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "tool_calls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retry_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "child_runs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "process_starts": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "active_time_ms",
+        "provider_cost_micros",
+        "provider_tokens",
+        "tool_calls",
+        "retry_attempts",
+        "child_runs",
+        "process_starts"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "configured_policy",
+              "authorized_caller",
+              "parent_allocation",
+              "capability_constraints"
+            ]
+          },
+          "revision": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "source",
+          "revision",
+          "digest"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "taskrun_id",
+    "policy_revision",
+    "policy_digest",
+    "currency",
+    "limits",
+    "provenance"
+  ],
+  "additionalProperties": false,
+  "$comment": "Target schema aligned with ADR-0012. Numeric policy values remain configuration; storage/network budgets are deferred to v2."
+}

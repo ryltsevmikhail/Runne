@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/event.schema.json",
+  "title": "EventEnvelope",
+  "description": "Canonical immutable event envelope aligned with the Events domain model.",
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "aggregate_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "aggregate_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "taskrun_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "causation_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "command_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actor": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sensitivity": {
+      "type": "string",
+      "enum": [
+        "public",
+        "internal",
+        "sensitive"
+      ]
+    },
+    "integrity_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "event_id",
+    "aggregate_type",
+    "aggregate_id",
+    "sequence",
+    "event_type",
+    "schema_version",
+    "timestamp",
+    "taskrun_id",
+    "causation_id",
+    "command_id",
+    "idempotency_key",
+    "actor",
+    "sensitivity",
+    "integrity_digest",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "$comment": "Target schema. UUID format acceptance must additionally enforce UUIDv7 where required by the domain contract."
+}

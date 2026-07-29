@@ -1,0 +1,33 @@
+{
+  "name": "gocode",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "pnpm --filter @gocode/desktop build",
+    "dev": "pnpm --filter @gocode/desktop dev",
+    "lint": "eslint .",
+    "lint:architecture": "python3 scripts/desktop/validate_architecture.py",
+    "test": "pnpm -r --if-present test",
+    "typecheck": "pnpm --filter @gocode/desktop typecheck && pnpm --filter @gocode/product typecheck",
+    "validate:docs": "python3 scripts/validate-docs.py --strict && python3 scripts/desktop/validate-docs.py --strict"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@playwright/test": "1.62.0",
+    "@types/node": "24.13.3",
+    "@vitest/coverage-v8": "3.2.7",
+    "eslint": "9.39.5",
+    "eslint-plugin-boundaries": "5.4.0",
+    "eslint-plugin-vue": "10.10.0",
+    "globals": "16.5.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.65.0",
+    "vite": "7.3.6",
+    "vitest": "3.2.7",
+    "vue-eslint-parser": "10.4.1"
+  }
+}

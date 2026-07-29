@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/ui-v1/delivered-event.schema.json",
+  "title": "DeliveredEvent",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event", "cursor"],
+  "properties": {
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "event_id", "aggregate_type", "aggregate_id", "sequence",
+        "event_type", "schema_version", "timestamp", "idempotency_key",
+        "actor", "sensitivity", "integrity_digest", "payload"
+      ],
+      "properties": {
+        "event_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "aggregate_type": {"type": "string", "minLength": 1, "maxLength": 64},
+        "aggregate_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "sequence": {"type": "integer", "minimum": 0},
+        "event_type": {"type": "string", "minLength": 1, "maxLength": 128},
+        "schema_version": {"type": "integer", "minimum": 1},
+        "timestamp": {"type": "string", "format": "date-time"},
+        "taskrun_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "causation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "command_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 256},
+        "actor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actor_type", "actor_id"],
+          "properties": {
+            "actor_type": {"enum": ["user", "device", "runtime", "system"]},
+            "actor_id": {"type": "string", "minLength": 1, "maxLength": 128}
+          }
+        },
+        "sensitivity": {"enum": ["public", "internal", "sensitive"]},
+        "integrity_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "payload": {"type": "object"}
+      }
+    },
+    "cursor": {"type": "string", "minLength": 16, "maxLength": 4096}
+  }
+}

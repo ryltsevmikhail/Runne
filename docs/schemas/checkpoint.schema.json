@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/checkpoint.schema.json",
+  "title": "Checkpoint",
+  "description": "Immutable resumable TaskRun snapshot aligned with the Checkpoints domain model.",
+  "type": "object",
+  "properties": {
+    "checkpoint_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "taskrun_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "event_position": {
+      "type": "object",
+      "properties": {
+        "aggregate_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "aggregate_id",
+        "sequence"
+      ],
+      "additionalProperties": false
+    },
+    "attempt_ref": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "execution_state": {
+      "type": "object"
+    },
+    "pending_tools": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "budget_usage": {
+      "type": "object"
+    },
+    "capability_grants": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      }
+    },
+    "workspace_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "integrity_digest": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "checkpoint_id",
+    "taskrun_id",
+    "event_position",
+    "attempt_ref",
+    "execution_state",
+    "pending_tools",
+    "budget_usage",
+    "capability_grants",
+    "workspace_ref",
+    "schema_version",
+    "integrity_digest",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "$comment": "Target schema. Checkpoint validation also requires committed event position, digest verification, schema support and secret-value rejection."
+}

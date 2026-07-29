@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/ui-v1/pair-offer.schema.json",
+  "title": "PairOffer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version", "offer_id", "runtime_id", "runtime_public_key", "endpoint",
+    "audience", "challenge", "requested_scopes", "issued_at", "expires_at",
+    "signature_algorithm", "signing_key_id", "signature"
+  ],
+  "properties": {
+    "version": {"const": 1},
+    "offer_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "runtime_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "runtime_public_key": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"},
+    "endpoint": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+    "audience": {"const": "gocode-ui-mobile"},
+    "challenge": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"},
+    "requested_scopes": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 128}
+    },
+    "issued_at": {"type": "string", "format": "date-time"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "signature_algorithm": {"const": "Ed25519"},
+    "signing_key_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "signature": {"type": "string", "pattern": "^[A-Za-z0-9_-]{86}$"}
+  }
+}

@@ -1,0 +1,16 @@
+[package]
+name = "gocode-platform-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-platform-ports = { path = "../platform-ports" }
+thiserror.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "=3.27.0"

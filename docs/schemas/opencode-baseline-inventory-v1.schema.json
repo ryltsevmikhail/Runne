@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  
+  "title": "OpenCode Baseline Inventory Profile V1",
+  "type": "object",
+  "properties": {
+    "profile_id": { "type": "string", "const": "opencode-baseline-inventory" },
+    "profile_revision": { "type": "integer", "const": 1 },
+    "baseline_sha": { "type": "string" },
+    "digests": {
+      "type": "object",
+      "properties": {
+        "profile_schema_digest": { "type": "string" },
+        "inventory_digest": { "type": "string" }
+      },
+      "required": ["profile_schema_digest", "inventory_digest"]
+    },
+    "inventory": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "required": ["profile_id", "profile_revision", "baseline_sha", "digests", "inventory"]
+}

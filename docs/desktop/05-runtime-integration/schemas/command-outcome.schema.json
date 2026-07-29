@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/ui-v1/command-outcome.schema.json",
+  "title": "CanonicalCommandOutcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["disposition", "command_id", "correlation_id"],
+  "properties": {
+    "disposition": {
+      "enum": [
+        "durably_recorded",
+        "not_committed_retryable",
+        "indeterminate"
+      ]
+    },
+    "command_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "correlation_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "aggregate_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "committed_version": {"type": "integer", "minimum": 0},
+    "event_position": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "outcome_ref": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "error_code": {"type": "string", "minLength": 1, "maxLength": 128}
+  },
+  "oneOf": [
+    {
+      "properties": {"disposition": {"const": "durably_recorded"}},
+      "required": ["aggregate_id", "committed_version", "event_position", "outcome_ref"],
+      "not": {"required": ["error_code"]}
+    },
+    {
+      "properties": {"disposition": {"const": "not_committed_retryable"}},
+      "required": ["error_code"],
+      "not": {
+        "anyOf": [
+          {"required": ["aggregate_id"]},
+          {"required": ["committed_version"]},
+          {"required": ["event_position"]},
+          {"required": ["outcome_ref"]}
+        ]
+      }
+    },
+    {
+      "properties": {"disposition": {"const": "indeterminate"}},
+      "required": ["outcome_ref"],
+      "not": {
+        "anyOf": [
+          {"required": ["aggregate_id"]},
+          {"required": ["committed_version"]},
+          {"required": ["event_position"]},
+          {"required": ["error_code"]}
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+[package]
+name = "gocode-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-api = { path = "../gocode-api" }
+gocode-application = { path = "../gocode-application" }
+gocode-domain = { path = "../gocode-domain" }
+gocode-mcp = { path = "../gocode-mcp" }
+gocode-opencode-compat = { path = "../gocode-opencode-compat" }
+gocode-plugin-host = { path = "../gocode-plugin-host" }
+gocode-provider = { path = "../gocode-provider" }
+gocode-tools = { path = "../gocode-tools" }
+hex = "=0.4.3"
+sha2 = { workspace = true }
+thiserror.workspace = true
+tokio = { version = "=1.44.0", features = ["sync", "rt", "macros", "time"] }
+tokio-util = { version = "=0.7.14", features = ["rt"] }
+
+[dev-dependencies]
+gocode-opencode-adapter-sqlite = { path = "../gocode-opencode-adapter-sqlite" }
+gocode-opencode-compat = { path = "../gocode-opencode-compat" }
+gocode-platform = { path = "../gocode-platform" }
+gocode-store = { path = "../gocode-store" }
+jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
+rusqlite = { version = "=0.34.0", features = ["bundled"] }
+serde_json = "=1.0.151"

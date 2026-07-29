@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/opencode-baseline-inventory-v3.schema.json",
+  "title": "OpenCode Baseline Inventory Profile V3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_id", "profile_revision", "baseline_sha", "digests", "inventory"],
+  "properties": {
+    "profile_id": {
+      "const": "opencode-baseline-inventory"
+    },
+    "profile_revision": {
+      "const": 3
+    },
+    "baseline_sha": {
+      "const": "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
+    },
+    "digests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_schema_digest", "inventory_digest"],
+      "properties": {
+        "profile_schema_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "inventory_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "inventory": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "inventory_id",
+          "upstream_operation_id",
+          "method",
+          "normalized_path",
+          "transport",
+          "classification",
+          "status",
+          "supported_fields",
+          "unsupported_fields"
+        ],
+        "properties": {
+          "inventory_id": {
+            "type": "string"
+          },
+          "upstream_operation_id": {
+            "type": "string"
+          },
+          "method": {
+            "enum": ["GET", "POST"]
+          },
+          "normalized_path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "transport": {
+            "const": "HTTP"
+          },
+          "classification": {
+            "const": "Semantic"
+          },
+          "status": {
+            "const": "Verified"
+          },
+          "supported_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "unsupported_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          }
+        }
+      },
+      "uniqueItems": true
+    }
+  }
+}

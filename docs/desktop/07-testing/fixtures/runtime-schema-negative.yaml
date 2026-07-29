@@ -1,0 +1,15 @@
+schema_version: 1
+profile_status: proposed
+cases:
+  - { id: outcome-recorded-with-error, schema: command-outcome.schema.json, expect: reject, patch: { disposition: durably_recorded, error_code: conflict } }
+  - { id: outcome-retryable-with-commit, schema: command-outcome.schema.json, expect: reject, patch: { disposition: not_committed_retryable, committed_version: 4 } }
+  - { id: outcome-indeterminate-with-event, schema: command-outcome.schema.json, expect: reject, patch: { disposition: indeterminate, event_position: opaque } }
+  - { id: pair-padded-key, schema: pair-offer.schema.json, expect: reject, field: runtime_public_key, value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" }
+  - { id: pair-wrong-key-length, schema: pair-offer.schema.json, expect: reject, field: runtime_public_key, value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }
+  - { id: pair-nul-offer, schema: pair-offer.schema.json, expect: reject, field: offer_id, value: "550e8400-e29b-41d4-a716-446655440000\u0000suffix" }
+  - { id: pair-noncanonical-uuid, schema: pair-offer.schema.json, expect: reject, field: offer_id, value: "550E8400-E29B-41D4-A716-446655440000" }
+  - { id: pair-non-origin-endpoint, schema: pair-offer.schema.json, expect: semantic_reject, field: endpoint, value: "https://runtime.example/path?token=x" }
+rules:
+  - Each patch is applied to a separately maintained valid golden object.
+  - Schema rejection and semantic rejection are distinct mandatory parser stages.
+  - These are documentation vectors until OQ-009 supplies runtime-owned bytes.
