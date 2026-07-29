@@ -1,0 +1,30 @@
++# Operating system and editor files
++.DS_Store
++Thumbs.db
++.idea/
++.vscode/
++*.swp
++
++# JavaScript, Vue, and test outputs
++node_modules/
++dist/
++coverage/
++.vite/
++playwright-report/
++test-results/
++*.tsbuildinfo
++
++# Rust and Tauri build outputs
++target/
++**/src-tauri/gen/
++
++# Local configuration, logs, and temporary files
++.env
++.env.*
++!.env.example
++!.env.*.example
++*.log
++tmp/
++.tmp/
++__pycache__/
++*.pyc
