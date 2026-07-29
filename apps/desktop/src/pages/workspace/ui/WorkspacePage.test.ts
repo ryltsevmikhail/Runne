@@ -41,6 +41,8 @@ describe('workspace page', () => {
     expect(wrapper.get('h1').text()).toBe('gocode-ui')
     expect(wrapper.text()).toContain('/workspace/gocode-ui')
     expect(wrapper.text()).toContain('Local workspace')
+    expect(wrapper.text()).toContain('Coding agent')
+    expect(wrapper.text()).not.toContain('Nothing here yet')
   })
 
   it('fails closed when the route project does not exist', async () => {

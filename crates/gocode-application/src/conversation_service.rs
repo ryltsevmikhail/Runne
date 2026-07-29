@@ -9,9 +9,10 @@ use gocode_domain::event::{Actor, CommandContext, materialize_batch};
 
 use crate::fingerprint::CommandFingerprint;
 use crate::ports::{
-    AggregateScope, CommitError, ConversationCommit, ConversationCommitResult, ConversationReceipt,
-    ConversationReceiptLookup, ConversationRepository, IdGenerationError, IdGenerator,
-    IdempotencyScope, OperationTag, PrincipalId, RuntimeAuthorityId,
+    AggregateScope, ApplicationCommandContext, CommitError, ConversationCommit,
+    ConversationCommitResult, ConversationReceipt, ConversationReceiptLookup,
+    ConversationRepository, IdGenerationError, IdGenerator, IdempotencyScope, OperationTag,
+    PrincipalId, RuntimeAuthorityId,
 };
 
 /// Typed failures produced by [`ConversationService`].
@@ -21,6 +22,8 @@ pub enum ConversationServiceError {
     IdGeneration(IdGenerationError),
     /// The API actor could not be represented by the domain actor contract.
     InvalidActor,
+    /// The application context did not match the command identity in the input.
+    ContextMismatch,
     /// Event materialization violated a domain/application invariant.
     MaterializationFailed,
     /// Atomic persistence or idempotency processing failed.
@@ -70,13 +73,36 @@ where
         context: &ApiCommandContext,
         input: CreateConversationInput,
     ) -> Result<CreateConversationOutput, ConversationServiceError> {
+        let actor = Actor::new(context.actor.as_str())
+            .map_err(|_| ConversationServiceError::InvalidActor)?;
+        let application_context = ApplicationCommandContext {
+            command_id: input.command_id,
+            idempotency_key: input.idempotency_key.clone(),
+            principal_id: PrincipalId(context.principal.as_str().to_owned()),
+            actor,
+        };
+        self.create_from_application(&application_context, input)
+    }
+
+    /// Executes an idempotent create-conversation command from the canonical
+    /// application identity context.
+    pub fn create_from_application(
+        &self,
+        context: &ApplicationCommandContext,
+        input: CreateConversationInput,
+    ) -> Result<CreateConversationOutput, ConversationServiceError> {
+        if context.command_id != input.command_id
+            || context.idempotency_key != input.idempotency_key
+        {
+            return Err(ConversationServiceError::ContextMismatch);
+        }
         let fingerprint = CommandFingerprint::for_create_conversation(
             &input.conversation_id,
             &input.workspace_id,
         );
         let scope = IdempotencyScope {
             runtime_authority_id: self.runtime_authority_id.clone(),
-            principal_id: PrincipalId(context.principal.as_str().to_owned()),
+            principal_id: context.principal_id.clone(),
             operation: OperationTag::CreateConversation,
             aggregate_scope: AggregateScope::NewConversation {
                 conversation_id: input.conversation_id,
@@ -100,8 +126,6 @@ where
             }
         }
 
-        let actor = Actor::new(context.actor.as_str())
-            .map_err(|_| ConversationServiceError::InvalidActor)?;
         let draft = Conversation::decide_create(input.conversation_id, input.workspace_id);
         let event_ids = self
             .id_generator
@@ -114,7 +138,7 @@ where
             &CommandContext {
                 command_id: input.command_id,
                 idempotency_key: input.idempotency_key.clone(),
-                actor,
+                actor: context.actor.clone(),
             },
         )
         .map_err(|_| ConversationServiceError::MaterializationFailed)?;

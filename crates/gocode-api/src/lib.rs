@@ -2,6 +2,8 @@
 
 //! API-level contracts for the GOCODE runtime host boundary.
 
+/// Canonical Conversation and message contracts.
+pub mod conversation;
 /// Runtime host port contracts.
 pub mod host_port;
 /// API command principals and actors.
@@ -13,6 +15,7 @@ pub mod task_run;
 /// API data transfer objects.
 pub mod types;
 
+pub use conversation::*;
 pub use host_port::*;
 pub use principal::*;
 pub use session_info::*;

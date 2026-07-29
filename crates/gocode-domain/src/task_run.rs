@@ -456,6 +456,33 @@ impl TaskRun {
         ))
     }
 
+    /// Creates and starts one TaskRun as a single valid event batch.
+    ///
+    /// This is used by coordinators that durably bind accepted work to an
+    /// execution attempt in the same transaction. The resulting stream is
+    /// equivalent to create → queue → admit → start-attempt.
+    pub fn decide_create_running(
+        command: CreateTaskRun,
+        attempt_id: AttemptId,
+    ) -> Result<Vec<DomainEventDraft<TaskRunEvent>>, DomainError> {
+        let aggregate_id = AggregateId::TaskRun(command.taskrun_id);
+        let draft = |payload| {
+            DomainEventDraft::new(
+                aggregate_id.clone(),
+                aggregate_id.clone(),
+                1,
+                Sensitivity::Public,
+                payload,
+            )
+        };
+        Ok(vec![
+            draft(TaskRunEvent::TaskRunCreated),
+            draft(TaskRunEvent::TaskRunQueued),
+            draft(TaskRunEvent::TaskRunAdmitted),
+            draft(TaskRunEvent::AttemptStarted { attempt_id }),
+        ])
+    }
+
     // ── decide ───────────────────────────────────────────────────────────
 
     /// Handle a command against an existing aggregate — produces zero or
@@ -2116,6 +2143,32 @@ mod tests {
         let draft = TaskRun::decide_create(cmd).unwrap();
         assert_eq!(*draft.payload(), TaskRunEvent::TaskRunCreated);
         assert_eq!(draft.schema_version(), 1);
+    }
+
+    #[test]
+    fn decide_create_running_emits_the_exact_valid_lifecycle_prefix() {
+        let events = TaskRun::decide_create_running(
+            make_create(),
+            ATTEMPT_ID.parse().expect("valid attempt ID"),
+        )
+        .unwrap();
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.payload().kind())
+                .collect::<Vec<_>>(),
+            vec![
+                TaskRunEventKind::TaskRunCreated,
+                TaskRunEventKind::TaskRunQueued,
+                TaskRunEventKind::TaskRunAdmitted,
+                TaskRunEventKind::AttemptStarted,
+            ]
+        );
+        assert!(
+            events
+                .iter()
+                .all(|event| event.sensitivity() == &Sensitivity::Public)
+        );
     }
 
     #[test]

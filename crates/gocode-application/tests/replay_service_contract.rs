@@ -1,254 +1,256 @@
-//! Contract tests for ReplayService → ReplayStorePort delegation.
-//!
-//! Verifies that ReplayService correctly forwards calls to the store
-//! and does not add extra logic beyond delegation.
+//! Контрактные тесты cursor integrity ReplayService.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use gocode_application::ports::{
-    ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
-};
+use gocode_application::ports::{ReplayError, ReplayEvent, ReplaySession, ReplayStorePort};
 use gocode_application::replay_service::ReplayService;
+use gocode_domain::id::EventLogLineageId;
+use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope};
 
-// ── Mock store ───────────────────────────────────────────────────────────
+struct DummyStore;
 
-/// Tracks which methods were called and with what parameters.
-#[derive(Default)]
-struct CallLog {
-    open_session_count: usize,
-    read_page_count: usize,
-    complete_catch_up_count: usize,
-    continue_live_count: usize,
-    poll_live_count: usize,
-    close_session_count: usize,
-    last_principal: Option<String>,
-    last_limit: Option<usize>,
+fn event() -> ReplayEvent {
+    ReplayEvent {
+        global_position: 42,
+        event_id: [1; 16],
+        aggregate_type: 1,
+        aggregate_id: [2; 16],
+        payload: vec![],
+        timestamp: 0,
+        event_type: "TaskRunEvent".into(),
+        sequence: 7,
+        sensitivity: 0,
+        schema_version: 8,
+        causation_id: None,
+        command_id: [5; 16],
+        idempotency_key: "replay-test".into(),
+        actor: "test-actor".into(),
+        integrity_digest: [6; 32],
+        correlation_id: [3; 16],
+        correlation_type: 1,
+        integrity_profile: 1,
+    }
 }
 
-#[derive(Clone)]
-struct MockStore {
-    log: Arc<Mutex<CallLog>>,
-}
-
-impl MockStore {
-    fn new() -> Self {
-        Self {
-            log: Arc::new(Mutex::new(CallLog::default())),
-        }
-    }
-
-    fn log(&self) -> std::sync::MutexGuard<'_, CallLog> {
-        self.log.lock().unwrap()
-    }
-
-    fn make_session() -> ReplaySession {
-        ReplaySession {
-            session_id: [0x01u8; 16],
-            principal_id: "test".to_string(),
-            session_generation: 1,
-            authority_id: [0xAA; 16],
-            authorization_epoch: 0,
-            aggregate_type: 1,
-            aggregate_id: [0xBB; 16],
-            retained_floor: None,
-            retention_generation: 0,
-            high_water_position: 0,
-            next_page_position: None,
-            last_delivered_position: None,
-            last_acked_position: None,
-            state: ReplayState::CatchingUp,
-            high_water_ref: vec![0u8; 77],
-            catch_up_completion: None,
-            live_delivery_id: None,
-            created_at: "2026-01-01T00:00:00".to_string(),
-        }
+fn scope() -> ReplayScope {
+    ReplayScope::Aggregate {
+        aggregate_type: 1,
+        aggregate_id: [2; 16],
     }
 }
 
 #[async_trait]
-impl ReplayStorePort for MockStore {
+impl ReplayStorePort for DummyStore {
     async fn open_session(
         &self,
-        principal_id: &str,
-        session_generation: i64,
-        authority_id: &[u8; 16],
-        authorization_epoch: i64,
-        aggregate_type: i32,
-        aggregate_id: &[u8; 16],
-        _server_secret: &[u8; 32],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
+        _: i32,
+        _: &[u8; 16],
+        _: Option<&ReplayCursor>,
+        _: &[u8; 32],
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
-        let mut log = self.log.lock().unwrap();
-        log.open_session_count += 1;
-        log.last_principal = Some(principal_id.to_string());
-        drop(log);
-
-        // Verify forwarded parameters
-        assert_eq!(principal_id, "test-user");
-        assert_eq!(session_generation, 42);
-        assert_eq!(*authority_id, [0xAA; 16]);
-        assert_eq!(authorization_epoch, 7);
-        assert_eq!(aggregate_type, 1);
-        assert_eq!(*aggregate_id, [0xBB; 16]);
-
-        Ok((Self::make_session(), vec![]))
+        Err(ReplayError::Storage("dummy".into()))
     }
-
     async fn read_page(
         &self,
-        session_id: &[u8; 16],
-        principal_id: &str,
-        generation: i64,
-        _authority_id: &[u8; 16],
-        _epoch: i64,
-        limit: usize,
-    ) -> Result<Vec<ReplayEvent>, ReplayError> {
-        let mut log = self.log.lock().unwrap();
-        log.read_page_count += 1;
-        log.last_limit = Some(limit);
-        drop(log);
-
-        assert_eq!(*session_id, [0x01u8; 16]);
-        assert_eq!(principal_id, "test-user");
-        assert_eq!(generation, 42);
-        assert_eq!(limit, 50);
-
-        Ok(vec![])
+        _: &[u8; 16],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
+        _: usize,
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+        Err(ReplayError::Storage("dummy".into()))
     }
-
+    async fn acknowledge(
+        &self,
+        _: &[u8; 16],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
+        _: &ReplayCursor,
+    ) -> Result<(), ReplayError> {
+        Err(ReplayError::Storage("dummy".into()))
+    }
     async fn complete_catch_up(
         &self,
-        _session_id: &[u8; 16],
-        principal_id: &str,
-        _generation: i64,
-        _authority_id: &[u8; 16],
-        _epoch: i64,
-        catch_up_completion_proof: &[u8],
-    ) -> Result<ReplaySession, ReplayError> {
-        let mut log = self.log.lock().unwrap();
-        log.complete_catch_up_count += 1;
-        log.last_principal = Some(principal_id.to_string());
-        drop(log);
-
-        assert_eq!(catch_up_completion_proof, b"done");
-        let mut session = Self::make_session();
-        session.state = ReplayState::CatchUpComplete;
-        Ok(session)
+        _: &[u8; 16],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
+        _: &[u8; 32],
+    ) -> Result<(ReplaySession, Option<ReplayEvent>), ReplayError> {
+        Err(ReplayError::Storage("dummy".into()))
     }
-
     async fn continue_live(
         &self,
-        _session_id: &[u8; 16],
-        principal_id: &str,
-        _generation: i64,
-        _authority_id: &[u8; 16],
-        _epoch: i64,
+        _: &[u8; 16],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
     ) -> Result<ReplaySession, ReplayError> {
-        let mut log = self.log.lock().unwrap();
-        log.continue_live_count += 1;
-        log.last_principal = Some(principal_id.to_string());
-        drop(log);
-
-        let mut session = Self::make_session();
-        session.state = ReplayState::Live;
-        session.live_delivery_id = Some(vec![0x42u8; 16]);
-        Ok(session)
+        Err(ReplayError::Storage("dummy".into()))
     }
-
     async fn poll_live(
         &self,
-        _session_id: &[u8; 16],
-        principal_id: &str,
-        _generation: i64,
-        _authority_id: &[u8; 16],
-        _epoch: i64,
-    ) -> Result<Vec<ReplayEvent>, ReplayError> {
-        let mut log = self.log.lock().unwrap();
-        log.poll_live_count += 1;
-        log.last_principal = Some(principal_id.to_string());
-        drop(log);
-
-        Ok(vec![])
+        _: &[u8; 16],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+        Err(ReplayError::Storage("dummy".into()))
     }
-
     async fn close_session(
         &self,
-        _session_id: &[u8; 16],
-        principal_id: &str,
-        _generation: i64,
-        _authority_id: &[u8; 16],
-        _epoch: i64,
+        _: &[u8; 16],
+        _: &str,
+        _: i64,
+        _: &[u8; 16],
+        _: i64,
     ) -> Result<(), ReplayError> {
-        let mut log = self.log.lock().unwrap();
-        log.close_session_count += 1;
-        log.last_principal = Some(principal_id.to_string());
-        drop(log);
-
-        Ok(())
+        Err(ReplayError::Storage("dummy".into()))
     }
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────
+#[test]
+fn cursor_integrity_rejects_tampering() {
+    let lineage = EventLogLineageId::from_bytes([4; 16]);
+    let service = ReplayService::new(Arc::new(DummyStore), [0xCC; 32], lineage);
+    let event = event();
+    let scope = scope();
+    let mut cursor = service.build_cursor_from_event(&event, &scope).unwrap();
+    cursor.global_position = 43;
+    let result = futures::executor::block_on(service.open_session(
+        "user",
+        1,
+        &[5; 16],
+        0,
+        1,
+        &[2; 16],
+        Some(cursor),
+    ));
+    assert!(matches!(result, Err(ReplayError::CursorInvalid { .. })));
+}
 
-const AUTH: [u8; 16] = [0xAA; 16];
-const AGG: [u8; 16] = [0xBB; 16];
-const SID: [u8; 16] = [0x01; 16];
-const SECRET: [u8; 32] = [0xCC; 32];
+#[test]
+fn cursor_construction_is_deterministic() {
+    let service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([4; 16]),
+    );
+    let event = event();
+    let scope = scope();
 
-#[tokio::test]
-async fn service_forward_contract() {
-    let mock = MockStore::new();
-    let svc = ReplayService::new(Arc::new(mock.clone()), SECRET);
+    assert_eq!(
+        service.build_cursor_from_event(&event, &scope).unwrap(),
+        service.build_cursor_from_event(&event, &scope).unwrap(),
+    );
+}
 
-    // open_session
-    let (session, events) = svc
-        .open_session("test-user", 42, &AUTH, 7, 1, &AGG)
-        .await
+#[test]
+fn cursor_construction_rejects_invalid_delivered_event_metadata() {
+    let service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([4; 16]),
+    );
+    let mut invalid = event();
+    invalid.sequence = 0;
+
+    assert!(matches!(
+        service.build_cursor_from_event(&invalid, &scope()),
+        Err(ReplayError::Integrity(_))
+    ));
+}
+
+#[test]
+fn cursor_integrity_accepts_valid_cursor() {
+    let service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([4; 16]),
+    );
+    let cursor = service.build_cursor_from_event(&event(), &scope()).unwrap();
+
+    assert!(service.validate_cursor_integrity(&cursor).is_ok());
+}
+
+#[test]
+fn cursor_rejects_wrong_server_secret() {
+    let lineage = EventLogLineageId::from_bytes([4; 16]);
+    let issuing_service = ReplayService::new(Arc::new(DummyStore), [0xCC; 32], lineage);
+    let cursor = issuing_service
+        .build_cursor_from_event(&event(), &scope())
         .unwrap();
-    assert_eq!(session.state, ReplayState::CatchingUp);
-    assert!(events.is_empty());
-    assert_eq!(mock.log().open_session_count, 1);
+    let validating_service = ReplayService::new(Arc::new(DummyStore), [0xDD; 32], lineage);
 
-    // read_page
-    let page = svc
-        .read_page(&SID, "test-user", 42, &AUTH, 7, 50)
-        .await
+    assert!(matches!(
+        validating_service.validate_cursor_integrity(&cursor),
+        Err(ReplayError::CursorInvalid { .. })
+    ));
+}
+
+#[test]
+fn cursor_rejects_wrong_schema_version() {
+    let service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([4; 16]),
+    );
+    let mut cursor = service.build_cursor_from_event(&event(), &scope()).unwrap();
+    cursor.schema_version = CURSOR_SCHEMA_VERSION + 1;
+
+    assert!(matches!(
+        service.validate_cursor_integrity(&cursor),
+        Err(ReplayError::CursorInvalid { .. })
+    ));
+}
+
+#[test]
+fn cursor_rejects_foreign_event_log_lineage() {
+    let issuing_service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([4; 16]),
+    );
+    let cursor = issuing_service
+        .build_cursor_from_event(&event(), &scope())
         .unwrap();
-    assert!(page.is_empty());
-    assert_eq!(mock.log().read_page_count, 1);
-    assert_eq!(mock.log().last_limit, Some(50));
+    let validating_service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([5; 16]),
+    );
 
-    // complete_catch_up
-    let session = svc
-        .complete_catch_up(&SID, "test-user", 42, &AUTH, 7, b"done")
-        .await
-        .unwrap();
-    assert_eq!(session.state, ReplayState::CatchUpComplete);
-    assert_eq!(mock.log().complete_catch_up_count, 1);
+    assert!(matches!(
+        validating_service.validate_cursor_integrity(&cursor),
+        Err(ReplayError::CursorInvalid { .. })
+    ));
+}
 
-    // continue_live
-    let session = svc
-        .continue_live(&SID, "test-user", 42, &AUTH, 7)
-        .await
-        .unwrap();
-    assert_eq!(session.state, ReplayState::Live);
-    assert!(session.live_delivery_id.is_some());
-    assert_eq!(mock.log().continue_live_count, 1);
+#[test]
+fn scope_digest_is_deterministic() {
+    let scope = scope();
 
-    // poll_live
-    let live = svc
-        .poll_live(&SID, "test-user", 42, &AUTH, 7)
-        .await
-        .unwrap();
-    assert!(live.is_empty());
-    assert_eq!(mock.log().poll_live_count, 1);
+    assert_eq!(scope.canonical_digest(), scope.canonical_digest());
+}
 
-    // close_session
-    svc.close_session(&SID, "test-user", 42, &AUTH, 7)
-        .await
-        .unwrap();
-    assert_eq!(mock.log().close_session_count, 1);
+#[test]
+fn scope_digest_differs_for_different_scopes() {
+    let first = scope();
+    let second = ReplayScope::Aggregate {
+        aggregate_type: 1,
+        aggregate_id: [3; 16],
+    };
 
-    // All methods were called exactly once
-    assert_eq!(mock.log().last_principal.as_deref(), Some("test-user"));
+    assert_ne!(first.canonical_digest(), second.canonical_digest());
 }

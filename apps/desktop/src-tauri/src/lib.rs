@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use gocode_app_core::{AppCore, BootstrapState, DiagnosticsSnapshot, ProjectSummary};
+use gocode_app_core::{
+    AppCore, BootstrapState, ConversationSnapshot, DiagnosticsSnapshot, ProjectSummary,
+    RuntimeAvailability,
+};
 use gocode_platform_desktop::ProfileLock;
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -62,6 +65,43 @@ fn get_diagnostics(state: State<'_, AppCore>) -> Result<DiagnosticsSnapshot, Ipc
         })
 }
 
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn connect_runtime(state: State<'_, AppCore>) -> Result<RuntimeAvailability, IpcError> {
+    state.connect_runtime().await.map_err(|_| IpcError {
+        code: "runtime_connection_unavailable",
+    })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn open_project_conversation(
+    state: State<'_, AppCore>,
+    project_id: i64,
+) -> Result<ConversationSnapshot, IpcError> {
+    state
+        .open_project_conversation(project_id)
+        .await
+        .map_err(|_| IpcError {
+            code: "conversation_unavailable",
+        })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn send_project_message(
+    state: State<'_, AppCore>,
+    project_id: i64,
+    text: String,
+) -> Result<ConversationSnapshot, IpcError> {
+    state
+        .send_project_message(project_id, &text)
+        .await
+        .map_err(|_| IpcError {
+            code: "conversation_message_rejected",
+        })
+}
+
 /// Starts the native desktop application.
 ///
 /// # Panics
@@ -81,7 +121,9 @@ pub fn run() {
             let profile_directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&profile_directory)?;
             let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
-            let core = AppCore::open(&profile_directory.join("profile.sqlite3"))?;
+            let core = AppCore::open_with_default_runtime_profile(
+                &profile_directory.join("profile.sqlite3"),
+            )?;
             app.manage(profile_lock);
             app.manage(core);
             Ok(())
@@ -92,7 +134,10 @@ pub fn run() {
             list_projects,
             get_project,
             open_local_project,
-            get_diagnostics
+            get_diagnostics,
+            connect_runtime,
+            open_project_conversation,
+            send_project_message
         ])
         .run(tauri::generate_context!())
         .expect("failed to run GOCODE desktop application");

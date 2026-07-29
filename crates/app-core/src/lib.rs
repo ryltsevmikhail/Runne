@@ -1,14 +1,23 @@
 //! Platform-neutral application orchestration.
 
-use std::path::Path;
-use std::sync::Mutex;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, RwLock};
+use std::time::Duration;
 
 use gocode_local_store::{
     LocalProject, LocalStore, ProjectOpenError, SecurityTransactionError, StoreOpenError,
 };
 pub use gocode_runtime_client::RuntimeConnectionState as RuntimeAvailability;
-use serde::Serialize;
+use gocode_runtime_client::{
+    AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationMessageRole,
+    ConversationMessages, CreateConversationRequest, GenerateTextRequest, LocalProfileError,
+    LocalRuntimeConnectError, LocalRuntimeProfile, RuntimeApiErrorKind, default_local_profile_path,
+};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+const RUNTIME_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const CONVERSATION_REFERENCE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Error)]
 pub enum AppCoreError {
@@ -24,6 +33,12 @@ pub enum AppCoreError {
     StateUnavailable,
     #[error("diagnostics unavailable")]
     Diagnostics(#[from] SecurityTransactionError),
+    #[error("runtime is unavailable")]
+    RuntimeUnavailable,
+    #[error("stored conversation reference is invalid")]
+    InvalidConversationReference,
+    #[error("project is unavailable")]
+    ProjectUnavailable,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
@@ -52,6 +67,25 @@ pub struct ProjectSummary {
     pub last_opened_at: i64,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationMessageSummary {
+    pub message_id: String,
+    pub role: &'static str,
+    pub task_run_id: String,
+    pub attempt_id: String,
+    pub text: String,
+    pub committed_at: u64,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConversationSnapshot {
+    pub conversation_id: String,
+    pub stream_version: u64,
+    pub messages: Vec<ConversationMessageSummary>,
+}
+
 impl From<LocalProject> for ProjectSummary {
     fn from(project: LocalProject) -> Self {
         Self {
@@ -65,6 +99,10 @@ impl From<LocalProject> for ProjectSummary {
 
 pub struct AppCore {
     store: Mutex<LocalStore>,
+    runtime_profile_path: Option<PathBuf>,
+    runtime_state: RwLock<RuntimeAvailability>,
+    runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
+    runtime_connect: tokio::sync::Mutex<()>,
 }
 
 impl AppCore {
@@ -74,8 +112,46 @@ impl AppCore {
     ///
     /// Returns a storage error when the profile cannot be opened or migrated.
     pub fn open(path: &Path) -> Result<Self, AppCoreError> {
+        Self::open_internal(path, None)
+    }
+
+    /// Opens the application service with one host-owned runtime profile path.
+    ///
+    /// The path remains inside the Rust host and is never serialized to the
+    /// renderer.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error when the desktop profile cannot be opened.
+    pub fn open_with_runtime_profile(
+        path: &Path,
+        runtime_profile_path: PathBuf,
+    ) -> Result<Self, AppCoreError> {
+        Self::open_internal(path, Some(runtime_profile_path))
+    }
+
+    /// Opens the application service with the standard daemon-owned local
+    /// runtime profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage or platform profile-resolution error.
+    pub fn open_with_default_runtime_profile(path: &Path) -> Result<Self, AppCoreError> {
+        let profile_path =
+            default_local_profile_path().map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        Self::open_with_runtime_profile(path, profile_path)
+    }
+
+    fn open_internal(
+        path: &Path,
+        runtime_profile_path: Option<PathBuf>,
+    ) -> Result<Self, AppCoreError> {
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
+            runtime_profile_path,
+            runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
+            runtime_client: RwLock::new(None),
+            runtime_connect: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -89,7 +165,124 @@ impl AppCore {
             .store
             .lock()
             .map_err(|_| AppCoreError::StateUnavailable)?;
-        load_bootstrap(&store)
+        let mut bootstrap = load_bootstrap(&store)?;
+        drop(store);
+        bootstrap.runtime = self.runtime_availability()?;
+        Ok(bootstrap)
+    }
+
+    /// Loads the protected local profile and performs the authenticated exact
+    /// profile handshake.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted runtime failure and leaves a closed connection
+    /// disposition for diagnostics/UI.
+    pub async fn connect_runtime(&self) -> Result<RuntimeAvailability, AppCoreError> {
+        let _connect = self.runtime_connect.lock().await;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        let profile_path = self
+            .runtime_profile_path
+            .as_deref()
+            .ok_or(AppCoreError::RuntimeUnavailable)?;
+        self.set_runtime_availability(RuntimeAvailability::Connecting)?;
+        let profile = match LocalRuntimeProfile::load(profile_path) {
+            Ok(profile) => profile,
+            Err(error) => {
+                self.set_runtime_availability(map_profile_state(error))?;
+                return Err(AppCoreError::RuntimeUnavailable);
+            }
+        };
+        self.set_runtime_availability(RuntimeAvailability::Authenticating)?;
+        let client = match profile.connect(RUNTIME_REQUEST_TIMEOUT).await {
+            Ok(client) => client,
+            Err(error) => {
+                self.set_runtime_availability(map_connect_state(&error))?;
+                return Err(AppCoreError::RuntimeUnavailable);
+            }
+        };
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = Some(client);
+        self.set_runtime_availability(RuntimeAvailability::Live)?;
+        Ok(RuntimeAvailability::Live)
+    }
+
+    /// Creates or restores the one durable runtime Conversation bound to a
+    /// local project.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed local reference, project, or runtime failure.
+    pub async fn open_project_conversation(
+        &self,
+        project_id: i64,
+    ) -> Result<ConversationSnapshot, AppCoreError> {
+        let client = self.live_runtime_client()?;
+        let reference = self.load_or_prepare_conversation_reference(project_id)?;
+        let identity = CommandIdentity::new(
+            reference.create_command_id,
+            reference.idempotency_key.clone(),
+        )
+        .map_err(|_| AppCoreError::InvalidConversationReference)?;
+        let created = client
+            .create_conversation(CreateConversationRequest::new(
+                identity,
+                reference.conversation_id,
+                reference.workspace_id,
+            ))
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        if created.conversation_id != reference.conversation_id
+            || created.workspace_id != reference.workspace_id
+        {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        let snapshot = client
+            .list_messages(reference.conversation_id)
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        map_snapshot(snapshot, reference.conversation_id)
+    }
+
+    /// Sends one user message and returns the complete authoritative timeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed local/runtime failure without exposing credentials.
+    pub async fn send_project_message(
+        &self,
+        project_id: i64,
+        text: &str,
+    ) -> Result<ConversationSnapshot, AppCoreError> {
+        let current = self.open_project_conversation(project_id).await?;
+        let conversation_id = CanonicalId::parse(&current.conversation_id)
+            .map_err(|_| AppCoreError::InvalidConversationReference)?;
+        let client = self.live_runtime_client()?;
+        let generated = client
+            .generate_text(
+                GenerateTextRequest::new(
+                    new_command_identity()?,
+                    conversation_id,
+                    current.stream_version,
+                    text,
+                )
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?,
+            )
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        if generated.conversation_id != conversation_id {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        let snapshot = client
+            .list_messages(conversation_id)
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        map_snapshot(snapshot, conversation_id)
     }
 
     /// Persists a validated appearance theme.
@@ -175,8 +368,161 @@ impl AppCore {
             database_schema_version: local.schema_version,
             database_generation: local.database_generation,
             project_count: local.project_count,
-            runtime: RuntimeAvailability::Unconfigured,
+            runtime: self.runtime_availability()?,
         })
+    }
+
+    fn runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {
+        self.runtime_state
+            .read()
+            .map(|state| *state)
+            .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn set_runtime_availability(
+        &self,
+        availability: RuntimeAvailability,
+    ) -> Result<(), AppCoreError> {
+        *self
+            .runtime_state
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = availability;
+        Ok(())
+    }
+
+    fn runtime_client(&self) -> Result<Option<AuthenticatedRuntimeClient>, AppCoreError> {
+        self.runtime_client
+            .read()
+            .map(|client| client.clone())
+            .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn live_runtime_client(&self) -> Result<AuthenticatedRuntimeClient, AppCoreError> {
+        if self.runtime_availability()? != RuntimeAvailability::Live {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        self.runtime_client()?
+            .ok_or(AppCoreError::RuntimeUnavailable)
+    }
+
+    fn load_or_prepare_conversation_reference(
+        &self,
+        project_id: i64,
+    ) -> Result<StoredConversationReference, AppCoreError> {
+        if project_id <= 0 {
+            return Err(AppCoreError::ProjectUnavailable);
+        }
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        if store.get_project(project_id)?.is_none() {
+            return Err(AppCoreError::ProjectUnavailable);
+        }
+        let key = format!("runtime.conversation.project.{project_id}");
+        if let Some(serialized) = store.get_setting(&key)? {
+            return parse_conversation_reference(&serialized);
+        }
+        let command_id = CanonicalId::now_v7();
+        let reference = StoredConversationReference {
+            schema_version: CONVERSATION_REFERENCE_SCHEMA_VERSION,
+            conversation_id: CanonicalId::now_v7(),
+            workspace_id: CanonicalId::now_v7(),
+            create_command_id: command_id,
+            idempotency_key: command_id.to_string(),
+        };
+        let serialized = serde_json::to_string(&reference)
+            .map_err(|_| AppCoreError::InvalidConversationReference)?;
+        store.set_setting(&key, &serialized)?;
+        drop(store);
+        Ok(reference)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct StoredConversationReference {
+    schema_version: u32,
+    conversation_id: CanonicalId,
+    workspace_id: CanonicalId,
+    create_command_id: CanonicalId,
+    idempotency_key: String,
+}
+
+fn parse_conversation_reference(value: &str) -> Result<StoredConversationReference, AppCoreError> {
+    let reference: StoredConversationReference =
+        serde_json::from_str(value).map_err(|_| AppCoreError::InvalidConversationReference)?;
+    if reference.schema_version != CONVERSATION_REFERENCE_SCHEMA_VERSION
+        || CommandIdentity::new(
+            reference.create_command_id,
+            reference.idempotency_key.clone(),
+        )
+        .is_err()
+    {
+        return Err(AppCoreError::InvalidConversationReference);
+    }
+    Ok(reference)
+}
+
+fn new_command_identity() -> Result<CommandIdentity, AppCoreError> {
+    let command_id = CanonicalId::now_v7();
+    CommandIdentity::new(command_id, command_id.to_string())
+        .map_err(|_| AppCoreError::RuntimeUnavailable)
+}
+
+fn map_snapshot(
+    snapshot: ConversationMessages,
+    expected_conversation_id: CanonicalId,
+) -> Result<ConversationSnapshot, AppCoreError> {
+    if snapshot.conversation_id != expected_conversation_id {
+        return Err(AppCoreError::RuntimeUnavailable);
+    }
+    Ok(ConversationSnapshot {
+        conversation_id: snapshot.conversation_id.to_string(),
+        stream_version: snapshot.stream_version,
+        messages: snapshot
+            .messages
+            .into_iter()
+            .map(|message| ConversationMessageSummary {
+                message_id: message.message_id.to_string(),
+                role: match message.role {
+                    ConversationMessageRole::User => "user",
+                    ConversationMessageRole::Assistant => "assistant",
+                },
+                task_run_id: message.task_run_id.to_string(),
+                attempt_id: message.attempt_id.to_string(),
+                text: message.text,
+                committed_at: message.committed_at,
+            })
+            .collect(),
+    })
+}
+
+const fn map_profile_state(error: LocalProfileError) -> RuntimeAvailability {
+    match error {
+        LocalProfileError::Unavailable => RuntimeAvailability::Reconnecting,
+        LocalProfileError::InsecurePermissions | LocalProfileError::InvalidProfile => {
+            RuntimeAvailability::Incompatible
+        }
+        LocalProfileError::InvalidCredential => RuntimeAvailability::Revoked,
+    }
+}
+
+const fn map_connect_state(error: &LocalRuntimeConnectError) -> RuntimeAvailability {
+    match error {
+        LocalRuntimeConnectError::Transport(_) => RuntimeAvailability::Reconnecting,
+        LocalRuntimeConnectError::Api(error) => match error.kind() {
+            RuntimeApiErrorKind::Unauthorized => RuntimeAvailability::Revoked,
+            RuntimeApiErrorKind::Incompatible | RuntimeApiErrorKind::InvalidResponse => {
+                RuntimeAvailability::Incompatible
+            }
+            RuntimeApiErrorKind::InvalidRequest
+            | RuntimeApiErrorKind::NotFound
+            | RuntimeApiErrorKind::Conflict
+            | RuntimeApiErrorKind::Backpressure
+            | RuntimeApiErrorKind::Unavailable
+            | RuntimeApiErrorKind::ResponseTooLarge => RuntimeAvailability::Reconnecting,
+        },
     }
 }
 

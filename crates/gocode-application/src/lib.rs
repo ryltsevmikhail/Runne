@@ -15,6 +15,7 @@
 
 pub mod commands;
 pub mod conversation_service;
+pub mod conversation_text_service;
 pub mod errors;
 pub mod fingerprint;
 pub mod migration;

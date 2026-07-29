@@ -52,6 +52,16 @@ export async function saveTheme(
   await invoke('set_theme', { theme })
 }
 
+export async function connectRuntime(
+  invoke: Invoke = tauriInvoke,
+): Promise<RuntimeConnectionState> {
+  const value = await invoke('connect_runtime')
+  if (!isRuntimeConnectionState(value)) {
+    throw new Error('Invalid runtime connection response')
+  }
+  return value
+}
+
 function isBootstrapState(value: unknown): value is BootstrapState {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false
