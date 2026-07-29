@@ -30,6 +30,8 @@ impl StableRuntimeBinding {
     ) -> Result<Self, LocalSessionContractError> {
         validate_uuid_v7_bytes(&authority_id)
             .map_err(LocalSessionContractError::InvalidAuthorityId)?;
+        validate_uuid_v7_bytes(lineage_id.as_bytes())
+            .map_err(LocalSessionContractError::InvalidLineageId)?;
         let profile_id = profile_id.into();
         if profile_id.is_empty() {
             return Err(LocalSessionContractError::EmptyProfileId);
@@ -93,6 +95,7 @@ impl EphemeralRuntimeBinding {
     pub fn new(
         daemon_instance_id: DaemonInstanceId,
         launch_generation: u64,
+        session_id: [u8; 16],
         authorization_epoch: u64,
         sensitivity_ceiling: Sensitivity,
     ) -> Result<Self, LocalSessionContractError> {
@@ -101,10 +104,16 @@ impl EphemeralRuntimeBinding {
         if launch_generation == 0 {
             return Err(LocalSessionContractError::InvalidLaunchGeneration);
         }
+        if session_id == [0; 16] {
+            return Err(LocalSessionContractError::EmptySessionId);
+        }
+        if session_id == daemon_instance_id.into_bytes() {
+            return Err(LocalSessionContractError::SessionIdMatchesDaemonInstance);
+        }
         Ok(Self {
             daemon_instance_id,
             launch_generation,
-            session_id: daemon_instance_id.into_bytes(),
+            session_id,
             authorization_epoch,
             sensitivity_ceiling,
         })
@@ -152,19 +161,25 @@ impl RuntimeSessionBinding {
         stable: StableRuntimeBinding,
         daemon_instance_id: DaemonInstanceId,
         launch_generation: u64,
+        session_id: [u8; 16],
         authorization_epoch: u64,
         sensitivity_ceiling: Sensitivity,
+        certificate_sha256: [u8; 32],
     ) -> Result<Self, LocalSessionContractError> {
         let ephemeral = EphemeralRuntimeBinding::new(
             daemon_instance_id,
             launch_generation,
+            session_id,
             authorization_epoch,
             sensitivity_ceiling,
         )?;
+        if certificate_sha256 == [0; 32] {
+            return Err(LocalSessionContractError::EmptyCertificateSha256);
+        }
         Ok(Self {
             stable,
             ephemeral,
-            certificate_sha256: [0; 32],
+            certificate_sha256,
         })
     }
 
@@ -193,6 +208,8 @@ impl core::fmt::Debug for RuntimeSessionBinding {
 pub enum LocalSessionContractError {
     /// The authority identity is not a UUIDv7.
     InvalidAuthorityId(InvalidIdReason),
+    /// The event-log lineage identity is not a UUIDv7.
+    InvalidLineageId(InvalidIdReason),
     /// The daemon instance identity is not a UUIDv7.
     InvalidDaemonInstanceId(InvalidIdReason),
     /// The selected runtime profile is empty.
@@ -201,6 +218,12 @@ pub enum LocalSessionContractError {
     EmptyCapabilityDigest,
     /// The daemon launch generation must be positive.
     InvalidLaunchGeneration,
+    /// The session identity is empty.
+    EmptySessionId,
+    /// The session identity must not reuse the daemon instance identity.
+    SessionIdMatchesDaemonInstance,
+    /// The TLS certificate SHA-256 digest is empty.
+    EmptyCertificateSha256,
     /// A replay contract named a different authorization epoch.
     AuthorizationEpochMismatch,
     /// A replay contract named a different sensitivity ceiling.

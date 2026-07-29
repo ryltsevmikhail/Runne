@@ -9,6 +9,8 @@ const UUID_V7_INSTANCE: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ];
 const UUID_V7_LINEAGE: &str = "018f2e3a-7000-7000-8000-000000000002";
+const SESSION_ID: [u8; 16] = [7; 16];
+const CERTIFICATE_SHA256: [u8; 32] = [8; 32];
 
 fn stable_binding() -> StableRuntimeBinding {
     StableRuntimeBinding::new(
@@ -28,8 +30,10 @@ fn session_binding_rejects_zero_launch_generation() {
         stable_binding(),
         DaemonInstanceId::from_bytes(UUID_V7_INSTANCE),
         0,
+        SESSION_ID,
         7,
         Sensitivity::Internal,
+        CERTIFICATE_SHA256,
     )
     .expect_err("zero launch generation must fail");
     assert_eq!(error, LocalSessionContractError::InvalidLaunchGeneration);
@@ -76,4 +80,71 @@ fn daemon_instance_identity_requires_a_uuid_v7() {
             actual: 4,
         }
     );
+}
+
+#[test]
+fn stable_binding_rejects_malformed_raw_lineage_identity() {
+    let error = StableRuntimeBinding::new(
+        UUID_V7_INSTANCE,
+        ApiPrincipalId::new("local-owner").unwrap(),
+        EventLogLineageId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x40, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x02,
+        ]),
+        "local-default",
+        [3; 32],
+        [4; 32],
+    )
+    .expect_err("a raw v4 lineage must not bind a local runtime");
+    assert_eq!(
+        error,
+        LocalSessionContractError::InvalidLineageId(
+            gocode_domain::id::InvalidIdReason::InvalidUuidVersion {
+                expected: 7,
+                actual: 4,
+            }
+        )
+    );
+}
+
+#[test]
+fn session_binding_requires_separate_session_and_certificate_identities() {
+    let daemon = DaemonInstanceId::from_bytes(UUID_V7_INSTANCE);
+    assert_eq!(
+        RuntimeSessionBinding::new(
+            stable_binding(),
+            daemon,
+            1,
+            UUID_V7_INSTANCE,
+            7,
+            Sensitivity::Internal,
+            CERTIFICATE_SHA256,
+        ),
+        Err(LocalSessionContractError::SessionIdMatchesDaemonInstance)
+    );
+    assert_eq!(
+        RuntimeSessionBinding::new(
+            stable_binding(),
+            daemon,
+            1,
+            SESSION_ID,
+            7,
+            Sensitivity::Internal,
+            [0; 32],
+        ),
+        Err(LocalSessionContractError::EmptyCertificateSha256)
+    );
+
+    let binding = RuntimeSessionBinding::new(
+        stable_binding(),
+        daemon,
+        1,
+        SESSION_ID,
+        7,
+        Sensitivity::Internal,
+        CERTIFICATE_SHA256,
+    )
+    .expect("separate, non-empty session and certificate identities must bind");
+    assert_eq!(binding.ephemeral().session_id(), &SESSION_ID);
+    assert_eq!(binding.certificate_sha256(), &CERTIFICATE_SHA256);
 }
