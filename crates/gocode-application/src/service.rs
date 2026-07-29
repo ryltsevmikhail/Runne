@@ -82,14 +82,8 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
         input: CreateTaskRunInput,
     ) -> Result<CommandOutcome, ApplicationError> {
         let fp = CommandFingerprint::for_create(&input.conversation_id, &input.workspace_id);
-        self.pipeline.execute_create(
-            context.command_id,
-            &context.idempotency_key,
-            &context.principal_id,
-            input.conversation_id,
-            input.workspace_id,
-            &fp,
-        )
+        self.pipeline
+            .execute_create(context, input.conversation_id, input.workspace_id, &fp)
     }
 
     pub fn queue_task_run(
@@ -102,6 +96,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::Queue,
@@ -124,6 +119,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::Admit,
@@ -151,6 +147,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::StartAttempt { attempt_id },
@@ -179,6 +176,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::Complete {
@@ -215,6 +213,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -248,6 +247,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::CommitContext {
@@ -275,6 +275,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::CommitPlan {
@@ -305,6 +306,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             TaskRunCommand::RecordStepOutcome {
@@ -337,6 +339,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -393,6 +396,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -428,6 +432,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -470,6 +475,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -547,6 +553,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -586,6 +593,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,
@@ -637,6 +645,7 @@ where
             context.command_id,
             &context.idempotency_key,
             &context.principal_id,
+            &context.actor,
             input.taskrun_id,
             input.expected_version,
             &fingerprint,

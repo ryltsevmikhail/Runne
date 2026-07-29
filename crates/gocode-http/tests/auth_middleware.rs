@@ -6,7 +6,7 @@ use axum::{
     http::{Request, StatusCode},
     routing::get,
 };
-use gocode_http::auth::AuthLayer;
+use gocode_http::auth::{AuthLayer, extract_bearer_token};
 use tower::ServiceExt;
 
 // ── Helpers ───────────────────────────────────────────────────────────
@@ -107,4 +107,14 @@ async fn non_hex_token_returns_401() {
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+fn oversized_bearer_value_is_rejected_before_hex_allocation() {
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        "authorization",
+        format!("Bearer {}", "ab".repeat(1024)).parse().unwrap(),
+    );
+    assert_eq!(extract_bearer_token(&headers), None);
 }

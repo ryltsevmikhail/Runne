@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.95"
 
 [dependencies]
+gocode-api = { path = "../gocode-api" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-application = { path = "../gocode-application" }
 gocode-store = { path = "../gocode-store" }

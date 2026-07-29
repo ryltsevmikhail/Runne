@@ -5,8 +5,10 @@ edition = "2024"
 rust-version = "1.95"
 
 [dependencies]
+gocode-api = { path = "../gocode-api" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-application = { path = "../gocode-application" }
+gocode-runtime = { path = "../gocode-runtime" }
 gocode-store = { path = "../gocode-store" }
 gocode-observability = { path = "../gocode-observability" }
 gocode-platform = { path = "../gocode-platform" }
@@ -40,6 +42,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 
 [dev-dependencies]
 tempfile = "3"
+reqwest = { version = "0.12", features = ["json"] }
 
 [[bin]]
 name = "gocode-daemon"

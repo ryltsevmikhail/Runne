@@ -31,15 +31,20 @@ pub struct TokioRuntimeContext {
 }
 
 impl TokioRuntimeContext {
-    /// Test-only: construct from current Tokio handle.
-    pub fn new_for_test() -> Self {
+    /// Constructs a context from an explicitly owned Tokio executor handle.
+    pub fn new(generation: RuntimeGenerationId, executor: tokio::runtime::Handle) -> Self {
         Self {
-            generation: RuntimeGenerationId(0),
-            executor: tokio::runtime::Handle::current(),
+            generation,
+            executor,
             lease: BorrowedLease {
                 _phantom: std::marker::PhantomData,
             },
         }
+    }
+
+    /// Test-only: construct from current Tokio handle.
+    pub fn new_for_test() -> Self {
+        Self::new(RuntimeGenerationId(0), tokio::runtime::Handle::current())
     }
 }
 

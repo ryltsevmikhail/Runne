@@ -8,10 +8,13 @@ pub mod host_port;
 pub mod principal;
 /// Validated OpenCode `Session.Info` wire values.
 pub mod session_info;
+/// Canonical TaskRun command and query contracts.
+pub mod task_run;
 /// API data transfer objects.
 pub mod types;
 
 pub use host_port::*;
 pub use principal::*;
 pub use session_info::*;
+pub use task_run::*;
 pub use types::*;
