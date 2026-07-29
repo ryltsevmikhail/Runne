@@ -23,7 +23,7 @@ async fn configured_listener_stops_accepting_before_drain_stage() {
     stop_health_host(&mut host_task)
         .await
         .expect("host must stop before drain");
-    wait_for_listener_to_close(address).await;
+    assert_listener_is_not_serving(address).await;
 }
 
 #[tokio::test]
@@ -57,7 +57,7 @@ async fn partial_connection_receives_no_response_after_host_stop_returns() {
         Ok(0) | Err(_) => {}
         Ok(bytes) => panic!("stopped host must not respond to partial request: {bytes} bytes"),
     }
-    wait_for_listener_to_close(address).await;
+    assert_listener_is_not_serving(address).await;
 }
 
 async fn read_http_response(stream: &mut tokio::net::TcpStream) -> String {
@@ -109,15 +109,27 @@ async fn read_http_response(stream: &mut tokio::net::TcpStream) -> String {
     String::from_utf8(response).expect("HTTP response must be UTF-8")
 }
 
-async fn wait_for_listener_to_close(address: std::net::SocketAddr) {
-    tokio::time::timeout(Duration::from_secs(1), async {
-        loop {
-            if tokio::net::TcpStream::connect(address).await.is_err() {
-                return;
-            }
-            tokio::task::yield_now().await;
-        }
-    })
+async fn assert_listener_is_not_serving(address: std::net::SocketAddr) {
+    let Ok(Ok(mut stream)) = tokio::time::timeout(
+        Duration::from_secs(1),
+        tokio::net::TcpStream::connect(address),
+    )
     .await
-    .expect("listener must stop accepting connections after shutdown");
+    else {
+        return;
+    };
+
+    let request = b"GET /health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let Ok(Ok(())) = tokio::time::timeout(Duration::from_secs(1), stream.write_all(request)).await
+    else {
+        return;
+    };
+
+    let mut response = [0; 1];
+    match tokio::time::timeout(Duration::from_secs(1), stream.read(&mut response)).await {
+        Ok(Ok(bytes)) if bytes > 0 => {
+            panic!("stopped listener must not serve a new health request")
+        }
+        Ok(Ok(_)) | Ok(Err(_)) | Err(_) => {}
+    }
 }
