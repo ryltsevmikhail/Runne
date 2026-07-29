@@ -15,3 +15,4 @@ pub mod queries;
 pub mod replay;
 pub mod router;
 pub mod sse;
+pub mod task_runs;

@@ -1,12 +1,12 @@
 //! Daemon-owned HTTP serving boundary.
 //!
-//! This host deliberately publishes only the health endpoint. Command,
-//! query, replay, and OpenCode session routers are not composed until their
-//! production runtime dependencies exist.
+//! Router composition belongs to the daemon application root. This module
+//! owns only listener lifecycle, accepted connections, and orderly ingress
+//! shutdown.
 
 use crate::error::DaemonError;
 use crate::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
-use gocode_http::health::{HealthState, RecoveryState, health_router};
+use axum::Router;
 use hyper::service::service_fn;
 use hyper_util::rt::{TokioExecutor, TokioIo};
 use hyper_util::server::conn::auto::Builder as ConnectionBuilder;
@@ -20,13 +20,13 @@ use tokio::sync::oneshot;
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tower::ServiceExt;
 
-trait HealthListener: Send + Sync + 'static {
+trait HttpListener: Send + Sync + 'static {
     type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
 
     fn accept(&self) -> impl Future<Output = io::Result<Self::Stream>> + Send;
 }
 
-impl HealthListener for TcpListener {
+impl HttpListener for TcpListener {
     type Stream = tokio::net::TcpStream;
 
     async fn accept(&self) -> io::Result<Self::Stream> {
@@ -34,31 +34,31 @@ impl HealthListener for TcpListener {
     }
 }
 
-/// A bound local HTTP health host.
-pub struct HealthHost {
+/// A bound local HTTP host for a caller-composed router.
+pub struct HttpHost {
     listener: TcpListener,
+    app: Router,
 }
 
-/// An owned health-host task and its ingress-stop signal.
-pub struct HealthHostTask {
+/// An owned HTTP-host task and its ingress-stop signal.
+pub struct HttpHostTask {
     shutdown: Option<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), DaemonError>>,
 }
 
-/// Stop the health host and confirm the listener task has exited before
-/// proceeding with daemon drain.
-pub async fn stop_health_host(host_task: &mut HealthHostTask) -> Result<(), DaemonError> {
+/// Stops HTTP ingress and confirms every accepted connection task has exited.
+pub async fn stop_http_host(host_task: &mut HttpHostTask) -> Result<(), DaemonError> {
     if let Some(shutdown) = host_task.shutdown.take() {
         let _ = shutdown.send(());
     }
 
-    health_host_result((&mut host_task.task).await)
+    http_host_result((&mut host_task.task).await)
 }
 
-/// Observe either an external shutdown signal or health-host termination,
-/// then fence and drain runtime work before returning the termination result.
-pub async fn run_health_host_until_shutdown<F>(
-    mut host_task: HealthHostTask,
+/// Observes either an external shutdown signal or HTTP-host termination, then
+/// fences and drains registered runtime work before returning.
+pub async fn run_http_host_until_shutdown<F>(
+    mut host_task: HttpHostTask,
     supervisor: &Arc<RuntimeTaskSupervisor>,
     shutdown_timeout_ms: u64,
     shutdown: F,
@@ -69,10 +69,10 @@ where
     tokio::pin!(shutdown);
     let host_result = tokio::select! {
         signal_result = &mut shutdown => {
-            let stop_result = stop_health_host(&mut host_task).await;
+            let stop_result = stop_http_host(&mut host_task).await;
             signal_result.and(stop_result)
         }
-        task_result = &mut host_task.task => health_host_result(task_result),
+        task_result = &mut host_task.task => http_host_result(task_result),
     };
 
     let drain_result = graceful_shutdown(supervisor, shutdown_timeout_ms).await;
@@ -81,60 +81,58 @@ where
         (Ok(()), Err(error)) => Err(error),
         (Err(error), Ok(())) => Err(error),
         (Err(host_error), Err(drain_error)) => Err(DaemonError::Bootstrap(format!(
-            "health host failed: {host_error}; graceful shutdown failed: {drain_error}"
+            "HTTP host failed: {host_error}; graceful shutdown failed: {drain_error}"
         ))),
     }
 }
 
-impl HealthHost {
-    /// Bind the daemon's configured HTTP address before accepting requests.
-    pub async fn bind(http_bind: &str) -> Result<Self, DaemonError> {
+impl HttpHost {
+    /// Binds the configured address before accepting requests.
+    pub async fn bind(http_bind: &str, app: Router) -> Result<Self, DaemonError> {
         Ok(Self {
             listener: TcpListener::bind(http_bind).await?,
+            app,
         })
     }
 
-    /// The actual bound address, including an OS-assigned port when requested.
+    /// Returns the actual bound address, including an OS-assigned port.
     pub fn local_addr(&self) -> Result<SocketAddr, DaemonError> {
         Ok(self.listener.local_addr()?)
     }
 
-    /// Start the owned accept loop and expose a handle for orderly stop.
-    pub fn start(self) -> HealthHostTask {
-        start_health_host(self.listener)
+    /// Starts the owned accept loop.
+    pub fn start(self) -> HttpHostTask {
+        start_http_host(self.listener, self.app)
     }
 
-    /// Serve health until the caller completes the graceful shutdown signal.
+    /// Serves the supplied router until the caller signals shutdown.
     pub async fn serve<F>(self, shutdown: F) -> Result<(), DaemonError>
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        serve_health(self.listener, shutdown).await
+        serve_http(self.listener, self.app, shutdown).await
     }
 }
 
-fn start_health_host<L>(listener: L) -> HealthHostTask
+fn start_http_host<L>(listener: L, app: Router) -> HttpHostTask
 where
-    L: HealthListener,
+    L: HttpListener,
 {
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
-    let task = tokio::spawn(serve_health(listener, async move {
+    let task = tokio::spawn(serve_http(listener, app, async move {
         let _ = shutdown_rx.await;
     }));
-    HealthHostTask {
+    HttpHostTask {
         shutdown: Some(shutdown_tx),
         task,
     }
 }
 
-async fn serve_health<L, F>(listener: L, shutdown: F) -> Result<(), DaemonError>
+async fn serve_http<L, F>(listener: L, app: Router, shutdown: F) -> Result<(), DaemonError>
 where
-    L: HealthListener,
+    L: HttpListener,
     F: Future<Output = ()> + Send + 'static,
 {
-    let app = health_router(HealthState {
-        recovery_state: RecoveryState::Ready,
-    });
     let mut connections = JoinSet::new();
     tokio::pin!(shutdown);
 
@@ -174,7 +172,7 @@ where
                 if let Some(Err(error)) = joined {
                     stop_connections(&mut connections).await?;
                     return Err(DaemonError::Bootstrap(format!(
-                        "health connection task failed: {error}"
+                        "HTTP connection task failed: {error}"
                     )));
                 }
             }
@@ -191,19 +189,19 @@ async fn stop_connections(connections: &mut JoinSet<()>) -> Result<(), DaemonErr
             && first_error.is_none()
         {
             first_error = Some(DaemonError::Bootstrap(format!(
-                "health connection task failed during shutdown: {error}"
+                "HTTP connection task failed during shutdown: {error}"
             )));
         }
     }
     first_error.map_or(Ok(()), Err)
 }
 
-fn health_host_result(
+fn http_host_result(
     task_result: Result<Result<(), DaemonError>, JoinError>,
 ) -> Result<(), DaemonError> {
     match task_result {
         Err(error) => Err(DaemonError::Bootstrap(format!(
-            "health host task failed: {error}"
+            "HTTP host task failed: {error}"
         ))),
         Ok(result) => result,
     }
@@ -217,7 +215,7 @@ mod tests {
 
     struct FailingListener;
 
-    impl HealthListener for FailingListener {
+    impl HttpListener for FailingListener {
         type Stream = DuplexStream;
 
         fn accept(&self) -> impl Future<Output = io::Result<Self::Stream>> + Send {
@@ -229,10 +227,10 @@ mod tests {
     async fn accept_failure_triggers_daemon_fence_and_drain_before_returning_error() {
         let supervisor = RuntimeTaskSupervisor::new();
         let active_task = supervisor.register();
-        let host_task = start_health_host(FailingListener);
+        let host_task = start_http_host(FailingListener, Router::new());
         let daemon_supervisor = Arc::clone(&supervisor);
         let daemon = tokio::spawn(async move {
-            run_health_host_until_shutdown(
+            run_http_host_until_shutdown(
                 host_task,
                 &daemon_supervisor,
                 1_000,

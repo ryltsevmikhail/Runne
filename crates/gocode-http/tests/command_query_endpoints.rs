@@ -1,187 +1,119 @@
-//! Integration tests for command and query endpoints, plus the
-//! combined application router.
+//! Production-router checks for removal of synthetic command/query success.
 
-use axum::body::{Body, to_bytes};
+use axum::body::Body;
+use gocode_api::{
+    ApiActor, CompleteTaskRunCommand, CreateTaskRunCommand, ExistingTaskRunCommand,
+    TaskRunCommandAck, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
+    TaskRunQueryHostPort, TaskRunSnapshot,
+};
+use gocode_domain::id::TaskRunId;
 use gocode_http::admission::AdmissionState;
 use gocode_http::health::{HealthState, RecoveryState};
-use gocode_http::limits::LimitsConfig;
-use gocode_http::replay::ReplayState;
 use gocode_http::router::create_router;
+use gocode_http::task_runs::TaskRunHttpState;
 use http::{Request, StatusCode};
-use std::sync::Arc;
-
 use tower::ServiceExt;
 
-// ── Helpers ─────────────────────────────────────────────────────────────
+const TOKEN: [u8; 32] = [0xAB; 32];
 
-const TOKEN: [u8; 32] = [0xABu8; 32];
+#[derive(Clone)]
+struct UnavailableHost;
 
-/// Build the full application router with `C = ()`, `Q = ()`, `R = ()`.
-fn make_app() -> axum::Router {
-    let health_state = HealthState {
-        recovery_state: RecoveryState::Ready,
-    };
-    let admission_state = AdmissionState::new(RecoveryState::Ready);
-    let replay_state = ReplayState {
-        service: Arc::new(()),
-        limits: LimitsConfig::default(),
-    };
-    create_router::<(), (), ()>(TOKEN, health_state, admission_state, replay_state)
+impl TaskRunCommandHostPort for UnavailableHost {
+    async fn create_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: CreateTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn queue_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn admit_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn start_attempt(
+        &self,
+        _: TaskRunCommandContext,
+        _: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
+    async fn complete_task_run(
+        &self,
+        _: TaskRunCommandContext,
+        _: CompleteTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
 }
 
-/// Build an authenticated POST request with JSON body.
-fn authed_post(uri: &str, body: &str) -> Request<Body> {
-    Request::builder()
-        .uri(uri)
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", hex::encode(TOKEN)))
-        .body(Body::from(body.to_owned()))
-        .unwrap()
+impl TaskRunQueryHostPort for UnavailableHost {
+    async fn get_task_run(&self, _: TaskRunId) -> Result<TaskRunSnapshot, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
 }
 
-/// Build an authenticated GET request.
-fn authed_get(uri: &str) -> Request<Body> {
-    Request::builder()
-        .uri(uri)
-        .method("GET")
-        .header("Authorization", format!("Bearer {}", hex::encode(TOKEN)))
-        .body(Body::empty())
-        .unwrap()
-}
-
-/// Read the full response body as a `serde_json::Value`.
-async fn read_body_json(response: axum::response::Response) -> serde_json::Value {
-    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-// ── Tests: Command endpoints ────────────────────────────────────────────
-
-#[tokio::test]
-async fn create_session_returns_202() {
-    let app = make_app();
-    let req = authed_post(
-        "/commands/create-session",
-        r#"{"workspace_id":"ws-1","profile_id":null}"#,
-    );
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let json = read_body_json(response).await;
-    assert!(json.get("session_id").and_then(|v| v.as_str()).is_some());
-    assert_eq!(json["status"], "created");
-}
-
-#[tokio::test]
-async fn prompt_returns_202() {
-    let app = make_app();
-    let req = authed_post(
-        "/commands/prompt",
-        r#"{"message":"hello","attachments":null}"#,
-    );
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let json = read_body_json(response).await;
-    assert!(json.get("taskrun_id").and_then(|v| v.as_str()).is_some());
-    assert_eq!(json["status"], "accepted");
+fn app() -> axum::Router {
+    create_router(
+        TOKEN,
+        HealthState {
+            recovery_state: RecoveryState::Ready,
+        },
+        AdmissionState::new(RecoveryState::Ready),
+        TaskRunHttpState::new(UnavailableHost, ApiActor::new("gocode-http-test").unwrap()),
+    )
 }
 
 #[tokio::test]
-async fn abort_session_returns_202() {
-    let app = make_app();
-    let req = authed_post("/commands/abort", r#"{"reason":"test"}"#);
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let json = read_body_json(response).await;
-    assert_eq!(json["status"], "aborted");
+async fn production_router_does_not_publish_legacy_command_or_query_stubs() {
+    for (method, uri) in [
+        ("POST", "/commands/create-session"),
+        ("POST", "/commands/prompt"),
+        ("POST", "/commands/abort"),
+        ("POST", "/commands/create-task-run"),
+        ("POST", "/commands/complete-task-run"),
+        ("GET", "/queries/session/sess-001"),
+        ("GET", "/queries/task-run/tr-001"),
+    ] {
+        let response = app()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(uri)
+                    .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {uri}");
+    }
 }
 
 #[tokio::test]
-async fn create_task_run_returns_202() {
-    let app = make_app();
-    let req = authed_post(
-        "/commands/create-task-run",
-        r#"{"task_type":"test","input":{}}"#,
-    );
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let json = read_body_json(response).await;
-    assert!(json.get("taskrun_id").and_then(|v| v.as_str()).is_some());
-}
-
-#[tokio::test]
-async fn complete_task_run_returns_202() {
-    let app = make_app();
-    let req = authed_post(
-        "/commands/complete-task-run",
-        r#"{"outcome":"success","output":null}"#,
-    );
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::ACCEPTED);
-    let json = read_body_json(response).await;
-    assert!(json.get("taskrun_id").and_then(|v| v.as_str()).is_some());
-    assert_eq!(json["status"], "completed");
-}
-
-// ── Tests: Query endpoints ──────────────────────────────────────────────
-
-#[tokio::test]
-async fn session_status_returns_200() {
-    let app = make_app();
-    let req = authed_get("/queries/session/sess-001");
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let json = read_body_json(response).await;
-    assert_eq!(json["session_id"], "sess-001");
-    assert_eq!(json["status"], "active");
-    assert_eq!(json["task_count"], 0);
-}
-
-#[tokio::test]
-async fn task_run_status_returns_200() {
-    let app = make_app();
-    let req = authed_get("/queries/task-run/tr-001");
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let json = read_body_json(response).await;
-    assert_eq!(json["taskrun_id"], "tr-001");
-    assert_eq!(json["state"], "created");
-    assert!(json["events"].as_array().is_some());
-}
-
-// ── Tests: Auth and combined router ─────────────────────────────────────
-
-#[tokio::test]
-async fn unauthenticated_request_returns_401() {
-    let app = make_app();
-    let req = Request::builder()
-        .uri("/commands/create-session")
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(r#"{"workspace_id":"ws-1"}"#))
+async fn production_router_keeps_health_public() {
+    let response = app()
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
         .unwrap();
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-}
-
-#[tokio::test]
-async fn full_router_health_works() {
-    let app = make_app();
-    let req = Request::builder()
-        .uri("/health")
-        .body(Body::empty())
-        .unwrap();
-    let response = app.oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let json = read_body_json(response).await;
-    assert_eq!(json["status"], "ok");
-}
-
-#[tokio::test]
-async fn authenticated_prompt_with_invalid_json_returns_400() {
-    // Axum's Json extractor returns 400 for syntactically malformed JSON.
-    let app = make_app();
-    let req = authed_post("/commands/prompt", "not json");
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

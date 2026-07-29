@@ -16,7 +16,7 @@ POLICIES = {
 def main() -> int:
     result = subprocess.run(
         ["cargo", "metadata", "--locked", "--format-version", "1"],
-        capture_output=True, text=True, check=True,
+        capture_output=True, text=True, encoding="utf-8", check=True,
     )
     metadata = json.loads(result.stdout)
 

@@ -58,7 +58,7 @@ impl RuntimeHandle {
             .map_err(|_| RuntimeError::RuntimeClosed)?;
         let lease = InFlightLease::new(in_flight_permit);
 
-        let _reservation = self.gate.try_reserve().ok_or(RuntimeError::RuntimeClosed)?;
+        let reservation = self.gate.try_reserve().ok_or(RuntimeError::RuntimeClosed)?;
 
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let request = build(reply_tx);
@@ -69,6 +69,10 @@ impl RuntimeHandle {
             .map_err(|_| RuntimeError::Backpressure {
                 queue: QueueKind::Ingress,
             })?;
+        // Queue admission is now decided. In-flight work remains tracked by
+        // `InFlightLease`; the reservation only bounds producers through the
+        // accept-or-reject boundary.
+        drop(reservation);
 
         reply_rx
             .await
@@ -139,5 +143,57 @@ impl RuntimeHandle {
             reply,
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gocode_application::commands::CreateTaskRunInput;
+    use gocode_application::ports::{ApplicationCommandContext, PrincipalId};
+    use gocode_domain::event::Actor;
+    use gocode_domain::id::{ConversationId, IdempotencyKey, WorkspaceId};
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn admission_reservation_is_released_after_ingress_accepts_request() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let gate = Arc::new(AdmissionGate::new(1));
+        let handle = RuntimeHandle::new(sender, Arc::clone(&gate), Arc::new(Semaphore::new(1)));
+
+        let request = tokio::spawn(async move {
+            handle
+                .create_task_run(
+                    ApplicationCommandContext {
+                        command_id: "018f2e3a-7000-7000-8000-000000000001".parse().unwrap(),
+                        idempotency_key: IdempotencyKey::new("reservation-release").unwrap(),
+                        principal_id: PrincipalId("test".to_owned()),
+                        actor: Actor::new("test").unwrap(),
+                    },
+                    CreateTaskRunInput {
+                        conversation_id: "018f2e3a-7000-7000-8000-00000000000a"
+                            .parse::<ConversationId>()
+                            .unwrap(),
+                        workspace_id: "018f2e3a-7000-7000-8000-00000000000b"
+                            .parse::<WorkspaceId>()
+                            .unwrap(),
+                    },
+                )
+                .await
+        });
+
+        let admitted = receiver.recv().await.expect("request must reach ingress");
+        let next_reservation = gate
+            .try_reserve()
+            .expect("accepted ingress must release its admission reservation");
+        drop(next_reservation);
+
+        let reply = match admitted.request {
+            RuntimeRequest::Create { reply, .. } => reply,
+            _ => panic!("test submits only create"),
+        };
+        reply.send(Err(RuntimeError::RuntimeClosed)).unwrap();
+        drop(admitted.lease);
+
+        assert_eq!(request.await.unwrap(), Err(RuntimeError::RuntimeClosed));
     }
 }

@@ -20,7 +20,7 @@ pub struct DaemonToken(pub [u8; 32]);
 impl std::fmt::Debug for DaemonToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("DaemonToken")
-            .field(&hex::encode(self.0))
+            .field(&format_args!("<redacted>"))
             .finish()
     }
 }
