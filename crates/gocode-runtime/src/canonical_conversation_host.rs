@@ -9,12 +9,17 @@ use gocode_api::{
     CreateCanonicalConversationCommand, CreateConversationInput, GenerateConversationTextCommand,
     NonNegativeUnixMillis,
 };
-use gocode_application::commands::{BeginConversationTextInput, FinishConversationTextInput};
+use gocode_application::commands::{
+    BeginConversationTextInput, ConversationTextCompletion, FinishConversationTextInput,
+};
 use gocode_application::conversation_service::{ConversationService, ConversationServiceError};
 use gocode_application::conversation_text_service::ConversationTextServiceError;
 use gocode_application::ports::{
     ApplicationCommandContext, CommitError, ConversationRepository, EventStoreError, IdGenerator,
     PrincipalId, TextGenerationPhase, TextGenerationReceipt,
+};
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
 use gocode_domain::conversation::{Conversation, ConversationEvent};
 use gocode_domain::event::Actor;
@@ -67,6 +72,7 @@ pub struct RuntimeCanonicalConversationHost<R, I, E, P> {
     create_service: Arc<ConversationService<R, I>>,
     event_store: E,
     provider: Arc<P>,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
 }
 
 impl<R, I, E, P> Clone for RuntimeCanonicalConversationHost<R, I, E, P>
@@ -79,6 +85,7 @@ where
             create_service: Arc::clone(&self.create_service),
             event_store: self.event_store.clone(),
             provider: Arc::clone(&self.provider),
+            prohibited_content: Arc::clone(&self.prohibited_content),
         }
     }
 }
@@ -90,12 +97,14 @@ impl<R, I, E, P> RuntimeCanonicalConversationHost<R, I, E, P> {
         create_service: Arc<ConversationService<R, I>>,
         event_store: E,
         provider: P,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
     ) -> Self {
         Self {
             handle,
             create_service,
             event_store,
             provider: Arc::new(provider),
+            prohibited_content,
         }
     }
 }
@@ -151,24 +160,80 @@ where
             .begin_conversation_text(application_context.clone(), original.clone())
             .await
             .map_err(map_runtime_error)?;
-        let completed = if started.phase == TextGenerationPhase::Completed {
-            started
-        } else {
-            let assistant_text = self
-                .provider
-                .generate(&original.text)
-                .map_err(|_| ConversationHostError::InvariantViolation)?;
-            self.handle
-                .finish_conversation_text(
-                    application_context,
-                    FinishConversationTextInput {
-                        original,
-                        started: started.clone(),
-                        assistant_text,
-                    },
-                )
-                .await
-                .map_err(map_runtime_error)?
+        let completed = match started.phase {
+            TextGenerationPhase::Completed => started,
+            TextGenerationPhase::Rejected => {
+                return Err(ConversationHostError::ProviderOutputRejected);
+            }
+            TextGenerationPhase::Started => {
+                if !matches!(
+                    self.prohibited_content.inspect(
+                        CanonicalContentBoundary::OutboundDelivery,
+                        original.text.as_str().as_bytes(),
+                    ),
+                    Ok(ContentDisposition::Allowed { .. })
+                ) {
+                    let rejected = self
+                        .handle
+                        .finish_conversation_text(
+                            application_context,
+                            FinishConversationTextInput {
+                                original,
+                                started,
+                                completion: ConversationTextCompletion::Rejected {
+                                    reason: gocode_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
+                                },
+                            },
+                        )
+                        .await
+                        .map_err(map_runtime_error)?;
+                    if rejected.phase != TextGenerationPhase::Rejected {
+                        return Err(ConversationHostError::InvariantViolation);
+                    }
+                    return Err(ConversationHostError::ProhibitedSecretMaterial);
+                }
+                let assistant_text = self
+                    .provider
+                    .generate(&original.text)
+                    .map_err(|_| ConversationHostError::InvariantViolation)?;
+                if !matches!(
+                    self.prohibited_content.inspect(
+                        CanonicalContentBoundary::CanonicalMutation,
+                        assistant_text.as_str().as_bytes(),
+                    ),
+                    Ok(ContentDisposition::Allowed { .. })
+                ) {
+                    let rejected = self
+                        .handle
+                        .finish_conversation_text(
+                            application_context,
+                            FinishConversationTextInput {
+                                original,
+                                started,
+                                completion: ConversationTextCompletion::Rejected {
+                                    reason: gocode_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
+                                },
+                            },
+                        )
+                        .await
+                        .map_err(map_runtime_error)?;
+                    if rejected.phase != TextGenerationPhase::Rejected {
+                        return Err(ConversationHostError::InvariantViolation);
+                    }
+                    return Err(ConversationHostError::ProviderOutputRejected);
+                }
+                self.handle
+                    .finish_conversation_text(
+                        application_context,
+                        FinishConversationTextInput {
+                            original,
+                            started,
+                            completion: ConversationTextCompletion::AssistantText(assistant_text),
+                        },
+                    )
+                    .await
+                    .map_err(map_runtime_error)?
+            }
         };
         if completed.phase != TextGenerationPhase::Completed {
             return Err(ConversationHostError::InvariantViolation);
@@ -258,6 +323,7 @@ fn event_to_message(
         ConversationEvent::ConversationCreated { .. } | ConversationEvent::ConversationClosed => {
             return None;
         }
+        ConversationEvent::GenerationFailed { .. } => return None,
     };
     let committed_at =
         NonNegativeUnixMillis::new(event.timestamp().as_unix_micros().div_euclid(1_000))
@@ -353,6 +419,9 @@ fn map_runtime_error(error: RuntimeError) -> ConversationHostError {
         }
         RuntimeError::Application(_) => ConversationHostError::InvariantViolation,
         RuntimeError::ConversationApplication(error) => match error {
+            ConversationTextServiceError::ProhibitedSecretMaterial => {
+                ConversationHostError::ProhibitedSecretMaterial
+            }
             ConversationTextServiceError::ConversationNotFound => ConversationHostError::NotFound,
             ConversationTextServiceError::Conflict
             | ConversationTextServiceError::ConversationDomain(_) => {

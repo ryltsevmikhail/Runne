@@ -167,6 +167,11 @@ pub struct ConversationMessagesSnapshot {
 /// Closed redacted failures returned by canonical Conversation hosts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConversationHostError {
+    /// Input contained registered prohibited material or could not be
+    /// inspected safely.
+    ProhibitedSecretMaterial,
+    /// Provider-bound material was rejected without retaining it.
+    ProviderOutputRejected,
     /// The Conversation does not exist.
     NotFound,
     /// Version, lifecycle, command identity, or idempotency conflicted.
@@ -184,6 +189,8 @@ impl ConversationHostError {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
+            Self::ProhibitedSecretMaterial => "prohibited_secret_material",
+            Self::ProviderOutputRejected => "provider_output_rejected",
             Self::NotFound => "conversation_not_found",
             Self::Conflict => "conversation_conflict",
             Self::Backpressure => "runtime_backpressure",
@@ -225,4 +232,21 @@ pub trait ConversationQueryHostPort: Send + Sync {
 #[must_use]
 pub const fn max_message_text_bytes() -> usize {
     MAX_MESSAGE_TEXT_BYTES
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConversationHostError;
+
+    #[test]
+    fn prohibited_content_errors_have_closed_redacted_codes() {
+        assert_eq!(
+            ConversationHostError::ProhibitedSecretMaterial.code(),
+            "prohibited_secret_material"
+        );
+        assert_eq!(
+            ConversationHostError::ProviderOutputRejected.code(),
+            "provider_output_rejected"
+        );
+    }
 }

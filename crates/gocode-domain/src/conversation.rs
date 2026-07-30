@@ -28,8 +28,27 @@ pub enum ConversationEventKind {
     UserMessageAppended,
     /// [`ConversationEvent::AssistantMessageAppended`]
     AssistantMessageAppended,
+    /// [`ConversationEvent::GenerationFailed`]
+    GenerationFailed,
     /// [`ConversationEvent::ConversationClosed`]
     ConversationClosed,
+}
+
+/// Closed, non-sensitive reason for releasing an active generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerationFailureReason {
+    /// Provider input or output contained registered prohibited material.
+    ProviderOutputRejected,
+}
+
+impl GenerationFailureReason {
+    /// Stable terminal code persisted on the coordinating TaskRun.
+    #[must_use]
+    pub const fn as_code(self) -> &'static str {
+        match self {
+            Self::ProviderOutputRejected => "provider_output_rejected",
+        }
+    }
 }
 
 // ── ConversationEvent ─────────────────────────────────────────────────────
@@ -64,6 +83,15 @@ pub enum ConversationEvent {
         /// Validated bounded text.
         text: MessageText,
     },
+    /// The active generation was rejected without an assistant message.
+    GenerationFailed {
+        /// Coordinating TaskRun.
+        taskrun_id: TaskRunId,
+        /// Exact active attempt.
+        attempt_id: AttemptId,
+        /// Closed, non-sensitive terminal reason.
+        reason: GenerationFailureReason,
+    },
     /// The conversation was closed.
     ConversationClosed,
 }
@@ -77,6 +105,7 @@ impl ConversationEvent {
             Self::AssistantMessageAppended { .. } => {
                 ConversationEventKind::AssistantMessageAppended
             }
+            Self::GenerationFailed { .. } => ConversationEventKind::GenerationFailed,
             Self::ConversationClosed => ConversationEventKind::ConversationClosed,
         }
     }
@@ -85,7 +114,9 @@ impl ConversationEvent {
     #[must_use]
     pub const fn sensitivity(&self) -> Sensitivity {
         match self {
-            Self::ConversationCreated { .. } | Self::ConversationClosed => Sensitivity::Public,
+            Self::ConversationCreated { .. }
+            | Self::GenerationFailed { .. }
+            | Self::ConversationClosed => Sensitivity::Public,
             Self::UserMessageAppended { .. } | Self::AssistantMessageAppended { .. } => {
                 Sensitivity::Sensitive
             }
@@ -232,6 +263,12 @@ impl Conversation {
                         event: ConversationEventKind::AssistantMessageAppended,
                     })
                 }
+                ConversationCommand::FailGeneration { .. } => {
+                    Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::GenerationFailed,
+                    })
+                }
             };
         }
         let aggregate_id = AggregateId::Conversation(self.id);
@@ -282,6 +319,23 @@ impl Conversation {
                     taskrun_id,
                     attempt_id,
                     text,
+                })])
+            }
+            ConversationCommand::FailGeneration {
+                taskrun_id,
+                attempt_id,
+                reason,
+            } => {
+                let active = self
+                    .active_generation
+                    .ok_or(ConversationError::NoActiveGeneration)?;
+                if active.taskrun_id != taskrun_id || active.attempt_id != attempt_id {
+                    return Err(ConversationError::GenerationMismatch);
+                }
+                Ok(vec![draft(ConversationEvent::GenerationFailed {
+                    taskrun_id,
+                    attempt_id,
+                    reason,
                 })])
             }
             ConversationCommand::Close => Ok(vec![draft(ConversationEvent::ConversationClosed)]),
@@ -359,6 +413,7 @@ impl Conversation {
             ConversationEvent::ConversationCreated { workspace_id } => *workspace_id,
             ConversationEvent::UserMessageAppended { .. }
             | ConversationEvent::AssistantMessageAppended { .. }
+            | ConversationEvent::GenerationFailed { .. }
             | ConversationEvent::ConversationClosed => {
                 return Err(ConversationError::MissingCreationEvent);
             }
@@ -473,6 +528,26 @@ impl Conversation {
                     attempt_id: *attempt_id,
                     text: text.clone(),
                 });
+                self.active_generation = None;
+                Ok(())
+            }
+            ConversationEvent::GenerationFailed {
+                taskrun_id,
+                attempt_id,
+                ..
+            } => {
+                if self.state == ConversationState::Closed {
+                    return Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::GenerationFailed,
+                    });
+                }
+                let active = self
+                    .active_generation
+                    .ok_or(ConversationError::NoActiveGeneration)?;
+                if active.taskrun_id != *taskrun_id || active.attempt_id != *attempt_id {
+                    return Err(ConversationError::GenerationMismatch);
+                }
                 self.active_generation = None;
                 Ok(())
             }
@@ -736,6 +811,60 @@ mod tests {
             Err(ConversationError::GenerationMismatch)
         ));
         assert_eq!(aggregate.messages().len(), 1);
+    }
+
+    #[test]
+    fn provider_output_rejection_releases_generation_without_assistant_message() {
+        let created = make_envelope(
+            1,
+            ConversationEvent::ConversationCreated {
+                workspace_id: workspace_id(),
+            },
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+        let user = make_envelope(
+            2,
+            ConversationEvent::UserMessageAppended {
+                message_id: user_message_id(),
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                text: MessageText::new("hello").unwrap(),
+            },
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+        let aggregate = Conversation::replay(&[created.clone(), user.clone()]).unwrap();
+
+        let rejection = aggregate
+            .decide(ConversationCommand::FailGeneration {
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                reason: GenerationFailureReason::ProviderOutputRejected,
+            })
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            rejection.payload(),
+            &ConversationEvent::GenerationFailed {
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                reason: GenerationFailureReason::ProviderOutputRejected,
+            }
+        );
+        assert_eq!(rejection.sensitivity(), &Sensitivity::Public);
+        let rejection = make_envelope(
+            3,
+            rejection.into_payload(),
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+
+        let replayed = Conversation::replay(&[created, user, rejection]).unwrap();
+        assert_eq!(replayed.active_generation(), None);
+        assert_eq!(replayed.messages().len(), 1);
+        assert_eq!(replayed.messages()[0].role, MessageRole::User);
     }
 
     #[test]

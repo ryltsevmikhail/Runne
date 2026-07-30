@@ -1,23 +1,33 @@
 //! Two-phase durable coordination of Conversation messages and TaskRun.
 
+use std::sync::Arc;
+
 use gocode_domain::command::{CreateTaskRun, TaskRunCommand, TerminalResult};
 use gocode_domain::conversation::{Conversation, ConversationError};
 use gocode_domain::event::{CommandContext, materialize_batch};
 use gocode_domain::task_run::TaskRun;
 
-use crate::commands::{BeginConversationTextInput, FinishConversationTextInput};
+use crate::commands::{
+    BeginConversationTextInput, ConversationTextCompletion, FinishConversationTextInput,
+};
 use crate::fingerprint::CommandFingerprint;
 use crate::ports::{
     AggregateScope, ApplicationCommandContext, BeginTextGenerationCommit, CommitError,
     ConversationRepository, ConversationTextRepository, EventStore, EventStoreError,
     FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope, OperationTag,
-    RuntimeAuthorityId, TextGenerationCommitResult, TextGenerationPhase, TextGenerationReceipt,
-    TextGenerationReceiptLookup,
+    RejectTextGenerationCommit, RuntimeAuthorityId, TextGenerationCommitResult,
+    TextGenerationPhase, TextGenerationReceipt, TextGenerationReceiptLookup,
+};
+use crate::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
 
 /// Typed failures from [`ConversationTextService`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConversationTextServiceError {
+    /// Input contained material registered as prohibited or could not be
+    /// inspected safely.
+    ProhibitedSecretMaterial,
     /// Target Conversation does not exist.
     ConversationNotFound,
     /// Stored event data could not be loaded or replayed safely.
@@ -43,6 +53,7 @@ pub struct ConversationTextService<R, I> {
     repository: R,
     id_generator: I,
     runtime_authority_id: RuntimeAuthorityId,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
 }
 
 /// Object-safe application boundary consumed by the runtime dispatcher.
@@ -68,11 +79,17 @@ where
     I: IdGenerator,
 {
     /// Creates a coordinator from abstract persistence and identity ports.
-    pub fn new(repository: R, id_generator: I, runtime_authority_id: RuntimeAuthorityId) -> Self {
+    pub fn new(
+        repository: R,
+        id_generator: I,
+        runtime_authority_id: RuntimeAuthorityId,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+    ) -> Self {
         Self {
             repository,
             id_generator,
             runtime_authority_id,
+            prohibited_content,
         }
     }
 
@@ -82,6 +99,15 @@ where
         context: &ApplicationCommandContext,
         input: BeginConversationTextInput,
     ) -> Result<TextGenerationReceipt, ConversationTextServiceError> {
+        match self.prohibited_content.inspect(
+            CanonicalContentBoundary::CanonicalMutation,
+            input.text.as_str().as_bytes(),
+        ) {
+            Ok(ContentDisposition::Allowed { .. }) => {}
+            Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
+                return Err(ConversationTextServiceError::ProhibitedSecretMaterial);
+            }
+        }
         let fingerprint = CommandFingerprint::for_generate_conversation_text(
             &input.conversation_id,
             input.expected_version,
@@ -227,7 +253,10 @@ where
             TextGenerationReceiptLookup::Duplicate { stored_result } => stored_result,
         };
         validate_receipt(&durable, input.original.conversation_id)?;
-        if durable.phase == TextGenerationPhase::Completed {
+        if matches!(
+            durable.phase,
+            TextGenerationPhase::Completed | TextGenerationPhase::Rejected
+        ) {
             return Ok(durable);
         }
         if durable != input.started || durable.phase != TextGenerationPhase::Started {
@@ -256,21 +285,50 @@ where
         let taskrun = TaskRun::replay(&taskrun_stream.events)
             .map_err(|_| ConversationTextServiceError::StoredDataUnavailable)?;
 
-        let conversation_drafts = conversation
-            .decide(
-                gocode_domain::command::ConversationCommand::AppendAssistantMessage {
-                    message_id: durable.assistant_message_id,
-                    taskrun_id: durable.taskrun_id,
-                    attempt_id: durable.attempt_id,
-                    text: input.assistant_text,
-                },
-            )
-            .map_err(ConversationTextServiceError::ConversationDomain)?;
-        let taskrun_drafts = taskrun
-            .decide(TaskRunCommand::Complete {
-                result: TerminalResult::Success,
-            })
-            .map_err(|_| ConversationTextServiceError::TaskRunDomain)?;
+        let terminal_phase = match input.completion {
+            ConversationTextCompletion::AssistantText(assistant_text) => {
+                let conversation_drafts = conversation
+                    .decide(
+                        gocode_domain::command::ConversationCommand::AppendAssistantMessage {
+                            message_id: durable.assistant_message_id,
+                            taskrun_id: durable.taskrun_id,
+                            attempt_id: durable.attempt_id,
+                            text: assistant_text,
+                        },
+                    )
+                    .map_err(ConversationTextServiceError::ConversationDomain)?;
+                let taskrun_drafts = taskrun
+                    .decide(TaskRunCommand::Complete {
+                        result: TerminalResult::Success,
+                    })
+                    .map_err(|_| ConversationTextServiceError::TaskRunDomain)?;
+                (
+                    TextGenerationPhase::Completed,
+                    conversation_drafts,
+                    taskrun_drafts,
+                )
+            }
+            ConversationTextCompletion::Rejected { reason } => {
+                let conversation_drafts = conversation
+                    .decide(
+                        gocode_domain::command::ConversationCommand::FailGeneration {
+                            taskrun_id: durable.taskrun_id,
+                            attempt_id: durable.attempt_id,
+                            reason,
+                        },
+                    )
+                    .map_err(ConversationTextServiceError::ConversationDomain)?;
+                let taskrun_drafts = taskrun
+                    .decide(TaskRunCommand::FailGeneration { reason })
+                    .map_err(|_| ConversationTextServiceError::TaskRunDomain)?;
+                (
+                    TextGenerationPhase::Rejected,
+                    conversation_drafts,
+                    taskrun_drafts,
+                )
+            }
+        };
+        let (terminal_phase, conversation_drafts, taskrun_drafts) = terminal_phase;
         let event_ids = self
             .id_generator
             .next_event_ids(conversation_drafts.len() + taskrun_drafts.len())
@@ -291,8 +349,8 @@ where
             &domain_context,
         )
         .map_err(|_| ConversationTextServiceError::MaterializationFailed)?;
-        let completed = TextGenerationReceipt {
-            phase: TextGenerationPhase::Completed,
+        let terminal = TextGenerationReceipt {
+            phase: terminal_phase,
             conversation_version: durable
                 .conversation_version
                 .checked_add(1)
@@ -303,20 +361,38 @@ where
                 .ok_or(ConversationTextServiceError::StoredDataUnavailable)?,
             ..durable
         };
-        let result = self
-            .repository
-            .finish_text_generation(FinishTextGenerationCommit {
-                command_id: context.command_id,
-                idempotency_key: context.idempotency_key.clone(),
-                idempotency_scope: scope,
-                command_fingerprint: fingerprint,
-                expected_conversation_version: input.started.conversation_version,
-                expected_taskrun_version: input.started.taskrun_version,
-                conversation_events,
-                taskrun_events,
-                receipt: completed,
-            })
-            .map_err(map_commit)?;
+        let result = match terminal_phase {
+            TextGenerationPhase::Completed => {
+                self.repository
+                    .finish_text_generation(FinishTextGenerationCommit {
+                        command_id: context.command_id,
+                        idempotency_key: context.idempotency_key.clone(),
+                        idempotency_scope: scope,
+                        command_fingerprint: fingerprint,
+                        expected_conversation_version: input.started.conversation_version,
+                        expected_taskrun_version: input.started.taskrun_version,
+                        conversation_events,
+                        taskrun_events,
+                        receipt: terminal,
+                    })
+            }
+            TextGenerationPhase::Rejected => {
+                self.repository
+                    .reject_text_generation(RejectTextGenerationCommit {
+                        command_id: context.command_id,
+                        idempotency_key: context.idempotency_key.clone(),
+                        idempotency_scope: scope,
+                        command_fingerprint: fingerprint,
+                        expected_conversation_version: input.started.conversation_version,
+                        expected_taskrun_version: input.started.taskrun_version,
+                        conversation_events,
+                        taskrun_events,
+                        receipt: terminal,
+                    })
+            }
+            TextGenerationPhase::Started => unreachable!("started is not a terminal phase"),
+        }
+        .map_err(map_commit)?;
         commit_result(result, input.original.conversation_id)
     }
 
@@ -385,7 +461,9 @@ fn validate_receipt(
 ) -> Result<(), ConversationTextServiceError> {
     let versions_valid = match receipt.phase {
         TextGenerationPhase::Started => receipt.taskrun_version == 4,
-        TextGenerationPhase::Completed => receipt.taskrun_version == 5,
+        TextGenerationPhase::Completed | TextGenerationPhase::Rejected => {
+            receipt.taskrun_version == 5
+        }
     };
     if receipt.conversation_id != conversation_id || !versions_valid {
         return Err(ConversationTextServiceError::ReceiptMismatch);

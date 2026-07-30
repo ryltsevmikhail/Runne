@@ -159,6 +159,7 @@ fn conversation_event_type(event: &ConversationEvent) -> &'static str {
         ConversationEvent::ConversationCreated { .. } => "ConversationCreated",
         ConversationEvent::UserMessageAppended { .. } => "UserMessageAppended",
         ConversationEvent::AssistantMessageAppended { .. } => "AssistantMessageAppended",
+        ConversationEvent::GenerationFailed { .. } => "GenerationFailed",
         ConversationEvent::ConversationClosed => "ConversationClosed",
     }
 }

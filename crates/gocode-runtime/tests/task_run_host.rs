@@ -1,17 +1,34 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use gocode_api::{
-    ApiActor, ApiPrincipalId, CanonicalTaskRunState, CanonicalTerminalResult,
-    CompleteTaskRunCommand, CreateTaskRunCommand, ExistingTaskRunCommand, TaskRunCommandAckKind,
-    TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort,
+    ApiActor, ApiPrincipalId, CanonicalMessageText, CanonicalTaskRunState, CanonicalTerminalResult,
+    CompleteTaskRunCommand, ConversationCommandContext, ConversationCommandHostPort,
+    ConversationHostError, ConversationQueryHostPort, CreateCanonicalConversationCommand,
+    CreateTaskRunCommand, ExistingTaskRunCommand, GenerateConversationTextCommand,
+    TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
+    TaskRunQueryHostPort,
 };
-use gocode_application::ports::{EventStore, RuntimeAuthorityId};
+use gocode_application::conversation_service::ConversationService;
+use gocode_application::conversation_text_service::{
+    ConversationTextCommandService, ConversationTextService,
+};
+use gocode_application::ports::{ConversationRepository, EventStore, RuntimeAuthorityId};
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
+};
 use gocode_application::service::TaskRunService;
+use gocode_domain::conversation::Conversation;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
+use gocode_domain::message::MessageText;
+use gocode_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome};
-use gocode_runtime::{Runtime, RuntimeTaskRunHost};
+use gocode_runtime::{
+    LocalTextProvider, LocalTextProviderError, Runtime, RuntimeCanonicalConversationHost,
+    RuntimeTaskRunHost,
+};
 use gocode_store::store::StoreTransaction;
 use tempfile::TempDir;
 
@@ -316,4 +333,269 @@ async fn maps_missing_queries_and_reconstructs_after_store_reopen() {
     assert_eq!(outcome, ShutdownOutcome::Quiesced);
     drop(reopened_host);
     drop(reopened_store);
+}
+
+const PROVIDER_MARKER: &str = "registered-provider-output";
+
+struct MarkerGuard;
+
+impl ProhibitedContentPort for MarkerGuard {
+    fn inspect(
+        &self,
+        _boundary: CanonicalContentBoundary,
+        bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        Ok(
+            if bytes
+                .windows(PROVIDER_MARKER.len())
+                .any(|window| window == PROVIDER_MARKER.as_bytes())
+            {
+                ContentDisposition::Prohibited { policy_epoch: 1 }
+            } else {
+                ContentDisposition::Allowed { policy_epoch: 1 }
+            },
+        )
+    }
+}
+
+struct ProviderInputRejectingGuard;
+
+impl ProhibitedContentPort for ProviderInputRejectingGuard {
+    fn inspect(
+        &self,
+        boundary: CanonicalContentBoundary,
+        _bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        Ok(match boundary {
+            CanonicalContentBoundary::CanonicalMutation => {
+                ContentDisposition::Allowed { policy_epoch: 1 }
+            }
+            CanonicalContentBoundary::OutboundDelivery => {
+                ContentDisposition::Prohibited { policy_epoch: 2 }
+            }
+        })
+    }
+}
+
+#[derive(Clone)]
+struct MarkerProvider {
+    calls: Arc<AtomicUsize>,
+}
+
+impl LocalTextProvider for MarkerProvider {
+    fn generate(&self, _input: &MessageText) -> Result<MessageText, LocalTextProviderError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        MessageText::new(PROVIDER_MARKER).map_err(|_| LocalTextProviderError::InvalidOutput)
+    }
+}
+
+fn conversation_context(sequence: u8, key: &str) -> ConversationCommandContext {
+    ConversationCommandContext {
+        command_id: format!("018f2e3a-7000-7000-8000-0000000001{sequence:02x}")
+            .parse()
+            .unwrap(),
+        idempotency_key: IdempotencyKey::new(key).unwrap(),
+        principal: ApiPrincipalId::new("local-owner").unwrap(),
+        actor: ApiActor::new("gocode-cli").unwrap(),
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_message() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory
+        .path()
+        .join("provider-output-rejection.sqlite")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let authority = RuntimeAuthorityId("provider-output-rejection-test".into());
+    let store = StoreTransaction::open(&database_path, authority.clone()).unwrap();
+    let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
+        store.clone(),
+        store.clone(),
+        store.clone(),
+        authority.clone(),
+    ));
+    let guard: Arc<dyn ProhibitedContentPort> = Arc::new(MarkerGuard);
+    let text_service: Arc<dyn ConversationTextCommandService> =
+        Arc::new(ConversationTextService::new(
+            store.clone(),
+            store.clone(),
+            authority.clone(),
+            Arc::clone(&guard),
+        ));
+    let (handle, mut controller) = Runtime::start_borrowed_with_conversations(
+        gocode_runtime::TokioRuntimeContext::new_for_test(),
+        taskrun_service,
+        text_service,
+        RuntimeConfig::default(),
+    )
+    .unwrap();
+    let provider_calls = Arc::new(AtomicUsize::new(0));
+    let host = RuntimeCanonicalConversationHost::new(
+        handle,
+        Arc::new(ConversationService::new(
+            store.clone(),
+            store.clone(),
+            authority,
+        )),
+        store.clone(),
+        MarkerProvider {
+            calls: Arc::clone(&provider_calls),
+        },
+        guard,
+    );
+    let conversation_id: ConversationId = CONVERSATION_ID.parse().unwrap();
+    let workspace_id: WorkspaceId = WORKSPACE_ID.parse().unwrap();
+    host.create_conversation(
+        conversation_context(1, "create-provider-rejection"),
+        CreateCanonicalConversationCommand {
+            conversation_id,
+            workspace_id,
+        },
+    )
+    .await
+    .unwrap();
+    let generation_context = conversation_context(2, "generate-provider-rejection");
+    let command = GenerateConversationTextCommand {
+        conversation_id,
+        expected_version: 1,
+        text: CanonicalMessageText::new("ordinary user input").unwrap(),
+    };
+
+    let first = host
+        .generate_text(generation_context.clone(), command.clone())
+        .await;
+    let duplicate = host.generate_text(generation_context, command).await;
+
+    assert_eq!(first, Err(ConversationHostError::ProviderOutputRejected));
+    assert_eq!(
+        duplicate,
+        Err(ConversationHostError::ProviderOutputRejected)
+    );
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 1);
+    assert!(!format!("{first:?}").contains(PROVIDER_MARKER));
+
+    let snapshot = host.list_messages(conversation_id).await.unwrap();
+    assert_eq!(snapshot.stream_version, 3);
+    assert_eq!(snapshot.messages.len(), 1);
+    let conversation =
+        Conversation::replay(&store.load_conversation(conversation_id).unwrap().events).unwrap();
+    assert_eq!(conversation.active_generation(), None);
+
+    let taskrun_id = snapshot.messages[0].taskrun_id;
+    let taskrun_stream = store.load_task_run(taskrun_id).unwrap();
+    assert!(matches!(
+        taskrun_stream.events.last().unwrap().payload(),
+        TaskRunEvent::TaskRunFailed { reason } if reason == "provider_output_rejected"
+    ));
+    assert_eq!(
+        TaskRun::replay(&taskrun_stream.events).unwrap().state(),
+        TaskRunState::Failed
+    );
+
+    assert_eq!(
+        controller
+            .shutdown(ShutdownMode::Graceful {
+                timeout: Duration::from_secs(5),
+            })
+            .await,
+        ShutdownOutcome::Quiesced
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory
+        .path()
+        .join("provider-input-rejection.sqlite")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let authority = RuntimeAuthorityId("provider-input-rejection-test".into());
+    let store = StoreTransaction::open(&database_path, authority.clone()).unwrap();
+    let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
+        store.clone(),
+        store.clone(),
+        store.clone(),
+        authority.clone(),
+    ));
+    let guard: Arc<dyn ProhibitedContentPort> = Arc::new(ProviderInputRejectingGuard);
+    let text_service: Arc<dyn ConversationTextCommandService> =
+        Arc::new(ConversationTextService::new(
+            store.clone(),
+            store.clone(),
+            authority.clone(),
+            Arc::clone(&guard),
+        ));
+    let (handle, mut controller) = Runtime::start_borrowed_with_conversations(
+        gocode_runtime::TokioRuntimeContext::new_for_test(),
+        taskrun_service,
+        text_service,
+        RuntimeConfig::default(),
+    )
+    .unwrap();
+    let provider_calls = Arc::new(AtomicUsize::new(0));
+    let host = RuntimeCanonicalConversationHost::new(
+        handle,
+        Arc::new(ConversationService::new(
+            store.clone(),
+            store.clone(),
+            authority,
+        )),
+        store.clone(),
+        MarkerProvider {
+            calls: Arc::clone(&provider_calls),
+        },
+        guard,
+    );
+    let conversation_id: ConversationId = CONVERSATION_ID.parse().unwrap();
+    host.create_conversation(
+        conversation_context(3, "create-provider-input-rejection"),
+        CreateCanonicalConversationCommand {
+            conversation_id,
+            workspace_id: WORKSPACE_ID.parse().unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let result = host
+        .generate_text(
+            conversation_context(4, "generate-provider-input-rejection"),
+            GenerateConversationTextCommand {
+                conversation_id,
+                expected_version: 1,
+                text: CanonicalMessageText::new("accepted before policy change").unwrap(),
+            },
+        )
+        .await;
+
+    assert_eq!(result, Err(ConversationHostError::ProhibitedSecretMaterial));
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 0);
+    let snapshot = host.list_messages(conversation_id).await.unwrap();
+    assert_eq!(snapshot.messages.len(), 1);
+    assert_eq!(snapshot.stream_version, 3);
+    assert_eq!(
+        TaskRun::replay(
+            &store
+                .load_task_run(snapshot.messages[0].taskrun_id)
+                .unwrap()
+                .events
+        )
+        .unwrap()
+        .state(),
+        TaskRunState::Failed
+    );
+
+    assert_eq!(
+        controller
+            .shutdown(ShutdownMode::Graceful {
+                timeout: Duration::from_secs(5),
+            })
+            .await,
+        ShutdownOutcome::Quiesced
+    );
 }

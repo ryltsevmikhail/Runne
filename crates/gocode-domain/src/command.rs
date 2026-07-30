@@ -7,6 +7,7 @@ use crate::agent_loop::{
     LoopCheckpointBody, LoopDisposition, StepOutcomeRecord, StepOutcomeRef, WakeEvidenceRef,
 };
 use crate::context::ContextManifestRef;
+use crate::conversation::GenerationFailureReason;
 use crate::id::{
     AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, MessageId, TaskRunId,
     WorkspaceId,
@@ -43,6 +44,15 @@ pub enum ConversationCommand {
         attempt_id: AttemptId,
         /// Validated bounded assistant text.
         text: MessageText,
+    },
+    /// Release the active generation without creating an assistant message.
+    FailGeneration {
+        /// Coordinating TaskRun.
+        taskrun_id: TaskRunId,
+        /// Exact active attempt.
+        attempt_id: AttemptId,
+        /// Closed, non-sensitive terminal reason.
+        reason: GenerationFailureReason,
     },
     /// Close the conversation permanently.
     Close,
@@ -137,6 +147,12 @@ pub enum TaskRunCommand {
     Fail {
         /// The reason the task failed.
         reason: String,
+    },
+
+    /// Fail a generation with a closed, non-sensitive terminal reason.
+    FailGeneration {
+        /// Closed reason shared with the coordinating Conversation event.
+        reason: GenerationFailureReason,
     },
 
     /// Start a reconciliation pass.

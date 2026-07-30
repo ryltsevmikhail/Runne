@@ -1694,6 +1694,7 @@ dependencies = [
  "gocode-platform",
  "gocode-runtime",
  "gocode-runtime-client",
+ "gocode-security",
  "gocode-store",
  "hex",
  "hmac",

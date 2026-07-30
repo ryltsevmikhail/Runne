@@ -18,6 +18,7 @@ use gocode_application::conversation_text_service::{
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::RuntimeAuthorityId;
+use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
 use gocode_domain::event::Sensitivity;
@@ -35,6 +36,7 @@ use gocode_runtime::{
     DeterministicTextProvider, Runtime, RuntimeCanonicalConversationHost, RuntimeGenerationId,
     RuntimeTaskRunHost, TokioRuntimeContext,
 };
+use gocode_security::SecretBroker;
 use gocode_store::replay_store::ReplayStore;
 use gocode_store::schema::{ensure_event_log_lineage_id, open_with_pragmas};
 use gocode_store::store::StoreTransaction;
@@ -50,6 +52,7 @@ pub struct DaemonApplication {
     http_host: LocalRuntimeTlsHost,
     client_profile: PublishedClientProfileV2,
     runtime_controller: RuntimeController,
+    _secret_broker: Arc<Mutex<SecretBroker>>,
     task_supervisor: Arc<RuntimeTaskSupervisor>,
     shutdown_timeout: Duration,
 }
@@ -88,9 +91,22 @@ impl DaemonApplication {
         let conversation_service: Arc<SqliteConversationService> = Arc::new(
             ConversationService::new(store.clone(), store.clone(), authority.clone()),
         );
-        let conversation_text_service: Arc<dyn ConversationTextCommandService> = Arc::new(
-            ConversationTextService::new(store.clone(), store.clone(), authority),
+        let secret_broker = Arc::new(Mutex::new(SecretBroker::new()));
+        let prohibited_content: Arc<dyn ProhibitedContentPort> = Arc::new(
+            secret_broker
+                .lock()
+                .map_err(|_| {
+                    DaemonError::Bootstrap("initialize prohibited-content registry".to_owned())
+                })?
+                .prohibited_content_guard(),
         );
+        let conversation_text_service: Arc<dyn ConversationTextCommandService> =
+            Arc::new(ConversationTextService::new(
+                store.clone(),
+                store.clone(),
+                authority,
+                Arc::clone(&prohibited_content),
+            ));
 
         let runtime_config = RuntimeConfig {
             max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
@@ -113,6 +129,7 @@ impl DaemonApplication {
             conversation_service,
             store.clone(),
             DeterministicTextProvider,
+            prohibited_content,
         );
         let http_recovery_state = map_recovery_state(recovery_state);
         let actor =
@@ -232,6 +249,7 @@ impl DaemonApplication {
             http_host,
             client_profile,
             runtime_controller,
+            _secret_broker: secret_broker,
             task_supervisor: RuntimeTaskSupervisor::new(),
             shutdown_timeout,
         })
@@ -264,6 +282,7 @@ impl DaemonApplication {
             http_host,
             client_profile,
             mut runtime_controller,
+            _secret_broker,
             task_supervisor,
             shutdown_timeout,
         } = self;
@@ -275,6 +294,7 @@ impl DaemonApplication {
         let runtime_result = shutdown_runtime(&mut runtime_controller, shutdown_timeout).await;
 
         drop(client_profile);
+        drop(_secret_broker);
         drop(store);
         drop(bootstrap);
 

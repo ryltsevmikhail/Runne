@@ -624,6 +624,15 @@ impl TaskRun {
                     Sensitivity::Public,
                 )])
             }
+            TaskRunCommand::FailGeneration { reason } => {
+                self.require_state(TaskRunState::Running, TaskRunEventKind::TaskRunFailed)?;
+                Ok(vec![draft(
+                    TaskRunEvent::TaskRunFailed {
+                        reason: reason.as_code().to_owned(),
+                    },
+                    Sensitivity::Public,
+                )])
+            }
             TaskRunCommand::StartReconciliation => {
                 self.require_state(
                     TaskRunState::Running,
@@ -2383,6 +2392,24 @@ mod tests {
         assert_eq!(agg.state(), TaskRunState::Failed);
         assert!(agg.state().is_terminal());
         assert!(agg.active_attempt().is_none());
+    }
+
+    #[test]
+    fn provider_output_rejection_uses_closed_terminal_code() {
+        let agg = running_aggregate();
+
+        let drafts = agg
+            .decide(TaskRunCommand::FailGeneration {
+                reason: crate::conversation::GenerationFailureReason::ProviderOutputRejected,
+            })
+            .unwrap();
+
+        assert_eq!(
+            drafts[0].payload(),
+            &TaskRunEvent::TaskRunFailed {
+                reason: "provider_output_rejected".into(),
+            }
+        );
     }
 
     // ─── Reconciliation ───────────────────────────────────────────────────

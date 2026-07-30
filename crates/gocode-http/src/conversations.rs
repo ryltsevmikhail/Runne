@@ -303,6 +303,8 @@ fn messages_to_wire(snapshot: ConversationMessagesSnapshot) -> ConversationMessa
 
 fn host_error_response(error: ConversationHostError, request_id: &RequestId) -> Response {
     let status = match error {
+        ConversationHostError::ProhibitedSecretMaterial => StatusCode::UNPROCESSABLE_ENTITY,
+        ConversationHostError::ProviderOutputRejected => StatusCode::BAD_GATEWAY,
         ConversationHostError::NotFound => StatusCode::NOT_FOUND,
         ConversationHostError::Conflict => StatusCode::CONFLICT,
         ConversationHostError::Backpressure | ConversationHostError::Unavailable => {
