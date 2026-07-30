@@ -27,6 +27,8 @@ pub struct LocalStoreDiagnostics {
 pub enum StoreOpenError {
     #[error("unsupported database schema version: {0}")]
     UnsupportedSchema(i64),
+    #[error("legacy replay state cannot be migrated safely")]
+    LegacyReplayState,
     #[error("client storage unavailable")]
     Storage(#[from] rusqlite::Error),
 }
@@ -67,17 +69,85 @@ pub enum AnchorError {
     SecureStore(#[from] SecureStoreError),
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct ValidatedReplayEvent<'a> {
-    pub runtime_authority: &'a str,
-    pub principal: &'a str,
-    pub lineage: &'a str,
-    pub scope: &'a str,
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplayScopeKey {
+    pub runtime_authority: String,
+    pub principal: String,
+    pub lineage: String,
+    pub scope: String,
+    pub binding_digest: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplayCheckpoint {
+    pub cursor: String,
+    pub generation: u64,
+    pub event_sequence: u64,
+    pub projection_revision: u64,
+    pub projection_digest: String,
+    pub binding_digest: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StoredConversationProjection {
+    pub payload: Vec<u8>,
+    pub revision: u64,
+    pub digest: String,
+    pub event_sequence: u64,
+    pub binding_digest: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ReplayTransition<'a> {
+    pub scope: &'a ReplayScopeKey,
+    pub expected_checkpoint: Option<&'a ReplayCheckpoint>,
     pub event_id: &'a str,
     pub cursor: &'a str,
     pub generation: u64,
-    pub envelope: &'a [u8],
-    pub digest: &'a str,
+    pub event_sequence: u64,
+    pub event_bytes: &'a [u8],
+    pub event_digest: String,
+    pub projection_revision: u64,
+    pub projection_bytes: &'a [u8],
+    pub projection_digest: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReplayApplyOutcome {
+    Applied { database_generation: u64 },
+    AlreadyApplied { database_generation: u64 },
+}
+
+#[derive(Debug, Error)]
+pub enum ReplayStoreError {
+    #[error("replay scope is invalid")]
+    InvalidScope,
+    #[error("replay digest must be 32-byte lower hex")]
+    InvalidDigest,
+    #[error("replay cursor must be non-empty")]
+    EmptyCursor,
+    #[error("stored conversation projection is not valid JSON")]
+    CorruptProjectionJson,
+    #[error("event digest does not match exact event bytes")]
+    EventDigestMismatch,
+    #[error("projection digest does not match exact projection bytes")]
+    ProjectionDigestMismatch,
+    #[error("replay binding does not match stored scope")]
+    BindingMismatch,
+    #[error("replay cursor does not match stored checkpoint")]
+    CursorMismatch,
+    #[error("replay generation regressed or does not match stored checkpoint")]
+    GenerationMismatch,
+    #[error("replay event sequence is not contiguous")]
+    NonContiguousSequence,
+    #[error("conversation projection revision is not contiguous")]
+    NonContiguousRevision,
+    #[error("event identity conflict")]
+    EventIdentityConflict,
+    #[error("replay integer is out of range")]
+    IntegerOutOfRange,
+    #[error("client storage unavailable")]
+    Storage(#[from] rusqlite::Error),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -152,7 +222,7 @@ impl LocalStore {
         let version: i64 = self
             .connection
             .pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > 3 {
+        if version > 4 {
             return Err(StoreOpenError::UnsupportedSchema(version));
         }
         if version < 1 {
@@ -269,6 +339,115 @@ impl LocalStore {
                 ) STRICT;
 
                 PRAGMA user_version = 3;
+                ",
+            )?;
+            transaction.commit()?;
+        }
+        if version < 4 {
+            let transaction = self
+                .connection
+                .transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let legacy_replay_rows: i64 = transaction.query_row(
+                "
+                SELECT
+                    (SELECT COUNT(*) FROM projections)
+                  + (SELECT COUNT(*) FROM event_journal)
+                  + (SELECT COUNT(*) FROM replay_cursors)
+                ",
+                [],
+                |row| row.get(0),
+            )?;
+            if legacy_replay_rows != 0 {
+                return Err(StoreOpenError::LegacyReplayState);
+            }
+            transaction.execute_batch(
+                "
+                DROP TABLE projections;
+                DROP TABLE event_journal;
+                DROP TABLE replay_cursors;
+
+                CREATE TABLE projections (
+                    runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+                    principal TEXT NOT NULL CHECK (length(principal) > 0),
+                    lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+                    scope TEXT NOT NULL CHECK (length(scope) > 0),
+                    binding_digest TEXT NOT NULL CHECK (
+                        length(binding_digest) = 64
+                        AND binding_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+                    projection_digest TEXT NOT NULL CHECK (
+                        length(projection_digest) = 64
+                        AND projection_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+                    payload BLOB NOT NULL CHECK (json_valid(payload) = 1),
+                    PRIMARY KEY (runtime_authority, principal, lineage, scope)
+                ) STRICT;
+
+                CREATE TABLE event_journal (
+                    runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+                    principal TEXT NOT NULL CHECK (length(principal) > 0),
+                    lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+                    scope TEXT NOT NULL CHECK (length(scope) > 0),
+                    binding_digest TEXT NOT NULL CHECK (
+                        length(binding_digest) = 64
+                        AND binding_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    event_id TEXT NOT NULL CHECK (length(event_id) > 0),
+                    cursor TEXT NOT NULL CHECK (length(cursor) > 0),
+                    generation INTEGER NOT NULL CHECK (generation >= 0),
+                    event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+                    validated_event BLOB NOT NULL,
+                    event_digest TEXT NOT NULL CHECK (
+                        length(event_digest) = 64
+                        AND event_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    PRIMARY KEY (
+                        runtime_authority,
+                        principal,
+                        lineage,
+                        scope,
+                        event_id
+                    ),
+                    UNIQUE (
+                        runtime_authority,
+                        principal,
+                        lineage,
+                        scope,
+                        event_sequence
+                    ),
+                    UNIQUE (
+                        runtime_authority,
+                        principal,
+                        lineage,
+                        scope,
+                        cursor
+                    )
+                ) STRICT;
+
+                CREATE TABLE replay_cursors (
+                    runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+                    principal TEXT NOT NULL CHECK (length(principal) > 0),
+                    lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+                    scope TEXT NOT NULL CHECK (length(scope) > 0),
+                    binding_digest TEXT NOT NULL CHECK (
+                        length(binding_digest) = 64
+                        AND binding_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    generation INTEGER NOT NULL CHECK (generation >= 0),
+                    applied_cursor TEXT NOT NULL CHECK (length(applied_cursor) > 0),
+                    event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+                    projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+                    projection_digest TEXT NOT NULL CHECK (
+                        length(projection_digest) = 64
+                        AND projection_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    PRIMARY KEY (runtime_authority, principal, lineage, scope)
+                ) STRICT;
+
+                UPDATE meta SET schema_version = 4 WHERE singleton = 1;
+                PRAGMA user_version = 4;
                 ",
             )?;
             transaction.commit()?;
@@ -442,26 +621,71 @@ impl LocalStore {
         })
     }
 
-    /// Persists one host-validated event and its applied cursor atomically.
-    ///
-    /// Exact duplicate identities are idempotent. Reusing an event identity
-    /// with different bytes, cursor or digest fails before any state changes.
+    /// Reads the durable checkpoint for one stable replay scope.
     ///
     /// # Errors
     ///
-    /// Returns a typed identity conflict or a storage error.
+    /// Returns a typed integrity error instead of defaulting corrupt or
+    /// internally inconsistent replay state.
+    pub fn replay_checkpoint(
+        &self,
+        scope: &ReplayScopeKey,
+    ) -> Result<Option<ReplayCheckpoint>, ReplayStoreError> {
+        validate_replay_scope(scope)?;
+        Ok(read_replay_state(&self.connection, scope)?.map(|state| state.checkpoint))
+    }
+
+    /// Reads the verified Conversation projection for one stable replay scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed integrity error for invalid JSON, a digest mismatch,
+    /// binding mismatch or non-contiguous stored state.
+    pub fn conversation_projection(
+        &self,
+        scope: &ReplayScopeKey,
+    ) -> Result<Option<StoredConversationProjection>, ReplayStoreError> {
+        validate_replay_scope(scope)?;
+        Ok(read_replay_state(&self.connection, scope)?.map(|state| state.projection))
+    }
+
+    /// Atomically journals one validated event, replaces its verified
+    /// Conversation projection and advances the durable replay checkpoint.
+    ///
+    /// Exact inclusive redelivery returns [`ReplayApplyOutcome::AlreadyApplied`]
+    /// without incrementing the database generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation, identity or storage error. Any error rolls
+    /// back journal, projection, cursor and database generation together.
     #[allow(clippy::too_many_lines)]
-    pub fn apply_replay_event(
+    pub fn apply_replay_transition(
         &mut self,
-        event: &ValidatedReplayEvent<'_>,
-    ) -> Result<u64, SecurityTransactionError> {
+        transition: &ReplayTransition<'_>,
+    ) -> Result<ReplayApplyOutcome, ReplayStoreError> {
+        validate_replay_transition_shape(transition)?;
+        let generation = i64::try_from(transition.generation)
+            .map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let event_sequence = i64::try_from(transition.event_sequence)
+            .map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let projection_revision = i64::try_from(transition.projection_revision)
+            .map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let scope = transition.scope;
         let transaction = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let existing: Option<(String, Vec<u8>, String)> = transaction
+
+        let existing: Option<(String, String, i64, i64, Vec<u8>, String)> = transaction
             .query_row(
                 "
-                SELECT cursor, validated_envelope, digest
+                SELECT
+                    binding_digest,
+                    cursor,
+                    generation,
+                    event_sequence,
+                    validated_event,
+                    event_digest
                 FROM event_journal
                 WHERE runtime_authority = ?1
                   AND principal = ?2
@@ -470,32 +694,49 @@ impl LocalStore {
                   AND event_id = ?5
                 ",
                 params![
-                    event.runtime_authority,
-                    event.principal,
-                    event.lineage,
-                    event.scope,
-                    event.event_id
+                    scope.runtime_authority,
+                    scope.principal,
+                    scope.lineage,
+                    scope.scope,
+                    transition.event_id
                 ],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
             )
             .optional()?;
-
-        if let Some((cursor, envelope, digest)) = existing {
-            if cursor != event.cursor || envelope != event.envelope || digest != event.digest {
-                return Err(SecurityTransactionError::EventIdentityConflict);
+        if let Some(existing) = existing {
+            if existing.0 != scope.binding_digest {
+                return Err(ReplayStoreError::BindingMismatch);
             }
-            let generation: i64 = transaction.query_row(
-                "SELECT db_generation FROM meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )?;
+            if existing.1 != transition.cursor
+                || existing.2 != generation
+                || existing.3 != event_sequence
+                || existing.4 != transition.event_bytes
+                || existing.5 != transition.event_digest
+            {
+                return Err(ReplayStoreError::EventIdentityConflict);
+            }
+            read_replay_state(&transaction, scope)?
+                .ok_or(ReplayStoreError::NonContiguousRevision)?;
+            let database_generation = read_database_generation(&transaction)?;
             transaction.commit()?;
-            return u64::try_from(generation)
-                .map_err(|_| SecurityTransactionError::GenerationOutOfRange);
+            return Ok(ReplayApplyOutcome::AlreadyApplied {
+                database_generation,
+            });
         }
 
-        let generation = i64::try_from(event.generation)
-            .map_err(|_| SecurityTransactionError::GenerationOutOfRange)?;
+        validate_replay_transition_payload(&transaction, transition)?;
+        let current = read_replay_state(&transaction, scope)?;
+        validate_expected_transition(current.as_ref(), transition)?;
+
         transaction.execute(
             "
             INSERT INTO event_journal (
@@ -503,22 +744,61 @@ impl LocalStore {
                 principal,
                 lineage,
                 scope,
+                binding_digest,
                 event_id,
                 cursor,
-                validated_envelope,
-                digest
+                generation,
+                event_sequence,
+                validated_event,
+                event_digest
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
             ",
             params![
-                event.runtime_authority,
-                event.principal,
-                event.lineage,
-                event.scope,
-                event.event_id,
-                event.cursor,
-                event.envelope,
-                event.digest
+                scope.runtime_authority,
+                scope.principal,
+                scope.lineage,
+                scope.scope,
+                scope.binding_digest,
+                transition.event_id,
+                transition.cursor,
+                generation,
+                event_sequence,
+                transition.event_bytes,
+                transition.event_digest
+            ],
+        )?;
+        transaction.execute(
+            "
+            INSERT INTO projections (
+                runtime_authority,
+                principal,
+                lineage,
+                scope,
+                binding_digest,
+                projection_revision,
+                projection_digest,
+                event_sequence,
+                payload
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            ON CONFLICT(runtime_authority, principal, lineage, scope) DO UPDATE SET
+                binding_digest = excluded.binding_digest,
+                projection_revision = excluded.projection_revision,
+                projection_digest = excluded.projection_digest,
+                event_sequence = excluded.event_sequence,
+                payload = excluded.payload
+            ",
+            params![
+                scope.runtime_authority,
+                scope.principal,
+                scope.lineage,
+                scope.scope,
+                scope.binding_digest,
+                projection_revision,
+                transition.projection_digest,
+                event_sequence,
+                transition.projection_bytes
             ],
         )?;
         transaction.execute(
@@ -528,21 +808,33 @@ impl LocalStore {
                 principal,
                 lineage,
                 scope,
+                binding_digest,
                 generation,
-                applied_cursor
+                applied_cursor,
+                event_sequence,
+                projection_revision,
+                projection_digest
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             ON CONFLICT(runtime_authority, principal, lineage, scope) DO UPDATE SET
+                binding_digest = excluded.binding_digest,
                 generation = excluded.generation,
-                applied_cursor = excluded.applied_cursor
+                applied_cursor = excluded.applied_cursor,
+                event_sequence = excluded.event_sequence,
+                projection_revision = excluded.projection_revision,
+                projection_digest = excluded.projection_digest
             ",
             params![
-                event.runtime_authority,
-                event.principal,
-                event.lineage,
-                event.scope,
+                scope.runtime_authority,
+                scope.principal,
+                scope.lineage,
+                scope.scope,
+                scope.binding_digest,
                 generation,
-                event.cursor
+                transition.cursor,
+                event_sequence,
+                projection_revision,
+                transition.projection_digest
             ],
         )?;
         transaction.execute(
@@ -553,16 +845,13 @@ impl LocalStore {
                 commit_marker = 1
             WHERE singleton = 1
             ",
-            params![event.digest],
+            params![transition.event_digest],
         )?;
-        let database_generation: i64 = transaction.query_row(
-            "SELECT db_generation FROM meta WHERE singleton = 1",
-            [],
-            |row| row.get(0),
-        )?;
+        let database_generation = read_database_generation(&transaction)?;
         transaction.commit()?;
-        u64::try_from(database_generation)
-            .map_err(|_| SecurityTransactionError::GenerationOutOfRange)
+        Ok(ReplayApplyOutcome::Applied {
+            database_generation,
+        })
     }
 
     /// Persists a prepared mutation before any external dispatch.
@@ -689,6 +978,382 @@ impl LocalStore {
             .map_err(|_| SecurityTransactionError::GenerationOutOfRange)
     }
 }
+
+struct VerifiedReplayState {
+    checkpoint: ReplayCheckpoint,
+    projection: StoredConversationProjection,
+}
+
+#[allow(clippy::too_many_lines)]
+fn read_replay_state(
+    connection: &Connection,
+    scope: &ReplayScopeKey,
+) -> Result<Option<VerifiedReplayState>, ReplayStoreError> {
+    type StoredRow = (
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+        Option<Vec<u8>>,
+        i64,
+        Option<i64>,
+        Option<i64>,
+        Option<String>,
+        Option<i64>,
+        i64,
+    );
+    let row: Option<StoredRow> = connection
+        .query_row(
+            "
+            SELECT
+                cursors.binding_digest,
+                cursors.generation,
+                cursors.applied_cursor,
+                cursors.event_sequence,
+                cursors.projection_revision,
+                cursors.projection_digest,
+                projections.binding_digest,
+                projections.projection_revision,
+                projections.projection_digest,
+                projections.event_sequence,
+                projections.payload,
+                (
+                    SELECT COUNT(*)
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+                ),
+                (
+                    SELECT MIN(event_sequence)
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+                ),
+                (
+                    SELECT MAX(event_sequence)
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+                ),
+                (
+                    SELECT cursor
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+                    ORDER BY event_sequence DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT generation
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+                    ORDER BY event_sequence DESC
+                    LIMIT 1
+                ),
+                (
+                    SELECT COUNT(*)
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+                      AND journal.binding_digest != ?5
+                )
+            FROM (SELECT 1) AS seed
+            LEFT JOIN replay_cursors AS cursors
+              ON cursors.runtime_authority = ?1
+             AND cursors.principal = ?2
+             AND cursors.lineage = ?3
+             AND cursors.scope = ?4
+            LEFT JOIN projections
+              ON projections.runtime_authority = ?1
+             AND projections.principal = ?2
+             AND projections.lineage = ?3
+             AND projections.scope = ?4
+            WHERE cursors.scope IS NOT NULL
+               OR projections.scope IS NOT NULL
+               OR EXISTS (
+                    SELECT 1
+                    FROM event_journal AS journal
+                    WHERE journal.runtime_authority = ?1
+                      AND journal.principal = ?2
+                      AND journal.lineage = ?3
+                      AND journal.scope = ?4
+               )
+            ",
+            params![
+                scope.runtime_authority,
+                scope.principal,
+                scope.lineage,
+                scope.scope,
+                scope.binding_digest
+            ],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                    row.get(11)?,
+                    row.get(12)?,
+                    row.get(13)?,
+                    row.get(14)?,
+                    row.get(15)?,
+                    row.get(16)?,
+                ))
+            },
+        )
+        .optional()?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let (
+        Some(cursor_binding),
+        Some(generation),
+        Some(cursor),
+        Some(cursor_sequence),
+        Some(cursor_revision),
+        Some(cursor_projection_digest),
+        Some(projection_binding),
+        Some(projection_revision),
+        Some(projection_digest),
+        Some(projection_sequence),
+        Some(payload),
+        journal_count,
+        journal_min_sequence,
+        journal_max_sequence,
+        latest_journal_cursor,
+        latest_journal_generation,
+        journal_binding_mismatches,
+    ) = row
+    else {
+        return Err(ReplayStoreError::NonContiguousRevision);
+    };
+    if cursor_binding != scope.binding_digest
+        || projection_binding != scope.binding_digest
+        || cursor_binding != projection_binding
+        || journal_binding_mismatches != 0
+    {
+        return Err(ReplayStoreError::BindingMismatch);
+    }
+    if !is_lower_hex_digest(&cursor_projection_digest) || !is_lower_hex_digest(&projection_digest) {
+        return Err(ReplayStoreError::InvalidDigest);
+    }
+    if cursor_revision != projection_revision {
+        return Err(ReplayStoreError::NonContiguousRevision);
+    }
+    if cursor_projection_digest != projection_digest {
+        return Err(ReplayStoreError::ProjectionDigestMismatch);
+    }
+    if cursor_sequence != projection_sequence {
+        return Err(ReplayStoreError::NonContiguousSequence);
+    }
+    let generation = u64::try_from(generation).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+    let event_sequence =
+        u64::try_from(cursor_sequence).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+    let projection_revision =
+        u64::try_from(cursor_revision).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+    let journal_count =
+        u64::try_from(journal_count).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+    if projection_revision == 0 || projection_revision != event_sequence {
+        return Err(ReplayStoreError::NonContiguousRevision);
+    }
+    if event_sequence == 0
+        || journal_count != event_sequence
+        || journal_min_sequence != Some(1)
+        || journal_max_sequence != Some(cursor_sequence)
+        || latest_journal_cursor.as_deref() != Some(cursor.as_str())
+        || latest_journal_generation
+            != Some(i64::try_from(generation).map_err(|_| ReplayStoreError::IntegerOutOfRange)?)
+    {
+        return Err(ReplayStoreError::NonContiguousSequence);
+    }
+    let valid_json: i64 =
+        connection.query_row("SELECT json_valid(?1)", params![payload], |row| row.get(0))?;
+    if valid_json != 1 {
+        return Err(ReplayStoreError::CorruptProjectionJson);
+    }
+    if sha256_lower_hex(&payload) != projection_digest {
+        return Err(ReplayStoreError::ProjectionDigestMismatch);
+    }
+
+    Ok(Some(VerifiedReplayState {
+        checkpoint: ReplayCheckpoint {
+            cursor,
+            generation,
+            event_sequence,
+            projection_revision,
+            projection_digest: projection_digest.clone(),
+            binding_digest: cursor_binding,
+        },
+        projection: StoredConversationProjection {
+            payload,
+            revision: projection_revision,
+            digest: projection_digest,
+            event_sequence,
+            binding_digest: projection_binding,
+        },
+    }))
+}
+
+fn validate_replay_scope(scope: &ReplayScopeKey) -> Result<(), ReplayStoreError> {
+    if scope.runtime_authority.is_empty()
+        || scope.principal.is_empty()
+        || scope.lineage.is_empty()
+        || scope.scope.is_empty()
+    {
+        return Err(ReplayStoreError::InvalidScope);
+    }
+    if !is_lower_hex_digest(&scope.binding_digest) {
+        return Err(ReplayStoreError::InvalidDigest);
+    }
+    Ok(())
+}
+
+fn validate_replay_transition_shape(
+    transition: &ReplayTransition<'_>,
+) -> Result<(), ReplayStoreError> {
+    validate_replay_scope(transition.scope)?;
+    if transition.event_id.is_empty() {
+        return Err(ReplayStoreError::InvalidScope);
+    }
+    if transition.cursor.is_empty() {
+        return Err(ReplayStoreError::EmptyCursor);
+    }
+    if !is_lower_hex_digest(&transition.event_digest)
+        || !is_lower_hex_digest(&transition.projection_digest)
+    {
+        return Err(ReplayStoreError::InvalidDigest);
+    }
+    if transition.event_sequence == 0 {
+        return Err(ReplayStoreError::NonContiguousSequence);
+    }
+    if transition.projection_revision == 0 {
+        return Err(ReplayStoreError::NonContiguousRevision);
+    }
+    Ok(())
+}
+
+fn validate_replay_transition_payload(
+    connection: &Connection,
+    transition: &ReplayTransition<'_>,
+) -> Result<(), ReplayStoreError> {
+    if sha256_lower_hex(transition.event_bytes) != transition.event_digest {
+        return Err(ReplayStoreError::EventDigestMismatch);
+    }
+    if sha256_lower_hex(transition.projection_bytes) != transition.projection_digest {
+        return Err(ReplayStoreError::ProjectionDigestMismatch);
+    }
+    let valid_json: i64 = connection.query_row(
+        "SELECT json_valid(?1)",
+        params![transition.projection_bytes],
+        |row| row.get(0),
+    )?;
+    if valid_json != 1 {
+        return Err(ReplayStoreError::CorruptProjectionJson);
+    }
+    Ok(())
+}
+
+fn validate_expected_transition(
+    current: Option<&VerifiedReplayState>,
+    transition: &ReplayTransition<'_>,
+) -> Result<(), ReplayStoreError> {
+    match (current, transition.expected_checkpoint) {
+        (None, None) => {
+            if transition.event_sequence != 1 {
+                return Err(ReplayStoreError::NonContiguousSequence);
+            }
+            if transition.projection_revision != 1 {
+                return Err(ReplayStoreError::NonContiguousRevision);
+            }
+        }
+        (None, Some(_)) | (Some(_), None) => return Err(ReplayStoreError::CursorMismatch),
+        (Some(current), Some(expected)) => {
+            let checkpoint = &current.checkpoint;
+            if expected.binding_digest != transition.scope.binding_digest
+                || expected.binding_digest != checkpoint.binding_digest
+            {
+                return Err(ReplayStoreError::BindingMismatch);
+            }
+            if expected.cursor != checkpoint.cursor {
+                return Err(ReplayStoreError::CursorMismatch);
+            }
+            if expected.generation != checkpoint.generation {
+                return Err(ReplayStoreError::GenerationMismatch);
+            }
+            if expected.event_sequence != checkpoint.event_sequence {
+                return Err(ReplayStoreError::NonContiguousSequence);
+            }
+            if expected.projection_revision != checkpoint.projection_revision {
+                return Err(ReplayStoreError::NonContiguousRevision);
+            }
+            if expected.projection_digest != checkpoint.projection_digest {
+                return Err(ReplayStoreError::ProjectionDigestMismatch);
+            }
+            if transition.cursor == checkpoint.cursor {
+                return Err(ReplayStoreError::CursorMismatch);
+            }
+            if transition.generation < checkpoint.generation {
+                return Err(ReplayStoreError::GenerationMismatch);
+            }
+            if checkpoint.event_sequence.checked_add(1) != Some(transition.event_sequence) {
+                return Err(ReplayStoreError::NonContiguousSequence);
+            }
+            if checkpoint.projection_revision.checked_add(1) != Some(transition.projection_revision)
+            {
+                return Err(ReplayStoreError::NonContiguousRevision);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn is_lower_hex_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+}
+
+fn sha256_lower_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+fn read_database_generation(connection: &Connection) -> Result<u64, ReplayStoreError> {
+    let generation: i64 = connection.query_row(
+        "SELECT db_generation FROM meta WHERE singleton = 1",
+        [],
+        |row| row.get(0),
+    )?;
+    u64::try_from(generation).map_err(|_| ReplayStoreError::IntegerOutOfRange)
+}
+
 /// Verifies the relationship between the `SQLite` `db_generation` and the
 /// OS secure-store anchor. Returns the classified state per
 /// `CLIENT_STORAGE_AND_RECOVERY.md` recovery state machine.
@@ -760,8 +1425,8 @@ impl LocalStore {
 #[cfg(test)]
 mod tests {
     use super::{
-        DatabaseRecoveryState, LocalStore, PreparedMutation, ValidatedReplayEvent,
-        anchor_db_generation, classify_database_recovery, verify_anchor,
+        DatabaseRecoveryState, LocalStore, PreparedMutation, anchor_db_generation,
+        classify_database_recovery, verify_anchor,
     };
     use gocode_secure_store::{AnchorStatus, SecureStore, SecureStoreError};
     use rusqlite::Connection;
@@ -932,7 +1597,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_v3_creates_the_normative_recovery_schema() {
+    fn migration_v4_creates_the_normative_recovery_schema() {
         let directory = tempfile::tempdir().expect("temp directory");
         let path = directory.path().join("profile.sqlite3");
 
@@ -942,7 +1607,7 @@ mod tests {
         let version: i64 = connection
             .pragma_query_value(None, "user_version", |row| row.get(0))
             .expect("read schema version");
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
 
         for table in [
             "meta",
@@ -1006,99 +1671,6 @@ mod tests {
             classify_database_recovery(None, Some(4), false),
             DatabaseMissing
         );
-    }
-
-    #[test]
-    fn replay_event_and_cursor_advance_atomically_and_duplicates_are_idempotent() {
-        let directory = tempfile::tempdir().expect("temp directory");
-        let path = directory.path().join("profile.sqlite3");
-        let mut store = LocalStore::open(&path).expect("open store");
-        let event = ValidatedReplayEvent {
-            runtime_authority: "runtime-1",
-            principal: "user-1",
-            lineage: "lineage-1",
-            scope: "run-1",
-            event_id: "event-1",
-            cursor: "cursor-1",
-            generation: 4,
-            envelope: br#"{"kind":"accepted"}"#,
-            digest: "sha256:event-1",
-        };
-
-        assert_eq!(store.apply_replay_event(&event).expect("apply event"), 2);
-        assert_eq!(
-            store.apply_replay_event(&event).expect("apply duplicate"),
-            2
-        );
-
-        let connection = Connection::open(path).expect("inspect database");
-        let event_count: i64 = connection
-            .query_row("SELECT COUNT(*) FROM event_journal", [], |row| row.get(0))
-            .expect("count events");
-        let (cursor, generation): (String, i64) = connection
-            .query_row(
-                "SELECT applied_cursor, generation FROM replay_cursors",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("read cursor");
-        let database_generation: i64 = connection
-            .query_row(
-                "SELECT db_generation FROM meta WHERE singleton = 1",
-                [],
-                |row| row.get(0),
-            )
-            .expect("read database generation");
-
-        assert_eq!(event_count, 1);
-        assert_eq!(cursor, "cursor-1");
-        assert_eq!(generation, 4);
-        assert_eq!(database_generation, 2);
-    }
-
-    #[test]
-    fn conflicting_replay_event_does_not_mutate_cursor_or_generation() {
-        let directory = tempfile::tempdir().expect("temp directory");
-        let path = directory.path().join("profile.sqlite3");
-        let mut store = LocalStore::open(&path).expect("open store");
-        let event = ValidatedReplayEvent {
-            runtime_authority: "runtime-1",
-            principal: "user-1",
-            lineage: "lineage-1",
-            scope: "run-1",
-            event_id: "event-1",
-            cursor: "cursor-1",
-            generation: 4,
-            envelope: br#"{"kind":"accepted"}"#,
-            digest: "sha256:event-1",
-        };
-        store.apply_replay_event(&event).expect("apply event");
-        let conflicting = ValidatedReplayEvent {
-            cursor: "cursor-2",
-            envelope: br#"{"kind":"different"}"#,
-            digest: "sha256:different",
-            ..event
-        };
-
-        let error = store
-            .apply_replay_event(&conflicting)
-            .expect_err("conflict must fail closed");
-
-        assert_eq!(error.to_string(), "event identity conflict");
-        let connection = Connection::open(path).expect("inspect database");
-        let (cursor, generation): (String, i64) = connection
-            .query_row(
-                "
-                SELECT replay_cursors.applied_cursor, meta.db_generation
-                FROM replay_cursors CROSS JOIN meta
-                WHERE meta.singleton = 1
-                ",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .expect("read preserved state");
-        assert_eq!(cursor, "cursor-1");
-        assert_eq!(generation, 2);
     }
 
     #[test]
