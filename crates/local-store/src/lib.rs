@@ -403,6 +403,12 @@ impl LocalStore {
                         length(event_digest) = 64
                         AND event_digest NOT GLOB '*[^0-9a-f]*'
                     ),
+                    projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+                    projection_digest TEXT NOT NULL CHECK (
+                        length(projection_digest) = 64
+                        AND projection_digest NOT GLOB '*[^0-9a-f]*'
+                    ),
+                    projected_payload BLOB NOT NULL CHECK (json_valid(projected_payload) = 1),
                     PRIMARY KEY (
                         runtime_authority,
                         principal,
@@ -676,7 +682,7 @@ impl LocalStore {
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
 
-        let existing: Option<(String, String, i64, i64, Vec<u8>, String)> = transaction
+        let existing: Option<StoredJournalTransition> = transaction
             .query_row(
                 "
                 SELECT
@@ -685,7 +691,10 @@ impl LocalStore {
                     generation,
                     event_sequence,
                     validated_event,
-                    event_digest
+                    event_digest,
+                    projection_revision,
+                    projection_digest,
+                    projected_payload
                 FROM event_journal
                 WHERE runtime_authority = ?1
                   AND principal = ?2
@@ -708,6 +717,9 @@ impl LocalStore {
                         row.get(3)?,
                         row.get(4)?,
                         row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
                     ))
                 },
             )
@@ -721,6 +733,9 @@ impl LocalStore {
                 || existing.3 != event_sequence
                 || existing.4 != transition.event_bytes
                 || existing.5 != transition.event_digest
+                || existing.6 != projection_revision
+                || existing.7 != transition.projection_digest
+                || existing.8 != transition.projection_bytes
             {
                 return Err(ReplayStoreError::EventIdentityConflict);
             }
@@ -750,9 +765,12 @@ impl LocalStore {
                 generation,
                 event_sequence,
                 validated_event,
-                event_digest
+                event_digest,
+                projection_revision,
+                projection_digest,
+                projected_payload
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             ",
             params![
                 scope.runtime_authority,
@@ -765,7 +783,10 @@ impl LocalStore {
                 generation,
                 event_sequence,
                 transition.event_bytes,
-                transition.event_digest
+                transition.event_digest,
+                projection_revision,
+                transition.projection_digest,
+                transition.projection_bytes
             ],
         )?;
         transaction.execute(
@@ -984,31 +1005,156 @@ struct VerifiedReplayState {
     projection: StoredConversationProjection,
 }
 
+type StoredJournalTransition = (
+    String,
+    String,
+    i64,
+    i64,
+    Vec<u8>,
+    String,
+    i64,
+    String,
+    Vec<u8>,
+);
+
+type StoredReplayRow = (
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    Option<Vec<u8>>,
+    i64,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    i64,
+);
+
+struct VerifiedJournalTail {
+    cursor: String,
+    generation: u64,
+    event_sequence: u64,
+    projection_revision: u64,
+    projection_digest: String,
+    projected_payload: Vec<u8>,
+}
+
+#[allow(clippy::too_many_lines)]
+fn verify_event_journal(
+    connection: &Connection,
+    scope: &ReplayScopeKey,
+) -> Result<Option<VerifiedJournalTail>, ReplayStoreError> {
+    let mut statement = connection.prepare(
+        "
+        SELECT
+            binding_digest,
+            cursor,
+            generation,
+            event_sequence,
+            validated_event,
+            event_digest,
+            projection_revision,
+            projection_digest,
+            projected_payload,
+            json_valid(projected_payload)
+        FROM event_journal
+        WHERE runtime_authority = ?1
+          AND principal = ?2
+          AND lineage = ?3
+          AND scope = ?4
+        ORDER BY event_sequence
+        ",
+    )?;
+    let mut rows = statement.query(params![
+        scope.runtime_authority,
+        scope.principal,
+        scope.lineage,
+        scope.scope
+    ])?;
+    let mut expected_sequence = 1_u64;
+    let mut tail: Option<VerifiedJournalTail> = None;
+    while let Some(row) = rows.next()? {
+        let binding_digest: String = row.get(0)?;
+        let cursor: String = row.get(1)?;
+        let generation: i64 = row.get(2)?;
+        let event_sequence: i64 = row.get(3)?;
+        let validated_event: Vec<u8> = row.get(4)?;
+        let event_digest: String = row.get(5)?;
+        let projection_revision: i64 = row.get(6)?;
+        let projection_digest: String = row.get(7)?;
+        let projected_payload: Vec<u8> = row.get(8)?;
+        let valid_projected_json: i64 = row.get(9)?;
+
+        if binding_digest != scope.binding_digest {
+            return Err(ReplayStoreError::BindingMismatch);
+        }
+        if cursor.is_empty() {
+            return Err(ReplayStoreError::CursorMismatch);
+        }
+        let generation =
+            u64::try_from(generation).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let event_sequence =
+            u64::try_from(event_sequence).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let projection_revision =
+            u64::try_from(projection_revision).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        if event_sequence != expected_sequence {
+            return Err(ReplayStoreError::NonContiguousSequence);
+        }
+        if !is_lower_hex_digest(&event_digest) || !is_lower_hex_digest(&projection_digest) {
+            return Err(ReplayStoreError::InvalidDigest);
+        }
+        if sha256_lower_hex(&validated_event) != event_digest {
+            return Err(ReplayStoreError::EventDigestMismatch);
+        }
+        if valid_projected_json != 1 {
+            return Err(ReplayStoreError::CorruptProjectionJson);
+        }
+        if sha256_lower_hex(&projected_payload) != projection_digest {
+            return Err(ReplayStoreError::ProjectionDigestMismatch);
+        }
+        if let Some(previous) = tail.as_ref() {
+            if projection_revision == previous.projection_revision {
+                if projection_digest != previous.projection_digest
+                    || projected_payload != previous.projected_payload
+                {
+                    return Err(ReplayStoreError::NonContiguousRevision);
+                }
+            } else if previous.projection_revision.checked_add(1) != Some(projection_revision) {
+                return Err(ReplayStoreError::NonContiguousRevision);
+            }
+        } else if projection_revision > 1 {
+            return Err(ReplayStoreError::NonContiguousRevision);
+        }
+
+        tail = Some(VerifiedJournalTail {
+            cursor,
+            generation,
+            event_sequence,
+            projection_revision,
+            projection_digest,
+            projected_payload,
+        });
+        expected_sequence = expected_sequence
+            .checked_add(1)
+            .ok_or(ReplayStoreError::IntegerOutOfRange)?;
+    }
+    Ok(tail)
+}
+
 #[allow(clippy::too_many_lines)]
 fn read_replay_state(
     connection: &Connection,
     scope: &ReplayScopeKey,
 ) -> Result<Option<VerifiedReplayState>, ReplayStoreError> {
-    type StoredRow = (
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<i64>,
-        Option<i64>,
-        Option<String>,
-        Option<String>,
-        Option<i64>,
-        Option<String>,
-        Option<i64>,
-        Option<Vec<u8>>,
-        i64,
-        Option<i64>,
-        Option<i64>,
-        Option<String>,
-        Option<i64>,
-        i64,
-    );
-    let row: Option<StoredRow> = connection
+    let journal_tail = verify_event_journal(connection, scope)?;
+    let row: Option<StoredReplayRow> = connection
         .query_row(
             "
             SELECT
@@ -1129,6 +1275,9 @@ fn read_replay_state(
         )
         .optional()?;
     let Some(row) = row else {
+        if journal_tail.is_some() {
+            return Err(ReplayStoreError::NonContiguousRevision);
+        }
         return Ok(None);
     };
     let (
@@ -1179,8 +1328,30 @@ fn read_replay_state(
         u64::try_from(cursor_revision).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
     let journal_count =
         u64::try_from(journal_count).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
-    if projection_revision == 0 || projection_revision != event_sequence {
+    let valid_json: i64 =
+        connection.query_row("SELECT json_valid(?1)", params![payload], |row| row.get(0))?;
+    if valid_json != 1 {
+        return Err(ReplayStoreError::CorruptProjectionJson);
+    }
+    if sha256_lower_hex(&payload) != projection_digest {
+        return Err(ReplayStoreError::ProjectionDigestMismatch);
+    }
+    let Some(journal_tail) = journal_tail else {
+        return Err(ReplayStoreError::NonContiguousSequence);
+    };
+    if journal_tail.event_sequence != event_sequence
+        || journal_tail.cursor != cursor
+        || journal_tail.generation != generation
+    {
+        return Err(ReplayStoreError::NonContiguousSequence);
+    }
+    if journal_tail.projection_revision != projection_revision {
         return Err(ReplayStoreError::NonContiguousRevision);
+    }
+    if journal_tail.projection_digest != projection_digest
+        || journal_tail.projected_payload != payload
+    {
+        return Err(ReplayStoreError::ProjectionDigestMismatch);
     }
     if event_sequence == 0
         || journal_count != event_sequence
@@ -1192,15 +1363,6 @@ fn read_replay_state(
     {
         return Err(ReplayStoreError::NonContiguousSequence);
     }
-    let valid_json: i64 =
-        connection.query_row("SELECT json_valid(?1)", params![payload], |row| row.get(0))?;
-    if valid_json != 1 {
-        return Err(ReplayStoreError::CorruptProjectionJson);
-    }
-    if sha256_lower_hex(&payload) != projection_digest {
-        return Err(ReplayStoreError::ProjectionDigestMismatch);
-    }
-
     Ok(Some(VerifiedReplayState {
         checkpoint: ReplayCheckpoint {
             cursor,
@@ -1244,16 +1406,8 @@ fn validate_replay_transition_shape(
     if transition.cursor.is_empty() {
         return Err(ReplayStoreError::EmptyCursor);
     }
-    if !is_lower_hex_digest(&transition.event_digest)
-        || !is_lower_hex_digest(&transition.projection_digest)
-    {
-        return Err(ReplayStoreError::InvalidDigest);
-    }
     if transition.event_sequence == 0 {
         return Err(ReplayStoreError::NonContiguousSequence);
-    }
-    if transition.projection_revision == 0 {
-        return Err(ReplayStoreError::NonContiguousRevision);
     }
     Ok(())
 }
@@ -1262,6 +1416,11 @@ fn validate_replay_transition_payload(
     connection: &Connection,
     transition: &ReplayTransition<'_>,
 ) -> Result<(), ReplayStoreError> {
+    if !is_lower_hex_digest(&transition.event_digest)
+        || !is_lower_hex_digest(&transition.projection_digest)
+    {
+        return Err(ReplayStoreError::InvalidDigest);
+    }
     if sha256_lower_hex(transition.event_bytes) != transition.event_digest {
         return Err(ReplayStoreError::EventDigestMismatch);
     }
@@ -1288,7 +1447,7 @@ fn validate_expected_transition(
             if transition.event_sequence != 1 {
                 return Err(ReplayStoreError::NonContiguousSequence);
             }
-            if transition.projection_revision != 1 {
+            if transition.projection_revision > 1 {
                 return Err(ReplayStoreError::NonContiguousRevision);
             }
         }
@@ -1324,7 +1483,14 @@ fn validate_expected_transition(
             if checkpoint.event_sequence.checked_add(1) != Some(transition.event_sequence) {
                 return Err(ReplayStoreError::NonContiguousSequence);
             }
-            if checkpoint.projection_revision.checked_add(1) != Some(transition.projection_revision)
+            if transition.projection_revision == checkpoint.projection_revision {
+                if transition.projection_digest != current.projection.digest
+                    || transition.projection_bytes != current.projection.payload
+                {
+                    return Err(ReplayStoreError::NonContiguousRevision);
+                }
+            } else if checkpoint.projection_revision.checked_add(1)
+                != Some(transition.projection_revision)
             {
                 return Err(ReplayStoreError::NonContiguousRevision);
             }
