@@ -115,6 +115,7 @@ export async function subscribeProjectConversation(
 
   let timeline = createConversationTimeline(sanitizedInitial)
   let activeSubscriptionId: string | null = null
+  let resyncedSnapshot: ConversationSnapshot | null = null
   let generation = 0
   let closed = false
   let processing = Promise.resolve()
@@ -330,13 +331,17 @@ export async function subscribeProjectConversation(
       if (closed) {
         throw new Error('Conversation subscription is closed')
       }
-      const snapshot = await resyncProjectConversation(projectId, invoke)
-      if (
-        snapshot.conversationId !== timeline.snapshot.conversationId
-        || snapshot.recovery !== 'live'
-      ) {
-        await terminate('incompatible')
-        throw new Error('Incompatible conversation resync response')
+      let snapshot = resyncedSnapshot
+      if (snapshot === null) {
+        snapshot = await resyncProjectConversation(projectId, invoke)
+        if (
+          snapshot.conversationId !== timeline.snapshot.conversationId
+          || snapshot.recovery !== 'live'
+        ) {
+          await terminate('incompatible')
+          throw new Error('Incompatible conversation resync response')
+        }
+        resyncedSnapshot = snapshot
       }
       const reconciledTimeline = createConversationTimeline(snapshot)
       await startSubscription()
@@ -344,6 +349,7 @@ export async function subscribeProjectConversation(
         throw new Error('Conversation subscription is closed')
       }
       timeline = reconciledTimeline
+      resyncedSnapshot = null
       onTimeline(timeline.snapshot)
     }
     catch (error) {

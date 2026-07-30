@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::future::{Future, pending};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -24,6 +24,14 @@ struct TrackedOwnedRuntime(Arc<AtomicBool>);
 impl OwnedRuntimeLifecycle for TrackedOwnedRuntime {
     fn stop_on_explicit_quit(&self) {
         self.0.store(true, Ordering::Release);
+    }
+}
+
+struct CountedOwnedRuntime(Arc<AtomicUsize>);
+
+impl OwnedRuntimeLifecycle for CountedOwnedRuntime {
+    fn stop_on_explicit_quit(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
     }
 }
 
@@ -356,7 +364,7 @@ async fn duplicate_and_global_admission_limits_are_released_by_exact_cancel() {
 }
 
 #[tokio::test]
-async fn explicit_cancel_stops_the_native_source_before_releasing_admission() {
+async fn explicit_cancel_releases_admission_before_returning_success() {
     let manager = ConversationSubscriptionManager::new();
     let started = Arc::new(AtomicBool::new(false));
     let stopped = Arc::new(AtomicBool::new(false));
@@ -383,9 +391,19 @@ async fn explicit_cancel_stops_the_native_source_before_releasing_admission() {
         updates: Vec::new(),
         terminal: Terminal::Pending,
     });
-    wait_for_replacement(&manager, replacement_source, &subscription_id).await;
+    let (replacement_channel, _) = channel();
+    let replacement = manager
+        .subscribe(replacement_source, PROJECT_ID, "main", replacement_channel)
+        .expect("cancel releases pair before returning");
+    assert_ne!(replacement, subscription_id);
 
-    assert!(stopped.load(Ordering::Acquire));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !stopped.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("native source stopped");
 }
 
 #[tokio::test]
@@ -597,4 +615,17 @@ fn explicit_quit_leaves_external_runtime_uncontrolled_and_calls_only_owned_lifec
     RuntimeLifecycleManager::bundled(Arc::new(TrackedOwnedRuntime(Arc::clone(&stopped))))
         .explicit_quit();
     assert!(stopped.load(Ordering::Acquire));
+}
+
+#[test]
+fn explicit_quit_fences_admission_and_runs_owned_lifecycle_once() {
+    let stops = Arc::new(AtomicUsize::new(0));
+    let lifecycle =
+        RuntimeLifecycleManager::bundled(Arc::new(CountedOwnedRuntime(Arc::clone(&stops))));
+
+    assert!(lifecycle.begin_explicit_quit());
+    assert!(lifecycle.is_shutting_down());
+    lifecycle.stop_owned_runtime();
+    assert!(!lifecycle.begin_explicit_quit());
+    assert_eq!(stops.load(Ordering::Acquire), 1);
 }
