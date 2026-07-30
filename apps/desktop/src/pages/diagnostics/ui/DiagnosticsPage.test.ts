@@ -13,6 +13,7 @@ describe('diagnostics page', () => {
           databaseSchemaVersion: 3,
           databaseGeneration: 4,
           projectCount: 2,
+          runtimeMode: 'external_local',
           runtime: 'unconfigured',
         }),
       },
