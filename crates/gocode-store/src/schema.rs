@@ -144,9 +144,7 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
     if metadata.len() == 0 {
         return Err(diagnostic_error(SchemaOpenDiagnostic::ZeroByteDatabase));
     }
-    let sidecar_present = ["-wal", "-shm"]
-        .into_iter()
-        .any(|suffix| sidecar_path(db_path, suffix).exists());
+    let sidecar_present = existing_sidecar_present(db_path);
     if sidecar_present && !identity_is_admitted(db_path).map_err(diagnostic_error)? {
         return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
     }
@@ -154,7 +152,13 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
         return Ok(());
     }
 
-    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let immutable_uri = immutable_read_only_uri(db_path).map_err(diagnostic_error)?;
+    let conn = Connection::open_with_flags(
+        immutable_uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )?;
     classify_existing_connection(&conn)?;
     drop(conn);
     if file_identity(db_path).map_err(diagnostic_error)? != identity {
@@ -163,6 +167,51 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
         ));
     }
     Ok(())
+}
+
+/// Opens one already-classified database read-only without creating WAL
+/// sidecars when the main file is self-contained.
+///
+/// An already-admitted hot WAL in the current process uses SQLite's normal
+/// read-only view so committed WAL data is not ignored.
+pub fn open_existing_read_only(db_path: &Path) -> SqliteResult<Connection> {
+    preflight_existing_file(db_path)?;
+    if existing_sidecar_present(db_path) {
+        return Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY);
+    }
+    let immutable_uri = immutable_read_only_uri(db_path).map_err(diagnostic_error)?;
+    Connection::open_with_flags(
+        immutable_uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+}
+
+fn existing_sidecar_present(db_path: &Path) -> bool {
+    ["-wal", "-shm"]
+        .into_iter()
+        .any(|suffix| sidecar_path(db_path, suffix).exists())
+}
+
+fn immutable_read_only_uri(path: &Path) -> Result<String, SchemaOpenDiagnostic> {
+    let text = path
+        .as_os_str()
+        .to_str()
+        .ok_or(SchemaOpenDiagnostic::UnsafePath)?;
+    let mut uri = String::with_capacity(text.len() + 32);
+    uri.push_str("file:");
+    for byte in text.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b':' | b'-' | b'.' | b'_' | b'~') {
+            uri.push(char::from(byte));
+        } else {
+            use std::fmt::Write as _;
+            write!(&mut uri, "%{byte:02X}")
+                .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        }
+    }
+    uri.push_str("?immutable=1");
+    Ok(uri)
 }
 
 /// Classify an existing database before any pragma or statement that can
@@ -1799,6 +1848,24 @@ mod tests {
         conn.execute_batch(MIGRATION_V1).unwrap();
         conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])
             .unwrap();
+    }
+
+    #[test]
+    fn immutable_preflight_does_not_create_wal_sidecars() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("event log.db");
+        let connection = Connection::open(&path).unwrap();
+        apply_migrations(&connection).unwrap();
+        drop(connection);
+        assert!(!sidecar_path(&path, "-wal").exists());
+        assert!(!sidecar_path(&path, "-shm").exists());
+
+        preflight_existing_file(&path).unwrap();
+        preflight_existing_file(&path).unwrap();
+        drop(open_existing_read_only(&path).unwrap());
+
+        assert!(!sidecar_path(&path, "-wal").exists());
+        assert!(!sidecar_path(&path, "-shm").exists());
     }
 
     #[test]

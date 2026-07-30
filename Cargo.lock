@@ -1701,6 +1701,7 @@ dependencies = [
  "gocode-http",
  "gocode-observability",
  "gocode-platform",
+ "gocode-platform-desktop",
  "gocode-provider",
  "gocode-runtime",
  "gocode-runtime-client",
@@ -1881,9 +1882,20 @@ dependencies = [
 name = "gocode-platform-desktop"
 version = "0.1.0"
 dependencies = [
+ "gocode-api",
  "gocode-platform-ports",
+ "gocode-runtime-client",
+ "hex",
+ "libc",
+ "rand 0.8.7",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
+ "uuid",
+ "zeroize",
 ]
 
 [[package]]

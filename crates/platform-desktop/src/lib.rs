@@ -1,10 +1,17 @@
 //! Desktop implementations of native capability ports.
 
+mod protected_runtime;
+
+pub use protected_runtime::{
+    DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
+    ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
+    ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
+};
+
 use std::collections::VecDeque;
 use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
@@ -76,9 +83,10 @@ pub enum BundledRuntimeLaunchError {
 
 /// A validated, direct bundled-runtime launch request.
 ///
-/// The spec deliberately contains neither environment nor argument data. Those
-/// channels cannot carry a launch secret, and protected inherited
-/// pipe/handle support is not available in this slice.
+/// This is the Slice 2A generic supervision test contract. It contains no
+/// runnable protected authority and has no concrete system launcher. Production
+/// desktop activation uses [`ProtectedBundledRuntimeLaunchSpec`] and
+/// [`DevelopmentBundledRuntimeLauncher`].
 #[derive(Clone, Eq, PartialEq)]
 pub struct BundledRuntimeLaunchSpec {
     executable: PathBuf,
@@ -101,7 +109,7 @@ impl BundledRuntimeLaunchSpec {
     /// # Errors
     ///
     /// Rejects relative executables, shell launches, and every launch-secret
-    /// transport until a protected inherited pipe/handle implementation exists.
+    /// transport because this legacy shape cannot carry the protected binding.
     pub fn new(
         executable: PathBuf,
         mode: BundledRuntimeLaunchMode,
@@ -267,66 +275,6 @@ pub struct SystemBundledRuntimeClock;
 impl BundledRuntimeClock for SystemBundledRuntimeClock {
     fn now(&self) -> Instant {
         Instant::now()
-    }
-}
-
-/// Production direct launcher for a bundled runtime development profile.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SystemBundledRuntimeProcessLauncher;
-
-/// Opaque child process owned by the launcher that created it.
-#[derive(Debug)]
-pub struct SystemBundledRuntimeProcess {
-    child: Child,
-}
-
-impl BundledRuntimeProcessLauncher for SystemBundledRuntimeProcessLauncher {
-    type Process = SystemBundledRuntimeProcess;
-
-    fn launch(&mut self, spec: &BundledRuntimeLaunchSpec) -> std::io::Result<Self::Process> {
-        let child = Command::new(spec.executable())
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        Ok(SystemBundledRuntimeProcess { child })
-    }
-}
-
-impl BundledRuntimeProcess for SystemBundledRuntimeProcess {
-    fn status(&mut self) -> std::io::Result<BundledRuntimeProcessStatus> {
-        self.child.try_wait().map(|status| {
-            if status.is_some() {
-                BundledRuntimeProcessStatus::Exited
-            } else {
-                BundledRuntimeProcessStatus::Running
-            }
-        })
-    }
-
-    fn request_graceful_stop(&mut self) -> std::io::Result<()> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "protected bundled runtime shutdown control is unavailable",
-        ))
-    }
-
-    fn wait_for_exit(&mut self, timeout: Duration) -> std::io::Result<BundledRuntimeProcessStatus> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if self.status()? == BundledRuntimeProcessStatus::Exited || Instant::now() >= deadline {
-                return self.status();
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    fn terminate(&mut self) -> std::io::Result<()> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "protected bundled runtime process-tree termination is unavailable",
-        ))
     }
 }
 

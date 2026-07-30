@@ -148,7 +148,7 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
     let server_path = executable_path.clone();
     let server_thread = std::thread::spawn(move || {
         let mut channel = ProtectedActivationChannel::new(server).unwrap();
-        let launch =
+        let mut launch =
             ProtectedDaemonLaunch::accept(&mut channel, &server_path, || Ok(1_001)).unwrap();
         let bootstrap = launch.bootstrap(|| Ok(1_001)).unwrap();
         let generation = bootstrap.launch_generation;

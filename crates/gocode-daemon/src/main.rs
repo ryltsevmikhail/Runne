@@ -65,7 +65,7 @@ fn run_external() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(unix)]
 fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
     let executable_path = std::env::current_exe().map_err(|_| ())?;
-    let launch = ProtectedDaemonLaunch::accept(&mut channel, &executable_path, || {
+    let mut launch = ProtectedDaemonLaunch::accept(&mut channel, &executable_path, || {
         unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
     })
     .map_err(|_| ())?;
