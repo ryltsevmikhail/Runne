@@ -13,10 +13,19 @@ use gocode_desktop::conversation_channel::{
     ConversationChannelErrorCode, ConversationChannelEvent, ConversationSubscriptionManager,
     ConversationUpdateSource,
 };
+use gocode_desktop::{OwnedRuntimeLifecycle, RuntimeLifecycleManager};
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
 
 const PROJECT_ID: i64 = 7;
+
+struct TrackedOwnedRuntime(Arc<AtomicBool>);
+
+impl OwnedRuntimeLifecycle for TrackedOwnedRuntime {
+    fn stop_on_explicit_quit(&self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
 
 #[derive(Clone)]
 struct ScriptedSource {
@@ -577,4 +586,15 @@ async fn source_errors_are_mapped_to_the_closed_code_set() {
             })
         );
     }
+}
+
+#[test]
+fn explicit_quit_leaves_external_runtime_uncontrolled_and_calls_only_owned_lifecycle() {
+    let stopped = Arc::new(AtomicBool::new(false));
+    RuntimeLifecycleManager::external().explicit_quit();
+    assert!(!stopped.load(Ordering::Acquire));
+
+    RuntimeLifecycleManager::bundled(Arc::new(TrackedOwnedRuntime(Arc::clone(&stopped))))
+        .explicit_quit();
+    assert!(stopped.load(Ordering::Acquire));
 }
