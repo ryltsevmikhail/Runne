@@ -5,6 +5,9 @@ use std::sync::Arc;
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use futures::StreamExt;
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
+};
 use gocode_application::replay_service::ReplayService;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
 use gocode_domain::id::{
@@ -33,6 +36,46 @@ const LINEAGE: [u8; 16] = [
 ];
 const AUTHORITY: [u8; 16] = [0xAA; 16];
 const GENERATION: i64 = 7;
+const PROHIBITED_MARKER: &str = "task-seven-replay-marker";
+
+struct AvailableGuard;
+
+impl ProhibitedContentPort for AvailableGuard {
+    fn inspect(
+        &self,
+        _boundary: CanonicalContentBoundary,
+        _bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        Ok(ContentDisposition::Allowed { policy_epoch: 1 })
+    }
+}
+
+enum DenyMode {
+    Marker,
+    Unavailable,
+}
+
+struct DenyGuard(DenyMode);
+
+impl ProhibitedContentPort for DenyGuard {
+    fn inspect(
+        &self,
+        _boundary: CanonicalContentBoundary,
+        bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        match self.0 {
+            DenyMode::Unavailable => Err(ContentGuardError::Unavailable),
+            DenyMode::Marker
+                if bytes
+                    .windows(PROHIBITED_MARKER.len())
+                    .any(|window| window == PROHIBITED_MARKER.as_bytes()) =>
+            {
+                Ok(ContentDisposition::Prohibited { policy_epoch: 2 })
+            }
+            DenyMode::Marker => Ok(ContentDisposition::Allowed { policy_epoch: 2 }),
+        }
+    }
+}
 
 struct TaskRunRow {
     event_id: [u8; 16],
@@ -87,11 +130,18 @@ fn taskrun_row(sequence: i64, global_position: i64, key: String) -> TaskRunRow {
 }
 
 fn setup() -> (axum::Router, TempDir) {
+    setup_with("replay-test", Arc::new(AvailableGuard))
+}
+
+fn setup_with(
+    idempotency_key: &str,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
+) -> (axum::Router, TempDir) {
     let directory = tempfile::tempdir().unwrap();
     let database_path = directory.path().join("replay.sqlite");
     let connection = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
     apply_migrations(&connection).unwrap();
-    let row = taskrun_row(1, 1, "replay-test".to_owned());
+    let row = taskrun_row(1, 1, idempotency_key.to_owned());
     connection
         .execute(
             "INSERT INTO aggregate_streams \
@@ -127,11 +177,40 @@ fn setup() -> (axum::Router, TempDir) {
         service,
         ReplayHttpBinding::new(AUTHORITY, GENERATION, 0).unwrap(),
         LimitsConfig::default(),
+        prohibited_content,
     );
     let router = replay_router(state)
         .layer(AuthLayer::new(TOKEN))
         .layer(axum::middleware::from_fn(request_id_middleware));
     (router, directory)
+}
+
+#[tokio::test]
+async fn replay_serialization_denial_returns_zero_event_bytes() {
+    for guard in [
+        Arc::new(DenyGuard(DenyMode::Marker)) as Arc<dyn ProhibitedContentPort>,
+        Arc::new(DenyGuard(DenyMode::Unavailable)) as Arc<dyn ProhibitedContentPort>,
+    ] {
+        let (app, _directory) = setup_with(PROHIBITED_MARKER, guard);
+        let response = app
+            .oneshot(post(
+                "/v1/replay/open-session",
+                json!({
+                    "aggregateType": 1,
+                    "aggregateId": hex::encode(AGGREGATE),
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        assert!(
+            !bytes
+                .windows(PROHIBITED_MARKER.len())
+                .any(|window| window == PROHIBITED_MARKER.as_bytes()),
+            "canonical error contained prohibited replay representation"
+        );
+    }
 }
 
 fn post(uri: &str, body: Value) -> Request<Body> {

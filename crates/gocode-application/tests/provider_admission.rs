@@ -1,6 +1,9 @@
 use std::sync::Mutex;
 
 use futures::executor::block_on;
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
+};
 use gocode_application::provider::{
     ProviderAdmissionError, ProviderCoordinatorOutcome, ProviderCoordinatorRequest,
     ProviderDispatchCoordinator, ProviderEffectAdmission, ProviderEffectAuthorityRef,
@@ -49,6 +52,18 @@ fn request() -> ProviderCoordinatorRequest {
 
 fn authority_ref() -> ProviderEffectAuthorityRef {
     ProviderEffectAuthorityRef::new([10; 16], 1).unwrap()
+}
+
+struct AvailableGuard;
+
+impl ProhibitedContentPort for AvailableGuard {
+    fn inspect(
+        &self,
+        _boundary: CanonicalContentBoundary,
+        _bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        Ok(ContentDisposition::Allowed { policy_epoch: 1 })
+    }
 }
 
 #[test]
@@ -197,7 +212,9 @@ fn every_admission_rejection_prevents_adapter_dispatch() {
         let repository = RecordingRepository::winner();
         let admission = RecordingAdmission::rejecting(failure.clone());
         let adapter = adapter();
-        let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter);
+        let guard = AvailableGuard;
+        let coordinator =
+            ProviderDispatchCoordinator::new(&repository, &admission, &adapter, &guard);
 
         assert_eq!(block_on(coordinator.dispatch(request())), Err(failure));
         assert_eq!(adapter.dispatch_count(), 0);
@@ -210,7 +227,8 @@ fn claim_replay_verifies_admission_without_adapter_dispatch() {
     let repository = RecordingRepository::existing();
     let admission = RecordingAdmission::allowing();
     let adapter = adapter();
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter);
+    let guard = AvailableGuard;
+    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter, &guard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())).unwrap(),
@@ -227,7 +245,8 @@ fn existing_claim_rejects_unknown_authority_without_adapter_dispatch() {
     let repository = RecordingRepository::existing();
     let admission = RecordingAdmission::rejecting(ProviderAdmissionError::AuthorityDenied);
     let adapter = adapter();
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter);
+    let guard = AvailableGuard;
+    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter, &guard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())),
@@ -242,7 +261,8 @@ fn existing_claim_rejects_changed_authority_without_adapter_dispatch() {
     let repository = RecordingRepository::existing();
     let admission = RecordingAdmission::rejecting(ProviderAdmissionError::AuthorityConflict);
     let adapter = adapter();
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter);
+    let guard = AvailableGuard;
+    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter, &guard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())),
@@ -257,7 +277,8 @@ fn winner_is_admitted_once_and_dispatches_once() {
     let repository = RecordingRepository::winner();
     let admission = RecordingAdmission::allowing();
     let adapter = adapter();
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter);
+    let guard = AvailableGuard;
+    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter, &guard);
 
     assert!(matches!(
         block_on(coordinator.dispatch(request())).unwrap(),
@@ -273,7 +294,8 @@ fn post_claim_uncertainty_is_persisted_without_adapter_dispatch() {
     let repository = RecordingRepository::winner();
     let admission = RecordingAdmission::rejecting(ProviderAdmissionError::PostClaimUncertain);
     let adapter = adapter();
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter);
+    let guard = AvailableGuard;
+    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &adapter, &guard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())),

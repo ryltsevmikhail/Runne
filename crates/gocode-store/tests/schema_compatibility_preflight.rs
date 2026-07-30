@@ -1,10 +1,13 @@
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gocode_application::{
     ports::{CommitError, RuntimeAuthorityId, StorageFailureKind},
+    prohibited_content::ProhibitedContentPort,
     security::atomic_transaction::AtomicTransactionError,
 };
+use gocode_security::SecretBroker;
 use gocode_store::schema::{
     SchemaOpenDiagnostic, apply_migrations, open_with_pragmas, preflight_existing_file,
 };
@@ -15,6 +18,10 @@ use gocode_store::{
     verification::{evidence_store::SqliteEvidenceStore, intent_store::SqliteIntentStore},
 };
 use rusqlite::{Connection, OpenFlags};
+
+fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
+}
 
 fn candidate_database(name: &str) -> PathBuf {
     candidate_database_version(name, 9)
@@ -184,6 +191,7 @@ fn store_transaction_rejects_candidate_schema_without_side_effects() {
     let result = StoreTransaction::open(
         path.to_str().unwrap(),
         RuntimeAuthorityId("test-host".into()),
+        available_guard(),
     );
 
     assert!(matches!(
@@ -242,6 +250,7 @@ fn all_store_entry_points_reject_future_schema_versions_without_side_effects() {
             StoreTransaction::open(
                 path.to_str().unwrap(),
                 RuntimeAuthorityId("test-host".into()),
+                available_guard(),
             )
             .is_err()
         );

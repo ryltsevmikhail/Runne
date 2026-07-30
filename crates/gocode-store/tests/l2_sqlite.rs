@@ -5,6 +5,8 @@
 //! layer, dedup, conflicts, reopen, concurrent writes, clock regression,
 //! and fail-closed behavior on schema corruption.
 
+use std::sync::Arc;
+
 use gocode_api::{
     ApiActor, ApiCommandContext, ApiPrincipalId, CreateConversationInput, ResponseSeed,
 };
@@ -20,6 +22,7 @@ use gocode_application::ports::{
     ConversationRepository, EventStore, EventStoreError, IdempotencyScope, LoadedStream,
     OperationTag, PrincipalId, RuntimeAuthorityId, StorageFailureKind,
 };
+use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::service::TaskRunService;
 use gocode_domain::command::TerminalResult;
 use gocode_domain::conversation::{Conversation, ConversationEvent, ConversationState};
@@ -30,6 +33,7 @@ use gocode_domain::id::{
     CommandId, ConversationId, EventId, IdempotencyKey, TaskRunId, WorkspaceId,
 };
 use gocode_domain::task_run::TaskRun;
+use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -84,13 +88,22 @@ fn make_ws_id() -> WorkspaceId {
     WS_ID.parse().unwrap()
 }
 
+fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
+}
+
 fn open_service(
     db_path: &str,
 ) -> (
     StoreTransaction,
     TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>,
 ) {
-    let store = StoreTransaction::open(db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let store = StoreTransaction::open(
+        db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
     let ra_id = store.runtime_authority_id().clone();
     let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra_id);
     (store, svc)
@@ -241,8 +254,12 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
     };
 
     let first = {
-        let store =
-            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        let store = StoreTransaction::open(
+            &db_path,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
         let service = ConversationService::new(
             store.clone(),
             store.clone(),
@@ -265,8 +282,12 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
         first
     };
 
-    let reopened =
-        StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let reopened = StoreTransaction::open(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
     let reopened_service = ConversationService::new(
         reopened.clone(),
         reopened.clone(),
@@ -305,7 +326,12 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
 fn conversation_commit_rejects_non_public_event_without_mutation() {
     let db_path = temp_db_path("conversation-non-public");
     cleanup_db(&db_path);
-    let store = StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let store = StoreTransaction::open(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000d1".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000d2".parse().unwrap();
     let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000d3".parse().unwrap();
@@ -340,7 +366,12 @@ fn conversation_commit_rejects_non_public_event_without_mutation() {
 fn conversation_commit_rejects_mismatched_event_command_without_mutation() {
     let db_path = temp_db_path("conversation-command-mismatch");
     cleanup_db(&db_path);
-    let store = StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+    let store = StoreTransaction::open(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000e1".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000e2".parse().unwrap();
     let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000e3".parse().unwrap();
@@ -389,8 +420,12 @@ fn conversation_commit_rejects_noncanonical_scope_fingerprint_key_and_schema() {
     ] {
         let db_path = temp_db_path(&format!("conversation-{name}-mismatch"));
         cleanup_db(&db_path);
-        let store =
-            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        let store = StoreTransaction::open(
+            &db_path,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
         let conversation_id: ConversationId =
             "018f2e3a-7000-7000-8000-0000000000f1".parse().unwrap();
         let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000f2".parse().unwrap();
@@ -1034,8 +1069,12 @@ fn test_two_competing_writers() {
         let results = Arc::clone(&results);
         let ctx = make_context(10 + i);
         handles.push(thread::spawn(move || {
-            let store =
-                StoreTransaction::open(&db, RuntimeAuthorityId("test-host".into())).unwrap();
+            let store = StoreTransaction::open(
+                &db,
+                RuntimeAuthorityId("test-host".into()),
+                available_guard(),
+            )
+            .unwrap();
             let ra = store.runtime_authority_id().clone();
             let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra);
             barrier.wait();

@@ -424,6 +424,8 @@ pub enum CommitError {
 /// Closed categories for storage failures — no free strings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageFailureKind {
+    /// Prohibited content or unavailable policy classification denied mutation.
+    PolicyDenied,
     /// Data on disk is corrupt or unreadable.
     CorruptData,
     /// The stored schema version is not supported by this code.

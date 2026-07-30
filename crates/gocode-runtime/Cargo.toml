@@ -23,6 +23,7 @@ tokio-util = { version = "=0.7.14", features = ["rt"] }
 gocode-opencode-adapter-sqlite = { path = "../gocode-opencode-adapter-sqlite" }
 gocode-opencode-compat = { path = "../gocode-opencode-compat" }
 gocode-platform = { path = "../gocode-platform" }
+gocode-security = { path = "../gocode-security" }
 gocode-store = { path = "../gocode-store" }
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
 rusqlite = { version = "=0.34.0", features = ["bundled"] }

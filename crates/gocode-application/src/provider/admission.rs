@@ -97,6 +97,9 @@ pub struct ProviderEffectRequest {
 /// Typed rejection before adapter network code.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ProviderAdmissionError {
+    /// Prohibited content or unavailable policy classification denied delivery.
+    #[error("provider request was denied by content policy")]
+    PolicyDenied,
     /// Issued provider-effect authority is absent, invalid, expired, revoked, or consumed.
     #[error("provider effect authority was denied")]
     AuthorityDenied,

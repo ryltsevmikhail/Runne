@@ -33,6 +33,7 @@ use gocode_runtime::{
     LocalTextProvider, LocalTextProviderError, Runtime, RuntimeCanonicalConversationHost,
     RuntimeTaskRunHost,
 };
+use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 use tempfile::TempDir;
 
@@ -41,6 +42,10 @@ const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-00000000000b";
 const MISSING_TASKRUN_ID: &str = "018f2e3a-7000-7000-8000-0000000000ff";
 
 type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
+
+fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
+}
 
 struct TestRuntime {
     _directory: TempDir,
@@ -91,7 +96,8 @@ fn start_runtime(
     RuntimeTaskRunHost<StoreTransaction>,
     RuntimeController,
 ) {
-    let store = StoreTransaction::open(database_path, authority.clone()).unwrap();
+    let store =
+        StoreTransaction::open(database_path, authority.clone(), available_guard()).unwrap();
     let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -438,7 +444,8 @@ async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_mes
         .unwrap()
         .to_owned();
     let authority = RuntimeAuthorityId("provider-output-rejection-test".into());
-    let store = StoreTransaction::open(&database_path, authority.clone()).unwrap();
+    let store =
+        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -543,7 +550,8 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
         .unwrap()
         .to_owned();
     let authority = RuntimeAuthorityId("provider-input-rejection-test".into());
-    let store = StoreTransaction::open(&database_path, authority.clone()).unwrap();
+    let store =
+        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),

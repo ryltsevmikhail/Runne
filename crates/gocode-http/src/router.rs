@@ -226,6 +226,9 @@ mod tests {
         TaskRunQueryHostPort, TaskRunSnapshot,
     };
     use gocode_application::local_session::{LocalSessionService, bootstrap_proof_transcript};
+    use gocode_application::prohibited_content::{
+        CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
+    };
     use gocode_application::replay_service::ReplayService;
     use gocode_domain::{
         event::Sensitivity,
@@ -237,6 +240,18 @@ mod tests {
     use tower::ServiceExt;
 
     const CAPABILITIES: &[&str] = &["conversation.create.v1", "conversation.list.v1"];
+
+    struct AvailableGuard;
+
+    impl ProhibitedContentPort for AvailableGuard {
+        fn inspect(
+            &self,
+            _boundary: CanonicalContentBoundary,
+            _bytes: &[u8],
+        ) -> Result<ContentDisposition, ContentGuardError> {
+            Ok(ContentDisposition::Allowed { policy_epoch: 1 })
+        }
+    }
 
     #[derive(Clone)]
     struct UnavailableTaskRunHost;
@@ -370,6 +385,7 @@ mod tests {
             )
             .unwrap(),
             crate::limits::LimitsConfig::default(),
+            Arc::new(AvailableGuard),
         )
     }
 

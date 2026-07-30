@@ -517,19 +517,29 @@ mod tests {
 
     use gocode_application::commands::{CommandOutcome, CreateTaskRunInput};
     use gocode_application::ports::{ApplicationCommandContext, PrincipalId, RuntimeAuthorityId};
+    use gocode_application::prohibited_content::ProhibitedContentPort;
     use gocode_domain::event::Actor;
     use gocode_domain::id::{ConversationId, IdempotencyKey, WorkspaceId};
+    use gocode_security::SecretBroker;
     use gocode_store::store::StoreTransaction;
 
     type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
+
+    fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+        Arc::new(SecretBroker::new().prohibited_content_guard())
+    }
 
     #[tokio::test(flavor = "current_thread")]
     async fn graceful_shutdown_completes_ingress_accepted_before_the_fence() {
         let directory = tempfile::tempdir().unwrap();
         let database_path = directory.path().join("runtime.sqlite");
         let authority = RuntimeAuthorityId("graceful-ingress-test".to_owned());
-        let store =
-            StoreTransaction::open(database_path.to_str().unwrap(), authority.clone()).unwrap();
+        let store = StoreTransaction::open(
+            database_path.to_str().unwrap(),
+            authority.clone(),
+            available_guard(),
+        )
+        .unwrap();
         let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
             store.clone(),
             store.clone(),
