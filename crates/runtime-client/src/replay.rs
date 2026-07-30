@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
@@ -40,29 +40,28 @@ const RECONNECT_DELAYS: [Duration; 10] = [
 ];
 
 /// Opaque ackable replay cursor.
+///
+/// Cursor wire bytes are restricted to this client's private wire module.
+/// Native persistence must use a dedicated adapter rather than this wrapper;
+/// the public cursor API intentionally exposes no byte codec.
+///
+/// ```compile_fail
+/// use gocode_runtime_client::ReplayCursor;
+///
+/// fn leak_cursor_bytes(cursor: &ReplayCursor) {
+///     let _ = cursor.storage_bytes();
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use gocode_runtime_client::ReplayCursor;
+///
+/// fn decode_cursor_bytes() {
+///     let _ = ReplayCursor::from_storage_bytes(b"gocode-replay-cursor-v1.7b7d");
+/// }
+/// ```
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub struct ReplayCursor(String);
-
-impl ReplayCursor {
-    /// Rehydrates one opaque cursor from trusted native storage.
-    ///
-    /// # Errors
-    ///
-    /// Returns `CursorInvalid` when persisted bytes are not the exact bounded
-    /// cursor wire value accepted by this client.
-    pub fn from_storage_bytes(bytes: &[u8]) -> Result<Self, ReplayClientError> {
-        wire::cursor_from_storage(bytes)
-    }
-
-    /// Returns the exact opaque bytes for native persistence.
-    ///
-    /// The bytes remain transport-opaque and this type intentionally provides
-    /// no `serde`, `Debug` or `Display` implementation.
-    #[must_use]
-    pub const fn storage_bytes(&self) -> &[u8] {
-        wire::cursor_storage_bytes(self)
-    }
-}
 
 /// Opaque replay session identity.
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -82,16 +81,6 @@ mod wire {
 
     pub(super) fn cursor_value(cursor: &ReplayCursor) -> &str {
         &cursor.0
-    }
-
-    pub(super) fn cursor_from_storage(bytes: &[u8]) -> Result<ReplayCursor, ReplayClientError> {
-        let value = std::str::from_utf8(bytes)
-            .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::CursorInvalid))?;
-        cursor(value.to_owned())
-    }
-
-    pub(super) const fn cursor_storage_bytes(cursor: &ReplayCursor) -> &[u8] {
-        cursor.0.as_bytes()
     }
 
     pub(super) fn session_id(value: &str) -> Result<super::ReplaySessionId, ReplayClientError> {
@@ -478,6 +467,21 @@ pub trait ReconnectRuntime: Sync {
     fn now(&self) -> Duration;
 
     fn sleep(&self, delay: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
+}
+
+struct TokioReconnectRuntime;
+
+impl ReconnectRuntime for TokioReconnectRuntime {
+    fn now(&self) -> Duration {
+        static MONOTONIC_EPOCH: OnceLock<tokio::time::Instant> = OnceLock::new();
+        MONOTONIC_EPOCH
+            .get_or_init(tokio::time::Instant::now)
+            .elapsed()
+    }
+
+    fn sleep(&self, delay: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+        Box::pin(tokio::time::sleep(delay))
+    }
 }
 
 /// Bounded deterministic reconnect policy.
@@ -1442,6 +1446,7 @@ impl AuthenticatedRuntimeClient {
             last_delivery_sequence: None,
             terminal_returned: false,
             unacknowledged: None,
+            reconnect_policy: ReconnectPolicy::new(),
         })
     }
 
@@ -1597,6 +1602,7 @@ pub struct ReplayLiveSession {
     last_delivery_sequence: Option<u64>,
     terminal_returned: bool,
     unacknowledged: Option<ReplayCursor>,
+    reconnect_policy: ReconnectPolicy,
 }
 
 impl ReplayLiveSession {
@@ -1625,6 +1631,48 @@ impl ReplayLiveSession {
     /// Returns a closed replay failure for transport silence/EOF or any
     /// malformed, oversized, mismatched or terminally invalid frame.
     pub async fn next_event(&mut self) -> Result<ReplayStreamEvent, ReplayClientError> {
+        self.next_event_with_reconnect_runtime(&TokioReconnectRuntime)
+            .await
+    }
+
+    /// Receives the next event with an injectable reconnect clock and sleeper.
+    ///
+    /// Reconnectable stream failures drop the failed response and incomplete
+    /// decoder state, then reopen the same authenticated events endpoint under
+    /// the bounded reconnect policy.
+    ///
+    /// # Errors
+    ///
+    /// Returns the last reconnectable error after policy exhaustion, or the
+    /// first closed non-reconnectable failure.
+    pub async fn next_event_with_reconnect_runtime(
+        &mut self,
+        runtime: &impl ReconnectRuntime,
+    ) -> Result<ReplayStreamEvent, ReplayClientError> {
+        loop {
+            match self.next_event_once().await {
+                Ok(event) => {
+                    if matches!(event, ReplayStreamEvent::Delivery(_)) {
+                        self.reconnect_policy.record_live_delivery_with(runtime);
+                    }
+                    return Ok(event);
+                }
+                Err(error)
+                    if error.recovery_disposition() == ReplayRecoveryDisposition::Reconnectable =>
+                {
+                    self.reset_stream();
+                    if self.reconnect_policy.wait_after_failure(runtime).await
+                        == ReconnectDecision::Exhausted
+                    {
+                        return Err(error);
+                    }
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    async fn next_event_once(&mut self) -> Result<ReplayStreamEvent, ReplayClientError> {
         if self.unacknowledged.is_some() {
             return Err(ReplayClientError::new(ReplayClientErrorKind::LocalCallback));
         }
@@ -1643,17 +1691,32 @@ impl ReplayLiveSession {
                 .response
                 .as_mut()
                 .ok_or_else(|| ReplayClientError::new(ReplayClientErrorKind::Transport))?;
-            let next = tokio::time::timeout_at(silence_deadline, response.chunk())
-                .await
-                .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::StreamSilence))?
-                .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::Transport))?;
+            let next = match tokio::time::timeout_at(silence_deadline, response.chunk()).await {
+                Ok(Ok(next)) => next,
+                Ok(Err(_)) => {
+                    self.reset_stream();
+                    return Err(ReplayClientError::new(ReplayClientErrorKind::Transport));
+                }
+                Err(_) => {
+                    self.reset_stream();
+                    return Err(ReplayClientError::new(ReplayClientErrorKind::StreamSilence));
+                }
+            };
             let Some(chunk) = next else {
-                self.decoder.finish().map_err(map_sse_decode_error)?;
+                let finished = self.decoder.finish().map_err(map_sse_decode_error);
+                self.reset_stream();
+                finished?;
                 return Err(ReplayClientError::new(ReplayClientErrorKind::Transport));
             };
             let frames = self.decoder.push(&chunk).map_err(map_sse_decode_error)?;
             self.pending.extend(frames);
         }
+    }
+
+    fn reset_stream(&mut self) {
+        self.response = None;
+        self.decoder = SseDecoder::default();
+        self.pending.clear();
     }
 
     /// Acknowledges one delivery after `AppCore` has committed it locally.
@@ -2283,6 +2346,57 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn live_session_reopens_events_request_after_eof() {
+        struct RecordingRuntime {
+            sleeps: Mutex<Vec<Duration>>,
+        }
+
+        impl ReconnectRuntime for RecordingRuntime {
+            fn now(&self) -> Duration {
+                Duration::ZERO
+            }
+
+            fn sleep(&self, delay: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
+                self.sleeps.lock().unwrap().push(delay);
+                Box::pin(std::future::ready(()))
+            }
+        }
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            for body in [b"".as_slice(), b": heartbeat\n\n"] {
+                let (path, _) = read_request(&mut stream).await;
+                assert_eq!(path, "/v1/replay/018f2e3a700070008000000000000118/events");
+                let headers = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n",
+                    body.len()
+                );
+                stream.write_all(headers.as_bytes()).await.unwrap();
+                stream.write_all(body).await.unwrap();
+            }
+        });
+
+        let runtime = RecordingRuntime {
+            sleeps: Mutex::new(Vec::new()),
+        };
+        let mut live = test_live_session_with_client(test_client(address));
+
+        assert_eq!(
+            live.next_event_with_reconnect_runtime(&runtime)
+                .await
+                .unwrap(),
+            ReplayStreamEvent::Heartbeat
+        );
+        assert_eq!(
+            runtime.sleeps.lock().unwrap().as_slice(),
+            &[Duration::from_millis(250)]
+        );
+        server.await.unwrap();
+    }
+
     #[test]
     fn live_delivery_sequence_must_start_at_one_and_remain_contiguous() {
         let mut live = test_live_session();
@@ -2297,12 +2411,16 @@ mod tests {
     }
 
     fn test_live_session() -> ReplayLiveSession {
+        test_live_session_with_client(test_client("127.0.0.1:9".parse().unwrap()))
+    }
+
+    fn test_live_session_with_client(client: AuthenticatedRuntimeClient) -> ReplayLiveSession {
         let scope = ReplayScope::new(
             ReplayAggregateKind::Conversation,
             CanonicalId::parse("018f2e3a-7000-7000-8000-000000000110").unwrap(),
         );
         ReplayLiveSession {
-            client: test_client("127.0.0.1:9".parse().unwrap()),
+            client,
             scope,
             session_id: session(),
             live_delivery_id: wire::live_id("018f2e3a-7000-7000-8000-000000000117").unwrap(),
@@ -2313,6 +2431,7 @@ mod tests {
             last_delivery_sequence: None,
             terminal_returned: false,
             unacknowledged: None,
+            reconnect_policy: ReconnectPolicy::new(),
         }
     }
 
