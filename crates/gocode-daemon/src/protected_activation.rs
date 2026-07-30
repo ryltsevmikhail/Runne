@@ -16,7 +16,6 @@ use gocode_api::{
 use gocode_application::local_session::LocalSessionService;
 use gocode_store::schema;
 use rand::{RngCore, rngs::OsRng};
-use rusqlite::{Connection, OpenFlags};
 use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -196,7 +195,7 @@ impl ProtectedDaemonLaunch {
 
     /// Completes storage bootstrap only after protected admission succeeded.
     pub fn bootstrap<F>(
-        &self,
+        &mut self,
         mut now_unix_millis: F,
     ) -> Result<BootstrapOutcome, LaunchAuthorityError>
     where
@@ -204,7 +203,7 @@ impl ProtectedDaemonLaunch {
     {
         self.request.validate_freshness(now_unix_millis()?)?;
         let bootstrap_key = self.keys.bootstrap_key();
-        bootstrap_protected(
+        let result = bootstrap_protected(
             &self.config,
             self.request.launch_authority_id(),
             *bootstrap_key,
@@ -221,8 +220,9 @@ impl ProtectedDaemonLaunch {
                     )
                 })
             },
-        )
-        .map_err(|error| {
+        );
+        self.keys.forget_bootstrap_key();
+        result.map_err(|error| {
             if error.to_string().contains("already consumed") {
                 LaunchAuthorityError::ReusedLaunchAuthority
             } else if error.to_string().contains("expired") {
@@ -313,9 +313,7 @@ fn preflight_existing(
     if !db_path.exists() {
         return Err(LaunchAuthorityError::MissingExpectedStableBinding);
     }
-    schema::preflight_existing_file(db_path)
-        .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?;
-    let connection = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    let connection = schema::open_existing_read_only(db_path)
         .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?;
     let lineage = schema::read_event_log_lineage_id(&connection)
         .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?
@@ -352,9 +350,7 @@ fn preflight_resume_first_activation(
     pending: &PendingFirstActivationV1,
 ) -> Result<(), LaunchAuthorityError> {
     let db_path = Path::new(&config.db_path);
-    schema::preflight_existing_file(db_path)
-        .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
-    let connection = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+    let connection = schema::open_existing_read_only(db_path)
         .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
     let lineage = uuid::Uuid::from_bytes(*pending.stable().lineage_id())
         .to_string()

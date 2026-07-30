@@ -141,6 +141,12 @@ impl ProtectedActivationKeys {
         Zeroizing::new(*self.bootstrap)
     }
 
+    /// Zeroizes the launch-only HTTP bootstrap key after the one-time native
+    /// profile has taken ownership of its copy.
+    pub fn forget_bootstrap_key(&mut self) {
+        self.bootstrap.zeroize();
+    }
+
     fn readiness_key(&self) -> &[u8; 32] {
         &self.readiness
     }
