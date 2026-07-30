@@ -1356,7 +1356,6 @@ impl ReplayStorePort for ReplayStore {
                 session.aggregate_type,
                 &session.aggregate_id,
             )?;
-            authorization_guard.inspect_ack(&session)?;
             match session.last_acked_position {
                 Some(last_acked) if position < last_acked => {
                     return Err(ReplayError::AlreadyAcknowledged);
@@ -1364,11 +1363,20 @@ impl ReplayStorePort for ReplayStore {
                 Some(last_acked) if position == last_acked => return Ok(()),
                 _ => {}
             }
-            conn.execute(
-                "UPDATE _replay_subscriptions SET last_acked_position = ?1 WHERE session_id = ?2",
-                params![position, session_id.as_slice()],
-            )
-            .map_err(|e| ReplayError::Storage(format!("acknowledge: {e}")))?;
+            let affected = authorization_guard.mutate_ack(&session, &mut || {
+                conn.execute(
+                    "UPDATE _replay_subscriptions
+                     SET last_acked_position = ?1
+                     WHERE session_id = ?2",
+                    params![position, session_id.as_slice()],
+                )
+                .map_err(|e| ReplayError::Storage(format!("acknowledge: {e}")))
+            })?;
+            if affected != 1 {
+                return Err(ReplayError::Integrity(format!(
+                    "expected 1 row affected, got {affected}"
+                )));
+            }
             Ok(())
         })
         .await
@@ -1415,11 +1423,10 @@ impl ReplayStorePort for ReplayStore {
                 .ok_or(ReplayError::SessionNotFound)?;
 
             validate_auth(&session, &principal_id, generation, &authority_id, epoch)?;
-            authorization_guard.inspect_ack(&session)?;
-
             if session.state == ReplayState::CatchUpComplete
                 && session.catch_up_completion.is_some()
             {
+                authorization_guard.inspect_ack(&session)?;
                 let last_acked_event = read_last_acked_event(&conn, &session)?;
                 return Ok((session, last_acked_event));
             }
@@ -1462,8 +1469,8 @@ impl ReplayStorePort for ReplayStore {
             }
             let proof = build_catch_up_completion_proof(&session, &server_secret);
 
-            let affected = conn
-                .execute(
+            let affected = authorization_guard.mutate_ack(&session, &mut || {
+                conn.execute(
                     "UPDATE _replay_subscriptions
                           SET state = 'catch_up_complete',
                           catch_up_completion = ?1
@@ -1482,7 +1489,8 @@ impl ReplayStorePort for ReplayStore {
                         epoch,
                     ],
                 )
-                .map_err(|e| ReplayError::Storage(format!("update: {}", e)))?;
+                .map_err(|e| ReplayError::Storage(format!("update: {}", e)))
+            })?;
 
             if affected != 1 {
                 return Err(ReplayError::Integrity(format!(
@@ -1552,8 +1560,6 @@ impl ReplayStorePort for ReplayStore {
                 .ok_or(ReplayError::SessionNotFound)?;
 
             validate_auth(&session, &principal_id, generation, &authority_id, epoch)?;
-            authorization_guard.inspect_ack(&session)?;
-
             if session.state != ReplayState::CatchUpComplete {
                 return Err(ReplayError::InvalidState(session.state.as_db().to_string()));
             }
@@ -1563,8 +1569,8 @@ impl ReplayStorePort for ReplayStore {
 
             // Generate the delivery identity first, then publish Live in one
             // durable CAS. No restart can observe an intermediate activation.
-            let affected = conn
-                .execute(
+            let affected = authorization_guard.mutate_ack(&session, &mut || {
+                conn.execute(
                     "UPDATE _replay_subscriptions
                      SET state = 'live',
                          live_delivery_id = ?1
@@ -1583,7 +1589,8 @@ impl ReplayStorePort for ReplayStore {
                         epoch,
                     ],
                 )
-                .map_err(|e| ReplayError::Storage(format!("activate live: {}", e)))?;
+                .map_err(|e| ReplayError::Storage(format!("activate live: {}", e)))
+            })?;
 
             if affected != 1 {
                 return Err(ReplayError::InvalidState(

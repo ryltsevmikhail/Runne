@@ -259,6 +259,17 @@ pub trait ReplayDeliveryPrecommitGuard: Send + Sync {
     fn inspect_ack(&self, _session: &ReplaySession) -> Result<(), ReplayError> {
         Ok(())
     }
+
+    /// Runs one durable acknowledgement/session-state mutation while the
+    /// current authority remains fenced.
+    fn mutate_ack(
+        &self,
+        session: &ReplaySession,
+        mutation: &mut dyn FnMut() -> Result<usize, ReplayError>,
+    ) -> Result<usize, ReplayError> {
+        self.inspect_ack(session)?;
+        mutation()
+    }
 }
 
 /// Inputs used to acquire a current replay authorization lease.
@@ -316,6 +327,20 @@ pub trait ReplayAuthorizationPort: Send + Sync {
         &self,
         request: &ReplayAuthorizationRequest,
     ) -> Result<ReplayAuthorizationLease, ReplayError>;
+
+    /// Runs one mutation under the strongest fence this authority can provide.
+    ///
+    /// Implementations backed by an in-memory or transactional authority must
+    /// hold that authority's lock through `mutation`; the default preserves the
+    /// existing fail-closed revalidation contract for stateless test ports.
+    fn mutate_with_current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+        mutation: &mut dyn FnMut(&ReplayAuthorizationLease) -> Result<usize, ReplayError>,
+    ) -> Result<usize, ReplayError> {
+        let lease = self.current_lease(request)?;
+        mutation(&lease)
+    }
 }
 
 /// Store result which keeps retained floor material internal until the
@@ -537,6 +562,21 @@ impl ReplayDeliveryPrecommitGuard for AuthorizedDeliveryGuard {
     fn inspect_ack(&self, session: &ReplaySession) -> Result<(), ReplayError> {
         self.delegate.inspect_ack(session)?;
         self.revalidate()
+    }
+
+    fn mutate_ack(
+        &self,
+        session: &ReplaySession,
+        mutation: &mut dyn FnMut() -> Result<usize, ReplayError>,
+    ) -> Result<usize, ReplayError> {
+        self.authorization
+            .mutate_with_current_lease(&self.request, &mut |current| {
+                if current != &self.lease {
+                    return Err(ReplayError::AuthorizationRevoked);
+                }
+                self.delegate.inspect_ack(session)?;
+                mutation()
+            })
     }
 }
 

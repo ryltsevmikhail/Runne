@@ -86,6 +86,32 @@ impl ReplayAuthorizationPort for DaemonReplayAuthorization {
             current.sensitivity_ceiling(),
         )
     }
+
+    fn mutate_with_current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+        mutation: &mut dyn FnMut(&ReplayAuthorizationLease) -> Result<usize, ReplayError>,
+    ) -> Result<usize, ReplayError> {
+        if request.authority_id != self.replay_authority_id {
+            return Err(ReplayError::AuthorizationRevoked);
+        }
+        let generation = u64::try_from(request.session_generation)
+            .map_err(|_| ReplayError::AuthorizationRevoked)?;
+        let local_session = self
+            .local_session
+            .lock()
+            .map_err(|_| ReplayError::AuthorizationRevoked)?;
+        let current = local_session
+            .current_replay_authorization(&request.principal_id, generation)
+            .map_err(|_| ReplayError::AuthorizationRevoked)?;
+        let lease = ReplayAuthorizationLease::new(
+            request.principal_id.clone(),
+            i64::try_from(current.authorization_epoch())
+                .map_err(|_| ReplayError::AuthorizationRevoked)?,
+            current.sensitivity_ceiling(),
+        )?;
+        mutation(&lease)
+    }
 }
 
 /// Fully composed daemon with bootstrap locks, durable store, runtime,

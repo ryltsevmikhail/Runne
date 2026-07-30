@@ -624,8 +624,7 @@ impl LocalStore {
         };
         let backup_path = pre_v4_migration_backup_path(&database_path)?;
         if backup_path.exists() || backup_path.is_symlink() {
-            verify_pre_v4_backup_path(&backup_path)?;
-            return Ok(());
+            return Err(StoreOpenError::MigrationBackupUnavailable);
         }
         let temporary = backup_path.with_extension("sqlite3.tmp");
         if temporary.exists() || temporary.is_symlink() {
