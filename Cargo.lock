@@ -1874,9 +1874,9 @@ name = "gocode-platform-desktop"
 version = "0.1.0"
 dependencies = [
  "gocode-platform-ports",
+ "gocode-runtime-client",
  "tempfile",
  "thiserror 2.0.18",
- "uuid",
 ]
 
 [[package]]
