@@ -41,12 +41,47 @@ pub use sse::{MAXIMUM_SSE_FRAME_BYTES, SSE_SILENCE_TIMEOUT};
 /// # Errors
 ///
 /// Returns an error unless `origin` is an exact loopback HTTP origin.
-#[cfg(debug_assertions)]
+#[cfg(any(debug_assertions, feature = "test-support"))]
 #[doc(hidden)]
 pub fn mock_authenticated_runtime_client(
     origin: &str,
     session: RuntimeSessionInfo,
 ) -> Result<AuthenticatedRuntimeClient, RuntimeTransportError> {
+    let (client, origin) = mock_loopback_transport(origin)?;
+    Ok(AuthenticatedRuntimeClient::from_local_session(
+        client,
+        origin,
+        RuntimeSessionAuthority::from_local_session([0x5a; 32]),
+        session,
+    ))
+}
+
+/// Constructs a loopback plaintext client marked as protected-bundled for
+/// native-host orchestration tests. This hook is unavailable in release
+/// builds.
+///
+/// # Errors
+///
+/// Returns an error unless `origin` is an exact loopback HTTP origin.
+#[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
+pub fn mock_protected_authenticated_runtime_client(
+    origin: &str,
+    session: RuntimeSessionInfo,
+) -> Result<AuthenticatedRuntimeClient, RuntimeTransportError> {
+    let (client, origin) = mock_loopback_transport(origin)?;
+    Ok(AuthenticatedRuntimeClient::from_protected_bundled_session(
+        client,
+        origin,
+        RuntimeSessionAuthority::from_local_session([0x5a; 32]),
+        session,
+    ))
+}
+
+#[cfg(any(test, debug_assertions, feature = "test-support"))]
+fn mock_loopback_transport(
+    origin: &str,
+) -> Result<(reqwest::Client, String), RuntimeTransportError> {
     let url =
         reqwest::Url::parse(origin).map_err(|_| RuntimeTransportError::EndpointNotLoopback)?;
     let loopback = url
@@ -69,12 +104,7 @@ pub fn mock_authenticated_runtime_client(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|_| RuntimeTransportError::Unavailable)?;
-    Ok(AuthenticatedRuntimeClient::from_local_session(
-        client,
-        origin.trim_end_matches('/').to_owned(),
-        RuntimeSessionAuthority::from_local_session([0x5a; 32]),
-        session,
-    ))
+    Ok((client, origin.trim_end_matches('/').to_owned()))
 }
 
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
