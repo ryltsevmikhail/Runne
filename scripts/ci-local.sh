@@ -31,6 +31,7 @@ run_runtime_closure() {
     run_with_toolchain "$version" bash scripts/verify-phase7-closure.sh
     run_with_toolchain "$version" bash scripts/verify-phase8-opencode.sh
     run_with_toolchain "$version" bash scripts/verify-canonical-taskrun-daemon.sh
+    run_with_toolchain "$version" bash scripts/verify-secure-replay-desktop.sh runtime
     run_with_toolchain "$version" bash scripts/ci.sh "$mode"
 }
 
@@ -85,6 +86,7 @@ run_runtime_closure "$msrv_toolchain" msrv
 
 echo "=== Local frontend closure ==="
 pnpm install --frozen-lockfile
+bash scripts/verify-secure-replay-desktop.sh frontend
 pnpm lint
 pnpm test
 pnpm typecheck
