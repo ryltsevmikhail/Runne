@@ -221,6 +221,8 @@ pub fn run() {
         .expect("failed to initialize GOCODE desktop application");
     app.run(|app, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+            // This is a UI-command fence only. The configured external runtime
+            // is deliberately not adopted, stopped, or otherwise controlled.
             app.state::<ConversationSubscriptionManager>().shutdown();
         }
     });
