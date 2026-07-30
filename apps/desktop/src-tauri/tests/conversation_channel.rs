@@ -272,6 +272,38 @@ async fn sends_only_one_update_until_the_exact_revision_is_acknowledged() {
 }
 
 #[tokio::test]
+async fn duplicate_start_is_rejected_instead_of_orphaning_the_new_channel() {
+    let manager = ConversationSubscriptionManager::new();
+    let source = Arc::new(ScriptedSource {
+        updates: vec![
+            update(1, ConversationRecoveryDisposition::Live),
+            update(2, ConversationRecoveryDisposition::Live),
+        ],
+        terminal: Terminal::Pending,
+    });
+    let (original_channel, original_messages) = channel();
+    let subscription_id = manager
+        .subscribe(Arc::clone(&source), PROJECT_ID, "main", original_channel)
+        .expect("initial subscribe");
+    wait_for_messages(&original_messages, 1).await;
+
+    let (duplicate_channel, duplicate_messages) = channel();
+    let error = manager
+        .subscribe(source, PROJECT_ID, "main", duplicate_channel)
+        .expect_err("live duplicate must not return an orphaned ID");
+    assert_eq!(
+        error.code,
+        ConversationChannelErrorCode::ConversationSubscriptionUnavailable
+    );
+
+    manager
+        .ack("main", &subscription_id, 1)
+        .expect("original channel remains authoritative");
+    wait_for_messages(&original_messages, 2).await;
+    assert!(duplicate_messages.lock().expect("messages").is_empty());
+}
+
+#[tokio::test]
 async fn duplicate_and_global_admission_limits_are_released_by_exact_cancel() {
     let manager = ConversationSubscriptionManager::new();
     let source = Arc::new(ScriptedSource {
@@ -289,10 +321,13 @@ async fn duplicate_and_global_admission_limits_are_released_by_exact_cancel() {
         );
     }
     let (duplicate_channel, _) = channel();
-    let duplicate = manager
+    let duplicate_error = manager
         .subscribe(Arc::clone(&source), 1, "main", duplicate_channel)
-        .expect("duplicate returns safe existing ID");
-    assert_eq!(duplicate, subscriptions[0]);
+        .expect_err("duplicate consumes no extra quota");
+    assert_eq!(
+        duplicate_error.code,
+        ConversationChannelErrorCode::ConversationSubscriptionUnavailable
+    );
 
     let (over_quota_channel, _) = channel();
     let error = manager

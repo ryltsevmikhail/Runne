@@ -258,15 +258,8 @@ impl ConversationSubscriptionManager {
             if registry.shutting_down {
                 return Err(ConversationChannelError::unavailable());
             }
-            if let Some(existing) = registry.by_pair.get(&pair) {
-                let record = registry
-                    .subscriptions
-                    .get(existing)
-                    .ok_or_else(ConversationChannelError::unavailable)?;
-                if record.control.is_cancelled() {
-                    return Err(ConversationChannelError::unavailable());
-                }
-                return Ok(existing.clone());
+            if registry.by_pair.contains_key(&pair) {
+                return Err(ConversationChannelError::unavailable());
             }
             if registry.subscriptions.len() >= MAX_ACTIVE_SUBSCRIPTIONS {
                 return Err(ConversationChannelError::unavailable());
