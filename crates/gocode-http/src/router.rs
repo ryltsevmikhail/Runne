@@ -61,6 +61,7 @@ impl SecureLocalHttpHost {
         admission_state: AdmissionState,
         local_session_service: Arc<Mutex<gocode_application::local_session::LocalSessionService>>,
         binding: gocode_api::RuntimeSessionBinding,
+        dynamic_session_binding: bool,
         clock: Arc<dyn Fn() -> Duration + Send + Sync>,
         runtime_profile_state: RuntimeProfileHttpState,
         task_run_state: TaskRunHttpState<T>,
@@ -85,16 +86,17 @@ impl SecureLocalHttpHost {
             .merge(replay_router(replay_state));
         let local_session_state =
             LocalSessionHttpState::new(local_session_service, Arc::clone(&clock), verified_tls);
+        let session_auth = if dynamic_session_binding {
+            SessionAuthLayer::new_dynamic(local_session_state.service(), Arc::clone(&clock))
+        } else {
+            SessionAuthLayer::new(local_session_state.service(), binding, Arc::clone(&clock))
+        };
         let protected = protected
             .layer(axum_mw::from_fn_with_state(
                 admission_state,
                 admission_middleware,
             ))
-            .layer(SessionAuthLayer::new(
-                local_session_state.service(),
-                binding,
-                clock,
-            ))
+            .layer(session_auth)
             .layer(axum_mw::from_fn(request_id_middleware));
         Ok(Self {
             router: Router::new()
@@ -421,6 +423,7 @@ mod tests {
             AdmissionState::new(crate::health::RecoveryState::Ready),
             service,
             binding,
+            false,
             clock(),
             profile_state(),
             TaskRunHttpState::new(

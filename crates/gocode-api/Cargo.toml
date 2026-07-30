@@ -6,6 +6,14 @@ rust-version.workspace = true
 
 [dependencies]
 gocode-domain = { path = "../gocode-domain" }
+gocode-plugin-protocol = { path = "../gocode-plugin-protocol" }
+hmac = "0.12"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
+sha2.workspace = true
+subtle = "2"
+zeroize.workspace = true
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
+
+[dev-dependencies]
+tempfile = "=3.27.0"

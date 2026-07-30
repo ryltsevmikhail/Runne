@@ -19,11 +19,12 @@ pub use canonical::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationCreated,
     ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
     CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
-    RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo,
+    RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind,
 };
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
 };
+pub use local_session::ProtectedBundledRuntimeProfile;
 pub use replay::{
     CanonicalReplayEvent, CanonicalReplayPayload, ConversationReplayPayload, LiveDeliveryId,
     ReconnectDecision, ReconnectPolicy, ReconnectRuntime, ReplayAggregateKind, ReplayClientError,

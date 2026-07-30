@@ -10,6 +10,8 @@ pub mod host_port;
 pub mod local_session;
 /// API command principals and actors.
 pub mod principal;
+/// Protected bundled-runtime activation contracts.
+pub mod protected_activation;
 /// Public replay binding contracts.
 pub mod replay;
 /// Validated OpenCode `Session.Info` wire values.
@@ -23,6 +25,7 @@ pub use conversation::*;
 pub use host_port::*;
 pub use local_session::*;
 pub use principal::*;
+pub use protected_activation::*;
 pub use replay::*;
 pub use session_info::*;
 pub use task_run::*;

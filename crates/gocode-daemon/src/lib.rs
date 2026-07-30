@@ -11,6 +11,7 @@ pub mod error;
 pub mod host;
 pub mod launch_identity;
 pub mod lock;
+pub mod protected_activation;
 pub mod recovery;
 pub mod replay_key;
 pub mod shutdown;

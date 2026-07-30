@@ -224,7 +224,7 @@ fn schema_version(bytes: &[u8]) -> Option<u64> {
         .as_u64()
 }
 
-fn parse_endpoint(value: &str) -> Result<(RuntimeEndpoint, String), LocalProfileError> {
+pub fn parse_endpoint(value: &str) -> Result<(RuntimeEndpoint, String), LocalProfileError> {
     let url: reqwest::Url = value
         .parse()
         .map_err(|_| LocalProfileError::InvalidProfile)?;
@@ -293,7 +293,7 @@ fn validate_uuid_v7(value: uuid::Uuid) -> Result<(), LocalProfileError> {
     Ok(())
 }
 
-fn ordered_capability_digest(capabilities: &[String]) -> [u8; 32] {
+pub fn ordered_capability_digest(capabilities: &[String]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
     hasher.update(

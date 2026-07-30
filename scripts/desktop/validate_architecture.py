@@ -21,7 +21,7 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     "gocode-local-store": {"gocode-secure-store"},
     "gocode-platform-ports": set(),
     "gocode-pairing-crypto": set(),
-    "gocode-runtime-client": set(),
+    "gocode-runtime-client": {"gocode-api"},
     "gocode-secure-store": set(),
 }
 
