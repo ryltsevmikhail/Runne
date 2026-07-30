@@ -498,8 +498,10 @@ where
             .profile_binding
             .as_ref()
             .is_some_and(|binding| binding.matches(&handshake.session));
-        if self.state != BundledRuntimeLifecycleState::Ready
-            || self.process.is_none()
+        if !matches!(
+            self.state,
+            BundledRuntimeLifecycleState::Ready | BundledRuntimeLifecycleState::Stopping
+        ) || self.process.is_none()
             || !ownership_matches
         {
             return Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch);
@@ -516,12 +518,9 @@ where
                 self.state = BundledRuntimeLifecycleState::Ready;
                 return Err(BundledRuntimeSupervisorError::GracefulStopUnavailable);
             }
-            if let Ok(status) = process.wait_for_exit(timeout) {
-                status
-            } else {
-                self.state = BundledRuntimeLifecycleState::Ready;
-                return Err(BundledRuntimeSupervisorError::ProcessStatusUnavailable);
-            }
+            process
+                .wait_for_exit(timeout)
+                .map_err(|_| BundledRuntimeSupervisorError::ProcessStatusUnavailable)?
         };
         if stop_status == BundledRuntimeProcessStatus::Exited {
             self.process = None;
@@ -805,7 +804,8 @@ mod tests {
         graceful_stop_requests: Rc<Cell<u32>>,
         termination_requests: Rc<Cell<u32>>,
         graceful_stop_fails: bool,
-        wait_fails: bool,
+        wait_failures_remaining: usize,
+        terminate_failures_remaining: usize,
     }
 
     impl FakeProcess {
@@ -815,7 +815,8 @@ mod tests {
                 graceful_stop_requests: Rc::new(Cell::new(0)),
                 termination_requests: Rc::new(Cell::new(0)),
                 graceful_stop_fails: false,
-                wait_fails: false,
+                wait_failures_remaining: 0,
+                terminate_failures_remaining: 0,
             }
         }
 
@@ -838,7 +839,8 @@ mod tests {
                     graceful_stop_requests: Rc::clone(&graceful_stop_requests),
                     termination_requests: Rc::clone(&termination_requests),
                     graceful_stop_fails: false,
-                    wait_fails: false,
+                    wait_failures_remaining: 0,
+                    terminate_failures_remaining: 0,
                 },
                 graceful_stop_requests,
                 termination_requests,
@@ -851,7 +853,38 @@ mod tests {
                 graceful_stop_requests: Rc::new(Cell::new(0)),
                 termination_requests: Rc::new(Cell::new(0)),
                 graceful_stop_fails,
-                wait_fails,
+                wait_failures_remaining: usize::from(wait_fails),
+                terminate_failures_remaining: 0,
+            }
+        }
+
+        fn with_termination_failure_once(
+            statuses: impl IntoIterator<Item = BundledRuntimeProcessStatus>,
+        ) -> (Self, Rc<Cell<u32>>) {
+            let termination_requests = Rc::new(Cell::new(0));
+            (
+                Self {
+                    statuses: statuses.into_iter().collect(),
+                    graceful_stop_requests: Rc::new(Cell::new(0)),
+                    termination_requests: Rc::clone(&termination_requests),
+                    graceful_stop_fails: false,
+                    wait_failures_remaining: 0,
+                    terminate_failures_remaining: 1,
+                },
+                termination_requests,
+            )
+        }
+
+        fn with_wait_failure_once(
+            statuses: impl IntoIterator<Item = BundledRuntimeProcessStatus>,
+        ) -> Self {
+            Self {
+                statuses: statuses.into_iter().collect(),
+                graceful_stop_requests: Rc::new(Cell::new(0)),
+                termination_requests: Rc::new(Cell::new(0)),
+                graceful_stop_fails: false,
+                wait_failures_remaining: 1,
+                terminate_failures_remaining: 0,
             }
         }
     }
@@ -874,7 +907,8 @@ mod tests {
         }
 
         fn wait_for_exit(&mut self, _timeout: Duration) -> io::Result<BundledRuntimeProcessStatus> {
-            if self.wait_fails {
+            if self.wait_failures_remaining > 0 {
+                self.wait_failures_remaining -= 1;
                 return Err(io::Error::other("wait failure"));
             }
             self.status()
@@ -883,6 +917,10 @@ mod tests {
         fn terminate(&mut self) -> io::Result<()> {
             self.termination_requests
                 .set(self.termination_requests.get() + 1);
+            if self.terminate_failures_remaining > 0 {
+                self.terminate_failures_remaining -= 1;
+                return Err(io::Error::other("termination failure"));
+            }
             Ok(())
         }
     }
@@ -1216,29 +1254,105 @@ mod tests {
     }
 
     #[test]
-    fn supervisor_restores_retryable_ownership_after_graceful_stop_io_failures() {
-        for process in [
-            FakeProcess::with_stop_failures(true, false),
-            FakeProcess::with_stop_failures(false, true),
-        ] {
-            let clock = FakeClock::new(Instant::now());
-            let (launcher, _) = FakeLauncher::new([Ok(process)]);
-            let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
-            supervisor.start().expect("spawn owned process");
-            supervisor
-                .record_authenticated_ready(&authenticated_handshake())
-                .expect("prove current owned launch");
+    fn supervisor_restores_ready_when_graceful_stop_request_fails() {
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, _) = FakeLauncher::new([Ok(FakeProcess::with_stop_failures(true, false))]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
 
-            assert!(matches!(
-                supervisor.stop(
-                    &authenticated_handshake(),
-                    BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
-                ),
-                Err(BundledRuntimeSupervisorError::GracefulStopUnavailable
-                    | BundledRuntimeSupervisorError::ProcessStatusUnavailable)
-            ));
-            assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Ready);
-        }
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Err(BundledRuntimeSupervisorError::GracefulStopUnavailable)
+        );
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Ready);
+    }
+
+    #[test]
+    fn supervisor_keeps_shutdown_fence_after_graceful_wait_failure_and_retries() {
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, _) = FakeLauncher::new([Ok(FakeProcess::with_wait_failure_once([
+            BundledRuntimeProcessStatus::Exited,
+        ]))]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Err(BundledRuntimeSupervisorError::ProcessStatusUnavailable)
+        );
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopping);
+        supervisor
+            .monitor()
+            .expect("shutdown fence prevents restart");
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopped);
+
+        // A second independent supervisor proves that a pending shutdown can
+        // retry the same owned launch after a transient wait failure.
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, _) = FakeLauncher::new([Ok(FakeProcess::with_wait_failure_once([
+            BundledRuntimeProcessStatus::Exited,
+        ]))]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+        let _ = supervisor.stop(
+            &authenticated_handshake(),
+            BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT,
+        );
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Ok(BundledRuntimeStopDisposition::Graceful)
+        );
+    }
+
+    #[test]
+    fn supervisor_retries_forced_termination_after_a_request_failure() {
+        let clock = FakeClock::new(Instant::now());
+        let (process, termination_requests) = FakeProcess::with_termination_failure_once([
+            BundledRuntimeProcessStatus::Running,
+            BundledRuntimeProcessStatus::Running,
+            BundledRuntimeProcessStatus::Exited,
+        ]);
+        let (launcher, _) = FakeLauncher::new([Ok(process)]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Err(BundledRuntimeSupervisorError::ForcedStopUnavailable)
+        );
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopping);
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Ok(BundledRuntimeStopDisposition::Forced)
+        );
+        assert_eq!(termination_requests.get(), 2);
     }
 
     #[test]
