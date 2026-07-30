@@ -7,26 +7,30 @@ export interface BootstrapState {
 
 export type RuntimeConnectionState =
   | 'unconfigured'
-  | 'connecting'
-  | 'authenticating'
+  | 'profile_loaded'
+  | 'peer_verified'
+  | 'bootstrap_proved'
+  | 'authenticated'
   | 'reconciling'
   | 'live'
-  | 'stale'
   | 'reconnecting'
   | 'incompatible'
   | 'revoked'
+  | 'resync_required'
   | 'fatal'
 
 const runtimeConnectionStates: readonly RuntimeConnectionState[] = [
   'unconfigured',
-  'connecting',
-  'authenticating',
+  'profile_loaded',
+  'peer_verified',
+  'bootstrap_proved',
+  'authenticated',
   'reconciling',
   'live',
-  'stale',
   'reconnecting',
   'incompatible',
   'revoked',
+  'resync_required',
   'fatal',
 ]
 
