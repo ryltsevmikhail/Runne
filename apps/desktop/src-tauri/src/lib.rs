@@ -20,6 +20,48 @@ struct IpcError {
     code: &'static str,
 }
 
+/// Host-only lifecycle control for a runtime proven owned by this desktop.
+///
+/// Implementations must retain ownership evidence internally and must not
+/// report runtime work cancellation merely because shutdown was requested.
+pub trait OwnedRuntimeLifecycle: Send + Sync {
+    /// Runs the explicit-quit shutdown sequence for the proven owned runtime.
+    fn stop_on_explicit_quit(&self);
+}
+
+/// Renderer-private runtime lifecycle hook registered by the desktop host.
+///
+/// External runtimes have no controller and therefore remain an intentional
+/// no-op. A future bundled setup can register only a controller that proves
+/// the exact owned launch before it signals or terminates it.
+pub struct RuntimeLifecycleManager {
+    owned_runtime: Option<Arc<dyn OwnedRuntimeLifecycle>>,
+}
+
+impl RuntimeLifecycleManager {
+    #[must_use]
+    pub const fn external() -> Self {
+        Self {
+            owned_runtime: None,
+        }
+    }
+
+    #[must_use]
+    pub fn bundled(owned_runtime: Arc<dyn OwnedRuntimeLifecycle>) -> Self {
+        Self {
+            owned_runtime: Some(owned_runtime),
+        }
+    }
+
+    /// Fences host lifecycle work on explicit quit without adopting an
+    /// external daemon.
+    pub fn explicit_quit(&self) {
+        if let Some(owned_runtime) = &self.owned_runtime {
+            owned_runtime.stop_on_explicit_quit();
+        }
+    }
+}
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn get_bootstrap(state: State<'_, Arc<AppCore>>) -> Result<BootstrapState, IpcError> {
@@ -200,6 +242,7 @@ pub fn run() {
             app.manage(profile_lock);
             app.manage(Arc::new(core));
             app.manage(ConversationSubscriptionManager::new());
+            app.manage(RuntimeLifecycleManager::external());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -221,9 +264,8 @@ pub fn run() {
         .expect("failed to initialize GOCODE desktop application");
     app.run(|app, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            // This is a UI-command fence only. The configured external runtime
-            // is deliberately not adopted, stopped, or otherwise controlled.
             app.state::<ConversationSubscriptionManager>().shutdown();
+            app.state::<RuntimeLifecycleManager>().explicit_quit();
         }
     });
 }
