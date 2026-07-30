@@ -12,16 +12,27 @@ use thiserror::Error;
 mod canonical;
 mod local_profile;
 mod local_session;
+mod replay;
+mod sse;
 
 pub use canonical::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationCreated,
     ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
     CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
-    RuntimeApiErrorKind, RuntimeSessionInfo,
+    RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo,
 };
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
 };
+pub use replay::{
+    CanonicalReplayEvent, CanonicalReplayPayload, ConversationReplayPayload, LiveDeliveryId,
+    ReconnectDecision, ReconnectPolicy, ReconnectRuntime, ReplayAggregateKind, ReplayClientError,
+    ReplayClientErrorKind, ReplayCursor, ReplayDelivery, ReplayDeliveryDisposition,
+    ReplayIdentityTracker, ReplayLiveSession, ReplayRecoveryDisposition, ReplayScope,
+    ReplaySensitivity, ReplaySessionId, ReplayStreamEvent, ReplayTerminal, ReplayTerminalCode,
+    TaskRunReplayPayload,
+};
+pub use sse::{MAXIMUM_SSE_FRAME_BYTES, SSE_SILENCE_TIMEOUT};
 
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
 pub const GOLDEN_BUNDLE_HASH: &str =
