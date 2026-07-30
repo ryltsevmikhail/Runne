@@ -1,5 +1,7 @@
 //! TLS-only HTTP bootstrap endpoints for local runtime sessions.
 
+#![allow(dead_code)] // Used by the crate-owned TLS serving boundary in Task 4B.
+
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
