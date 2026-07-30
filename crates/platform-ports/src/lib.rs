@@ -86,9 +86,7 @@ impl PlatformMatrix {
                 (
                     RuntimeLifecycle,
                     Unavailable {
-                        reason:
-                            "protected transport and production v2 integration are not implemented"
-                                .into(),
+                        reason: "production bundled runtime is not platform-qualified".into(),
                     },
                 ),
                 (Notifications, Available),
@@ -242,8 +240,7 @@ mod tests {
         assert_eq!(
             desktop.availability(CapabilityId::RuntimeLifecycle),
             CapabilityAvailability::Unavailable {
-                reason: "protected transport and production v2 integration are not implemented"
-                    .into()
+                reason: "production bundled runtime is not platform-qualified".into()
             }
         );
     }
