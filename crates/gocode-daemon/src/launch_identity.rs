@@ -118,6 +118,10 @@ impl LaunchIdentity {
     pub fn bootstrap_secret_marker(&self) -> [u8; 32] {
         Sha256::digest(self.bootstrap_secret).into()
     }
+    /// Copies the launch bootstrap secret only into the in-process session service.
+    pub(crate) const fn bootstrap_secret(&self) -> [u8; 32] {
+        self.bootstrap_secret
+    }
     #[allow(dead_code)]
     pub(crate) fn write_bootstrap_secret(&self, path: &std::path::Path) -> std::io::Result<()> {
         let mut options = OpenOptions::new();

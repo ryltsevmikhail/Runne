@@ -1,5 +1,7 @@
 //! End-to-end proof that the daemon publishes the real durable TaskRun path.
 
+mod support;
+
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -12,6 +14,8 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+
+use support::{TestSession, connect_session};
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000071";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000072";
@@ -62,13 +66,13 @@ async fn start(config: &ConfigurationSnapshot) -> RunningDaemon {
 }
 
 fn url(address: SocketAddr, path: &str) -> String {
-    format!("http://{address}{path}")
+    format!("https://{address}{path}")
 }
 
 async fn command(
     client: &Client,
     daemon: &RunningDaemon,
-    token: &str,
+    authorization: &str,
     path: &str,
     sequence: u8,
     idempotency_key: &str,
@@ -76,7 +80,7 @@ async fn command(
 ) -> Response {
     client
         .post(url(daemon.address, path))
-        .bearer_auth(token)
+        .header("authorization", authorization)
         .header(
             "x-command-id",
             format!("018f2e3a-7000-7000-8000-0000000000{sequence:02x}"),
@@ -91,14 +95,14 @@ async fn command(
 async fn assert_snapshot(
     client: &Client,
     daemon: &RunningDaemon,
-    token: &str,
+    authorization: &str,
     taskrun_id: &str,
     version: u64,
     state: &str,
 ) {
     let response = client
         .get(url(daemon.address, &format!("/v1/task-runs/{taskrun_id}")))
-        .bearer_auth(token)
+        .header("authorization", authorization)
         .send()
         .await
         .unwrap();
@@ -114,8 +118,10 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
     let directory = tempfile::tempdir().unwrap();
     let config = test_config(&directory);
     let daemon = start(&config).await;
-    let client = Client::new();
-    let token = hex::encode(std::fs::read(&config.token_path).unwrap());
+    let TestSession {
+        client,
+        authorization,
+    } = connect_session(&config).await;
 
     let unauthenticated = client
         .post(url(daemon.address, "/v1/task-runs"))
@@ -139,7 +145,7 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
     let response = command(
         &client,
         &daemon,
-        &token,
+        &authorization,
         "/v1/task-runs",
         2,
         "create",
@@ -154,7 +160,7 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
         .as_str()
         .unwrap()
         .to_owned();
-    assert_snapshot(&client, &daemon, &token, &taskrun_id, 1, "created").await;
+    assert_snapshot(&client, &daemon, &authorization, &taskrun_id, 1, "created").await;
 
     for (sequence, operation, key, version, state) in [
         (3, "queue", "queue", 2, "queued"),
@@ -164,7 +170,7 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
         let response = command(
             &client,
             &daemon,
-            &token,
+            &authorization,
             &format!("/v1/task-runs/{taskrun_id}/{operation}"),
             sequence,
             key,
@@ -172,13 +178,21 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
         )
         .await;
         assert_eq!(response.status(), StatusCode::ACCEPTED);
-        assert_snapshot(&client, &daemon, &token, &taskrun_id, version, state).await;
+        assert_snapshot(
+            &client,
+            &daemon,
+            &authorization,
+            &taskrun_id,
+            version,
+            state,
+        )
+        .await;
     }
 
     let response = command(
         &client,
         &daemon,
-        &token,
+        &authorization,
         &format!("/v1/task-runs/{taskrun_id}/complete"),
         6,
         "complete",
@@ -189,11 +203,31 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
     )
     .await;
     assert_eq!(response.status(), StatusCode::ACCEPTED);
-    assert_snapshot(&client, &daemon, &token, &taskrun_id, 5, "succeeded").await;
+    assert_snapshot(
+        &client,
+        &daemon,
+        &authorization,
+        &taskrun_id,
+        5,
+        "succeeded",
+    )
+    .await;
 
     daemon.stop().await;
 
     let restarted = start(&config).await;
-    assert_snapshot(&client, &restarted, &token, &taskrun_id, 5, "succeeded").await;
+    let TestSession {
+        client: restarted_client,
+        authorization: restarted_authorization,
+    } = connect_session(&config).await;
+    assert_snapshot(
+        &restarted_client,
+        &restarted,
+        &restarted_authorization,
+        &taskrun_id,
+        5,
+        "succeeded",
+    )
+    .await;
     restarted.stop().await;
 }

@@ -12,8 +12,6 @@ pub enum DaemonError {
     Config(String),
     /// Filesystem I/O error.
     Io(std::io::Error),
-    /// Token acquisition or renewal failure.
-    Token(String),
     /// Instance lock failure (another daemon may be running).
     Lock(String),
     /// Bootstrap / health-check failure.
@@ -27,7 +25,6 @@ impl fmt::Display for DaemonError {
         match self {
             Self::Config(msg) => write!(f, "config error: {msg}"),
             Self::Io(err) => write!(f, "I/O error: {err}"),
-            Self::Token(msg) => write!(f, "token error: {msg}"),
             Self::Lock(msg) => write!(f, "lock error: {msg}"),
             Self::Bootstrap(msg) => write!(f, "bootstrap error: {msg}"),
             Self::Schema(msg) => write!(f, "schema error: {msg}"),
@@ -53,5 +50,11 @@ impl From<std::io::Error> for DaemonError {
 impl From<toml::de::Error> for DaemonError {
     fn from(err: toml::de::Error) -> Self {
         Self::Config(err.to_string())
+    }
+}
+
+impl From<gocode_http::secure_local_host::LocalRuntimeTlsHostError> for DaemonError {
+    fn from(_: gocode_http::secure_local_host::LocalRuntimeTlsHostError) -> Self {
+        Self::Bootstrap("local runtime TLS host unavailable".to_owned())
     }
 }

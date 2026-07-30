@@ -20,13 +20,13 @@ fn temp_toml(content: &str) -> (tempfile::TempDir, PathBuf) {
 #[test]
 fn defaults_valid() {
     let snapshot = config::load_config(None).unwrap();
-    assert_eq!(snapshot.schema_version, 1);
+    assert_eq!(snapshot.schema_version, 2);
     assert_eq!(snapshot.http_bind, "127.0.0.1:3000");
     assert_eq!(snapshot.max_in_flight, 100);
     assert_eq!(snapshot.shutdown_timeout_ms, 10_000);
     // Paths should contain "gocode-daemon"
     assert!(snapshot.db_path.contains("gocode-daemon"));
-    assert!(snapshot.token_path.contains("gocode-daemon"));
+    assert!(snapshot.replay_integrity_key_path.contains("gocode-daemon"));
     // Digest must be non-empty hex
     assert!(!snapshot.digest.is_empty());
     assert!(snapshot.digest.chars().all(|c| c.is_ascii_hexdigit()));
@@ -37,7 +37,7 @@ fn defaults_valid() {
 fn reject_unknown_key() {
     let (_dir, path) = temp_toml(
         r#"
-schema_version = 1
+schema_version = 2
 bogus_field = 42
 "#,
     );
@@ -55,7 +55,7 @@ bogus_field = 42
 fn reject_duplicate_key() {
     let (_dir, path) = temp_toml(
         r#"
-schema_version = 1
+schema_version = 2
 http_bind = "0.0.0.0:8080"
 http_bind = "127.0.0.1:3000"
 "#,
@@ -69,7 +69,7 @@ http_bind = "127.0.0.1:3000"
 fn reject_wrong_version() {
     let (_dir, path) = temp_toml(
         r#"
-schema_version = 2
+schema_version = 1
 "#,
     );
     let result = config::load_config(Some(&path));
@@ -83,7 +83,7 @@ schema_version = 2
 fn reject_wrong_type() {
     let (_dir, path) = temp_toml(
         r#"
-schema_version = 1
+schema_version = 2
 max_in_flight = "not a number"
 "#,
     );
@@ -98,7 +98,7 @@ fn merge_applies_override() {
 
     let (_dir, path) = temp_toml(
         r#"
-schema_version = 1
+schema_version = 2
 http_bind = "0.0.0.0:9090"
 max_in_flight = 50
 "#,
@@ -111,7 +111,7 @@ max_in_flight = 50
 
     // Default values still present for non-overridden fields
     assert_eq!(snapshot.shutdown_timeout_ms, 10_000);
-    assert_eq!(snapshot.schema_version, 1);
+    assert_eq!(snapshot.schema_version, 2);
 
     // Provenance: overridden fields → SystemFile
     let http_src = &snapshot.provenance["http_bind"];
@@ -152,13 +152,13 @@ fn missing_optional_file_ok() {
 fn digest_differs_for_different_configs() {
     let (_d1, p1) = temp_toml(
         r#"
-schema_version = 1
+schema_version = 2
 http_bind = "0.0.0.0:8080"
 "#,
     );
     let (_d2, p2) = temp_toml(
         r#"
-schema_version = 1
+schema_version = 2
 http_bind = "10.0.0.1:3000"
 "#,
     );

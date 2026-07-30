@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use gocode_runtime_client::{
     CanonicalId, CommandIdentity, CreateConversationRequest, GenerateTextRequest,
-    LocalRuntimeProfile, RuntimeApiError, default_local_profile_path,
+    LocalProfileError, LocalRuntimeProfile, RuntimeApiError, default_local_profile_path,
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -44,7 +44,13 @@ async fn run(arguments: Vec<OsString>) -> Result<String, CliError> {
         _ => return Err(CliError::Usage),
     };
 
-    let profile = LocalRuntimeProfile::load(&profile_path).map_err(|_| CliError::Profile)?;
+    let profile = LocalRuntimeProfile::load(&profile_path).map_err(|error| match error {
+        LocalProfileError::Unavailable => CliError::Profile,
+        LocalProfileError::InsecurePermissions | LocalProfileError::InvalidProfile => {
+            CliError::ProfileIncompatible
+        }
+        LocalProfileError::InvalidCredential => CliError::ProfileIncompatible,
+    })?;
     let client = profile
         .connect(REQUEST_TIMEOUT)
         .await
@@ -187,6 +193,7 @@ fn expect_end(arguments: &VecDeque<OsString>) -> Result<(), CliError> {
 enum CliError {
     Usage,
     Profile,
+    ProfileIncompatible,
     Runtime,
     Api(RuntimeApiError),
 }
@@ -195,7 +202,7 @@ impl CliError {
     const fn exit_code(&self) -> i32 {
         match self {
             Self::Usage => 2,
-            Self::Profile | Self::Runtime | Self::Api(_) => 1,
+            Self::Profile | Self::ProfileIncompatible | Self::Runtime | Self::Api(_) => 1,
         }
     }
 }
@@ -205,6 +212,9 @@ impl fmt::Display for CliError {
         match self {
             Self::Usage => formatter.write_str(USAGE),
             Self::Profile => formatter.write_str("local runtime profile is unavailable"),
+            Self::ProfileIncompatible => {
+                formatter.write_str("local runtime profile is incompatible")
+            }
             Self::Runtime => formatter.write_str("runtime is unavailable"),
             Self::Api(error) => {
                 write!(formatter, "{error}")?;
