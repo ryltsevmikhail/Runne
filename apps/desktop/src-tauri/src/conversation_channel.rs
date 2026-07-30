@@ -348,8 +348,10 @@ impl ConversationSubscriptionManager {
             if record.window_label != window_label {
                 return Err(ConversationChannelError::unavailable());
             }
-            remove_subscription(&mut registry, subscription_id)
-                .ok_or_else(ConversationChannelError::unavailable)?
+            let control = remove_subscription(&mut registry, subscription_id)
+                .ok_or_else(ConversationChannelError::unavailable)?;
+            drop(registry);
+            control
         };
         control.cancel();
         Ok(())
