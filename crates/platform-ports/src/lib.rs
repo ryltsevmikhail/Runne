@@ -86,7 +86,7 @@ impl PlatformMatrix {
                 (
                     RuntimeLifecycle,
                     Unavailable {
-                        reason: "runtime supervision is Phase 1".into(),
+                        reason: "bundled runtime lifecycle Slice 2A is in progress".into(),
                     },
                 ),
                 (Notifications, Available),
@@ -237,12 +237,12 @@ mod tests {
     #[test]
     fn unknown_capability_is_unavailable() {
         let desktop = PlatformMatrix::desktop();
-        // Querying a capability that exists in the enum but isn't relevant
-        // This is just a sanity check — all enum variants are covered
-        assert!(matches!(
+        assert_eq!(
             desktop.availability(CapabilityId::RuntimeLifecycle),
-            CapabilityAvailability::Unavailable { .. }
-        ));
+            CapabilityAvailability::Unavailable {
+                reason: "bundled runtime lifecycle Slice 2A is in progress".into()
+            }
+        );
     }
 
     #[test]
