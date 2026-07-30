@@ -1632,14 +1632,17 @@ dependencies = [
 name = "gocode-app-core"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "gocode-local-store",
  "gocode-runtime-client",
+ "hex",
  "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

@@ -219,6 +219,7 @@ pub struct AppCore {
     runtime_state: RwLock<RuntimeAvailability>,
     runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
     runtime_connect: tokio::sync::Mutex<()>,
+    runtime_operation: tokio::sync::Mutex<()>,
 }
 
 impl AppCore {
@@ -268,6 +269,29 @@ impl AppCore {
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
             runtime_client: RwLock::new(None),
             runtime_connect: tokio::sync::Mutex::new(()),
+            runtime_operation: tokio::sync::Mutex::new(()),
+        })
+    }
+
+    /// Opens AppCore with a loopback mock client for transport-bound
+    /// integration tests. This hook is unavailable in release builds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage error when the profile database cannot be opened.
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn open_with_mock_runtime(
+        path: &Path,
+        client: AuthenticatedRuntimeClient,
+    ) -> Result<Self, AppCoreError> {
+        Ok(Self {
+            store: Mutex::new(LocalStore::open(path)?),
+            runtime_profile_path: None,
+            runtime_state: RwLock::new(RuntimeAvailability::Live),
+            runtime_client: RwLock::new(Some(client)),
+            runtime_connect: tokio::sync::Mutex::new(()),
+            runtime_operation: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -296,6 +320,7 @@ impl AppCore {
     /// disposition for diagnostics/UI.
     pub async fn connect_runtime(&self) -> Result<RuntimeAvailability, AppCoreError> {
         let _connect = self.runtime_connect.lock().await;
+        let _operation = self.runtime_operation.lock().await;
         *self
             .runtime_client
             .write()
@@ -348,6 +373,14 @@ impl AppCore {
         &self,
         project_id: i64,
     ) -> Result<ConversationSnapshot, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.open_project_conversation_inner(project_id).await
+    }
+
+    async fn open_project_conversation_inner(
+        &self,
+        project_id: i64,
+    ) -> Result<ConversationSnapshot, AppCoreError> {
         let client = self.live_runtime_client()?;
         let reference = self.load_or_prepare_conversation_reference(project_id)?;
         let identity = replay::StableRuntimeIdentity::from_client(&client);
@@ -393,7 +426,8 @@ impl AppCore {
         project_id: i64,
         text: &str,
     ) -> Result<ConversationSnapshot, AppCoreError> {
-        let current = self.open_project_conversation(project_id).await?;
+        let _operation = self.runtime_operation.lock().await;
+        let current = self.open_project_conversation_inner(project_id).await?;
         let conversation_id = CanonicalId::parse(&current.conversation_id)
             .map_err(|_| AppCoreError::InvalidConversationReference)?;
         let client = self.live_runtime_client()?;
@@ -442,6 +476,7 @@ impl AppCore {
     where
         F: FnMut(ConversationTimelineUpdate) + Send,
     {
+        let operation = self.runtime_operation.lock().await;
         let client = self.live_runtime_client()?;
         let reference = self.load_or_prepare_conversation_reference(project_id)?;
         let identity = replay::StableRuntimeIdentity::from_client(&client);
@@ -509,13 +544,24 @@ impl AppCore {
             Err(error) => return Err(self.map_replay_failure(&error)),
         };
         self.transition_runtime(RuntimeAvailability::Live)?;
+        drop(operation);
 
         loop {
-            match live
-                .next_event()
-                .await
-                .map_err(|error| self.map_replay_failure(&error))?
-            {
+            let event = match live.next_event().await {
+                Ok(event) => event,
+                Err(error) => {
+                    let _operation = self.runtime_operation.lock().await;
+                    if !self.runtime_client_is_current(&client)? {
+                        return Err(AppCoreError::RuntimeUnavailable);
+                    }
+                    return Err(self.map_replay_failure(&error));
+                }
+            };
+            let _operation = self.runtime_operation.lock().await;
+            if !self.runtime_client_is_current(&client)? {
+                return Err(AppCoreError::RuntimeUnavailable);
+            }
+            match event {
                 ReplayStreamEvent::Heartbeat => {}
                 ReplayStreamEvent::Terminal(terminal) => {
                     return Err(self.map_recovery_failure(terminal.recovery_disposition()));
@@ -535,9 +581,9 @@ impl AppCore {
                             return Err(error);
                         }
                     };
-                    live.acknowledge(&delivery)
-                        .await
-                        .map_err(|error| self.map_replay_failure(&error))?;
+                    if let Err(error) = live.acknowledge(&delivery).await {
+                        return Err(self.map_replay_failure(&error));
+                    }
                     if let Some(update) = update {
                         on_update(update);
                     }
@@ -668,6 +714,19 @@ impl AppCore {
             .read()
             .map(|client| client.clone())
             .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn runtime_client_is_current(
+        &self,
+        expected: &AuthenticatedRuntimeClient,
+    ) -> Result<bool, AppCoreError> {
+        Ok(self.runtime_client()?.is_some_and(|current| {
+            current.session_info().session_id == expected.session_info().session_id
+                && current.session_info().daemon_instance_id
+                    == expected.session_info().daemon_instance_id
+                && current.session_info().launch_generation
+                    == expected.session_info().launch_generation
+        }))
     }
 
     fn live_runtime_client(&self) -> Result<AuthenticatedRuntimeClient, AppCoreError> {

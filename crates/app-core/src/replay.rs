@@ -1,6 +1,6 @@
 use gocode_local_store::{
-    LocalStore, ReplayApplyOutcome, ReplayCheckpoint, ReplayScopeKey, ReplayStoreError,
-    ReplayTransition,
+    AppliedReplayEvent, LocalStore, ReplayApplyOutcome, ReplayCheckpoint, ReplayScopeKey,
+    ReplayStoreError, ReplayTransition,
 };
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, CanonicalId, CanonicalReplayPayload, ConversationMessageRole,
@@ -199,7 +199,21 @@ pub fn apply_delivery(
         .as_ref()
         .is_some_and(|current| event.sequence() < current.event_sequence)
     {
-        return Err(AppCoreError::RuntimeIdentityConflict);
+        let confirmed = delivery.persist_with(|handoff| {
+            store.confirm_replay_event_applied(&AppliedReplayEvent {
+                scope: &scope,
+                event_id: &event.event_id().to_string(),
+                cursor: handoff.cursor_value(),
+                generation: identity.launch_generation,
+                event_sequence: event.sequence(),
+                event_bytes: handoff.canonical_event_bytes(),
+                event_digest: handoff.event_digest(),
+            })
+        });
+        return match confirmed.map_err(|error| map_store_error(&error))? {
+            ReplayApplyOutcome::AlreadyApplied { .. } => Ok(None),
+            ReplayApplyOutcome::Applied { .. } => Err(AppCoreError::RuntimeIdentityConflict),
+        };
     }
     let message = if duplicate {
         None

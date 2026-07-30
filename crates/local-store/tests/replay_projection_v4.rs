@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use gocode_local_store::{
-    LocalStore, ReplayApplyOutcome, ReplayCheckpoint, ReplayScopeKey, ReplayStoreError,
-    ReplayTransition, StoreOpenError,
+    AppliedReplayEvent, LocalStore, ReplayApplyOutcome, ReplayCheckpoint, ReplayScopeKey,
+    ReplayStoreError, ReplayTransition, StoreOpenError,
 };
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
@@ -1255,4 +1255,68 @@ fn transition_rejects_empty_cursor_and_invalid_digests_before_mutation() {
             .database_generation,
         1
     );
+}
+
+#[test]
+fn historical_concurrent_duplicate_is_confirmed_without_mutation() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    let (mut store, scope) = create_applied_store(&path);
+    let first_checkpoint = store
+        .replay_checkpoint(&scope)
+        .expect("checkpoint")
+        .expect("first checkpoint");
+    store
+        .apply_replay_transition(&transition(
+            &scope,
+            Some(&first_checkpoint),
+            "event-2",
+            "opaque.cursor.2",
+            3,
+            2,
+            br#"{"eventId":"event-2","sequence":2}"#,
+            2,
+            br#"{"conversationId":"conversation-1","messages":[{"id":"message-1"}]}"#,
+        ))
+        .expect("apply second");
+    let generation_before = store
+        .diagnostics()
+        .expect("diagnostics")
+        .database_generation;
+    let event_bytes = br#"{"eventId":"event-1","sequence":1}"#;
+    let event_digest = digest(event_bytes);
+    let identity = AppliedReplayEvent {
+        scope: &scope,
+        event_id: "event-1",
+        cursor: "opaque.cursor.1",
+        generation: 3,
+        event_sequence: 1,
+        event_bytes,
+        event_digest: &event_digest,
+    };
+
+    assert_eq!(
+        store
+            .confirm_replay_event_applied(&identity)
+            .expect("confirm historical duplicate"),
+        ReplayApplyOutcome::AlreadyApplied {
+            database_generation: generation_before
+        }
+    );
+    assert_eq!(
+        store
+            .diagnostics()
+            .expect("diagnostics")
+            .database_generation,
+        generation_before
+    );
+
+    let changed = AppliedReplayEvent {
+        cursor: "opaque.cursor.changed",
+        ..identity
+    };
+    assert!(matches!(
+        store.confirm_replay_event_applied(&changed),
+        Err(ReplayStoreError::EventIdentityConflict)
+    ));
 }
