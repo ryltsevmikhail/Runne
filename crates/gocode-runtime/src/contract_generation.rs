@@ -11,9 +11,9 @@ use crate::bundle::{
     BUNDLE_ID, GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES,
     RUNTIME_CAPABILITY_CATALOG, TRANSPORT_PROFILE_ID,
 };
-use gocode_api::CanonicalReplayPayloadV1;
+use gocode_api::{ApiReplayBindingId, CanonicalReplayPayloadV1};
 use gocode_domain::conversation::ConversationEvent;
-use gocode_domain::id::{AttemptId, MessageId, TaskRunId};
+use gocode_domain::id::{AttemptId, IntegrityDigest, MessageId, TaskRunId};
 use gocode_domain::message::MessageText;
 use gocode_domain::task_run::TaskRunEvent;
 
@@ -287,8 +287,15 @@ fn canonical_payload_schema() -> Value {
         payload_variant(
             "taskRun.completed",
             &[
-                ("outcome", enum_schema(&["success", "failure"])),
-                ("reason", json!({"oneOf": [reason(), {"type": "null"}]})),
+                ("outcome", json!({"const": "success", "type": "string"})),
+                ("reason", json!({"type": "null"})),
+            ],
+        ),
+        payload_variant(
+            "taskRun.completed",
+            &[
+                ("outcome", json!({"const": "failure", "type": "string"})),
+                ("reason", reason()),
             ],
         ),
         payload_variant("taskRun.failed", &[("reason", reason())]),
@@ -434,7 +441,9 @@ const CANONICAL_EVENT_REQUIRED: &[&str] = &[
     "correlationType",
     "eventId",
     "eventType",
+    "integrityDigest",
     "payload",
+    "replayBindingId",
     "schemaVersion",
     "sensitivity",
     "sequence",
@@ -450,7 +459,9 @@ fn canonical_event_properties() -> Value {
         "correlationType": enum_schema(&["conversation", "taskRun"]),
         "eventId": uuid_v7_schema(),
         "eventType": string_schema(128),
+        "integrityDigest": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
         "payload": {"$ref": "#/$defs/canonicalReplayPayloadV1"},
+        "replayBindingId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
         "schemaVersion": {"const": 1, "type": "integer"},
         "sensitivity": enum_schema(&["public", "internal", "sensitive"]),
         "sequence": positive_integer_schema(),
@@ -717,6 +728,14 @@ fn openapi() -> Value {
             "description": "Canonical response",
         })
     };
+    let session_parameter = || {
+        json!({
+            "in": "path",
+            "name": "sessionId",
+            "required": true,
+            "schema": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
+        })
+    };
     json!({
         "info": {
             "title": "GOCODE Local Runtime API",
@@ -745,21 +764,32 @@ fn openapi() -> Value {
             },
             "/v1/replay/{sessionId}/acknowledge": {
                 "post": {
+                    "parameters": [session_parameter()],
                     "requestBody": request("schemas/replay-v1.schema.json#/$defs/acknowledgeRequest"),
                     "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/acknowledgeResponse")},
                 }
             },
             "/v1/replay/{sessionId}/close": {
-                "post": {"responses": {"204": {"description": "Replay session closed"}}}
+                "post": {
+                    "parameters": [session_parameter()],
+                    "responses": {"204": {"description": "Replay session closed"}}
+                }
             },
             "/v1/replay/{sessionId}/complete-catch-up": {
-                "post": {"responses": {"200": response("schemas/replay-v1.schema.json#/$defs/completeCatchUpResponse")}}
+                "post": {
+                    "parameters": [session_parameter()],
+                    "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/completeCatchUpResponse")}
+                }
             },
             "/v1/replay/{sessionId}/continue-live": {
-                "post": {"responses": {"200": response("schemas/replay-v1.schema.json#/$defs/continueLiveResponse")}}
+                "post": {
+                    "parameters": [session_parameter()],
+                    "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/continueLiveResponse")}
+                }
             },
             "/v1/replay/{sessionId}/events": {
                 "get": {
+                    "parameters": [session_parameter()],
                     "responses": {
                         "200": {
                             "content": {"text/event-stream": {"schema": {"$ref": "schemas/sse-v1.schema.json"}}},
@@ -770,6 +800,7 @@ fn openapi() -> Value {
             },
             "/v1/replay/{sessionId}/read-page": {
                 "post": {
+                    "parameters": [session_parameter()],
                     "requestBody": request("schemas/replay-v1.schema.json#/$defs/readPageRequest"),
                     "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/readPageResponse")},
                 }
@@ -822,7 +853,9 @@ fn replay_conversation_golden() -> Value {
         "cursor": "gocode-replay-cursor-v1.7b7d",
         "eventId": "018f2e3a-7000-7000-8000-000000000112",
         "eventType": "conversation.message.appended",
+        "integrityDigest": integrity_digest_golden(),
         "payload": serde_json::to_value(payload).expect("serialize canonical Conversation payload"),
+        "replayBindingId": replay_binding_id_golden(),
         "schemaVersion": 1,
         "sensitivity": "sensitive",
         "sequence": 2,
@@ -831,11 +864,12 @@ fn replay_conversation_golden() -> Value {
 }
 
 fn replay_taskrun_golden() -> Value {
-    let payload = CanonicalReplayPayloadV1::from(&TaskRunEvent::AttemptStarted {
+    let payload = CanonicalReplayPayloadV1::try_from(&TaskRunEvent::AttemptStarted {
         attempt_id: "018f2e3a-7000-7000-8000-000000000114"
             .parse::<AttemptId>()
             .expect("golden attempt UUIDv7"),
-    });
+    })
+    .expect("golden TaskRun payload is public");
     json!({
         "aggregateId": "018f2e3a-7000-7000-8000-000000000113",
         "aggregateType": "taskRun",
@@ -845,7 +879,9 @@ fn replay_taskrun_golden() -> Value {
         "cursor": "gocode-replay-cursor-v1.7b2261223a317d",
         "eventId": "018f2e3a-7000-7000-8000-000000000116",
         "eventType": "taskRun.attempt.started",
+        "integrityDigest": integrity_digest_golden(),
         "payload": serde_json::to_value(payload).expect("serialize canonical TaskRun payload"),
+        "replayBindingId": replay_binding_id_golden(),
         "schemaVersion": 1,
         "sensitivity": "public",
         "sequence": 4,
@@ -867,4 +903,17 @@ fn sse_delivery_golden() -> Value {
         "replaySessionId": "018f2e3a-7000-7000-8000-000000000118",
         "transportVersion": 1,
     })
+}
+
+fn replay_binding_id_golden() -> String {
+    ApiReplayBindingId::new([
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x21,
+    ])
+    .expect("golden replay binding identity")
+    .to_wire_value()
+}
+
+fn integrity_digest_golden() -> String {
+    hex::encode(IntegrityDigest::from_bytes([0x11; 32]).as_bytes())
 }

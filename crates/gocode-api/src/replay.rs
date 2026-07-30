@@ -1,6 +1,7 @@
 //! Public, transport-neutral replay binding contracts.
 
 use std::collections::BTreeSet;
+use std::fmt::Write as _;
 
 use gocode_domain::agent_loop::{LoopDisposition, StepOutcomeType, WakeEvidenceSource};
 use gocode_domain::command::TerminalResult;
@@ -13,6 +14,9 @@ use serde::Serialize;
 use crate::{
     EphemeralRuntimeBinding, LocalSessionContractError, RuntimeSessionBinding, StableRuntimeBinding,
 };
+
+/// Maximum UTF-8 bytes in a public TaskRun failure reason.
+pub const MAX_CANONICAL_REPLAY_FAILURE_REASON_BYTES: usize = 4096;
 
 /// Aggregate streams exposed through the public replay API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -74,6 +78,18 @@ impl ApiReplayBindingId {
             return Err(ReplayContractError::EmptyBindingId);
         }
         Ok(Self(value))
+    }
+
+    /// Returns the stable opaque lower-hex wire identity.
+    ///
+    /// This is a transport identity only; it does not expose storage position
+    /// or authority material.
+    pub fn to_wire_value(&self) -> String {
+        let mut value = String::with_capacity(32);
+        for byte in self.0 {
+            write!(&mut value, "{byte:02x}").expect("writing to String is infallible");
+        }
+        value
     }
 }
 
@@ -502,6 +518,13 @@ pub enum CanonicalMessageRoleV1 {
     Assistant,
 }
 
+/// Stable failure while adapting a domain event to its bounded public payload.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanonicalReplayPayloadError {
+    /// A failure reason was empty or exceeded the public UTF-8 byte bound.
+    InvalidFailureReason,
+}
+
 impl From<&ConversationEvent> for CanonicalReplayPayloadV1 {
     fn from(event: &ConversationEvent) -> Self {
         match event {
@@ -546,9 +569,11 @@ impl From<&ConversationEvent> for CanonicalReplayPayloadV1 {
     }
 }
 
-impl From<&TaskRunEvent> for CanonicalReplayPayloadV1 {
-    fn from(event: &TaskRunEvent) -> Self {
-        match event {
+impl TryFrom<&TaskRunEvent> for CanonicalReplayPayloadV1 {
+    type Error = CanonicalReplayPayloadError;
+
+    fn try_from(event: &TaskRunEvent) -> Result<Self, Self::Error> {
+        Ok(match event {
             TaskRunEvent::TaskRunCreated => Self::TaskRunCreated,
             TaskRunEvent::TaskRunQueued => Self::TaskRunQueued,
             TaskRunEvent::TaskRunAdmitted => Self::TaskRunAdmitted,
@@ -570,7 +595,9 @@ impl From<&TaskRunEvent> for CanonicalReplayPayloadV1 {
             TaskRunEvent::TaskRunCompleted { result } => {
                 let (outcome, reason) = match result {
                     TerminalResult::Success => ("success", None),
-                    TerminalResult::Failure { reason } => ("failure", Some(reason.clone())),
+                    TerminalResult::Failure { reason } => {
+                        ("failure", Some(bounded_failure_reason(reason)?))
+                    }
                 };
                 Self::TaskRunCompleted {
                     outcome: outcome.to_owned(),
@@ -578,7 +605,7 @@ impl From<&TaskRunEvent> for CanonicalReplayPayloadV1 {
                 }
             }
             TaskRunEvent::TaskRunFailed { reason } => Self::TaskRunFailed {
-                reason: reason.clone(),
+                reason: bounded_failure_reason(reason)?,
             },
             TaskRunEvent::BudgetExhausted => Self::TaskRunBudgetExhausted,
             TaskRunEvent::PolicyDenied => Self::TaskRunPolicyDenied,
@@ -702,8 +729,15 @@ impl From<&TaskRunEvent> for CanonicalReplayPayloadV1 {
                 evidence_id: wake_evidence_ref.evidence_id.to_string(),
                 source: wake_evidence_source(wake_evidence_ref.source).to_owned(),
             },
-        }
+        })
     }
+}
+
+fn bounded_failure_reason(reason: &str) -> Result<String, CanonicalReplayPayloadError> {
+    if reason.is_empty() || reason.len() > MAX_CANONICAL_REPLAY_FAILURE_REASON_BYTES {
+        return Err(CanonicalReplayPayloadError::InvalidFailureReason);
+    }
+    Ok(reason.to_owned())
 }
 
 const fn generation_failure_reason(reason: GenerationFailureReason) -> &'static str {
