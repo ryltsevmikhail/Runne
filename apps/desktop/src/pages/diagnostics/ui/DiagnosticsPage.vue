@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
         databaseSchemaVersion: 3,
         databaseGeneration: 1,
         projectCount: 0,
+        runtimeMode: 'external_local',
         runtime: 'unconfigured',
       },
 })
