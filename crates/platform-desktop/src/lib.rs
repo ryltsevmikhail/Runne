@@ -3,6 +3,8 @@
 mod protected_runtime;
 
 pub use gocode_api::PROTECTED_BUNDLED_SESSION_RENEW_AFTER;
+#[cfg(feature = "test-support")]
+pub use protected_runtime::FirstActivationFaultPoint;
 pub use protected_runtime::{
     DevelopmentBundledRuntimeLauncher, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,

@@ -139,6 +139,14 @@ impl RuntimeSessionAuthority {
         wire.zeroize();
         Ok(header)
     }
+
+    /// Copies the authority only for test-support forbidden-sink audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_material(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(**self.bytes)
+    }
 }
 
 pub type RuntimeCredential = RuntimeSessionAuthority;
@@ -207,6 +215,14 @@ impl AuthenticatedRuntimeClient {
     #[must_use]
     pub const fn transport_kind(&self) -> RuntimeTransportKind {
         self.transport_kind
+    }
+
+    /// Copies the in-memory session authority only for test-support leak audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_session_authority(&self) -> Zeroizing<[u8; 32]> {
+        self.authority.test_material()
     }
 
     pub(crate) const fn from_local_session(

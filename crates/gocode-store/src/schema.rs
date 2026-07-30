@@ -84,40 +84,66 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     }
 }
 
+#[cfg(unix)]
+fn admitted_files() -> &'static Mutex<Vec<FileIdentity>> {
+    static FILES: OnceLock<Mutex<Vec<FileIdentity>>> = OnceLock::new();
+    FILES.get_or_init(|| Mutex::new(Vec::new()))
+}
+
+#[cfg(windows)]
 fn admitted_paths() -> &'static Mutex<Vec<PathBuf>> {
     static PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
     PATHS.get_or_init(|| Mutex::new(Vec::new()))
 }
 
 fn identity_is_admitted(path: &Path) -> Result<bool, SchemaOpenDiagnostic> {
-    admitted_paths()
-        .lock()
-        .map(|paths| {
-            paths.iter().any(|admitted| {
-                #[cfg(unix)]
-                {
-                    file_identity(admitted).ok() == file_identity(path).ok()
-                }
-                #[cfg(windows)]
-                {
-                    same_file::is_same_file(admitted, path).unwrap_or(false)
-                }
+    #[cfg(unix)]
+    {
+        let identity = file_identity(path)?;
+        admitted_files()
+            .lock()
+            .map(|files| files.contains(&identity))
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+    }
+    #[cfg(windows)]
+    {
+        admitted_paths()
+            .lock()
+            .map(|paths| {
+                paths
+                    .iter()
+                    .any(|admitted| same_file::is_same_file(admitted, path).unwrap_or(false))
             })
-        })
-        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+    }
 }
 
 fn admit_identity(path: &Path) -> Result<(), SchemaOpenDiagnostic> {
-    file_identity(path)?;
-    let canonical =
+    #[cfg(unix)]
+    {
+        let identity = file_identity(path)?;
         fs::canonicalize(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-    let mut paths = admitted_paths()
-        .lock()
-        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-    if !paths.iter().any(|admitted| admitted == &canonical) {
-        paths.push(canonical);
+        let mut files = admitted_files()
+            .lock()
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        if !files.contains(&identity) {
+            files.push(identity);
+        }
+        Ok(())
     }
-    Ok(())
+    #[cfg(windows)]
+    {
+        file_identity(path)?;
+        let canonical =
+            fs::canonicalize(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        let mut paths = admitted_paths()
+            .lock()
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        if !paths.iter().any(|admitted| admitted == &canonical) {
+            paths.push(canonical);
+        }
+        Ok(())
+    }
 }
 
 fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
@@ -186,6 +212,102 @@ pub fn open_existing_read_only(db_path: &Path) -> SqliteResult<Connection> {
             | OpenFlags::SQLITE_OPEN_URI
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
+}
+
+/// Validates an owner-private hot-WAL file set, runs an exact read-only
+/// protected-runtime check, and admits only that unchanged file identity for
+/// the next writable open in this process.
+///
+/// This is deliberately separate from [`open_existing_read_only`]: arbitrary
+/// databases with WAL sidecars remain rejected. The caller must validate its
+/// signed stable runtime binding in `validate`; a rejected validation never
+/// admits the file for a writable open.
+pub fn with_protected_recovery_read_only_admission<F>(
+    db_path: &Path,
+    validate: F,
+) -> SqliteResult<()>
+where
+    F: FnOnce(&Connection) -> SqliteResult<()>,
+{
+    #[cfg(not(unix))]
+    {
+        let _ = (db_path, validate);
+        return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
+    }
+    #[cfg(unix)]
+    {
+        validate_owner_private_recovery_files(db_path).map_err(diagnostic_error)?;
+        let identity = file_identity(db_path).map_err(diagnostic_error)?;
+        let connection = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        classify_existing_connection(&connection)?;
+        validate(&connection)?;
+        if file_identity(db_path).map_err(diagnostic_error)? != identity {
+            return Err(diagnostic_error(
+                SchemaOpenDiagnostic::FileIdentityUncertain,
+            ));
+        }
+        validate_owner_private_recovery_files(db_path).map_err(diagnostic_error)?;
+        admit_identity(db_path).map_err(diagnostic_error)
+    }
+}
+
+#[cfg(unix)]
+fn validate_owner_private_recovery_files(db_path: &Path) -> Result<(), SchemaOpenDiagnostic> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    if !db_path.is_absolute() || !path_is_safe(db_path) || !existing_sidecar_present(db_path) {
+        return Err(SchemaOpenDiagnostic::SidecarPresent);
+    }
+    let daemon_dir = db_path
+        .parent()
+        .ok_or(SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    let runtime_root = daemon_dir
+        .parent()
+        .ok_or(SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    let root_metadata = fs::symlink_metadata(runtime_root)
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    if root_metadata.file_type().is_symlink()
+        || !root_metadata.is_dir()
+        || root_metadata.mode() & 0o077 != 0
+    {
+        return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
+    }
+    let owner = root_metadata.uid();
+    let daemon_metadata = fs::symlink_metadata(daemon_dir)
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    if daemon_metadata.file_type().is_symlink()
+        || !daemon_metadata.is_dir()
+        || daemon_metadata.uid() != owner
+        || daemon_metadata.mode() & 0o077 != 0
+    {
+        return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
+    }
+
+    for path in [
+        db_path.to_path_buf(),
+        sidecar_path(db_path, "-wal"),
+        sidecar_path(db_path, "-shm"),
+    ] {
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if path != db_path && error.kind() == std::io::ErrorKind::NotFound => {
+                continue;
+            }
+            Err(_) => return Err(SchemaOpenDiagnostic::FileIdentityUncertain),
+        };
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.uid() != owner
+            || metadata.mode() & 0o077 != 0
+            || metadata.nlink() != 1
+        {
+            return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
+        }
+    }
+    Ok(())
 }
 
 fn existing_sidecar_present(db_path: &Path) -> bool {
@@ -1834,6 +1956,8 @@ pub fn secure_dir_permissions(_path: &std::path::Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use rusqlite::params;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt as _;
 
     const TEST_ID: [u8; 16] = [0x42; 16];
 
@@ -1866,6 +1990,127 @@ mod tests {
 
         assert!(!sidecar_path(&path, "-wal").exists());
         assert!(!sidecar_path(&path, "-shm").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protected_recovery_admits_only_an_exact_owner_private_hot_wal_identity() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime_root = temporary.path().join("runtime");
+        let daemon_dir = runtime_root.join("gocode-daemon");
+        fs::create_dir_all(&daemon_dir).unwrap();
+        fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(&daemon_dir, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = daemon_dir.join("event-log.db");
+        let writer = Connection::open(&path).unwrap();
+        writer.execute_batch("PRAGMA journal_mode = WAL;").unwrap();
+        apply_migrations(&writer).unwrap();
+        let reader = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        reader
+            .execute_batch("BEGIN; SELECT * FROM schema_version;")
+            .unwrap();
+        writer
+            .execute(
+                "INSERT INTO _daemon_info (key, value) VALUES ('protected-test-hot-wal', '1')",
+                [],
+            )
+            .unwrap();
+        for file in [
+            path.clone(),
+            sidecar_path(&path, "-wal"),
+            sidecar_path(&path, "-shm"),
+        ] {
+            fs::set_permissions(file, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+
+        assert!(preflight_existing_file(&path).is_err());
+        assert!(
+            with_protected_recovery_read_only_admission(&path, |_| {
+                Err(rusqlite::Error::InvalidQuery)
+            })
+            .is_err()
+        );
+        assert!(preflight_existing_file(&path).is_err());
+
+        with_protected_recovery_read_only_admission(&path, |connection| {
+            let value: String = connection.query_row(
+                "SELECT value FROM _daemon_info WHERE key = 'protected-test-hot-wal'",
+                [],
+                |row| row.get(0),
+            )?;
+            if value == "1" {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        })
+        .unwrap();
+        preflight_existing_file(&path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn protected_recovery_rejects_non_private_or_linked_file_sets() {
+        let temporary = tempfile::tempdir().unwrap();
+        let runtime_root = temporary.path().join("runtime");
+        let daemon_dir = runtime_root.join("gocode-daemon");
+        fs::create_dir_all(&daemon_dir).unwrap();
+        fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o700)).unwrap();
+        fs::set_permissions(&daemon_dir, fs::Permissions::from_mode(0o700)).unwrap();
+        let path = daemon_dir.join("event-log.db");
+        fs::write(&path, [1]).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        let unrelated = daemon_dir.join("unrelated");
+        fs::write(&unrelated, [2]).unwrap();
+        fs::set_permissions(&unrelated, fs::Permissions::from_mode(0o600)).unwrap();
+        std::os::unix::fs::symlink(&unrelated, sidecar_path(&path, "-wal")).unwrap();
+
+        assert!(
+            with_protected_recovery_read_only_admission(&path, |_| Ok(())).is_err(),
+            "a linked WAL must fail before SQLite admission"
+        );
+        fs::remove_file(sidecar_path(&path, "-wal")).unwrap();
+        std::os::unix::fs::symlink(daemon_dir.join("missing"), sidecar_path(&path, "-wal"))
+            .unwrap();
+        fs::write(sidecar_path(&path, "-shm"), [4]).unwrap();
+        fs::set_permissions(
+            sidecar_path(&path, "-shm"),
+            fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        assert!(
+            with_protected_recovery_read_only_admission(&path, |_| Ok(())).is_err(),
+            "a dangling sidecar link must fail before SQLite admission"
+        );
+        fs::remove_file(sidecar_path(&path, "-wal")).unwrap();
+        fs::remove_file(sidecar_path(&path, "-shm")).unwrap();
+        fs::write(sidecar_path(&path, "-wal"), [3]).unwrap();
+        fs::set_permissions(
+            sidecar_path(&path, "-wal"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
+        assert!(
+            with_protected_recovery_read_only_admission(&path, |_| Ok(())).is_err(),
+            "a group/world-readable WAL must fail before SQLite admission"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn admitted_database_identity_does_not_follow_path_replacement() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("event-log.db");
+        fs::write(&path, [1]).unwrap();
+        admit_identity(&path).unwrap();
+        assert!(identity_is_admitted(&path).unwrap());
+
+        fs::rename(&path, temporary.path().join("original.db")).unwrap();
+        fs::write(&path, [2]).unwrap();
+        assert!(
+            !identity_is_admitted(&path).unwrap(),
+            "admission must bind the file identity, not only its path"
+        );
     }
 
     #[test]

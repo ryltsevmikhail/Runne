@@ -4,6 +4,10 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-support = []
+
 [dependencies]
 gocode-domain = { path = "../gocode-domain" }
 gocode-plugin-protocol = { path = "../gocode-plugin-protocol" }

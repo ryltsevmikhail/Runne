@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-support = ["gocode-api/test-support", "gocode-runtime-client/test-support"]
+
 [dependencies]
 gocode-api = { path = "../gocode-api" }
 gocode-platform-ports = { path = "../platform-ports" }
