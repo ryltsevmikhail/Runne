@@ -196,9 +196,13 @@ export async function subscribeProjectConversation(
       await terminate('incompatible')
       return
     }
-    timeline = createConversationTimeline(snapshot)
-    onTimeline(timeline.snapshot)
+    const reconciledTimeline = createConversationTimeline(snapshot)
     await startSubscription()
+    if (closed) {
+      return
+    }
+    timeline = reconciledTimeline
+    onTimeline(timeline.snapshot)
   }
 
   const handleEvent = async (
