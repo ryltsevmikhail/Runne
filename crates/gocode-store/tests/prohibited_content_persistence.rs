@@ -134,9 +134,15 @@ fn assert_denied_without_mutation(mode: GuardMode) {
     let before = row_counts(path, conversation_id);
 
     let generate = context("018f2e3a-7000-7000-8000-000000000074", "denied-generation");
+    let denied_store =
+        StoreTransaction::open(path, authority.clone(), Arc::new(BoundaryGuard { mode })).unwrap();
+    let text = match mode {
+        GuardMode::Marker => std::str::from_utf8(MARKER).unwrap(),
+        GuardMode::Unavailable => "safe-persistence-payload",
+    };
     let service = ConversationTextService::new(
-        store,
-        StoreTransaction::open(path, authority.clone(), Arc::new(BoundaryGuard { mode })).unwrap(),
+        denied_store.clone(),
+        denied_store,
         authority,
         Arc::new(AvailableGuard),
     );
@@ -145,7 +151,7 @@ fn assert_denied_without_mutation(mode: GuardMode) {
         BeginConversationTextInput {
             conversation_id,
             expected_version: 1,
-            text: MessageText::new(std::str::from_utf8(MARKER).unwrap()).unwrap(),
+            text: MessageText::new(text).unwrap(),
         },
     );
 

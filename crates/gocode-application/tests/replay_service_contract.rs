@@ -4,11 +4,27 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gocode_application::ports::{ReplayError, ReplayEvent, ReplaySession, ReplayStorePort};
-use gocode_application::replay_service::ReplayService;
+use gocode_application::replay_service::{ReplayDeliveryPrecommitGuard, ReplayService};
 use gocode_domain::id::EventLogLineageId;
 use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope};
 
 struct DummyStore;
+
+struct AvailableDeliveryGuard;
+
+impl ReplayDeliveryPrecommitGuard for AvailableDeliveryGuard {
+    fn inspect(
+        &self,
+        _session: &ReplaySession,
+        _events: &[ReplayEvent],
+    ) -> Result<(), ReplayError> {
+        Ok(())
+    }
+}
+
+fn delivery_guard() -> Arc<dyn ReplayDeliveryPrecommitGuard> {
+    Arc::new(AvailableDeliveryGuard)
+}
 
 fn event() -> ReplayEvent {
     ReplayEvent {
@@ -52,6 +68,7 @@ impl ReplayStorePort for DummyStore {
         _: &[u8; 16],
         _: Option<&ReplayCursor>,
         _: &[u8; 32],
+        _: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }
@@ -63,6 +80,7 @@ impl ReplayStorePort for DummyStore {
         _: &[u8; 16],
         _: i64,
         _: usize,
+        _: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }
@@ -105,6 +123,7 @@ impl ReplayStorePort for DummyStore {
         _: i64,
         _: &[u8; 16],
         _: i64,
+        _: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }
@@ -136,6 +155,7 @@ fn cursor_integrity_rejects_tampering() {
         1,
         &[2; 16],
         Some(cursor),
+        delivery_guard(),
     ));
     assert!(matches!(result, Err(ReplayError::CursorInvalid { .. })));
 }

@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use gocode_application::ports::{
     ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
 };
+use gocode_application::replay_service::ReplayDeliveryPrecommitGuard;
 use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
 use gocode_domain::id::{
@@ -654,6 +655,7 @@ impl ReplayStorePort for ReplayStore {
         aggregate_id: &[u8; 16],
         from_cursor: Option<&ReplayCursor>,
         server_secret: &[u8; 32],
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         let conn = Arc::clone(&self.conn);
         let principal_id = principal_id.to_string();
@@ -785,6 +787,27 @@ impl ReplayStorePort for ReplayStore {
             } else {
                 None
             };
+            let candidate = ReplaySession {
+                session_id,
+                principal_id: principal_id.clone(),
+                session_generation,
+                authority_id,
+                authorization_epoch,
+                aggregate_type,
+                aggregate_id: aggregate_id_copy,
+                retained_floor: None,
+                retention_generation: 0,
+                high_water_position: high_water,
+                next_page_position: next_page,
+                last_delivered_position: last_delivered,
+                last_acked_position: None,
+                state: ReplayState::CatchingUp,
+                high_water_ref: high_water_ref.clone(),
+                catch_up_completion: None,
+                live_delivery_id: None,
+                created_at: String::new(),
+            };
+            delivery_guard.inspect(&candidate, &events)?;
 
             // Insert session row with computed cursors
             tx.execute(
@@ -848,6 +871,7 @@ impl ReplayStorePort for ReplayStore {
         authority_id: &[u8; 16],
         epoch: i64,
         limit: usize,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         if limit == 0 {
             return Err(ReplayError::Integrity(
@@ -958,18 +982,27 @@ impl ReplayStorePort for ReplayStore {
             let has_more = events.len() > limit;
             events.truncate(limit);
 
-            // Update cursors if events were delivered
-            if let Some(last_event) = events.last() {
-                let next_page = if has_more {
+            let next_page = match events.last() {
+                Some(last_event) if has_more => {
                     Some(last_event.global_position.checked_add(1).ok_or_else(|| {
                         ReplayError::Integrity(
                             "global position overflow while reading replay page".to_string(),
                         )
                     })?)
-                } else {
-                    None
-                };
+                }
+                Some(_) => None,
+                None => session.next_page_position,
+            };
+            let mut candidate = session.clone();
+            if let Some(last_event) = events.last() {
+                candidate.last_delivered_position = Some(last_event.global_position);
+                candidate.next_page_position = next_page;
+            }
+            delivery_guard.inspect(&candidate, &events)?;
 
+            // Commit cursors only after the transport has classified the exact
+            // serialized delivery.
+            if let Some(last_event) = events.last() {
                 conn.execute(
                     "UPDATE _replay_subscriptions
                      SET last_delivered_position = ?1,
@@ -1337,6 +1370,7 @@ impl ReplayStorePort for ReplayStore {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         let conn = Arc::clone(&self.conn);
         let session_id = *session_id;
@@ -1426,7 +1460,14 @@ impl ReplayStorePort for ReplayStore {
 
             validate_contiguous_sequence(&events, expected_first)?;
 
-            // Update last_delivered_position if events were delivered
+            let mut candidate = session.clone();
+            if let Some(last_event) = events.last() {
+                candidate.last_delivered_position = Some(last_event.global_position);
+            }
+            delivery_guard.inspect(&candidate, &events)?;
+
+            // Commit progress only after the transport has classified the
+            // exact serialized live deliveries.
             if let Some(last_event) = events.last() {
                 conn.execute(
                     "UPDATE _replay_subscriptions
