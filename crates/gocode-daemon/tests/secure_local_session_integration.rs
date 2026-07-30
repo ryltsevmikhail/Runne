@@ -90,6 +90,12 @@ async fn production_v1_database_upgrades_without_reusing_legacy_authority_or_tok
             rusqlite::params![legacy_authority.as_slice()],
         )
         .expect("install production-v1 authority");
+    connection
+        .execute(
+            "DELETE FROM _daemon_info WHERE key = 'local_session_sidecars_v1'",
+            [],
+        )
+        .expect("remove post-v1 migration marker");
     drop(connection);
     let database_path = PathBuf::from(&config.db_path);
     let runtime_directory = database_path
@@ -105,6 +111,8 @@ async fn production_v1_database_upgrades_without_reusing_legacy_authority_or_tok
 
     std::fs::remove_file(&config.replay_integrity_key_path)
         .expect("production-v1 has no replay key");
+    std::fs::remove_file(database_path.with_file_name("local-session-authority-id"))
+        .expect("production-v1 has no local authority sidecar");
     let legacy_token_path = database_path.with_file_name("token.json");
     let legacy_token = [0x2a; 32];
     std::fs::write(&legacy_token_path, legacy_token).expect("legacy bearer marker");

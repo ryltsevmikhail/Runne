@@ -17,6 +17,12 @@ impl ReplayIntegrityKey {
         mac.update(message);
         mac.finalize().into_bytes().into()
     }
+
+    pub(crate) fn sidecar_digest(&self) -> [u8; 32] {
+        use sha2::Digest;
+
+        sha2::Sha256::digest(self.0).into()
+    }
 }
 
 /// Redacted failures from replay-integrity-key lifecycle operations.
@@ -50,6 +56,11 @@ impl ReplayIntegrityKeyManager {
             Err(ReplayIntegrityKeyError::Io) if !path.exists() => Self::provision(path),
             Err(error) => Err(error),
         }
+    }
+
+    /// Loads an already-established key without provisioning a replacement.
+    pub fn load_existing(path: &Path) -> Result<ReplayIntegrityKey, ReplayIntegrityKeyError> {
+        Self::load(path)
     }
 
     fn provision(path: &Path) -> Result<ReplayIntegrityKey, ReplayIntegrityKeyError> {
