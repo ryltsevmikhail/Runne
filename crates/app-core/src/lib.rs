@@ -75,6 +75,20 @@ pub enum RuntimeAvailability {
     Fatal,
 }
 
+/// Closed host-owned runtime launch mode exposed to the renderer without
+/// connection details.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeMode {
+    #[default]
+    ExternalLocal,
+    Bundled,
+}
+
+impl RuntimeMode {
+    pub const ALL: [Self; 2] = [Self::ExternalLocal, Self::Bundled];
+}
+
 /// Invalid success-path runtime transition.
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 #[error("runtime connection transition is invalid")]
@@ -143,6 +157,7 @@ impl RuntimeAvailability {
 #[derive(Debug, Eq, PartialEq, Serialize)]
 pub struct BootstrapState {
     pub theme: String,
+    pub runtime_mode: RuntimeMode,
     pub runtime: RuntimeAvailability,
 }
 
@@ -154,6 +169,7 @@ pub struct DiagnosticsSnapshot {
     pub database_schema_version: u32,
     pub database_generation: u64,
     pub project_count: u64,
+    pub runtime_mode: RuntimeMode,
     pub runtime: RuntimeAvailability,
 }
 
@@ -221,6 +237,7 @@ impl From<LocalProject> for ProjectSummary {
 
 pub struct AppCore {
     store: Mutex<LocalStore>,
+    runtime_mode: RuntimeMode,
     runtime_profile_path: Option<PathBuf>,
     runtime_state: RwLock<RuntimeAvailability>,
     pending_resync_scopes: RwLock<HashSet<ReplayScopeKey>>,
@@ -236,7 +253,7 @@ impl AppCore {
     ///
     /// Returns a storage error when the profile cannot be opened or migrated.
     pub fn open(path: &Path) -> Result<Self, AppCoreError> {
-        Self::open_internal(path, None)
+        Self::open_internal(path, RuntimeMode::ExternalLocal, None)
     }
 
     /// Opens the application service with one host-owned runtime profile path.
@@ -251,7 +268,7 @@ impl AppCore {
         path: &Path,
         runtime_profile_path: PathBuf,
     ) -> Result<Self, AppCoreError> {
-        Self::open_internal(path, Some(runtime_profile_path))
+        Self::open_internal(path, RuntimeMode::ExternalLocal, Some(runtime_profile_path))
     }
 
     /// Opens the application service with the standard daemon-owned local
@@ -266,12 +283,32 @@ impl AppCore {
         Self::open_with_runtime_profile(path, profile_path)
     }
 
+    /// Opens the application service with an explicit host-owned runtime mode.
+    ///
+    /// Bundled mode is intentionally unavailable until a supervised launch path
+    /// can supply protected runtime credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns a storage or external-local profile-resolution error.
+    pub fn open_with_runtime_mode(
+        path: &Path,
+        runtime_mode: RuntimeMode,
+    ) -> Result<Self, AppCoreError> {
+        match runtime_mode {
+            RuntimeMode::ExternalLocal => Self::open_with_default_runtime_profile(path),
+            RuntimeMode::Bundled => Self::open_internal(path, RuntimeMode::Bundled, None),
+        }
+    }
+
     fn open_internal(
         path: &Path,
+        runtime_mode: RuntimeMode,
         runtime_profile_path: Option<PathBuf>,
     ) -> Result<Self, AppCoreError> {
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
+            runtime_mode,
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
             pending_resync_scopes: RwLock::new(HashSet::new()),
@@ -295,6 +332,7 @@ impl AppCore {
     ) -> Result<Self, AppCoreError> {
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
+            runtime_mode: RuntimeMode::ExternalLocal,
             runtime_profile_path: None,
             runtime_state: RwLock::new(RuntimeAvailability::Live),
             pending_resync_scopes: RwLock::new(HashSet::new()),
@@ -322,6 +360,7 @@ impl AppCore {
             .map_err(|_| AppCoreError::StateUnavailable)?;
         let mut bootstrap = load_bootstrap(&store)?;
         drop(store);
+        bootstrap.runtime_mode = self.runtime_mode;
         bootstrap.runtime = self.effective_runtime_availability()?;
         Ok(bootstrap)
     }
@@ -340,6 +379,10 @@ impl AppCore {
             .runtime_client
             .write()
             .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        if self.runtime_mode == RuntimeMode::Bundled {
+            self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
         let profile_path = self
             .runtime_profile_path
             .as_deref()
@@ -787,6 +830,7 @@ impl AppCore {
             database_schema_version: local.schema_version,
             database_generation: local.database_generation,
             project_count: local.project_count,
+            runtime_mode: self.runtime_mode,
             runtime: self.effective_runtime_availability()?,
         })
     }
@@ -1224,6 +1268,7 @@ pub fn load_bootstrap(store: &LocalStore) -> Result<BootstrapState, AppCoreError
     };
     Ok(BootstrapState {
         theme,
+        runtime_mode: RuntimeMode::ExternalLocal,
         runtime: RuntimeAvailability::Unconfigured,
     })
 }
@@ -1231,8 +1276,8 @@ pub fn load_bootstrap(store: &LocalStore) -> Result<BootstrapState, AppCoreError
 #[cfg(test)]
 mod tests {
     use super::{
-        AppCore, BootstrapState, CanonicalId, RuntimeAvailability, StoredConversationReference,
-        StoredConversationReferenceV1, load_bootstrap,
+        AppCore, BootstrapState, CanonicalId, RuntimeAvailability, RuntimeMode,
+        StoredConversationReference, StoredConversationReferenceV1, load_bootstrap,
     };
     use crate::replay::StableRuntimeIdentity;
     use gocode_local_store::LocalStore;
@@ -1249,6 +1294,7 @@ mod tests {
         assert_eq!(
             BootstrapState {
                 theme: "light".to_owned(),
+                runtime_mode: RuntimeMode::ExternalLocal,
                 runtime: RuntimeAvailability::Unconfigured,
             },
             load_bootstrap(&store).expect("load bootstrap")

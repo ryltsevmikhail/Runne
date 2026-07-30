@@ -8,7 +8,7 @@ use conversation_channel::{
 };
 use gocode_app_core::{
     AppCore, BootstrapState, ConversationSnapshot, DiagnosticsSnapshot, ProjectSummary,
-    RuntimeAvailability,
+    RuntimeAvailability, RuntimeMode,
 };
 use gocode_platform_desktop::ProfileLock;
 use serde::Serialize;
@@ -193,8 +193,9 @@ pub fn run() {
             let profile_directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&profile_directory)?;
             let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
-            let core = AppCore::open_with_default_runtime_profile(
+            let core = AppCore::open_with_runtime_mode(
                 &profile_directory.join("profile.sqlite3"),
+                RuntimeMode::ExternalLocal,
             )?;
             app.manage(profile_lock);
             app.manage(Arc::new(core));

@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
-import { isRuntimeConnectionState } from './bootstrap'
-import type { RuntimeConnectionState } from './bootstrap'
+import { isRuntimeConnectionState, isRuntimeMode } from './bootstrap'
+import type { RuntimeConnectionState, RuntimeMode } from './bootstrap'
 
 export interface DiagnosticsSnapshot {
   readonly appVersion: string
@@ -8,6 +8,7 @@ export interface DiagnosticsSnapshot {
   readonly databaseSchemaVersion: number
   readonly databaseGeneration: number
   readonly projectCount: number
+  readonly runtimeMode: RuntimeMode
   readonly runtime: RuntimeConnectionState
 }
 
@@ -29,12 +30,13 @@ function isDiagnosticsSnapshot(value: unknown): value is DiagnosticsSnapshot {
   }
   const record = value as Record<string, unknown>
   return (
-    Object.keys(record).length === 6
+    Object.keys(record).length === 7
     && typeof record.appVersion === 'string'
     && typeof record.platform === 'string'
     && Number.isSafeInteger(record.databaseSchemaVersion)
     && Number.isSafeInteger(record.databaseGeneration)
     && Number.isSafeInteger(record.projectCount)
+    && isRuntimeMode(record.runtimeMode)
     && isRuntimeConnectionState(record.runtime)
   )
 }
