@@ -52,10 +52,8 @@ uuid_v7_newtype!(GrantId, "Идентификатор CapabilityGrant — UUIDv7
 /// that could reveal its provider, label, or value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SecretRef {
-    /// Fresh UUIDv7 identity allocated by the secret broker.
-    pub secret_ref_id: SecretRefId,
-    /// Positive version of the secret material.
-    pub version: u64,
+    secret_ref_id: SecretRefId,
+    version: u64,
 }
 
 impl SecretRef {
@@ -68,6 +66,16 @@ impl SecretRef {
             secret_ref_id,
             version,
         })
+    }
+
+    /// Returns the opaque UUIDv7 identity allocated by the broker.
+    pub fn secret_ref_id(&self) -> SecretRefId {
+        self.secret_ref_id
+    }
+
+    /// Returns the positive material version.
+    pub fn version(&self) -> u64 {
+        self.version
     }
 }
 

@@ -4,25 +4,27 @@ use gocode_application::prohibited_content::{
 };
 use gocode_security::SecretBroker;
 
+const MARKER: &[u8] = b"inert-secret-marker-\xfb\xff";
+
 fn assert_prohibited(disposition: ContentDisposition) {
     assert!(matches!(disposition, ContentDisposition::Prohibited { .. }));
 }
 
 #[test]
 fn rejects_registered_non_empty_value_and_exact_encodings() {
-    let marker = b"inert-secret-marker-42";
+    let marker = MARKER;
     let mut broker = SecretBroker::new();
     broker.register("test marker", marker.to_vec()).unwrap();
     let guard = broker.prohibited_content_guard();
 
     let standard = base64::engine::general_purpose::STANDARD.encode(marker);
+    let url_safe = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(marker);
+    assert_ne!(standard.trim_end_matches('='), url_safe);
     let cases = [
         marker.to_vec(),
         standard.as_bytes().to_vec(),
         standard.trim_end_matches('=').as_bytes().to_vec(),
-        base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(marker)
-            .into_bytes(),
+        url_safe.into_bytes(),
         hex::encode(marker).into_bytes(),
         hex::encode_upper(marker).into_bytes(),
     ];
@@ -52,7 +54,7 @@ fn allows_unregistered_credential_looking_text() {
 
 #[test]
 fn revoked_values_no_longer_match_after_epoch_advances() {
-    let marker = b"inert-secret-marker-42";
+    let marker = MARKER;
     let mut broker = SecretBroker::new();
     let secret_ref = broker.register("test marker", marker.to_vec()).unwrap();
     let guard = broker.prohibited_content_guard();
@@ -84,9 +86,7 @@ fn revoked_values_no_longer_match_after_epoch_advances() {
 #[test]
 fn typed_secret_value_is_rejected_without_materializing_it() {
     let mut broker = SecretBroker::new();
-    let secret_ref = broker
-        .register("test marker", b"inert-secret-marker-42".to_vec())
-        .unwrap();
+    let secret_ref = broker.register("test marker", MARKER.to_vec()).unwrap();
     let handle = broker.resolve(&secret_ref, true).unwrap();
     let guard = broker.prohibited_content_guard();
 

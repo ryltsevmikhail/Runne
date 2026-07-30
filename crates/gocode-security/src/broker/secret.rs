@@ -4,7 +4,7 @@ use base64::Engine;
 use gocode_domain::id::SecretRefId;
 use gocode_domain::security::SecretRef;
 use uuid::Uuid;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::prohibited_content::{ProhibitedContentGuard, SharedSecretRegistry};
 
@@ -123,7 +123,7 @@ impl SecretRegistryState {
     }
 
     fn rebuild_representations(&mut self) {
-        self.derived_representations.clear();
+        self.derived_representations.zeroize();
         let mut next = Vec::new();
         for entry in self.secrets.values() {
             if entry.state == SecretState::Active && !entry.value.bytes().is_empty() {
@@ -182,7 +182,7 @@ impl SecretBroker {
             SecretEntry {
                 value: SecretValue::new(value),
                 state: SecretState::Active,
-                version: secret_ref.version,
+                version: secret_ref.version(),
                 _name: name.to_owned(),
             },
         );
@@ -205,12 +205,12 @@ impl SecretBroker {
         }
         let entry = state
             .secrets
-            .get(&secret_ref.secret_ref_id)
+            .get(&secret_ref.secret_ref_id())
             .ok_or(SecretError::ReferenceNotFound)?;
         if entry.state == SecretState::Revoked {
             return Err(SecretError::ReferenceRevoked);
         }
-        if entry.version != secret_ref.version {
+        if entry.version != secret_ref.version() {
             return Err(SecretError::ReferenceVersionMismatch);
         }
         let next_version = entry
@@ -220,12 +220,13 @@ impl SecretBroker {
         state.advance_epoch()?;
         let entry = state
             .secrets
-            .get_mut(&secret_ref.secret_ref_id)
+            .get_mut(&secret_ref.secret_ref_id())
             .ok_or(SecretError::Unavailable)?;
         entry.value = SecretValue::new(value);
         entry.version = next_version;
         state.rebuild_representations();
-        SecretRef::new(secret_ref.secret_ref_id, next_version).map_err(|_| SecretError::Unavailable)
+        SecretRef::new(secret_ref.secret_ref_id(), next_version)
+            .map_err(|_| SecretError::Unavailable)
     }
 
     pub fn resolve(
@@ -242,11 +243,11 @@ impl SecretBroker {
         }
         let entry = state
             .secrets
-            .get(&secret_ref.secret_ref_id)
+            .get(&secret_ref.secret_ref_id())
             .ok_or(SecretError::ReferenceNotFound)?;
         match entry.state {
             SecretState::Revoked => Err(SecretError::ReferenceRevoked),
-            SecretState::Active if entry.version != secret_ref.version => {
+            SecretState::Active if entry.version != secret_ref.version() => {
                 Err(SecretError::ReferenceVersionMismatch)
             }
             SecretState::Active => Ok(SecretHandle {
@@ -267,16 +268,16 @@ impl SecretBroker {
         }
         let entry = state
             .secrets
-            .get(&secret_ref.secret_ref_id)
+            .get(&secret_ref.secret_ref_id())
             .ok_or(SecretError::ReferenceNotFound)?;
-        if entry.version != secret_ref.version {
+        if entry.version != secret_ref.version() {
             return Err(SecretError::ReferenceVersionMismatch);
         }
         if entry.state == SecretState::Active {
             state.advance_epoch()?;
             let entry = state
                 .secrets
-                .get_mut(&secret_ref.secret_ref_id)
+                .get_mut(&secret_ref.secret_ref_id())
                 .ok_or(SecretError::Unavailable)?;
             entry.state = SecretState::Revoked;
             state.rebuild_representations();
