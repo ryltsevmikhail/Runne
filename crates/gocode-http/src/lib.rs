@@ -17,5 +17,6 @@ pub mod queries;
 pub mod replay;
 pub mod router;
 pub mod runtime_profile;
+pub mod secure_local_host;
 pub mod sse;
 pub mod task_runs;

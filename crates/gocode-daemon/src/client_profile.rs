@@ -10,19 +10,17 @@ use serde::{Deserialize, Serialize};
 use crate::error::DaemonError;
 use crate::launch_identity::LaunchIdentity;
 
-const CLIENT_PROFILE_SCHEMA_VERSION: u32 = 1;
-#[allow(dead_code)]
 pub(crate) const LOCAL_RUNTIME_PROFILE_V2: &str = "gocode-local-runtime/2";
 
-/// Strict inactive profile-v2 wire representation for pinned TLS clients.
+/// Strict profile-v2 wire representation for pinned TLS clients.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[allow(dead_code)]
 pub(crate) struct ClientProfileV2Wire {
     schema_version: u32,
     transport_profile_id: String,
     profile_id: String,
     schema_hash: String,
+    capabilities: Vec<String>,
     capability_digest: String,
     endpoint: String,
     certificate_der_base64: String,
@@ -35,9 +33,8 @@ pub(crate) struct ClientProfileV2Wire {
     launch_generation: u64,
 }
 
-#[allow(dead_code)]
 impl ClientProfileV2Wire {
-    /// Serializes the exact profile-v2 wire shape. Publication remains inactive until Task 4.
+    /// Serializes the exact profile-v2 wire shape.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         endpoint: SocketAddr,
@@ -57,7 +54,15 @@ impl ClientProfileV2Wire {
             transport_profile_id: LOCAL_RUNTIME_PROFILE_V2.to_owned(),
             profile_id: gocode_runtime::bundle::BUNDLE_ID.to_owned(),
             schema_hash: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
-            capability_digest: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
+            capabilities: gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+                .iter()
+                .map(|capability| (*capability).to_owned())
+                .collect(),
+            capability_digest: hex::encode(
+                gocode_http::runtime_profile::ordered_capability_digest(
+                    gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+                ),
+            ),
             endpoint: format!("https://{endpoint}"),
             certificate_der_base64,
             certificate_sha256: hex::encode(certificate_sha256),
@@ -71,8 +76,7 @@ impl ClientProfileV2Wire {
     }
 }
 
-/// Lifetime guard for one inactive v2 profile and its bootstrap secret.
-#[allow(dead_code)]
+/// Lifetime guard for one active v2 profile and its bootstrap secret.
 pub(crate) struct PublishedClientProfileV2 {
     profile_path: PathBuf,
     profile_bytes: Vec<u8>,
@@ -80,7 +84,6 @@ pub(crate) struct PublishedClientProfileV2 {
     secret_bytes: [u8; 32],
 }
 
-#[allow(dead_code)]
 impl PublishedClientProfileV2 {
     pub(crate) fn publish(
         directory: &Path,
@@ -114,8 +117,8 @@ impl PublishedClientProfileV2 {
         )?;
         let profile_bytes = serde_json::to_vec(&wire)
             .map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
-        let profile_path = directory.join("client-profile-v2.json");
-        let temporary = directory.join(format!(".client-profile-v2.{}.tmp", uuid::Uuid::now_v7()));
+        let profile_path = directory.join("client-profile.json");
+        let temporary = directory.join(format!(".client-profile.{}.tmp", uuid::Uuid::now_v7()));
         if let Err(error) = write_owner_only(&temporary, &profile_bytes)
             .and_then(|()| replace_profile(&temporary, &profile_path))
             .and_then(|()| sync_directory(&directory))
@@ -157,69 +160,6 @@ impl Drop for PublishedClientProfileV2 {
                 .unwrap_or(false)
             {
                 let _ = fs::remove_file(path);
-            }
-        }
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ClientProfileWire<'a> {
-    schema_version: u32,
-    profile_id: &'static str,
-    schema_hash: &'static str,
-    endpoint: String,
-    token_path: &'a Path,
-}
-
-/// Lifetime guard for the exact connection profile published by this daemon.
-pub(crate) struct PublishedClientProfile {
-    path: PathBuf,
-    bytes: Vec<u8>,
-}
-
-impl PublishedClientProfile {
-    /// Publishes a token-reference profile beside the protected daemon token.
-    ///
-    /// Replacement is atomic on Unix. Other platforms still use a
-    /// same-directory temporary file; current clients fail closed there until
-    /// native owner ACL validation exists.
-    pub(crate) fn publish(token_path: &Path, endpoint: SocketAddr) -> Result<Self, DaemonError> {
-        let directory = token_path.parent().ok_or_else(|| {
-            DaemonError::Bootstrap("token path has no profile directory".to_owned())
-        })?;
-        let path = directory.join("client-profile.json");
-        let bytes = serde_json::to_vec(&ClientProfileWire {
-            schema_version: CLIENT_PROFILE_SCHEMA_VERSION,
-            profile_id: gocode_runtime::bundle::BUNDLE_ID,
-            schema_hash: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH,
-            endpoint: endpoint.to_string(),
-            token_path,
-        })
-        .map_err(|_| DaemonError::Bootstrap("serialize local client profile".to_owned()))?;
-        let temporary = directory.join(format!(".client-profile.{}.tmp", uuid::Uuid::now_v7()));
-        if let Err(error) = write_owner_only(&temporary, &bytes)
-            .and_then(|()| replace_profile(&temporary, &path))
-            .and_then(|()| sync_directory(directory))
-        {
-            let _ = fs::remove_file(&temporary);
-            return Err(DaemonError::Bootstrap(format!(
-                "publish local client profile: {error}"
-            )));
-        }
-        Ok(Self { path, bytes })
-    }
-}
-
-impl Drop for PublishedClientProfile {
-    fn drop(&mut self) {
-        let matches_this_instance = fs::read(&self.path)
-            .map(|current| current == self.bytes)
-            .unwrap_or(false);
-        if matches_this_instance {
-            let _ = fs::remove_file(&self.path);
-            if let Some(directory) = self.path.parent() {
-                let _ = sync_directory(directory);
             }
         }
     }

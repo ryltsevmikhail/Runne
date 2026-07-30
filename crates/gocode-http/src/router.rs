@@ -4,17 +4,11 @@
 //! replay stubs remain outside this production surface.
 
 use std::{
-    convert::Infallible,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use axum::{
-    Router,
-    body::Body,
-    http::{Request, Response},
-    middleware as axum_mw,
-};
+use axum::{Router, middleware as axum_mw};
 use gocode_api::{
     ConversationCommandHostPort, ConversationQueryHostPort, TaskRunCommandHostPort,
     TaskRunQueryHostPort,
@@ -110,13 +104,8 @@ impl SecureLocalHttpHost {
         })
     }
 
-    /// Consumes the host into an opaque HTTP service for the crate-owned TLS
-    /// accept loop. It is intentionally unavailable to external crates.
-    #[allow(dead_code)] // Task 4B moves the daemon TLS accept loop to this boundary.
-    pub(crate) fn into_service(
-        self,
-    ) -> impl tower::Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone
-    {
+    /// Consumes the host inside the crate-owned TLS accept loop.
+    pub(crate) fn into_router(self) -> Router {
         self.router
     }
 

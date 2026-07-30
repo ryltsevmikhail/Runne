@@ -1,5 +1,7 @@
 //! End-to-end contract for durable Conversation messages and local text execution.
 
+mod support;
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -13,6 +15,8 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
+
+use support::{TestSession, connect_session};
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000081";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000082";
@@ -65,13 +69,13 @@ async fn start(config: &ConfigurationSnapshot) -> RunningDaemon {
 }
 
 fn url(address: SocketAddr, path: &str) -> String {
-    format!("http://{address}{path}")
+    format!("https://{address}{path}")
 }
 
 async fn command(
     client: &Client,
     daemon: &RunningDaemon,
-    token: Option<&str>,
+    authorization: Option<&str>,
     path: &str,
     command_id: &str,
     idempotency_key: &str,
@@ -82,8 +86,8 @@ async fn command(
         .header("x-command-id", command_id)
         .header("idempotency-key", idempotency_key)
         .json(&body);
-    match token {
-        Some(token) => request.bearer_auth(token),
+    match authorization {
+        Some(authorization) => request.header("authorization", authorization),
         None => request,
     }
     .send()
@@ -91,13 +95,17 @@ async fn command(
     .unwrap()
 }
 
-async fn messages(client: &Client, daemon: &RunningDaemon, token: &str) -> (StatusCode, Value) {
+async fn messages(
+    client: &Client,
+    daemon: &RunningDaemon,
+    authorization: &str,
+) -> (StatusCode, Value) {
     let response = client
         .get(url(
             daemon.address,
             &format!("/v1/conversations/{CONVERSATION_ID}/messages"),
         ))
-        .bearer_auth(token)
+        .header("authorization", authorization)
         .send()
         .await
         .unwrap();
@@ -111,10 +119,13 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let directory = tempfile::tempdir().unwrap();
     let config = test_config(&directory);
     let daemon = start(&config).await;
-    let client = Client::new();
-    let token = hex::encode(std::fs::read(&config.token_path).unwrap());
+    let TestSession {
+        client,
+        authorization,
+    } = connect_session(&config).await;
+    let token = hex::encode(std::fs::read(&config.replay_integrity_key_path).unwrap());
     let client_profile_path =
-        PathBuf::from(&config.token_path).with_file_name("client-profile.json");
+        PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
     #[cfg(unix)]
     {
         let local_profile =
@@ -137,24 +148,22 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
 
     let runtime_profile = client
         .get(url(daemon.address, "/v1/runtime/profile"))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .send()
         .await
         .unwrap();
     assert_eq!(runtime_profile.status(), StatusCode::OK);
+    let runtime_profile = runtime_profile.json::<Value>().await.unwrap();
     assert_eq!(
-        runtime_profile.json::<Value>().await.unwrap(),
-        json!({
-            "profileId": gocode_runtime::bundle::BUNDLE_ID,
-            "schemaHash": "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429",
-            "runtimeVersion": env!("CARGO_PKG_VERSION"),
-            "capabilities": [
-                "conversation.create.v1",
-                "conversation.generate_text.v1",
-                "conversation.list_messages.v1",
-            ],
-        })
+        runtime_profile["profileId"],
+        gocode_runtime::bundle::BUNDLE_ID
     );
+    assert_eq!(
+        runtime_profile["schemaHash"],
+        "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429"
+    );
+    assert_eq!(runtime_profile["runtimeVersion"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(runtime_profile["launchGeneration"], 1);
 
     let unauthorized = command(
         &client,
@@ -179,7 +188,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let created = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         "/v1/conversations",
         CREATE_COMMAND_ID,
         "conversation-create",
@@ -198,7 +207,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let generated = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         &format!("/v1/conversations/{CONVERSATION_ID}/messages"),
         GENERATE_COMMAND_ID,
         "generate-one",
@@ -229,7 +238,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
         generated["taskRunId"]
     );
 
-    let (status, timeline) = messages(&client, &daemon, &token).await;
+    let (status, timeline) = messages(&client, &daemon, &authorization).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(timeline["conversationId"], CONVERSATION_ID);
     assert_eq!(timeline["streamVersion"], 3);
@@ -240,7 +249,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let retried = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         &format!("/v1/conversations/{CONVERSATION_ID}/messages"),
         GENERATE_COMMAND_ID,
         "generate-one",
@@ -256,7 +265,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let conflict = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         &format!("/v1/conversations/{CONVERSATION_ID}/messages"),
         "018f2e3a-7000-7000-8000-000000000085",
         "generate-one",
@@ -275,7 +284,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let oversized = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         &format!("/v1/conversations/{CONVERSATION_ID}/messages"),
         "018f2e3a-7000-7000-8000-000000000086",
         "generate-oversized",
@@ -313,7 +322,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     let taskrun_id = generated["taskRunId"].as_str().unwrap().to_owned();
     let taskrun = client
         .get(url(daemon.address, &format!("/v1/task-runs/{taskrun_id}")))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .send()
         .await
         .unwrap();
@@ -329,15 +338,20 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     );
 
     let restarted = start(&config).await;
-    let (status, restored) = messages(&client, &restarted, &token).await;
+    let TestSession {
+        client: restarted_client,
+        authorization: restarted_authorization,
+    } = connect_session(&config).await;
+    let (status, restored) =
+        messages(&restarted_client, &restarted, &restarted_authorization).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(restored, timeline);
-    let restored_taskrun = client
+    let restored_taskrun = restarted_client
         .get(url(
             restarted.address,
             &format!("/v1/task-runs/{taskrun_id}"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &restarted_authorization)
         .send()
         .await
         .unwrap();
@@ -354,13 +368,15 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
     let directory = tempfile::tempdir().unwrap();
     let config = test_config(&directory);
     let daemon = start(&config).await;
-    let client = Client::new();
-    let token = hex::encode(std::fs::read(&config.token_path).unwrap());
+    let TestSession {
+        client,
+        authorization,
+    } = connect_session(&config).await;
     let aggregate_id = hex::encode(uuid::Uuid::parse_str(CONVERSATION_ID).unwrap().as_bytes());
 
     let opened = client
         .post(url(daemon.address, "/v1/replay/open-session"))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .json(&json!({
             "aggregateType": 2,
             "aggregateId": aggregate_id,
@@ -379,7 +395,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
             daemon.address,
             &format!("/v1/replay/{session_id}/complete-catch-up"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .send()
         .await
         .unwrap();
@@ -389,7 +405,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
             daemon.address,
             &format!("/v1/replay/{session_id}/continue-live"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .send()
         .await
         .unwrap();
@@ -400,7 +416,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
             daemon.address,
             &format!("/v1/replay/{session_id}/events"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .header("accept", "text/event-stream")
         .send()
         .await
@@ -410,7 +426,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
     let created = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         "/v1/conversations",
         CREATE_COMMAND_ID,
         "replay-conversation-create",
@@ -452,14 +468,16 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
     let directory = tempfile::tempdir().unwrap();
     let config = test_config(&directory);
     let daemon = start(&config).await;
-    let client = Client::new();
-    let token = hex::encode(std::fs::read(&config.token_path).unwrap());
+    let TestSession {
+        client,
+        authorization,
+    } = connect_session(&config).await;
     let aggregate_id = hex::encode(uuid::Uuid::parse_str(CONVERSATION_ID).unwrap().as_bytes());
 
     let created = command(
         &client,
         &daemon,
-        Some(&token),
+        Some(&authorization),
         "/v1/conversations",
         CREATE_COMMAND_ID,
         "replay-restart-create",
@@ -473,7 +491,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
 
     let opened = client
         .post(url(daemon.address, "/v1/replay/open-session"))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .json(&json!({
             "aggregateType": 2,
             "aggregateId": aggregate_id,
@@ -491,7 +509,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
             daemon.address,
             &format!("/v1/replay/{old_session_id}/acknowledge"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &authorization)
         .json(&json!({"cursor": acknowledged_cursor}))
         .send()
         .await
@@ -500,12 +518,16 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
     daemon.stop().await;
 
     let restarted = start(&config).await;
-    let stale_session = client
+    let TestSession {
+        client: restarted_client,
+        authorization: restarted_authorization,
+    } = connect_session(&config).await;
+    let stale_session = restarted_client
         .post(url(
             restarted.address,
             &format!("/v1/replay/{old_session_id}/read-page"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &restarted_authorization)
         .json(&json!({}))
         .send()
         .await
@@ -516,9 +538,9 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         "replay_session_not_found"
     );
 
-    let reopened = client
+    let reopened = restarted_client
         .post(url(restarted.address, "/v1/replay/open-session"))
-        .bearer_auth(&token)
+        .header("authorization", &restarted_authorization)
         .json(&json!({
             "aggregateType": 2,
             "aggregateId": aggregate_id,
@@ -537,12 +559,12 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
     );
 
     let new_session_id = reopened["sessionId"].as_str().unwrap();
-    let reacknowledged = client
+    let reacknowledged = restarted_client
         .post(url(
             restarted.address,
             &format!("/v1/replay/{new_session_id}/acknowledge"),
         ))
-        .bearer_auth(&token)
+        .header("authorization", &restarted_authorization)
         .json(&json!({"cursor": acknowledged_cursor}))
         .send()
         .await

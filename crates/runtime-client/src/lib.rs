@@ -11,12 +11,13 @@ use thiserror::Error;
 
 mod canonical;
 mod local_profile;
+mod local_session;
 
 pub use canonical::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationCreated,
     ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
     CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
-    RuntimeApiErrorKind, RuntimeCredential, RuntimeSessionInfo,
+    RuntimeApiErrorKind, RuntimeSessionInfo,
 };
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
@@ -118,6 +119,8 @@ pub enum RuntimeTransportError {
     InvalidTimeout,
     #[error("runtime is unavailable")]
     Unavailable,
+    #[error("runtime peer identity does not match")]
+    PeerIdentityMismatch,
     #[error("runtime response exceeds the allowed size")]
     ResponseTooLarge,
     #[error("runtime returned an unexpected HTTP status")]

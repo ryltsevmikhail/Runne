@@ -14,4 +14,3 @@ pub mod lock;
 pub mod recovery;
 pub mod replay_key;
 pub mod shutdown;
-pub mod token;

@@ -2,24 +2,32 @@
 
 use std::future::Future;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-use gocode_api::ApiActor;
+use crate::bootstrap::{BootstrapOutcome, bootstrap};
+use crate::client_profile::PublishedClientProfileV2;
+use crate::config::ConfigurationSnapshot;
+use crate::error::DaemonError;
+use crate::recovery::{RecoveryState, enumerate_recovery_tasks};
+use crate::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
+use gocode_api::{ApiActor, ApiPrincipalId, RuntimeSessionBinding, StableRuntimeBinding};
 use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextService,
 };
+use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::RuntimeAuthorityId;
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
+use gocode_domain::event::Sensitivity;
 use gocode_http::admission::AdmissionState;
 use gocode_http::conversations::ConversationHttpState;
 use gocode_http::health::{HealthState, RecoveryState as HttpRecoveryState};
 use gocode_http::limits::LimitsConfig;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState};
-use gocode_http::router::create_router_with_conversations;
 use gocode_http::runtime_profile::RuntimeProfileHttpState;
+use gocode_http::secure_local_host::LocalRuntimeTlsHost;
 use gocode_http::task_runs::TaskRunHttpState;
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome};
@@ -30,17 +38,6 @@ use gocode_runtime::{
 use gocode_store::replay_store::ReplayStore;
 use gocode_store::schema::{ensure_event_log_lineage_id, open_with_pragmas};
 use gocode_store::store::StoreTransaction;
-use rand::RngCore;
-use rand::rngs::OsRng;
-use sha2::{Digest, Sha256};
-
-use crate::bootstrap::{BootstrapOutcome, bootstrap};
-use crate::client_profile::PublishedClientProfile;
-use crate::config::ConfigurationSnapshot;
-use crate::error::DaemonError;
-use crate::host::{HttpHost, run_http_host_until_shutdown};
-use crate::recovery::{RecoveryState, enumerate_recovery_tasks};
-use crate::shutdown::RuntimeTaskSupervisor;
 
 type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
@@ -50,8 +47,8 @@ type SqliteConversationService = ConversationService<StoreTransaction, StoreTran
 pub struct DaemonApplication {
     bootstrap: BootstrapOutcome,
     store: StoreTransaction,
-    http_host: HttpHost,
-    client_profile: PublishedClientProfile,
+    http_host: LocalRuntimeTlsHost,
+    client_profile: PublishedClientProfileV2,
     runtime_controller: RuntimeController,
     task_supervisor: Arc<RuntimeTaskSupervisor>,
     shutdown_timeout: Duration,
@@ -101,7 +98,7 @@ impl DaemonApplication {
             })?,
             ..RuntimeConfig::default()
         };
-        let generation = RuntimeGenerationId(generate_runtime_generation());
+        let generation = RuntimeGenerationId(bootstrap.launch_generation);
         let (handle, mut runtime_controller) = Runtime::start_borrowed_with_conversations(
             TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
             service,
@@ -122,49 +119,99 @@ impl DaemonApplication {
             ApiActor::new("gocode-daemon").expect("the built-in daemon actor identity is valid");
         let replay_binding = ReplayHttpBinding::new(
             bootstrap.authority_id,
-            i64::try_from(generation.0)
+            i64::try_from(bootstrap.launch_generation)
                 .map_err(|_| DaemonError::Bootstrap("replay generation overflow".to_owned()))?,
             0,
         )
         .map_err(|error| DaemonError::Bootstrap(format!("configure replay transport: {error}")))?;
         let replay_service = ReplayService::new(
             Arc::new(ReplayStore::new(replay_connection)),
-            derive_replay_secret(&bootstrap.token.0),
+            bootstrap
+                .replay_integrity_key
+                .derive_hmac(b"gocode/replay-cursor-hmac/v1\0"),
             replay_lineage,
         );
-        let router = create_router_with_conversations(
-            bootstrap.token.0,
+        let schema_hash: [u8; 32] = hex::decode(gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH)
+            .map_err(|_| DaemonError::Bootstrap("decode schema hash".into()))?
+            .try_into()
+            .map_err(|_| DaemonError::Bootstrap("invalid schema hash".into()))?;
+        let capability_digest = gocode_http::runtime_profile::ordered_capability_digest(
+            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+        );
+        let stable_binding = StableRuntimeBinding::new(
+            bootstrap.authority_id,
+            ApiPrincipalId::new("local-owner")
+                .map_err(|_| DaemonError::Bootstrap("invalid local principal".into()))?,
+            replay_lineage,
+            gocode_runtime::bundle::BUNDLE_ID,
+            schema_hash,
+            capability_digest,
+        )
+        .map_err(|_| DaemonError::Bootstrap("build stable local session binding".into()))?;
+        let mut session_id = *uuid::Uuid::now_v7().as_bytes();
+        while session_id == bootstrap.launch_identity.daemon_instance_id().into_bytes() {
+            session_id = *uuid::Uuid::now_v7().as_bytes();
+        }
+        let binding = RuntimeSessionBinding::new(
+            stable_binding,
+            bootstrap.launch_identity.daemon_instance_id(),
+            bootstrap.launch_generation,
+            session_id,
+            0,
+            Sensitivity::Sensitive,
+            *bootstrap.launch_identity.certificate_sha256(),
+        )
+        .map_err(|_| DaemonError::Bootstrap("build local session binding".into()))?;
+        let local_session_service = Arc::new(Mutex::new(LocalSessionService::new(
+            binding.clone(),
+            bootstrap.launch_identity.bootstrap_secret(),
+        )));
+        let launched_at = Instant::now();
+        let clock: Arc<dyn Fn() -> Duration + Send + Sync> =
+            Arc::new(move || launched_at.elapsed());
+        let http_host = LocalRuntimeTlsHost::bind(
+            &config.http_bind,
+            Arc::clone(bootstrap.launch_identity.server_config()),
             HealthState {
                 recovery_state: http_recovery_state.clone(),
             },
             AdmissionState::new(http_recovery_state),
-            TaskRunHttpState::new(task_run_host, actor.clone()),
-            ConversationHttpState::new(conversation_host, actor),
+            local_session_service,
+            binding,
+            clock,
             RuntimeProfileHttpState::new(
                 gocode_runtime::bundle::BUNDLE_ID,
                 gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH,
                 env!("CARGO_PKG_VERSION"),
                 gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
             ),
+            TaskRunHttpState::new(task_run_host, actor.clone()),
+            ConversationHttpState::new(conversation_host, actor),
             ReplayHttpState::new(replay_service, replay_binding, LimitsConfig::default()),
-        );
+        )
+        .await
+        .map_err(DaemonError::from)?;
         let shutdown_timeout = Duration::from_millis(config.shutdown_timeout_ms);
-        let http_host = match HttpHost::bind(&config.http_bind, router).await {
-            Ok(host) => host,
-            Err(error) => {
-                let _ = tokio::time::timeout(
-                    shutdown_timeout,
-                    runtime_controller.shutdown(ShutdownMode::Immediate {
-                        timeout: shutdown_timeout,
-                    }),
-                )
-                .await;
-                return Err(error);
-            }
-        };
-        let client_profile_result = http_host.local_addr().and_then(|address| {
-            PublishedClientProfile::publish(std::path::Path::new(&config.token_path), address)
-        });
+        let client_profile_result =
+            http_host
+                .local_addr()
+                .map_err(DaemonError::from)
+                .and_then(|address| {
+                    let directory = std::path::Path::new(&config.replay_integrity_key_path)
+                        .parent()
+                        .ok_or_else(|| {
+                            DaemonError::Bootstrap(
+                                "replay_integrity_key_path has no profile directory".into(),
+                            )
+                        })?;
+                    PublishedClientProfileV2::publish(
+                        directory,
+                        address,
+                        &bootstrap.launch_identity,
+                        bootstrap.authority_id,
+                        uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
+                    )
+                });
         let client_profile = match client_profile_result {
             Ok(profile) => profile,
             Err(error) => {
@@ -192,7 +239,7 @@ impl DaemonApplication {
 
     /// Returns the bound local address before the accept loop starts.
     pub fn local_addr(&self) -> Result<SocketAddr, DaemonError> {
-        self.http_host.local_addr()
+        Ok(self.http_host.local_addr()?)
     }
 
     /// Returns the stable runtime authority without exposing credentials.
@@ -221,13 +268,10 @@ impl DaemonApplication {
             shutdown_timeout,
         } = self;
 
-        let http_result = run_http_host_until_shutdown(
-            http_host.start(),
-            &task_supervisor,
-            duration_millis(shutdown_timeout),
-            shutdown,
-        )
-        .await;
+        let http_result = http_host.start().run_until(shutdown).await;
+        let drain_result =
+            graceful_shutdown(&task_supervisor, duration_millis(shutdown_timeout)).await;
+        let http_result = combine_shutdown_results(http_result, drain_result);
         let runtime_result = shutdown_runtime(&mut runtime_controller, shutdown_timeout).await;
 
         drop(client_profile);
@@ -236,22 +280,6 @@ impl DaemonApplication {
 
         combine_shutdown_results(http_result, runtime_result)
     }
-}
-
-fn generate_runtime_generation() -> u64 {
-    loop {
-        let generation = OsRng.next_u64() & i64::MAX as u64;
-        if generation != 0 {
-            return generation;
-        }
-    }
-}
-
-fn derive_replay_secret(token: &[u8; 32]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gocode/replay-cursor-hmac/v1\0");
-    hasher.update(token);
-    hasher.finalize().into()
 }
 
 fn map_recovery_state(state: RecoveryState) -> HttpRecoveryState {

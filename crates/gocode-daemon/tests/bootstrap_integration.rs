@@ -25,9 +25,9 @@ fn db_path(config: &ConfigurationSnapshot) -> PathBuf {
     PathBuf::from(&config.db_path)
 }
 
-/// Get the token_path as a PathBuf from a config.
-fn token_path(config: &ConfigurationSnapshot) -> PathBuf {
-    PathBuf::from(&config.token_path)
+/// Get the replay-integrity key path from a config.
+fn replay_key_path(config: &ConfigurationSnapshot) -> PathBuf {
+    PathBuf::from(&config.replay_integrity_key_path)
 }
 
 /// Extract daemon_dir from db_path.
@@ -46,9 +46,9 @@ fn assert_outcome(outcome: &BootstrapOutcome, db_existed: bool, mode: StartupMod
     assert_eq!(outcome.startup_mode, mode);
 }
 
-// ── 1. first_start_creates_db_and_token ─────────────────────────────
+// ── 1. first_start_creates_db_and_replay_key ─────────────────────────
 #[test]
-fn first_start_creates_db_and_token() {
+fn first_start_creates_db_and_replay_key() {
     let temp = TempDir::new().unwrap();
     let config = test_config(&temp);
 
@@ -56,7 +56,10 @@ fn first_start_creates_db_and_token() {
 
     assert_outcome(&outcome, false, StartupMode::FirstStart);
     assert!(db_path(&config).exists(), "DB file must exist");
-    assert!(token_path(&config).exists(), "token file must exist");
+    assert!(
+        replay_key_path(&config).exists(),
+        "replay-integrity key must exist"
+    );
     // file_lock only acquired for existing DBs (no hardlink risk on fresh create)
     assert!(
         outcome.locks.authority_lock.is_some(),
@@ -183,18 +186,22 @@ fn published_authority_without_db_causes_error() {
     );
 }
 
-// ── 6. restart_with_existing_token_loads_correctly ──────────────────
+// ── 6. restart_with_existing_replay_key_loads_correctly ─────────────
 #[test]
-fn restart_with_existing_token_loads_correctly() {
+fn restart_with_existing_replay_key_loads_correctly() {
     let temp = TempDir::new().unwrap();
     let config = test_config(&temp);
 
     let o1 = bootstrap(&config).unwrap();
-    let token1 = o1.token.clone();
+    let marker = o1.replay_integrity_key.derive_hmac(b"persistence-test");
     drop(o1);
 
     let o2 = bootstrap(&config).unwrap();
-    assert_eq!(o2.token, token1, "token must persist across restarts");
+    assert_eq!(
+        o2.replay_integrity_key.derive_hmac(b"persistence-test"),
+        marker,
+        "replay-integrity key must persist across restarts"
+    );
 }
 
 // ── 7. concurrent_first_start_fails ─────────────────────────────────
@@ -278,26 +285,26 @@ fn empty_db_recovery_ready() {
     assert_eq!(state, RecoveryState::Ready);
 }
 
-// ── 10. token_missing_for_existing_db_is_fatal ──────────────────────
+// ── 10. replay_key_missing_for_existing_db_is_fatal ─────────────────
 #[test]
-fn token_missing_for_existing_db_is_fatal() {
+fn replay_key_missing_for_existing_db_is_fatal() {
     let temp = TempDir::new().unwrap();
     let config = test_config(&temp);
 
-    // Bootstrap once to create DB + token
+    // Bootstrap once to create DB + replay-integrity key
     let o1 = bootstrap(&config).unwrap();
     drop(o1);
 
-    // Delete the token file
-    fs::remove_file(token_path(&config)).unwrap();
+    // Delete the replay-integrity key
+    fs::remove_file(replay_key_path(&config)).unwrap();
 
-    // Bootstrap must fail — DB exists but token is missing
+    // Bootstrap must fail — DB exists but the stable replay key is missing
     let result = bootstrap(&config);
     assert!(result.is_err());
     let msg = format!("{}", result.unwrap_err());
     assert!(
-        msg.contains("token") || msg.contains("missing"),
-        "expected token-missing error, got: {msg}"
+        msg.contains("replay-integrity") || msg.contains("missing"),
+        "expected replay-key-missing error, got: {msg}"
     );
 }
 

@@ -1,0 +1,225 @@
+//! Crate-owned TLS serving boundary for the sealed local runtime host.
+
+use std::future::Future;
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use gocode_api::{
+    ConversationCommandHostPort, ConversationQueryHostPort, RuntimeSessionBinding,
+    TaskRunCommandHostPort, TaskRunQueryHostPort,
+};
+use hyper::service::service_fn;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto::Builder as ConnectionBuilder;
+use tokio::net::TcpListener;
+use tokio::sync::{Semaphore, oneshot};
+use tokio::task::{JoinHandle, JoinSet};
+use tower::ServiceExt;
+
+use crate::admission::AdmissionState;
+use crate::conversations::ConversationHttpState;
+use crate::health::HealthState;
+use crate::local_session::VerifiedLocalTls;
+use crate::replay::ReplayHttpState;
+use crate::router::SecureLocalHttpHost;
+use crate::runtime_profile::RuntimeProfileHttpState;
+use crate::task_runs::TaskRunHttpState;
+
+const PRE_AUTH_HANDSHAKE_LIMIT: usize = 32;
+
+/// Redacted local TLS host failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LocalRuntimeTlsHostError {
+    #[error("local runtime TLS listener is unavailable")]
+    Unavailable,
+    #[error("local runtime TLS host composition is incompatible")]
+    Incompatible,
+}
+
+/// Bound peer-authenticated local runtime host.
+///
+/// The protected router and TLS verification capability never leave this crate.
+pub struct LocalRuntimeTlsHost {
+    listener: TcpListener,
+    host: SecureLocalHttpHost,
+    server_config: Arc<rustls::ServerConfig>,
+}
+
+/// Owned local runtime host task and ingress stop authority.
+pub struct LocalRuntimeTlsHostTask {
+    shutdown: Option<oneshot::Sender<()>>,
+    task: JoinHandle<Result<(), LocalRuntimeTlsHostError>>,
+}
+
+impl LocalRuntimeTlsHost {
+    /// Binds loopback TLS and composes all canonical routes behind session auth.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn bind<T, C>(
+        bind: &str,
+        server_config: Arc<rustls::ServerConfig>,
+        health_state: HealthState,
+        admission_state: AdmissionState,
+        local_session_service: Arc<Mutex<gocode_application::local_session::LocalSessionService>>,
+        binding: RuntimeSessionBinding,
+        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+        runtime_profile_state: RuntimeProfileHttpState,
+        task_run_state: TaskRunHttpState<T>,
+        conversation_state: ConversationHttpState<C>,
+        replay_state: ReplayHttpState,
+    ) -> Result<Self, LocalRuntimeTlsHostError>
+    where
+        T: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
+        C: ConversationCommandHostPort + ConversationQueryHostPort + 'static,
+    {
+        let listener = TcpListener::bind(bind)
+            .await
+            .map_err(|_| LocalRuntimeTlsHostError::Unavailable)?;
+        if !listener
+            .local_addr()
+            .map_err(|_| LocalRuntimeTlsHostError::Unavailable)?
+            .ip()
+            .is_loopback()
+        {
+            return Err(LocalRuntimeTlsHostError::Unavailable);
+        }
+        let verified_tls = VerifiedLocalTls::from_verified_listener();
+        let host = SecureLocalHttpHost::new(
+            verified_tls,
+            health_state,
+            admission_state,
+            local_session_service,
+            binding,
+            clock,
+            runtime_profile_state,
+            task_run_state,
+            conversation_state,
+            replay_state,
+        )
+        .map_err(|_| LocalRuntimeTlsHostError::Incompatible)?;
+        Ok(Self {
+            listener,
+            host,
+            server_config,
+        })
+    }
+
+    /// Returns the actual loopback address, including an OS-assigned port.
+    pub fn local_addr(&self) -> Result<SocketAddr, LocalRuntimeTlsHostError> {
+        self.listener
+            .local_addr()
+            .map_err(|_| LocalRuntimeTlsHostError::Unavailable)
+    }
+
+    /// Returns the exact cap for unauthenticated TLS handshakes.
+    #[must_use]
+    pub const fn pre_auth_handshake_limit(&self) -> usize {
+        PRE_AUTH_HANDSHAKE_LIMIT
+    }
+
+    /// Starts the owned TLS accept loop.
+    #[must_use]
+    pub fn start(self) -> LocalRuntimeTlsHostTask {
+        let (shutdown, stopped) = oneshot::channel();
+        let task = tokio::spawn(serve(
+            self.listener,
+            self.host,
+            self.server_config,
+            async move {
+                let _ = stopped.await;
+            },
+        ));
+        LocalRuntimeTlsHostTask {
+            shutdown: Some(shutdown),
+            task,
+        }
+    }
+}
+
+impl LocalRuntimeTlsHostTask {
+    /// Runs until either the caller's shutdown completes or the host terminates.
+    pub async fn run_until<F, E>(mut self, shutdown: F) -> Result<(), E>
+    where
+        F: Future<Output = Result<(), E>>,
+        E: From<LocalRuntimeTlsHostError>,
+    {
+        tokio::pin!(shutdown);
+        tokio::select! {
+            signal = &mut shutdown => {
+                if let Some(stop) = self.shutdown.take() {
+                    let _ = stop.send(());
+                }
+                let host = self.task.await.map_err(|_| LocalRuntimeTlsHostError::Unavailable)?;
+                signal.and(host.map_err(E::from))
+            }
+            host = &mut self.task => {
+                host.map_err(|_| LocalRuntimeTlsHostError::Unavailable)?
+                    .map_err(E::from)
+            }
+        }
+    }
+}
+
+async fn serve<F>(
+    listener: TcpListener,
+    host: SecureLocalHttpHost,
+    server_config: Arc<rustls::ServerConfig>,
+    shutdown: F,
+) -> Result<(), LocalRuntimeTlsHostError>
+where
+    F: Future<Output = ()>,
+{
+    let mut connections = JoinSet::new();
+    let handshakes = Arc::new(Semaphore::new(PRE_AUTH_HANDSHAKE_LIMIT));
+    let service = host.into_router();
+    tokio::pin!(shutdown);
+    loop {
+        tokio::select! {
+            _ = &mut shutdown => {
+                stop_connections(&mut connections).await;
+                return Ok(());
+            }
+            accepted = listener.accept() => match accepted {
+                Ok((stream, _)) => {
+                    let Ok(permit) = Arc::clone(&handshakes).try_acquire_owned() else {
+                        continue;
+                    };
+                    let service = service.clone();
+                    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::clone(&server_config));
+                    connections.spawn(async move {
+                        let _permit = permit;
+                        let Ok(stream) = acceptor.accept(stream).await else {
+                            return;
+                        };
+                        let http = service_fn(move |request| {
+                            let service = service.clone();
+                            async move {
+                                service
+                                    .oneshot(request.map(axum::body::Body::new))
+                                    .await
+                            }
+                        });
+                        let _ = ConnectionBuilder::new(TokioExecutor::new())
+                            .serve_connection(TokioIo::new(stream), http)
+                            .await;
+                    });
+                }
+                Err(_) => {
+                    stop_connections(&mut connections).await;
+                    return Err(LocalRuntimeTlsHostError::Unavailable);
+                }
+            },
+            joined = connections.join_next(), if !connections.is_empty() => {
+                if joined.is_some_and(|result| result.is_err()) {
+                    stop_connections(&mut connections).await;
+                    return Err(LocalRuntimeTlsHostError::Unavailable);
+                }
+            }
+        }
+    }
+}
+
+async fn stop_connections(connections: &mut JoinSet<()>) {
+    connections.abort_all();
+    while connections.join_next().await.is_some() {}
+}

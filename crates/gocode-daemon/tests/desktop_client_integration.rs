@@ -25,7 +25,8 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
             .await
             .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".to_owned()))
     }));
-    let runtime_profile = PathBuf::from(&config.token_path).with_file_name("client-profile.json");
+    let runtime_profile =
+        PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
     let database_path = directory.path().join("desktop.sqlite3");
     let project_path = directory.path().join("project");
     std::fs::create_dir(&project_path).expect("create project");

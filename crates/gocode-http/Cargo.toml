@@ -13,7 +13,11 @@ gocode-observability = { path = "../gocode-observability" }
 gocode-opencode-compat = { path = "../gocode-opencode-compat" }
 
 axum = "0.8"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }
+rustls.workspace = true
 tokio = { workspace = true }
+tokio-rustls.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }

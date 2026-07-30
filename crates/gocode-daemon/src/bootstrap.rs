@@ -1,7 +1,7 @@
 //! Bootstrap subsystem — full daemon startup sequence.
 //!
 //! Implements ADR-0014 bootstrap sequence:
-//! acquire three-layer locks, provision or load the daemon token,
+//! acquire three-layer locks, provision or load the replay-integrity key,
 //! open the SQLite database, apply schema migrations, reconcile
 //! authority metadata, purge stale replay subscriptions, and
 //! detect recovery tasks.
@@ -9,7 +9,7 @@
 //! ## Lock acquisition order
 //!
 //! 1. Provisional path lock — before DB open, serialises first-start
-//!    and token side effects.
+//!    and replay-key side effects.
 //! 2. File identity lock — after DB verify handle (no-follow open).
 //! 3. Authority lock — after reading/generating `_authority` from schema v8 DB.
 
@@ -17,7 +17,7 @@ use crate::config::ConfigurationSnapshot;
 use crate::error::DaemonError;
 use crate::launch_identity::LaunchIdentity;
 use crate::lock::{LockSet, MetadataSnapshot};
-use crate::token::{DaemonToken, TokenManager};
+use crate::replay_key::{ReplayIntegrityKey, ReplayIntegrityKeyManager};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -41,7 +41,7 @@ pub enum StartupMode {
 /// The complete set of resources acquired during bootstrap.
 ///
 /// All three locks are held, the database is open and migrated,
-/// the token is loaded or provisioned.
+/// the replay-integrity key is loaded or provisioned.
 pub struct BootstrapOutcome {
     /// All three locks held (path, file, authority).
     pub locks: LockSet,
@@ -57,8 +57,8 @@ pub struct BootstrapOutcome {
     pub launch_identity: LaunchIdentity,
     /// Durable positive generation allocated for this launch.
     pub launch_generation: u64,
-    /// Provisioned or loaded daemon token.
-    pub token: DaemonToken,
+    /// Stable internal replay-integrity key.
+    pub replay_integrity_key: ReplayIntegrityKey,
 }
 
 impl std::fmt::Debug for BootstrapOutcome {
@@ -71,7 +71,7 @@ impl std::fmt::Debug for BootstrapOutcome {
             .field("startup_mode", &self.startup_mode)
             .field("launch_identity", &"<redacted>")
             .field("launch_generation", &self.launch_generation)
-            .field("token", &self.token)
+            .field("replay_integrity_key", &"<redacted>")
             .finish()
     }
 }
@@ -81,11 +81,11 @@ impl std::fmt::Debug for BootstrapOutcome {
 /// Full bootstrap sequence.
 ///
 /// Returns a `BootstrapOutcome` with all acquired resources, or a
-/// `DaemonError` for fatal startup failures (missing token, DB change
+/// `DaemonError` for fatal startup failures (invalid replay key, DB change
 /// under live lock, authority without Event Log, etc.).
 pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, DaemonError> {
     let db_path = PathBuf::from(&config.db_path);
-    let token_path = PathBuf::from(&config.token_path);
+    let replay_integrity_key_path = PathBuf::from(&config.replay_integrity_key_path);
 
     // Derive runtime dir from config paths (parent of gocode-daemon/).
     let daemon_dir = db_path
@@ -118,8 +118,15 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
         _ => StartupMode::Restart,
     };
 
-    // ── Step 8: token lifecycle ─────────────────────────────────────
-    let token = load_or_provision_token(&token_path, startup_mode, db_existed)?;
+    // ── Step 8: stable, non-published replay-integrity key ───────────
+    if db_existed && !replay_integrity_key_path.exists() {
+        return Err(DaemonError::Bootstrap(
+            "database exists but replay-integrity key is missing".into(),
+        ));
+    }
+    let replay_integrity_key =
+        ReplayIntegrityKeyManager::load_or_provision(&replay_integrity_key_path)
+            .map_err(|_| DaemonError::Bootstrap("load replay-integrity key".into()))?;
 
     // ── Step 9: DB verify / create ──────────────────────────────────
     if db_existed {
@@ -172,7 +179,7 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
         startup_mode,
         launch_identity,
         launch_generation,
-        token,
+        replay_integrity_key,
     })
 }
 
@@ -184,41 +191,6 @@ fn ensure_dir_secured(dir: &Path) -> Result<(), DaemonError> {
         .map_err(|e| DaemonError::Bootstrap(format!("cannot create {dir:?}: {e}")))?;
     schema::secure_dir_permissions(dir)
         .map_err(|e| DaemonError::Bootstrap(format!("cannot secure {dir:?}: {e}")))
-}
-
-/// Load or provision the daemon token based on startup scenario.
-fn load_or_provision_token(
-    token_path: &Path,
-    startup_mode: StartupMode,
-    db_existed: bool,
-) -> Result<DaemonToken, DaemonError> {
-    let token_exists = token_path.exists();
-
-    match (startup_mode, token_exists, db_existed) {
-        // First start with no existing token → provision
-        (StartupMode::FirstStart, false, _) => TokenManager::provision(token_path),
-
-        // Crash recovery: DB missing but token exists from prior partial bootstrap
-        (StartupMode::FirstStart, true, _) => TokenManager::load(token_path),
-
-        // Normal restart: DB exists, load existing token
-        (StartupMode::Restart, true, _) => TokenManager::load(token_path),
-
-        // DB exists but token file is missing — fatal (exit 2 equivalent)
-        (StartupMode::Restart, false, true) => Err(DaemonError::Bootstrap(
-            "database exists but token file is missing".into(),
-        )),
-
-        // Should be unreachable (Restart with no DB is FirstStart)
-        (StartupMode::Restart, false, false) => Err(DaemonError::Bootstrap(
-            "invalid state: restart with no database".into(),
-        )),
-
-        // Recovered mode is set by the recovery subsystem only
-        (StartupMode::Recovered, _, _) => Err(DaemonError::Bootstrap(
-            "recovered mode is not yet implemented".into(),
-        )),
-    }
 }
 
 /// Open DB file with no-follow for verify / file-identity lock.
@@ -254,7 +226,7 @@ fn acquire_authority(
     match (db_existed, db_authority) {
         // New DB — generate fresh authority
         (false, None) => {
-            let aid = schema::generate_authority_id();
+            let aid = *uuid::Uuid::now_v7().as_bytes();
             schema::ensure_authority_id(conn, &aid)
                 .map_err(|e| DaemonError::Bootstrap(format!("ensure authority: {e}")))?;
 
@@ -400,9 +372,9 @@ mod tests {
         ConfigurationSnapshot::from_defaults(&defaults)
     }
 
-    // ── 1. first_start_creates_db_and_token ─────────────────────
+    // ── 1. first_start_creates_db_and_replay_key ────────────────
     #[test]
-    fn first_start_creates_db_and_token() {
+    fn first_start_creates_db_and_replay_key() {
         let temp = TempDir::new().unwrap();
         let config = test_config(&temp);
 
@@ -411,7 +383,7 @@ mod tests {
         assert!(!outcome.db_existed);
         assert_eq!(outcome.startup_mode, StartupMode::FirstStart);
         assert!(PathBuf::from(&config.db_path).exists());
-        assert!(PathBuf::from(&config.token_path).exists());
+        assert!(PathBuf::from(&config.replay_integrity_key_path).exists());
         // file_lock is only acquired for existing DBs (no hardlink
         // risk on a fresh create); authority_lock must be held.
         assert!(outcome.locks.authority_lock.is_some());
@@ -534,18 +506,22 @@ mod tests {
         );
     }
 
-    // ── 6. restart_with_existing_token_loads_correctly ──────────
+    // ── 6. restart_with_existing_replay_key_loads_correctly ─────
     #[test]
-    fn restart_with_existing_token_loads_correctly() {
+    fn restart_with_existing_replay_key_loads_correctly() {
         let temp = TempDir::new().unwrap();
         let config = test_config(&temp);
 
         let o1 = bootstrap(&config).unwrap();
-        let token1 = o1.token.clone();
+        let marker = o1.replay_integrity_key.derive_hmac(b"persistence-test");
         drop(o1);
 
         let o2 = bootstrap(&config).unwrap();
-        assert_eq!(o2.token, token1, "token must persist across restarts");
+        assert_eq!(
+            o2.replay_integrity_key.derive_hmac(b"persistence-test"),
+            marker,
+            "replay-integrity key must persist across restarts"
+        );
     }
 
     // ── 7. concurrent_first_start_fails ─────────────────────────

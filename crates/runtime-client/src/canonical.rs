@@ -3,11 +3,10 @@
 use std::fmt;
 use std::sync::Arc;
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use zeroize::{Zeroize, Zeroizing};
-
-use crate::{EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, HttpRuntimeClient};
 
 const MAXIMUM_CANONICAL_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAXIMUM_ERROR_RESPONSE_BYTES: usize = 8 * 1024;
@@ -115,24 +114,25 @@ impl CommandIdentity {
 /// The type intentionally implements neither `Debug`, `Display`, nor
 /// serialization. The bytes are zeroized after the final clone is dropped.
 #[derive(Clone)]
-pub struct RuntimeCredential(Arc<Zeroizing<[u8; 32]>>);
+pub struct RuntimeCredential {
+    bytes: Arc<Zeroizing<[u8; 32]>>,
+}
 
 impl RuntimeCredential {
-    /// Wraps exact daemon credential bytes.
-    #[must_use]
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(Arc::new(Zeroizing::new(bytes)))
+    pub(crate) fn from_local_session(bytes: [u8; 32]) -> Self {
+        Self {
+            bytes: Arc::new(Zeroizing::new(bytes)),
+        }
     }
 
-    fn authorization_header(&self) -> Result<HeaderValue, RuntimeApiError> {
-        let mut value = [0_u8; 71];
-        value[..7].copy_from_slice(b"Bearer ");
-        hex::encode_to_slice(self.0.as_ref(), &mut value[7..])
+    pub(crate) fn authorization_header(&self) -> Result<HeaderValue, RuntimeApiError> {
+        let mut wire = String::from("GocodeSession ");
+        wire.push_str(&URL_SAFE_NO_PAD.encode(self.bytes.as_ref().as_ref()));
+        let mut header = HeaderValue::from_str(&wire)
             .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
-        let header = HeaderValue::from_bytes(&value)
-            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest));
-        value.zeroize();
-        header
+        header.set_sensitive(true);
+        wire.zeroize();
+        Ok(header)
     }
 }
 
@@ -147,6 +147,26 @@ pub struct RuntimeSessionInfo {
     pub runtime_version: String,
     /// Exact canonical capability set accepted for this session.
     pub capabilities: Vec<String>,
+    /// Stable runtime authority UUID.
+    pub authority_id: String,
+    /// Authenticated local principal.
+    pub principal_id: String,
+    /// Stable Event Log lineage UUID.
+    pub event_log_lineage_id: String,
+    /// Fresh daemon launch UUID.
+    pub daemon_instance_id: String,
+    /// Durable positive daemon launch generation.
+    pub launch_generation: u64,
+    /// Ephemeral session UUID.
+    pub session_id: String,
+    /// Authorization epoch at session issuance.
+    pub authorization_epoch: u64,
+    /// Maximum sensitivity permitted for this session.
+    pub sensitivity_ceiling: String,
+    /// Exact pinned certificate digest.
+    pub certificate_sha256: String,
+    /// Digest of the exact ordered capability set.
+    pub capability_digest: String,
 }
 
 /// Authenticated runtime client. Construction is possible only after the
@@ -154,7 +174,7 @@ pub struct RuntimeSessionInfo {
 #[derive(Clone)]
 pub struct AuthenticatedRuntimeClient {
     client: reqwest::Client,
-    endpoint: crate::RuntimeEndpoint,
+    origin: String,
     credential: RuntimeCredential,
     session: RuntimeSessionInfo,
 }
@@ -164,6 +184,20 @@ impl AuthenticatedRuntimeClient {
     #[must_use]
     pub const fn session_info(&self) -> &RuntimeSessionInfo {
         &self.session
+    }
+
+    pub(crate) const fn from_local_session(
+        client: reqwest::Client,
+        origin: String,
+        credential: RuntimeCredential,
+        session: RuntimeSessionInfo,
+    ) -> Self {
+        Self {
+            client,
+            origin,
+            credential,
+            session,
+        }
     }
 
     /// Creates one durable Conversation.
@@ -258,7 +292,7 @@ impl AuthenticatedRuntimeClient {
     }
 
     fn url(&self, path: &str) -> String {
-        format!("http://{}{}", self.endpoint.address(), path)
+        format!("{}{path}", self.origin)
     }
 
     fn authenticated_request(
@@ -279,55 +313,6 @@ impl AuthenticatedRuntimeClient {
             .authenticated_request(request)?
             .header("x-command-id", identity.command_id.to_string())
             .header("idempotency-key", identity.idempotency_key.as_str()))
-    }
-}
-
-impl HttpRuntimeClient {
-    /// Performs the authenticated exact-profile handshake.
-    ///
-    /// # Errors
-    ///
-    /// Returns `Incompatible` unless the daemon confirms the exact accepted
-    /// profile and schema digest.
-    pub async fn authenticate(
-        &self,
-        credential: RuntimeCredential,
-    ) -> Result<AuthenticatedRuntimeClient, RuntimeApiError> {
-        let url = format!("http://{}/v1/runtime/profile", self.endpoint.address());
-        let response = self
-            .client
-            .get(url)
-            .header(ACCEPT, "application/json")
-            .header(AUTHORIZATION, credential.authorization_header()?)
-            .send()
-            .await
-            .map_err(map_transport)?;
-        let wire: RuntimeProfileWire = read_success_json(response, &[200]).await?;
-        if wire.profile_id != EXPECTED_BUNDLE_ID
-            || wire.schema_hash != GOLDEN_BUNDLE_HASH
-            || !wire
-                .capabilities
-                .iter()
-                .map(String::as_str)
-                .eq(REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
-            || wire.runtime_version.is_empty()
-            || wire.runtime_version.len() > 64
-            || wire.runtime_version.chars().any(char::is_control)
-        {
-            return Err(RuntimeApiError::new(RuntimeApiErrorKind::Incompatible));
-        }
-        let session = RuntimeSessionInfo {
-            profile_id: wire.profile_id,
-            schema_hash: wire.schema_hash,
-            runtime_version: wire.runtime_version,
-            capabilities: wire.capabilities,
-        };
-        Ok(AuthenticatedRuntimeClient {
-            client: self.client.clone(),
-            endpoint: self.endpoint,
-            credential,
-            session,
-        })
     }
 }
 
@@ -461,7 +446,7 @@ pub struct RuntimeApiError {
 }
 
 impl RuntimeApiError {
-    const fn new(kind: RuntimeApiErrorKind) -> Self {
+    pub(crate) const fn new(kind: RuntimeApiErrorKind) -> Self {
         Self {
             kind,
             request_id: None,
@@ -499,15 +484,6 @@ impl fmt::Display for RuntimeApiError {
 }
 
 impl std::error::Error for RuntimeApiError {}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RuntimeProfileWire {
-    profile_id: String,
-    schema_hash: String,
-    runtime_version: String,
-    capabilities: Vec<String>,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]

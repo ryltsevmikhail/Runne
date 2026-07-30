@@ -25,7 +25,8 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
             .await
             .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".to_owned()))
     }));
-    let profile = PathBuf::from(&config.token_path).with_file_name("client-profile.json");
+    let profile =
+        PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
 
     let created = run_cli([
         "--profile",
@@ -101,6 +102,39 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
         .expect("daemon shutdown timeout")
         .expect("daemon task")
         .expect("daemon shutdown");
+}
+
+#[tokio::test]
+async fn cli_rejects_profile_v1_without_http_fallback_or_secret_disclosure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().expect("temp directory");
+    let profile = directory.path().join("legacy-profile.json");
+    let marker = "legacy-secret-marker";
+    std::fs::write(
+        &profile,
+        format!(
+            r#"{{"schemaVersion":1,"profileId":"gocode-ui-client/1","schemaHash":"{marker}","endpoint":"http://127.0.0.1:9","tokenPath":"/tmp/{marker}"}}"#
+        ),
+    )
+    .expect("write legacy profile");
+    std::fs::set_permissions(&profile, std::fs::Permissions::from_mode(0o600))
+        .expect("secure profile");
+
+    let output = run_cli([
+        "--profile",
+        profile.to_str().expect("profile path"),
+        "conversation",
+        "create",
+    ])
+    .await;
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 error");
+    assert_eq!(stderr, "local runtime profile is incompatible\n");
+    assert!(!stderr.contains(marker));
+    assert!(!stderr.contains(profile.to_str().expect("profile path")));
 }
 
 async fn run_cli<const N: usize>(arguments: [&str; N]) -> std::process::Output {

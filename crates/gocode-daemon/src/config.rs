@@ -73,14 +73,14 @@ fn system_source(path: &Path) -> FieldSource {
 /// replaced with the concrete runtime directory.
 #[derive(Debug, Clone)]
 pub struct BuiltInDefaults {
-    /// Schema version (always 1).
+    /// Schema version (always 2).
     pub schema_version: i64,
     /// Path to the event-log SQLite database.
     pub db_path: String,
     /// HTTP bind address.
     pub http_bind: String,
-    /// Path to the daemon token file.
-    pub token_path: String,
+    /// Path to the internal replay-integrity key.
+    pub replay_integrity_key_path: String,
     /// Maximum concurrent in-flight operations.
     pub max_in_flight: u32,
     /// Graceful-shutdown timeout in milliseconds.
@@ -92,10 +92,10 @@ impl BuiltInDefaults {
     pub fn new(runtime_dir: &Path) -> Self {
         let base = runtime_dir.join("gocode-daemon");
         Self {
-            schema_version: 1,
+            schema_version: 2,
             db_path: base.join("event-log.db").display().to_string(),
             http_bind: "127.0.0.1:3000".to_string(),
-            token_path: base.join("token.json").display().to_string(),
+            replay_integrity_key_path: base.join("replay-integrity.key").display().to_string(),
             max_in_flight: 100,
             shutdown_timeout_ms: 10_000,
         }
@@ -111,11 +111,11 @@ impl BuiltInDefaults {
 #[derive(Debug, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SystemConfig {
-    /// Must be exactly `1`; any other value is a schema error.
+    /// Must be exactly `2`; any other value is a schema error.
     pub schema_version: i64,
     pub db_path: Option<String>,
     pub http_bind: Option<String>,
-    pub token_path: Option<String>,
+    pub replay_integrity_key_path: Option<String>,
     pub max_in_flight: Option<u32>,
     pub shutdown_timeout_ms: Option<u64>,
 }
@@ -133,7 +133,7 @@ pub struct ConfigurationSnapshot {
     pub schema_version: i64,
     pub db_path: String,
     pub http_bind: String,
-    pub token_path: String,
+    pub replay_integrity_key_path: String,
     pub max_in_flight: u32,
     pub shutdown_timeout_ms: u64,
 
@@ -152,7 +152,7 @@ impl ConfigurationSnapshot {
         provenance.insert("schema_version".into(), builtin_source());
         provenance.insert("db_path".into(), builtin_source());
         provenance.insert("http_bind".into(), builtin_source());
-        provenance.insert("token_path".into(), builtin_source());
+        provenance.insert("replay_integrity_key_path".into(), builtin_source());
         provenance.insert("max_in_flight".into(), builtin_source());
         provenance.insert("shutdown_timeout_ms".into(), builtin_source());
 
@@ -160,7 +160,7 @@ impl ConfigurationSnapshot {
             defaults.schema_version,
             &defaults.db_path,
             &defaults.http_bind,
-            &defaults.token_path,
+            &defaults.replay_integrity_key_path,
             defaults.max_in_flight,
             defaults.shutdown_timeout_ms,
         );
@@ -169,7 +169,7 @@ impl ConfigurationSnapshot {
             schema_version: defaults.schema_version,
             db_path: defaults.db_path.clone(),
             http_bind: defaults.http_bind.clone(),
-            token_path: defaults.token_path.clone(),
+            replay_integrity_key_path: defaults.replay_integrity_key_path.clone(),
             max_in_flight: defaults.max_in_flight,
             shutdown_timeout_ms: defaults.shutdown_timeout_ms,
             provenance,
@@ -200,10 +200,10 @@ impl ConfigurationSnapshot {
             .as_deref()
             .unwrap_or(&defaults.http_bind)
             .to_string();
-        let token_path = system
-            .token_path
+        let replay_integrity_key_path = system
+            .replay_integrity_key_path
             .as_deref()
-            .unwrap_or(&defaults.token_path)
+            .unwrap_or(&defaults.replay_integrity_key_path)
             .to_string();
         let max_in_flight = system.max_in_flight.unwrap_or(defaults.max_in_flight);
         let shutdown_timeout_ms = system
@@ -225,10 +225,10 @@ impl ConfigurationSnapshot {
             "http_bind".into(),
             select_provenance(system.http_bind.is_some(), &sys_src),
         );
-        // token_path
+        // replay_integrity_key_path
         provenance.insert(
-            "token_path".into(),
-            select_provenance(system.token_path.is_some(), &sys_src),
+            "replay_integrity_key_path".into(),
+            select_provenance(system.replay_integrity_key_path.is_some(), &sys_src),
         );
         // max_in_flight
         provenance.insert(
@@ -245,7 +245,7 @@ impl ConfigurationSnapshot {
             schema_version,
             &db_path,
             &http_bind,
-            &token_path,
+            &replay_integrity_key_path,
             max_in_flight,
             shutdown_timeout_ms,
         );
@@ -254,7 +254,7 @@ impl ConfigurationSnapshot {
             schema_version,
             db_path,
             http_bind,
-            token_path,
+            replay_integrity_key_path,
             max_in_flight,
             shutdown_timeout_ms,
             provenance,
@@ -270,7 +270,7 @@ fn canonical_values_map(
     schema_version: i64,
     db_path: &str,
     http_bind: &str,
-    token_path: &str,
+    replay_integrity_key_path: &str,
     max_in_flight: u32,
     shutdown_timeout_ms: u64,
 ) -> serde_json::Map<String, serde_json::Value> {
@@ -295,8 +295,8 @@ fn canonical_values_map(
         serde_json::Value::Number((shutdown_timeout_ms).into()),
     );
     map.insert(
-        "token_path".into(),
-        serde_json::Value::String(token_path.into()),
+        "replay_integrity_key_path".into(),
+        serde_json::Value::String(replay_integrity_key_path.into()),
     );
     map
 }
@@ -344,9 +344,9 @@ pub fn load_config(
             let system: SystemConfig = toml::from_str(&contents)?;
 
             // Schema version gate
-            if system.schema_version != 1 {
+            if system.schema_version != 2 {
                 return Err(DaemonError::Schema(format!(
-                    "unsupported schema_version: expected 1, got {}",
+                    "unsupported schema_version: expected 2, got {}",
                     system.schema_version
                 )));
             }
