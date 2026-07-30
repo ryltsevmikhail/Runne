@@ -44,6 +44,7 @@ const nextUpdate = {
 type BrowserReplayAdapter = {
   emit: (value: unknown) => void
   calls: string[]
+  resyncShouldFail: boolean
 }
 
 async function installDesktopAdapter(page: Page): Promise<void> {
@@ -72,8 +73,10 @@ async function installDesktopAdapter(page: Page): Promise<void> {
     const replayWindow = window as ReplayWindow
     ;(globalThis as typeof globalThis & { isTauri: boolean }).isTauri = true
 
+    let openCount = 0
     replayWindow.__GOCODE_REPLAY_TEST__ = {
       calls,
+      resyncShouldFail: false,
       emit(value: unknown) {
         if (channelCallbackId === null) {
           throw new Error('conversation channel is not subscribed')
@@ -119,6 +122,13 @@ async function installDesktopAdapter(page: Page): Promise<void> {
               lastOpenedAt: 1_753_500_000_000,
             }
           case 'open_project_conversation':
+            openCount += 1
+            if (openCount > 1) {
+              await new Promise(resolve => setTimeout(resolve, 1_000))
+              if (replayWindow.__GOCODE_REPLAY_TEST__.resyncShouldFail) {
+                throw new Error('retention still unavailable')
+              }
+            }
             return snapshot
           case 'subscribe_project_conversation': {
             const channel = args?.onUpdate as { id?: unknown } | undefined
@@ -181,7 +191,7 @@ test('deduplicates typed channel updates and keeps confirmed history read-only w
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeDisabled()
 })
 
-test('maps a replay retention failure to the closed resync-required UI state', async ({ page }) => {
+test('runs explicit resync through the native command and restores the live composer', async ({ page }) => {
   await emitChannel(page, {
     kind: 'error',
     code: 'replay_resync_required',
@@ -190,6 +200,55 @@ test('maps a replay retention failure to the closed resync-required UI state', a
   await expect(page.getByText('Conversation resync is required.')).toBeVisible()
   await expect(page.locator('[data-message-id]')).toHaveCount(2)
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Resync' }).click()
+  await expect(page.getByText('Reconnecting — confirmed messages remain read-only.')).toBeVisible()
+  await expect(page.getByText('Runtime live', { exact: true }).last()).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message' })).toBeEnabled()
+  await expect.poll(async () => page.evaluate(() => {
+    const replayWindow = window as Window & {
+      __GOCODE_REPLAY_TEST__: BrowserReplayAdapter
+    }
+    return {
+      opens: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'open_project_conversation',
+      ).length,
+      subscribes: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'subscribe_project_conversation',
+      ).length,
+    }
+  })).toEqual({ opens: 2, subscribes: 2 })
+})
+
+test('keeps explicit resync actionable when the native command fails', async ({ page }) => {
+  await page.evaluate(() => {
+    const replayWindow = window as Window & {
+      __GOCODE_REPLAY_TEST__: BrowserReplayAdapter
+    }
+    replayWindow.__GOCODE_REPLAY_TEST__.resyncShouldFail = true
+  })
+  await emitChannel(page, {
+    kind: 'error',
+    code: 'replay_resync_required',
+  })
+
+  await page.getByRole('button', { name: 'Resync' }).click()
+  await expect(page.getByText('Reconnecting — confirmed messages remain read-only.')).toBeVisible()
+  await expect(page.getByText('Conversation resync is required.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Resync' })).toBeEnabled()
+  await expect(page.getByRole('textbox', { name: 'Message' })).toBeDisabled()
+  await expect.poll(async () => page.evaluate(() => {
+    const replayWindow = window as Window & {
+      __GOCODE_REPLAY_TEST__: BrowserReplayAdapter
+    }
+    return {
+      opens: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'open_project_conversation',
+      ).length,
+      subscribes: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'subscribe_project_conversation',
+      ).length,
+    }
+  })).toEqual({ opens: 2, subscribes: 1 })
 })
 
 test('maps authorization epoch revocation to the closed revoked UI state', async ({ page }) => {

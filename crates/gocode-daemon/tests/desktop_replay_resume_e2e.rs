@@ -3,19 +3,35 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 
 use gocode_app_core::{AppCore, RuntimeAvailability};
 use gocode_daemon::application::DaemonApplication;
 use gocode_daemon::config::{BuiltInDefaults, ConfigurationSnapshot};
-use gocode_runtime_client::{LocalRuntimeConnectError, LocalRuntimeProfile, RuntimeTransportError};
+use gocode_daemon::error::DaemonError;
+use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
+use gocode_domain::id::{
+    AggregateId, CommandId, ConversationId, EventId, IdempotencyKey, IntegrityDigest,
+};
+use gocode_domain::timestamp::Timestamp;
+use gocode_runtime_client::{
+    AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, GenerateTextRequest,
+    LocalRuntimeConnectError, LocalRuntimeProfile, ReplayAggregateKind, ReplayIdentityTracker,
+    ReplayLiveSession, ReplayRecoveryDisposition, ReplayScope, ReplayStreamEvent,
+    RuntimeTransportError,
+};
+use gocode_store::codec::{ConversationEventCodec, StoreCodec};
+use gocode_store::integrity::compute_integrity_digest_v2_with_global_position;
 use rusqlite::Connection;
+use tokio::sync::{Mutex, MutexGuard};
 
 const CHILD_MODE: &str = "GOCODE_DESKTOP_REPLAY_CHILD";
 const CHILD_DB_PATH: &str = "GOCODE_DESKTOP_REPLAY_DB_PATH";
 const CHILD_KEY_PATH: &str = "GOCODE_DESKTOP_REPLAY_KEY_PATH";
 const CHILD_BIND: &str = "GOCODE_DESKTOP_REPLAY_BIND";
 const CHILD_STOP_PATH: &str = "GOCODE_DESKTOP_REPLAY_STOP_PATH";
+static PROCESS_E2E_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 #[derive(Clone, Debug)]
 struct ObservedSessionIdentity {
@@ -117,25 +133,36 @@ fn daemon_child_process() {
     defaults.http_bind = bind;
     let config = ConfigurationSnapshot::from_defaults(&defaults);
     let runtime = tokio::runtime::Runtime::new().expect("child Tokio runtime");
-    runtime
-        .block_on(async move {
-            let application = DaemonApplication::start(&config).await?;
-            application
-                .run(async {
-                    loop {
-                        if stop_path.exists() {
-                            return Ok(());
-                        }
-                        tokio::time::sleep(Duration::from_millis(20)).await;
+    let stop_requested = stop_path.clone();
+    let result = runtime.block_on(async move {
+        let application = DaemonApplication::start(&config).await?;
+        application
+            .run(async {
+                loop {
+                    if stop_path.exists() {
+                        return Ok(());
                     }
-                })
-                .await
-        })
-        .expect("run child daemon application");
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+    });
+    match result {
+        Ok(()) => {}
+        Err(DaemonError::Bootstrap(message))
+            if stop_requested.exists() && message == "runtime shutdown timeout" =>
+        {
+            // Replay tests may deliberately leave a live HTTP stream open. The
+            // production daemon correctly reports the bounded drain timeout;
+            // for this child-process harness, completed termination is enough.
+        }
+        Err(error) => panic!("run child daemon application: {error:?}"),
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
+    let _process_guard = process_e2e_guard().await;
     let directory = tempfile::tempdir().expect("owner-only temporary directory");
     set_owner_only(directory.path());
     let runtime_root = directory.path().join("runtime");
@@ -330,7 +357,516 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         daemon_latest_cursor_is_acknowledged(&daemon_database, second_identity.generation),
         "the resumed cursor must be acknowledged by the restarted daemon"
     );
+    drop(reopened);
     second_daemon.stop();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_wrong_authority_db_closes_fatal_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    replace_bound_runtime_authority(&fixture.desktop_database);
+
+    let error = fixture
+        .core()
+        .open_project_conversation(fixture.project_id)
+        .await
+        .expect_err("wrong authority binding must fail closed");
+
+    assert_eq!(error.to_string(), "runtime_identity_conflict");
+    assert_eq!(
+        fixture.core().bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Fatal
+    );
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_retention_gap_requires_resync_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let mut fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    fixture.generate_text(1, "retained-after-gap").await;
+    fixture.stop_daemon();
+    delete_first_daemon_event(&fixture.daemon_database);
+    fixture.restart_daemon();
+    let core = fixture.reopen_core().await;
+
+    let error = core
+        .open_project_conversation(fixture.project_id)
+        .await
+        .expect_err("retention gap must fail closed");
+
+    assert_eq!(error.to_string(), "replay_resync_required");
+    assert_eq!(
+        core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::ResyncRequired
+    );
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_live_epoch_revocation_closes_revoked_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    let mut live = fixture.open_raw_live(&before.cursor).await;
+    revoke_live_replay_epoch(&fixture.daemon_database);
+
+    let error = live
+        .next_event()
+        .await
+        .expect_err("authorization epoch mismatch must fail closed");
+
+    assert_eq!(
+        error.recovery_disposition(),
+        ReplayRecoveryDisposition::Revoked
+    );
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_unknown_schema_closes_incompatible_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let mut fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    fixture.generate_text(1, "unknown-schema").await;
+    fixture.stop_daemon();
+    promote_conversation_event_to_unknown_schema(&fixture.daemon_database, 2);
+    fixture.restart_daemon();
+    let core = fixture.reopen_core().await;
+
+    let error = core
+        .open_project_conversation(fixture.project_id)
+        .await
+        .expect_err("unknown public schema must fail closed");
+
+    assert_eq!(error.to_string(), "runtime_incompatible");
+    assert_eq!(
+        core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Incompatible
+    );
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_session_quota_closes_reconnecting_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    let mut held_sessions = Vec::new();
+    for _ in 0..8 {
+        held_sessions.push(fixture.open_raw_live(&before.cursor).await);
+    }
+
+    let error = fixture
+        .core()
+        .subscribe_project_conversation(fixture.project_id, |_| {})
+        .await
+        .expect_err("ninth replay session must be rejected");
+
+    assert_eq!(error.to_string(), "runtime is unavailable");
+    assert_eq!(
+        fixture.core().bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Reconnecting
+    );
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
+    drop(held_sessions);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_slow_consumer_closes_server_session_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    let mut live = fixture.open_raw_live(&before.cursor).await;
+    fixture.generate_text(1, "first-live-delivery").await;
+    assert!(matches!(
+        live.next_event().await.expect("first live delivery"),
+        ReplayStreamEvent::Delivery(_)
+    ));
+    let queued_text = "x".repeat(60 * 1024);
+    for index in 0..40 {
+        let expected_version = 3 + index * 2;
+        fixture
+            .generate_text(expected_version, &format!("{index}-{queued_text}"))
+            .await;
+    }
+
+    wait_for_closed_replay_session(&fixture.daemon_database);
+
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
+    let (last_acked, last_delivered) = closed_replay_progress(&fixture.daemon_database);
+    assert_eq!(last_acked, Some(1));
+    assert!(
+        last_delivered.is_some_and(|position| position > 1),
+        "slow session must close only after attempting live delivery"
+    );
+}
+
+struct ProcessFaultFixture {
+    child: Option<ChildDaemon>,
+    _directory: tempfile::TempDir,
+    daemon_database: PathBuf,
+    replay_key_path: PathBuf,
+    profile_path: PathBuf,
+    desktop_database: PathBuf,
+    next_stop_ordinal: u64,
+    next_launch_generation: u64,
+    core: Option<Arc<AppCore>>,
+    client: Option<AuthenticatedRuntimeClient>,
+    project_id: i64,
+    conversation_id: CanonicalId,
+}
+
+async fn process_e2e_guard() -> MutexGuard<'static, ()> {
+    PROCESS_E2E_LOCK.lock().await
+}
+
+impl ProcessFaultFixture {
+    async fn open() -> Self {
+        let directory = tempfile::tempdir().expect("owner-only temporary directory");
+        set_owner_only(directory.path());
+        let runtime_root = directory.path().join("runtime");
+        let daemon_directory = runtime_root.join("gocode-daemon");
+        std::fs::create_dir_all(&daemon_directory).expect("create daemon directory");
+        set_owner_only(&runtime_root);
+        set_owner_only(&daemon_directory);
+        let daemon_database = daemon_directory.join("event-log.db");
+        let replay_key_path = daemon_directory.join("replay-integrity.key");
+        let profile_path = daemon_directory.join("client-profile.json");
+        let first_stop = directory.path().join("fault-1.stop");
+        let first_child = ChildDaemon::start(
+            &daemon_database,
+            &replay_key_path,
+            &first_stop,
+            "127.0.0.1:0",
+            &profile_path,
+            1,
+        );
+        let desktop_database = directory.path().join("desktop.sqlite3");
+        let project_path = directory.path().join("project");
+        std::fs::create_dir(&project_path).expect("create project");
+        let core = Arc::new(
+            AppCore::open_with_runtime_profile(&desktop_database, profile_path.clone())
+                .expect("open desktop core"),
+        );
+        let project_id = core
+            .open_local_project(&project_path)
+            .expect("open project")
+            .id;
+        assert_eq!(
+            core.connect_runtime().await.expect("connect runtime"),
+            RuntimeAvailability::Live
+        );
+        let snapshot = core
+            .open_project_conversation(project_id)
+            .await
+            .expect("create conversation");
+        let conversation_id =
+            CanonicalId::parse(&snapshot.conversation_id).expect("canonical conversation ID");
+        drop(core);
+        first_child.stop();
+        let second_stop = directory.path().join("fault-2.stop");
+        let child = ChildDaemon::start(
+            &daemon_database,
+            &replay_key_path,
+            &second_stop,
+            "127.0.0.1:0",
+            &profile_path,
+            2,
+        );
+        let core = Arc::new(
+            AppCore::open_with_runtime_profile(&desktop_database, profile_path.clone())
+                .expect("reopen desktop core"),
+        );
+        assert_eq!(
+            core.connect_runtime().await.expect("reconnect runtime"),
+            RuntimeAvailability::Live
+        );
+        let client = authenticated_client(&profile_path).await;
+        Self {
+            child: Some(child),
+            _directory: directory,
+            daemon_database,
+            replay_key_path,
+            profile_path,
+            desktop_database,
+            next_stop_ordinal: 3,
+            next_launch_generation: 3,
+            core: Some(core),
+            client: Some(client),
+            project_id,
+            conversation_id,
+        }
+    }
+
+    fn stop_daemon(&mut self) {
+        self.core.take();
+        self.client.take();
+        self.child.take().expect("running child daemon").stop();
+    }
+
+    fn restart_daemon(&mut self) {
+        let minimum_generation = self.next_launch_generation;
+        self.next_launch_generation += 1;
+        let stop_path = self
+            ._directory
+            .path()
+            .join(format!("fault-{}.stop", self.next_stop_ordinal));
+        self.next_stop_ordinal += 1;
+        self.child = Some(ChildDaemon::start(
+            &self.daemon_database,
+            &self.replay_key_path,
+            &stop_path,
+            "127.0.0.1:0",
+            &self.profile_path,
+            minimum_generation,
+        ));
+    }
+
+    async fn reopen_core(&self) -> Arc<AppCore> {
+        let core = Arc::new(
+            AppCore::open_with_runtime_profile(&self.desktop_database, self.profile_path.clone())
+                .expect("reopen desktop core"),
+        );
+        assert_eq!(
+            core.connect_runtime().await.expect("reconnect runtime"),
+            RuntimeAvailability::Live
+        );
+        core
+    }
+
+    async fn generate_text(&self, expected_version: u64, text: &str) {
+        let identity =
+            CommandIdentity::new(CanonicalId::now_v7(), format!("fault-{expected_version}"))
+                .expect("command identity");
+        let request =
+            GenerateTextRequest::new(identity, self.conversation_id, expected_version, text)
+                .expect("generate request");
+        self.client()
+            .generate_text(request)
+            .await
+            .expect("generate text");
+    }
+
+    async fn open_raw_live(&self, cursor: &str) -> ReplayLiveSession {
+        self.client()
+            .catch_up_from_persisted_cursor(
+                ReplayScope::new(ReplayAggregateKind::Conversation, self.conversation_id),
+                Some(cursor),
+                ReplayIdentityTracker::new(),
+                |_| Ok::<(), ()>(()),
+                |_| {},
+            )
+            .await
+            .expect("open raw live replay")
+    }
+
+    fn core(&self) -> &Arc<AppCore> {
+        self.core.as_ref().expect("connected desktop core")
+    }
+
+    fn client(&self) -> &AuthenticatedRuntimeClient {
+        self.client.as_ref().expect("connected runtime client")
+    }
+}
+
+async fn authenticated_client(profile_path: &Path) -> AuthenticatedRuntimeClient {
+    LocalRuntimeProfile::load(profile_path)
+        .expect("strict profile v2")
+        .connect(Duration::from_secs(5))
+        .await
+        .expect("peer-authenticated runtime client")
+}
+
+fn replace_bound_runtime_authority(database_path: &Path) {
+    let connection = Connection::open(database_path).expect("open desktop database");
+    let key: String = connection
+        .query_row(
+            "SELECT key FROM settings WHERE key LIKE 'runtime.conversation.project.%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("conversation reference key");
+    let serialized: String = connection
+        .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |row| {
+            row.get(0)
+        })
+        .expect("conversation reference");
+    let mut reference: serde_json::Value =
+        serde_json::from_str(&serialized).expect("conversation reference JSON");
+    reference["runtimeAuthority"] = serde_json::json!("018f2e3a700070008000000000000099");
+    connection
+        .execute(
+            "UPDATE settings SET value = ?1 WHERE key = ?2",
+            [
+                serde_json::to_string(&reference).expect("conversation reference JSON"),
+                key,
+            ],
+        )
+        .expect("replace bound authority");
+}
+
+fn delete_first_daemon_event(database_path: &Path) {
+    let connection = Connection::open(database_path).expect("open daemon database");
+    assert_eq!(
+        connection
+            .execute("DELETE FROM events WHERE global_position = 1", [])
+            .expect("delete retained event"),
+        1
+    );
+}
+
+fn revoke_live_replay_epoch(database_path: &Path) {
+    let connection = Connection::open(database_path).expect("open daemon database");
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE _replay_subscriptions
+                 SET authorization_epoch = authorization_epoch + 1
+                 WHERE state = 'live'",
+                [],
+            )
+            .expect("revoke live replay epoch"),
+        1
+    );
+}
+
+#[allow(clippy::type_complexity)]
+fn promote_conversation_event_to_unknown_schema(database_path: &Path, sequence: i64) {
+    let connection = Connection::open(database_path).expect("open daemon database");
+    let row: (
+        Vec<u8>,
+        Vec<u8>,
+        i64,
+        i64,
+        i64,
+        i64,
+        Option<Vec<u8>>,
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+        Vec<u8>,
+    ) = connection
+        .query_row(
+            "
+            SELECT event_id, aggregate_id, sequence, global_position, timestamp,
+                   sensitivity, causation_id, command_id, idempotency_key, actor, payload
+            FROM events
+            WHERE aggregate_type = 2 AND sequence = ?1
+            ",
+            [sequence],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get(9)?,
+                    row.get(10)?,
+                ))
+            },
+        )
+        .expect("conversation event");
+    let event_id = EventId::from_bytes(fixed_16(&row.0));
+    let conversation_id = ConversationId::from_bytes(fixed_16(&row.1));
+    let causation_id = row
+        .6
+        .as_ref()
+        .map(|value| EventId::from_bytes(fixed_16(value)));
+    let command_id = CommandId::from_bytes(fixed_16(&row.7));
+    let idempotency_key =
+        IdempotencyKey::new(String::from_utf8(row.8.clone()).expect("idempotency key UTF-8"))
+            .expect("idempotency key");
+    let actor = Actor::new(String::from_utf8(row.9.clone()).expect("actor UTF-8"))
+        .expect("canonical actor");
+    let sensitivity = match row.5 {
+        0 => Sensitivity::Public,
+        1 => Sensitivity::Internal,
+        2 => Sensitivity::Sensitive,
+        _ => panic!("invalid sensitivity"),
+    };
+    let payload = ConversationEventCodec
+        .decode(&row.10)
+        .expect("conversation event payload");
+    let envelope = EventEnvelope::from_parts(
+        event_id,
+        AggregateId::Conversation(conversation_id),
+        AggregateId::Conversation(conversation_id),
+        causation_id,
+        command_id,
+        idempotency_key,
+        2,
+        actor,
+        sensitivity,
+        payload,
+        u64::try_from(row.2).expect("event sequence"),
+        Timestamp::from_unix_micros(row.4),
+        IntegrityDigest::from_bytes([0; 32]),
+    );
+    let digest = compute_integrity_digest_v2_with_global_position(&envelope, row.3, &row.10)
+        .expect("unknown-schema integrity digest");
+    assert_eq!(
+        connection
+            .execute(
+                "UPDATE events
+                 SET schema_version = 2, integrity_digest = ?1
+                 WHERE aggregate_type = 2 AND sequence = ?2",
+                rusqlite::params![digest.as_bytes().as_slice(), sequence],
+            )
+            .expect("promote event schema"),
+        1
+    );
+}
+
+fn fixed_16(value: &[u8]) -> [u8; 16] {
+    value.try_into().expect("16-byte identity")
+}
+
+fn wait_for_closed_replay_session(database_path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if Connection::open(database_path)
+            .expect("open daemon database")
+            .query_row(
+                "SELECT EXISTS (
+                    SELECT 1 FROM _replay_subscriptions WHERE state = 'closed'
+                 )",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .expect("read replay session state")
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "slow replay session did not close"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn closed_replay_progress(database_path: &Path) -> (Option<i64>, Option<i64>) {
+    Connection::open(database_path)
+        .expect("open daemon database")
+        .query_row(
+            "
+            SELECT last_acked_position, last_delivered_position
+            FROM _replay_subscriptions
+            WHERE state = 'closed'
+            ",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("closed replay progress")
 }
 
 fn required_child_path(name: &str) -> PathBuf {

@@ -44,10 +44,12 @@ const generated: ConversationSnapshot = {
 
 function mockSession(
   sendMessage: ConversationSession['sendMessage'] = async () => generated,
+  resync: ConversationSession['resync'] = async () => generated,
   unsubscribe = async () => undefined,
 ): ConversationSession {
   return {
     sendMessage,
+    resync,
     unsubscribe,
   }
 }
@@ -181,6 +183,29 @@ describe('conversation chat widget', () => {
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
   })
 
+  it('keeps the resync action available when explicit recovery fails', async () => {
+    const resync = vi.fn(async () => {
+      throw new Error('retention still unavailable')
+    })
+    const wrapper = mount(ConversationChat, {
+      props: {
+        projectId: 7,
+        connect: async () => 'live',
+        openConversation: async () => ({ ...generated, recovery: 'resync_required' }),
+        subscribeConversation: async () => mockSession(async () => generated, resync),
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('button[name="resync-conversation"]').trigger('click')
+    await flushPromises()
+
+    expect(resync).toHaveBeenCalledOnce()
+    expect(wrapper.text()).toContain('Conversation resync is required.')
+    expect(wrapper.get('button[name="resync-conversation"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  })
+
   it('unsubscribes on unmount after the subscription has been installed', async () => {
     const unsubscribe = vi.fn(async () => undefined)
     const wrapper = mount(ConversationChat, {
@@ -188,7 +213,11 @@ describe('conversation chat widget', () => {
         projectId: 7,
         connect: async () => 'live',
         openConversation: async () => generated,
-        subscribeConversation: async () => mockSession(async () => generated, unsubscribe),
+        subscribeConversation: async () => mockSession(
+          async () => generated,
+          async () => generated,
+          unsubscribe,
+        ),
       },
     })
     await flushPromises()

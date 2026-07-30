@@ -58,6 +58,7 @@ const snapshot = ref<ConversationSnapshot | null>(null)
 const runtimeState = ref<RuntimeConnectionState>('unconfigured')
 const loading = ref(true)
 const sending = ref(false)
+const resyncing = ref(false)
 const unavailable = ref(false)
 const draft = ref('')
 let session: ConversationSession | null = null
@@ -73,6 +74,12 @@ const canCompose = computed(() => (
 const canSend = computed(() => (
   canCompose.value
   && draft.value.length > 0
+))
+const canResync = computed(() => (
+  recovery.value === 'resync_required'
+  && session !== null
+  && !loading.value
+  && !resyncing.value
 ))
 const statusCopy = computed(() => {
   switch (recovery.value) {
@@ -196,13 +203,33 @@ async function submitMessage() {
     sending.value = false
   }
 }
+
+async function resyncConversation() {
+  if (!canResync.value) {
+    return
+  }
+  const current = session
+  if (current === null) {
+    return
+  }
+  resyncing.value = true
+  try {
+    await current.resync()
+  }
+  catch {
+    // The session restores the actionable resync-required state fail closed.
+  }
+  finally {
+    resyncing.value = false
+  }
+}
 </script>
 
 <template>
   <section
     class="conversation-chat"
     aria-labelledby="conversation-title"
-    :aria-busy="loading || sending"
+    :aria-busy="loading || sending || resyncing"
   >
     <header class="conversation-chat__header">
       <div>
@@ -248,13 +275,23 @@ async function submitMessage() {
 
     <template v-else>
       <div class="conversation-chat__timeline">
-        <p
+        <div
           v-if="statusCopy !== null"
           class="conversation-chat__recovery"
           role="status"
         >
-          {{ statusCopy }}
-        </p>
+          <span>{{ statusCopy }}</span>
+          <GcButton
+            v-if="recovery === 'resync_required'"
+            name="resync-conversation"
+            size="sm"
+            variant="secondary"
+            :disabled="!canResync"
+            @click="resyncConversation"
+          >
+            {{ resyncing ? 'Resyncing…' : 'Resync' }}
+          </GcButton>
+        </div>
         <ol
           class="conversation-chat__messages"
           aria-label="Conversation messages"
@@ -354,6 +391,10 @@ async function submitMessage() {
 }
 
 .conversation-chat__recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gocode-space-md);
   margin: 0;
   padding: var(--gocode-space-xs) var(--gocode-space-lg);
   border-bottom: 1px solid var(--gocode-border);

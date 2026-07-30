@@ -11,6 +11,7 @@ use std::time::Duration;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gocode_runtime_client::{
     EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, LocalRuntimeConnectError, LocalRuntimeProfile,
+    REQUIRED_RUNTIME_CAPABILITIES,
 };
 use rcgen::{
     BasicConstraints, CertificateParams, IsCa, Issuer, KeyPair, KeyUsagePurpose,
@@ -19,12 +20,6 @@ use rcgen::{
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
-
-const CAPABILITIES: &[&str] = &[
-    "conversation.create.v1",
-    "conversation.generate_text.v1",
-    "conversation.list_messages.v1",
-];
 
 #[tokio::test]
 async fn counterfeit_listener_receives_no_http_or_bootstrap_material() {
@@ -216,7 +211,7 @@ fn write_profile(
     secure(&bootstrap_path);
     let profile_path = directory.join("client-profile.json");
     let certificate_sha256 = hex::encode(Sha256::digest(certificate));
-    let capability_digest = ordered_capability_digest(CAPABILITIES);
+    let capability_digest = ordered_capability_digest(REQUIRED_RUNTIME_CAPABILITIES);
     fs::write(
         &profile_path,
         serde_json::to_vec(&serde_json::json!({
@@ -224,7 +219,7 @@ fn write_profile(
             "transportProfileId": "gocode-local-runtime/2",
             "profileId": EXPECTED_BUNDLE_ID,
             "schemaHash": GOLDEN_BUNDLE_HASH,
-            "capabilities": CAPABILITIES,
+            "capabilities": REQUIRED_RUNTIME_CAPABILITIES,
             "capabilityDigest": hex::encode(capability_digest),
             "endpoint": format!("https://{endpoint}"),
             "certificateDerBase64": STANDARD.encode(certificate),
