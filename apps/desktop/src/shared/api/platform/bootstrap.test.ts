@@ -6,11 +6,13 @@ describe('bootstrap IPC adapter', () => {
   it('accepts the closed sanitized bootstrap response', async () => {
     const state = await loadBootstrap(async () => ({
       theme: 'light',
+      runtimeMode: 'external_local',
       runtime: 'unconfigured',
     }))
 
     expect(state).toEqual({
       theme: 'light',
+      runtimeMode: 'external_local',
       runtime: 'unconfigured',
     })
   })
@@ -19,7 +21,18 @@ describe('bootstrap IPC adapter', () => {
     await expect(
       loadBootstrap(async () => ({
         theme: 'dark',
+        runtimeMode: 'external_local',
         runtime: 'connected',
+      })),
+    ).rejects.toThrow('Invalid bootstrap response')
+  })
+
+  it('rejects an unknown runtime mode', async () => {
+    await expect(
+      loadBootstrap(async () => ({
+        theme: 'dark',
+        runtimeMode: 'managed',
+        runtime: 'unconfigured',
       })),
     ).rejects.toThrow('Invalid bootstrap response')
   })

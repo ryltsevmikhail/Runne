@@ -10,6 +10,7 @@ describe('diagnostics platform API', () => {
       databaseSchemaVersion: 3,
       databaseGeneration: 4,
       projectCount: 2,
+      runtimeMode: 'external_local',
       runtime: 'unconfigured',
     }))
 
@@ -23,6 +24,7 @@ describe('diagnostics platform API', () => {
       databaseSchemaVersion: 3,
       databaseGeneration: 4,
       projectCount: 2,
+      runtimeMode: 'external_local',
       runtime: 'unconfigured',
       projectPath: '/private/project',
     }))).rejects.toThrow('Invalid diagnostics response')

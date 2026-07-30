@@ -2,7 +2,16 @@ import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 
 export interface BootstrapState {
   readonly theme: 'dark' | 'light'
+  readonly runtimeMode: RuntimeMode
   readonly runtime: RuntimeConnectionState
+}
+
+export type RuntimeMode = 'external_local' | 'bundled'
+
+const runtimeModes: readonly RuntimeMode[] = ['external_local', 'bundled']
+
+export function isRuntimeMode(value: unknown): value is RuntimeMode {
+  return typeof value === 'string' && runtimeModes.includes(value as RuntimeMode)
 }
 
 export type RuntimeConnectionState =
@@ -72,8 +81,9 @@ function isBootstrapState(value: unknown): value is BootstrapState {
   }
   const record = value as Record<string, unknown>
   return (
-    Object.keys(record).length === 2
+    Object.keys(record).length === 3
     && (record.theme === 'dark' || record.theme === 'light')
+    && isRuntimeMode(record.runtimeMode)
     && isRuntimeConnectionState(record.runtime)
   )
 }
