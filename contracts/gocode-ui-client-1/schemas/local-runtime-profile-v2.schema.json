@@ -14,8 +14,8 @@
     },
     "capabilities": {
       "items": false,
-      "maxItems": 3,
-      "minItems": 3,
+      "maxItems": 9,
+      "minItems": 9,
       "prefixItems": [
         {
           "const": "conversation.create.v1",
@@ -27,6 +27,30 @@
         },
         {
           "const": "conversation.list_messages.v1",
+          "type": "string"
+        },
+        {
+          "const": "replay.aggregate.open.v1",
+          "type": "string"
+        },
+        {
+          "const": "replay.aggregate.read_page.v1",
+          "type": "string"
+        },
+        {
+          "const": "replay.aggregate.acknowledge.v1",
+          "type": "string"
+        },
+        {
+          "const": "replay.aggregate.complete_catch_up.v1",
+          "type": "string"
+        },
+        {
+          "const": "replay.aggregate.continue_live.v1",
+          "type": "string"
+        },
+        {
+          "const": "replay.aggregate.sse.v1",
           "type": "string"
         }
       ],

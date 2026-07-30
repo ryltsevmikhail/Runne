@@ -23,7 +23,7 @@
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
-      "sha256": "cadf2320526665a0cc762b698fe1008585aeb3250c5af221fb2163f19348bf38"
+      "sha256": "57e16e78c5404354a5bc37410f05b8dfa6b078572c1627f98494fb86df9fe278"
     },
     {
       "path": "schemas/local-session-v1.schema.json",
@@ -53,7 +53,13 @@
   "publishedCapabilities": [
     "conversation.create.v1",
     "conversation.generate_text.v1",
-    "conversation.list_messages.v1"
+    "conversation.list_messages.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1"
   ],
   "transportProfileId": "gocode-local-runtime/2"
 }

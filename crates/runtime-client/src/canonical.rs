@@ -13,15 +13,18 @@ const MAXIMUM_ERROR_RESPONSE_BYTES: usize = 8 * 1024;
 const MAXIMUM_IDEMPOTENCY_KEY_BYTES: usize = 256;
 const MAXIMUM_MESSAGE_TEXT_BYTES: usize = 64 * 1024;
 
-/// Exact command/query capabilities required by this client build.
-///
-/// Ordering is canonical and part of the authenticated profile response.
-/// Replay remains intentionally absent until the full route surface is
-/// published in Task 10.
+/// Exact command/query and Aggregate replay capabilities required by this
+/// client build. Ordering is canonical and authenticated.
 pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
 ];
 
 /// Strict `UUIDv7` identity used by the canonical client contract.

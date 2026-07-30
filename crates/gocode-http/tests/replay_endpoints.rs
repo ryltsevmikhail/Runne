@@ -1,4 +1,4 @@
-//! The production router must not advertise replay until ReplayService is wired.
+//! A router without ReplayService must not publish a preview or legacy replay surface.
 
 use axum::body::Body;
 use gocode_api::{
@@ -79,13 +79,15 @@ fn app() -> axum::Router {
 }
 
 #[tokio::test]
-async fn production_router_does_not_publish_replay_stubs() {
+async fn taskrun_only_router_does_not_publish_preview_or_canonical_replay_stubs() {
     for uri in [
         "/replay/open-session",
         "/replay/sess-001/read-page",
-        "/replay/sess-001/complete-catch-up",
-        "/replay/sess-001/continue-live",
-        "/replay/sess-001/close",
+        "/v1/replay/open-session",
+        "/v1/replay/sess-001/read-page",
+        "/v1/replay/sess-001/complete-catch-up",
+        "/v1/replay/sess-001/continue-live",
+        "/v1/replay/sess-001/close",
     ] {
         let response = app()
             .oneshot(

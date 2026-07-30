@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use futures::StreamExt;
+use gocode_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding};
+use gocode_application::local_session::AuthenticatedRuntimeSession;
 use gocode_application::ports::{
     ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
 };
@@ -41,6 +43,40 @@ const LINEAGE: [u8; 16] = [
 const AUTHORITY: [u8; 16] = [0xAA; 16];
 const GENERATION: i64 = 7;
 const PROHIBITED_MARKER: &str = "task-seven-replay-marker";
+
+fn aggregate_id_wire() -> String {
+    uuid::Uuid::from_bytes(AGGREGATE).to_string()
+}
+
+fn authenticated_runtime_session() -> AuthenticatedRuntimeSession {
+    AuthenticatedRuntimeSession {
+        binding: RuntimeSessionBinding::new(
+            StableRuntimeBinding::new(
+                [
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x01,
+                ],
+                ApiPrincipalId::new("local-owner").unwrap(),
+                EventLogLineageId::from_bytes(LINEAGE),
+                "gocode-ui-client/1",
+                [0x31; 32],
+                [0x41; 32],
+            )
+            .unwrap(),
+            DaemonInstanceId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x02,
+            ]),
+            u64::try_from(GENERATION).unwrap(),
+            [
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x03,
+            ],
+            0,
+            Sensitivity::Sensitive,
+            [0x51; 32],
+        )
+        .unwrap(),
+        expires_at_monotonic: std::time::Duration::from_secs(600),
+    }
+}
 
 struct AvailableGuard;
 
@@ -162,10 +198,25 @@ fn event_id(global_position: i64) -> [u8; 16] {
 }
 
 fn taskrun_row(sequence: i64, global_position: i64, key: String) -> TaskRunRow {
+    taskrun_row_with_schema(sequence, global_position, key, 1)
+}
+
+fn taskrun_row_with_schema(
+    sequence: i64,
+    global_position: i64,
+    key: String,
+    schema_version: u32,
+) -> TaskRunRow {
     let event_id_bytes = event_id(global_position);
     let taskrun_id = TaskRunId::from_bytes(AGGREGATE);
+    let payload = if key.contains(PROHIBITED_MARKER) {
+        TaskRunEvent::TaskRunFailed {
+            reason: key.clone(),
+        }
+    } else {
+        TaskRunEvent::TaskRunCreated
+    };
     let idempotency_key = IdempotencyKey::new(key).unwrap();
-    let payload = TaskRunEvent::TaskRunCreated;
     let payload_bytes = TaskRunEventCodec.encode(&payload).unwrap();
     let envelope = EventEnvelope::from_parts(
         EventId::from_bytes(event_id_bytes),
@@ -174,7 +225,7 @@ fn taskrun_row(sequence: i64, global_position: i64, key: String) -> TaskRunRow {
         None,
         CommandId::from_bytes(event_id_bytes),
         idempotency_key.clone(),
-        1,
+        schema_version,
         Actor::new("test-actor").unwrap(),
         Sensitivity::Public,
         payload,
@@ -263,6 +314,7 @@ fn setup_with_events(
         prohibited_content,
     );
     let router = replay_router(state)
+        .layer(axum::Extension(authenticated_runtime_session()))
         .layer(AuthLayer::new(TOKEN))
         .layer(axum::middleware::from_fn(request_id_middleware));
     (router, directory)
@@ -307,8 +359,9 @@ async fn open_session_classification_denial_leaves_no_durable_session() {
             .oneshot(post(
                 "/v1/replay/open-session",
                 json!({
-                    "aggregateType": 1,
-                    "aggregateId": hex::encode(AGGREGATE),
+                    "aggregateType": "taskRun",
+                    "aggregateId": aggregate_id_wire(),
+                    "fromCursor": null,
                 }),
             ))
             .await
@@ -340,8 +393,9 @@ async fn read_page_classification_denial_preserves_delivery_progress() {
             .oneshot(post(
                 "/v1/replay/open-session",
                 json!({
-                    "aggregateType": 1,
-                    "aggregateId": hex::encode(AGGREGATE),
+                    "aggregateType": "taskRun",
+                    "aggregateId": aggregate_id_wire(),
+                    "fromCursor": null,
                 }),
             ))
             .await
@@ -378,8 +432,9 @@ async fn open_and_continue_live(app: &axum::Router) -> String {
         .oneshot(post(
             "/v1/replay/open-session",
             json!({
-                "aggregateType": 1,
-                "aggregateId": hex::encode(AGGREGATE),
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
             }),
         ))
         .await
@@ -512,8 +567,9 @@ async fn issued_cursor_is_opaque_and_round_trips_through_acknowledge() {
         .oneshot(post(
             "/v1/replay/open-session",
             json!({
-                "aggregateType": 1,
-                "aggregateId": hex::encode(AGGREGATE),
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
             }),
         ))
         .await
@@ -522,27 +578,35 @@ async fn issued_cursor_is_opaque_and_round_trips_through_acknowledge() {
     let opened = json_body(response).await;
     let session_id = opened["sessionId"].as_str().unwrap();
     let event = &opened["events"][0];
-    assert_eq!(event["eventType"], "TaskRunCreated");
+    assert_eq!(event["aggregateType"], "taskRun");
+    assert_eq!(event["aggregateId"], aggregate_id_wire());
+    assert_eq!(event["eventType"], "taskRun.created");
     assert_eq!(event["sequence"], 1);
     assert_eq!(event["schemaVersion"], 1);
     assert_eq!(event["sensitivity"], "public");
-    assert_eq!(event["causationId"], Value::Null);
-    assert_eq!(event["commandId"], hex::encode(event_id(1)));
-    assert_eq!(event["idempotencyKey"], "replay-test");
-    assert_eq!(event["actor"], "test-actor");
+    assert_eq!(event["causationEventId"], Value::Null);
     assert_eq!(
         event["integrityDigest"],
         hex::encode(taskrun_row(1, 1, "replay-test".to_owned()).integrity_digest)
     );
-    assert_eq!(event["correlationId"], hex::encode(AGGREGATE));
-    assert_eq!(event["correlationType"], 1);
-    assert_eq!(event["integrityProfile"], 1);
-    assert_eq!(
-        event["payload"],
-        json!({
-            "encoding": "gocode-durable-event-codec-v1-hex",
-            "data": "000101",
-        })
+    assert_eq!(event["correlationId"], aggregate_id_wire());
+    assert_eq!(event["correlationType"], "taskRun");
+    assert_eq!(event["payload"], json!({"type": "taskRun.created"}));
+    assert_eq!(event["timestampUnixMicros"], 0);
+    assert_eq!(event["replayBindingId"].as_str().unwrap().len(), 32);
+    for forbidden in [
+        "globalPosition",
+        "commandId",
+        "idempotencyKey",
+        "actor",
+        "integrityProfile",
+    ] {
+        assert!(event.get(forbidden).is_none(), "event leaked {forbidden}");
+    }
+    assert!(
+        !event
+            .to_string()
+            .contains("gocode-durable-event-codec-v1-hex")
     );
     let cursor = opened["events"][0]["cursor"]
         .as_str()
@@ -582,8 +646,9 @@ async fn tampered_cursor_returns_redacted_canonical_error() {
         .oneshot(post(
             "/v1/replay/open-session",
             json!({
-                "aggregateType": 1,
-                "aggregateId": hex::encode(AGGREGATE),
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
             }),
         ))
         .await
@@ -619,6 +684,194 @@ async fn tampered_cursor_returns_redacted_canonical_error() {
 }
 
 #[tokio::test]
+async fn unsupported_scope_spellings_return_one_closed_error() {
+    for aggregate_type in ["taskRunFeed", "auditFeed", "unknown"] {
+        let (app, directory) = setup();
+        let response = app
+            .oneshot(post(
+                "/v1/replay/open-session",
+                json!({
+                    "aggregateType": aggregate_type,
+                    "aggregateId": aggregate_id_wire(),
+                    "fromCursor": null,
+                }),
+            ))
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json_body(response).await["code"],
+            "unsupported_replay_scope"
+        );
+        assert_eq!(subscription_count(&directory), 0);
+    }
+}
+
+#[tokio::test]
+async fn replay_body_and_page_count_are_bounded_at_the_published_values() {
+    let (app, _directory) = setup();
+    let oversized = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/replay/open-session")
+                .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+                .header("content-type", "application/json")
+                .body(Body::from(vec![b'x'; 8 * 1024 + 1]))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(oversized.status(), StatusCode::PAYLOAD_TOO_LARGE);
+
+    let opened = app
+        .clone()
+        .oneshot(post(
+            "/v1/replay/open-session",
+            json!({
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
+            }),
+        ))
+        .await
+        .unwrap();
+    let session_id = json_body(opened).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let excessive_page = app
+        .oneshot(post(
+            &format!("/v1/replay/{session_id}/read-page"),
+            json!({"limit": 257}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(excessive_page.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        json_body(excessive_page).await["code"],
+        "invalid_replay_page_limit"
+    );
+}
+
+#[tokio::test]
+async fn ninth_principal_session_is_rejected_and_close_releases_quota() {
+    let (app, _directory) = setup();
+    let mut session_ids = Vec::new();
+    for _ in 0..8 {
+        let response = app
+            .clone()
+            .oneshot(post(
+                "/v1/replay/open-session",
+                json!({
+                    "aggregateType": "taskRun",
+                    "aggregateId": aggregate_id_wire(),
+                    "fromCursor": null,
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let opened = json_body(response).await;
+        session_ids.push((
+            opened["sessionId"].as_str().unwrap().to_owned(),
+            opened["events"][0]["cursor"].as_str().unwrap().to_owned(),
+        ));
+    }
+
+    let rejected = app
+        .clone()
+        .oneshot(post(
+            "/v1/replay/open-session",
+            json!({
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(json_body(rejected).await["code"], "replay_backpressure");
+
+    let acknowledged = app
+        .clone()
+        .oneshot(post(
+            &format!("/v1/replay/{}/acknowledge", session_ids[0].0),
+            json!({"cursor": session_ids[0].1}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(acknowledged.status(), StatusCode::OK);
+    let completed = app
+        .clone()
+        .oneshot(post(
+            &format!("/v1/replay/{}/complete-catch-up", session_ids[0].0),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    let closed = app
+        .clone()
+        .oneshot(post(
+            &format!("/v1/replay/{}/close", session_ids[0].0),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(closed.status(), StatusCode::NO_CONTENT);
+
+    let admitted = app
+        .oneshot(post(
+            "/v1/replay/open-session",
+            json!({
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(admitted.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn unknown_public_event_schema_stops_before_session_commit() {
+    let (app, directory) = setup();
+    let row = taskrun_row_with_schema(1, 1, "replay-test".to_owned(), 2);
+    replay_connection(&directory)
+        .execute(
+            "UPDATE events
+             SET schema_version = 2, integrity_digest = ?1
+             WHERE global_position = 1",
+            [row.integrity_digest.as_slice()],
+        )
+        .unwrap();
+
+    let response = app
+        .oneshot(post(
+            "/v1/replay/open-session",
+            json!({
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
+            }),
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        json_body(response).await["code"],
+        "replay_unsupported_schema"
+    );
+    assert_eq!(subscription_count(&directory), 0);
+}
+
+#[tokio::test]
 async fn live_sse_delivers_event_committed_after_catch_up() {
     let (app, directory) = setup();
     let response = app
@@ -626,8 +879,9 @@ async fn live_sse_delivers_event_committed_after_catch_up() {
         .oneshot(post(
             "/v1/replay/open-session",
             json!({
-                "aggregateType": 1,
-                "aggregateId": hex::encode(AGGREGATE),
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
             }),
         ))
         .await
@@ -636,6 +890,10 @@ async fn live_sse_delivers_event_committed_after_catch_up() {
     let opened = json_body(response).await;
     let session_id = opened["sessionId"].as_str().unwrap();
     let cursor = opened["events"][0]["cursor"].as_str().unwrap();
+    let replay_binding_id = opened["events"][0]["replayBindingId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
 
     let acknowledged = app
         .clone()
@@ -714,7 +972,12 @@ async fn live_sse_delivers_event_committed_after_catch_up() {
     .await
     .expect("live event must arrive before timeout");
 
-    assert!(delivery.contains("\"globalPosition\":2"));
+    assert!(delivery.contains("\"eventType\":\"taskRun.created\""));
+    assert!(delivery.contains("\"payload\":{\"type\":\"taskRun.created\"}"));
+    assert!(delivery.contains(&format!("\"replayBindingId\":\"{replay_binding_id}\"")));
+    assert!(!delivery.contains("\"globalPosition\":"));
+    assert!(!delivery.contains("\"idempotencyKey\":"));
+    assert!(!delivery.contains("gocode-durable-event-codec-v1-hex"));
     assert!(delivery.contains("\"replayCursor\":\"gocode-replay-cursor-v1."));
 }
 
@@ -726,8 +989,9 @@ async fn slow_live_consumer_closes_session_without_advancing_ack() {
         .oneshot(post(
             "/v1/replay/open-session",
             json!({
-                "aggregateType": 1,
-                "aggregateId": hex::encode(AGGREGATE),
+                "aggregateType": "taskRun",
+                "aggregateId": aggregate_id_wire(),
+                "fromCursor": null,
             }),
         ))
         .await

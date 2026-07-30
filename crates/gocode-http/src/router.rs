@@ -142,7 +142,7 @@ pub fn create_router_with_conversations<T, C>(
     task_run_state: TaskRunHttpState<T>,
     conversation_state: ConversationHttpState<C>,
     runtime_profile_state: RuntimeProfileHttpState,
-    replay_state: ReplayHttpState,
+    _replay_state: ReplayHttpState,
 ) -> Router
 where
     T: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
@@ -152,7 +152,6 @@ where
         .merge(runtime_profile_router(runtime_profile_state))
         .merge(task_run_router(task_run_state))
         .merge(conversation_router(conversation_state))
-        .merge(replay_router(replay_state))
         .layer(axum_mw::from_fn_with_state(
             admission_state,
             admission_middleware,
