@@ -23,6 +23,9 @@ const BACKOFF_DELAYS: [Duration; 5] = [
 ];
 const UNEXPECTED_EXIT_WINDOW: Duration = Duration::from_mins(10);
 
+/// Maximum time the desktop waits for a proven owned runtime to stop cleanly.
+pub const BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// Closed lifecycle states for a desktop-owned bundled runtime.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BundledRuntimeLifecycleState {
@@ -221,6 +224,34 @@ pub trait BundledRuntimeProcess {
     ///
     /// Returns the operating-system error if the child status cannot be read.
     fn status(&mut self) -> std::io::Result<BundledRuntimeProcessStatus>;
+
+    /// Requests an orderly runtime shutdown through the owned control path.
+    ///
+    /// This must not claim that active runtime work was cancelled. The runtime
+    /// event log remains authoritative for recovery of work that did not
+    /// complete before the process exits.
+    ///
+    /// # Errors
+    ///
+    /// Returns an operating-system error when the protected shutdown control
+    /// cannot deliver the orderly-stop request.
+    fn request_graceful_stop(&mut self) -> std::io::Result<()>;
+
+    /// Waits at most `timeout` for the owned process to exit after an orderly
+    /// shutdown request.
+    ///
+    /// # Errors
+    ///
+    /// Returns an operating-system error when the process status cannot be
+    /// observed during the wait.
+    fn wait_for_exit(&mut self, timeout: Duration) -> std::io::Result<BundledRuntimeProcessStatus>;
+
+    /// Terminates the process tree represented by this already-owned handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an operating-system error when termination cannot be requested.
+    fn terminate(&mut self) -> std::io::Result<()>;
 }
 
 /// Direct, host-owned process launcher used by the bundled-runtime supervisor.
@@ -285,6 +316,30 @@ impl BundledRuntimeProcess for SystemBundledRuntimeProcess {
             }
         })
     }
+
+    fn request_graceful_stop(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "protected bundled runtime shutdown control is unavailable",
+        ))
+    }
+
+    fn wait_for_exit(&mut self, timeout: Duration) -> std::io::Result<BundledRuntimeProcessStatus> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            if self.status()? == BundledRuntimeProcessStatus::Exited || Instant::now() >= deadline {
+                return self.status();
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    fn terminate(&mut self) -> std::io::Result<()> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "protected bundled runtime process-tree termination is unavailable",
+        ))
+    }
 }
 
 /// Typed supervision failure that does not expose protected launch details.
@@ -302,6 +357,19 @@ pub enum BundledRuntimeSupervisorError {
     HandshakeMismatch,
     #[error("bundled runtime launch profile binding is unavailable")]
     ProfileBindingUnavailable,
+    #[error("bundled runtime shutdown ownership does not match the current launch")]
+    ShutdownOwnershipMismatch,
+    #[error("bundled runtime graceful shutdown is unavailable")]
+    GracefulStopUnavailable,
+    #[error("bundled runtime forced termination is unavailable")]
+    ForcedStopUnavailable,
+}
+
+/// Closed result of stopping a proven desktop-owned bundled runtime.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundledRuntimeStopDisposition {
+    Graceful,
+    Forced,
 }
 
 /// Host-side supervisor for a single desktop-owned bundled runtime process.
@@ -408,6 +476,65 @@ where
         Ok(())
     }
 
+    /// Fences new supervision work and stops the exact launch proved by the
+    /// current Secure Replay v2 session identity.
+    ///
+    /// A stale handshake cannot stop a replacement launch. If the orderly stop
+    /// does not finish within `timeout`, only the process represented by the
+    /// existing owned handle is terminated.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted error when ownership is stale or the owned process
+    /// cannot be stopped. It never reports `TaskRun` cancellation success.
+    pub fn stop(
+        &mut self,
+        handshake: &BundledRuntimeAuthenticatedHandshake,
+        timeout: Duration,
+    ) -> Result<BundledRuntimeStopDisposition, BundledRuntimeSupervisorError> {
+        let ownership_matches = self
+            .profile_binding
+            .as_ref()
+            .is_some_and(|binding| binding.matches(&handshake.session));
+        if self.state != BundledRuntimeLifecycleState::Ready
+            || self.process.is_none()
+            || !ownership_matches
+        {
+            return Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch);
+        }
+
+        self.state = BundledRuntimeLifecycleState::Stopping;
+        self.restart_at = None;
+        self.backoff.record_disconnected();
+        let stop_status = {
+            let Some(process) = self.process.as_mut() else {
+                return Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch);
+            };
+            process
+                .request_graceful_stop()
+                .map_err(|_| BundledRuntimeSupervisorError::GracefulStopUnavailable)?;
+            process
+                .wait_for_exit(timeout)
+                .map_err(|_| BundledRuntimeSupervisorError::ProcessStatusUnavailable)?
+        };
+        if stop_status == BundledRuntimeProcessStatus::Exited {
+            self.process = None;
+            self.profile_binding = None;
+            self.state = BundledRuntimeLifecycleState::Stopped;
+            return Ok(BundledRuntimeStopDisposition::Graceful);
+        }
+        let Some(process) = self.process.as_mut() else {
+            return Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch);
+        };
+        process
+            .terminate()
+            .map_err(|_| BundledRuntimeSupervisorError::ForcedStopUnavailable)?;
+        self.process = None;
+        self.profile_binding = None;
+        self.state = BundledRuntimeLifecycleState::Stopped;
+        Ok(BundledRuntimeStopDisposition::Forced)
+    }
+
     /// Polls the owned child and performs a due bounded restart.
     ///
     /// # Errors
@@ -415,6 +542,12 @@ where
     /// Returns a typed redacted failure if the process status cannot be read or
     /// a scheduled restart cannot be spawned.
     pub fn monitor(&mut self) -> Result<(), BundledRuntimeSupervisorError> {
+        if matches!(
+            self.state,
+            BundledRuntimeLifecycleState::Stopping | BundledRuntimeLifecycleState::Stopped
+        ) {
+            return Ok(());
+        }
         let now = self.clock.now();
         if self.state == BundledRuntimeLifecycleState::Ready {
             self.backoff.reset_after_stable_readiness(now);
@@ -611,11 +744,12 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        BundledRuntimeAuthenticatedHandshake, BundledRuntimeBackoff, BundledRuntimeClock,
-        BundledRuntimeLaunchError, BundledRuntimeLaunchMode, BundledRuntimeLaunchSpec,
-        BundledRuntimeLifecycleState, BundledRuntimeProcess, BundledRuntimeProcessLauncher,
-        BundledRuntimeProcessStatus, BundledRuntimeProfileBinding,
-        BundledRuntimeRestartDisposition, BundledRuntimeSecretTransport, BundledRuntimeSupervisor,
+        BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT, BundledRuntimeAuthenticatedHandshake,
+        BundledRuntimeBackoff, BundledRuntimeClock, BundledRuntimeLaunchError,
+        BundledRuntimeLaunchMode, BundledRuntimeLaunchSpec, BundledRuntimeLifecycleState,
+        BundledRuntimeProcess, BundledRuntimeProcessLauncher, BundledRuntimeProcessStatus,
+        BundledRuntimeProfileBinding, BundledRuntimeRestartDisposition,
+        BundledRuntimeSecretTransport, BundledRuntimeStopDisposition, BundledRuntimeSupervisor,
         BundledRuntimeSupervisorError, DisplayWorkArea, ProfileLock, UNEXPECTED_EXIT_WINDOW,
         WindowGeometry, restore_window_geometry,
     };
@@ -642,12 +776,16 @@ mod tests {
 
     struct FakeProcess {
         statuses: VecDeque<BundledRuntimeProcessStatus>,
+        graceful_stop_requests: Rc<Cell<u32>>,
+        termination_requests: Rc<Cell<u32>>,
     }
 
     impl FakeProcess {
         fn with_statuses(statuses: impl IntoIterator<Item = BundledRuntimeProcessStatus>) -> Self {
             Self {
                 statuses: statuses.into_iter().collect(),
+                graceful_stop_requests: Rc::new(Cell::new(0)),
+                termination_requests: Rc::new(Cell::new(0)),
             }
         }
 
@@ -658,6 +796,22 @@ mod tests {
         fn exited() -> Self {
             Self::with_statuses([BundledRuntimeProcessStatus::Exited])
         }
+
+        fn with_stop_tracking(
+            statuses: impl IntoIterator<Item = BundledRuntimeProcessStatus>,
+        ) -> (Self, Rc<Cell<u32>>, Rc<Cell<u32>>) {
+            let graceful_stop_requests = Rc::new(Cell::new(0));
+            let termination_requests = Rc::new(Cell::new(0));
+            (
+                Self {
+                    statuses: statuses.into_iter().collect(),
+                    graceful_stop_requests: Rc::clone(&graceful_stop_requests),
+                    termination_requests: Rc::clone(&termination_requests),
+                },
+                graceful_stop_requests,
+                termination_requests,
+            )
+        }
     }
 
     impl BundledRuntimeProcess for FakeProcess {
@@ -666,6 +820,22 @@ mod tests {
                 .statuses
                 .pop_front()
                 .unwrap_or(BundledRuntimeProcessStatus::Running))
+        }
+
+        fn request_graceful_stop(&mut self) -> io::Result<()> {
+            self.graceful_stop_requests
+                .set(self.graceful_stop_requests.get() + 1);
+            Ok(())
+        }
+
+        fn wait_for_exit(&mut self, _timeout: Duration) -> io::Result<BundledRuntimeProcessStatus> {
+            self.status()
+        }
+
+        fn terminate(&mut self) -> io::Result<()> {
+            self.termination_requests
+                .set(self.termination_requests.get() + 1);
+            Ok(())
         }
     }
 
@@ -913,6 +1083,80 @@ mod tests {
             supervisor.state(),
             BundledRuntimeLifecycleState::Handshaking
         );
+    }
+
+    #[test]
+    fn supervisor_gracefully_stops_only_the_current_owned_launch() {
+        let clock = FakeClock::new(Instant::now());
+        let (process, graceful_stop_requests, termination_requests) =
+            FakeProcess::with_stop_tracking([BundledRuntimeProcessStatus::Exited]);
+        let (launcher, _) = FakeLauncher::new([Ok(process)]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Ok(BundledRuntimeStopDisposition::Graceful)
+        );
+        assert_eq!(graceful_stop_requests.get(), 1);
+        assert_eq!(termination_requests.get(), 0);
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopped);
+    }
+
+    #[test]
+    fn supervisor_forces_only_the_owned_process_after_graceful_timeout() {
+        let clock = FakeClock::new(Instant::now());
+        let (process, graceful_stop_requests, termination_requests) =
+            FakeProcess::with_stop_tracking([BundledRuntimeProcessStatus::Running]);
+        let (launcher, _) = FakeLauncher::new([Ok(process)]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Ok(BundledRuntimeStopDisposition::Forced)
+        );
+        assert_eq!(graceful_stop_requests.get(), 1);
+        assert_eq!(termination_requests.get(), 1);
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopped);
+    }
+
+    #[test]
+    fn supervisor_rejects_stale_ownership_without_stopping_the_current_launch() {
+        let clock = FakeClock::new(Instant::now());
+        let (process, graceful_stop_requests, termination_requests) =
+            FakeProcess::with_stop_tracking([BundledRuntimeProcessStatus::Running]);
+        let (launcher, _) = FakeLauncher::new([Ok(process)]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+        let mut stale_session = runtime_session();
+        stale_session.session_id = "2".repeat(32);
+
+        assert_eq!(
+            supervisor.stop(
+                &BundledRuntimeAuthenticatedHandshake::for_test(stale_session),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT,
+            ),
+            Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch)
+        );
+        assert_eq!(graceful_stop_requests.get(), 0);
+        assert_eq!(termination_requests.get(), 0);
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Ready);
     }
 
     #[test]
