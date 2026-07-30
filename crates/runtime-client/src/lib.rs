@@ -28,9 +28,9 @@ pub use replay::{
     CanonicalReplayEvent, CanonicalReplayPayload, ConversationReplayPayload, LiveDeliveryId,
     ReconnectDecision, ReconnectPolicy, ReconnectRuntime, ReplayAggregateKind, ReplayClientError,
     ReplayClientErrorKind, ReplayCursor, ReplayDelivery, ReplayDeliveryDisposition,
-    ReplayIdentityTracker, ReplayLiveSession, ReplayRecoveryDisposition, ReplayScope,
-    ReplaySensitivity, ReplaySessionId, ReplayStreamEvent, ReplayTerminal, ReplayTerminalCode,
-    TaskRunReplayPayload,
+    ReplayIdentityTracker, ReplayLiveSession, ReplayPersistenceBinding, ReplayPersistenceHandoff,
+    ReplayRecoveryDisposition, ReplayScope, ReplaySensitivity, ReplaySessionId, ReplayStreamEvent,
+    ReplayTerminal, ReplayTerminalCode, TaskRunReplayPayload, replay_persistence_digest,
 };
 pub use sse::{MAXIMUM_SSE_FRAME_BYTES, SSE_SILENCE_TIMEOUT};
 

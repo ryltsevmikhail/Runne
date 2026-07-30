@@ -231,6 +231,7 @@ pub struct CanonicalReplayEvent {
     correlation_kind: ReplayAggregateKind,
     payload: CanonicalReplayPayload,
     integrity_digest: [u8; 32],
+    canonical_bytes: Vec<u8>,
     canonical_digest: [u8; 32],
 }
 
@@ -317,6 +318,58 @@ pub struct ReplayDelivery {
     session_id: ReplaySessionId,
 }
 
+/// Borrowed native-persistence handoff for one fully validated delivery.
+///
+/// The handoff exists only for the duration of [`ReplayDelivery::persist_with`].
+/// It is deliberately not serializable and does not make the opaque cursor
+/// wrapper constructible or encodable.
+pub struct ReplayPersistenceHandoff<'a> {
+    cursor_value: &'a str,
+    canonical_event_bytes: &'a [u8],
+    event_digest: String,
+}
+
+impl ReplayPersistenceHandoff<'_> {
+    /// Returns the server-issued opaque cursor value for native durable storage.
+    #[must_use]
+    pub const fn cursor_value(&self) -> &str {
+        self.cursor_value
+    }
+
+    /// Returns the exact stable canonical bytes validated by runtime-client.
+    #[must_use]
+    pub const fn canonical_event_bytes(&self) -> &[u8] {
+        self.canonical_event_bytes
+    }
+
+    /// Returns the lower-hex SHA-256 of the exact canonical event bytes.
+    #[must_use]
+    pub fn event_digest(&self) -> &str {
+        &self.event_digest
+    }
+}
+
+/// Stable native replay binding derived only from authenticated durable
+/// runtime identity.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplayPersistenceBinding {
+    digest: String,
+}
+
+/// Computes the lower-hex SHA-256 used by native replay persistence.
+#[must_use]
+pub fn replay_persistence_digest(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+
+impl ReplayPersistenceBinding {
+    /// Returns the domain-separated lower-hex 32-byte binding digest.
+    #[must_use]
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+}
+
 impl fmt::Debug for ReplayDelivery {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -353,6 +406,18 @@ impl ReplayDelivery {
     #[must_use]
     pub const fn disposition(&self) -> ReplayDeliveryDisposition {
         self.disposition
+    }
+
+    /// Borrows the dedicated native-persistence representation.
+    ///
+    /// The callback cannot retain the borrow and the cursor remains unavailable
+    /// through the general-purpose [`ReplayCursor`] API.
+    pub fn persist_with<T>(&self, persist: impl FnOnce(ReplayPersistenceHandoff<'_>) -> T) -> T {
+        persist(ReplayPersistenceHandoff {
+            cursor_value: wire::cursor_value(&self.cursor),
+            canonical_event_bytes: &self.event.canonical_bytes,
+            event_digest: hex::encode(self.event.canonical_digest),
+        })
     }
 }
 
@@ -874,7 +939,7 @@ fn validate_canonical_event(
         .remove("replayBindingId");
     let canonical_bytes = serde_json::to_vec(&canonical_value)
         .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::Integrity))?;
-    let canonical_digest = Sha256::digest(canonical_bytes).into();
+    let canonical_digest = Sha256::digest(&canonical_bytes).into();
 
     Ok(CanonicalReplayEvent {
         event_id,
@@ -889,6 +954,7 @@ fn validate_canonical_event(
         correlation_kind,
         payload,
         integrity_digest,
+        canonical_bytes,
         canonical_digest,
     })
 }
@@ -1320,6 +1386,30 @@ fn unique_u32_array_field(
 }
 
 impl AuthenticatedRuntimeClient {
+    /// Returns a stable persistence binding that excludes daemon instance,
+    /// launch generation, session identity, authorization epoch, endpoint,
+    /// certificate and session authority.
+    #[must_use]
+    pub fn replay_persistence_binding(&self) -> ReplayPersistenceBinding {
+        let session = self.session_info();
+        let mut hasher = Sha256::new();
+        hasher.update(b"gocode/replay-persistence-binding/v1\0");
+        for value in [
+            session.authority_id.as_bytes(),
+            session.principal_id.as_bytes(),
+            session.event_log_lineage_id.as_bytes(),
+            session.profile_id.as_bytes(),
+            session.schema_hash.as_bytes(),
+            session.capability_digest.as_bytes(),
+        ] {
+            hasher.update((value.len() as u64).to_be_bytes());
+            hasher.update(value);
+        }
+        ReplayPersistenceBinding {
+            digest: format!("{:x}", hasher.finalize()),
+        }
+    }
+
     /// Applies and acknowledges bounded catch-up pages, then enters live mode.
     ///
     /// The callback always runs before acknowledgement, including for exact
@@ -1354,10 +1444,59 @@ impl AuthenticatedRuntimeClient {
         scope: ReplayScope,
         from_cursor: Option<&ReplayCursor>,
         identities: ReplayIdentityTracker,
-        mut apply: F,
+        apply: F,
     ) -> Result<ReplayLiveSession, ReplayClientError>
     where
         F: FnMut(&ReplayDelivery) -> Result<(), E>,
+    {
+        self.catch_up_internal(scope, from_cursor, identities, apply, |()| {})
+            .await
+    }
+
+    /// Resumes from one native-stored opaque cursor, committing each delivery
+    /// before server acknowledgement and invoking `acknowledged` only after
+    /// that acknowledgement succeeds.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed replay failure without acknowledging a delivery whose
+    /// validation or local commit failed.
+    pub async fn catch_up_from_persisted_cursor<F, A, T, E>(
+        &self,
+        scope: ReplayScope,
+        from_cursor: Option<&str>,
+        identities: ReplayIdentityTracker,
+        apply: F,
+        acknowledged: A,
+    ) -> Result<ReplayLiveSession, ReplayClientError>
+    where
+        F: FnMut(&ReplayDelivery) -> Result<T, E>,
+        A: FnMut(T),
+    {
+        let persisted_cursor = from_cursor
+            .map(|value| wire::cursor(value.to_owned()))
+            .transpose()?;
+        self.catch_up_internal(
+            scope,
+            persisted_cursor.as_ref(),
+            identities,
+            apply,
+            acknowledged,
+        )
+        .await
+    }
+
+    async fn catch_up_internal<F, A, T, E>(
+        &self,
+        scope: ReplayScope,
+        from_cursor: Option<&ReplayCursor>,
+        identities: ReplayIdentityTracker,
+        mut apply: F,
+        mut acknowledged: A,
+    ) -> Result<ReplayLiveSession, ReplayClientError>
+    where
+        F: FnMut(&ReplayDelivery) -> Result<T, E>,
+        A: FnMut(T),
     {
         let request = OpenSessionRequestWire {
             aggregate_type: scope.aggregate_kind.wire_value(),
@@ -1387,10 +1526,11 @@ impl AuthenticatedRuntimeClient {
             for value in events {
                 let (wire_event, cursor) = parse_http_delivery(value)?;
                 let delivery = validator.validate(wire_event, cursor, session_id.clone())?;
-                apply(&delivery)
+                let committed = apply(&delivery)
                     .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::LocalCallback))?;
                 self.acknowledge_replay(&session_id, delivery.cursor())
                     .await?;
+                acknowledged(committed);
             }
             if !has_more {
                 break;
@@ -2022,6 +2162,7 @@ fn validate_cursor(value: &str) -> Result<(), ReplayClientError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{TcpListener, TcpStream};
 
@@ -2203,10 +2344,90 @@ mod tests {
         );
     }
 
+    #[test]
+    fn persistence_handoff_uses_exact_validated_bytes_and_opaque_cursor() {
+        let delivery = validate(&mut validator(), fixture()).expect("validated delivery");
+        let mut observed = None;
+        delivery.persist_with(|handoff| {
+            observed = Some((
+                handoff.cursor_value().to_owned(),
+                handoff.canonical_event_bytes().to_vec(),
+                handoff.event_digest().to_owned(),
+            ));
+        });
+        let (cursor, bytes, digest) = observed.expect("handoff");
+
+        assert_eq!(cursor, "gocode-replay-cursor-v1.7b7d");
+        assert_eq!(format!("{:x}", Sha256::digest(&bytes)), digest);
+        assert_eq!(digest, hex::encode(delivery.canonical_digest()));
+        let value: serde_json::Value = serde_json::from_slice(&bytes).expect("canonical JSON");
+        assert!(value.get("cursor").is_none());
+        assert!(value.get("replayBindingId").is_none());
+    }
+
+    #[test]
+    fn stable_persistence_binding_excludes_ephemeral_session_identity() {
+        let first = test_client("127.0.0.1:9".parse().unwrap());
+        let mut second_session = first.session_info().clone();
+        second_session.daemon_instance_id = "another-instance".to_owned();
+        second_session.launch_generation = 99;
+        second_session.session_id = "another-session".to_owned();
+        second_session.authorization_epoch = 42;
+        second_session.certificate_sha256 = "another-certificate".to_owned();
+        let second = AuthenticatedRuntimeClient::from_local_session(
+            reqwest::Client::new(),
+            "http://127.0.0.1:9".to_owned(),
+            crate::RuntimeSessionAuthority::from_local_session([8; 32]),
+            second_session,
+        );
+
+        assert_eq!(
+            first.replay_persistence_binding().digest(),
+            second.replay_persistence_binding().digest()
+        );
+        assert_eq!(first.replay_persistence_binding().digest().len(), 64);
+
+        for mutate in [
+            |session: &mut crate::RuntimeSessionInfo| {
+                session.authority_id = "another-authority".to_owned();
+            },
+            |session: &mut crate::RuntimeSessionInfo| {
+                session.principal_id = "another-principal".to_owned();
+            },
+            |session: &mut crate::RuntimeSessionInfo| {
+                session.event_log_lineage_id = "another-lineage".to_owned();
+            },
+            |session: &mut crate::RuntimeSessionInfo| {
+                session.profile_id = "another-profile".to_owned();
+            },
+            |session: &mut crate::RuntimeSessionInfo| {
+                session.schema_hash = "another-schema".to_owned();
+            },
+            |session: &mut crate::RuntimeSessionInfo| {
+                session.capability_digest = "another-capabilities".to_owned();
+            },
+        ] {
+            let mut changed_session = first.session_info().clone();
+            mutate(&mut changed_session);
+            let changed = AuthenticatedRuntimeClient::from_local_session(
+                reqwest::Client::new(),
+                "http://127.0.0.1:9".to_owned(),
+                crate::RuntimeSessionAuthority::from_local_session([9; 32]),
+                changed_session,
+            );
+            assert_ne!(
+                first.replay_persistence_binding().digest(),
+                changed.replay_persistence_binding().digest()
+            );
+        }
+    }
+
     #[tokio::test]
     async fn catch_up_applies_before_each_ack_then_enters_live() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
+        let acknowledged_count = Arc::new(AtomicUsize::new(0));
+        let server_acknowledged_count = Arc::clone(&acknowledged_count);
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
             let expected = [
@@ -2221,12 +2442,14 @@ mod tests {
                 let (path, body) = read_request(&mut stream).await;
                 assert_eq!(path, expected_path);
                 if index == 1 {
+                    server_acknowledged_count.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(
                         serde_json::from_slice::<serde_json::Value>(&body).unwrap()["cursor"],
                         "gocode-replay-cursor-v1.7b7d"
                     );
                 }
                 if index == 3 {
+                    server_acknowledged_count.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(
                         serde_json::from_slice::<serde_json::Value>(&body).unwrap()["cursor"],
                         "gocode-replay-cursor-v1.7b2261223a317d"
@@ -2271,17 +2494,53 @@ mod tests {
             CanonicalId::parse("018f2e3a-7000-7000-8000-000000000110").unwrap(),
         );
         let mut applied = Vec::new();
+        let mut emitted = Vec::new();
         let live = client
-            .catch_up(scope, None, |delivery| {
-                applied.push(delivery.event_id());
-                Ok::<_, ()>(())
-            })
+            .catch_up_from_persisted_cursor(
+                scope,
+                None,
+                ReplayIdentityTracker::new(),
+                |delivery| {
+                    applied.push(delivery.event_id());
+                    Ok::<_, ()>(delivery.event_id())
+                },
+                |event_id| {
+                    assert!(
+                        acknowledged_count.load(Ordering::SeqCst) > emitted.len(),
+                        "renderer update must follow the corresponding server ack"
+                    );
+                    emitted.push(event_id);
+                },
+            )
             .await
             .unwrap();
 
         assert_eq!(applied.len(), 2);
+        assert_eq!(emitted, applied);
         assert_eq!(live.scope(), scope);
         server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn persisted_cursor_is_validated_before_open_session() {
+        let client = test_client("127.0.0.1:9".parse().unwrap());
+        let scope = ReplayScope::new(
+            ReplayAggregateKind::Conversation,
+            CanonicalId::parse("018f2e3a-7000-7000-8000-000000000110").unwrap(),
+        );
+        let result = client
+            .catch_up_from_persisted_cursor(
+                scope,
+                Some("not-a-runtime-cursor"),
+                ReplayIdentityTracker::new(),
+                |_| Ok::<_, ()>(()),
+                |()| {},
+            )
+            .await;
+        let Err(error) = result else {
+            panic!("invalid stored cursor accepted");
+        };
+        assert_eq!(error.kind(), ReplayClientErrorKind::CursorInvalid);
     }
 
     #[tokio::test]
