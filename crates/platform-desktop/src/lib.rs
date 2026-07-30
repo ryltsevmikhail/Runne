@@ -1,7 +1,9 @@
 //! Desktop implementations of native capability ports.
 
+use std::collections::VecDeque;
 use std::fs::{File, OpenOptions, TryLockError};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use thiserror::Error;
 
@@ -9,6 +11,157 @@ const MINIMUM_WINDOW_WIDTH: i32 = 960;
 const MINIMUM_WINDOW_HEIGHT: i32 = 600;
 const DEFAULT_WINDOW_WIDTH: i32 = 1_440;
 const DEFAULT_WINDOW_HEIGHT: i32 = 900;
+const BACKOFF_DELAYS: [Duration; 5] = [
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(5),
+    Duration::from_secs(10),
+    Duration::from_secs(30),
+];
+const UNEXPECTED_EXIT_WINDOW: Duration = Duration::from_mins(10);
+
+/// Closed lifecycle states for a desktop-owned bundled runtime.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundledRuntimeLifecycleState {
+    Absent,
+    ValidatingBinary,
+    Spawning,
+    Handshaking,
+    Ready,
+    FailedStart,
+    Disconnected,
+    Probing,
+    Crashed,
+    Backoff,
+    Exhausted,
+    Stopping,
+    Stopped,
+    Incompatible,
+    IdentityMismatch,
+    OwnershipConflict,
+}
+
+/// Launch mode accepted by the bundled-runtime supervisor.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundledRuntimeLaunchMode {
+    Direct,
+    Shell,
+}
+
+/// Prohibited locations for a bundled-runtime launch secret.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundledRuntimeSecretTransport {
+    Environment,
+    Arguments,
+    File,
+    Stdout,
+    InheritedPipeOrHandle,
+}
+
+/// Typed rejection for an unsafe bundled-runtime launch request.
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum BundledRuntimeLaunchError {
+    #[error("bundled runtime executable path must be absolute")]
+    ExecutablePathNotAbsolute,
+    #[error("bundled runtime launch must not use a shell")]
+    ShellForbidden,
+    #[error("bundled runtime launch-secret transport is not available")]
+    SecretTransportUnsupported,
+}
+
+/// A validated, direct bundled-runtime launch request.
+///
+/// The spec deliberately contains neither environment nor argument data. Those
+/// channels cannot carry a launch secret, and protected inherited
+/// pipe/handle support is not available in this slice.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BundledRuntimeLaunchSpec {
+    executable: PathBuf,
+}
+
+impl BundledRuntimeLaunchSpec {
+    /// Validates the fail-closed launch policy before process spawning exists.
+    ///
+    /// # Errors
+    ///
+    /// Rejects relative executables, shell launches, and every launch-secret
+    /// transport until a protected inherited pipe/handle implementation exists.
+    pub fn new(
+        executable: PathBuf,
+        mode: BundledRuntimeLaunchMode,
+        secret_transport: Option<BundledRuntimeSecretTransport>,
+    ) -> Result<Self, BundledRuntimeLaunchError> {
+        if !executable.is_absolute() {
+            return Err(BundledRuntimeLaunchError::ExecutablePathNotAbsolute);
+        }
+        if mode == BundledRuntimeLaunchMode::Shell {
+            return Err(BundledRuntimeLaunchError::ShellForbidden);
+        }
+        if secret_transport.is_some() {
+            return Err(BundledRuntimeLaunchError::SecretTransportUnsupported);
+        }
+        Ok(Self { executable })
+    }
+
+    #[must_use]
+    pub fn executable(&self) -> &Path {
+        &self.executable
+    }
+}
+
+/// The next action after an unexpected bundled-runtime exit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundledRuntimeRestartDisposition {
+    RestartAfter(Duration),
+    Exhausted,
+}
+
+/// Bounded restart budget for a desktop-owned bundled runtime.
+#[derive(Debug, Default)]
+pub struct BundledRuntimeBackoff {
+    unexpected_exits: VecDeque<Instant>,
+}
+
+impl BundledRuntimeBackoff {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Records an unexpected exit and returns the bounded restart action.
+    #[must_use]
+    pub fn record_unexpected_exit(&mut self, now: Instant) -> BundledRuntimeRestartDisposition {
+        self.prune_expired(now);
+        if self.unexpected_exits.len() == BACKOFF_DELAYS.len() {
+            return BundledRuntimeRestartDisposition::Exhausted;
+        }
+
+        let delay = BACKOFF_DELAYS[self.unexpected_exits.len()];
+        self.unexpected_exits.push_back(now);
+        BundledRuntimeRestartDisposition::RestartAfter(delay)
+    }
+
+    /// Resets the exit budget only after ten continuous minutes of readiness.
+    pub fn reset_after_stable_readiness(&mut self, ready_at: Instant, now: Instant) -> bool {
+        if now
+            .checked_duration_since(ready_at)
+            .is_some_and(|elapsed| elapsed >= UNEXPECTED_EXIT_WINDOW)
+        {
+            self.unexpected_exits.clear();
+            return true;
+        }
+        false
+    }
+
+    fn prune_expired(&mut self, now: Instant) {
+        while self.unexpected_exits.front().is_some_and(|exit| {
+            now.checked_duration_since(*exit)
+                .is_some_and(|elapsed| elapsed >= UNEXPECTED_EXIT_WINDOW)
+        }) {
+            self.unexpected_exits.pop_front();
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct WindowGeometry {
@@ -100,7 +253,90 @@ impl ProfileLock {
 
 #[cfg(test)]
 mod tests {
-    use super::{DisplayWorkArea, ProfileLock, WindowGeometry, restore_window_geometry};
+    use std::path::PathBuf;
+    use std::time::{Duration, Instant};
+
+    use super::{
+        BundledRuntimeBackoff, BundledRuntimeLaunchError, BundledRuntimeLaunchMode,
+        BundledRuntimeLaunchSpec, BundledRuntimeRestartDisposition, BundledRuntimeSecretTransport,
+        DisplayWorkArea, ProfileLock, UNEXPECTED_EXIT_WINDOW, WindowGeometry,
+        restore_window_geometry,
+    };
+
+    #[test]
+    fn bundled_runtime_launch_spec_requires_an_absolute_direct_non_secret_launch() {
+        assert_eq!(
+            BundledRuntimeLaunchSpec::new(
+                PathBuf::from("gocoded"),
+                BundledRuntimeLaunchMode::Direct,
+                None,
+            ),
+            Err(BundledRuntimeLaunchError::ExecutablePathNotAbsolute)
+        );
+        assert_eq!(
+            BundledRuntimeLaunchSpec::new(
+                PathBuf::from("/opt/gocode/gocoded"),
+                BundledRuntimeLaunchMode::Shell,
+                None,
+            ),
+            Err(BundledRuntimeLaunchError::ShellForbidden)
+        );
+
+        let spec = BundledRuntimeLaunchSpec::new(
+            PathBuf::from("/opt/gocode/gocoded"),
+            BundledRuntimeLaunchMode::Direct,
+            None,
+        )
+        .expect("accept direct launch without a secret transport");
+        assert_eq!(
+            spec.executable(),
+            std::path::Path::new("/opt/gocode/gocoded")
+        );
+    }
+
+    #[test]
+    fn bundled_runtime_launch_spec_fails_closed_for_every_secret_transport() {
+        for transport in [
+            BundledRuntimeSecretTransport::Environment,
+            BundledRuntimeSecretTransport::Arguments,
+            BundledRuntimeSecretTransport::File,
+            BundledRuntimeSecretTransport::Stdout,
+            BundledRuntimeSecretTransport::InheritedPipeOrHandle,
+        ] {
+            assert_eq!(
+                BundledRuntimeLaunchSpec::new(
+                    PathBuf::from("/opt/gocode/gocoded"),
+                    BundledRuntimeLaunchMode::Direct,
+                    Some(transport),
+                ),
+                Err(BundledRuntimeLaunchError::SecretTransportUnsupported)
+            );
+        }
+    }
+
+    #[test]
+    fn bundled_runtime_backoff_is_bounded_and_stable_readiness_resets_the_budget() {
+        let start = Instant::now();
+        let mut backoff = BundledRuntimeBackoff::new();
+
+        for (index, seconds) in [1, 2, 5, 10, 30].into_iter().enumerate() {
+            assert_eq!(
+                backoff.record_unexpected_exit(start + Duration::from_secs(index as u64)),
+                BundledRuntimeRestartDisposition::RestartAfter(Duration::from_secs(seconds))
+            );
+        }
+        assert_eq!(
+            backoff.record_unexpected_exit(start + Duration::from_secs(5)),
+            BundledRuntimeRestartDisposition::Exhausted
+        );
+
+        assert!(!backoff.reset_after_stable_readiness(start, start + Duration::from_secs(599)));
+        assert!(backoff.reset_after_stable_readiness(start, start + UNEXPECTED_EXIT_WINDOW));
+        assert_eq!(
+            backoff.record_unexpected_exit(start + UNEXPECTED_EXIT_WINDOW),
+            BundledRuntimeRestartDisposition::RestartAfter(Duration::from_secs(1))
+        );
+    }
 
     #[test]
     fn profile_lock_rejects_a_concurrent_owner_and_recovers_after_drop() {
