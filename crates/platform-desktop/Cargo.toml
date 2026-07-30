@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 gocode-platform-ports = { path = "../platform-ports" }
 thiserror.workspace = true
+uuid.workspace = true
 
 [lints]
 workspace = true

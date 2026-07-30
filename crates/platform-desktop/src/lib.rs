@@ -7,6 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
+use uuid::Uuid;
 
 const MINIMUM_WINDOW_WIDTH: i32 = 960;
 const MINIMUM_WINDOW_HEIGHT: i32 = 600;
@@ -124,6 +125,47 @@ pub enum BundledRuntimeProcessStatus {
     Exited,
 }
 
+/// Opaque proof that identifies exactly one desktop-owned bundled launch.
+#[derive(Clone, Eq, PartialEq)]
+pub struct BundledRuntimeLaunchBinding {
+    launch_identity: Uuid,
+    launch_nonce: Uuid,
+    profile_binding: Uuid,
+}
+
+impl BundledRuntimeLaunchBinding {
+    fn new() -> Self {
+        Self {
+            launch_identity: Uuid::now_v7(),
+            launch_nonce: Uuid::now_v7(),
+            profile_binding: Uuid::now_v7(),
+        }
+    }
+}
+
+/// Authenticated Secure Replay v2 result for one owned bundled launch.
+///
+/// Construction is intentionally reserved for the Secure Replay integration;
+/// callers cannot synthesize a ready transition from a profile path, PID or
+/// diagnostic stdout.
+#[derive(Clone, Eq, PartialEq)]
+pub struct BundledRuntimeAuthenticatedHandshake {
+    launch_identity: Uuid,
+    launch_nonce: Uuid,
+    profile_binding: Uuid,
+}
+
+impl BundledRuntimeAuthenticatedHandshake {
+    #[cfg(test)]
+    const fn for_test(binding: &BundledRuntimeLaunchBinding) -> Self {
+        Self {
+            launch_identity: binding.launch_identity,
+            launch_nonce: binding.launch_nonce,
+            profile_binding: binding.profile_binding,
+        }
+    }
+}
+
 /// Host process capability used by the bundled-runtime supervisor.
 ///
 /// The process object is deliberately opaque: its PID is not an ownership
@@ -208,13 +250,18 @@ pub enum BundledRuntimeSupervisorError {
     SpawnFailed,
     #[error("bundled runtime process status is unavailable")]
     ProcessStatusUnavailable,
+    #[error("bundled runtime is already running")]
+    AlreadyRunning,
+    #[error("bundled runtime cannot be started from its current lifecycle state")]
+    InvalidStartState,
+    #[error("bundled runtime authenticated handshake does not match the current launch")]
+    HandshakeMismatch,
 }
 
 /// Host-side supervisor for a single desktop-owned bundled runtime process.
 ///
 /// Authenticated readiness is deliberately reported by the Secure Replay v2
 /// profile/session handshake; process stdout cannot mark this supervisor ready.
-#[derive(Debug)]
 pub struct BundledRuntimeSupervisor<L, C>
 where
     L: BundledRuntimeProcessLauncher,
@@ -224,6 +271,7 @@ where
     clock: C,
     spec: BundledRuntimeLaunchSpec,
     process: Option<L::Process>,
+    launch_binding: Option<BundledRuntimeLaunchBinding>,
     backoff: BundledRuntimeBackoff,
     restart_at: Option<Instant>,
     state: BundledRuntimeLifecycleState,
@@ -241,6 +289,7 @@ where
             clock,
             spec,
             process: None,
+            launch_binding: None,
             backoff: BundledRuntimeBackoff::new(),
             restart_at: None,
             state: BundledRuntimeLifecycleState::Absent,
@@ -252,6 +301,13 @@ where
         self.state
     }
 
+    /// Returns the opaque binding for the current process spawned by this
+    /// supervisor.
+    #[must_use]
+    pub fn launch_binding(&self) -> Option<BundledRuntimeLaunchBinding> {
+        self.launch_binding.clone()
+    }
+
     /// Starts the direct bundled executable and waits for an authenticated
     /// Secure Replay v2 readiness callback before becoming ready.
     ///
@@ -259,13 +315,26 @@ where
     ///
     /// Returns a typed redacted failure if spawning fails.
     pub fn start(&mut self) -> Result<(), BundledRuntimeSupervisorError> {
+        match self.state {
+            BundledRuntimeLifecycleState::Absent | BundledRuntimeLifecycleState::FailedStart => {}
+            BundledRuntimeLifecycleState::Handshaking | BundledRuntimeLifecycleState::Ready => {
+                return Err(BundledRuntimeSupervisorError::AlreadyRunning);
+            }
+            _ => return Err(BundledRuntimeSupervisorError::InvalidStartState),
+        }
+        self.spawn_process()
+    }
+
+    fn spawn_process(&mut self) -> Result<(), BundledRuntimeSupervisorError> {
         self.state = BundledRuntimeLifecycleState::ValidatingBinary;
         self.state = BundledRuntimeLifecycleState::Spawning;
-        let process = self
-            .launcher
-            .launch(&self.spec)
-            .map_err(|_| BundledRuntimeSupervisorError::SpawnFailed)?;
+        let Ok(process) = self.launcher.launch(&self.spec) else {
+            self.restart_at = None;
+            self.state = BundledRuntimeLifecycleState::FailedStart;
+            return Err(BundledRuntimeSupervisorError::SpawnFailed);
+        };
         self.process = Some(process);
+        self.launch_binding = Some(BundledRuntimeLaunchBinding::new());
         self.restart_at = None;
         self.state = BundledRuntimeLifecycleState::Handshaking;
         Ok(())
@@ -273,11 +342,29 @@ where
 
     /// Accepts readiness only after the authenticated Secure Replay v2
     /// profile/session handshake has completed for this launch.
-    pub fn record_authenticated_ready(&mut self) {
-        if self.process.is_some() && self.state == BundledRuntimeLifecycleState::Handshaking {
-            self.backoff.record_authenticated_ready(self.clock.now());
-            self.state = BundledRuntimeLifecycleState::Ready;
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed mismatch when the handshake does not prove the current
+    /// launch identity, nonce and profile binding.
+    pub fn record_authenticated_ready(
+        &mut self,
+        handshake: &BundledRuntimeAuthenticatedHandshake,
+    ) -> Result<(), BundledRuntimeSupervisorError> {
+        let Some(binding) = self.launch_binding.as_ref() else {
+            return Err(BundledRuntimeSupervisorError::HandshakeMismatch);
+        };
+        if self.process.is_none()
+            || self.state != BundledRuntimeLifecycleState::Handshaking
+            || handshake.launch_identity != binding.launch_identity
+            || handshake.launch_nonce != binding.launch_nonce
+            || handshake.profile_binding != binding.profile_binding
+        {
+            return Err(BundledRuntimeSupervisorError::HandshakeMismatch);
         }
+        self.backoff.record_authenticated_ready(self.clock.now());
+        self.state = BundledRuntimeLifecycleState::Ready;
+        Ok(())
     }
 
     /// Polls the owned child and performs a due bounded restart.
@@ -295,7 +382,7 @@ where
         if self.state == BundledRuntimeLifecycleState::Backoff
             && self.restart_at.is_some_and(|restart_at| now >= restart_at)
         {
-            self.start()?;
+            self.spawn_process()?;
             return Ok(());
         }
 
@@ -308,6 +395,7 @@ where
             == BundledRuntimeProcessStatus::Exited
         {
             self.process = None;
+            self.launch_binding = None;
             self.state = BundledRuntimeLifecycleState::Crashed;
             match self.backoff.record_unexpected_exit(now) {
                 BundledRuntimeRestartDisposition::RestartAfter(delay) => {
@@ -482,12 +570,13 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::{
-        BundledRuntimeBackoff, BundledRuntimeClock, BundledRuntimeLaunchError,
-        BundledRuntimeLaunchMode, BundledRuntimeLaunchSpec, BundledRuntimeLifecycleState,
-        BundledRuntimeProcess, BundledRuntimeProcessLauncher, BundledRuntimeProcessStatus,
-        BundledRuntimeRestartDisposition, BundledRuntimeSecretTransport, BundledRuntimeSupervisor,
-        BundledRuntimeSupervisorError, DisplayWorkArea, ProfileLock, UNEXPECTED_EXIT_WINDOW,
-        WindowGeometry, restore_window_geometry,
+        BundledRuntimeAuthenticatedHandshake, BundledRuntimeBackoff, BundledRuntimeClock,
+        BundledRuntimeLaunchError, BundledRuntimeLaunchMode, BundledRuntimeLaunchSpec,
+        BundledRuntimeLifecycleState, BundledRuntimeProcess, BundledRuntimeProcessLauncher,
+        BundledRuntimeProcessStatus, BundledRuntimeRestartDisposition,
+        BundledRuntimeSecretTransport, BundledRuntimeSupervisor, BundledRuntimeSupervisorError,
+        DisplayWorkArea, ProfileLock, UNEXPECTED_EXIT_WINDOW, WindowGeometry,
+        restore_window_geometry,
     };
 
     #[derive(Clone)]
@@ -579,6 +668,14 @@ mod tests {
         .expect("valid launch spec")
     }
 
+    fn authenticated_handshake(
+        supervisor: &BundledRuntimeSupervisor<FakeLauncher, FakeClock>,
+    ) -> BundledRuntimeAuthenticatedHandshake {
+        BundledRuntimeAuthenticatedHandshake::for_test(
+            &supervisor.launch_binding().expect("current launch binding"),
+        )
+    }
+
     #[test]
     fn bundled_runtime_launch_spec_requires_an_absolute_direct_non_secret_launch() {
         assert_eq!(
@@ -644,14 +741,16 @@ mod tests {
             BundledRuntimeLifecycleState::Handshaking
         );
 
-        supervisor.record_authenticated_ready();
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake(&supervisor))
+            .expect("matching authenticated handshake");
         assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Ready);
     }
 
     #[test]
     fn supervisor_fails_closed_when_spawn_fails() {
         let clock = FakeClock::new(Instant::now());
-        let (launcher, spawn_count) = FakeLauncher::new([Err(())]);
+        let (launcher, spawn_count) = FakeLauncher::new([Err(()), Ok(FakeProcess::running())]);
         let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
 
         assert_eq!(
@@ -659,7 +758,62 @@ mod tests {
             Err(BundledRuntimeSupervisorError::SpawnFailed)
         );
         assert_eq!(spawn_count.get(), 1);
-        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Spawning);
+        assert_eq!(
+            supervisor.state(),
+            BundledRuntimeLifecycleState::FailedStart
+        );
+
+        supervisor
+            .start()
+            .expect("explicit retry after failed start");
+        assert_eq!(spawn_count.get(), 2);
+        assert_eq!(
+            supervisor.state(),
+            BundledRuntimeLifecycleState::Handshaking
+        );
+    }
+
+    #[test]
+    fn supervisor_rejects_repeated_start_without_replacing_the_owned_launch() {
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, spawn_count) =
+            FakeLauncher::new([Ok(FakeProcess::running()), Ok(FakeProcess::running())]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+
+        supervisor.start().expect("initial spawn");
+        let original_binding = supervisor.launch_binding().expect("owned launch binding");
+        assert_eq!(
+            supervisor.start(),
+            Err(BundledRuntimeSupervisorError::AlreadyRunning)
+        );
+        assert_eq!(spawn_count.get(), 1);
+        assert!(
+            supervisor
+                .launch_binding()
+                .is_some_and(|binding| binding == original_binding)
+        );
+    }
+
+    #[test]
+    fn supervisor_rejects_a_stale_authenticated_handshake() {
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, _) =
+            FakeLauncher::new([Ok(FakeProcess::exited()), Ok(FakeProcess::running())]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock.clone(), launch_spec());
+        supervisor.start().expect("first spawn");
+        let stale_handshake = authenticated_handshake(&supervisor);
+        supervisor.monitor().expect("observe first exit");
+        clock.advance(Duration::from_secs(1));
+        supervisor.monitor().expect("restart owned process");
+
+        assert_eq!(
+            supervisor.record_authenticated_ready(&stale_handshake),
+            Err(BundledRuntimeSupervisorError::HandshakeMismatch)
+        );
+        assert_eq!(
+            supervisor.state(),
+            BundledRuntimeLifecycleState::Handshaking
+        );
     }
 
     #[test]
@@ -681,6 +835,27 @@ mod tests {
         assert_eq!(
             supervisor.state(),
             BundledRuntimeLifecycleState::Handshaking
+        );
+    }
+
+    #[test]
+    fn supervisor_marks_a_failed_delayed_restart_as_failed_start() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let (launcher, spawn_count) = FakeLauncher::new([Ok(FakeProcess::exited()), Err(())]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock.clone(), launch_spec());
+
+        supervisor.start().expect("initial spawn");
+        supervisor.monitor().expect("observe unexpected exit");
+        clock.advance(Duration::from_secs(1));
+        assert_eq!(
+            supervisor.monitor(),
+            Err(BundledRuntimeSupervisorError::SpawnFailed)
+        );
+        assert_eq!(spawn_count.get(), 2);
+        assert_eq!(
+            supervisor.state(),
+            BundledRuntimeLifecycleState::FailedStart
         );
     }
 
@@ -715,7 +890,9 @@ mod tests {
         ]))]);
         let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock.clone(), launch_spec());
         supervisor.start().expect("fresh supervisor spawn");
-        supervisor.record_authenticated_ready();
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake(&supervisor))
+            .expect("matching authenticated handshake");
         clock.advance(UNEXPECTED_EXIT_WINDOW);
         supervisor.monitor().expect("reset stable readiness budget");
         supervisor.monitor().expect("observe post-reset exit");
