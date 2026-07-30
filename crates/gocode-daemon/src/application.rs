@@ -50,11 +50,17 @@ type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, S
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
 
 struct DaemonReplayAuthorization {
-    principal_id: String,
-    authority_id: [u8; 16],
-    launch_generation: i64,
-    authorization_epoch: i64,
-    sensitivity_ceiling: Sensitivity,
+    replay_authority_id: [u8; 16],
+    local_session: Arc<Mutex<LocalSessionService>>,
+}
+
+impl DaemonReplayAuthorization {
+    fn new(replay_authority_id: [u8; 16], local_session: Arc<Mutex<LocalSessionService>>) -> Self {
+        Self {
+            replay_authority_id,
+            local_session,
+        }
+    }
 }
 
 impl ReplayAuthorizationPort for DaemonReplayAuthorization {
@@ -62,16 +68,22 @@ impl ReplayAuthorizationPort for DaemonReplayAuthorization {
         &self,
         request: &ReplayAuthorizationRequest,
     ) -> Result<ReplayAuthorizationLease, ReplayError> {
-        if request.principal_id != self.principal_id
-            || request.authority_id != self.authority_id
-            || request.session_generation != self.launch_generation
-        {
+        if request.authority_id != self.replay_authority_id {
             return Err(ReplayError::AuthorizationRevoked);
         }
+        let generation = u64::try_from(request.session_generation)
+            .map_err(|_| ReplayError::AuthorizationRevoked)?;
+        let current = self
+            .local_session
+            .lock()
+            .map_err(|_| ReplayError::AuthorizationRevoked)?
+            .current_replay_authorization(&request.principal_id, generation)
+            .map_err(|_| ReplayError::AuthorizationRevoked)?;
         ReplayAuthorizationLease::new(
-            self.principal_id.clone(),
-            self.authorization_epoch,
-            self.sensitivity_ceiling,
+            request.principal_id.clone(),
+            i64::try_from(current.authorization_epoch())
+                .map_err(|_| ReplayError::AuthorizationRevoked)?,
+            current.sensitivity_ceiling(),
         )
     }
 }
@@ -229,21 +241,14 @@ impl DaemonApplication {
             binding.clone(),
             bootstrap.launch_identity.bootstrap_secret(),
         )));
-        let replay_service = ReplayService::new_authorized(
+        let replay_service = ReplayService::new(
             Arc::new(replay_store),
             replay_integrity_secret,
             replay_lineage,
-            Arc::new(DaemonReplayAuthorization {
-                principal_id: binding.stable().principal_id().as_str().to_owned(),
-                authority_id: bootstrap.authority_id,
-                launch_generation: i64::try_from(binding.ephemeral().launch_generation())
-                    .map_err(|_| DaemonError::Bootstrap("replay generation overflow".to_owned()))?,
-                authorization_epoch: i64::try_from(binding.ephemeral().authorization_epoch())
-                    .map_err(|_| {
-                        DaemonError::Bootstrap("replay authorization epoch overflow".to_owned())
-                    })?,
-                sensitivity_ceiling: binding.ephemeral().sensitivity_ceiling(),
-            }),
+            Arc::new(DaemonReplayAuthorization::new(
+                bootstrap.authority_id,
+                Arc::clone(&local_session_service),
+            )),
         );
         let launched_at = Instant::now();
         let clock: Arc<dyn Fn() -> Duration + Send + Sync> =
@@ -428,5 +433,82 @@ fn combine_shutdown_results(
         (Err(http_error), Err(runtime_error)) => Err(DaemonError::Bootstrap(format!(
             "HTTP shutdown failed: {http_error}; runtime shutdown failed: {runtime_error}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gocode_api::{DaemonInstanceId, RuntimeSessionBinding};
+    use gocode_domain::id::EventLogLineageId;
+
+    fn replay_binding() -> RuntimeSessionBinding {
+        let authority = [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 1,
+        ];
+        let daemon = [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 2,
+        ];
+        let session = [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 3,
+        ];
+        RuntimeSessionBinding::new(
+            StableRuntimeBinding::new(
+                authority,
+                ApiPrincipalId::new("local-owner").unwrap(),
+                EventLogLineageId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 4,
+                ]),
+                "gocode-ui-client/1",
+                [0x33; 32],
+                [0x44; 32],
+            )
+            .unwrap(),
+            DaemonInstanceId::from_bytes(daemon),
+            7,
+            session,
+            3,
+            Sensitivity::Internal,
+            [0x77; 32],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn production_replay_authorization_reads_live_local_session_state() {
+        let local_session = Arc::new(Mutex::new(LocalSessionService::new(
+            replay_binding(),
+            [0x88; 32],
+        )));
+        let authorization = DaemonReplayAuthorization::new([0x99; 16], Arc::clone(&local_session));
+        let request = ReplayAuthorizationRequest {
+            principal_id: "local-owner".to_owned(),
+            authority_id: [0x99; 16],
+            session_generation: 7,
+            expected_epoch: 3,
+            session_id: Some([0xAA; 16]),
+            scope: None,
+        };
+
+        let initial = authorization.current_lease(&request).unwrap();
+        assert_eq!(initial.authorization_epoch(), 3);
+        assert_eq!(initial.sensitivity_ceiling(), Sensitivity::Internal);
+
+        local_session
+            .lock()
+            .unwrap()
+            .set_sensitivity_ceiling(Sensitivity::Public);
+        let downgraded = authorization.current_lease(&request).unwrap();
+        assert_eq!(downgraded.authorization_epoch(), 3);
+        assert_eq!(downgraded.sensitivity_ceiling(), Sensitivity::Public);
+
+        local_session.lock().unwrap().set_authorization_epoch(4);
+        assert_eq!(
+            authorization
+                .current_lease(&request)
+                .unwrap()
+                .authorization_epoch(),
+            4
+        );
     }
 }

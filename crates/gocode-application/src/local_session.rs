@@ -6,6 +6,7 @@ use std::{
 };
 
 use gocode_api::RuntimeSessionBinding;
+use gocode_domain::event::Sensitivity;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
@@ -85,6 +86,23 @@ pub enum LocalSessionError {
     Unavailable,
 }
 
+/// Current daemon-owned replay authorization values.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LocalReplayAuthorizationState {
+    authorization_epoch: u64,
+    sensitivity_ceiling: Sensitivity,
+}
+
+impl LocalReplayAuthorizationState {
+    pub const fn authorization_epoch(self) -> u64 {
+        self.authorization_epoch
+    }
+
+    pub const fn sensitivity_ceiling(self) -> Sensitivity {
+        self.sensitivity_ceiling
+    }
+}
+
 #[derive(Clone)]
 struct Challenge {
     client_nonce: [u8; 32],
@@ -107,6 +125,7 @@ pub struct LocalSessionService {
     issued: VecDeque<Duration>,
     sessions: HashMap<[u8; 32], Session>,
     authorization_epoch: u64,
+    sensitivity_ceiling: Sensitivity,
 }
 
 impl LocalSessionService {
@@ -114,6 +133,7 @@ impl LocalSessionService {
     pub fn new(binding: RuntimeSessionBinding, bootstrap_secret: [u8; 32]) -> Self {
         Self {
             authorization_epoch: binding.ephemeral().authorization_epoch(),
+            sensitivity_ceiling: binding.ephemeral().sensitivity_ceiling(),
             binding,
             bootstrap_secret: Zeroizing::new(bootstrap_secret),
             challenges: HashMap::new(),
@@ -216,6 +236,30 @@ impl LocalSessionService {
     pub fn set_authorization_epoch(&mut self, epoch: u64) {
         self.authorization_epoch = epoch;
         self.sessions.retain(|_, session| session.epoch == epoch);
+    }
+
+    /// Updates the replay sensitivity ceiling observed by current delivery
+    /// leases without minting a replacement transport authority.
+    pub fn set_sensitivity_ceiling(&mut self, ceiling: Sensitivity) {
+        self.sensitivity_ceiling = ceiling;
+    }
+
+    /// Returns the current replay authorization for the bound principal and
+    /// daemon generation.
+    pub fn current_replay_authorization(
+        &self,
+        principal_id: &str,
+        generation: u64,
+    ) -> Result<LocalReplayAuthorizationState, LocalSessionError> {
+        if principal_id != self.binding.stable().principal_id().as_str()
+            || generation != self.binding.ephemeral().launch_generation()
+        {
+            return Err(LocalSessionError::Unauthorized);
+        }
+        Ok(LocalReplayAuthorizationState {
+            authorization_epoch: self.authorization_epoch,
+            sensitivity_ceiling: self.sensitivity_ceiling,
+        })
     }
 
     /// Validates a session against the service's current binding.

@@ -958,8 +958,53 @@ impl ReplayStorePort for ReplayStore {
             )?;
 
             // Compute initial cursors from first page
-            let has_more = events.len() > 100;
+            let has_more_after_selection = events.len() > 100;
             events.truncate(100);
+            let selected_len = events.len();
+            let mut authorized_prefix_len = 0;
+            let mut prefix_candidate = ReplaySession {
+                session_id,
+                principal_id: principal_id.clone(),
+                session_generation,
+                authority_id,
+                authorization_epoch,
+                aggregate_type,
+                aggregate_id: aggregate_id_copy,
+                retained_floor: retention_manifest.retained_floor(),
+                retention_generation: i64::try_from(retention_manifest.retention_generation())
+                    .map_err(|_| {
+                        ReplayError::Integrity("retention generation overflow".to_owned())
+                    })?,
+                high_water_position: high_water,
+                next_page_position: None,
+                last_delivered_position: None,
+                last_acked_position: None,
+                state: ReplayState::CatchingUp,
+                high_water_ref: high_water_ref.clone(),
+                catch_up_completion: None,
+                live_delivery_id: None,
+                created_at: String::new(),
+            };
+            for (index, event) in events.iter().enumerate() {
+                prefix_candidate.last_delivered_position = Some(event.global_position);
+                prefix_candidate.next_page_position =
+                    if index + 1 < selected_len || has_more_after_selection {
+                        Some(event.global_position.checked_add(1).ok_or_else(|| {
+                            ReplayError::Integrity(
+                                "global position overflow while opening replay session".to_string(),
+                            )
+                        })?)
+                    } else {
+                        None
+                    };
+                match delivery_guard.inspect_event(&prefix_candidate, event) {
+                    Ok(()) => authorized_prefix_len = index + 1,
+                    Err(ReplayError::SensitivityDenied) if authorized_prefix_len > 0 => break,
+                    Err(error) => return Err(error),
+                }
+            }
+            events.truncate(authorized_prefix_len);
+            let has_more = has_more_after_selection || authorized_prefix_len < selected_len;
             let last_delivered = events.last().map(|e| e.global_position);
             let next_page = if has_more {
                 Some(
@@ -975,27 +1020,9 @@ impl ReplayStorePort for ReplayStore {
                 None
             };
             let candidate = ReplaySession {
-                session_id,
-                principal_id: principal_id.clone(),
-                session_generation,
-                authority_id,
-                authorization_epoch,
-                aggregate_type,
-                aggregate_id: aggregate_id_copy,
-                retained_floor: retention_manifest.retained_floor(),
-                retention_generation: i64::try_from(retention_manifest.retention_generation())
-                    .map_err(|_| {
-                        ReplayError::Integrity("retention generation overflow".to_owned())
-                    })?,
-                high_water_position: high_water,
                 next_page_position: next_page,
                 last_delivered_position: last_delivered,
-                last_acked_position: None,
-                state: ReplayState::CatchingUp,
-                high_water_ref: high_water_ref.clone(),
-                catch_up_completion: None,
-                live_delivery_id: None,
-                created_at: String::new(),
+                ..prefix_candidate
             };
             delivery_guard.inspect(&candidate, &events)?;
 
@@ -1200,8 +1227,31 @@ impl ReplayStorePort for ReplayStore {
             }
             validate_contiguous_sequence(&events, expected_first)?;
 
-            let has_more = events.len() > limit;
+            let has_more_after_selection = events.len() > limit;
             events.truncate(limit);
+            let selected_len = events.len();
+            let mut authorized_prefix_len = 0;
+            let mut prefix_candidate = session.clone();
+            for (index, event) in events.iter().enumerate() {
+                prefix_candidate.last_delivered_position = Some(event.global_position);
+                prefix_candidate.next_page_position =
+                    if index + 1 < selected_len || has_more_after_selection {
+                        Some(event.global_position.checked_add(1).ok_or_else(|| {
+                            ReplayError::Integrity(
+                                "global position overflow while reading replay page".to_string(),
+                            )
+                        })?)
+                    } else {
+                        None
+                    };
+                match delivery_guard.inspect_event(&prefix_candidate, event) {
+                    Ok(()) => authorized_prefix_len = index + 1,
+                    Err(ReplayError::SensitivityDenied) if authorized_prefix_len > 0 => break,
+                    Err(error) => return Err(error),
+                }
+            }
+            events.truncate(authorized_prefix_len);
+            let has_more = has_more_after_selection || authorized_prefix_len < selected_len;
 
             let next_page = match events.last() {
                 Some(last_event) if has_more => {
@@ -1672,7 +1722,7 @@ impl ReplayStorePort for ReplayStore {
             let aggregate_type = session.aggregate_type;
             let aggregate_id = session.aggregate_id;
 
-            let events = stmt
+            let mut events = stmt
                 .query_map(
                     params![aggregate_type, aggregate_id.as_slice(), cursor],
                     read_replay_event,
@@ -1684,12 +1734,20 @@ impl ReplayStorePort for ReplayStore {
             validate_contiguous_sequence(&events, expected_first)?;
 
             let mut candidate = session.clone();
-            if let Some(last_event) = events.last() {
-                candidate.last_delivered_position = Some(last_event.global_position);
+            let mut authorized_prefix_len = 0;
+            for (index, event) in events.iter().enumerate() {
+                candidate.last_delivered_position = Some(event.global_position);
+                match delivery_guard.inspect_event(&candidate, event) {
+                    Ok(()) => authorized_prefix_len = index + 1,
+                    Err(ReplayError::SensitivityDenied) if authorized_prefix_len > 0 => break,
+                    Err(error) => return Err(error),
+                }
             }
-            for event in &events {
-                delivery_guard.inspect_event(&candidate, event)?;
-            }
+            events.truncate(authorized_prefix_len);
+            candidate.last_delivered_position = events
+                .last()
+                .map(|event| event.global_position)
+                .or(session.last_delivered_position);
             delivery_guard.inspect(&candidate, &events)?;
 
             // Commit progress only after the transport has classified the

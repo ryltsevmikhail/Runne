@@ -6,6 +6,9 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
 use futures::StreamExt;
+use gocode_application::ports::{
+    ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
+};
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
@@ -40,6 +43,21 @@ const GENERATION: i64 = 7;
 const PROHIBITED_MARKER: &str = "task-seven-replay-marker";
 
 struct AvailableGuard;
+
+struct AvailableReplayAuthorization;
+
+impl ReplayAuthorizationPort for AvailableReplayAuthorization {
+    fn current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        ReplayAuthorizationLease::new(
+            request.principal_id.clone(),
+            request.expected_epoch,
+            Sensitivity::Sensitive,
+        )
+    }
+}
 
 impl ProhibitedContentPort for AvailableGuard {
     fn inspect(
@@ -236,6 +254,7 @@ fn setup_with_events(
         Arc::new(ReplayStore::new(connection)),
         [0xDD; 32],
         EventLogLineageId::from_bytes(LINEAGE),
+        Arc::new(AvailableReplayAuthorization),
     );
     let state = ReplayHttpState::new(
         service,

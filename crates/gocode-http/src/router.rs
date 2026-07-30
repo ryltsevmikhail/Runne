@@ -226,6 +226,9 @@ mod tests {
         TaskRunQueryHostPort, TaskRunSnapshot,
     };
     use gocode_application::local_session::{LocalSessionService, bootstrap_proof_transcript};
+    use gocode_application::ports::{
+        ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
+    };
     use gocode_application::prohibited_content::{
         CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
     };
@@ -242,6 +245,21 @@ mod tests {
     const CAPABILITIES: &[&str] = &["conversation.create.v1", "conversation.list.v1"];
 
     struct AvailableGuard;
+
+    struct AvailableReplayAuthorization;
+
+    impl ReplayAuthorizationPort for AvailableReplayAuthorization {
+        fn current_lease(
+            &self,
+            request: &ReplayAuthorizationRequest,
+        ) -> Result<ReplayAuthorizationLease, ReplayError> {
+            ReplayAuthorizationLease::new(
+                request.principal_id.clone(),
+                request.expected_epoch,
+                Sensitivity::Internal,
+            )
+        }
+    }
 
     impl ProhibitedContentPort for AvailableGuard {
         fn inspect(
@@ -375,6 +393,7 @@ mod tests {
             Arc::new(ReplayStore::new(connection)),
             [11; 32],
             *binding.stable().lineage_id(),
+            Arc::new(AvailableReplayAuthorization),
         );
         ReplayHttpState::new(
             service,

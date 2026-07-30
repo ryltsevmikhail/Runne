@@ -220,3 +220,33 @@ fn epoch_revocation_and_restart_generation_mismatch_revoke_sessions() {
         Err(LocalSessionError::Unauthorized)
     ));
 }
+
+#[test]
+fn replay_authorization_reads_current_epoch_and_sensitivity_ceiling() {
+    let binding = runtime_binding(7, 3);
+    let mut service = LocalSessionService::new(binding, SECRET);
+
+    let initial = service
+        .current_replay_authorization("local-owner", 7)
+        .unwrap();
+    assert_eq!(initial.authorization_epoch(), 3);
+    assert_eq!(initial.sensitivity_ceiling(), Sensitivity::Internal);
+
+    service.set_sensitivity_ceiling(Sensitivity::Public);
+    let downgraded = service
+        .current_replay_authorization("local-owner", 7)
+        .unwrap();
+    assert_eq!(downgraded.authorization_epoch(), 3);
+    assert_eq!(downgraded.sensitivity_ceiling(), Sensitivity::Public);
+
+    service.set_authorization_epoch(4);
+    let revoked = service
+        .current_replay_authorization("local-owner", 7)
+        .unwrap();
+    assert_eq!(revoked.authorization_epoch(), 4);
+    assert_eq!(revoked.sensitivity_ceiling(), Sensitivity::Public);
+    assert!(matches!(
+        service.current_replay_authorization("other", 7),
+        Err(LocalSessionError::Unauthorized)
+    ));
+}

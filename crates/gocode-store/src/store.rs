@@ -18,12 +18,16 @@ use gocode_application::ports::{
     ConversationReceipt, ConversationReceiptLookup, ConversationRepository,
     ConversationTextRepository, EventStore as AppEventStore, EventStoreError,
     FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope, LoadedStream,
-    OperationTag, ReceiptLookup, RejectTextGenerationCommit, RuntimeAuthorityId,
+    OperationTag, ReceiptLookup, RejectTextGenerationCommit, ReplayEvent, RuntimeAuthorityId,
     StorageFailureKind, TextGenerationCommitResult, TextGenerationPhase, TextGenerationReceipt,
     TextGenerationReceiptLookup, UnitOfWork,
 };
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
+};
+use gocode_application::replay_service::{
+    measured_conversation_replay_event_bytes, measured_taskrun_replay_event_bytes,
+    validate_replay_writer_event_size,
 };
 use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity, UncommittedEvent};
@@ -775,6 +779,15 @@ impl ConversationRepository for StoreTransaction {
             &payload_bytes,
         )
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        enforce_conversation_replay_size(
+            event,
+            conversation_id,
+            1,
+            global_position,
+            now,
+            &payload_bytes,
+            digest,
+        )?;
         guard_event_components(
             self.prohibited_content.as_ref(),
             event,
@@ -1954,6 +1967,15 @@ fn guard_conversation_event(
     let digest =
         compute_integrity_digest_v2_with_global_position(&envelope, global_position, &payload)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    enforce_conversation_replay_size(
+        event,
+        conversation_id,
+        sequence,
+        global_position,
+        timestamp,
+        &payload,
+        digest,
+    )?;
     guard_event_components(
         prohibited_content,
         event,
@@ -2030,6 +2052,15 @@ fn guard_taskrun_event(
     let digest =
         compute_integrity_digest_with_global_position(&envelope, global_position, &payload)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    enforce_taskrun_replay_size(
+        event,
+        taskrun_id,
+        sequence,
+        global_position,
+        timestamp,
+        &payload,
+        digest,
+    )?;
     guard_event_components(
         prohibited_content,
         event,
@@ -2043,6 +2074,113 @@ fn guard_taskrun_event(
         INTEGRITY_PROFILE_V1,
     )?;
     Ok((payload, digest, taskrun_id))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn enforce_conversation_replay_size(
+    event: &UncommittedEvent<ConversationEvent>,
+    conversation_id: ConversationId,
+    sequence: u64,
+    global_position: i64,
+    timestamp: i64,
+    payload: &[u8],
+    digest: IntegrityDigest,
+) -> Result<(), CommitError> {
+    let replay_event = replay_event_for_append(
+        event,
+        CORRELATION_TYPE_CONVERSATION,
+        conversation_id.as_bytes(),
+        sequence,
+        global_position,
+        timestamp,
+        payload,
+        digest,
+        INTEGRITY_PROFILE_V2,
+    )?;
+    let actual = measured_conversation_replay_event_bytes(&replay_event, event.payload())
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    validate_replay_writer_event_size(actual)
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn enforce_taskrun_replay_size(
+    event: &UncommittedEvent<TaskRunEvent>,
+    taskrun_id: TaskRunId,
+    sequence: u64,
+    global_position: i64,
+    timestamp: i64,
+    payload: &[u8],
+    digest: IntegrityDigest,
+) -> Result<(), CommitError> {
+    let replay_event = replay_event_for_append(
+        event,
+        CORRELATION_TYPE_TASK_RUN,
+        taskrun_id.as_bytes(),
+        sequence,
+        global_position,
+        timestamp,
+        payload,
+        digest,
+        INTEGRITY_PROFILE_V1,
+    )?;
+    let actual = measured_taskrun_replay_event_bytes(&replay_event, event.payload())
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    validate_replay_writer_event_size(actual)
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn replay_event_for_append<E>(
+    event: &UncommittedEvent<E>,
+    aggregate_type: i64,
+    aggregate_id: &[u8; 16],
+    sequence: u64,
+    global_position: i64,
+    timestamp: i64,
+    payload: &[u8],
+    digest: IntegrityDigest,
+    integrity_profile: i64,
+) -> Result<ReplayEvent, CommitError> {
+    let aggregate_type = i32::try_from(aggregate_type)
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    let sequence = i64::try_from(sequence)
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    let correlation_type = match event.correlation_id() {
+        AggregateId::TaskRun(_) => CORRELATION_TYPE_TASK_RUN,
+        AggregateId::Conversation(_) => CORRELATION_TYPE_CONVERSATION,
+        AggregateId::Workspace(_) => {
+            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+        }
+    };
+    let correlation_id = match event.correlation_id() {
+        AggregateId::TaskRun(id) => *id.as_bytes(),
+        AggregateId::Conversation(id) => *id.as_bytes(),
+        AggregateId::Workspace(_) => unreachable!("workspace correlation was rejected"),
+    };
+    Ok(ReplayEvent {
+        global_position,
+        event_id: *event.event_id().as_bytes(),
+        aggregate_type,
+        aggregate_id: *aggregate_id,
+        payload: payload.to_vec(),
+        timestamp,
+        event_type: String::new(),
+        sequence,
+        sensitivity: i32::try_from(sensitivity_value(*event.sensitivity()))
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?,
+        schema_version: event.schema_version(),
+        causation_id: event.causation_id().map(|id| *id.as_bytes()),
+        command_id: *event.command_id().as_bytes(),
+        idempotency_key: event.idempotency_key().as_str().to_owned(),
+        actor: event.actor().as_str().to_owned(),
+        integrity_digest: *digest.as_bytes(),
+        correlation_id,
+        correlation_type: i32::try_from(correlation_type)
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?,
+        integrity_profile: i32::try_from(integrity_profile)
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2748,7 +2886,8 @@ impl Clock for StoreTransaction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gocode_domain::id::IdempotencyKey;
+    use gocode_domain::id::{IdempotencyKey, MessageId};
+    use gocode_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
     use gocode_security::SecretBroker;
 
     fn available_guard() -> Arc<dyn ProhibitedContentPort> {
@@ -2770,6 +2909,36 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{db_path}{suffix}"));
         }
+    }
+
+    #[test]
+    fn append_guard_rejects_json_escape_expanded_canonical_event() {
+        let conversation_id = ConversationId::from_bytes([0x11; 16]);
+        let event = UncommittedEvent::from_parts(
+            EventId::from_bytes([0x22; 16]),
+            AggregateId::Conversation(conversation_id),
+            AggregateId::Conversation(conversation_id),
+            None,
+            CommandId::from_bytes([0x33; 16]),
+            IdempotencyKey::new("oversized-replay-event").unwrap(),
+            1,
+            Actor::new("test-actor").unwrap(),
+            Sensitivity::Sensitive,
+            ConversationEvent::UserMessageAppended {
+                message_id: MessageId::from_bytes([0x44; 16]),
+                taskrun_id: TaskRunId::from_bytes([0x55; 16]),
+                attempt_id: AttemptId::from_bytes([0x66; 16]),
+                text: MessageText::new("\0".repeat(MAX_MESSAGE_TEXT_BYTES)).unwrap(),
+            },
+        );
+        let guard = available_guard();
+
+        let error = guard_conversation_event(guard.as_ref(), &event, 1, 1, 0).unwrap_err();
+
+        assert_eq!(
+            error,
+            CommitError::StorageFailure(StorageFailureKind::IntegrityViolation)
+        );
     }
 
     #[test]

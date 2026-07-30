@@ -15,7 +15,10 @@ use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextService,
 };
-use gocode_application::ports::RuntimeAuthorityId;
+use gocode_application::ports::{
+    ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
+    RuntimeAuthorityId,
+};
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::provider::{
     ProviderAdmissionError, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
@@ -24,6 +27,7 @@ use gocode_application::provider::{
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
 use gocode_application::verification::export_port::VerificationExporter;
+use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 use gocode_domain::message::MessageText;
 use gocode_domain::verification::backup::StreamInventory;
@@ -58,6 +62,21 @@ const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000772";
 const TOKEN: [u8; 32] = [0x77; 32];
 
 type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
+
+struct AvailableReplayAuthorization;
+
+impl ReplayAuthorizationPort for AvailableReplayAuthorization {
+    fn current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        ReplayAuthorizationLease::new(
+            request.principal_id.clone(),
+            request.expected_epoch,
+            Sensitivity::Sensitive,
+        )
+    }
+}
 
 #[derive(Clone)]
 struct MarkerProvider {
@@ -373,6 +392,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
         Arc::new(ReplayStore::new(replay_connection)),
         [0x77; 32],
         lineage,
+        Arc::new(AvailableReplayAuthorization),
     );
     let replay_state = ReplayHttpState::new(
         replay_service,

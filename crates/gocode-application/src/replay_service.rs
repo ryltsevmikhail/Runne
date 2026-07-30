@@ -19,9 +19,24 @@ type HmacSha256 = Hmac<Sha256>;
 const MAX_EVENT_TYPE_BYTES: usize = 256;
 pub const REPLAY_FRAME_CAPACITY_BYTES: usize = 256 * 1024;
 pub const REPLAY_PAGE_CAPACITY_BYTES: usize = 1024 * 1024;
-pub const REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES: usize = 16 * 1024;
+pub const REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES: usize = 32 * 1024;
+pub const REPLAY_CANONICAL_EVENT_MAX_BYTES: usize =
+    REPLAY_FRAME_CAPACITY_BYTES - REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES;
 
-/// Reader-first readiness gate for the largest retained canonical event.
+/// Rejects an exact canonical event that the current writer policy cannot
+/// guarantee every configured replay reader can deliver.
+pub fn validate_replay_writer_event_size(actual_bytes: usize) -> Result<(), ReplayError> {
+    if actual_bytes > REPLAY_CANONICAL_EVENT_MAX_BYTES {
+        return Err(ReplayError::Integrity(format!(
+            "canonical replay event exceeds writer maximum: actual={actual_bytes}, \
+             maximum={REPLAY_CANONICAL_EVENT_MAX_BYTES}"
+        )));
+    }
+    Ok(())
+}
+
+/// Reader-first readiness gate for the larger of the active writer policy and
+/// the largest retained canonical event.
 pub fn validate_replay_reader_capacity(
     manifest: &RetentionManifest,
     frame_capacity_bytes: usize,
@@ -30,6 +45,7 @@ pub fn validate_replay_reader_capacity(
 ) -> Result<(), ReplayError> {
     let required = manifest
         .maximum_encoded_event_bytes()
+        .max(REPLAY_CANONICAL_EVENT_MAX_BYTES)
         .checked_add(declared_overhead_bytes)
         .ok_or_else(|| ReplayError::Integrity("replay capacity calculation overflow".to_owned()))?;
     if required > frame_capacity_bytes || required > page_capacity_bytes {
@@ -453,21 +469,6 @@ pub struct ReplayService {
     lineage_id: EventLogLineageId,
 }
 
-struct CallerBoundReplayAuthorization;
-
-impl ReplayAuthorizationPort for CallerBoundReplayAuthorization {
-    fn current_lease(
-        &self,
-        request: &ReplayAuthorizationRequest,
-    ) -> Result<ReplayAuthorizationLease, ReplayError> {
-        ReplayAuthorizationLease::new(
-            request.principal_id.clone(),
-            request.expected_epoch,
-            Sensitivity::Sensitive,
-        )
-    }
-}
-
 struct AuthorizedDeliveryGuard {
     authorization: Arc<dyn ReplayAuthorizationPort>,
     request: ReplayAuthorizationRequest,
@@ -535,19 +536,6 @@ impl ReplayDeliveryPrecommitGuard for AuthorizedDeliveryGuard {
 
 impl ReplayService {
     pub fn new(
-        store: Arc<dyn ReplayStorePort>,
-        server_secret: [u8; 32],
-        lineage_id: EventLogLineageId,
-    ) -> Self {
-        Self::new_authorized(
-            store,
-            server_secret,
-            lineage_id,
-            Arc::new(CallerBoundReplayAuthorization),
-        )
-    }
-
-    pub fn new_authorized(
         store: Arc<dyn ReplayStorePort>,
         server_secret: [u8; 32],
         lineage_id: EventLogLineageId,
@@ -800,7 +788,6 @@ impl ReplayService {
             aggregate_id,
         )?;
         let lease = self.acquire_lease(&request)?;
-        let sensitivity_ceiling = lease.sensitivity_ceiling();
         let result = self
             .store
             .open_session(
@@ -813,7 +800,7 @@ impl ReplayService {
                 from_cursor.as_ref(),
                 &self.lineage_id,
                 &self.server_secret,
-                self.authorized_guard(request, lease, delivery_guard),
+                self.authorized_guard(request.clone(), lease.clone(), delivery_guard),
             )
             .await?;
         match result {
@@ -822,6 +809,11 @@ impl ReplayService {
                 floor_event,
                 gap_range_ref,
             } => {
+                let current_lease = self.acquire_lease(&request)?;
+                if current_lease != lease {
+                    return Err(ReplayError::AuthorizationRevoked);
+                }
+                let sensitivity_ceiling = current_lease.sensitivity_ceiling();
                 let floor_cursor = floor_event
                     .filter(|event| {
                         let rank = |value| match value {

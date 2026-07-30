@@ -4,14 +4,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gocode_application::ports::{
-    ReplayError, ReplayEvent, ReplayOpenResult, ReplaySession, ReplayStorePort, RetentionManifest,
+    ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
+    ReplayEvent, ReplayOpenResult, ReplaySession, ReplayStorePort, RetentionManifest,
 };
 use gocode_application::replay_service::{
-    REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_FRAME_CAPACITY_BYTES,
-    REPLAY_PAGE_CAPACITY_BYTES, validate_replay_reader_capacity,
+    REPLAY_CANONICAL_EVENT_MAX_BYTES, REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+    REPLAY_FRAME_CAPACITY_BYTES, REPLAY_PAGE_CAPACITY_BYTES,
+    measured_conversation_replay_event_bytes, validate_replay_reader_capacity,
+    validate_replay_writer_event_size,
 };
 use gocode_application::replay_service::{ReplayDeliveryPrecommitGuard, ReplayService};
-use gocode_domain::id::{EventLogLineageId, IntegrityDigest};
+use gocode_domain::conversation::ConversationEvent;
+use gocode_domain::id::{AttemptId, EventLogLineageId, IntegrityDigest, MessageId, TaskRunId};
+use gocode_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
 use gocode_domain::replay::{
     CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope, RetentionManifest as DomainRetentionManifest,
 };
@@ -19,6 +24,36 @@ use gocode_domain::replay::{
 struct DummyStore;
 
 struct AvailableDeliveryGuard;
+
+struct DenyAuthorization;
+
+struct AllowAuthorization;
+
+impl ReplayAuthorizationPort for AllowAuthorization {
+    fn current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        ReplayAuthorizationLease::new(
+            request.principal_id.clone(),
+            request.expected_epoch,
+            gocode_domain::event::Sensitivity::Sensitive,
+        )
+    }
+}
+
+fn allow_authorization() -> Arc<dyn ReplayAuthorizationPort> {
+    Arc::new(AllowAuthorization)
+}
+
+impl ReplayAuthorizationPort for DenyAuthorization {
+    fn current_lease(
+        &self,
+        _request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        Err(ReplayError::AuthorizationRevoked)
+    }
+}
 
 impl ReplayDeliveryPrecommitGuard for AvailableDeliveryGuard {
     fn inspect(
@@ -156,10 +191,32 @@ impl ReplayStorePort for DummyStore {
     }
 }
 
+#[tokio::test]
+async fn public_constructor_requires_and_uses_independent_authorization() {
+    let service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        EventLogLineageId::from_bytes([4; 16]),
+        Arc::new(DenyAuthorization),
+    );
+
+    let error = service
+        .open_session("user", 1, &[5; 16], 0, 1, &[2; 16], None, delivery_guard())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ReplayError::AuthorizationRevoked));
+}
+
 #[test]
 fn cursor_integrity_rejects_tampering() {
     let lineage = EventLogLineageId::from_bytes([4; 16]);
-    let service = ReplayService::new(Arc::new(DummyStore), [0xCC; 32], lineage);
+    let service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        lineage,
+        allow_authorization(),
+    );
     let event = event();
     let scope = scope();
     let mut cursor = service.build_cursor_from_event(&event, &scope).unwrap();
@@ -183,6 +240,7 @@ fn cursor_construction_is_deterministic() {
         Arc::new(DummyStore),
         [0xCC; 32],
         EventLogLineageId::from_bytes([4; 16]),
+        allow_authorization(),
     );
     let event = event();
     let scope = scope();
@@ -199,6 +257,7 @@ fn cursor_construction_rejects_invalid_delivered_event_metadata() {
         Arc::new(DummyStore),
         [0xCC; 32],
         EventLogLineageId::from_bytes([4; 16]),
+        allow_authorization(),
     );
     let mut invalid = event();
     invalid.sequence = 0;
@@ -215,6 +274,7 @@ fn cursor_integrity_accepts_valid_cursor() {
         Arc::new(DummyStore),
         [0xCC; 32],
         EventLogLineageId::from_bytes([4; 16]),
+        allow_authorization(),
     );
     let cursor = service.build_cursor_from_event(&event(), &scope()).unwrap();
 
@@ -224,11 +284,21 @@ fn cursor_integrity_accepts_valid_cursor() {
 #[test]
 fn cursor_rejects_wrong_server_secret() {
     let lineage = EventLogLineageId::from_bytes([4; 16]);
-    let issuing_service = ReplayService::new(Arc::new(DummyStore), [0xCC; 32], lineage);
+    let issuing_service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xCC; 32],
+        lineage,
+        allow_authorization(),
+    );
     let cursor = issuing_service
         .build_cursor_from_event(&event(), &scope())
         .unwrap();
-    let validating_service = ReplayService::new(Arc::new(DummyStore), [0xDD; 32], lineage);
+    let validating_service = ReplayService::new(
+        Arc::new(DummyStore),
+        [0xDD; 32],
+        lineage,
+        allow_authorization(),
+    );
 
     assert!(matches!(
         validating_service.validate_cursor_integrity(&cursor),
@@ -242,6 +312,7 @@ fn cursor_rejects_wrong_schema_version() {
         Arc::new(DummyStore),
         [0xCC; 32],
         EventLogLineageId::from_bytes([4; 16]),
+        allow_authorization(),
     );
     let mut cursor = service.build_cursor_from_event(&event(), &scope()).unwrap();
     cursor.schema_version = CURSOR_SCHEMA_VERSION + 1;
@@ -258,6 +329,7 @@ fn cursor_rejects_foreign_event_log_lineage() {
         Arc::new(DummyStore),
         [0xCC; 32],
         EventLogLineageId::from_bytes([4; 16]),
+        allow_authorization(),
     );
     let cursor = issuing_service
         .build_cursor_from_event(&event(), &scope())
@@ -266,6 +338,7 @@ fn cursor_rejects_foreign_event_log_lineage() {
         Arc::new(DummyStore),
         [0xCC; 32],
         EventLogLineageId::from_bytes([5; 16]),
+        allow_authorization(),
     );
 
     assert!(matches!(
@@ -338,4 +411,48 @@ fn readiness_accepts_exact_frame_capacity_without_truncation() {
         REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
     )
     .unwrap();
+}
+
+#[test]
+fn readiness_rejects_empty_inventory_when_future_append_limit_exceeds_reader() {
+    let manifest = DomainRetentionManifest::new(
+        EventLogLineageId::from_bytes([4; 16]),
+        0,
+        None,
+        0,
+        0,
+        IntegrityDigest::from_bytes([9; 32]),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        validate_replay_reader_capacity(
+            &manifest,
+            REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES + 1,
+            REPLAY_PAGE_CAPACITY_BYTES,
+            REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+        ),
+        Err(ReplayError::Integrity(_))
+    ));
+}
+
+#[test]
+fn writer_rejects_exact_canonical_event_expanded_by_json_escaping() {
+    let mut replay_event = event();
+    replay_event.aggregate_type = 2;
+    replay_event.correlation_type = 2;
+    let payload = ConversationEvent::UserMessageAppended {
+        message_id: MessageId::from_bytes([0x11; 16]),
+        taskrun_id: TaskRunId::from_bytes([0x22; 16]),
+        attempt_id: AttemptId::from_bytes([0x33; 16]),
+        text: MessageText::new("\0".repeat(MAX_MESSAGE_TEXT_BYTES)).unwrap(),
+    };
+
+    let actual = measured_conversation_replay_event_bytes(&replay_event, &payload).unwrap();
+
+    assert!(actual > REPLAY_CANONICAL_EVENT_MAX_BYTES);
+    assert!(matches!(
+        validate_replay_writer_event_size(actual),
+        Err(ReplayError::Integrity(_))
+    ));
 }
