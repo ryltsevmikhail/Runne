@@ -5,18 +5,24 @@ use gocode_application::commands::{CommandOutcome, CreateTaskRunInput, QueueTask
 use gocode_application::ports::{
     ApplicationCommandContext, EventStore, PrincipalId, RuntimeAuthorityId,
 };
+use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::service::TaskRunService;
 use gocode_domain::event::Actor;
 use gocode_domain::id::{ConversationId, IdempotencyKey, WorkspaceId};
 use gocode_runtime::Runtime;
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{ShutdownMode, ShutdownOutcome};
+use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 
 type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 
+fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
+}
+
 fn make_service(db: &str, authority: RuntimeAuthorityId) -> Arc<SqliteService> {
-    let conn = StoreTransaction::open(db, authority.clone()).unwrap();
+    let conn = StoreTransaction::open(db, authority.clone(), available_guard()).unwrap();
     Arc::new(TaskRunService::new(
         conn.clone(),
         conn.clone(),
@@ -101,7 +107,12 @@ async fn test_full_lifecycle_sqlite() {
         .await;
     assert!(matches!(outcome, ShutdownOutcome::Quiesced));
 
-    let conn = StoreTransaction::open(&db, RuntimeAuthorityId("test-host".into())).unwrap();
+    let conn = StoreTransaction::open(
+        &db,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
     let stream = conn.load_task_run(tr).unwrap();
     assert_eq!(stream.current_version, 2);
     assert_eq!(stream.events.len(), 2);

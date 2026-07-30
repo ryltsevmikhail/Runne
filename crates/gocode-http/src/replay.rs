@@ -14,6 +14,9 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
+};
 use gocode_application::replay_service::{ReplayError, ReplayEvent, ReplayService};
 use gocode_domain::replay::{ReplayCursor, ReplayScope};
 use serde::{Deserialize, Serialize};
@@ -79,6 +82,7 @@ pub enum ReplayHttpConfigurationError {
 #[derive(Clone)]
 pub struct ReplayHttpState {
     pub service: Arc<ReplayService>,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
     binding: ReplayHttpBinding,
     limits: LimitsConfig,
     active_page_reads: Arc<Mutex<HashSet<[u8; 16]>>>,
@@ -86,9 +90,15 @@ pub struct ReplayHttpState {
 }
 
 impl ReplayHttpState {
-    pub fn new(service: ReplayService, binding: ReplayHttpBinding, limits: LimitsConfig) -> Self {
+    pub fn new(
+        service: ReplayService,
+        binding: ReplayHttpBinding,
+        limits: LimitsConfig,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+    ) -> Self {
         Self {
             service: Arc::new(service),
+            prohibited_content,
             binding,
             limits,
             active_page_reads: Arc::new(Mutex::new(HashSet::new())),
@@ -319,11 +329,25 @@ fn wire_event(event: &ReplayEvent) -> Result<StoredReplayEventWire, ReplayHttpFa
 fn wire_delivery(
     event: &ReplayEvent,
     cursor: &ReplayCursor,
+    prohibited_content: &dyn ProhibitedContentPort,
 ) -> Result<DeliveredReplayEventWire, ReplayHttpFailure> {
-    Ok(DeliveredReplayEventWire {
+    let delivery = DeliveredReplayEventWire {
         event: wire_event(event)?,
         cursor: encode_cursor(cursor)?,
-    })
+    };
+    let bytes = serde_json::to_vec(&delivery).map_err(|_| replay_invariant_violation())?;
+    guard_replay_bytes(prohibited_content, &bytes)?;
+    Ok(delivery)
+}
+
+fn guard_replay_bytes(
+    prohibited_content: &dyn ProhibitedContentPort,
+    bytes: &[u8],
+) -> Result<(), ReplayHttpFailure> {
+    match prohibited_content.inspect(CanonicalContentBoundary::OutboundDelivery, bytes) {
+        Ok(ContentDisposition::Allowed { .. }) => Ok(()),
+        Ok(ContentDisposition::Prohibited { .. }) | Err(_) => Err(replay_invariant_violation()),
+    }
 }
 
 fn session_id_hex(id: &[u8; 16]) -> String {
@@ -441,7 +465,7 @@ async fn open_session(
                     .service
                     .build_cursor_from_event(event, &scope)
                     .map_err(|_| replay_invariant_violation())?;
-                wire_delivery(event, &cursor)
+                wire_delivery(event, &cursor, state.prohibited_content.as_ref())
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -506,7 +530,7 @@ async fn read_page(
                     .service
                     .build_cursor_from_event(event, &scope)
                     .map_err(|_| replay_invariant_violation())?;
-                wire_delivery(event, &cursor)
+                wire_delivery(event, &cursor, state.prohibited_content.as_ref())
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -759,9 +783,26 @@ async fn produce_live_events(
                 canonical_event,
                 replay_cursor,
             };
-            let frame_size = serde_json::to_vec(&delivery)
-                .map(|bytes| bytes.len())
-                .unwrap_or(usize::MAX);
+            let delivery_bytes = match serde_json::to_vec(&delivery) {
+                Ok(bytes) => bytes,
+                Err(_) => {
+                    try_terminal(
+                        &sender,
+                        terminal("UnsupportedSchema", "replay event encoding failed"),
+                    );
+                    stop = true;
+                    break;
+                }
+            };
+            if guard_replay_bytes(state.prohibited_content.as_ref(), &delivery_bytes).is_err() {
+                try_terminal(
+                    &sender,
+                    terminal("Unauthorized", "replay content delivery denied"),
+                );
+                stop = true;
+                break;
+            }
+            let frame_size = delivery_bytes.len();
             if frame_size > MAX_SSE_FRAME_BYTES {
                 try_terminal(
                     &sender,

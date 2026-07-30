@@ -10,26 +10,17 @@ use gocode_application::ports::{
     ApplicationCommandContext, ConversationRepository, EventStore, PrincipalId, RuntimeAuthorityId,
     TextGenerationPhase,
 };
-use gocode_application::prohibited_content::{
-    CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
-};
+use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::conversation::{Conversation, GenerationFailureReason};
 use gocode_domain::event::Actor;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 use gocode_domain::message::MessageText;
 use gocode_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
+use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 
-struct AllowGuard;
-
-impl ProhibitedContentPort for AllowGuard {
-    fn inspect(
-        &self,
-        _boundary: CanonicalContentBoundary,
-        _bytes: &[u8],
-    ) -> Result<ContentDisposition, ContentGuardError> {
-        Ok(ContentDisposition::Allowed { policy_epoch: 1 })
-    }
+fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
 }
 
 fn context(command_id: &str, key: &str) -> ApplicationCommandContext {
@@ -51,7 +42,8 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
         .unwrap()
         .to_owned();
     let authority = RuntimeAuthorityId("output-rejection-test".into());
-    let store = StoreTransaction::open(&database_path, authority.clone()).unwrap();
+    let store =
+        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-000000000001".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-000000000002".parse().unwrap();
     let create_context = context(
@@ -71,12 +63,8 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
         .unwrap();
 
     let generation_context = context("018f2e3a-7000-7000-8000-000000000004", "generate-text");
-    let service = ConversationTextService::new(
-        store.clone(),
-        store.clone(),
-        authority,
-        Arc::new(AllowGuard),
-    );
+    let service =
+        ConversationTextService::new(store.clone(), store.clone(), authority, available_guard());
     let original = BeginConversationTextInput {
         conversation_id,
         expected_version: 1,

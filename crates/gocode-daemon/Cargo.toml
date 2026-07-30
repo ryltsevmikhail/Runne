@@ -49,6 +49,7 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 
 [dev-dependencies]
 gocode-app-core = { path = "../app-core" }
+gocode-provider = { path = "../gocode-provider" }
 gocode-runtime-client = { path = "../runtime-client" }
 tempfile = "3"
 reqwest = { version = "0.12", features = ["json"] }

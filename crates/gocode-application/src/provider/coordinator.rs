@@ -4,6 +4,10 @@ use gocode_provider::{
     ProviderRepositoryState, ProviderStreamId,
 };
 
+use crate::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
+};
+
 use super::{
     ProviderAdmissionError, ProviderEffectAdmission, ProviderEffectAuthorityRef,
     ProviderEffectRequest,
@@ -60,6 +64,7 @@ pub struct ProviderDispatchCoordinator<'a, R, A, P> {
     repository: &'a R,
     admission: &'a A,
     provider: &'a P,
+    prohibited_content: &'a dyn ProhibitedContentPort,
 }
 
 impl<'a, R, A, P> ProviderDispatchCoordinator<'a, R, A, P>
@@ -69,11 +74,17 @@ where
     P: ProviderPort,
 {
     /// Constructs a coordinator from inward-facing ports.
-    pub const fn new(repository: &'a R, admission: &'a A, provider: &'a P) -> Self {
+    pub const fn new(
+        repository: &'a R,
+        admission: &'a A,
+        provider: &'a P,
+        prohibited_content: &'a dyn ProhibitedContentPort,
+    ) -> Self {
         Self {
             repository,
             admission,
             provider,
+            prohibited_content,
         }
     }
 
@@ -82,6 +93,17 @@ where
         &self,
         request: ProviderCoordinatorRequest,
     ) -> Result<ProviderCoordinatorOutcome, ProviderAdmissionError> {
+        let call_bytes =
+            serde_json::to_vec(&request.call).map_err(|_| ProviderAdmissionError::PolicyDenied)?;
+        match self
+            .prohibited_content
+            .inspect(CanonicalContentBoundary::OutboundDelivery, &call_bytes)
+        {
+            Ok(ContentDisposition::Allowed { .. }) => {}
+            Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
+                return Err(ProviderAdmissionError::PolicyDenied);
+            }
+        }
         let prepared = self
             .provider
             .prepare(&request.call)

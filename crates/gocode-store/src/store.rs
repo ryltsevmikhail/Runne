@@ -22,6 +22,9 @@ use gocode_application::ports::{
     StorageFailureKind, TextGenerationCommitResult, TextGenerationPhase, TextGenerationReceipt,
     TextGenerationReceiptLookup, UnitOfWork,
 };
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
+};
 use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity, UncommittedEvent};
 use gocode_domain::id::{
@@ -109,6 +112,7 @@ struct StoreInner {
 pub struct StoreTransaction {
     inner: Arc<StoreInner>,
     runtime_authority_id: RuntimeAuthorityId,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
 }
 
 /// Current time as Unix microseconds (for stream row creation).
@@ -132,6 +136,7 @@ impl StoreTransaction {
     pub fn open(
         db_path: &str,
         runtime_authority_id: RuntimeAuthorityId,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
     ) -> Result<Self, CommitError> {
         let writer = open_with_pragmas(db_path).map_err(|_| {
             CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
@@ -171,6 +176,7 @@ impl StoreTransaction {
                 ),
             }),
             runtime_authority_id,
+            prohibited_content,
         })
     }
 
@@ -769,6 +775,18 @@ impl ConversationRepository for StoreTransaction {
             &payload_bytes,
         )
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        guard_event_components(
+            self.prohibited_content.as_ref(),
+            event,
+            CORRELATION_TYPE_CONVERSATION,
+            conversation_id.as_bytes(),
+            1,
+            global_position,
+            now,
+            &payload_bytes,
+            digest,
+            INTEGRITY_PROFILE_V2,
+        )?;
 
         tx.execute(
             "INSERT INTO aggregate_streams
@@ -984,6 +1002,36 @@ impl ConversationTextRepository for StoreTransaction {
                 i64::try_from(total_events).map_err(|_| CommitError::GlobalPositionExhausted)?,
             )
             .ok_or(CommitError::GlobalPositionExhausted)?;
+        let conversation_sequence =
+            conversation_version
+                .checked_add(1)
+                .ok_or(CommitError::VersionExhausted {
+                    current: conversation_version,
+                    event_count: payload.conversation_events.len(),
+                })?;
+        let _ = guard_conversation_event(
+            self.prohibited_content.as_ref(),
+            &payload.conversation_events[0],
+            conversation_sequence,
+            global_position,
+            now,
+        )?;
+        let mut guarded_position = global_position
+            .checked_add(1)
+            .ok_or(CommitError::GlobalPositionExhausted)?;
+        for (index, event) in payload.taskrun_events.iter().enumerate() {
+            let _ = guard_taskrun_event(
+                self.prohibited_content.as_ref(),
+                event,
+                u64::try_from(index + 1)
+                    .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?,
+                guarded_position,
+                now,
+            )?;
+            guarded_position = guarded_position
+                .checked_add(1)
+                .ok_or(CommitError::GlobalPositionExhausted)?;
+        }
 
         transaction
             .execute(
@@ -1002,15 +1050,9 @@ impl ConversationTextRepository for StoreTransaction {
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
 
         let mut position = global_position;
-        let conversation_sequence =
-            conversation_version
-                .checked_add(1)
-                .ok_or(CommitError::VersionExhausted {
-                    current: conversation_version,
-                    event_count: payload.conversation_events.len(),
-                })?;
         append_conversation_event(
             &transaction,
+            self.prohibited_content.as_ref(),
             &payload.conversation_events[0],
             conversation_sequence,
             position,
@@ -1022,6 +1064,7 @@ impl ConversationTextRepository for StoreTransaction {
         for (index, event) in payload.taskrun_events.iter().enumerate() {
             append_taskrun_event(
                 &transaction,
+                self.prohibited_content.as_ref(),
                 event,
                 u64::try_from(index + 1)
                     .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?,
@@ -1170,8 +1213,26 @@ impl ConversationTextRepository for StoreTransaction {
         let next_global_position = global_position
             .checked_add(2)
             .ok_or(CommitError::GlobalPositionExhausted)?;
+        let _ = guard_conversation_event(
+            self.prohibited_content.as_ref(),
+            &payload.conversation_events[0],
+            payload.receipt.conversation_version,
+            global_position,
+            now,
+        )?;
+        let taskrun_global_position = global_position
+            .checked_add(1)
+            .ok_or(CommitError::GlobalPositionExhausted)?;
+        let _ = guard_taskrun_event(
+            self.prohibited_content.as_ref(),
+            &payload.taskrun_events[0],
+            payload.receipt.taskrun_version,
+            taskrun_global_position,
+            now,
+        )?;
         append_conversation_event(
             &transaction,
+            self.prohibited_content.as_ref(),
             &payload.conversation_events[0],
             payload.receipt.conversation_version,
             global_position,
@@ -1179,11 +1240,10 @@ impl ConversationTextRepository for StoreTransaction {
         )?;
         append_taskrun_event(
             &transaction,
+            self.prohibited_content.as_ref(),
             &payload.taskrun_events[0],
             payload.receipt.taskrun_version,
-            global_position
-                .checked_add(1)
-                .ok_or(CommitError::GlobalPositionExhausted)?,
+            taskrun_global_position,
             now,
         )?;
         update_stream_head(
@@ -1336,8 +1396,26 @@ impl ConversationTextRepository for StoreTransaction {
         let next_global_position = global_position
             .checked_add(2)
             .ok_or(CommitError::GlobalPositionExhausted)?;
+        let _ = guard_conversation_event(
+            self.prohibited_content.as_ref(),
+            &payload.conversation_events[0],
+            payload.receipt.conversation_version,
+            global_position,
+            now,
+        )?;
+        let taskrun_global_position = global_position
+            .checked_add(1)
+            .ok_or(CommitError::GlobalPositionExhausted)?;
+        let _ = guard_taskrun_event(
+            self.prohibited_content.as_ref(),
+            &payload.taskrun_events[0],
+            payload.receipt.taskrun_version,
+            taskrun_global_position,
+            now,
+        )?;
         append_conversation_event(
             &transaction,
+            self.prohibited_content.as_ref(),
             &payload.conversation_events[0],
             payload.receipt.conversation_version,
             global_position,
@@ -1345,11 +1423,10 @@ impl ConversationTextRepository for StoreTransaction {
         )?;
         append_taskrun_event(
             &transaction,
+            self.prohibited_content.as_ref(),
             &payload.taskrun_events[0],
             payload.receipt.taskrun_version,
-            global_position
-                .checked_add(1)
-                .ok_or(CommitError::GlobalPositionExhausted)?,
+            taskrun_global_position,
             now,
         )?;
         update_stream_head(
@@ -1818,11 +1895,40 @@ fn update_stream_head(
 
 fn append_conversation_event(
     transaction: &rusqlite::Transaction<'_>,
+    prohibited_content: &dyn ProhibitedContentPort,
     event: &UncommittedEvent<ConversationEvent>,
     sequence: u64,
     global_position: i64,
     timestamp: i64,
 ) -> Result<(), CommitError> {
+    let (payload, digest, conversation_id) = guard_conversation_event(
+        prohibited_content,
+        event,
+        sequence,
+        global_position,
+        timestamp,
+    )?;
+    insert_event(
+        transaction,
+        event,
+        CORRELATION_TYPE_CONVERSATION,
+        conversation_id.as_bytes(),
+        sequence,
+        global_position,
+        timestamp,
+        &payload,
+        digest,
+        INTEGRITY_PROFILE_V2,
+    )
+}
+
+fn guard_conversation_event(
+    prohibited_content: &dyn ProhibitedContentPort,
+    event: &UncommittedEvent<ConversationEvent>,
+    sequence: u64,
+    global_position: i64,
+    timestamp: i64,
+) -> Result<(Vec<u8>, IntegrityDigest, ConversationId), CommitError> {
     let conversation_id = match event.aggregate_id() {
         AggregateId::Conversation(id) => *id,
         _ => return Err(storage_failure(StorageFailureKind::IntegrityViolation)),
@@ -1848,8 +1954,8 @@ fn append_conversation_event(
     let digest =
         compute_integrity_digest_v2_with_global_position(&envelope, global_position, &payload)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
-    insert_event(
-        transaction,
+    guard_event_components(
+        prohibited_content,
         event,
         CORRELATION_TYPE_CONVERSATION,
         conversation_id.as_bytes(),
@@ -1859,16 +1965,46 @@ fn append_conversation_event(
         &payload,
         digest,
         INTEGRITY_PROFILE_V2,
-    )
+    )?;
+    Ok((payload, digest, conversation_id))
 }
 
 fn append_taskrun_event(
     transaction: &rusqlite::Transaction<'_>,
+    prohibited_content: &dyn ProhibitedContentPort,
     event: &UncommittedEvent<TaskRunEvent>,
     sequence: u64,
     global_position: i64,
     timestamp: i64,
 ) -> Result<(), CommitError> {
+    let (payload, digest, taskrun_id) = guard_taskrun_event(
+        prohibited_content,
+        event,
+        sequence,
+        global_position,
+        timestamp,
+    )?;
+    insert_event(
+        transaction,
+        event,
+        CORRELATION_TYPE_TASK_RUN,
+        taskrun_id.as_bytes(),
+        sequence,
+        global_position,
+        timestamp,
+        &payload,
+        digest,
+        INTEGRITY_PROFILE_V1,
+    )
+}
+
+fn guard_taskrun_event(
+    prohibited_content: &dyn ProhibitedContentPort,
+    event: &UncommittedEvent<TaskRunEvent>,
+    sequence: u64,
+    global_position: i64,
+    timestamp: i64,
+) -> Result<(Vec<u8>, IntegrityDigest, TaskRunId), CommitError> {
     let taskrun_id = match event.aggregate_id() {
         AggregateId::TaskRun(id) => *id,
         _ => return Err(storage_failure(StorageFailureKind::IntegrityViolation)),
@@ -1894,8 +2030,8 @@ fn append_taskrun_event(
     let digest =
         compute_integrity_digest_with_global_position(&envelope, global_position, &payload)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
-    insert_event(
-        transaction,
+    guard_event_components(
+        prohibited_content,
         event,
         CORRELATION_TYPE_TASK_RUN,
         taskrun_id.as_bytes(),
@@ -1905,7 +2041,67 @@ fn append_taskrun_event(
         &payload,
         digest,
         INTEGRITY_PROFILE_V1,
-    )
+    )?;
+    Ok((payload, digest, taskrun_id))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn guard_event_components<E>(
+    prohibited_content: &dyn ProhibitedContentPort,
+    event: &UncommittedEvent<E>,
+    aggregate_type: i64,
+    aggregate_id: &[u8; 16],
+    sequence: u64,
+    global_position: i64,
+    timestamp: i64,
+    payload: &[u8],
+    digest: IntegrityDigest,
+    integrity_profile: i64,
+) -> Result<(), CommitError> {
+    let mut encoded = Vec::new();
+    encoded.extend_from_slice(b"GOCODE_STORED_EVENT_V1\0");
+    append_guard_component(&mut encoded, event.event_id().as_bytes());
+    append_guard_component(&mut encoded, &aggregate_type.to_be_bytes());
+    append_guard_component(&mut encoded, aggregate_id);
+    append_guard_component(&mut encoded, &sequence.to_be_bytes());
+    append_guard_component(&mut encoded, &global_position.to_be_bytes());
+    append_guard_component(&mut encoded, &timestamp.to_be_bytes());
+    append_guard_component(
+        &mut encoded,
+        &sensitivity_value(*event.sensitivity()).to_be_bytes(),
+    );
+    append_guard_component(&mut encoded, &event.schema_version().to_be_bytes());
+    match event.causation_id() {
+        Some(id) => append_guard_component(&mut encoded, id.as_bytes()),
+        None => append_guard_component(&mut encoded, &[]),
+    }
+    append_guard_component(&mut encoded, event.command_id().as_bytes());
+    append_guard_component(&mut encoded, event.idempotency_key().as_str().as_bytes());
+    append_guard_component(&mut encoded, event.actor().as_str().as_bytes());
+    append_guard_component(&mut encoded, payload);
+    append_guard_component(&mut encoded, digest.as_bytes());
+    let (correlation_id, correlation_type) = match event.correlation_id() {
+        AggregateId::TaskRun(id) => (id.as_bytes(), CORRELATION_TYPE_TASK_RUN),
+        AggregateId::Conversation(id) => (id.as_bytes(), CORRELATION_TYPE_CONVERSATION),
+        AggregateId::Workspace(_) => {
+            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+        }
+    };
+    append_guard_component(&mut encoded, correlation_id);
+    append_guard_component(&mut encoded, &correlation_type.to_be_bytes());
+    append_guard_component(&mut encoded, &integrity_profile.to_be_bytes());
+
+    match prohibited_content.inspect(CanonicalContentBoundary::CanonicalMutation, &encoded) {
+        Ok(ContentDisposition::Allowed { .. }) => Ok(()),
+        Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
+            Err(storage_failure(StorageFailureKind::PolicyDenied))
+        }
+    }
+}
+
+fn append_guard_component(encoded: &mut Vec<u8>, component: &[u8]) {
+    encoded.extend_from_slice(&(component.len() as u64).to_be_bytes());
+    encoded.extend_from_slice(component);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2240,24 +2436,9 @@ impl UnitOfWork for StoreTransaction {
                 )
             })?;
 
-        let (current_version, last_timestamp) = match stream_row {
-            Some(row) => row,
-            None if payload.expected_version == 0 => {
-                // New aggregate — insert placeholder stream row before events
-                tx.execute(
-                    "INSERT INTO aggregate_streams
-                     (aggregate_type, aggregate_id, current_version, last_event_id,
-                      last_timestamp, created_at)
-                     VALUES (?1, ?2, 0, NULL, NULL, ?3)",
-                    params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes, now_micros()],
-                )
-                .map_err(|_| {
-                    CommitError::StorageFailure(
-                        gocode_application::ports::StorageFailureKind::IntegrityViolation,
-                    )
-                })?;
-                (0, None)
-            }
+        let (current_version, last_timestamp, new_stream) = match stream_row {
+            Some((version, timestamp)) => (version, timestamp, false),
+            None if payload.expected_version == 0 => (0, None, true),
             None => {
                 let _ = tx.rollback();
                 return Err(CommitError::VersionConflict {
@@ -2313,6 +2494,34 @@ impl UnitOfWork for StoreTransaction {
         let outcome_codec = CommandOutcomeCodec;
         let new_version = current_version + payload.events.len() as i64;
         let envelope_timestamp = Timestamp::from_unix_micros(now);
+        for (i, event) in payload.events.iter().enumerate() {
+            let sequence = u64::try_from(current_version + 1 + i as i64)
+                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+            let global_position = base_gp
+                .checked_add(i as i64)
+                .ok_or(CommitError::GlobalPositionExhausted)?;
+            let _ = guard_taskrun_event(
+                self.prohibited_content.as_ref(),
+                event,
+                sequence,
+                global_position,
+                now,
+            )?;
+        }
+        if new_stream {
+            tx.execute(
+                "INSERT INTO aggregate_streams
+                 (aggregate_type, aggregate_id, current_version, last_event_id,
+                  last_timestamp, created_at)
+                 VALUES (?1, ?2, 0, NULL, NULL, ?3)",
+                params![CORRELATION_TYPE_TASK_RUN, taskrun_bytes, now_micros()],
+            )
+            .map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::IntegrityViolation,
+                )
+            })?;
+        }
 
         for (i, event) in payload.events.iter().enumerate() {
             let seq = current_version + 1 + i as i64;
@@ -2540,6 +2749,11 @@ impl Clock for StoreTransaction {
 mod tests {
     use super::*;
     use gocode_domain::id::IdempotencyKey;
+    use gocode_security::SecretBroker;
+
+    fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+        Arc::new(SecretBroker::new().prohibited_content_guard())
+    }
 
     fn temp_db_path(name: &str) -> String {
         let unique = SystemTime::now()
@@ -2561,8 +2775,12 @@ mod tests {
     #[test]
     fn failed_stream_query_is_not_reported_as_missing() {
         let db_path = temp_db_path("reader-query-failure");
-        let store =
-            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        let store = StoreTransaction::open(
+            &db_path,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
         store
             .inner
             .writer
@@ -2585,8 +2803,12 @@ mod tests {
     #[test]
     fn failed_receipt_query_is_not_reported_as_a_miss() {
         let db_path = temp_db_path("receipt-query-failure");
-        let store =
-            StoreTransaction::open(&db_path, RuntimeAuthorityId("test-host".into())).unwrap();
+        let store = StoreTransaction::open(
+            &db_path,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
         store
             .inner
             .writer

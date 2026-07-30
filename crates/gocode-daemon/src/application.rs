@@ -80,17 +80,6 @@ impl DaemonApplication {
         let replay_connection = open_with_pragmas(&config.db_path)
             .map_err(|error| DaemonError::Bootstrap(format!("open replay store: {error}")))?;
         let authority = RuntimeAuthorityId(hex::encode(bootstrap.authority_id));
-        let store = StoreTransaction::open(&config.db_path, authority.clone())
-            .map_err(|error| DaemonError::Bootstrap(format!("open runtime store: {error:?}")))?;
-        let service: Arc<SqliteTaskRunService> = Arc::new(TaskRunService::new(
-            store.clone(),
-            store.clone(),
-            store.clone(),
-            authority.clone(),
-        ));
-        let conversation_service: Arc<SqliteConversationService> = Arc::new(
-            ConversationService::new(store.clone(), store.clone(), authority.clone()),
-        );
         let secret_broker = Arc::new(Mutex::new(SecretBroker::new()));
         let prohibited_content: Arc<dyn ProhibitedContentPort> = Arc::new(
             secret_broker
@@ -99,6 +88,21 @@ impl DaemonApplication {
                     DaemonError::Bootstrap("initialize prohibited-content registry".to_owned())
                 })?
                 .prohibited_content_guard(),
+        );
+        let store = StoreTransaction::open(
+            &config.db_path,
+            authority.clone(),
+            Arc::clone(&prohibited_content),
+        )
+        .map_err(|error| DaemonError::Bootstrap(format!("open runtime store: {error:?}")))?;
+        let service: Arc<SqliteTaskRunService> = Arc::new(TaskRunService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            authority.clone(),
+        ));
+        let conversation_service: Arc<SqliteConversationService> = Arc::new(
+            ConversationService::new(store.clone(), store.clone(), authority.clone()),
         );
         let conversation_text_service: Arc<dyn ConversationTextCommandService> =
             Arc::new(ConversationTextService::new(
@@ -129,7 +133,7 @@ impl DaemonApplication {
             conversation_service,
             store.clone(),
             DeterministicTextProvider,
-            prohibited_content,
+            Arc::clone(&prohibited_content),
         );
         let http_recovery_state = map_recovery_state(recovery_state);
         let actor =
@@ -204,7 +208,12 @@ impl DaemonApplication {
             ),
             TaskRunHttpState::new(task_run_host, actor.clone()),
             ConversationHttpState::new(conversation_host, actor),
-            ReplayHttpState::new(replay_service, replay_binding, LimitsConfig::default()),
+            ReplayHttpState::new(
+                replay_service,
+                replay_binding,
+                LimitsConfig::default(),
+                prohibited_content,
+            ),
         )
         .await
         .map_err(DaemonError::from)?;

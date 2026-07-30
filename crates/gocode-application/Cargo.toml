@@ -17,9 +17,9 @@ subtle = "2"
 zeroize = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }
+serde_json.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }
 futures = "0.3"
-serde_json.workspace = true
 hex.workspace = true

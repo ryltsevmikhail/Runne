@@ -9,6 +9,7 @@ use gocode_api::{
 };
 use gocode_application::conversation_service::ConversationService;
 use gocode_application::ports::{ConversationRepository, RuntimeAuthorityId};
+use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::id::IdempotencyKey;
 use gocode_opencode_adapter_sqlite::SqliteSessionBindingStore;
 use gocode_opencode_compat::profile::{
@@ -20,12 +21,17 @@ use gocode_opencode_compat::{
     SessionCreateError, SessionCreateRequestContext,
 };
 use gocode_runtime::session_host::RuntimeConversationHost;
+use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 use jsonschema::JSONSchema;
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-0000000000d1";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-0000000000d2";
 const COMMAND_ID: &str = "018f2e3a-7000-7000-8000-0000000000d3";
+
+fn available_guard() -> Arc<dyn ProhibitedContentPort> {
+    Arc::new(SecretBroker::new().prohibited_content_guard())
+}
 
 fn temp_path(test_name: &str, suffix: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
@@ -105,6 +111,7 @@ fn open_host(path: &Path) -> RuntimeConversationHost<StoreTransaction, StoreTran
     let store = StoreTransaction::open(
         path.to_str().unwrap(),
         RuntimeAuthorityId("runtime-phase2b".into()),
+        available_guard(),
     )
     .unwrap();
     RuntimeConversationHost::new(ConversationService::new(
@@ -177,6 +184,7 @@ async fn session_create_commits_binding_and_only_a_conversation_stream() {
     let runtime = StoreTransaction::open(
         runtime_path.to_str().unwrap(),
         RuntimeAuthorityId("runtime-phase2b".into()),
+        available_guard(),
     )
     .unwrap();
     let stream = runtime
@@ -254,6 +262,7 @@ async fn pending_binding_recovers_after_host_commit_before_binding_commit() {
     let runtime = StoreTransaction::open(
         runtime_path.to_str().unwrap(),
         RuntimeAuthorityId("runtime-phase2b".into()),
+        available_guard(),
     )
     .unwrap();
     assert_eq!(
