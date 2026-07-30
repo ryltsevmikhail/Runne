@@ -183,21 +183,27 @@ def _calls_object_member(
     for alias in aliases:
         for member in members:
             access = _object_member_access(alias, member)
-            if re.search(rf"\b{access}\s*\(", source):
+            if re.search(rf"\b{access}", source):
                 return True
     return False
 
 
 def _constructs_object_member(source: str, aliases: set[str], member: str) -> bool:
-    return any(
-        re.search(rf"\bnew\s+{_object_member_access(alias, member)}\s*\(", source)
-        for alias in aliases
-    )
+    for alias in aliases:
+        access = _object_member_access(alias, member)
+        if re.search(
+            rf"\bnew\s+(?:{access}|\(\s*{access}\s*\))\s*\(", source
+        ):
+            return True
+    return False
 
 
 def _object_member_access(alias: str, member: str) -> str:
     return (
-        rf"{re.escape(alias)}\s*(?:\.\s*{re.escape(member)}|"
+        rf"{re.escape(alias)}\s*(?:"
+        rf"\?\.\s*(?:{re.escape(member)}|"
+        rf"\[\s*[\"']{re.escape(member)}[\"']\s*\])|"
+        rf"\.\s*{re.escape(member)}|"
         rf"\[\s*[\"']{re.escape(member)}[\"']\s*\])"
     )
 
@@ -206,18 +212,22 @@ def _direct_dynamic_member_pattern(module: str, members: set[str]) -> re.Pattern
     alternatives = "|".join(sorted(re.escape(member) for member in members))
     return re.compile(
         rf"""(?:\(\s*)?(?:await\s+)?import\(\s*["']{re.escape(module)}["']\s*\)
-            (?:\s*\))?\s*(?:\.\s*(?:{alternatives})|
-            \[\s*["'](?:{alternatives})["']\s*\])\s*\(""",
+            (?:\s*\))?\s*(?:\?\.\s*(?:(?:{alternatives})|
+            \[\s*["'](?:{alternatives})["']\s*\])|
+            \.\s*(?:{alternatives})|
+            \[\s*["'](?:{alternatives})["']\s*\])""",
         re.DOTALL | re.VERBOSE,
     )
 
 
 def _direct_dynamic_constructor_pattern(module: str, member: str) -> re.Pattern:
     return re.compile(
-        rf"""\bnew\s+(?:\(\s*)?(?:await\s+)?import\(
-            \s*["']{re.escape(module)}["']\s*\)(?:\s*\))?\s*
-            (?:\.\s*{re.escape(member)}|
-            \[\s*["']{re.escape(member)}["']\s*\])\s*\(""",
+        rf"""\bnew\s+(?:\(\s*)?(?:\(\s*)?(?:await\s+)?import\(
+            \s*["']{re.escape(module)}["']\s*\)(?:\s*\))?\s*(?:
+            \?\.\s*(?:{re.escape(member)}|
+            \[\s*["']{re.escape(member)}["']\s*\])|
+            \.\s*{re.escape(member)}|
+            \[\s*["']{re.escape(member)}["']\s*\])(?:\s*\))?\s*\(""",
         re.DOTALL | re.VERBOSE,
     )
 
