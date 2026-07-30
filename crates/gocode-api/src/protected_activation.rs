@@ -134,6 +134,26 @@ pub struct ProtectedActivationKeys {
     shutdown: Zeroizing<[u8; 32]>,
 }
 
+/// Raw activation-key copies exposed only to test-support leak audits.
+///
+/// The production build does not contain this type or its constructor.
+#[cfg(feature = "test-support")]
+pub struct ProtectedActivationKeyMaterialForTest {
+    bootstrap: Zeroizing<[u8; 32]>,
+    readiness: Zeroizing<[u8; 32]>,
+    renewal: Zeroizing<[u8; 32]>,
+    shutdown: Zeroizing<[u8; 32]>,
+}
+
+#[cfg(feature = "test-support")]
+impl ProtectedActivationKeyMaterialForTest {
+    #[doc(hidden)]
+    #[must_use]
+    pub fn into_values(self) -> [Zeroizing<[u8; 32]>; 4] {
+        [self.bootstrap, self.readiness, self.renewal, self.shutdown]
+    }
+}
+
 impl ProtectedActivationKeys {
     /// Copies the one-time HTTP bootstrap key into another zeroizing owner.
     #[must_use]
@@ -169,6 +189,19 @@ impl ProtectedActivationKeys {
     #[must_use]
     pub fn shutdown_key(&self) -> Zeroizing<[u8; 32]> {
         Zeroizing::new(*self.shutdown)
+    }
+
+    /// Copies every role-separated key for test-only forbidden-sink audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_material(&self) -> ProtectedActivationKeyMaterialForTest {
+        ProtectedActivationKeyMaterialForTest {
+            bootstrap: Zeroizing::new(*self.bootstrap),
+            readiness: Zeroizing::new(*self.readiness),
+            renewal: Zeroizing::new(*self.renewal),
+            shutdown: Zeroizing::new(*self.shutdown),
+        }
     }
 }
 

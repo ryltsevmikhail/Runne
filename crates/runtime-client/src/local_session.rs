@@ -118,6 +118,14 @@ impl ProtectedBundledRuntimeProfile {
         self.peer.endpoint
     }
 
+    /// Copies the one-time bootstrap key only for test-support leak audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_bootstrap_material(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(*self.bootstrap_key)
+    }
+
     /// Proves the in-memory one-time bootstrap and opens one bundled session.
     ///
     /// # Errors

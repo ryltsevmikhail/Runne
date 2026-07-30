@@ -313,12 +313,28 @@ fn preflight_existing(
     if !db_path.exists() {
         return Err(LaunchAuthorityError::MissingExpectedStableBinding);
     }
-    let connection = schema::open_existing_read_only(db_path)
-        .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?;
-    let lineage = schema::read_event_log_lineage_id(&connection)
+    match schema::open_existing_read_only(db_path) {
+        Ok(connection) => {
+            validate_existing_connection(config, &connection, expected, expected_preparation_id)
+        }
+        Err(_) => schema::with_protected_recovery_read_only_admission(db_path, |connection| {
+            validate_existing_connection(config, connection, expected, expected_preparation_id)
+                .map_err(|_| rusqlite::Error::InvalidQuery)
+        })
+        .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding),
+    }
+}
+
+fn validate_existing_connection(
+    config: &ConfigurationSnapshot,
+    connection: &rusqlite::Connection,
+    expected: &StableRuntimeBindingV1,
+    expected_preparation_id: Option<&[u8; 16]>,
+) -> Result<(), LaunchAuthorityError> {
+    let lineage = schema::read_event_log_lineage_id(connection)
         .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?
         .ok_or(LaunchAuthorityError::MissingExpectedStableBinding)?;
-    let preparation = schema::read_first_activation_preparation(&connection)
+    let preparation = schema::read_first_activation_preparation(connection)
         .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
     let local_authority_path =
         Path::new(&config.replay_integrity_key_path).with_file_name("local-session-authority-id");
@@ -350,26 +366,40 @@ fn preflight_resume_first_activation(
     pending: &PendingFirstActivationV1,
 ) -> Result<(), LaunchAuthorityError> {
     let db_path = Path::new(&config.db_path);
-    let connection = schema::open_existing_read_only(db_path)
-        .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
+    match schema::open_existing_read_only(db_path) {
+        Ok(connection) => validate_resume_first_activation_connection(config, &connection, pending),
+        Err(_) => schema::with_protected_recovery_read_only_admission(db_path, |connection| {
+            validate_resume_first_activation_connection(config, connection, pending)
+                .map_err(|_| rusqlite::Error::InvalidQuery)
+        })
+        .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch),
+    }
+}
+
+fn validate_resume_first_activation_connection(
+    config: &ConfigurationSnapshot,
+    connection: &rusqlite::Connection,
+    pending: &PendingFirstActivationV1,
+) -> Result<(), LaunchAuthorityError> {
     let lineage = uuid::Uuid::from_bytes(*pending.stable().lineage_id())
         .to_string()
         .parse()
         .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
     match schema::preflight_first_activation_resume(
-        &connection,
+        connection,
         pending.stable().authority_id(),
         lineage,
         pending.preparation_id(),
     )
     .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?
     {
-        schema::FirstActivationResumeState::Prepared => {
-            drop(connection);
-            preflight_existing(config, pending.stable(), Some(pending.preparation_id()))
-        }
+        schema::FirstActivationResumeState::Prepared => validate_existing_connection(
+            config,
+            connection,
+            pending.stable(),
+            Some(pending.preparation_id()),
+        ),
         schema::FirstActivationResumeState::RecoverablePrepared => {
-            drop(connection);
             preflight_recoverable_first_activation_sidecars(config, pending.stable().authority_id())
                 .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)
         }

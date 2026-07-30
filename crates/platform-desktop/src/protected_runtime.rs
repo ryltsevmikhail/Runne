@@ -50,6 +50,80 @@ const STAGED_EXECUTABLE_DIRECTORY: &str = "executables-v1";
 const STABLE_RECORD_FILE: &str = "stable-binding-v1.json";
 const PENDING_RECORD_FILE: &str = "pending-first-activation-v1.json";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ActivationCheckpoint {
+    BeforePreparePersistence,
+    AfterPrepareFileSync,
+    AfterPreparePersistence,
+    BeforeCommit,
+    AfterCommit,
+    AfterEventLogCreation,
+    BeforeFinalPin,
+    AfterFinalPinFileSync,
+    AfterFinalPin,
+}
+
+/// Test-only crash/durable-write boundary for first-activation recovery.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FirstActivationFaultPoint {
+    BeforePreparePersistence,
+    AfterPrepareFileSync,
+    AfterPreparePersistence,
+    BeforeCommit,
+    AfterCommit,
+    AfterEventLogCreation,
+    BeforeFinalPin,
+    AfterFinalPinFileSync,
+    AfterFinalPin,
+}
+
+#[cfg(feature = "test-support")]
+impl From<FirstActivationFaultPoint> for ActivationCheckpoint {
+    fn from(value: FirstActivationFaultPoint) -> Self {
+        match value {
+            FirstActivationFaultPoint::BeforePreparePersistence => Self::BeforePreparePersistence,
+            FirstActivationFaultPoint::AfterPrepareFileSync => Self::AfterPrepareFileSync,
+            FirstActivationFaultPoint::AfterPreparePersistence => Self::AfterPreparePersistence,
+            FirstActivationFaultPoint::BeforeCommit => Self::BeforeCommit,
+            FirstActivationFaultPoint::AfterCommit => Self::AfterCommit,
+            FirstActivationFaultPoint::AfterEventLogCreation => Self::AfterEventLogCreation,
+            FirstActivationFaultPoint::BeforeFinalPin => Self::BeforeFinalPin,
+            FirstActivationFaultPoint::AfterFinalPinFileSync => Self::AfterFinalPinFileSync,
+            FirstActivationFaultPoint::AfterFinalPin => Self::AfterFinalPin,
+        }
+    }
+}
+
+struct LaunchTestControls {
+    secret_override: Option<Zeroizing<[u8; 32]>>,
+    capture_output: bool,
+    fail_at: Option<ActivationCheckpoint>,
+    fault_triggered: bool,
+}
+
+impl LaunchTestControls {
+    const fn production() -> Self {
+        Self {
+            secret_override: None,
+            capture_output: false,
+            fail_at: None,
+            fault_triggered: false,
+        }
+    }
+
+    fn checkpoint(
+        &mut self,
+        point: ActivationCheckpoint,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        if self.fail_at == Some(point) && !self.fault_triggered {
+            self.fault_triggered = true;
+            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
+        }
+        Ok(())
+    }
+}
+
 /// Closed, renderer-safe failure vocabulary for protected bundled activation.
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ProtectedBundledRuntimeError {
@@ -366,17 +440,26 @@ impl ActivationStateStore {
     fn persist_stable_exact(
         &self,
         stable: &StableRuntimeBindingV1,
+        controls: &mut LaunchTestControls,
     ) -> Result<(), ProtectedBundledRuntimeError> {
-        self.persist_record_exact(STABLE_RECORD_FILE, &StoredStableV1::from_contract(stable))
+        self.persist_record_exact(
+            STABLE_RECORD_FILE,
+            &StoredStableV1::from_contract(stable),
+            ActivationCheckpoint::AfterFinalPinFileSync,
+            controls,
+        )
     }
 
     fn persist_pending_exact(
         &self,
         pending: &PendingFirstActivationV1,
+        controls: &mut LaunchTestControls,
     ) -> Result<(), ProtectedBundledRuntimeError> {
         self.persist_record_exact(
             PENDING_RECORD_FILE,
             &StoredPendingV1::from_contract(pending),
+            ActivationCheckpoint::AfterPrepareFileSync,
+            controls,
         )
     }
 
@@ -544,6 +627,8 @@ impl ActivationStateStore {
         &self,
         name: &str,
         expected: &T,
+        after_file_sync: ActivationCheckpoint,
+        controls: &mut LaunchTestControls,
     ) -> Result<(), ProtectedBundledRuntimeError>
     where
         T: for<'de> Deserialize<'de> + Eq + Serialize,
@@ -575,6 +660,7 @@ impl ActivationStateStore {
             file.write_all(&encoded)
                 .and_then(|()| file.sync_all())
                 .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
+            controls.checkpoint(after_file_sync)?;
             drop(file);
             match std::fs::hard_link(&temporary_path, &final_path) {
                 Ok(()) => {
@@ -651,7 +737,35 @@ impl DevelopmentBundledRuntimeLauncher {
         }
         #[cfg(unix)]
         {
-            self.launch_unix(spec)
+            self.launch_unix(spec, &mut LaunchTestControls::production())
+        }
+    }
+
+    /// Launches with deterministic secret/fault controls for integration tests.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn launch_for_test(
+        &self,
+        spec: &ProtectedBundledRuntimeLaunchSpec,
+        launch_secret: [u8; 32],
+        capture_output: bool,
+        fail_at: Option<FirstActivationFaultPoint>,
+    ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            let _ = (spec, launch_secret, capture_output, fail_at);
+            return Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend);
+        }
+        #[cfg(unix)]
+        let mut controls = LaunchTestControls {
+            secret_override: Some(Zeroizing::new(launch_secret)),
+            capture_output,
+            fail_at: fail_at.map(Into::into),
+            fault_triggered: false,
+        };
+        #[cfg(unix)]
+        {
+            self.launch_unix(spec, &mut controls)
         }
     }
 
@@ -660,6 +774,7 @@ impl DevelopmentBundledRuntimeLauncher {
     fn launch_unix(
         &self,
         spec: &ProtectedBundledRuntimeLaunchSpec,
+        controls: &mut LaunchTestControls,
     ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
         let executable_path = validate_executable_path(spec.executable())?;
         if executable_path != spec.executable() {
@@ -714,8 +829,13 @@ impl DevelopmentBundledRuntimeLauncher {
             )
             .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
         let launch_authority_id = *uuid::Uuid::now_v7().as_bytes();
-        let mut secret_bytes = [0_u8; 32];
-        OsRng.fill_bytes(&mut secret_bytes);
+        let mut secret_bytes = controls
+            .secret_override
+            .take()
+            .map_or([0_u8; 32], |secret| *secret);
+        if secret_bytes == [0; 32] && controls.fail_at.is_none() && !controls.capture_output {
+            OsRng.fill_bytes(&mut secret_bytes);
+        }
         if secret_bytes == [0; 32] {
             return Err(ProtectedBundledRuntimeError::LaunchAuthority(
                 LaunchAuthorityError::MissingLaunchAuthority,
@@ -743,14 +863,26 @@ impl DevelopmentBundledRuntimeLauncher {
             .and_then(|()| parent_channel.set_write_timeout(Some(LAUNCH_TIMEOUT)))
             .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         let child_stdin = Stdio::from(OwnedFd::from(child_channel));
-        let child = Command::new(&launch_executable_path)
-            .env_clear()
-            .stdin(child_stdin)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+        let mut command = Command::new(&launch_executable_path);
+        command.env_clear().stdin(child_stdin);
+        if controls.capture_output {
+            command.stdout(Stdio::piped()).stderr(Stdio::piped());
+        } else {
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+        let child = command
             .spawn()
             .map_err(|_| ProtectedBundledRuntimeError::SpawnFailed)?;
+        // `Command` retains the parent-side configuration. Drop it before
+        // waiting for a frame so an early child exit closes the inherited
+        // protected channel instead of being misreported as a readiness
+        // timeout.
+        drop(command);
         let mut child = Some(child);
+        #[cfg(feature = "test-support")]
+        let captured_stdout = child.as_mut().and_then(|child| child.stdout.take());
+        #[cfg(feature = "test-support")]
+        let captured_stderr = child.as_mut().and_then(|child| child.stderr.take());
 
         let result = (|| {
             let spawned_identity = ExecutableIdentityV1::measure(&launch_executable_path)
@@ -774,8 +906,11 @@ impl DevelopmentBundledRuntimeLauncher {
                 let prepared = ProtectedFirstActivationPreparedV1::decode_frame(&prepared_frame)
                     .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
                 prepared.verify_exact(&request, &keys)?;
-                state_store.persist_pending_exact(prepared.pending())?;
+                controls.checkpoint(ActivationCheckpoint::BeforePreparePersistence)?;
+                state_store.persist_pending_exact(prepared.pending(), controls)?;
+                controls.checkpoint(ActivationCheckpoint::AfterPreparePersistence)?;
                 let pending = prepared.pending().clone();
+                controls.checkpoint(ActivationCheckpoint::BeforeCommit)?;
                 let mut commit = ProtectedFirstActivationCommitV1::new(
                     request.launch_authority_id(),
                     request.desktop_host_instance_id(),
@@ -788,6 +923,7 @@ impl DevelopmentBundledRuntimeLauncher {
                         .map_err(|_| LaunchAuthorityError::InvalidContract)?,
                 );
                 write_frame(&mut parent_channel, &commit_frame)?;
+                controls.checkpoint(ActivationCheckpoint::AfterCommit)?;
                 Some(pending)
             } else {
                 None
@@ -797,6 +933,7 @@ impl DevelopmentBundledRuntimeLauncher {
             let ready = ProtectedReadyV1::decode_frame(&ready_frame)
                 .map_err(|_| LaunchAuthorityError::ReadinessProofMismatch)?;
             ready.verify_exact(&request, &keys)?;
+            controls.checkpoint(ActivationCheckpoint::AfterEventLogCreation)?;
             if prepared_pending
                 .as_ref()
                 .is_some_and(|pending| ready.stable() != pending.stable())
@@ -808,7 +945,9 @@ impl DevelopmentBundledRuntimeLauncher {
             let runtime_profile =
                 ProtectedBundledRuntimeProfile::from_ready(&ready, &request, &keys)?;
             keys.forget_bootstrap_key();
-            state_store.persist_stable_exact(ready.stable())?;
+            controls.checkpoint(ActivationCheckpoint::BeforeFinalPin)?;
+            state_store.persist_stable_exact(ready.stable(), controls)?;
+            controls.checkpoint(ActivationCheckpoint::AfterFinalPin)?;
             state_store.remove_pending()?;
             let owned_launch = ready.owned_launch();
             Ok(ProtectedBundledRuntimeProcess {
@@ -823,6 +962,10 @@ impl DevelopmentBundledRuntimeLauncher {
                 runtime_profile: Some(runtime_profile),
                 renewal_sequence: 0,
                 graceful_requested: false,
+                #[cfg(feature = "test-support")]
+                captured_stdout,
+                #[cfg(feature = "test-support")]
+                captured_stderr,
             })
         })();
 
@@ -854,6 +997,10 @@ pub struct ProtectedBundledRuntimeProcess {
     runtime_profile: Option<ProtectedBundledRuntimeProfile>,
     renewal_sequence: u64,
     graceful_requested: bool,
+    #[cfg(feature = "test-support")]
+    captured_stdout: Option<std::process::ChildStdout>,
+    #[cfg(feature = "test-support")]
+    captured_stderr: Option<std::process::ChildStderr>,
 }
 
 impl fmt::Debug for ProtectedBundledRuntimeProcess {
@@ -871,6 +1018,40 @@ impl ProtectedBundledRuntimeProcess {
     /// Moves the path-free, one-time bootstrap profile to the native caller.
     pub const fn take_runtime_profile(&mut self) -> Option<ProtectedBundledRuntimeProfile> {
         self.runtime_profile.take()
+    }
+
+    /// Copies role-separated activation keys only for test-support leak audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_activation_key_material(
+        &self,
+    ) -> gocode_api::ProtectedActivationKeyMaterialForTest {
+        self.keys.test_material()
+    }
+
+    /// Drains captured child output after the audited child has exited.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn take_captured_output_for_test(
+        &mut self,
+    ) -> Result<(Vec<u8>, Vec<u8>), ProtectedBundledRuntimeError> {
+        if self.status()? != BundledRuntimeProcessStatus::Exited {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        if let Some(mut handle) = self.captured_stdout.take() {
+            handle
+                .read_to_end(&mut stdout)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        }
+        if let Some(mut handle) = self.captured_stderr.take() {
+            handle
+                .read_to_end(&mut stderr)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        }
+        Ok((stdout, stderr))
     }
 
     /// Confirms that a connected client represents the exact current owned
@@ -1725,7 +1906,7 @@ mod tests {
         let store = ActivationStateStore::open(temporary.path()).expect("state store");
         let expected_stable = stable();
         store
-            .persist_stable_exact(&expected_stable)
+            .persist_stable_exact(&expected_stable, &mut LaunchTestControls::production())
             .expect("persist stable");
         assert_eq!(
             store.load_stable().expect("load stable"),
@@ -1757,7 +1938,7 @@ mod tests {
 
         let different = stable();
         assert_eq!(
-            store.persist_stable_exact(&different),
+            store.persist_stable_exact(&different, &mut LaunchTestControls::production()),
             Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
         );
     }
@@ -1769,7 +1950,7 @@ mod tests {
             .expect("protect runtime root");
         let store = ActivationStateStore::open(temporary.path()).expect("state store");
         store
-            .persist_stable_exact(&stable())
+            .persist_stable_exact(&stable(), &mut LaunchTestControls::production())
             .expect("persist stable");
         let path = store.directory.join(STABLE_RECORD_FILE);
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
