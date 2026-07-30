@@ -1032,6 +1032,7 @@ pub fn replay_router(state: ReplayHttpState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gocode_application::replay_service::REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES;
 
     #[test]
     fn page_claim_is_exclusive_and_released_on_drop() {
@@ -1042,5 +1043,53 @@ mod tests {
         assert!(SessionClaim::acquire(Arc::clone(&sessions), session_id).is_none());
         drop(first);
         assert!(SessionClaim::acquire(sessions, session_id).is_some());
+    }
+
+    #[test]
+    fn declared_replay_overhead_covers_actual_maximum_http_wrapper() {
+        let cursor = format!(
+            "{CURSOR_TOKEN_PREFIX}{}",
+            "ab".repeat(MAX_CURSOR_TOKEN_BYTES)
+        );
+        let event = DeliveredReplayEventWire {
+            event: StoredReplayEventWire {
+                global_position: i64::MAX,
+                event_id: "a".repeat(32),
+                aggregate_type: 2,
+                aggregate_id: "b".repeat(32),
+                sequence: i64::MAX,
+                timestamp: i64::MIN,
+                sensitivity: "sensitive",
+                schema_version: u32::MAX,
+                event_type: "e".repeat(256),
+                causation_id: Some("c".repeat(32)),
+                command_id: "d".repeat(32),
+                idempotency_key: "i".repeat(256),
+                actor: "a".repeat(256),
+                integrity_digest: "f".repeat(64),
+                correlation_id: "1".repeat(32),
+                correlation_type: 2,
+                integrity_profile: 2,
+                payload: ReplayPayloadWire {
+                    encoding: "gocode-durable-event-codec-v1-hex",
+                    data: String::new(),
+                },
+            },
+            cursor,
+        };
+        let response = OpenSessionResponse {
+            session_id: "2".repeat(32),
+            high_water_ref: "3".repeat(64),
+            events: vec![event],
+            has_more: true,
+        };
+
+        let encoded = serde_json::to_vec(&response).unwrap();
+
+        assert!(
+            encoded.len() <= REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+            "actual wrapper={} declared={REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES}",
+            encoded.len()
+        );
     }
 }

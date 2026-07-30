@@ -11,7 +11,7 @@ use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
 use gocode_domain::id::{
     AggregateId, AttemptId, CommandId, ConversationId, EventId, EventLogLineageId, IdempotencyKey,
-    IntegrityDigest, MessageId, TaskRunId,
+    IntegrityDigest, MessageId, TaskRunId, WorkspaceId,
 };
 use gocode_domain::message::MessageText;
 use gocode_domain::replay::ReplayScope;
@@ -159,23 +159,17 @@ fn insert_taskrun_event(connection: &Connection, sequence: i64, position: i64) {
         .unwrap();
 }
 
-fn insert_sensitive_conversation_event(connection: &Connection) {
+fn insert_conversation_event(
+    connection: &Connection,
+    sequence: i64,
+    position: i64,
+    payload: ConversationEvent,
+) {
     let conversation_id = ConversationId::from_bytes(AGGREGATE);
-    let event_id_bytes = event_id(1);
-    let payload = ConversationEvent::UserMessageAppended {
-        message_id: MessageId::from_bytes([
-            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x21,
-        ]),
-        taskrun_id: TaskRunId::from_bytes([
-            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x22,
-        ]),
-        attempt_id: AttemptId::from_bytes([
-            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x23,
-        ]),
-        text: MessageText::new("classified").unwrap(),
-    };
+    let event_id_bytes = event_id(position);
+    let sensitivity = payload.sensitivity();
     let payload_bytes = ConversationEventCodec.encode(&payload).unwrap();
-    let idempotency_key = IdempotencyKey::new("replay-sensitive-1").unwrap();
+    let idempotency_key = IdempotencyKey::new(format!("replay-conversation-{position}")).unwrap();
     let envelope = EventEnvelope::from_parts(
         EventId::from_bytes(event_id_bytes),
         AggregateId::Conversation(conversation_id),
@@ -185,32 +179,32 @@ fn insert_sensitive_conversation_event(connection: &Connection) {
         idempotency_key.clone(),
         1,
         Actor::new("test-actor").unwrap(),
-        Sensitivity::Sensitive,
+        sensitivity,
         payload,
-        1,
+        u64::try_from(sequence).unwrap(),
         Timestamp::from_unix_micros(0),
         IntegrityDigest::from_bytes([0; 32]),
     );
     let digest =
-        compute_integrity_digest_v2_with_global_position(&envelope, 1, &payload_bytes).unwrap();
-    connection
-        .execute(
-            "INSERT INTO aggregate_streams
-             (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at)
-             VALUES (2, ?1, 1, ?2, 0, 0)",
-            rusqlite::params![AGGREGATE.as_slice(), event_id_bytes.as_slice()],
-        )
-        .unwrap();
+        compute_integrity_digest_v2_with_global_position(&envelope, position, &payload_bytes)
+            .unwrap();
     connection
         .execute(
             "INSERT INTO events (
                 event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp,
                 sensitivity, schema_version, causation_id, command_id, idempotency_key, actor,
                 payload, integrity_digest, correlation_id, correlation_type, integrity_profile
-             ) VALUES (?1, 2, ?2, 1, 1, 0, 2, 1, NULL, ?1, ?3, ?4, ?5, ?6, ?2, 2, 2)",
+             ) VALUES (?1, 2, ?2, ?3, ?4, 0, ?5, 1, NULL, ?1, ?6, ?7, ?8, ?9, ?2, 2, 2)",
             rusqlite::params![
                 event_id_bytes.as_slice(),
                 AGGREGATE.as_slice(),
+                sequence,
+                position,
+                match sensitivity {
+                    Sensitivity::Public => 0,
+                    Sensitivity::Internal => 1,
+                    Sensitivity::Sensitive => 2,
+                },
                 idempotency_key.as_str().as_bytes(),
                 b"test-actor".as_slice(),
                 payload_bytes,
@@ -220,6 +214,33 @@ fn insert_sensitive_conversation_event(connection: &Connection) {
         .unwrap();
 }
 
+fn insert_sensitive_conversation_event(connection: &Connection) {
+    connection
+        .execute(
+            "INSERT INTO aggregate_streams
+             (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at)
+             VALUES (2, ?1, 1, ?2, 0, 0)",
+            rusqlite::params![AGGREGATE.as_slice(), event_id(1).as_slice()],
+        )
+        .unwrap();
+    insert_conversation_event(
+        connection,
+        1,
+        1,
+        ConversationEvent::UserMessageAppended {
+            message_id: MessageId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x21,
+            ]),
+            taskrun_id: TaskRunId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x22,
+            ]),
+            attempt_id: AttemptId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x23,
+            ]),
+            text: MessageText::new("classified").unwrap(),
+        },
+    );
+}
 fn store_with_events(count: i64) -> ReplayStore {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
@@ -260,7 +281,7 @@ fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
 }
 
 fn service(store: ReplayStore, authorization: MutableAuthorization) -> ReplayService {
-    ReplayService::new_authorized(
+    ReplayService::new(
         Arc::new(store),
         SECRET,
         EventLogLineageId::from_bytes(LINEAGE),
@@ -452,6 +473,84 @@ async fn sensitivity_denied_stops_before_session_and_denied_cursor() {
 }
 
 #[tokio::test]
+async fn sensitivity_boundary_delivers_readable_prefix_and_stops_before_denied_event() {
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations(&connection).unwrap();
+    connection
+        .execute(
+            "INSERT INTO aggregate_streams
+             (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at)
+             VALUES (2, ?1, 2, ?2, 0, 0)",
+            rusqlite::params![AGGREGATE.as_slice(), event_id(2).as_slice()],
+        )
+        .unwrap();
+    insert_conversation_event(
+        &connection,
+        1,
+        1,
+        ConversationEvent::ConversationCreated {
+            workspace_id: WorkspaceId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x31,
+            ]),
+        },
+    );
+    insert_conversation_event(
+        &connection,
+        2,
+        2,
+        ConversationEvent::UserMessageAppended {
+            message_id: MessageId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x32,
+            ]),
+            taskrun_id: TaskRunId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x33,
+            ]),
+            attempt_id: AttemptId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x34,
+            ]),
+            text: MessageText::new("classified").unwrap(),
+        },
+    );
+    let service = service(
+        ReplayStore::new(connection),
+        MutableAuthorization::new(0, Sensitivity::Public),
+    );
+
+    let (session, events) = service
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            2,
+            &AGGREGATE,
+            None,
+            Arc::new(AvailableDeliveryGuard),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].global_position, 1);
+    assert_eq!(session.last_delivered_position, Some(1));
+    assert!(session.next_page_position.is_some());
+    assert!(matches!(
+        service
+            .read_page(
+                &session.session_id,
+                "principal",
+                1,
+                &AUTHORITY,
+                0,
+                100,
+                Arc::new(AvailableDeliveryGuard),
+            )
+            .await,
+        Err(ReplayError::SensitivityDenied)
+    ));
+}
+
+#[tokio::test]
 async fn retained_prefix_gap_returns_authorized_floor_without_cursor_jump() {
     let (store, writer, _directory) = file_store_with_events(3);
     let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);
@@ -511,6 +610,49 @@ async fn retained_prefix_gap_returns_authorized_floor_without_cursor_jump() {
         })
         .unwrap();
     assert_eq!(session_count_after, session_count_before);
+}
+
+#[tokio::test]
+async fn revocation_during_gap_computation_releases_no_gap_or_floor_cursor() {
+    let (store, writer, _directory) = file_store_with_events(3);
+    let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);
+    let service = service(store, authorization.clone());
+    let (_, events) = service
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            7,
+            1,
+            &AGGREGATE,
+            None,
+            Arc::new(AvailableDeliveryGuard),
+        )
+        .await
+        .unwrap();
+    let cursor = service
+        .build_cursor_from_event(&events[0], &scope())
+        .unwrap();
+    writer
+        .execute("DELETE FROM events WHERE global_position = 1", [])
+        .unwrap();
+    authorization.revoke_after_next_lease();
+
+    let error = service
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            7,
+            1,
+            &AGGREGATE,
+            Some(cursor),
+            Arc::new(AvailableDeliveryGuard),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ReplayError::AuthorizationRevoked));
 }
 
 #[tokio::test]
