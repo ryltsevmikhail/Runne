@@ -14,7 +14,7 @@ use gocode_runtime_client::{
     GenerateTextRequest, LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile,
     ReconnectDecision, ReconnectPolicy, ReplayAggregateKind, ReplayClientError,
     ReplayIdentityTracker, ReplayRecoveryDisposition, ReplayScope, ReplayStreamEvent,
-    RuntimeApiErrorKind, default_local_profile_path,
+    RuntimeApiErrorKind, RuntimeTransportKind, default_local_profile_path,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -89,6 +89,75 @@ impl RuntimeMode {
     pub const ALL: [Self; 2] = [Self::ExternalLocal, Self::Bundled];
 }
 
+/// Renderer-safe lifecycle of the native host's selected runtime mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeLifecycleStatus {
+    Starting,
+    Ready,
+    Restarting,
+    Degraded,
+    Failed,
+    External,
+}
+
+impl RuntimeLifecycleStatus {
+    pub const ALL: [Self; 6] = [
+        Self::Starting,
+        Self::Ready,
+        Self::Restarting,
+        Self::Degraded,
+        Self::Failed,
+        Self::External,
+    ];
+}
+
+/// Closed renderer-safe reason for a host-owned bundled activation failure.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeFailureCode {
+    ProtectedActivationUnavailable,
+    BundledExecutableUnavailable,
+    BundledExecutableIdentityMismatch,
+    ProtectedReadinessRejected,
+    BundledRestartExhausted,
+    BundledShutdownIncomplete,
+    UnsupportedPlatformBackend,
+    DowngradedExternalProfile,
+}
+
+impl RuntimeFailureCode {
+    pub const ALL: [Self; 8] = [
+        Self::ProtectedActivationUnavailable,
+        Self::BundledExecutableUnavailable,
+        Self::BundledExecutableIdentityMismatch,
+        Self::ProtectedReadinessRejected,
+        Self::BundledRestartExhausted,
+        Self::BundledShutdownIncomplete,
+        Self::UnsupportedPlatformBackend,
+        Self::DowngradedExternalProfile,
+    ];
+}
+
+/// Opaque native-host lease for exactly one bundled client installation.
+///
+/// The value is deliberately neither serializable nor constructible outside
+/// `AppCore`. Every start, restart, failure, and successful installation
+/// rotates the current lease.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct BundledRuntimeActivationLease {
+    epoch: u64,
+}
+
+impl std::fmt::Debug for BundledRuntimeActivationLease {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BundledRuntimeActivationLease")
+            .field("epoch", &"<opaque>")
+            .finish()
+    }
+}
+
 /// Invalid success-path runtime transition.
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 #[error("runtime connection transition is invalid")]
@@ -160,6 +229,8 @@ pub struct BootstrapState {
     pub theme: String,
     pub runtime_mode: RuntimeMode,
     pub runtime: RuntimeAvailability,
+    pub runtime_lifecycle: RuntimeLifecycleStatus,
+    pub runtime_failure: Option<RuntimeFailureCode>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -172,6 +243,8 @@ pub struct DiagnosticsSnapshot {
     pub project_count: u64,
     pub runtime_mode: RuntimeMode,
     pub runtime: RuntimeAvailability,
+    pub runtime_lifecycle: RuntimeLifecycleStatus,
+    pub runtime_failure: Option<RuntimeFailureCode>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -241,6 +314,9 @@ pub struct AppCore {
     runtime_mode: RuntimeMode,
     runtime_profile_path: Option<PathBuf>,
     runtime_state: RwLock<RuntimeAvailability>,
+    runtime_lifecycle: RwLock<RuntimeLifecycleStatus>,
+    runtime_failure: RwLock<Option<RuntimeFailureCode>>,
+    bundled_activation_epoch: Mutex<u64>,
     pending_resync_scopes: RwLock<HashSet<ReplayScopeKey>>,
     runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
     runtime_connect: tokio::sync::Mutex<()>,
@@ -307,11 +383,18 @@ impl AppCore {
         runtime_mode: RuntimeMode,
         runtime_profile_path: Option<PathBuf>,
     ) -> Result<Self, AppCoreError> {
+        let runtime_lifecycle = match runtime_mode {
+            RuntimeMode::ExternalLocal => RuntimeLifecycleStatus::External,
+            RuntimeMode::Bundled => RuntimeLifecycleStatus::Starting,
+        };
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_mode,
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
+            runtime_lifecycle: RwLock::new(runtime_lifecycle),
+            runtime_failure: RwLock::new(None),
+            bundled_activation_epoch: Mutex::new(0),
             pending_resync_scopes: RwLock::new(HashSet::new()),
             runtime_client: RwLock::new(None),
             runtime_connect: tokio::sync::Mutex::new(()),
@@ -336,6 +419,9 @@ impl AppCore {
             runtime_mode: RuntimeMode::ExternalLocal,
             runtime_profile_path: None,
             runtime_state: RwLock::new(RuntimeAvailability::Live),
+            runtime_lifecycle: RwLock::new(RuntimeLifecycleStatus::External),
+            runtime_failure: RwLock::new(None),
+            bundled_activation_epoch: Mutex::new(0),
             pending_resync_scopes: RwLock::new(HashSet::new()),
             runtime_client: RwLock::new(Some(client)),
             runtime_connect: tokio::sync::Mutex::new(()),
@@ -347,6 +433,18 @@ impl AppCore {
     #[doc(hidden)]
     pub fn force_runtime_reconnecting_for_test(&self) -> Result<(), AppCoreError> {
         self.set_runtime_failure(RuntimeAvailability::Reconnecting)
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn force_pending_resync_for_test(&self) -> Result<(), AppCoreError> {
+        self.set_resync_required_for_scope(ReplayScopeKey {
+            runtime_authority: "test-authority".to_owned(),
+            principal: "test-principal".to_owned(),
+            lineage: "test-lineage".to_owned(),
+            scope: "test-scope".to_owned(),
+            binding_digest: "11".repeat(32),
+        })
     }
 
     /// Returns sanitized renderer bootstrap state.
@@ -363,7 +461,142 @@ impl AppCore {
         drop(store);
         bootstrap.runtime_mode = self.runtime_mode;
         bootstrap.runtime = self.effective_runtime_availability()?;
+        bootstrap.runtime_lifecycle = self.runtime_lifecycle()?;
+        bootstrap.runtime_failure = self.runtime_failure()?;
         Ok(bootstrap)
+    }
+
+    /// Returns the native host-selected runtime mode.
+    #[must_use]
+    pub const fn runtime_mode(&self) -> RuntimeMode {
+        self.runtime_mode
+    }
+
+    /// Fences the previous bundled client and exposes a fresh initial
+    /// activation attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for external mode or poisoned application state.
+    pub async fn begin_bundled_runtime_start(
+        &self,
+    ) -> Result<BundledRuntimeActivationLease, AppCoreError> {
+        self.begin_bundled_runtime_connection(RuntimeLifecycleStatus::Starting)
+            .await
+    }
+
+    /// Fences the previous bundled client before a generation/session rotation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for external mode or poisoned application state.
+    pub async fn begin_bundled_runtime_restart(
+        &self,
+    ) -> Result<BundledRuntimeActivationLease, AppCoreError> {
+        self.begin_bundled_runtime_connection(RuntimeLifecycleStatus::Restarting)
+            .await
+    }
+
+    async fn begin_bundled_runtime_connection(
+        &self,
+        lifecycle: RuntimeLifecycleStatus,
+    ) -> Result<BundledRuntimeActivationLease, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.require_bundled_mode()?;
+        let lease = self.rotate_bundled_activation_lease()?;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
+        self.set_runtime_lifecycle(lifecycle)?;
+        self.set_runtime_failure_code(None)?;
+        Ok(lease)
+    }
+
+    /// Installs only a client authenticated through protected bundled
+    /// activation. Credential-first external clients are rejected as a
+    /// downgrade.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for the wrong mode, transport downgrade, or
+    /// invalid state transition.
+    pub async fn install_bundled_runtime_client(
+        &self,
+        lease: BundledRuntimeActivationLease,
+        client: AuthenticatedRuntimeClient,
+    ) -> Result<RuntimeAvailability, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.require_bundled_mode()?;
+        self.consume_bundled_activation_lease(lease)?;
+        if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
+            *self
+                .runtime_client
+                .write()
+                .map_err(|_| AppCoreError::StateUnavailable)? = None;
+            self.set_runtime_availability(RuntimeAvailability::Incompatible)?;
+            self.set_runtime_lifecycle(RuntimeLifecycleStatus::Failed)?;
+            self.set_runtime_failure_code(Some(RuntimeFailureCode::DowngradedExternalProfile))?;
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+
+        self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
+        self.transition_runtime(RuntimeAvailability::ProfileLoaded)?;
+        self.transition_runtime(RuntimeAvailability::PeerVerified)?;
+        self.transition_runtime(RuntimeAvailability::BootstrapProved)?;
+        self.transition_runtime(RuntimeAvailability::Authenticated)?;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = Some(client);
+        self.transition_runtime(RuntimeAvailability::Reconciling)?;
+        self.transition_runtime(RuntimeAvailability::Live)?;
+        self.set_runtime_failure_code(None)?;
+        Ok(RuntimeAvailability::Live)
+    }
+
+    /// Marks a recoverable bundled runtime failure without exposing internal
+    /// diagnostics.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for external mode or poisoned application state.
+    pub async fn mark_bundled_runtime_degraded(
+        &self,
+        failure: RuntimeFailureCode,
+    ) -> Result<(), AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.require_bundled_mode()?;
+        self.invalidate_bundled_activation_lease()?;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
+        self.set_runtime_lifecycle(RuntimeLifecycleStatus::Degraded)?;
+        self.set_runtime_failure_code(Some(failure))
+    }
+
+    /// Marks a terminal bundled activation/supervision failure.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for external mode or poisoned application state.
+    pub async fn mark_bundled_runtime_failed(
+        &self,
+        failure: RuntimeFailureCode,
+    ) -> Result<(), AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.require_bundled_mode()?;
+        self.invalidate_bundled_activation_lease()?;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.set_runtime_availability(RuntimeAvailability::Fatal)?;
+        self.set_runtime_lifecycle(RuntimeLifecycleStatus::Failed)?;
+        self.set_runtime_failure_code(Some(failure))
     }
 
     /// Loads the protected local profile and performs the authenticated exact
@@ -381,7 +614,12 @@ impl AppCore {
             .write()
             .map_err(|_| AppCoreError::StateUnavailable)? = None;
         if self.runtime_mode == RuntimeMode::Bundled {
+            self.invalidate_bundled_activation_lease()?;
             self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
+            self.set_runtime_lifecycle(RuntimeLifecycleStatus::Failed)?;
+            self.set_runtime_failure_code(Some(
+                RuntimeFailureCode::ProtectedActivationUnavailable,
+            ))?;
             return Err(AppCoreError::RuntimeUnavailable);
         }
         let profile_path = self
@@ -833,7 +1071,50 @@ impl AppCore {
             project_count: local.project_count,
             runtime_mode: self.runtime_mode,
             runtime: self.effective_runtime_availability()?,
+            runtime_lifecycle: self.runtime_lifecycle()?,
+            runtime_failure: self.runtime_failure()?,
         })
+    }
+
+    fn require_bundled_mode(&self) -> Result<(), AppCoreError> {
+        if self.runtime_mode == RuntimeMode::Bundled {
+            Ok(())
+        } else {
+            Err(AppCoreError::RuntimeUnavailable)
+        }
+    }
+
+    fn rotate_bundled_activation_lease(
+        &self,
+    ) -> Result<BundledRuntimeActivationLease, AppCoreError> {
+        let mut epoch = self
+            .bundled_activation_epoch
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        let next = epoch.checked_add(1).ok_or(AppCoreError::StateUnavailable)?;
+        *epoch = next;
+        drop(epoch);
+        Ok(BundledRuntimeActivationLease { epoch: next })
+    }
+
+    fn consume_bundled_activation_lease(
+        &self,
+        lease: BundledRuntimeActivationLease,
+    ) -> Result<(), AppCoreError> {
+        let mut epoch = self
+            .bundled_activation_epoch
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        if *epoch != lease.epoch {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        *epoch = epoch.checked_add(1).ok_or(AppCoreError::StateUnavailable)?;
+        drop(epoch);
+        Ok(())
+    }
+
+    fn invalidate_bundled_activation_lease(&self) -> Result<(), AppCoreError> {
+        self.rotate_bundled_activation_lease().map(|_| ())
     }
 
     fn runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {
@@ -841,6 +1122,39 @@ impl AppCore {
             .read()
             .map(|state| *state)
             .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn runtime_lifecycle(&self) -> Result<RuntimeLifecycleStatus, AppCoreError> {
+        self.runtime_lifecycle
+            .read()
+            .map(|state| *state)
+            .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn runtime_failure(&self) -> Result<Option<RuntimeFailureCode>, AppCoreError> {
+        self.runtime_failure
+            .read()
+            .map(|failure| *failure)
+            .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn set_runtime_lifecycle(&self, lifecycle: RuntimeLifecycleStatus) -> Result<(), AppCoreError> {
+        *self
+            .runtime_lifecycle
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = lifecycle;
+        Ok(())
+    }
+
+    fn set_runtime_failure_code(
+        &self,
+        failure: Option<RuntimeFailureCode>,
+    ) -> Result<(), AppCoreError> {
+        *self
+            .runtime_failure
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = failure;
+        Ok(())
     }
 
     fn effective_runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {
@@ -880,11 +1194,34 @@ impl AppCore {
         let next = current
             .transition_to(availability)
             .map_err(|_| AppCoreError::StateUnavailable)?;
-        self.set_runtime_availability(next)
+        self.set_runtime_availability(next)?;
+        if self.runtime_mode == RuntimeMode::Bundled && next == RuntimeAvailability::Live {
+            let lifecycle = if self.has_pending_resync()? {
+                RuntimeLifecycleStatus::Degraded
+            } else {
+                RuntimeLifecycleStatus::Ready
+            };
+            self.set_runtime_lifecycle(lifecycle)?;
+            self.set_runtime_failure_code(None)?;
+        }
+        Ok(())
     }
 
     fn set_runtime_failure(&self, availability: RuntimeAvailability) -> Result<(), AppCoreError> {
-        self.set_runtime_availability(availability)
+        self.set_runtime_availability(availability)?;
+        if self.runtime_mode == RuntimeMode::Bundled {
+            let lifecycle = match availability {
+                RuntimeAvailability::Reconnecting | RuntimeAvailability::ResyncRequired => {
+                    RuntimeLifecycleStatus::Degraded
+                }
+                RuntimeAvailability::Incompatible
+                | RuntimeAvailability::Revoked
+                | RuntimeAvailability::Fatal => RuntimeLifecycleStatus::Failed,
+                _ => return Ok(()),
+            };
+            self.set_runtime_lifecycle(lifecycle)?;
+        }
+        Ok(())
     }
 
     fn set_resync_required_for_scope(&self, scope_key: ReplayScopeKey) -> Result<(), AppCoreError> {
@@ -892,7 +1229,14 @@ impl AppCore {
             .write()
             .map_err(|_| AppCoreError::StateUnavailable)?
             .insert(scope_key);
-        self.set_runtime_availability(RuntimeAvailability::ResyncRequired)
+        self.set_runtime_failure(RuntimeAvailability::ResyncRequired)
+    }
+
+    fn has_pending_resync(&self) -> Result<bool, AppCoreError> {
+        self.pending_resync_scopes
+            .read()
+            .map(|scopes| !scopes.is_empty())
+            .map_err(|_| AppCoreError::StateUnavailable)
     }
 
     fn resync_required_for_scope(&self, scope_key: &ReplayScopeKey) -> Result<bool, AppCoreError> {
@@ -1271,14 +1615,16 @@ pub fn load_bootstrap(store: &LocalStore) -> Result<BootstrapState, AppCoreError
         theme,
         runtime_mode: RuntimeMode::ExternalLocal,
         runtime: RuntimeAvailability::Unconfigured,
+        runtime_lifecycle: RuntimeLifecycleStatus::External,
+        runtime_failure: None,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        AppCore, BootstrapState, CanonicalId, RuntimeAvailability, RuntimeMode,
-        StoredConversationReference, StoredConversationReferenceV1, load_bootstrap,
+        AppCore, BootstrapState, CanonicalId, RuntimeAvailability, RuntimeLifecycleStatus,
+        RuntimeMode, StoredConversationReference, StoredConversationReferenceV1, load_bootstrap,
     };
     use crate::replay::StableRuntimeIdentity;
     use gocode_local_store::LocalStore;
@@ -1297,6 +1643,8 @@ mod tests {
                 theme: "light".to_owned(),
                 runtime_mode: RuntimeMode::ExternalLocal,
                 runtime: RuntimeAvailability::Unconfigured,
+                runtime_lifecycle: RuntimeLifecycleStatus::External,
+                runtime_failure: None,
             },
             load_bootstrap(&store).expect("load bootstrap")
         );

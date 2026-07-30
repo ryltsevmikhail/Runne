@@ -16,6 +16,7 @@ tokio.workspace = true
 
 [dev-dependencies]
 axum = "0.8"
+gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
 hex.workspace = true
 tempfile = "=3.27.0"
 tokio-stream = "0.1"
