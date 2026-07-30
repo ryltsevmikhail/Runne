@@ -281,6 +281,43 @@ describe('conversation IPC adapter', () => {
     await session.unsubscribe()
   })
 
+  it('keeps resync closed when replacement subscription fails after a successful open', async () => {
+    let onmessage: ((value: unknown) => void) | undefined
+    let subscriptions = 0
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_project_conversation') {
+        subscriptions += 1
+        if (subscriptions === 2) {
+          throw new Error('replacement subscription unavailable')
+        }
+        onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
+        return '018f2e3a-7000-7000-8000-000000000120'
+      }
+      if (command === 'open_project_conversation') {
+        return snapshot
+      }
+    })
+    const recoveries: string[] = []
+    const session = await subscribeProjectConversation(
+      7,
+      snapshot,
+      value => recoveries.push(value.recovery),
+      invoke,
+    )
+    onmessage?.({ kind: 'error', code: 'replay_resync_required' })
+    await vi.waitFor(() => expect(recoveries.at(-1)).toBe('resync_required'))
+
+    await expect(session.resync()).rejects.toThrow('replacement subscription unavailable')
+
+    expect(recoveries).toEqual([
+      'resync_required',
+      'reconnecting',
+      'resync_required',
+    ])
+    expect(invoke).toHaveBeenCalledTimes(4)
+    await session.unsubscribe()
+  })
+
   it('advances a successful send in the session before processing the next live update', async () => {
     let onmessage: ((value: unknown) => void) | undefined
     const sentSnapshot = {

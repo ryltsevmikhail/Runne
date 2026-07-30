@@ -47,32 +47,53 @@ def sha256(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
-def changed_paths(repository: pathlib.Path, base_commit: str) -> set[str]:
-    tracked = set(
-        git(
-            repository,
-            "diff",
-            "--name-only",
-            "--no-renames",
-            "--diff-filter=ACMRDTUXB",
-            base_commit,
-            "--",
-        )
+def resolve_commit(repository: pathlib.Path, reference: str) -> str:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "rev-parse",
+            "--verify",
+            f"{reference}^{{commit}}",
+        ],
+        capture_output=True,
+        text=True,
     )
-    untracked = set(
-        git(
-            repository,
-            "ls-files",
-            "--others",
-            "--exclude-standard",
-            "--",
-            *IMPLEMENTATION_ROOTS,
-        )
-    )
-    return tracked | untracked
+    if result.returncode != 0:
+        fail(f"invalid Git commit reference: {reference}")
+    return result.stdout.strip()
 
 
-def verify(evidence_path: pathlib.Path) -> None:
+def changed_paths(repository: pathlib.Path, base_commit: str) -> dict[str, str]:
+    tracked: dict[str, str] = {}
+    for line in git(
+        repository,
+        "diff",
+        "--name-status",
+        "--no-renames",
+        "--diff-filter=ACMRDTUXB",
+        base_commit,
+        "--",
+    ):
+        status, path = line.split("\t", 1)
+        tracked[path] = status
+    untracked = git(
+        repository,
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "--",
+        *IMPLEMENTATION_ROOTS,
+    )
+    return tracked | dict.fromkeys(untracked, "?")
+
+
+def verify(
+    evidence_path: pathlib.Path,
+    base_reference: str,
+    head_reference: str,
+) -> None:
     repository = pathlib.Path(
         subprocess.run(
             ["git", "-C", str(evidence_path.parent), "rev-parse", "--show-toplevel"],
@@ -85,22 +106,31 @@ def verify(evidence_path: pathlib.Path) -> None:
         relative_evidence = evidence_path.resolve().relative_to(repository).as_posix()
     except ValueError:
         fail("evidence path is outside the repository")
+    base_commit = resolve_commit(repository, base_reference)
+    head_commit = resolve_commit(repository, head_reference)
+    current_head = resolve_commit(repository, "HEAD")
+    if head_commit != current_head:
+        fail("head must resolve to the current checkout HEAD")
     record = json.loads(evidence_path.read_text(encoding="utf-8"))
     subject = record.get("subject")
     if not isinstance(subject, dict):
         fail("subject is missing")
-    base_commit = subject.get("sourceBaseCommit")
-    if (
-        not isinstance(base_commit, str)
-        or len(base_commit) != 40
-        or any(character not in "0123456789abcdef" for character in base_commit)
-    ):
-        fail("source base commit is invalid")
+    manifest_base_commit = subject.get("sourceBaseCommit")
+    if manifest_base_commit != base_commit:
+        fail("manifest source base commit does not match --base")
     if subprocess.run(
-        ["git", "-C", str(repository), "merge-base", "--is-ancestor", base_commit, "HEAD"],
+        [
+            "git",
+            "-C",
+            str(repository),
+            "merge-base",
+            "--is-ancestor",
+            base_commit,
+            head_commit,
+        ],
         capture_output=True,
     ).returncode != 0:
-        fail("source base commit is not an ancestor of HEAD")
+        fail("source base commit is not an ancestor of --head")
     if subject.get("manifestSelfExcludedPath") != relative_evidence:
         fail("self-excluded evidence path does not identify this record")
     manifest = subject.get("changedFileManifest")
@@ -129,8 +159,9 @@ def verify(evidence_path: pathlib.Path) -> None:
         else:
             fail(f"invalid manifest disposition for: {path}")
 
-    actual_paths = changed_paths(repository, base_commit)
-    actual_paths.discard(relative_evidence)
+    actual = changed_paths(repository, base_commit)
+    actual.pop(relative_evidence, None)
+    actual_paths = set(actual)
     if set(expected) != actual_paths:
         missing = sorted(actual_paths - set(expected))
         stale = sorted(set(expected) - actual_paths)
@@ -144,9 +175,16 @@ def verify(evidence_path: pathlib.Path) -> None:
     for relative_path, (status, expected_digest) in expected.items():
         path = repository / relative_path
         if status == "deleted":
-            if path.exists():
+            if actual[relative_path] != "D":
+                fail(
+                    "expected deleted path has Git status "
+                    f"{actual[relative_path]}: {relative_path}"
+                )
+            if path.exists() or path.is_symlink():
                 fail(f"expected deleted path exists: {relative_path}")
             continue
+        if actual[relative_path] == "D":
+            fail(f"expected present path is deleted: {relative_path}")
         if not path.is_file() or path.is_symlink():
             fail(f"manifest path is not a regular file: {relative_path}")
         if sha256(path) != expected_digest:
@@ -155,9 +193,11 @@ def verify(evidence_path: pathlib.Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("evidence", type=pathlib.Path)
+    parser.add_argument("--manifest", required=True, type=pathlib.Path)
+    parser.add_argument("--base", required=True)
+    parser.add_argument("--head", required=True)
     arguments = parser.parse_args()
-    verify(arguments.evidence)
+    verify(arguments.manifest, arguments.base, arguments.head)
     print("secure replay evidence manifest verified")
 
 
