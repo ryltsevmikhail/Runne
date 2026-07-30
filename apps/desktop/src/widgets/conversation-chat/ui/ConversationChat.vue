@@ -4,13 +4,12 @@ import { isTauri } from '@tauri-apps/api/core'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import type {
+  ConversationSession,
   ConversationSnapshot,
   ConversationTimelineListener,
-  ConversationUnsubscribe,
 } from '@/entities/conversation'
 import {
   openProjectConversation,
-  sendProjectMessage,
   subscribeProjectConversation,
 } from '@/entities/conversation'
 import {
@@ -20,12 +19,11 @@ import {
 
 type Connect = () => Promise<RuntimeConnectionState>
 type OpenConversation = (projectId: number) => Promise<ConversationSnapshot>
-type SendMessage = (projectId: number, text: string) => Promise<ConversationSnapshot>
 type SubscribeConversation = (
   projectId: number,
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
-) => Promise<ConversationUnsubscribe>
+) => Promise<ConversationSession>
 
 async function defaultConnect(): Promise<RuntimeConnectionState> {
   return isTauri() ? connectRuntime() : 'unconfigured'
@@ -38,21 +36,11 @@ async function defaultOpenConversation(projectId: number): Promise<ConversationS
   return openProjectConversation(projectId)
 }
 
-async function defaultSendMessage(
-  projectId: number,
-  text: string,
-): Promise<ConversationSnapshot> {
-  if (!isTauri()) {
-    throw new Error('runtime unavailable')
-  }
-  return sendProjectMessage(projectId, text)
-}
-
 async function defaultSubscribeConversation(
   projectId: number,
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
-): Promise<ConversationUnsubscribe> {
+): Promise<ConversationSession> {
   if (!isTauri()) {
     throw new Error('runtime unavailable')
   }
@@ -63,7 +51,6 @@ const props = defineProps<{
   projectId: number
   connect?: Connect
   openConversation?: OpenConversation
-  sendMessage?: SendMessage
   subscribeConversation?: SubscribeConversation
 }>()
 
@@ -73,7 +60,7 @@ const loading = ref(true)
 const sending = ref(false)
 const unavailable = ref(false)
 const draft = ref('')
-let unsubscribe: ConversationUnsubscribe | null = null
+let session: ConversationSession | null = null
 let loadGeneration = 0
 let disposed = false
 const recovery = computed(() => snapshot.value?.recovery ?? 'live')
@@ -110,20 +97,20 @@ onMounted(loadConversation)
 onBeforeUnmount(() => {
   disposed = true
   loadGeneration += 1
-  const current = unsubscribe
-  unsubscribe = null
+  const current = session
+  session = null
   if (current !== null) {
-    void current()
+    void current.unsubscribe()
   }
 })
 
 async function loadConversation() {
   const generation = loadGeneration + 1
   loadGeneration = generation
-  const current = unsubscribe
-  unsubscribe = null
+  const current = session
+  session = null
   if (current !== null) {
-    await current()
+    await current.unsubscribe()
   }
   if (disposed || generation !== loadGeneration) {
     return
@@ -152,10 +139,10 @@ async function loadConversation() {
       },
     )
     if (disposed || generation !== loadGeneration) {
-      await candidate()
+      await candidate.unsubscribe()
       return
     }
-    unsubscribe = candidate
+    session = candidate
   }
   catch {
     if (!disposed && generation === loadGeneration) {
@@ -185,7 +172,11 @@ async function submitMessage() {
   unavailable.value = false
   const text = draft.value
   try {
-    snapshot.value = await (props.sendMessage ?? defaultSendMessage)(props.projectId, text)
+    const current = session
+    if (current === null) {
+      throw new Error('runtime unavailable')
+    }
+    await current.sendMessage(text)
     draft.value = ''
   }
   catch {
@@ -193,9 +184,11 @@ async function submitMessage() {
       unavailable.value = true
     }
     else {
-      snapshot.value = {
-        ...snapshot.value,
-        recovery: 'reconnecting',
+      if (snapshot.value.recovery === 'live') {
+        snapshot.value = {
+          ...snapshot.value,
+          recovery: 'reconnecting',
+        }
       }
     }
   }

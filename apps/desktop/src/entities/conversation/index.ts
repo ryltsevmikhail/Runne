@@ -9,6 +9,7 @@ export type {
   ConversationChannelEvent,
   ConversationMessage,
   ConversationRecoveryState,
+  ConversationSession,
   ConversationSnapshot,
   ConversationTimeline,
   ConversationTimelineListener,

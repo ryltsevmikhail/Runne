@@ -16,6 +16,10 @@ import type {
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
 export type ConversationTimelineListener = (snapshot: ConversationSnapshot) => void
 export type ConversationUnsubscribe = () => Promise<void>
+export interface ConversationSession {
+  readonly sendMessage: (text: string) => Promise<ConversationSnapshot>
+  readonly unsubscribe: ConversationUnsubscribe
+}
 
 export type ConversationChannelErrorCode =
   | 'conversation_subscription_unavailable'
@@ -88,7 +92,7 @@ export async function subscribeProjectConversation(
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
   invoke: Invoke = tauriInvoke,
-): Promise<ConversationUnsubscribe> {
+): Promise<ConversationSession> {
   validateProjectId(projectId)
   const sanitizedInitial = parseConversationSnapshot(initialSnapshot)
   if (sanitizedInitial === null) {
@@ -100,6 +104,15 @@ export async function subscribeProjectConversation(
   let generation = 0
   let closed = false
   let processing = Promise.resolve()
+
+  const serialize = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = processing.then(operation)
+    processing = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
 
   const publishRecovery = (recovery: ConversationRecoveryState): void => {
     timeline = setConversationRecovery(timeline, recovery)
@@ -139,7 +152,7 @@ export async function subscribeProjectConversation(
         pending.push(value)
         return
       }
-      processing = processing.then(() => handleEvent(value, currentGeneration))
+      void serialize(() => handleEvent(value, currentGeneration))
     })
     const value = await invoke('subscribe_project_conversation', {
       projectId,
@@ -161,7 +174,7 @@ export async function subscribeProjectConversation(
     activeSubscriptionId = value
     ready = true
     for (const pendingValue of pending) {
-      processing = processing.then(() => handleEvent(pendingValue, currentGeneration))
+      void serialize(() => handleEvent(pendingValue, currentGeneration))
     }
   }
 
@@ -248,12 +261,46 @@ export async function subscribeProjectConversation(
 
   await startSubscription()
 
-  return async () => {
+  const unsubscribe: ConversationUnsubscribe = async () => {
     if (closed) {
       return
     }
     closed = true
     await cancelActive()
+  }
+
+  const sendMessage = (text: string): Promise<ConversationSnapshot> => serialize(async () => {
+    if (closed) {
+      throw new Error('Conversation subscription is closed')
+    }
+    const snapshot = await sendProjectMessage(projectId, text, invoke)
+    if (closed) {
+      throw new Error('Conversation subscription is closed')
+    }
+    const current = timeline.snapshot
+    if (
+      snapshot.conversationId !== current.conversationId
+      || snapshot.projectionRevision < current.projectionRevision
+      || snapshot.streamVersion < current.streamVersion
+      || (
+        snapshot.projectionRevision === current.projectionRevision
+        && !sameSnapshot(snapshot, current)
+      )
+    ) {
+      await terminate('incompatible')
+      throw new Error('Incompatible conversation response')
+    }
+    if (snapshot.projectionRevision === current.projectionRevision) {
+      return current
+    }
+    timeline = createConversationTimeline(snapshot)
+    onTimeline(timeline.snapshot)
+    return timeline.snapshot
+  })
+
+  return {
+    sendMessage,
+    unsubscribe,
   }
 }
 
@@ -353,6 +400,37 @@ function copyMessage(message: ConversationMessage): ConversationMessage {
     text: message.text,
     committedAt: message.committedAt,
   }
+}
+
+function sameSnapshot(
+  left: ConversationSnapshot,
+  right: ConversationSnapshot,
+): boolean {
+  return (
+    left.conversationId === right.conversationId
+    && left.projectionRevision === right.projectionRevision
+    && left.streamVersion === right.streamVersion
+    && left.recovery === right.recovery
+    && left.messages.length === right.messages.length
+    && left.messages.every((message, index) => {
+      const candidate = right.messages[index]
+      return candidate !== undefined && sameMessage(message, candidate)
+    })
+  )
+}
+
+function sameMessage(
+  left: ConversationMessage,
+  right: ConversationMessage,
+): boolean {
+  return (
+    left.messageId === right.messageId
+    && left.role === right.role
+    && left.taskRunId === right.taskRunId
+    && left.attemptId === right.attemptId
+    && left.text === right.text
+    && left.committedAt === right.committedAt
+  )
 }
 
 function isRecoveryState(value: unknown): value is ConversationRecoveryState {

@@ -91,6 +91,21 @@ describe('conversation timeline reducer', () => {
     })).kind).toBe('incompatible')
   })
 
+  it('rejects same-revision events after a full snapshot without a canonical signature', () => {
+    const current = createConversationTimeline(initial)
+
+    expect(reduceConversationTimeline(current, update({
+      projectionRevision: initial.projectionRevision,
+      streamVersion: initial.streamVersion,
+      message: firstMessage,
+    })).kind).toBe('incompatible')
+    expect(reduceConversationTimeline(current, update({
+      projectionRevision: initial.projectionRevision,
+      streamVersion: initial.streamVersion,
+      message: null,
+    })).kind).toBe('incompatible')
+  })
+
   it('keeps the last confirmed messages while entering reconnecting', () => {
     const current = createConversationTimeline(initial)
     const result = reduceConversationTimeline(current, update({
