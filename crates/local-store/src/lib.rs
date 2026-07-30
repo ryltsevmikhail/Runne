@@ -8,6 +8,98 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+const REPLAY_TABLES_V4_SQL: &str = "
+    DROP TABLE projections;
+    DROP TABLE event_journal;
+    DROP TABLE replay_cursors;
+
+    CREATE TABLE projections (
+        runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+        principal TEXT NOT NULL CHECK (length(principal) > 0),
+        lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+        scope TEXT NOT NULL CHECK (length(scope) > 0),
+        binding_digest TEXT NOT NULL CHECK (
+            length(binding_digest) = 64
+            AND binding_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+        projection_digest TEXT NOT NULL CHECK (
+            length(projection_digest) = 64
+            AND projection_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+        payload BLOB NOT NULL CHECK (json_valid(payload) = 1),
+        PRIMARY KEY (runtime_authority, principal, lineage, scope)
+    ) STRICT;
+
+    CREATE TABLE event_journal (
+        runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+        principal TEXT NOT NULL CHECK (length(principal) > 0),
+        lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+        scope TEXT NOT NULL CHECK (length(scope) > 0),
+        binding_digest TEXT NOT NULL CHECK (
+            length(binding_digest) = 64
+            AND binding_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        event_id TEXT NOT NULL CHECK (length(event_id) > 0),
+        cursor TEXT NOT NULL CHECK (length(cursor) > 0),
+        generation INTEGER NOT NULL CHECK (generation >= 0),
+        event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+        validated_event BLOB NOT NULL,
+        event_digest TEXT NOT NULL CHECK (
+            length(event_digest) = 64
+            AND event_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+        projection_digest TEXT NOT NULL CHECK (
+            length(projection_digest) = 64
+            AND projection_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        projected_payload BLOB NOT NULL CHECK (json_valid(projected_payload) = 1),
+        PRIMARY KEY (
+            runtime_authority,
+            principal,
+            lineage,
+            scope,
+            event_id
+        ),
+        UNIQUE (
+            runtime_authority,
+            principal,
+            lineage,
+            scope,
+            event_sequence
+        ),
+        UNIQUE (
+            runtime_authority,
+            principal,
+            lineage,
+            scope,
+            cursor
+        )
+    ) STRICT;
+
+    CREATE TABLE replay_cursors (
+        runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+        principal TEXT NOT NULL CHECK (length(principal) > 0),
+        lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+        scope TEXT NOT NULL CHECK (length(scope) > 0),
+        binding_digest TEXT NOT NULL CHECK (
+            length(binding_digest) = 64
+            AND binding_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        generation INTEGER NOT NULL CHECK (generation >= 0),
+        applied_cursor TEXT NOT NULL CHECK (length(applied_cursor) > 0),
+        event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+        projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+        projection_digest TEXT NOT NULL CHECK (
+            length(projection_digest) = 64
+            AND projection_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        PRIMARY KEY (runtime_authority, principal, lineage, scope)
+    ) STRICT;
+";
+
 #[derive(Debug, Eq, PartialEq)]
 pub struct LocalProject {
     pub id: i64,
@@ -360,103 +452,62 @@ impl LocalStore {
             if legacy_replay_rows != 0 {
                 return Err(StoreOpenError::LegacyReplayState);
             }
+            transaction.execute_batch(REPLAY_TABLES_V4_SQL)?;
             transaction.execute_batch(
                 "
-                DROP TABLE projections;
-                DROP TABLE event_journal;
-                DROP TABLE replay_cursors;
-
-                CREATE TABLE projections (
-                    runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
-                    principal TEXT NOT NULL CHECK (length(principal) > 0),
-                    lineage TEXT NOT NULL CHECK (length(lineage) > 0),
-                    scope TEXT NOT NULL CHECK (length(scope) > 0),
-                    binding_digest TEXT NOT NULL CHECK (
-                        length(binding_digest) = 64
-                        AND binding_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
-                    projection_digest TEXT NOT NULL CHECK (
-                        length(projection_digest) = 64
-                        AND projection_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
-                    payload BLOB NOT NULL CHECK (json_valid(payload) = 1),
-                    PRIMARY KEY (runtime_authority, principal, lineage, scope)
-                ) STRICT;
-
-                CREATE TABLE event_journal (
-                    runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
-                    principal TEXT NOT NULL CHECK (length(principal) > 0),
-                    lineage TEXT NOT NULL CHECK (length(lineage) > 0),
-                    scope TEXT NOT NULL CHECK (length(scope) > 0),
-                    binding_digest TEXT NOT NULL CHECK (
-                        length(binding_digest) = 64
-                        AND binding_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    event_id TEXT NOT NULL CHECK (length(event_id) > 0),
-                    cursor TEXT NOT NULL CHECK (length(cursor) > 0),
-                    generation INTEGER NOT NULL CHECK (generation >= 0),
-                    event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
-                    validated_event BLOB NOT NULL,
-                    event_digest TEXT NOT NULL CHECK (
-                        length(event_digest) = 64
-                        AND event_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
-                    projection_digest TEXT NOT NULL CHECK (
-                        length(projection_digest) = 64
-                        AND projection_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    projected_payload BLOB NOT NULL CHECK (json_valid(projected_payload) = 1),
-                    PRIMARY KEY (
-                        runtime_authority,
-                        principal,
-                        lineage,
-                        scope,
-                        event_id
-                    ),
-                    UNIQUE (
-                        runtime_authority,
-                        principal,
-                        lineage,
-                        scope,
-                        event_sequence
-                    ),
-                    UNIQUE (
-                        runtime_authority,
-                        principal,
-                        lineage,
-                        scope,
-                        cursor
-                    )
-                ) STRICT;
-
-                CREATE TABLE replay_cursors (
-                    runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
-                    principal TEXT NOT NULL CHECK (length(principal) > 0),
-                    lineage TEXT NOT NULL CHECK (length(lineage) > 0),
-                    scope TEXT NOT NULL CHECK (length(scope) > 0),
-                    binding_digest TEXT NOT NULL CHECK (
-                        length(binding_digest) = 64
-                        AND binding_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    generation INTEGER NOT NULL CHECK (generation >= 0),
-                    applied_cursor TEXT NOT NULL CHECK (length(applied_cursor) > 0),
-                    event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
-                    projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
-                    projection_digest TEXT NOT NULL CHECK (
-                        length(projection_digest) = 64
-                        AND projection_digest NOT GLOB '*[^0-9a-f]*'
-                    ),
-                    PRIMARY KEY (runtime_authority, principal, lineage, scope)
-                ) STRICT;
-
                 UPDATE meta SET schema_version = 4 WHERE singleton = 1;
                 PRAGMA user_version = 4;
                 ",
             )?;
             transaction.commit()?;
+        }
+        if version == 4 {
+            let projection_identity_columns: i64 = self.connection.query_row(
+                "
+                SELECT COUNT(*)
+                FROM pragma_table_info('event_journal')
+                WHERE name IN (
+                    'projection_revision',
+                    'projection_digest',
+                    'projected_payload'
+                )
+                ",
+                [],
+                |row| row.get(0),
+            )?;
+            if projection_identity_columns != 3 {
+                let transaction = self
+                    .connection
+                    .transaction_with_behavior(TransactionBehavior::Immediate)?;
+                let replay_tables: i64 = transaction.query_row(
+                    "
+                    SELECT COUNT(*)
+                    FROM sqlite_schema
+                    WHERE type = 'table'
+                      AND name IN ('projections', 'event_journal', 'replay_cursors')
+                    ",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if replay_tables != 3 {
+                    return Err(StoreOpenError::LegacyReplayState);
+                }
+                let replay_rows: i64 = transaction.query_row(
+                    "
+                    SELECT
+                        (SELECT COUNT(*) FROM projections)
+                      + (SELECT COUNT(*) FROM event_journal)
+                      + (SELECT COUNT(*) FROM replay_cursors)
+                    ",
+                    [],
+                    |row| row.get(0),
+                )?;
+                if replay_rows != 0 {
+                    return Err(StoreOpenError::LegacyReplayState);
+                }
+                transaction.execute_batch(REPLAY_TABLES_V4_SQL)?;
+                transaction.commit()?;
+            }
         }
         Ok(())
     }
