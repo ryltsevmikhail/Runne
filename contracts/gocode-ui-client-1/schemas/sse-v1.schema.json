@@ -279,23 +279,35 @@
           "additionalProperties": false,
           "properties": {
             "outcome": {
-              "enum": [
-                "success",
-                "failure"
-              ],
+              "const": "success",
               "type": "string"
             },
             "reason": {
-              "oneOf": [
-                {
-                  "maxLength": 4096,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "type": "null"
+            },
+            "type": {
+              "const": "taskRun.completed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "outcome",
+            "reason",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "const": "failure",
+              "type": "string"
+            },
+            "reason": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
             },
             "type": {
               "const": "taskRun.completed",
@@ -860,8 +872,16 @@
           "minLength": 1,
           "type": "string"
         },
+        "integrityDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
         "payload": {
           "$ref": "#/$defs/canonicalReplayPayloadV1"
+        },
+        "replayBindingId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
         },
         "schemaVersion": {
           "const": 1,
@@ -891,7 +911,9 @@
         "correlationType",
         "eventId",
         "eventType",
+        "integrityDigest",
         "payload",
+        "replayBindingId",
         "schemaVersion",
         "sensitivity",
         "sequence",

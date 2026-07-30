@@ -7,10 +7,12 @@
   "cursor": "gocode-replay-cursor-v1.7b2261223a317d",
   "eventId": "018f2e3a-7000-7000-8000-000000000116",
   "eventType": "taskRun.attempt.started",
+  "integrityDigest": "1111111111111111111111111111111111111111111111111111111111111111",
   "payload": {
     "attemptId": "018f2e3a-7000-7000-8000-000000000114",
     "type": "taskRun.attempt.started"
   },
+  "replayBindingId": "018f2e3a700070008000000000000121",
   "schemaVersion": 1,
   "sensitivity": "public",
   "sequence": 4,

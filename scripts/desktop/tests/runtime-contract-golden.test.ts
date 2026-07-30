@@ -6,6 +6,8 @@ type JsonObject = Record<string, unknown>
 
 const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
 const CURSOR = /^gocode-replay-cursor-v1\.(?:[0-9a-f]{2})+$/
+const LOWER_HEX_16 = /^[0-9a-f]{32}$/
+const LOWER_HEX_32 = /^[0-9a-f]{64}$/
 
 const payloadFields: Readonly<Record<string, readonly string[]>> = {
   'conversation.created': ['type', 'workspaceId'],
@@ -80,26 +82,62 @@ function parsePayload(value: unknown): JsonObject {
   const fields = payloadFields[type]
   if (!fields) throw new Error('unknown payload type')
   exactKeys(payload, fields)
+  const optionalIds = new Set(['abandonedCycleId', 'parentCycleId'])
   for (const [key, field] of Object.entries(payload)) {
-    if (key.endsWith('Id') && field !== null) uuid(field)
+    if (key.endsWith('Id')) {
+      if (field === null) {
+        if (!optionalIds.has(key)) throw new Error('invalid UUIDv7')
+      } else {
+        uuid(field)
+      }
+    }
   }
   for (const key of ['text', 'reason']) {
-    if (key in payload && payload[key] !== null) string(payload[key])
+    if (key in payload && payload[key] !== null) {
+      const value = string(payload[key])
+      if (value.length === 0) throw new Error(`invalid ${key}`)
+      if (key === 'reason' && new TextEncoder().encode(value).length > 4096) {
+        throw new Error('invalid reason')
+      }
+    }
   }
   if ('role' in payload && !['user', 'assistant'].includes(string(payload.role))) throw new Error('invalid role')
-  if ('outcome' in payload) string(payload.outcome)
-  if ('disposition' in payload) string(payload.disposition)
-  if ('source' in payload) string(payload.source)
+  if ('outcome' in payload) {
+    const allowed = type === 'taskRun.completed'
+      ? ['success', 'failure']
+      : ['succeeded', 'failed_before_commit', 'failed_after_commit', 'uncertain', 'cancelled']
+    if (!allowed.includes(string(payload.outcome))) throw new Error('invalid outcome')
+  }
+  if (
+    'disposition' in payload
+    && !['continue', 'wait', 'complete', 'fail'].includes(string(payload.disposition))
+  ) throw new Error('invalid disposition')
+  if (
+    'source' in payload
+    && !['external_input', 'approval', 'child_task_run', 'timer', 'reconciliation'].includes(string(payload.source))
+  ) throw new Error('invalid source')
+  if (type === 'taskRun.completed') {
+    if (payload.outcome === 'success' && payload.reason !== null) throw new Error('invalid reason')
+    if (payload.outcome === 'failure' && payload.reason === null) throw new Error('invalid reason')
+  }
   for (const key of [
-    'activatedAtUnixMicros',
-    'delayMillis',
-    'dueAtUnixMicros',
     'newGeneration',
     'ordinal',
-    'proposalIndex',
     'revision',
     'sequence',
   ]) {
+    if (
+      key in payload
+      && (!Number.isSafeInteger(payload[key]) || (payload[key] as number) < 1)
+    ) throw new Error(`invalid ${key}`)
+  }
+  for (const key of ['delayMillis', 'proposalIndex']) {
+    if (
+      key in payload
+      && (!Number.isSafeInteger(payload[key]) || (payload[key] as number) < 0)
+    ) throw new Error(`invalid ${key}`)
+  }
+  for (const key of ['activatedAtUnixMicros', 'dueAtUnixMicros']) {
     if (key in payload && !Number.isSafeInteger(payload[key])) throw new Error(`invalid ${key}`)
   }
   if ('expectedProposalIndexes' in payload) {
@@ -123,7 +161,9 @@ function parseCanonicalEvent(value: unknown, delivered: boolean): JsonObject {
     'correlationType',
     'eventId',
     'eventType',
+    'integrityDigest',
     'payload',
+    'replayBindingId',
     'schemaVersion',
     'sensitivity',
     'sequence',
@@ -142,8 +182,11 @@ function parseCanonicalEvent(value: unknown, delivered: boolean): JsonObject {
   if (!['conversation', 'taskRun'].includes(string(event.aggregateType))) throw new Error('invalid aggregate type')
   if (!['conversation', 'taskRun'].includes(string(event.correlationType))) throw new Error('invalid correlation type')
   if (!['public', 'internal', 'sensitive'].includes(string(event.sensitivity))) throw new Error('invalid sensitivity')
-  string(event.eventType)
-  parsePayload(event.payload)
+  if (!LOWER_HEX_32.test(string(event.integrityDigest))) throw new Error('invalid integrity digest')
+  if (!LOWER_HEX_16.test(string(event.replayBindingId))) throw new Error('invalid replay binding')
+  const eventType = string(event.eventType)
+  const payload = parsePayload(event.payload)
+  if (eventType !== payload.type) throw new Error('event type mismatch')
   return event
 }
 
@@ -197,5 +240,70 @@ describe('runtime-owned exact contract goldens', () => {
   it('rejects malformed cursors', () => {
     const replay = object(golden('replay-conversation.json'))
     expect(() => parseReplayEvent({ ...replay, cursor: 'gocode-replay-cursor-v1.not-hex' })).toThrow('invalid cursor')
+  })
+
+  it('rejects null required payload identities', () => {
+    const replay = object(golden('replay-conversation.json'))
+    expect(() => parseReplayEvent({
+      ...replay,
+      payload: { ...object(replay.payload), messageId: null },
+    })).toThrow('invalid UUIDv7')
+  })
+
+  it('rejects invalid closed payload enums', () => {
+    const replay = object(golden('replay-taskrun.json'))
+    expect(() => parseReplayEvent({
+      ...replay,
+      eventType: 'taskRun.completed',
+      payload: { outcome: 'future', reason: null, type: 'taskRun.completed' },
+    })).toThrow('invalid outcome')
+    expect(() => parseReplayEvent({
+      ...replay,
+      eventType: 'taskRun.loop.cycle.completed',
+      payload: {
+        attemptId: '018f2e3a-7000-7000-8000-000000000114',
+        cycleId: '018f2e3a-7000-7000-8000-000000000119',
+        disposition: 'future',
+        type: 'taskRun.loop.cycle.completed',
+      },
+    })).toThrow('invalid disposition')
+    expect(() => parseReplayEvent({
+      ...replay,
+      eventType: 'taskRun.loop.wake.accepted',
+      payload: {
+        cycleId: '018f2e3a-7000-7000-8000-000000000119',
+        evidenceId: '018f2e3a-7000-7000-8000-000000000120',
+        source: 'future',
+        type: 'taskRun.loop.wake.accepted',
+      },
+    })).toThrow('invalid source')
+  })
+
+  it('rejects non-positive semantic sequence fields', () => {
+    const replay = object(golden('replay-taskrun.json'))
+    const delivery = {
+      ...replay,
+      eventType: 'taskRun.loop.cycle.started',
+      payload: {
+        attemptId: '018f2e3a-7000-7000-8000-000000000114',
+        cycleId: '018f2e3a-7000-7000-8000-000000000119',
+        parentCycleId: null,
+        sequence: 0,
+        type: 'taskRun.loop.cycle.started',
+      },
+    }
+    expect(() => parseReplayEvent(delivery)).toThrow('invalid sequence')
+    expect(() => parseReplayEvent({
+      ...delivery,
+      payload: { ...object(delivery.payload), sequence: -1 },
+    })).toThrow('invalid sequence')
+  })
+
+  it('rejects event and payload type mismatch', () => {
+    const replay = object(golden('replay-conversation.json'))
+    expect(() => parseReplayEvent({
+      ...replay,
+      eventType: 'conversation.created',
+    })).toThrow('event type mismatch')
   })
 })

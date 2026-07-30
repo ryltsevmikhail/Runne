@@ -1,6 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use gocode_api::CanonicalReplayPayloadV1;
+use gocode_domain::command::TerminalResult;
+use gocode_domain::task_run::TaskRunEvent;
 use gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH;
 use gocode_runtime::contract_generation::{
     GENERATED_ARTIFACT_PATHS, check_ui_contract, generate_ui_contract,
@@ -194,6 +197,77 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
     let openapi: Value = serde_json::from_slice(&fs::read(&openapi_path).unwrap()).unwrap();
     assert_eq!(openapi["openapi"], "3.1.0");
     assert_local_refs_resolve(&openapi_path, &openapi);
+
+    for golden_path in [
+        "golden/replay-conversation.json",
+        "golden/replay-taskrun.json",
+    ] {
+        let golden: Value =
+            serde_json::from_slice(&fs::read(output.path().join(golden_path)).unwrap()).unwrap();
+        assert!(
+            golden["integrityDigest"].as_str().is_some(),
+            "{golden_path}"
+        );
+        assert!(
+            golden["replayBindingId"].as_str().is_some(),
+            "{golden_path}"
+        );
+    }
+    let sse: Value =
+        serde_json::from_slice(&fs::read(output.path().join("golden/sse-delivery.json")).unwrap())
+            .unwrap();
+    assert!(sse["canonicalEvent"]["integrityDigest"].as_str().is_some());
+    assert!(sse["canonicalEvent"]["replayBindingId"].as_str().is_some());
+
+    let templated_paths = openapi["paths"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(path, _)| path.contains("{sessionId}"))
+        .collect::<Vec<_>>();
+    assert_eq!(templated_paths.len(), 6);
+    for (path, path_item) in templated_paths {
+        for operation in path_item.as_object().unwrap().values() {
+            let parameters = operation["parameters"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{path} operation omitted required path parameters"));
+            assert!(parameters.iter().any(|parameter| {
+                parameter["in"] == "path"
+                    && parameter["name"] == "sessionId"
+                    && parameter["required"] == true
+            }));
+        }
+    }
+}
+
+#[test]
+fn public_taskrun_failure_reason_conversion_is_bounded() {
+    assert!(
+        CanonicalReplayPayloadV1::try_from(&TaskRunEvent::TaskRunFailed {
+            reason: String::new(),
+        })
+        .is_err()
+    );
+    assert!(
+        CanonicalReplayPayloadV1::try_from(&TaskRunEvent::TaskRunFailed {
+            reason: "x".repeat(4097),
+        })
+        .is_err()
+    );
+    assert!(
+        CanonicalReplayPayloadV1::try_from(&TaskRunEvent::TaskRunFailed {
+            reason: "x".repeat(4096),
+        })
+        .is_ok()
+    );
+    assert!(
+        CanonicalReplayPayloadV1::try_from(&TaskRunEvent::TaskRunCompleted {
+            result: TerminalResult::Failure {
+                reason: String::new(),
+            },
+        })
+        .is_err()
+    );
 }
 
 #[test]

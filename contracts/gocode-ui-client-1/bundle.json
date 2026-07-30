@@ -7,19 +7,19 @@
     },
     {
       "path": "golden/replay-conversation.json",
-      "sha256": "d922ec098f855bf64181c25f00accf84ff4a7cfd10611a6f76d7f466833771b9"
+      "sha256": "cfbee2bfc609386a884231c2df9f4f37e821c9a90dfac5b43b83eff28d116e68"
     },
     {
       "path": "golden/replay-taskrun.json",
-      "sha256": "afb3287c53df9421af80735151170e6db5605a2cca7aae69b078b68bfe2df553"
+      "sha256": "5f0b047695c3875e1a5eaa2ecfa5411f47c49524c793080c562b65c16485fdca"
     },
     {
       "path": "golden/sse-delivery.json",
-      "sha256": "86dd10d225eac375733a55690ca31a87c9343cec8203185360902983c062c15b"
+      "sha256": "0c6ac0eae60362b90d9f931e6c1da0f2ead81a6a1867b277e09e607507145678"
     },
     {
       "path": "openapi.json",
-      "sha256": "a93618774754350a0e848fa0d8740a77da746f35b19a45bb1d88b9c6ae9f772a"
+      "sha256": "0f317badbfb1b3ba9fe290f617d53b2f82d3b3fc5df0f76f864c4b686045a974"
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
@@ -31,11 +31,11 @@
     },
     {
       "path": "schemas/replay-v1.schema.json",
-      "sha256": "6f0fcea102cd7cadcf7ae9f1ec585553f29f278420a4d0fddca568cd6851a9cc"
+      "sha256": "8363435b785dc8a1f5dfd5744342192e36541fdcfae185d706c5d9c2b018af7f"
     },
     {
       "path": "schemas/sse-v1.schema.json",
-      "sha256": "5931c077affd254b460848b84e161153b426313cc00e296d09a7aa025acfa08c"
+      "sha256": "b14e06440d5b6f5c1952dad84add11c718bfe2a5a053749b356a6ef194856739"
     }
   ],
   "capabilityCatalog": [
