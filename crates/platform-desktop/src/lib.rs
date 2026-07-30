@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use thiserror::Error;
@@ -114,6 +115,213 @@ impl BundledRuntimeLaunchSpec {
 pub enum BundledRuntimeRestartDisposition {
     RestartAfter(Duration),
     Exhausted,
+}
+
+/// Closed result of polling a desktop-owned bundled process.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BundledRuntimeProcessStatus {
+    Running,
+    Exited,
+}
+
+/// Host process capability used by the bundled-runtime supervisor.
+///
+/// The process object is deliberately opaque: its PID is not an ownership
+/// proof and is not exposed by this contract.
+pub trait BundledRuntimeProcess {
+    /// Polls the process without blocking the desktop event loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error if the child status cannot be read.
+    fn status(&mut self) -> std::io::Result<BundledRuntimeProcessStatus>;
+}
+
+/// Direct, host-owned process launcher used by the bundled-runtime supervisor.
+pub trait BundledRuntimeProcessLauncher {
+    type Process: BundledRuntimeProcess;
+
+    /// Spawns the already validated absolute executable without a shell.
+    ///
+    /// # Errors
+    ///
+    /// Returns the operating-system error if the direct process launch fails.
+    fn launch(&mut self, spec: &BundledRuntimeLaunchSpec) -> std::io::Result<Self::Process>;
+}
+
+/// Time source for deterministic bundled-runtime supervision.
+pub trait BundledRuntimeClock {
+    /// Returns the current monotonic instant.
+    fn now(&self) -> Instant;
+}
+
+/// Production monotonic clock for bundled-runtime supervision.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemBundledRuntimeClock;
+
+impl BundledRuntimeClock for SystemBundledRuntimeClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
+/// Production direct launcher for a bundled runtime development profile.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SystemBundledRuntimeProcessLauncher;
+
+/// Opaque child process owned by the launcher that created it.
+#[derive(Debug)]
+pub struct SystemBundledRuntimeProcess {
+    child: Child,
+}
+
+impl BundledRuntimeProcessLauncher for SystemBundledRuntimeProcessLauncher {
+    type Process = SystemBundledRuntimeProcess;
+
+    fn launch(&mut self, spec: &BundledRuntimeLaunchSpec) -> std::io::Result<Self::Process> {
+        let child = Command::new(spec.executable())
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
+        Ok(SystemBundledRuntimeProcess { child })
+    }
+}
+
+impl BundledRuntimeProcess for SystemBundledRuntimeProcess {
+    fn status(&mut self) -> std::io::Result<BundledRuntimeProcessStatus> {
+        self.child.try_wait().map(|status| {
+            if status.is_some() {
+                BundledRuntimeProcessStatus::Exited
+            } else {
+                BundledRuntimeProcessStatus::Running
+            }
+        })
+    }
+}
+
+/// Typed supervision failure that does not expose protected launch details.
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum BundledRuntimeSupervisorError {
+    #[error("bundled runtime process could not be started")]
+    SpawnFailed,
+    #[error("bundled runtime process status is unavailable")]
+    ProcessStatusUnavailable,
+}
+
+/// Host-side supervisor for a single desktop-owned bundled runtime process.
+///
+/// Authenticated readiness is deliberately reported by the Secure Replay v2
+/// profile/session handshake; process stdout cannot mark this supervisor ready.
+#[derive(Debug)]
+pub struct BundledRuntimeSupervisor<L, C>
+where
+    L: BundledRuntimeProcessLauncher,
+    C: BundledRuntimeClock,
+{
+    launcher: L,
+    clock: C,
+    spec: BundledRuntimeLaunchSpec,
+    process: Option<L::Process>,
+    backoff: BundledRuntimeBackoff,
+    restart_at: Option<Instant>,
+    state: BundledRuntimeLifecycleState,
+}
+
+impl<L, C> BundledRuntimeSupervisor<L, C>
+where
+    L: BundledRuntimeProcessLauncher,
+    C: BundledRuntimeClock,
+{
+    #[must_use]
+    pub fn new(launcher: L, clock: C, spec: BundledRuntimeLaunchSpec) -> Self {
+        Self {
+            launcher,
+            clock,
+            spec,
+            process: None,
+            backoff: BundledRuntimeBackoff::new(),
+            restart_at: None,
+            state: BundledRuntimeLifecycleState::Absent,
+        }
+    }
+
+    #[must_use]
+    pub const fn state(&self) -> BundledRuntimeLifecycleState {
+        self.state
+    }
+
+    /// Starts the direct bundled executable and waits for an authenticated
+    /// Secure Replay v2 readiness callback before becoming ready.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed redacted failure if spawning fails.
+    pub fn start(&mut self) -> Result<(), BundledRuntimeSupervisorError> {
+        self.state = BundledRuntimeLifecycleState::ValidatingBinary;
+        self.state = BundledRuntimeLifecycleState::Spawning;
+        let process = self
+            .launcher
+            .launch(&self.spec)
+            .map_err(|_| BundledRuntimeSupervisorError::SpawnFailed)?;
+        self.process = Some(process);
+        self.restart_at = None;
+        self.state = BundledRuntimeLifecycleState::Handshaking;
+        Ok(())
+    }
+
+    /// Accepts readiness only after the authenticated Secure Replay v2
+    /// profile/session handshake has completed for this launch.
+    pub fn record_authenticated_ready(&mut self) {
+        if self.process.is_some() && self.state == BundledRuntimeLifecycleState::Handshaking {
+            self.backoff.record_authenticated_ready(self.clock.now());
+            self.state = BundledRuntimeLifecycleState::Ready;
+        }
+    }
+
+    /// Polls the owned child and performs a due bounded restart.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed redacted failure if the process status cannot be read or
+    /// a scheduled restart cannot be spawned.
+    pub fn monitor(&mut self) -> Result<(), BundledRuntimeSupervisorError> {
+        let now = self.clock.now();
+        if self.state == BundledRuntimeLifecycleState::Ready {
+            self.backoff.reset_after_stable_readiness(now);
+        }
+
+        if self.state == BundledRuntimeLifecycleState::Backoff
+            && self.restart_at.is_some_and(|restart_at| now >= restart_at)
+        {
+            self.start()?;
+            return Ok(());
+        }
+
+        let Some(process) = self.process.as_mut() else {
+            return Ok(());
+        };
+        if process
+            .status()
+            .map_err(|_| BundledRuntimeSupervisorError::ProcessStatusUnavailable)?
+            == BundledRuntimeProcessStatus::Exited
+        {
+            self.process = None;
+            self.state = BundledRuntimeLifecycleState::Crashed;
+            match self.backoff.record_unexpected_exit(now) {
+                BundledRuntimeRestartDisposition::RestartAfter(delay) => {
+                    self.restart_at = Some(now + delay);
+                    self.state = BundledRuntimeLifecycleState::Backoff;
+                }
+                BundledRuntimeRestartDisposition::Exhausted => {
+                    self.restart_at = None;
+                    self.state = BundledRuntimeLifecycleState::Exhausted;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Bounded restart budget for a desktop-owned bundled runtime.
@@ -266,15 +474,110 @@ impl ProfileLock {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::collections::VecDeque;
+    use std::io;
     use std::path::PathBuf;
+    use std::rc::Rc;
     use std::time::{Duration, Instant};
 
     use super::{
-        BundledRuntimeBackoff, BundledRuntimeLaunchError, BundledRuntimeLaunchMode,
-        BundledRuntimeLaunchSpec, BundledRuntimeRestartDisposition, BundledRuntimeSecretTransport,
-        DisplayWorkArea, ProfileLock, UNEXPECTED_EXIT_WINDOW, WindowGeometry,
-        restore_window_geometry,
+        BundledRuntimeBackoff, BundledRuntimeClock, BundledRuntimeLaunchError,
+        BundledRuntimeLaunchMode, BundledRuntimeLaunchSpec, BundledRuntimeLifecycleState,
+        BundledRuntimeProcess, BundledRuntimeProcessLauncher, BundledRuntimeProcessStatus,
+        BundledRuntimeRestartDisposition, BundledRuntimeSecretTransport, BundledRuntimeSupervisor,
+        BundledRuntimeSupervisorError, DisplayWorkArea, ProfileLock, UNEXPECTED_EXIT_WINDOW,
+        WindowGeometry, restore_window_geometry,
     };
+
+    #[derive(Clone)]
+    struct FakeClock(Rc<Cell<Instant>>);
+
+    impl FakeClock {
+        fn new(now: Instant) -> Self {
+            Self(Rc::new(Cell::new(now)))
+        }
+
+        fn advance(&self, duration: Duration) {
+            self.0.set(self.0.get() + duration);
+        }
+    }
+
+    impl BundledRuntimeClock for FakeClock {
+        fn now(&self) -> Instant {
+            self.0.get()
+        }
+    }
+
+    struct FakeProcess {
+        statuses: VecDeque<BundledRuntimeProcessStatus>,
+    }
+
+    impl FakeProcess {
+        fn with_statuses(statuses: impl IntoIterator<Item = BundledRuntimeProcessStatus>) -> Self {
+            Self {
+                statuses: statuses.into_iter().collect(),
+            }
+        }
+
+        fn running() -> Self {
+            Self::with_statuses([BundledRuntimeProcessStatus::Running])
+        }
+
+        fn exited() -> Self {
+            Self::with_statuses([BundledRuntimeProcessStatus::Exited])
+        }
+    }
+
+    impl BundledRuntimeProcess for FakeProcess {
+        fn status(&mut self) -> io::Result<BundledRuntimeProcessStatus> {
+            Ok(self
+                .statuses
+                .pop_front()
+                .unwrap_or(BundledRuntimeProcessStatus::Running))
+        }
+    }
+
+    struct FakeLauncher {
+        launches: Rc<Cell<u32>>,
+        results: VecDeque<Result<FakeProcess, ()>>,
+    }
+
+    impl FakeLauncher {
+        fn new(
+            results: impl IntoIterator<Item = Result<FakeProcess, ()>>,
+        ) -> (Self, Rc<Cell<u32>>) {
+            let launches = Rc::new(Cell::new(0));
+            (
+                Self {
+                    launches: Rc::clone(&launches),
+                    results: results.into_iter().collect(),
+                },
+                launches,
+            )
+        }
+    }
+
+    impl BundledRuntimeProcessLauncher for FakeLauncher {
+        type Process = FakeProcess;
+
+        fn launch(&mut self, _spec: &BundledRuntimeLaunchSpec) -> io::Result<Self::Process> {
+            self.launches.set(self.launches.get() + 1);
+            self.results
+                .pop_front()
+                .unwrap_or(Err(()))
+                .map_err(|()| io::Error::other("fake spawn failure"))
+        }
+    }
+
+    fn launch_spec() -> BundledRuntimeLaunchSpec {
+        BundledRuntimeLaunchSpec::new(
+            PathBuf::from("/opt/gocode/gocoded"),
+            BundledRuntimeLaunchMode::Direct,
+            None,
+        )
+        .expect("valid launch spec")
+    }
 
     #[test]
     fn bundled_runtime_launch_spec_requires_an_absolute_direct_non_secret_launch() {
@@ -325,6 +628,99 @@ mod tests {
                 Err(BundledRuntimeLaunchError::SecretTransportUnsupported)
             );
         }
+    }
+
+    #[test]
+    fn supervisor_spawns_then_waits_for_authenticated_readiness() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let (launcher, spawn_count) = FakeLauncher::new([Ok(FakeProcess::running())]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+
+        supervisor.start().expect("spawn succeeds");
+        assert_eq!(spawn_count.get(), 1);
+        assert_eq!(
+            supervisor.state(),
+            BundledRuntimeLifecycleState::Handshaking
+        );
+
+        supervisor.record_authenticated_ready();
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Ready);
+    }
+
+    #[test]
+    fn supervisor_fails_closed_when_spawn_fails() {
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, spawn_count) = FakeLauncher::new([Err(())]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+
+        assert_eq!(
+            supervisor.start(),
+            Err(BundledRuntimeSupervisorError::SpawnFailed)
+        );
+        assert_eq!(spawn_count.get(), 1);
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Spawning);
+    }
+
+    #[test]
+    fn supervisor_restarts_after_an_unexpected_exit_and_backoff() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let (launcher, spawn_count) =
+            FakeLauncher::new([Ok(FakeProcess::exited()), Ok(FakeProcess::running())]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock.clone(), launch_spec());
+
+        supervisor.start().expect("initial spawn");
+        supervisor.monitor().expect("observe unexpected exit");
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Backoff);
+        assert_eq!(spawn_count.get(), 1);
+
+        clock.advance(Duration::from_secs(1));
+        supervisor.monitor().expect("restart after backoff");
+        assert_eq!(spawn_count.get(), 2);
+        assert_eq!(
+            supervisor.state(),
+            BundledRuntimeLifecycleState::Handshaking
+        );
+    }
+
+    #[test]
+    fn supervisor_exhausts_restart_budget_and_stable_readiness_resets_it() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let (launcher, spawn_count) = FakeLauncher::new([
+            Ok(FakeProcess::exited()),
+            Ok(FakeProcess::exited()),
+            Ok(FakeProcess::exited()),
+            Ok(FakeProcess::exited()),
+            Ok(FakeProcess::exited()),
+            Ok(FakeProcess::exited()),
+        ]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock.clone(), launch_spec());
+
+        supervisor.start().expect("initial spawn");
+        for delay in [1, 2, 5, 10, 30] {
+            supervisor.monitor().expect("observe unexpected exit");
+            assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Backoff);
+            clock.advance(Duration::from_secs(delay));
+            supervisor.monitor().expect("restart after backoff");
+        }
+        supervisor.monitor().expect("sixth unexpected exit");
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Exhausted);
+        assert_eq!(spawn_count.get(), 6);
+
+        let (launcher, spawn_count) = FakeLauncher::new([Ok(FakeProcess::with_statuses([
+            BundledRuntimeProcessStatus::Running,
+            BundledRuntimeProcessStatus::Exited,
+        ]))]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock.clone(), launch_spec());
+        supervisor.start().expect("fresh supervisor spawn");
+        supervisor.record_authenticated_ready();
+        clock.advance(UNEXPECTED_EXIT_WINDOW);
+        supervisor.monitor().expect("reset stable readiness budget");
+        supervisor.monitor().expect("observe post-reset exit");
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Backoff);
+        assert_eq!(spawn_count.get(), 1);
     }
 
     #[test]

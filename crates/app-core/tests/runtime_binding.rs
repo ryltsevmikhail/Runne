@@ -101,6 +101,27 @@ async fn bundled_mode_fails_closed_without_loading_an_external_profile() {
     );
 }
 
+#[cfg(debug_assertions)]
+#[tokio::test]
+async fn bundled_development_profile_uses_only_the_explicit_host_profile() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let core = AppCore::open_with_bundled_development_profile(
+        &directory.path().join("profile.sqlite3"),
+        directory
+            .path()
+            .join("missing-development-runtime-profile.json"),
+    )
+    .expect("open bundled development core");
+
+    assert!(matches!(
+        core.connect_runtime().await,
+        Err(AppCoreError::RuntimeUnavailable)
+    ));
+    let bootstrap = core.bootstrap().expect("bootstrap");
+    assert_eq!(bootstrap.runtime_mode, RuntimeMode::Bundled);
+    assert_eq!(bootstrap.runtime, RuntimeAvailability::Reconnecting);
+}
+
 #[test]
 fn runtime_connection_cannot_skip_authenticated_bootstrap_stages() {
     assert!(
