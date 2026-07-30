@@ -120,6 +120,7 @@ pub enum BundledRuntimeRestartDisposition {
 #[derive(Debug, Default)]
 pub struct BundledRuntimeBackoff {
     unexpected_exits: VecDeque<Instant>,
+    authenticated_ready_since: Option<Instant>,
 }
 
 impl BundledRuntimeBackoff {
@@ -131,6 +132,7 @@ impl BundledRuntimeBackoff {
     /// Records an unexpected exit and returns the bounded restart action.
     #[must_use]
     pub fn record_unexpected_exit(&mut self, now: Instant) -> BundledRuntimeRestartDisposition {
+        self.record_disconnected();
         self.prune_expired(now);
         if self.unexpected_exits.len() == BACKOFF_DELAYS.len() {
             return BundledRuntimeRestartDisposition::Exhausted;
@@ -141,10 +143,21 @@ impl BundledRuntimeBackoff {
         BundledRuntimeRestartDisposition::RestartAfter(delay)
     }
 
-    /// Resets the exit budget only after ten continuous minutes of readiness.
-    pub fn reset_after_stable_readiness(&mut self, ready_at: Instant, now: Instant) -> bool {
-        if now
-            .checked_duration_since(ready_at)
+    /// Starts the stable-readiness interval after an authenticated handshake.
+    pub fn record_authenticated_ready(&mut self, now: Instant) {
+        self.authenticated_ready_since.get_or_insert(now);
+    }
+
+    /// Invalidates authenticated readiness after a disconnect or crash.
+    pub const fn record_disconnected(&mut self) {
+        self.authenticated_ready_since = None;
+    }
+
+    /// Resets the exit budget only after ten continuous authenticated-ready minutes.
+    pub fn reset_after_stable_readiness(&mut self, now: Instant) -> bool {
+        if self
+            .authenticated_ready_since
+            .and_then(|ready_at| now.checked_duration_since(ready_at))
             .is_some_and(|elapsed| elapsed >= UNEXPECTED_EXIT_WINDOW)
         {
             self.unexpected_exits.clear();
@@ -315,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_runtime_backoff_is_bounded_and_stable_readiness_resets_the_budget() {
+    fn bundled_runtime_backoff_is_bounded_and_stable_authenticated_readiness_resets_the_budget() {
         let start = Instant::now();
         let mut backoff = BundledRuntimeBackoff::new();
 
@@ -330,8 +343,60 @@ mod tests {
             BundledRuntimeRestartDisposition::Exhausted
         );
 
-        assert!(!backoff.reset_after_stable_readiness(start, start + Duration::from_secs(599)));
-        assert!(backoff.reset_after_stable_readiness(start, start + UNEXPECTED_EXIT_WINDOW));
+        backoff.record_authenticated_ready(start + Duration::from_secs(6));
+        assert!(!backoff.reset_after_stable_readiness(start + Duration::from_secs(599)));
+        assert!(
+            backoff.reset_after_stable_readiness(
+                start + Duration::from_secs(6) + UNEXPECTED_EXIT_WINDOW
+            )
+        );
+        assert_eq!(
+            backoff.record_unexpected_exit(start + Duration::from_secs(6) + UNEXPECTED_EXIT_WINDOW),
+            BundledRuntimeRestartDisposition::RestartAfter(Duration::from_secs(1))
+        );
+    }
+
+    #[test]
+    fn bundled_runtime_backoff_requires_continuous_authenticated_readiness() {
+        let start = Instant::now();
+        let mut backoff = BundledRuntimeBackoff::new();
+
+        backoff.record_authenticated_ready(start);
+        backoff.record_disconnected();
+        backoff.record_authenticated_ready(start + Duration::from_secs(1));
+
+        assert!(!backoff.reset_after_stable_readiness(start + UNEXPECTED_EXIT_WINDOW));
+        assert!(
+            backoff.reset_after_stable_readiness(
+                start + Duration::from_secs(1) + UNEXPECTED_EXIT_WINDOW
+            )
+        );
+
+        backoff.record_authenticated_ready(start + UNEXPECTED_EXIT_WINDOW);
+        let _ =
+            backoff.record_unexpected_exit(start + UNEXPECTED_EXIT_WINDOW + Duration::from_secs(1));
+        assert!(
+            !backoff.reset_after_stable_readiness(
+                start + UNEXPECTED_EXIT_WINDOW + UNEXPECTED_EXIT_WINDOW
+            )
+        );
+    }
+
+    #[test]
+    fn bundled_runtime_backoff_enforces_the_rolling_ten_minute_exit_window() {
+        let start = Instant::now();
+        let mut backoff = BundledRuntimeBackoff::new();
+
+        for seconds in [1, 2, 5, 10, 30] {
+            assert_eq!(
+                backoff.record_unexpected_exit(start),
+                BundledRuntimeRestartDisposition::RestartAfter(Duration::from_secs(seconds))
+            );
+        }
+        assert_eq!(
+            backoff.record_unexpected_exit(start + Duration::from_secs(599)),
+            BundledRuntimeRestartDisposition::Exhausted
+        );
         assert_eq!(
             backoff.record_unexpected_exit(start + UNEXPECTED_EXIT_WINDOW),
             BundledRuntimeRestartDisposition::RestartAfter(Duration::from_secs(1))
