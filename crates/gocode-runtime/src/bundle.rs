@@ -16,16 +16,20 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "e0fe031b7206c02f10cadbcef276a72b112678fb4b43529dbe16881cf6b394d4";
+    "dca8e3a64b77171495a5474a4994dcd8c33a715f2d6b492a9fc2d14e30619862";
 
-/// Exact additive command/query surface mounted by the current local daemon.
-///
-/// Replay capabilities remain catalogued but unpublished until Task 10 mounts
-/// the entire replay route surface.
+/// Exact additive command/query and Aggregate replay surface mounted by the
+/// current local daemon.
 pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
 ];
 
 /// Ordered capability catalog described by the generated API contract.
@@ -46,15 +50,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replay_capabilities_are_catalogued_but_not_published() {
+    fn replay_capabilities_are_published_in_catalog_order() {
         assert_eq!(RUNTIME_CAPABILITY_CATALOG.len(), 9);
-        assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES.len(), 3);
-        assert!(RUNTIME_CAPABILITY_CATALOG.starts_with(PUBLISHED_RUNTIME_CAPABILITIES));
-        assert!(
-            PUBLISHED_RUNTIME_CAPABILITIES
-                .iter()
-                .all(|capability| !capability.starts_with("replay."))
-        );
+        assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, RUNTIME_CAPABILITY_CATALOG);
     }
 
     #[test]

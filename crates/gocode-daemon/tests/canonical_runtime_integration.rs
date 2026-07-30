@@ -213,6 +213,65 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
     )
     .await;
 
+    let profile = client
+        .get(url(daemon.address, "/v1/runtime/profile"))
+        .header("authorization", &authorization)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(profile.status(), StatusCode::OK);
+    let profile: Value = profile.json().await.unwrap();
+    assert_eq!(
+        profile["capabilities"],
+        json!([
+            "conversation.create.v1",
+            "conversation.generate_text.v1",
+            "conversation.list_messages.v1",
+            "replay.aggregate.open.v1",
+            "replay.aggregate.read_page.v1",
+            "replay.aggregate.acknowledge.v1",
+            "replay.aggregate.complete_catch_up.v1",
+            "replay.aggregate.continue_live.v1",
+            "replay.aggregate.sse.v1",
+        ])
+    );
+
+    let replay = client
+        .post(url(daemon.address, "/v1/replay/open-session"))
+        .header("authorization", &authorization)
+        .json(&json!({
+            "aggregateType": "taskRun",
+            "aggregateId": taskrun_id,
+            "fromCursor": null,
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(replay.status(), StatusCode::OK);
+    let replay: Value = replay.json().await.unwrap();
+    let events = replay["events"].as_array().unwrap();
+    assert_eq!(events.len(), 5);
+    assert_eq!(events[0]["eventType"], "taskRun.created");
+    assert_eq!(events[0]["payload"], json!({"type": "taskRun.created"}));
+    assert_eq!(events[4]["eventType"], "taskRun.completed");
+    assert_eq!(
+        events[4]["payload"],
+        json!({"type": "taskRun.completed", "outcome": "success", "reason": null})
+    );
+    assert_eq!(events[0]["replayBindingId"], events[4]["replayBindingId"]);
+    for forbidden in [
+        "globalPosition",
+        "idempotencyKey",
+        "actor",
+        "integrityProfile",
+        "commandId",
+    ] {
+        assert!(
+            events.iter().all(|event| event.get(forbidden).is_none()),
+            "daemon replay leaked {forbidden}"
+        );
+    }
+
     daemon.stop().await;
 
     let restarted = start(&config).await;

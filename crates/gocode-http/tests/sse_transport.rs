@@ -18,16 +18,15 @@ fn delivery() -> SseDelivery {
 fn terminal() -> SseTerminalFrame {
     SseTerminalFrame {
         transport_version: 1,
-        reason: "SessionClosed".into(),
-        message: "session closed".into(),
+        code: "replay_session_expired".into(),
     }
 }
 
 #[tokio::test]
 async fn test_sse_stream_delivers_events() {
     let (sender, receiver) = sse_channel(2);
-    sender.send(SseItem::Delivery(delivery())).await.unwrap();
-    sender.send(SseItem::Terminal(terminal())).await.unwrap();
+    sender.try_send(SseItem::Delivery(delivery())).unwrap();
+    sender.try_send(SseItem::Terminal(terminal())).unwrap();
     let mut body = into_sse_stream(receiver, Duration::from_secs(1))
         .into_response()
         .into_body()
@@ -65,7 +64,7 @@ async fn test_sse_stream_sends_heartbeats() {
 #[tokio::test]
 async fn test_sse_stream_terminates_on_terminal_frame() {
     let (sender, receiver) = sse_channel(1);
-    sender.send(SseItem::Terminal(terminal())).await.unwrap();
+    sender.try_send(SseItem::Terminal(terminal())).unwrap();
     let mut body = into_sse_stream(receiver, Duration::from_secs(1))
         .into_response()
         .into_body()
@@ -93,4 +92,12 @@ async fn test_sse_stream_terminates_on_sender_drop() {
     let result = tokio::time::timeout(Duration::from_millis(100), body.next()).await;
 
     assert!(matches!(result, Ok(None)));
+}
+
+#[test]
+fn full_sse_channel_fails_immediately_without_waiting() {
+    let (sender, _receiver) = sse_channel(1);
+    sender.try_send(SseItem::Delivery(delivery())).unwrap();
+
+    assert!(sender.try_send(SseItem::Delivery(delivery())).is_err());
 }
