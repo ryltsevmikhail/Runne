@@ -37,12 +37,24 @@ impl Drop for LaunchIdentity {
 impl LaunchIdentity {
     /// Creates one loopback-only TLS identity and bootstrap secret.
     pub fn generate(launch_generation: u64) -> Result<Self, LaunchIdentityError> {
-        Self::generate_inner(launch_generation, None)
+        Self::generate_inner(launch_generation, None, None)
+    }
+
+    /// Creates TLS identity using the protected-channel bootstrap key.
+    pub(crate) fn generate_protected(
+        launch_generation: u64,
+        bootstrap_secret: [u8; 32],
+    ) -> Result<Self, LaunchIdentityError> {
+        if bootstrap_secret == [0; 32] {
+            return Err(LaunchIdentityError::InvalidBootstrapSecret);
+        }
+        Self::generate_inner(launch_generation, None, Some(bootstrap_secret))
     }
 
     fn generate_inner(
         launch_generation: u64,
         marker_out: Option<&mut [u8; 32]>,
+        protected_bootstrap_secret: Option<[u8; 32]>,
     ) -> Result<Self, LaunchIdentityError> {
         if launch_generation == 0 {
             return Err(LaunchIdentityError::InvalidGeneration);
@@ -79,8 +91,10 @@ impl LaunchIdentity {
                     PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(private_key_der.to_vec())),
                 )
                 .map_err(|_| LaunchIdentityError::Tls)?;
-        let mut bootstrap_secret = [0_u8; 32];
-        OsRng.fill_bytes(&mut bootstrap_secret);
+        let mut bootstrap_secret = protected_bootstrap_secret.unwrap_or([0; 32]);
+        if protected_bootstrap_secret.is_none() {
+            OsRng.fill_bytes(&mut bootstrap_secret);
+        }
         let daemon_instance_id = DaemonInstanceId::from_bytes(*uuid::Uuid::now_v7().as_bytes());
         Ok(Self {
             certificate_der,
@@ -147,7 +161,7 @@ impl LaunchIdentity {
         launch_generation: u64,
     ) -> Result<(Self, [u8; 32]), LaunchIdentityError> {
         let mut marker = [0; 32];
-        let identity = Self::generate_inner(launch_generation, Some(&mut marker))?;
+        let identity = Self::generate_inner(launch_generation, Some(&mut marker), None)?;
         Ok((identity, marker))
     }
 }
@@ -162,6 +176,7 @@ fn private_key_marker(key_der: &[u8]) -> [u8; 32] {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaunchIdentityError {
     InvalidGeneration,
+    InvalidBootstrapSecret,
     Certificate,
     Tls,
 }
@@ -170,6 +185,7 @@ impl std::fmt::Display for LaunchIdentityError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::InvalidGeneration => "invalid launch generation",
+            Self::InvalidBootstrapSecret => "invalid protected bootstrap secret",
             Self::Certificate => "TLS certificate generation failed",
             Self::Tls => "TLS server configuration failed",
         })

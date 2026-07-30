@@ -11,7 +11,11 @@ use crate::config::ConfigurationSnapshot;
 use crate::error::DaemonError;
 use crate::recovery::{RecoveryState, enumerate_recovery_tasks};
 use crate::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
-use gocode_api::{ApiActor, ApiPrincipalId, RuntimeSessionBinding, StableRuntimeBinding};
+use gocode_api::{
+    ApiActor, ApiPrincipalId, ExecutableIdentityV1, ProtectedActivationKeys,
+    ProtectedLaunchRequestV1, ProtectedReadyV1, RuntimeSessionBinding, StableRuntimeBinding,
+    StableRuntimeBindingV1,
+};
 use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextService,
@@ -120,7 +124,11 @@ pub struct DaemonApplication {
     bootstrap: BootstrapOutcome,
     store: StoreTransaction,
     http_host: LocalRuntimeTlsHost,
-    client_profile: PublishedClientProfileV2,
+    client_profile: Option<PublishedClientProfileV2>,
+    binding: RuntimeSessionBinding,
+    local_session_service: Arc<Mutex<LocalSessionService>>,
+    session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    protected_activation: bool,
     runtime_controller: RuntimeController,
     _secret_broker: Arc<Mutex<SecretBroker>>,
     task_supervisor: Arc<RuntimeTaskSupervisor>,
@@ -131,6 +139,21 @@ impl DaemonApplication {
     /// Bootstraps storage, starts the canonical runtime, builds the production
     /// router, and binds HTTP without accepting requests yet.
     pub async fn start(config: &ConfigurationSnapshot) -> Result<Self, DaemonError> {
+        Self::validate_config(config)?;
+        let bootstrap = bootstrap(config)?;
+        Self::start_with_bootstrap(config, bootstrap, false).await
+    }
+
+    /// Starts from an already authenticated protected bundled bootstrap.
+    pub async fn start_protected(
+        config: &ConfigurationSnapshot,
+        bootstrap: BootstrapOutcome,
+    ) -> Result<Self, DaemonError> {
+        Self::validate_config(config)?;
+        Self::start_with_bootstrap(config, bootstrap, true).await
+    }
+
+    fn validate_config(config: &ConfigurationSnapshot) -> Result<(), DaemonError> {
         if config.max_in_flight == 0 {
             return Err(DaemonError::Config(
                 "max_in_flight must be greater than zero".to_owned(),
@@ -141,8 +164,14 @@ impl DaemonApplication {
                 "shutdown_timeout_ms must be greater than zero".to_owned(),
             ));
         }
+        Ok(())
+    }
 
-        let bootstrap = bootstrap(config)?;
+    async fn start_with_bootstrap(
+        config: &ConfigurationSnapshot,
+        bootstrap: BootstrapOutcome,
+        protected_activation: bool,
+    ) -> Result<Self, DaemonError> {
         let recovery_state = enumerate_recovery_tasks(&bootstrap.db_conn)?;
         let replay_lineage = ensure_event_log_lineage_id(&bootstrap.db_conn).map_err(|error| {
             DaemonError::Bootstrap(format!("initialize replay lineage: {error}"))
@@ -263,10 +292,23 @@ impl DaemonApplication {
             *bootstrap.launch_identity.certificate_sha256(),
         )
         .map_err(|_| DaemonError::Bootstrap("build local session binding".into()))?;
-        let local_session_service = Arc::new(Mutex::new(LocalSessionService::new(
-            binding.clone(),
-            bootstrap.launch_identity.bootstrap_secret(),
-        )));
+        let launched_at = Instant::now();
+        let session_clock: Arc<dyn Fn() -> Duration + Send + Sync> =
+            Arc::new(move || launched_at.elapsed());
+        let local_session_service = Arc::new(Mutex::new(if protected_activation {
+            LocalSessionService::new_protected(
+                binding.clone(),
+                bootstrap.launch_identity.bootstrap_secret(),
+                Duration::ZERO,
+                Duration::from_secs(30),
+            )
+            .map_err(|_| DaemonError::Bootstrap("initialize protected session".into()))?
+        } else {
+            LocalSessionService::new(
+                binding.clone(),
+                bootstrap.launch_identity.bootstrap_secret(),
+            )
+        }));
         let replay_service = ReplayService::new(
             Arc::new(replay_store),
             replay_integrity_secret,
@@ -276,9 +318,6 @@ impl DaemonApplication {
                 Arc::clone(&local_session_service),
             )),
         );
-        let launched_at = Instant::now();
-        let clock: Arc<dyn Fn() -> Duration + Send + Sync> =
-            Arc::new(move || launched_at.elapsed());
         let http_host = LocalRuntimeTlsHost::bind(
             &config.http_bind,
             Arc::clone(bootstrap.launch_identity.server_config()),
@@ -286,9 +325,10 @@ impl DaemonApplication {
                 recovery_state: http_recovery_state.clone(),
             },
             AdmissionState::new(http_recovery_state),
-            local_session_service,
-            binding,
-            clock,
+            Arc::clone(&local_session_service),
+            binding.clone(),
+            protected_activation,
+            Arc::clone(&session_clock),
             RuntimeProfileHttpState::new(
                 gocode_runtime::bundle::BUNDLE_ID,
                 gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH,
@@ -307,8 +347,10 @@ impl DaemonApplication {
         .await
         .map_err(DaemonError::from)?;
         let shutdown_timeout = Duration::from_millis(config.shutdown_timeout_ms);
-        let client_profile_result =
-            http_host
+        let client_profile = if protected_activation {
+            None
+        } else {
+            let result = http_host
                 .local_addr()
                 .map_err(DaemonError::from)
                 .and_then(|address| {
@@ -327,17 +369,18 @@ impl DaemonApplication {
                         uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
                     )
                 });
-        let client_profile = match client_profile_result {
-            Ok(profile) => profile,
-            Err(error) => {
-                let _ = tokio::time::timeout(
-                    shutdown_timeout,
-                    runtime_controller.shutdown(ShutdownMode::Immediate {
-                        timeout: shutdown_timeout,
-                    }),
-                )
-                .await;
-                return Err(error);
+            match result {
+                Ok(profile) => Some(profile),
+                Err(error) => {
+                    let _ = tokio::time::timeout(
+                        shutdown_timeout,
+                        runtime_controller.shutdown(ShutdownMode::Immediate {
+                            timeout: shutdown_timeout,
+                        }),
+                    )
+                    .await;
+                    return Err(error);
+                }
             }
         };
 
@@ -346,6 +389,10 @@ impl DaemonApplication {
             store,
             http_host,
             client_profile,
+            binding,
+            local_session_service,
+            session_clock,
+            protected_activation,
             runtime_controller,
             _secret_broker: secret_broker,
             task_supervisor: RuntimeTaskSupervisor::new(),
@@ -368,6 +415,87 @@ impl DaemonApplication {
         self.bootstrap.db_existed
     }
 
+    /// Builds exact authenticated readiness without exposing legacy profile files.
+    pub fn protected_ready(
+        &self,
+        request: &ProtectedLaunchRequestV1,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<ProtectedReadyV1, DaemonError> {
+        if !self.protected_activation || self.client_profile.is_some() {
+            return Err(DaemonError::Bootstrap(
+                "protected readiness is unavailable".into(),
+            ));
+        }
+        let executable_path = std::env::current_exe()
+            .map_err(|_| DaemonError::Bootstrap("measure launched executable".into()))?;
+        let executable = ExecutableIdentityV1::measure(&executable_path)
+            .map_err(|_| DaemonError::Bootstrap("measure launched executable".into()))?;
+        if &executable != request.executable() {
+            return Err(DaemonError::Bootstrap(
+                "launched executable identity mismatch".into(),
+            ));
+        }
+        let stable = self.binding.stable();
+        let stable = StableRuntimeBindingV1::new(
+            *stable.authority_id(),
+            stable.principal_id().as_str(),
+            *stable.lineage_id().as_bytes(),
+            stable.profile_id(),
+            *stable.schema_hash(),
+            *stable.capability_digest(),
+        )
+        .map_err(|_| DaemonError::Bootstrap("build protected readiness binding".into()))?;
+        let ephemeral = self.binding.ephemeral();
+        let mut ready = ProtectedReadyV1::new(
+            request.launch_authority_id(),
+            request.desktop_host_instance_id(),
+            executable,
+            request.profile().clone(),
+            stable,
+            ephemeral.daemon_instance_id().into_bytes(),
+            ephemeral.launch_generation(),
+            *ephemeral.session_id(),
+            format!("https://{}", self.local_addr()?),
+            *self.bootstrap.launch_identity.certificate_sha256(),
+            self.bootstrap
+                .launch_identity
+                .certificate_der()
+                .as_ref()
+                .to_vec(),
+            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+                .iter()
+                .map(|capability| (*capability).to_owned())
+                .collect(),
+        )
+        .map_err(|_| DaemonError::Bootstrap("build protected readiness".into()))?;
+        ready.sign(keys);
+        Ok(ready)
+    }
+
+    /// Shares the in-memory protected session service with the control loop.
+    pub fn protected_session_service(
+        &self,
+    ) -> Result<Arc<Mutex<LocalSessionService>>, DaemonError> {
+        if !self.protected_activation {
+            return Err(DaemonError::Bootstrap(
+                "protected session service is unavailable".into(),
+            ));
+        }
+        Ok(Arc::clone(&self.local_session_service))
+    }
+
+    /// Shares the daemon monotonic clock used to enforce bootstrap deadlines.
+    pub fn protected_session_clock(
+        &self,
+    ) -> Result<Arc<dyn Fn() -> Duration + Send + Sync>, DaemonError> {
+        if !self.protected_activation {
+            return Err(DaemonError::Bootstrap(
+                "protected session clock is unavailable".into(),
+            ));
+        }
+        Ok(Arc::clone(&self.session_clock))
+    }
+
     /// Runs until shutdown or HTTP failure, then stops HTTP before the
     /// canonical runtime and releases bootstrap resources last.
     pub async fn run<F>(self, shutdown: F) -> Result<(), DaemonError>
@@ -379,6 +507,10 @@ impl DaemonApplication {
             store,
             http_host,
             client_profile,
+            binding,
+            local_session_service,
+            session_clock,
+            protected_activation,
             mut runtime_controller,
             _secret_broker,
             task_supervisor,
@@ -392,6 +524,10 @@ impl DaemonApplication {
         let runtime_result = shutdown_runtime(&mut runtime_controller, shutdown_timeout).await;
 
         drop(client_profile);
+        drop(binding);
+        drop(local_session_service);
+        drop(session_clock);
+        let _ = protected_activation;
         drop(_secret_broker);
         drop(store);
         drop(bootstrap);

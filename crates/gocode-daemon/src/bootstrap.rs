@@ -22,8 +22,10 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use gocode_api::PendingFirstActivationV1;
 use gocode_domain::id::validate_uuid_v7_bytes;
 use gocode_store::schema;
+use gocode_store::schema::LaunchAuthorityConsumptionError;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 
@@ -93,6 +95,47 @@ impl std::fmt::Debug for BootstrapOutcome {
 /// `DaemonError` for fatal startup failures (invalid replay key, DB change
 /// under live lock, authority without Event Log, etc.).
 pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, DaemonError> {
+    bootstrap_inner(config, None)
+}
+
+struct ProtectedBootstrap<'a> {
+    launch_authority_id: [u8; 16],
+    bootstrap_secret: [u8; 32],
+    pending_first_activation: Option<&'a PendingFirstActivationV1>,
+    freshness_check: &'a mut dyn FnMut() -> Result<(), DaemonError>,
+}
+
+/// Bootstraps one protected bundled launch without publishing a credential profile.
+pub fn bootstrap_protected<F>(
+    config: &ConfigurationSnapshot,
+    launch_authority_id: [u8; 16],
+    bootstrap_secret: [u8; 32],
+    pending_first_activation: Option<&PendingFirstActivationV1>,
+    mut freshness_check: F,
+) -> Result<BootstrapOutcome, DaemonError>
+where
+    F: FnMut() -> Result<(), DaemonError>,
+{
+    if validate_uuid_v7_bytes(&launch_authority_id).is_err() || bootstrap_secret == [0; 32] {
+        return Err(DaemonError::Bootstrap(
+            "invalid protected launch authority".into(),
+        ));
+    }
+    bootstrap_inner(
+        config,
+        Some(ProtectedBootstrap {
+            launch_authority_id,
+            bootstrap_secret,
+            pending_first_activation,
+            freshness_check: &mut freshness_check,
+        }),
+    )
+}
+
+fn bootstrap_inner(
+    config: &ConfigurationSnapshot,
+    mut protected: Option<ProtectedBootstrap<'_>>,
+) -> Result<BootstrapOutcome, DaemonError> {
     let db_path = PathBuf::from(&config.db_path);
     let replay_integrity_key_path = PathBuf::from(&config.replay_integrity_key_path);
 
@@ -111,6 +154,17 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
 
     // ── Step 6: check DB existence BEFORE any file creation ─────────
     let db_existed = db_path.exists();
+    if protected.is_some()
+        && !db_existed
+        && protected
+            .as_ref()
+            .and_then(|value| value.pending_first_activation)
+            .is_none()
+    {
+        return Err(DaemonError::Bootstrap(
+            "protected first activation was not prepared".into(),
+        ));
+    }
 
     // ── Step 4: acquire provisional path lock ───────────────────────
     let mut locks = LockSet::acquire_path(&db_path, &runtime_dir)
@@ -143,14 +197,68 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     schema::apply_migrations(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("schema migration: {e}")))?;
     // ── Step 12: authority ID ───────────────────────────────────────
-    let (authority_id, db_authority_after) =
-        acquire_authority(db_existed, &db_conn, &mut locks, &runtime_dir)?;
+    let prepared_authority = protected
+        .as_ref()
+        .and_then(|value| value.pending_first_activation)
+        .map(|pending| *pending.stable().authority_id());
+    let (authority_id, db_authority_after) = acquire_authority(
+        db_existed,
+        &db_conn,
+        &mut locks,
+        &runtime_dir,
+        prepared_authority,
+    )?;
+    if let Some(pending) = protected
+        .as_ref()
+        .and_then(|value| value.pending_first_activation)
+    {
+        let expected_lineage = uuid::Uuid::from_bytes(*pending.stable().lineage_id())
+            .to_string()
+            .parse()
+            .map_err(|_| DaemonError::Bootstrap("invalid prepared Event Log lineage".into()))?;
+        if authority_id != *pending.stable().authority_id() {
+            return Err(DaemonError::Bootstrap(
+                "prepared stable authority mismatch".into(),
+            ));
+        }
+        schema::ensure_exact_first_activation_identity(
+            &db_conn,
+            pending.stable().authority_id(),
+            expected_lineage,
+            pending.preparation_id(),
+        )
+        .map_err(|_| DaemonError::Bootstrap("prepared first activation mismatch".into()))?;
+    }
     let (replay_integrity_key, local_session_authority_id) =
         load_or_migrate_local_sidecars(&db_conn, &replay_integrity_key_path, authority_id)?;
+    if let Some(protected) = protected.as_mut() {
+        if let Some(pending) = protected.pending_first_activation
+            && local_session_authority_id != *pending.stable().authority_id()
+        {
+            return Err(DaemonError::Bootstrap(
+                "prepared stable authority mismatch".into(),
+            ));
+        }
+        (protected.freshness_check)()?;
+        schema::consume_protected_launch_authority(&db_conn, &protected.launch_authority_id)
+            .map_err(|error| match error {
+                LaunchAuthorityConsumptionError::AlreadyConsumed => {
+                    DaemonError::Bootstrap("protected launch authority already consumed".into())
+                }
+                LaunchAuthorityConsumptionError::InvalidAuthority
+                | LaunchAuthorityConsumptionError::Storage => {
+                    DaemonError::Bootstrap("consume protected launch authority".into())
+                }
+            })?;
+    }
     let launch_generation = schema::next_launch_generation(&db_conn)
         .map_err(|_| DaemonError::Bootstrap("allocate launch generation: corrupt state".into()))?;
-    let launch_identity = LaunchIdentity::generate(launch_generation)
-        .map_err(|_| DaemonError::Bootstrap("generate launch TLS identity".into()))?;
+    let launch_identity = if let Some(protected) = protected.as_ref() {
+        LaunchIdentity::generate_protected(launch_generation, protected.bootstrap_secret)
+    } else {
+        LaunchIdentity::generate(launch_generation)
+    }
+    .map_err(|_| DaemonError::Bootstrap("generate launch TLS identity".into()))?;
 
     // ── Step 13: reconcile metadata ─────────────────────────────────
     reconcile_metadata(
@@ -221,6 +329,47 @@ fn load_or_migrate_local_sidecars(
             Ok((replay_key, local_authority))
         }
     }
+}
+
+/// Read-only validation for sidecars left before first launch consumption.
+pub(crate) fn preflight_recoverable_first_activation_sidecars(
+    config: &ConfigurationSnapshot,
+    expected_authority: &[u8; 16],
+) -> Result<(), DaemonError> {
+    let replay_key_path = Path::new(&config.replay_integrity_key_path);
+    let authority_path = replay_key_path.with_file_name("local-session-authority-id");
+    let db = rusqlite::Connection::open_with_flags(
+        &config.db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .map_err(|_| sidecar_state_error())?;
+    match read_sidecar_migration_marker(&db)? {
+        Some(marker) => {
+            let replay_key = ReplayIntegrityKeyManager::load_existing(replay_key_path)
+                .map_err(|_| sidecar_state_error())?;
+            let authority =
+                load_local_session_authority(&authority_path).map_err(|_| sidecar_state_error())?;
+            if &authority != expected_authority
+                || replay_key.sidecar_digest() != marker.replay_key_digest
+                || Sha256::digest(authority).as_slice() != marker.local_authority_digest
+            {
+                return Err(sidecar_state_error());
+            }
+        }
+        None => {
+            if replay_key_path.exists() {
+                ReplayIntegrityKeyManager::load_existing(replay_key_path)
+                    .map_err(|_| sidecar_state_error())?;
+            }
+            if authority_path.exists() {
+                match load_local_session_authority(&authority_path) {
+                    Ok(authority) if authority == *expected_authority => {}
+                    Ok(_) | Err(_) => return Err(sidecar_state_error()),
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn read_sidecar_migration_marker(
@@ -402,6 +551,7 @@ fn acquire_authority(
     conn: &rusqlite::Connection,
     locks: &mut LockSet,
     runtime_dir: &Path,
+    prepared_authority: Option<[u8; 16]>,
 ) -> Result<([u8; 16], Option<[u8; 16]>), DaemonError> {
     let db_authority = schema::read_authority_id(conn)
         .map_err(|e| DaemonError::Bootstrap(format!("read authority: {e}")))?;
@@ -409,7 +559,7 @@ fn acquire_authority(
     match (db_existed, db_authority) {
         // New DB — generate fresh authority
         (false, None) => {
-            let aid = *uuid::Uuid::now_v7().as_bytes();
+            let aid = prepared_authority.unwrap_or_else(|| *uuid::Uuid::now_v7().as_bytes());
             schema::ensure_authority_id(conn, &aid)
                 .map_err(|e| DaemonError::Bootstrap(format!("ensure authority: {e}")))?;
 
@@ -430,6 +580,11 @@ fn acquire_authority(
 
         // Existing DB — must have authority
         (true, Some(aid)) => {
+            if prepared_authority.is_some_and(|prepared| prepared != aid) {
+                return Err(DaemonError::Bootstrap(
+                    "prepared authority does not match Event Log".into(),
+                ));
+            }
             locks
                 .acquire_authority_lock(&aid, runtime_dir)
                 .map_err(|e| DaemonError::Bootstrap(format!("authority lock: {e}")))?;
@@ -780,5 +935,86 @@ mod tests {
         let conn = schema::open_with_pragmas(&config.db_path).unwrap();
         let state = enumerate_recovery_tasks(&conn).unwrap();
         assert_eq!(state, crate::recovery::RecoveryState::RecoveryBlocked);
+    }
+
+    #[test]
+    fn prepared_first_activation_preflight_accepts_each_safe_sidecar_crash_window() {
+        use gocode_api::{
+            ExecutableIdentityV1, PendingFirstActivationV1, ProtectedRuntimeProfileV1,
+            StableRuntimeBindingV1,
+        };
+
+        let authority = [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 1,
+        ];
+        let pending = PendingFirstActivationV1::new(
+            [
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 3,
+            ],
+            [0x10; 32],
+            StableRuntimeBindingV1::new(
+                authority,
+                "local-owner",
+                [
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 2,
+                ],
+                "gocode-ui-client/1",
+                [0x20; 32],
+                [0x30; 32],
+            )
+            .unwrap(),
+            ExecutableIdentityV1::new([0x40; 32], [0x50; 32], 4_096).unwrap(),
+            ProtectedRuntimeProfileV1::new(
+                "gocode-bundled-runtime/1",
+                1,
+                "gocode-ui-client/1",
+                [0x20; 32],
+                [0x30; 32],
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let temp = TempDir::new().unwrap();
+        let config = test_config(&temp);
+        let launch = [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 4,
+        ];
+        bootstrap_protected(&config, launch, [0x61; 32], Some(&pending), || {
+            Err(DaemonError::Bootstrap(
+                "protected launch authority expired".into(),
+            ))
+        })
+        .expect_err("injected failure before consumption");
+
+        let replay_key_path = Path::new(&config.replay_integrity_key_path);
+        let authority_path = replay_key_path.with_file_name("local-session-authority-id");
+        preflight_recoverable_first_activation_sidecars(&config, &authority)
+            .expect("complete unconsumed sidecars");
+
+        let connection = schema::open_with_pragmas(&config.db_path).unwrap();
+        connection
+            .execute(
+                "DELETE FROM _daemon_info WHERE key = ?1",
+                [SIDECAR_MIGRATION_MARKER_KEY],
+            )
+            .unwrap();
+        drop(connection);
+        preflight_recoverable_first_activation_sidecars(&config, &authority)
+            .expect("crash before marker");
+
+        fs::remove_file(&authority_path).unwrap();
+        preflight_recoverable_first_activation_sidecars(&config, &authority)
+            .expect("crash before authority sidecar");
+        load_or_provision_local_session_authority(&authority_path, authority).unwrap();
+
+        fs::remove_file(replay_key_path).unwrap();
+        preflight_recoverable_first_activation_sidecars(&config, &authority)
+            .expect("crash before replay-key sidecar");
+        fs::remove_file(&authority_path).unwrap();
+        preflight_recoverable_first_activation_sidecars(&config, &authority)
+            .expect("crash before either sidecar");
+
+        fs::write(replay_key_path, [0x7f; 7]).unwrap();
+        assert!(preflight_recoverable_first_activation_sidecars(&config, &authority).is_err());
     }
 }

@@ -1,11 +1,39 @@
 //! GOCODE Runtime Daemon.
 
+#[cfg(unix)]
+use gocode_api::LaunchAuthorityError;
 use gocode_daemon::application::DaemonApplication;
 use gocode_daemon::config::load_config;
+#[cfg(unix)]
+use gocode_daemon::error::DaemonError;
+#[cfg(unix)]
+use gocode_daemon::protected_activation::{
+    ProtectedActivationChannel, ProtectedDaemonLaunch, run_control_loop,
+};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt::init();
 
+    #[cfg(unix)]
+    match ProtectedActivationChannel::from_inherited_stdin() {
+        Ok(Some(channel)) => {
+            if run_protected(channel).is_err() {
+                eprintln!("fatal: protected activation failed");
+                std::process::exit(2);
+            }
+            return Ok(());
+        }
+        Ok(None) => {}
+        Err(_) => {
+            eprintln!("fatal: protected activation channel failed");
+            std::process::exit(2);
+        }
+    }
+
+    run_external()
+}
+
+fn run_external() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config(None).map_err(|error| {
         eprintln!("fatal: config error: {error}");
         std::process::exit(1);
@@ -32,4 +60,64 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })?;
 
     Ok(())
+}
+
+#[cfg(unix)]
+fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
+    let executable_path = std::env::current_exe().map_err(|_| ())?;
+    let launch = ProtectedDaemonLaunch::accept(&mut channel, &executable_path, || {
+        unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
+    })
+    .map_err(|_| ())?;
+    let bootstrap = launch
+        .bootstrap(|| unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority))
+        .map_err(|_| ())?;
+    let runtime = tokio::runtime::Runtime::new().map_err(|_| ())?;
+    runtime
+        .block_on(async move {
+            let application = DaemonApplication::start_protected(launch.config(), bootstrap)
+                .await
+                .map_err(|_| ())?;
+            let ready = application
+                .protected_ready(launch.request(), launch.keys())
+                .map_err(|_| ())?;
+            let owned_launch = ready.owned_launch();
+            let keys = launch.keys().clone();
+            let local_session_service = application.protected_session_service().map_err(|_| ())?;
+            let session_clock = application.protected_session_clock().map_err(|_| ())?;
+            channel
+                .write_control_frame(&ready.encode_frame().map_err(|_| ())?)
+                .map_err(|_| ())?;
+            let control_loop = tokio::task::spawn_blocking(move || {
+                run_control_loop(
+                    channel,
+                    keys,
+                    owned_launch,
+                    local_session_service,
+                    session_clock,
+                )
+            });
+            application
+                .run(async move {
+                    control_loop
+                        .await
+                        .map_err(|_| {
+                            DaemonError::Bootstrap("protected control task failed".into())
+                        })?
+                        .map_err(|_| {
+                            DaemonError::Bootstrap("protected control channel closed".into())
+                        })
+                })
+                .await
+                .map_err(|_| ())
+        })
+        .map_err(|_| ())
+}
+
+#[cfg(unix)]
+fn unix_time_millis() -> Option<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
 }

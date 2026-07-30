@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 base64.workspace = true
 dirs = "6"
+gocode-api = { path = "../gocode-api" }
 hex.workspace = true
 hmac = "0.12"
 rand = "0.8"

@@ -79,7 +79,7 @@ impl RuntimeApiError {
 #[derive(Clone)]
 pub struct SessionAuthLayer {
     service: Arc<Mutex<LocalSessionService>>,
-    binding: RuntimeSessionBinding,
+    binding: Option<RuntimeSessionBinding>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
 }
 impl SessionAuthLayer {
@@ -91,7 +91,19 @@ impl SessionAuthLayer {
     ) -> Self {
         Self {
             service,
-            binding,
+            binding: Some(binding),
+            clock,
+        }
+    }
+
+    /// Creates a layer that follows protected in-process session rotation.
+    pub fn new_dynamic(
+        service: Arc<Mutex<LocalSessionService>>,
+        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    ) -> Self {
+        Self {
+            service,
+            binding: None,
             clock,
         }
     }
@@ -111,7 +123,7 @@ impl<S> tower::Layer<S> for SessionAuthLayer {
 pub struct SessionAuthMiddleware<S> {
     inner: S,
     service: Arc<Mutex<LocalSessionService>>,
-    binding: RuntimeSessionBinding,
+    binding: Option<RuntimeSessionBinding>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
 }
 impl<S> tower::Service<Request<Body>> for SessionAuthMiddleware<S>
@@ -138,11 +150,15 @@ where
             req.headers_mut().append("authorization", value);
         }
         let authenticated = extract_session_authority(req.headers()).and_then(|authority| {
-            self.service.lock().ok().and_then(|mut service| {
-                service
-                    .authorize_wire_for_binding(&authority, &self.binding, (self.clock)())
-                    .ok()
-            })
+            self.service
+                .lock()
+                .ok()
+                .and_then(|mut service| match self.binding.as_ref() {
+                    Some(binding) => service
+                        .authorize_wire_for_binding(&authority, binding, (self.clock)())
+                        .ok(),
+                    None => service.authorize_wire(&authority, (self.clock)()).ok(),
+                })
         });
         if let Some(authenticated) = authenticated {
             let principal =

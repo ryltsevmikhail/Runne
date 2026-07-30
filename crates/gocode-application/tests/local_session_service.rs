@@ -21,6 +21,14 @@ const CERTIFICATE: [u8; 32] = [0x11; 32];
 const SECRET: [u8; 32] = [0x22; 32];
 
 fn runtime_binding(generation: u64, epoch: u64) -> RuntimeSessionBinding {
+    runtime_binding_with_session(generation, epoch, [0x55; 16])
+}
+
+fn runtime_binding_with_session(
+    generation: u64,
+    epoch: u64,
+    session_id: [u8; 16],
+) -> RuntimeSessionBinding {
     RuntimeSessionBinding::new(
         StableRuntimeBinding::new(
             AUTHORITY,
@@ -33,7 +41,7 @@ fn runtime_binding(generation: u64, epoch: u64) -> RuntimeSessionBinding {
         .unwrap(),
         DaemonInstanceId::from_bytes(DAEMON),
         generation,
-        [0x55; 16],
+        session_id,
         epoch,
         Sensitivity::Internal,
         CERTIFICATE,
@@ -46,8 +54,17 @@ fn proof(
     server_nonce: [u8; 32],
     client_nonce: [u8; 32],
 ) -> BootstrapProof {
+    proof_with_secret(binding, server_nonce, client_nonce, &SECRET)
+}
+
+fn proof_with_secret(
+    binding: &RuntimeSessionBinding,
+    server_nonce: [u8; 32],
+    client_nonce: [u8; 32],
+    secret: &[u8; 32],
+) -> BootstrapProof {
     let transcript = bootstrap_proof_transcript(binding, server_nonce, client_nonce);
-    let mut mac = HmacSha256::new_from_slice(&SECRET).unwrap();
+    let mut mac = HmacSha256::new_from_slice(secret).unwrap();
     mac.update(&transcript);
     BootstrapProof::new(mac.finalize().into_bytes().into())
 }
@@ -247,6 +264,144 @@ fn replay_authorization_reads_current_epoch_and_sensitivity_ceiling() {
     assert_eq!(revoked.sensitivity_ceiling(), Sensitivity::Public);
     assert!(matches!(
         service.current_replay_authorization("other", 7),
+        Err(LocalSessionError::Unauthorized)
+    ));
+}
+
+#[test]
+fn protected_bootstrap_is_consumed_after_one_successful_authentication() {
+    let binding = runtime_binding(7, 3);
+    let mut service = LocalSessionService::new_protected(
+        binding.clone(),
+        SECRET,
+        Duration::ZERO,
+        Duration::from_secs(30),
+    )
+    .unwrap();
+    let challenge = service
+        .issue_challenge([2; 32], [1; 32], Duration::ZERO)
+        .unwrap();
+    service
+        .authenticate(
+            challenge.id,
+            proof(&binding, [1; 32], [2; 32]),
+            [3; 32],
+            Duration::ZERO,
+        )
+        .unwrap();
+
+    assert!(matches!(
+        service.issue_challenge([5; 32], [4; 32], Duration::ZERO),
+        Err(LocalSessionError::Unauthorized)
+    ));
+}
+
+#[test]
+fn protected_rotation_revokes_old_authority_and_requires_exact_launch_tuple() {
+    let binding = runtime_binding(7, 3);
+    let mut service = LocalSessionService::new_protected(
+        binding.clone(),
+        SECRET,
+        Duration::ZERO,
+        Duration::from_secs(30),
+    )
+    .unwrap();
+    let initial = service
+        .issue_challenge([2; 32], [1; 32], Duration::ZERO)
+        .unwrap();
+    service
+        .authenticate(
+            initial.id,
+            proof(&binding, [1; 32], [2; 32]),
+            [3; 32],
+            Duration::ZERO,
+        )
+        .unwrap();
+
+    let next_secret = [0x66; 32];
+    let rotated = runtime_binding_with_session(
+        7,
+        3,
+        [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 6,
+        ],
+    );
+    service
+        .rotate_protected_bootstrap(
+            rotated.clone(),
+            next_secret,
+            Duration::ZERO,
+            Duration::from_secs(30),
+        )
+        .expect("same stable launch with new session");
+    assert!(matches!(
+        service.authorize_wire(&[3; 32], Duration::ZERO),
+        Err(LocalSessionError::Unauthorized)
+    ));
+
+    let renewal = service
+        .issue_challenge([5; 32], [4; 32], Duration::ZERO)
+        .unwrap();
+    let issued = service
+        .authenticate(
+            renewal.id,
+            proof_with_secret(&rotated, [4; 32], [5; 32], &next_secret),
+            [7; 32],
+            Duration::ZERO,
+        )
+        .unwrap();
+    assert_eq!(issued.binding, rotated);
+
+    assert!(matches!(
+        service.rotate_protected_bootstrap(
+            runtime_binding(8, 3),
+            [8; 32],
+            Duration::ZERO,
+            Duration::from_secs(30),
+        ),
+        Err(LocalSessionError::Unauthorized)
+    ));
+}
+
+#[test]
+fn protected_bootstrap_deadline_rejects_held_initial_and_renewal_tickets() {
+    let binding = runtime_binding(7, 3);
+    let mut service = LocalSessionService::new_protected(
+        binding.clone(),
+        SECRET,
+        Duration::from_secs(4),
+        Duration::from_secs(34),
+    )
+    .unwrap();
+    assert!(matches!(
+        service.issue_challenge([2; 32], [1; 32], Duration::from_secs(35)),
+        Err(LocalSessionError::Unauthorized)
+    ));
+
+    let mut service = LocalSessionService::new_protected(
+        binding,
+        SECRET,
+        Duration::ZERO,
+        Duration::from_secs(30),
+    )
+    .unwrap();
+    let rotated = runtime_binding_with_session(
+        7,
+        3,
+        [
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 6,
+        ],
+    );
+    service
+        .rotate_protected_bootstrap(
+            rotated,
+            [0x66; 32],
+            Duration::from_secs(100),
+            Duration::from_secs(130),
+        )
+        .unwrap();
+    assert!(matches!(
+        service.issue_challenge([4; 32], [3; 32], Duration::from_secs(131)),
         Err(LocalSessionError::Unauthorized)
     ));
 }

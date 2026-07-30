@@ -176,6 +176,15 @@ pub struct RuntimeSessionInfo {
     pub capability_digest: String,
 }
 
+/// Native-host transport authority used to construct an authenticated client.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeTransportKind {
+    /// Explicit external daemon using the owner-only credential profile.
+    ExternalLocal,
+    /// Supervised bundled daemon admitted over the protected launch channel.
+    ProtectedBundled,
+}
+
 /// Authenticated runtime client. Construction is possible only after the
 /// exact profile handshake succeeds.
 #[derive(Clone)]
@@ -184,6 +193,7 @@ pub struct AuthenticatedRuntimeClient {
     origin: String,
     authority: RuntimeSessionAuthority,
     session: RuntimeSessionInfo,
+    transport_kind: RuntimeTransportKind,
 }
 
 impl AuthenticatedRuntimeClient {
@@ -191,6 +201,12 @@ impl AuthenticatedRuntimeClient {
     #[must_use]
     pub const fn session_info(&self) -> &RuntimeSessionInfo {
         &self.session
+    }
+
+    /// Returns the native-only transport class accepted during authentication.
+    #[must_use]
+    pub const fn transport_kind(&self) -> RuntimeTransportKind {
+        self.transport_kind
     }
 
     pub(crate) const fn from_local_session(
@@ -204,6 +220,22 @@ impl AuthenticatedRuntimeClient {
             origin,
             authority,
             session,
+            transport_kind: RuntimeTransportKind::ExternalLocal,
+        }
+    }
+
+    pub(crate) const fn from_protected_bundled_session(
+        client: reqwest::Client,
+        origin: String,
+        authority: RuntimeSessionAuthority,
+        session: RuntimeSessionInfo,
+    ) -> Self {
+        Self {
+            client,
+            origin,
+            authority,
+            session,
+            transport_kind: RuntimeTransportKind::ProtectedBundled,
         }
     }
 
