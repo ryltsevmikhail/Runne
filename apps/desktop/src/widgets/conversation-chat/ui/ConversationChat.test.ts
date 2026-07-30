@@ -2,6 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import type {
+  ConversationSession,
   ConversationSnapshot,
   ConversationTimelineListener,
 } from '@/entities/conversation'
@@ -41,6 +42,16 @@ const generated: ConversationSnapshot = {
   recovery: 'live',
 }
 
+function mockSession(
+  sendMessage: ConversationSession['sendMessage'] = async () => generated,
+  unsubscribe = async () => undefined,
+): ConversationSession {
+  return {
+    sendMessage,
+    unsubscribe,
+  }
+}
+
 describe('conversation chat widget', () => {
   it('connects, opens the project conversation, and renders durable messages', async () => {
     const calls: string[] = []
@@ -57,9 +68,8 @@ describe('conversation chat widget', () => {
         },
         subscribeConversation: async (projectId) => {
           calls.push(`subscribe:${projectId}`)
-          return async () => undefined
+          return mockSession()
         },
-        sendMessage: async () => generated,
       },
     })
     await flushPromises()
@@ -77,10 +87,12 @@ describe('conversation chat widget', () => {
         projectId: 7,
         connect: async () => 'live',
         openConversation: async () => empty,
-        subscribeConversation: async () => async () => undefined,
-        sendMessage: async (projectId, text) => {
-          sends.push([projectId, text])
-          return generated
+        subscribeConversation: async (projectId, _initial, onTimeline) => {
+          return mockSession(async (text) => {
+            sends.push([projectId, text])
+            onTimeline(generated)
+            return generated
+          })
         },
       },
     })
@@ -105,8 +117,7 @@ describe('conversation chat widget', () => {
           throw new Error('unavailable')
         },
         openConversation: async () => empty,
-        subscribeConversation: async () => async () => undefined,
-        sendMessage: async () => generated,
+        subscribeConversation: async () => mockSession(),
       },
     })
     await flushPromises()
@@ -126,9 +137,8 @@ describe('conversation chat widget', () => {
         openConversation: async () => generated,
         subscribeConversation: async (_projectId, _initial, onTimeline) => {
           listener = onTimeline
-          return async () => undefined
+          return mockSession()
         },
-        sendMessage: async () => generated,
       },
     })
     await flushPromises()
@@ -161,8 +171,7 @@ describe('conversation chat widget', () => {
         projectId: 7,
         connect: async () => 'live',
         openConversation: async () => ({ ...generated, recovery }),
-        subscribeConversation: async () => async () => undefined,
-        sendMessage: async () => generated,
+        subscribeConversation: async () => mockSession(),
       },
     })
     await flushPromises()
@@ -179,8 +188,7 @@ describe('conversation chat widget', () => {
         projectId: 7,
         connect: async () => 'live',
         openConversation: async () => generated,
-        subscribeConversation: async () => unsubscribe,
-        sendMessage: async () => generated,
+        subscribeConversation: async () => mockSession(async () => generated, unsubscribe),
       },
     })
     await flushPromises()
@@ -196,10 +204,9 @@ describe('conversation chat widget', () => {
         projectId: 7,
         connect: async () => 'live',
         openConversation: async () => generated,
-        subscribeConversation: async () => async () => undefined,
-        sendMessage: async () => {
+        subscribeConversation: async () => mockSession(async () => {
           throw new Error('runtime unavailable')
-        },
+        }),
       },
     })
     await flushPromises()
@@ -222,9 +229,8 @@ describe('conversation chat widget', () => {
         openConversation: async () => generated,
         subscribeConversation: async (_projectId, _initial, onTimeline) => {
           listener = onTimeline
-          return async () => undefined
+          return mockSession()
         },
-        sendMessage: async () => generated,
       },
     })
     await flushPromises()

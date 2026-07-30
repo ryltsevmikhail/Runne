@@ -74,10 +74,7 @@ export function reduceConversationTimeline(
 
   if (update.projectionRevision === current.projectionRevision) {
     const signature = updateSignature(update)
-    if (
-      signature === timeline.lastUpdateSignature
-      || (timeline.lastUpdateSignature === null && updateMatchesSnapshot(update, current))
-    ) {
+    if (timeline.lastUpdateSignature !== null && signature === timeline.lastUpdateSignature) {
       return { kind: 'duplicate', timeline }
     }
     return incompatible(timeline)
@@ -134,20 +131,6 @@ export function setConversationRecovery(
 
 function incompatible(timeline: ConversationTimeline): ConversationTimelineReduction {
   return { kind: 'incompatible', timeline }
-}
-
-function updateMatchesSnapshot(
-  update: ConversationTimelineUpdate,
-  snapshot: ConversationSnapshot,
-): boolean {
-  if (
-    update.streamVersion !== snapshot.streamVersion
-    || update.recovery !== snapshot.recovery
-  ) {
-    return false
-  }
-  return update.message === null
-    || snapshot.messages.some(message => sameMessage(message, update.message as ConversationMessage))
 }
 
 function updateSignature(update: ConversationTimelineUpdate): string {
