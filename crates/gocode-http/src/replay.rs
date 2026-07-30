@@ -156,6 +156,12 @@ impl ReplayHttpState {
     fn release_session_permit(&self, session_id: &[u8; 16]) {
         drop(self.take_session_permit(session_id));
     }
+
+    fn release_session_permit_on_terminal_error(&self, session_id: &[u8; 16], error: &ReplayError) {
+        if replay_error_terminates_session(error) {
+            self.release_session_permit(session_id);
+        }
+    }
 }
 
 struct SessionClaim {
@@ -680,6 +686,18 @@ fn replay_error_to_http(error: &ReplayError) -> ReplayHttpFailure {
     }
 }
 
+fn replay_error_terminates_session(error: &ReplayError) -> bool {
+    matches!(
+        error,
+        ReplayError::SessionNotFound
+            | ReplayError::AuthorizationRevoked
+            | ReplayError::StaleGeneration
+            | ReplayError::ReplayRetentionGap { .. }
+            | ReplayError::Integrity(_)
+            | ReplayError::StreamTerminated
+    )
+}
+
 async fn open_session(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
@@ -782,7 +800,10 @@ async fn read_page(
                 delivery_guard,
             )
             .await
-            .map_err(|error| replay_error_to_http(&error))?;
+            .map_err(|error| {
+                state.release_session_permit_on_terminal_error(&session_id, &error);
+                replay_error_to_http(&error)
+            })?;
 
         read_page_response(&authenticated, state.service.as_ref(), &session, &events)
     }
@@ -818,7 +839,10 @@ async fn acknowledge(
                 &cursor,
             )
             .await
-            .map_err(|error| replay_error_to_http(&error))?;
+            .map_err(|error| {
+                state.release_session_permit_on_terminal_error(&session_id, &error);
+                replay_error_to_http(&error)
+            })?;
         Ok(AcknowledgeResponse { acknowledged: true })
     }
     .await;
@@ -848,7 +872,10 @@ async fn complete_catch_up(
                 state.binding.authorization_epoch,
             )
             .await
-            .map_err(|error| replay_error_to_http(&error))?;
+            .map_err(|error| {
+                state.release_session_permit_on_terminal_error(&session_id, &error);
+                replay_error_to_http(&error)
+            })?;
         Ok(CompleteCatchUpResponse {
             catch_up_proof: hex::encode(completion.proof.as_bytes()),
             session_state: "catch_up_complete".into(),
@@ -881,7 +908,10 @@ async fn continue_live(
                 state.binding.authorization_epoch,
             )
             .await
-            .map_err(|error| replay_error_to_http(&error))?;
+            .map_err(|error| {
+                state.release_session_permit_on_terminal_error(&session_id, &error);
+                replay_error_to_http(&error)
+            })?;
         let live_delivery_id = session
             .live_delivery_id
             .as_deref()
@@ -920,7 +950,10 @@ async fn close_session(
                 state.binding.authorization_epoch,
             )
             .await
-            .map_err(|error| replay_error_to_http(&error))
+            .map_err(|error| {
+                state.release_session_permit_on_terminal_error(&session_id, &error);
+                replay_error_to_http(&error)
+            })
     }
     .await;
 
@@ -1241,7 +1274,7 @@ async fn stream_live(
     let (session, events) = match initial {
         Ok(initial) => initial,
         Err(error) => {
-            state.release_session_permit(&session_id);
+            state.release_session_permit_on_terminal_error(&session_id, &error);
             return replay_error_to_http(&error).into_response(&request_id);
         }
     };
