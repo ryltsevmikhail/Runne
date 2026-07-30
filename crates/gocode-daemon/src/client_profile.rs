@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
 use crate::error::DaemonError;
 use crate::launch_identity::LaunchIdentity;
@@ -162,6 +163,8 @@ impl Drop for PublishedClientProfileV2 {
                 let _ = fs::remove_file(path);
             }
         }
+        self.secret_bytes.zeroize();
+        self.profile_bytes.zeroize();
     }
 }
 

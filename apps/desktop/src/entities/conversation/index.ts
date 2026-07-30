@@ -1,5 +1,6 @@
 export {
   openProjectConversation,
+  resyncProjectConversation,
   subscribeProjectConversation,
   sendProjectMessage,
 } from './api/conversations'

@@ -227,7 +227,7 @@ describe('conversation IPC adapter', () => {
         subscriptions += 1
         return `018f2e3a-7000-7000-8000-${String(120 + subscriptions).padStart(12, '0')}`
       }
-      if (command === 'open_project_conversation') {
+      if (command === 'resync_project_conversation') {
         return snapshot
       }
     })
@@ -248,7 +248,7 @@ describe('conversation IPC adapter', () => {
     expect(order).toEqual([
       'subscribe_project_conversation',
       'cancel_conversation_subscription',
-      'open_project_conversation',
+      'resync_project_conversation',
       'subscribe_project_conversation',
     ])
     await session.unsubscribe()
@@ -261,7 +261,7 @@ describe('conversation IPC adapter', () => {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
-      if (command === 'open_project_conversation') {
+      if (command === 'resync_project_conversation') {
         throw new Error('retention still unavailable')
       }
     })
@@ -293,7 +293,7 @@ describe('conversation IPC adapter', () => {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
-      if (command === 'open_project_conversation') {
+      if (command === 'resync_project_conversation') {
         return snapshot
       }
     })

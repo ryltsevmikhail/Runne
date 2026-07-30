@@ -40,6 +40,7 @@ struct MockState {
     live_count: AtomicUsize,
     generate_count: AtomicUsize,
     block_generate: AtomicBool,
+    retention_gap_once: AtomicBool,
     open_changed: Notify,
     live_changed: Notify,
     generate_changed: Notify,
@@ -64,6 +65,7 @@ impl MockRuntime {
             live_count: AtomicUsize::new(0),
             generate_count: AtomicUsize::new(0),
             block_generate: AtomicBool::new(false),
+            retention_gap_once: AtomicBool::new(false),
             open_changed: Notify::new(),
             live_changed: Notify::new(),
             generate_changed: Notify::new(),
@@ -184,6 +186,19 @@ impl MockRuntime {
         );
         inner.events.push(event.clone());
         broadcast(&mut inner.live_senders, &event, sequence);
+    }
+
+    pub fn disconnect_live(&self) {
+        self.state
+            .inner
+            .lock()
+            .expect("mock state")
+            .live_senders
+            .clear();
+    }
+
+    pub fn force_retention_gap_once(&self) {
+        self.state.retention_gap_once.store(true, Ordering::SeqCst);
     }
 }
 
@@ -355,9 +370,24 @@ async fn generate_text(
 async fn open_session(
     State(state): State<Arc<MockState>>,
     axum::Json(body): axum::Json<Value>,
-) -> axum::Json<Value> {
+) -> Response<Body> {
     state.open_count.fetch_add(1, Ordering::SeqCst);
     state.open_changed.notify_waiters();
+    if body.get("fromCursor").is_some_and(|value| !value.is_null())
+        && state.retention_gap_once.swap(false, Ordering::SeqCst)
+    {
+        return Response::builder()
+            .status(StatusCode::GONE)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "code": "replay_retention_gap",
+                    "requestId": "018f2e3a-7000-7000-8000-000000000190"
+                }))
+                .expect("retention JSON"),
+            ))
+            .expect("retention response");
+    }
     let events = {
         let inner = state.inner.lock().expect("mock state");
         let start = body
@@ -383,12 +413,19 @@ async fn open_session(
             })
             .collect::<Vec<_>>()
     };
-    axum::Json(json!({
-        "sessionId": SESSION_ID,
-        "highWaterRef": "aa",
-        "events": events,
-        "hasMore": false
-    }))
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&json!({
+                "sessionId": SESSION_ID,
+                "highWaterRef": "aa",
+                "events": events,
+                "hasMore": false
+            }))
+            .expect("open JSON"),
+        ))
+        .expect("open response")
 }
 
 async fn acknowledge(

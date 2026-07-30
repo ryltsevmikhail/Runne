@@ -398,6 +398,7 @@ pub trait ReplayStorePort: Send + Sync {
         authority_id: &[u8; 16],
         epoch: i64,
         server_secret: &[u8; 32],
+        authorization_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Option<ReplayEvent>), ReplayError>;
 
     async fn continue_live(
@@ -407,6 +408,7 @@ pub trait ReplayStorePort: Send + Sync {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
+        authorization_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<ReplaySession, ReplayError>;
 
     async fn poll_live(
@@ -935,6 +937,14 @@ impl ReplayService {
         authority_id: &[u8; 16],
         epoch: i64,
     ) -> Result<CatchUpCompletion, ReplayError> {
+        let request = Self::session_authorization_request(
+            session_id,
+            principal_id,
+            generation,
+            authority_id,
+            epoch,
+        );
+        let lease = self.acquire_lease(&request)?;
         let (session, last_ack_event) = self
             .store
             .complete_catch_up(
@@ -942,8 +952,9 @@ impl ReplayService {
                 principal_id,
                 generation,
                 authority_id,
-                epoch,
+                lease.authorization_epoch(),
                 &self.server_secret,
+                self.authorized_guard(request, lease, Arc::new(NoopDeliveryGuard)),
             )
             .await?;
         let scope = ReplayScope::Aggregate {
@@ -981,8 +992,23 @@ impl ReplayService {
         authority_id: &[u8; 16],
         epoch: i64,
     ) -> Result<ReplaySession, ReplayError> {
+        let request = Self::session_authorization_request(
+            session_id,
+            principal_id,
+            generation,
+            authority_id,
+            epoch,
+        );
+        let lease = self.acquire_lease(&request)?;
         self.store
-            .continue_live(session_id, principal_id, generation, authority_id, epoch)
+            .continue_live(
+                session_id,
+                principal_id,
+                generation,
+                authority_id,
+                lease.authorization_epoch(),
+                self.authorized_guard(request, lease, Arc::new(NoopDeliveryGuard)),
+            )
             .await
     }
 

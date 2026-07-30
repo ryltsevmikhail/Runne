@@ -281,7 +281,15 @@ async fn empty_catch_up_has_server_issued_proof() {
         .unwrap();
     assert!(events.is_empty());
     let (completed, last_ack_event) = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     assert_eq!(completed.state, ReplayState::CatchUpComplete);
@@ -446,7 +454,15 @@ async fn exact_full_initial_page_can_complete_after_acknowledgement() {
         .unwrap();
 
     let (completed, last_ack_event) = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -480,7 +496,15 @@ async fn catch_up_completion_uses_last_event_in_scope() {
         .unwrap();
 
     let (completed, last_ack_event) = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -579,7 +603,15 @@ async fn test_complete_catch_up_requires_ack() {
     let (session, _) = open(&store, None).await;
 
     let error = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap_err();
 
@@ -604,7 +636,15 @@ async fn test_complete_catch_up_success() {
         .unwrap();
 
     let (completed, last_ack_event) = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -630,11 +670,27 @@ async fn duplicate_complete_catch_up_returns_same_server_proof() {
         .unwrap();
 
     let first = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     let second = store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -661,15 +717,37 @@ async fn test_continue_live_cas() {
         .await
         .unwrap();
     store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
     let first = store
-        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .continue_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await;
     let second = store
-        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .continue_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await;
 
     assert!(matches!(
@@ -680,6 +758,58 @@ async fn test_continue_live_cas() {
         })
     ));
     assert!(matches!(second, Err(ReplayError::InvalidState(_))));
+}
+
+#[tokio::test]
+async fn failed_live_activation_never_persists_an_intermediate_state() {
+    let (store, observer, _directory) = file_store_with_events(0);
+    let (session, _) = open(&store, None).await;
+    store
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
+        .await
+        .unwrap();
+    observer
+        .execute_batch(
+            "
+            CREATE TRIGGER fail_live_activation
+            BEFORE UPDATE OF state ON _replay_subscriptions
+            WHEN NEW.state = 'live'
+            BEGIN
+                SELECT RAISE(ABORT, 'injected live activation failure');
+            END;
+            ",
+        )
+        .unwrap();
+
+    let error = store
+        .continue_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ReplayError::Storage(_)));
+    let state: String = observer
+        .query_row(
+            "SELECT state FROM _replay_subscriptions WHERE session_id = ?1",
+            [session.session_id.as_slice()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "catch_up_complete");
 }
 
 #[tokio::test]
@@ -699,11 +829,26 @@ async fn poll_live_advances_past_delivered_events() {
         .await
         .unwrap();
     store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     store
-        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .continue_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -813,11 +958,26 @@ async fn poll_live_rejects_sequence_jump() {
         .await
         .unwrap();
     store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     store
-        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .continue_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -895,7 +1055,15 @@ async fn test_close_session() {
     let store = store();
     let (session, _) = open(&store, None).await;
     store
-        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 0, &SECRET)
+        .complete_catch_up(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 

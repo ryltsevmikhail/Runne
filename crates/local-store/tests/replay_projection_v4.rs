@@ -2,7 +2,8 @@ use std::path::Path;
 
 use gocode_local_store::{
     AppliedReplayEvent, LocalStore, ReplayApplyOutcome, ReplayCheckpoint, ReplayScopeKey,
-    ReplayStoreError, ReplayTransition, StoreOpenError,
+    ReplayStoreError, ReplayTransition, StoreOpenError, pre_v4_migration_backup_path,
+    verify_pre_v4_migration_backup,
 };
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
@@ -22,6 +23,13 @@ fn scope() -> ReplayScopeKey {
         lineage: "lineage-1".into(),
         scope: "conversation-1".into(),
         binding_digest: BINDING_DIGEST.into(),
+    }
+}
+
+fn other_scope() -> ReplayScopeKey {
+    ReplayScopeKey {
+        scope: "conversation-2".into(),
+        ..scope()
     }
 }
 
@@ -320,6 +328,65 @@ fn empty_v3_replay_tables_migrate_to_v4_without_touching_settings_or_projects() 
 }
 
 #[test]
+fn v3_to_v4_migration_creates_a_reopenable_integrity_checked_rollback_backup() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    drop(create_v3_database(&path));
+
+    drop(LocalStore::open(&path).expect("migrate with rollback backup"));
+
+    let backup_path = pre_v4_migration_backup_path(&path).expect("backup path");
+    let backup = verify_pre_v4_migration_backup(&path).expect("verified rollback backup");
+    assert_eq!(backup.path, backup_path);
+    assert_eq!(backup.schema_version, 3);
+    let backup_connection = Connection::open(&backup.path).expect("reopen rollback backup");
+    let integrity: String = backup_connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .expect("backup integrity");
+    let theme: String = backup_connection
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'appearance.theme'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("preserved setting");
+    assert_eq!(integrity, "ok");
+    assert_eq!(theme, "light");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(&backup.path)
+                .expect("backup metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+}
+
+#[test]
+fn invalid_existing_pre_v4_backup_blocks_migration_without_rewriting_v3() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    drop(create_v3_database(&path));
+    let backup_path = pre_v4_migration_backup_path(&path).expect("backup path");
+    std::fs::write(&backup_path, b"not a sqlite backup").expect("corrupt backup fixture");
+
+    let Err(error) = LocalStore::open(&path) else {
+        panic!("invalid backup must block migration");
+    };
+
+    assert!(matches!(error, StoreOpenError::MigrationBackupUnavailable));
+    let connection = Connection::open(path).expect("reopen original v3");
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("original version");
+    assert_eq!(version, 3);
+}
+
+#[test]
 fn empty_base_v4_schema_is_upgraded_before_replay_use() {
     let directory = tempfile::tempdir().expect("temp directory");
     let path = directory.path().join("profile.sqlite3");
@@ -592,6 +659,73 @@ fn exact_duplicate_is_already_applied_without_advancing_database_generation() {
             .expect("diagnostics")
             .database_generation,
         2
+    );
+}
+
+#[test]
+fn reset_replay_scope_is_atomic_and_preserves_other_scopes() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    let mut store = LocalStore::open(&path).expect("open store");
+    let affected = scope();
+    let preserved = other_scope();
+    let event = br#"{"eventId":"event-1","sequence":1}"#;
+    let projection = br#"{"conversationId":"conversation-1","messages":[]}"#;
+    for replay_scope in [&affected, &preserved] {
+        store
+            .apply_replay_transition(&transition(
+                replay_scope,
+                None,
+                "event-1",
+                "opaque.cursor.1",
+                3,
+                1,
+                event,
+                1,
+                projection,
+            ))
+            .expect("apply replay scope");
+    }
+    let generation_before = store
+        .diagnostics()
+        .expect("diagnostics before reset")
+        .database_generation;
+
+    assert!(
+        store
+            .reset_replay_scope(&affected)
+            .expect("reset affected scope")
+    );
+
+    assert_eq!(
+        store
+            .replay_checkpoint(&affected)
+            .expect("read reset checkpoint"),
+        None
+    );
+    assert_eq!(
+        store
+            .conversation_projection(&affected)
+            .expect("read reset projection"),
+        None
+    );
+    assert!(
+        store
+            .replay_checkpoint(&preserved)
+            .expect("read preserved checkpoint")
+            .is_some()
+    );
+    assert_eq!(
+        store
+            .diagnostics()
+            .expect("diagnostics after reset")
+            .database_generation,
+        generation_before + 1
+    );
+    assert!(
+        !store
+            .reset_replay_scope(&affected)
+            .expect("idempotent empty reset")
     );
 }
 

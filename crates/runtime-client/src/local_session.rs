@@ -8,7 +8,7 @@ use rand::{RngCore, rngs::OsRng};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::Sha256;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 use crate::canonical::{
     AuthenticatedRuntimeClient, RuntimeApiError, RuntimeApiErrorKind, RuntimeCredential,
@@ -68,19 +68,19 @@ pub async fn connect(
     // The bootstrap secret is deliberately opened only after a pinned TLS
     // response has authenticated the peer that issued this challenge.
     let bootstrap_secret = Zeroizing::new(read_bootstrap_secret(&profile.bootstrap_secret_path)?);
-    let transcript = proof_transcript(&profile, server_nonce, client_nonce);
+    let transcript = Zeroizing::new(proof_transcript(&profile, server_nonce, client_nonce));
     let mut mac =
         Hmac::<Sha256>::new_from_slice(bootstrap_secret.as_ref()).map_err(|_| incompatible())?;
     mac.update(&transcript);
-    let proof: [u8; 32] = mac.finalize().into_bytes().into();
-    let mut authority = [0; 32];
-    while authority == [0; 32] {
-        OsRng.fill_bytes(&mut authority);
+    let proof = Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()));
+    let mut authority = Zeroizing::new([0; 32]);
+    while *authority == [0; 32] {
+        OsRng.fill_bytes(authority.as_mut());
     }
     let authenticate_body = serde_json::to_vec(&AuthenticateRequest {
         challenge_id: URL_SAFE_NO_PAD.encode(challenge_id),
-        proof: URL_SAFE_NO_PAD.encode(proof),
-        authority: URL_SAFE_NO_PAD.encode(authority),
+        proof: URL_SAFE_NO_PAD.encode(proof.as_ref()),
+        authority: URL_SAFE_NO_PAD.encode(authority.as_ref()),
     })
     .map_err(|_| incompatible())?;
     let authenticate_response = client
@@ -94,12 +94,10 @@ pub async fn connect(
     let authenticated: AuthenticateResponse = read_json(authenticate_response).await?;
     let issued_session_id = decode_lower_hex_16(&authenticated.session_id)?;
     if authenticated.expires_at_monotonic_millis == 0 || issued_session_id == [0; 16] {
-        authority.zeroize();
         return Err(incompatible());
     }
 
-    let credential = RuntimeCredential::from_local_session(authority);
-    authority.zeroize();
+    let credential = RuntimeCredential::from_local_session(*authority);
     let profile_response = client
         .get(format!("{}/v1/runtime/profile", profile.origin))
         .header(ACCEPT, "application/json")

@@ -382,6 +382,102 @@ async fn revocation_after_ack_validation_preserves_acknowledged_cursor() {
 }
 
 #[tokio::test]
+async fn revocation_immediately_before_catch_up_completion_preserves_session_state() {
+    let (store, observer, _directory) = file_store_with_events(1);
+    let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);
+    let service = service(store, authorization.clone());
+    let (session, events) = service
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            7,
+            1,
+            &AGGREGATE,
+            None,
+            Arc::new(AvailableDeliveryGuard),
+        )
+        .await
+        .unwrap();
+    let cursor = service
+        .build_cursor_from_event(&events[0], &scope())
+        .unwrap();
+    service
+        .acknowledge(&session.session_id, "principal", 1, &AUTHORITY, 7, &cursor)
+        .await
+        .unwrap();
+    authorization.revoke_after_next_lease();
+
+    let error = service
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 7)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ReplayError::AuthorizationRevoked));
+    let (state, proof): (String, Option<Vec<u8>>) = observer
+        .query_row(
+            "SELECT state, catch_up_completion
+             FROM _replay_subscriptions
+             WHERE session_id = ?1",
+            [session.session_id.as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, "catching_up");
+    assert_eq!(proof, None);
+}
+
+#[tokio::test]
+async fn revocation_immediately_before_live_activation_preserves_completed_state() {
+    let (store, observer, _directory) = file_store_with_events(1);
+    let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);
+    let service = service(store, authorization.clone());
+    let (session, events) = service
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            7,
+            1,
+            &AGGREGATE,
+            None,
+            Arc::new(AvailableDeliveryGuard),
+        )
+        .await
+        .unwrap();
+    let cursor = service
+        .build_cursor_from_event(&events[0], &scope())
+        .unwrap();
+    service
+        .acknowledge(&session.session_id, "principal", 1, &AUTHORITY, 7, &cursor)
+        .await
+        .unwrap();
+    service
+        .complete_catch_up(&session.session_id, "principal", 1, &AUTHORITY, 7)
+        .await
+        .unwrap();
+    authorization.revoke_after_next_lease();
+
+    let error = service
+        .continue_live(&session.session_id, "principal", 1, &AUTHORITY, 7)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, ReplayError::AuthorizationRevoked));
+    let (state, live_delivery_id): (String, Option<Vec<u8>>) = observer
+        .query_row(
+            "SELECT state, live_delivery_id
+             FROM _replay_subscriptions
+             WHERE session_id = ?1",
+            [session.session_id.as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(state, "catch_up_complete");
+    assert_eq!(live_delivery_id, None);
+}
+
+#[tokio::test]
 async fn live_event_revocation_stops_before_event_and_preserves_progress() {
     let (store, writer, _directory) = file_store_with_events(1);
     let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);

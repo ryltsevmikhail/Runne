@@ -121,8 +121,42 @@ pub enum StoreOpenError {
     UnsupportedSchema(i64),
     #[error("legacy replay state cannot be migrated safely")]
     LegacyReplayState,
+    #[error("pre-v4 migration backup is unavailable")]
+    MigrationBackupUnavailable,
     #[error("client storage unavailable")]
     Storage(#[from] rusqlite::Error),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PreV4MigrationBackup {
+    pub path: PathBuf,
+    pub schema_version: u32,
+}
+
+/// Returns the stable side-by-side rollback backup path for a profile database.
+///
+/// # Errors
+///
+/// Returns a redacted error when the database has no concrete file name.
+pub fn pre_v4_migration_backup_path(database_path: &Path) -> Result<PathBuf, StoreOpenError> {
+    let file_name = database_path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .ok_or(StoreOpenError::MigrationBackupUnavailable)?;
+    Ok(database_path.with_file_name(format!("{file_name}.pre-v4-backup.sqlite3")))
+}
+
+/// Reopens and integrity-checks the immutable pre-v4 rollback backup.
+///
+/// # Errors
+///
+/// Rejects missing, symlinked, corrupt, or non-v3 backup artifacts.
+pub fn verify_pre_v4_migration_backup(
+    database_path: &Path,
+) -> Result<PreV4MigrationBackup, StoreOpenError> {
+    let backup_path = pre_v4_migration_backup_path(database_path)?;
+    verify_pre_v4_backup_path(&backup_path)
 }
 
 #[derive(Debug, Error)]
@@ -296,6 +330,61 @@ pub const fn classify_database_recovery(
     }
 }
 
+fn verify_pre_v4_backup_path(path: &Path) -> Result<PreV4MigrationBackup, StoreOpenError> {
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err(StoreOpenError::MigrationBackupUnavailable);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(StoreOpenError::MigrationBackupUnavailable);
+        }
+    }
+    let connection = Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+    let integrity: String = connection
+        .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+        .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+    let user_version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+    let meta_version: i64 = connection
+        .query_row(
+            "SELECT schema_version FROM meta WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+    if integrity != "ok" || user_version != 3 || meta_version != 3 {
+        return Err(StoreOpenError::MigrationBackupUnavailable);
+    }
+    Ok(PreV4MigrationBackup {
+        path: path.to_path_buf(),
+        schema_version: 3,
+    })
+}
+
+#[cfg(unix)]
+fn sync_parent_directory(path: &Path) -> Result<(), StoreOpenError> {
+    let parent = path
+        .parent()
+        .ok_or(StoreOpenError::MigrationBackupUnavailable)?;
+    std::fs::File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| StoreOpenError::MigrationBackupUnavailable)
+}
+
+#[cfg(not(unix))]
+fn sync_parent_directory(_: &Path) -> Result<(), StoreOpenError> {
+    Ok(())
+}
+
 pub struct LocalStore {
     connection: Connection,
 }
@@ -447,6 +536,7 @@ impl LocalStore {
             transaction.commit()?;
         }
         if version < 4 {
+            self.ensure_pre_v4_migration_backup()?;
             let transaction = self
                 .connection
                 .transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -520,6 +610,53 @@ impl LocalStore {
                 transaction.commit()?;
             }
         }
+        Ok(())
+    }
+
+    fn ensure_pre_v4_migration_backup(&self) -> Result<(), StoreOpenError> {
+        let Some(database_path) = self
+            .connection
+            .path()
+            .filter(|path| !path.is_empty())
+            .map(PathBuf::from)
+        else {
+            return Ok(());
+        };
+        let backup_path = pre_v4_migration_backup_path(&database_path)?;
+        if backup_path.exists() || backup_path.is_symlink() {
+            verify_pre_v4_backup_path(&backup_path)?;
+            return Ok(());
+        }
+        let temporary = backup_path.with_extension("sqlite3.tmp");
+        if temporary.exists() || temporary.is_symlink() {
+            return Err(StoreOpenError::MigrationBackupUnavailable);
+        }
+        let temporary_text = temporary
+            .to_str()
+            .ok_or(StoreOpenError::MigrationBackupUnavailable)?;
+        if self
+            .connection
+            .execute("VACUUM main INTO ?1", params![temporary_text])
+            .is_err()
+        {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(StoreOpenError::MigrationBackupUnavailable);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&temporary, permissions)
+                .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+        }
+        std::fs::File::open(&temporary)
+            .and_then(|file| file.sync_all())
+            .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+        verify_pre_v4_backup_path(&temporary)?;
+        std::fs::rename(&temporary, &backup_path)
+            .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
+        sync_parent_directory(&backup_path)?;
+        verify_pre_v4_backup_path(&backup_path)?;
         Ok(())
     }
 
@@ -715,6 +852,84 @@ impl LocalStore {
     ) -> Result<Option<StoredConversationProjection>, ReplayStoreError> {
         validate_replay_scope(scope)?;
         Ok(read_replay_state(&self.connection, scope)?.map(|state| state.projection))
+    }
+
+    /// Atomically clears one affected replay scope before an explicit
+    /// authoritative rebuild from the retained floor.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed validation or storage error without partially deleting
+    /// journal, projection, or checkpoint state.
+    pub fn reset_replay_scope(&mut self, scope: &ReplayScopeKey) -> Result<bool, ReplayStoreError> {
+        validate_replay_scope(scope)?;
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let count: i64 = transaction.query_row(
+            "
+            SELECT
+                (SELECT COUNT(*) FROM event_journal
+                 WHERE runtime_authority = ?1 AND principal = ?2
+                   AND lineage = ?3 AND scope = ?4)
+              + (SELECT COUNT(*) FROM projections
+                 WHERE runtime_authority = ?1 AND principal = ?2
+                   AND lineage = ?3 AND scope = ?4)
+              + (SELECT COUNT(*) FROM replay_cursors
+                 WHERE runtime_authority = ?1 AND principal = ?2
+                   AND lineage = ?3 AND scope = ?4)
+            ",
+            params![
+                scope.runtime_authority,
+                scope.principal,
+                scope.lineage,
+                scope.scope
+            ],
+            |row| row.get(0),
+        )?;
+        if count == 0 {
+            transaction.commit()?;
+            return Ok(false);
+        }
+        for table in ["event_journal", "projections", "replay_cursors"] {
+            transaction.execute(
+                &format!(
+                    "DELETE FROM {table}
+                     WHERE runtime_authority = ?1 AND principal = ?2
+                       AND lineage = ?3 AND scope = ?4"
+                ),
+                params![
+                    scope.runtime_authority,
+                    scope.principal,
+                    scope.lineage,
+                    scope.scope
+                ],
+            )?;
+        }
+        let mut hasher = Sha256::new();
+        hasher.update(b"gocode/local-store/replay-scope-reset/v1\0");
+        for value in [
+            scope.runtime_authority.as_bytes(),
+            scope.principal.as_bytes(),
+            scope.lineage.as_bytes(),
+            scope.scope.as_bytes(),
+            scope.binding_digest.as_bytes(),
+        ] {
+            hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+            hasher.update(value);
+        }
+        transaction.execute(
+            "
+            UPDATE meta
+            SET db_generation = db_generation + 1,
+                last_transaction_digest = ?1,
+                commit_marker = 1
+            WHERE singleton = 1
+            ",
+            params![format!("{:x}", hasher.finalize())],
+        )?;
+        transaction.commit()?;
+        Ok(true)
     }
 
     /// Confirms an older inclusive/concurrent delivery against the exact

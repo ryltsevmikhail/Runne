@@ -75,7 +75,6 @@ async function installDesktopAdapter(page: Page): Promise<void> {
     const replayWindow = window as ReplayWindow
     ;(globalThis as typeof globalThis & { isTauri: boolean }).isTauri = true
 
-    let openCount = 0
     replayWindow.__GOCODE_REPLAY_TEST__ = {
       calls,
       resyncShouldFail: false,
@@ -125,12 +124,11 @@ async function installDesktopAdapter(page: Page): Promise<void> {
               lastOpenedAt: 1_753_500_000_000,
             }
           case 'open_project_conversation':
-            openCount += 1
-            if (openCount > 1) {
-              await new Promise(resolve => setTimeout(resolve, 1_000))
-              if (replayWindow.__GOCODE_REPLAY_TEST__.resyncShouldFail) {
-                throw new Error('retention still unavailable')
-              }
+            return snapshot
+          case 'resync_project_conversation':
+            await new Promise(resolve => setTimeout(resolve, 1_000))
+            if (replayWindow.__GOCODE_REPLAY_TEST__.resyncShouldFail) {
+              throw new Error('retention still unavailable')
             }
             return snapshot
           case 'subscribe_project_conversation': {
@@ -222,11 +220,14 @@ test('runs explicit resync through the native command and restores the live comp
       opens: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
         command => command === 'open_project_conversation',
       ).length,
+      resyncs: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'resync_project_conversation',
+      ).length,
       subscribes: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
         command => command === 'subscribe_project_conversation',
       ).length,
     }
-  })).toEqual({ opens: 2, subscribes: 2 })
+  })).toEqual({ opens: 1, resyncs: 1, subscribes: 2 })
 })
 
 test('keeps explicit resync actionable when the native command fails', async ({ page }) => {
@@ -254,11 +255,14 @@ test('keeps explicit resync actionable when the native command fails', async ({ 
       opens: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
         command => command === 'open_project_conversation',
       ).length,
+      resyncs: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'resync_project_conversation',
+      ).length,
       subscribes: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
         command => command === 'subscribe_project_conversation',
       ).length,
     }
-  })).toEqual({ opens: 2, subscribes: 1 })
+  })).toEqual({ opens: 1, resyncs: 1, subscribes: 1 })
 })
 
 test('keeps explicit resync actionable when replacement subscription fails after open', async ({ page }) => {
@@ -286,11 +290,14 @@ test('keeps explicit resync actionable when replacement subscription fails after
       opens: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
         command => command === 'open_project_conversation',
       ).length,
+      resyncs: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
+        command => command === 'resync_project_conversation',
+      ).length,
       subscribes: replayWindow.__GOCODE_REPLAY_TEST__.calls.filter(
         command => command === 'subscribe_project_conversation',
       ).length,
     }
-  })).toEqual({ opens: 2, subscribes: 2 })
+  })).toEqual({ opens: 1, resyncs: 1, subscribes: 2 })
 })
 
 test('maps authorization epoch revocation to the closed revoked UI state', async ({ page }) => {
