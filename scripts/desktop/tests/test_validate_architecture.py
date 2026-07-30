@@ -203,6 +203,99 @@ class RendererConversationBoundaryTest(unittest.TestCase):
             violations,
         )
 
+    def test_rejects_optional_dot_and_bracket_member_bypasses(self):
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/optional-dot.ts",
+            """
+            import * as events from "@tauri-apps/api/event"
+            export const publishConversation = (payload: unknown) =>
+              events?.emit?.("conversation-update", payload)
+            """,
+        )
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/optional-bracket.ts",
+            """
+            import events from "@tauri-apps/api/event"
+            export const publishConversation = (payload: unknown) =>
+              events?.["emit"]("conversation-update", payload)
+            """,
+        )
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/optional-dynamic.ts",
+            """
+            export async function publishConversation(payload: unknown) {
+              const events = await import("@tauri-apps/api/event")
+              await events?.emit("conversation-update", payload)
+            }
+            """,
+        )
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/optional-direct-dynamic.ts",
+            """
+            export async function publishConversation(payload: unknown) {
+              await (await import("@tauri-apps/api/event"))?.emit?.(
+                "conversation-update",
+                payload,
+              )
+            }
+            """,
+        )
+        self.write(
+            "apps/desktop/src/pages/workspace/model/optional-dot-channel.ts",
+            """
+            import * as tauri from "@tauri-apps/api/core"
+            export const onUpdate = new (tauri?.Channel)()
+            """,
+        )
+        self.write(
+            "apps/desktop/src/pages/workspace/model/optional-bracket-channel.ts",
+            """
+            import tauri from "@tauri-apps/api/core"
+            export const onUpdate = new (tauri?.["Channel"])()
+            """,
+        )
+        self.write(
+            "apps/desktop/src/pages/workspace/model/optional-dynamic-channel.ts",
+            """
+            export async function createChannel() {
+              const tauri = await import("@tauri-apps/api/core")
+              return new (tauri?.Channel)()
+            }
+            """,
+        )
+        self.write(
+            "apps/desktop/src/pages/workspace/model/optional-direct-dynamic-channel.ts",
+            """
+            export async function createChannel() {
+              return new ((await import("@tauri-apps/api/core"))?.Channel)()
+            }
+            """,
+        )
+
+        violations = architecture.find_renderer_conversation_violations(self.root)
+
+        self.assertEqual(
+            [
+                "apps/desktop/src/pages/workspace/model/optional-bracket-channel.ts "
+                "constructs a Conversation channel outside entities/conversation/api",
+                "apps/desktop/src/pages/workspace/model/optional-direct-dynamic-channel.ts "
+                "constructs a Conversation channel outside entities/conversation/api",
+                "apps/desktop/src/pages/workspace/model/optional-dot-channel.ts constructs "
+                "a Conversation channel outside entities/conversation/api",
+                "apps/desktop/src/pages/workspace/model/optional-dynamic-channel.ts "
+                "constructs a Conversation channel outside entities/conversation/api",
+                "apps/desktop/src/widgets/conversation-chat/model/optional-bracket.ts emits "
+                "Conversation payloads through generic Tauri events",
+                "apps/desktop/src/widgets/conversation-chat/model/optional-direct-dynamic.ts "
+                "emits Conversation payloads through generic Tauri events",
+                "apps/desktop/src/widgets/conversation-chat/model/optional-dot.ts emits "
+                "Conversation payloads through generic Tauri events",
+                "apps/desktop/src/widgets/conversation-chat/model/optional-dynamic.ts emits "
+                "Conversation payloads through generic Tauri events",
+            ],
+            violations,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
