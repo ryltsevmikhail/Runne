@@ -1032,7 +1032,10 @@ pub fn replay_router(state: ReplayHttpState) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gocode_application::replay_service::REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES;
+    use gocode_application::replay_service::{
+        REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_EVENT_VARIABLE_MAX_BYTES,
+        REPLAY_FRAME_CAPACITY_BYTES,
+    };
 
     #[test]
     fn page_claim_is_exclusive_and_released_on_drop() {
@@ -1046,11 +1049,12 @@ mod tests {
     }
 
     #[test]
-    fn declared_replay_overhead_covers_actual_maximum_http_wrapper() {
+    fn maximum_payload_bearing_http_frame_fits_declared_capacity() {
         let cursor = format!(
             "{CURSOR_TOKEN_PREFIX}{}",
             "ab".repeat(MAX_CURSOR_TOKEN_BYTES)
         );
+        let payload_data = "ab".repeat(REPLAY_EVENT_VARIABLE_MAX_BYTES / 2);
         let event = DeliveredReplayEventWire {
             event: StoredReplayEventWire {
                 global_position: i64::MAX,
@@ -1072,7 +1076,7 @@ mod tests {
                 integrity_profile: 2,
                 payload: ReplayPayloadWire {
                     encoding: "gocode-durable-event-codec-v1-hex",
-                    data: String::new(),
+                    data: payload_data,
                 },
             },
             cursor,
@@ -1085,10 +1089,16 @@ mod tests {
         };
 
         let encoded = serde_json::to_vec(&response).unwrap();
+        let actual_wrapper_bytes = encoded.len() - REPLAY_EVENT_VARIABLE_MAX_BYTES;
 
         assert!(
-            encoded.len() <= REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
-            "actual wrapper={} declared={REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES}",
+            actual_wrapper_bytes <= REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+            "actual wrapper={actual_wrapper_bytes} \
+             declared={REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES}"
+        );
+        assert!(
+            encoded.len() <= REPLAY_FRAME_CAPACITY_BYTES,
+            "actual frame={} declared={REPLAY_FRAME_CAPACITY_BYTES}",
             encoded.len()
         );
     }

@@ -8,10 +8,10 @@ use gocode_application::ports::{
     ReplayEvent, ReplayOpenResult, ReplaySession, ReplayStorePort, RetentionManifest,
 };
 use gocode_application::replay_service::{
-    REPLAY_CANONICAL_EVENT_MAX_BYTES, REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+    REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_EVENT_VARIABLE_MAX_BYTES,
     REPLAY_FRAME_CAPACITY_BYTES, REPLAY_PAGE_CAPACITY_BYTES,
-    measured_conversation_replay_event_bytes, validate_replay_reader_capacity,
-    validate_replay_writer_event_size,
+    measured_conversation_replay_event_bytes, measured_taskrun_replay_event_bytes,
+    validate_replay_reader_capacity, validate_replay_writer_event_size,
 };
 use gocode_application::replay_service::{ReplayDeliveryPrecommitGuard, ReplayService};
 use gocode_domain::conversation::ConversationEvent;
@@ -20,6 +20,7 @@ use gocode_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
 use gocode_domain::replay::{
     CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope, RetentionManifest as DomainRetentionManifest,
 };
+use gocode_domain::task_run::TaskRunEvent;
 
 struct DummyStore;
 
@@ -450,7 +451,22 @@ fn writer_rejects_exact_canonical_event_expanded_by_json_escaping() {
 
     let actual = measured_conversation_replay_event_bytes(&replay_event, &payload).unwrap();
 
-    assert!(actual > REPLAY_CANONICAL_EVENT_MAX_BYTES);
+    assert!(actual > REPLAY_EVENT_VARIABLE_MAX_BYTES);
+    assert!(matches!(
+        validate_replay_writer_event_size(actual),
+        Err(ReplayError::Integrity(_))
+    ));
+}
+
+#[test]
+fn writer_rejects_durable_payload_whose_hex_transport_exceeds_frame_budget() {
+    let mut replay_event = event();
+    replay_event.payload = vec![0xab; (REPLAY_EVENT_VARIABLE_MAX_BYTES / 2) + 1];
+
+    let actual =
+        measured_taskrun_replay_event_bytes(&replay_event, &TaskRunEvent::TaskRunCreated).unwrap();
+
+    assert!(actual > REPLAY_EVENT_VARIABLE_MAX_BYTES);
     assert!(matches!(
         validate_replay_writer_event_size(actual),
         Err(ReplayError::Integrity(_))

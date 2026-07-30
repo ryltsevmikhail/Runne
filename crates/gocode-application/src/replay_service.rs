@@ -20,23 +20,23 @@ const MAX_EVENT_TYPE_BYTES: usize = 256;
 pub const REPLAY_FRAME_CAPACITY_BYTES: usize = 256 * 1024;
 pub const REPLAY_PAGE_CAPACITY_BYTES: usize = 1024 * 1024;
 pub const REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES: usize = 32 * 1024;
-pub const REPLAY_CANONICAL_EVENT_MAX_BYTES: usize =
+pub const REPLAY_EVENT_VARIABLE_MAX_BYTES: usize =
     REPLAY_FRAME_CAPACITY_BYTES - REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES;
 
-/// Rejects an exact canonical event that the current writer policy cannot
-/// guarantee every configured replay reader can deliver.
+/// Rejects an event variable representation that the current writer policy
+/// cannot guarantee every configured replay reader can deliver.
 pub fn validate_replay_writer_event_size(actual_bytes: usize) -> Result<(), ReplayError> {
-    if actual_bytes > REPLAY_CANONICAL_EVENT_MAX_BYTES {
+    if actual_bytes > REPLAY_EVENT_VARIABLE_MAX_BYTES {
         return Err(ReplayError::Integrity(format!(
-            "canonical replay event exceeds writer maximum: actual={actual_bytes}, \
-             maximum={REPLAY_CANONICAL_EVENT_MAX_BYTES}"
+            "replay event variable representation exceeds writer maximum: actual={actual_bytes}, \
+             maximum={REPLAY_EVENT_VARIABLE_MAX_BYTES}"
         )));
     }
     Ok(())
 }
 
 /// Reader-first readiness gate for the larger of the active writer policy and
-/// the largest retained canonical event.
+/// the largest retained event variable representation.
 pub fn validate_replay_reader_capacity(
     manifest: &RetentionManifest,
     frame_capacity_bytes: usize,
@@ -45,7 +45,7 @@ pub fn validate_replay_reader_capacity(
 ) -> Result<(), ReplayError> {
     let required = manifest
         .maximum_encoded_event_bytes()
-        .max(REPLAY_CANONICAL_EVENT_MAX_BYTES)
+        .max(REPLAY_EVENT_VARIABLE_MAX_BYTES)
         .checked_add(declared_overhead_bytes)
         .ok_or_else(|| ReplayError::Integrity("replay capacity calculation overflow".to_owned()))?;
     if required > frame_capacity_bytes || required > page_capacity_bytes {
@@ -57,8 +57,8 @@ pub fn validate_replay_reader_capacity(
     Ok(())
 }
 
-/// Encoded canonical event metadata, excluding cursor and replay binding
-/// wrappers which are admitted separately by the reader.
+/// Largest event variable representation across the canonical contract and
+/// the current HTTP durable-payload transport, excluding admitted wrappers.
 pub fn measured_conversation_replay_event_bytes(
     event: &ReplayEvent,
     payload: &ConversationEvent,
@@ -66,8 +66,8 @@ pub fn measured_conversation_replay_event_bytes(
     measured_canonical_replay_event_bytes(event, CanonicalReplayPayloadV1::from(payload))
 }
 
-/// Encoded canonical event metadata, excluding cursor and replay binding
-/// wrappers which are admitted separately by the reader.
+/// Largest event variable representation across the canonical contract and
+/// the current HTTP durable-payload transport, excluding admitted wrappers.
 pub fn measured_taskrun_replay_event_bytes(
     event: &ReplayEvent,
     payload: &TaskRunEvent,
@@ -131,9 +131,13 @@ fn measured_canonical_replay_event_bytes(
         "sequence": event.sequence,
         "timestampUnixMicros": event.timestamp,
     });
-    serde_json::to_vec(&value)
+    let canonical_bytes = serde_json::to_vec(&value)
         .map(|encoded| encoded.len())
-        .map_err(|_| ReplayError::Integrity("encode canonical replay event".to_owned()))
+        .map_err(|_| ReplayError::Integrity("encode canonical replay event".to_owned()))?;
+    let durable_payload_hex_bytes = event.payload.len().checked_mul(2).ok_or_else(|| {
+        ReplayError::Integrity("replay transport payload size overflow".to_owned())
+    })?;
+    Ok(canonical_bytes.max(durable_payload_hex_bytes))
 }
 
 fn lower_hex(bytes: &[u8]) -> String {
