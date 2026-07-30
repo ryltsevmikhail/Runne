@@ -25,6 +25,7 @@ const AGGREGATE: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0xbb,
 ];
 const SECRET: [u8; 32] = [0xCC; 32];
+const LINEAGE: [u8; 16] = [0x02; 16];
 
 struct AvailableDeliveryGuard;
 
@@ -230,10 +231,13 @@ async fn open(
             1,
             &AGGREGATE,
             from_cursor,
+            &EventLogLineageId::from_bytes(LINEAGE),
             &SECRET,
             delivery_guard(),
         )
         .await
+        .unwrap()
+        .into_opened()
         .unwrap()
 }
 
@@ -267,10 +271,13 @@ async fn empty_catch_up_has_server_issued_proof() {
             1,
             &AGGREGATE,
             None,
+            &EventLogLineageId::from_bytes(LINEAGE),
             &SECRET,
             delivery_guard(),
         )
         .await
+        .unwrap()
+        .into_opened()
         .unwrap();
     assert!(events.is_empty());
     let (completed, last_ack_event) = store
@@ -297,10 +304,13 @@ async fn nonempty_catch_up_requires_acknowledgement() {
             1,
             &AGGREGATE,
             None,
+            &EventLogLineageId::from_bytes(LINEAGE),
             &SECRET,
             delivery_guard(),
         )
         .await
+        .unwrap()
+        .into_opened()
         .unwrap();
     let error = store
         .acknowledge(
@@ -310,6 +320,7 @@ async fn nonempty_catch_up_requires_acknowledgement() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap_err();
@@ -368,6 +379,7 @@ async fn open_session_rejects_cursor_for_unknown_event_position() {
             1,
             &AGGREGATE,
             Some(&cursor(2)),
+            &EventLogLineageId::from_bytes(LINEAGE),
             &SECRET,
             delivery_guard(),
         )
@@ -428,6 +440,7 @@ async fn exact_full_initial_page_can_complete_after_acknowledgement() {
             &AUTHORITY,
             0,
             &cursor(100),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -461,6 +474,7 @@ async fn catch_up_completion_uses_last_event_in_scope() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -487,6 +501,7 @@ async fn test_acknowledge_monotonic() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -498,6 +513,7 @@ async fn test_acknowledge_monotonic() {
             &AUTHORITY,
             0,
             &cursor(2),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -516,6 +532,7 @@ async fn test_acknowledge_duplicate_idempotent() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -527,6 +544,7 @@ async fn test_acknowledge_duplicate_idempotent() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -547,6 +565,7 @@ async fn acknowledge_rejects_cursor_not_delivered_by_session() {
             &AUTHORITY,
             0,
             &forged_cursor,
+            delivery_guard(),
         )
         .await
         .unwrap_err();
@@ -579,6 +598,7 @@ async fn test_complete_catch_up_success() {
             &AUTHORITY,
             0,
             &cursor(2),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -604,6 +624,7 @@ async fn duplicate_complete_catch_up_returns_same_server_proof() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -635,6 +656,7 @@ async fn test_continue_live_cas() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -672,6 +694,7 @@ async fn poll_live_advances_past_delivered_events() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -761,12 +784,16 @@ async fn replay_rejects_interior_sequence_gap() {
             1,
             &AGGREGATE,
             None,
+            &EventLogLineageId::from_bytes(LINEAGE),
             &SECRET,
             delivery_guard(),
         )
         .await;
 
-    assert!(matches!(result, Err(ReplayError::Integrity(_))));
+    assert!(matches!(
+        result,
+        Ok(gocode_application::ports::ReplayOpenResult::RetentionGap { .. })
+    ));
 }
 
 #[tokio::test]
@@ -781,6 +808,7 @@ async fn poll_live_rejects_sequence_jump() {
             &AUTHORITY,
             0,
             &cursor(1),
+            delivery_guard(),
         )
         .await
         .unwrap();
@@ -853,6 +881,7 @@ async fn replay_rejects_payload_changed_without_integrity_digest_update() {
             1,
             &AGGREGATE,
             None,
+            &EventLogLineageId::from_bytes(LINEAGE),
             &SECRET,
             delivery_guard(),
         )
@@ -888,6 +917,7 @@ async fn test_reconnect_from_ack() {
             &AUTHORITY,
             0,
             &cursor(2),
+            delivery_guard(),
         )
         .await
         .unwrap();

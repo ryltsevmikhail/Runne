@@ -466,7 +466,7 @@ fn replay_error_to_http(error: &ReplayError) -> ReplayHttpFailure {
         ReplayError::SessionNotFound => {
             ReplayHttpFailure::new(StatusCode::NOT_FOUND, "replay_session_not_found")
         }
-        ReplayError::Unauthorized(_) => {
+        ReplayError::Unauthorized(_) | ReplayError::AuthorizationRevoked => {
             ReplayHttpFailure::new(StatusCode::UNAUTHORIZED, "unauthorized")
         }
         ReplayError::InvalidState(_) | ReplayError::NotAcknowledged => {
@@ -478,7 +478,7 @@ fn replay_error_to_http(error: &ReplayError) -> ReplayHttpFailure {
         ReplayError::StaleGeneration | ReplayError::StreamTerminated => {
             ReplayHttpFailure::new(StatusCode::GONE, "replay_session_expired")
         }
-        ReplayError::RetentionGap => {
+        ReplayError::ReplayRetentionGap { .. } => {
             ReplayHttpFailure::new(StatusCode::GONE, "replay_retention_gap")
         }
         ReplayError::Storage(_) => {
@@ -915,7 +915,11 @@ async fn produce_live_events(
                 session = next_session;
                 events = next_events;
             }
-            Err(ReplayError::Unauthorized(_) | ReplayError::StaleGeneration) => {
+            Err(
+                ReplayError::Unauthorized(_)
+                | ReplayError::AuthorizationRevoked
+                | ReplayError::StaleGeneration,
+            ) => {
                 try_terminal(
                     &sender,
                     terminal("Unauthorized", "replay authorization expired"),
@@ -930,7 +934,7 @@ async fn produce_live_events(
                 preserve_session = true;
                 break;
             }
-            Err(ReplayError::RetentionGap) => {
+            Err(ReplayError::ReplayRetentionGap { .. }) => {
                 try_terminal(
                     &sender,
                     terminal("RetentionGap", "replay history is unavailable"),
