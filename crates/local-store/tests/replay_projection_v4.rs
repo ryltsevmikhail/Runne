@@ -122,6 +122,153 @@ fn create_v3_database(path: &Path) -> Connection {
     connection
 }
 
+#[allow(clippy::too_many_lines)]
+fn create_base_v4_database(path: &Path, with_replay_state: bool) -> Connection {
+    let connection = create_v3_database(path);
+    connection
+        .execute_batch(
+            "
+            DROP TABLE projections;
+            DROP TABLE event_journal;
+            DROP TABLE replay_cursors;
+
+            CREATE TABLE projections (
+                runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+                principal TEXT NOT NULL CHECK (length(principal) > 0),
+                lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+                scope TEXT NOT NULL CHECK (length(scope) > 0),
+                binding_digest TEXT NOT NULL CHECK (
+                    length(binding_digest) = 64
+                    AND binding_digest NOT GLOB '*[^0-9a-f]*'
+                ),
+                projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+                projection_digest TEXT NOT NULL CHECK (
+                    length(projection_digest) = 64
+                    AND projection_digest NOT GLOB '*[^0-9a-f]*'
+                ),
+                event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+                payload BLOB NOT NULL CHECK (json_valid(payload) = 1),
+                PRIMARY KEY (runtime_authority, principal, lineage, scope)
+            ) STRICT;
+
+            CREATE TABLE event_journal (
+                runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+                principal TEXT NOT NULL CHECK (length(principal) > 0),
+                lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+                scope TEXT NOT NULL CHECK (length(scope) > 0),
+                binding_digest TEXT NOT NULL CHECK (
+                    length(binding_digest) = 64
+                    AND binding_digest NOT GLOB '*[^0-9a-f]*'
+                ),
+                event_id TEXT NOT NULL CHECK (length(event_id) > 0),
+                cursor TEXT NOT NULL CHECK (length(cursor) > 0),
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+                validated_event BLOB NOT NULL,
+                event_digest TEXT NOT NULL CHECK (
+                    length(event_digest) = 64
+                    AND event_digest NOT GLOB '*[^0-9a-f]*'
+                ),
+                PRIMARY KEY (
+                    runtime_authority,
+                    principal,
+                    lineage,
+                    scope,
+                    event_id
+                ),
+                UNIQUE (
+                    runtime_authority,
+                    principal,
+                    lineage,
+                    scope,
+                    event_sequence
+                ),
+                UNIQUE (
+                    runtime_authority,
+                    principal,
+                    lineage,
+                    scope,
+                    cursor
+                )
+            ) STRICT;
+
+            CREATE TABLE replay_cursors (
+                runtime_authority TEXT NOT NULL CHECK (length(runtime_authority) > 0),
+                principal TEXT NOT NULL CHECK (length(principal) > 0),
+                lineage TEXT NOT NULL CHECK (length(lineage) > 0),
+                scope TEXT NOT NULL CHECK (length(scope) > 0),
+                binding_digest TEXT NOT NULL CHECK (
+                    length(binding_digest) = 64
+                    AND binding_digest NOT GLOB '*[^0-9a-f]*'
+                ),
+                generation INTEGER NOT NULL CHECK (generation >= 0),
+                applied_cursor TEXT NOT NULL CHECK (length(applied_cursor) > 0),
+                event_sequence INTEGER NOT NULL CHECK (event_sequence >= 1),
+                projection_revision INTEGER NOT NULL CHECK (projection_revision >= 0),
+                projection_digest TEXT NOT NULL CHECK (
+                    length(projection_digest) = 64
+                    AND projection_digest NOT GLOB '*[^0-9a-f]*'
+                ),
+                PRIMARY KEY (runtime_authority, principal, lineage, scope)
+            ) STRICT;
+
+            UPDATE meta SET schema_version = 4 WHERE singleton = 1;
+            PRAGMA user_version = 4;
+            ",
+        )
+        .expect("create base v4 schema");
+
+    if with_replay_state {
+        let event = br#"{"eventId":"event-1","sequence":1}"#;
+        let projection = br#"{"conversationId":"conversation-1","messages":[]}"#;
+        connection
+            .execute(
+                "
+                INSERT INTO event_journal (
+                    runtime_authority, principal, lineage, scope, binding_digest,
+                    event_id, cursor, generation, event_sequence, validated_event, event_digest
+                ) VALUES (
+                    'runtime-1', 'principal-1', 'lineage-1', 'conversation-1', ?1,
+                    'event-1', 'opaque.cursor.1', 3, 1, ?2, ?3
+                )
+                ",
+                params![BINDING_DIGEST, event, digest(event)],
+            )
+            .expect("insert base v4 event");
+        connection
+            .execute(
+                "
+                INSERT INTO projections (
+                    runtime_authority, principal, lineage, scope, binding_digest,
+                    projection_revision, projection_digest, event_sequence, payload
+                ) VALUES (
+                    'runtime-1', 'principal-1', 'lineage-1', 'conversation-1', ?1,
+                    1, ?2, 1, ?3
+                )
+                ",
+                params![BINDING_DIGEST, digest(projection), projection],
+            )
+            .expect("insert base v4 projection");
+        connection
+            .execute(
+                "
+                INSERT INTO replay_cursors (
+                    runtime_authority, principal, lineage, scope, binding_digest,
+                    generation, applied_cursor, event_sequence, projection_revision,
+                    projection_digest
+                ) VALUES (
+                    'runtime-1', 'principal-1', 'lineage-1', 'conversation-1', ?1,
+                    3, 'opaque.cursor.1', 1, 1, ?2
+                )
+                ",
+                params![BINDING_DIGEST, digest(projection)],
+            )
+            .expect("insert base v4 cursor");
+    }
+
+    connection
+}
+
 #[test]
 fn empty_v3_replay_tables_migrate_to_v4_without_touching_settings_or_projects() {
     let directory = tempfile::tempdir().expect("temp directory");
@@ -170,6 +317,129 @@ fn empty_v3_replay_tables_migrate_to_v4_without_touching_settings_or_projects() 
             .expect("inspect v4 column");
         assert!(present, "missing {table}.{column}");
     }
+}
+
+#[test]
+fn empty_base_v4_schema_is_upgraded_before_replay_use() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    drop(create_base_v4_database(&path, false));
+
+    let mut store = LocalStore::open(&path).expect("upgrade empty base v4 replay schema");
+    assert_eq!(
+        store.get_setting("appearance.theme").expect("read setting"),
+        Some("light".into())
+    );
+    assert_eq!(store.list_projects().expect("list projects")[0].id, 41);
+
+    let scope = scope();
+    let projection = br#"{"conversationId":"conversation-1","messages":[]}"#;
+    let outcome = store
+        .apply_replay_transition(&transition(
+            &scope,
+            None,
+            "event-1",
+            "opaque.cursor.1",
+            3,
+            1,
+            br#"{"eventId":"event-1","sequence":1}"#,
+            0,
+            projection,
+        ))
+        .expect("apply transition after base v4 upgrade");
+    assert_eq!(
+        outcome,
+        ReplayApplyOutcome::Applied {
+            database_generation: 10
+        }
+    );
+    assert_eq!(
+        store
+            .conversation_projection(&scope)
+            .expect("read projection")
+            .expect("stored projection")
+            .payload,
+        projection
+    );
+
+    drop(store);
+    let connection = Connection::open(path).expect("inspect upgraded schema");
+    for column in [
+        "projection_revision",
+        "projection_digest",
+        "projected_payload",
+    ] {
+        let present: bool = connection
+            .query_row(
+                "
+                SELECT EXISTS(
+                    SELECT 1 FROM pragma_table_info('event_journal') WHERE name = ?1
+                )
+                ",
+                [column],
+                |row| row.get(0),
+            )
+            .expect("inspect projection identity column");
+        assert!(present, "missing event_journal.{column}");
+    }
+}
+
+#[test]
+fn non_empty_base_v4_replay_state_is_rejected_before_any_mutation() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    drop(create_base_v4_database(&path, true));
+
+    let Err(error) = LocalStore::open(&path) else {
+        panic!("base v4 replay state without projection identity must fail closed");
+    };
+    assert!(matches!(error, StoreOpenError::LegacyReplayState));
+
+    let connection = Connection::open(path).expect("inspect rejected database");
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("read schema version");
+    let event: Vec<u8> = connection
+        .query_row("SELECT validated_event FROM event_journal", [], |row| {
+            row.get(0)
+        })
+        .expect("read preserved event");
+    let cursor: String = connection
+        .query_row("SELECT applied_cursor FROM replay_cursors", [], |row| {
+            row.get(0)
+        })
+        .expect("read preserved cursor");
+    let projection: Vec<u8> = connection
+        .query_row("SELECT payload FROM projections", [], |row| row.get(0))
+        .expect("read preserved projection");
+    let setting: String = connection
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'appearance.theme'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read preserved setting");
+    let new_column_present: bool = connection
+        .query_row(
+            "
+            SELECT EXISTS(
+                SELECT 1 FROM pragma_table_info('event_journal')
+                WHERE name = 'projected_payload'
+            )
+            ",
+            [],
+            |row| row.get(0),
+        )
+        .expect("inspect rejected schema");
+    assert_eq!(version, 4);
+    assert_eq!(event, br#"{"eventId":"event-1","sequence":1}"#);
+    assert_eq!(cursor, "opaque.cursor.1");
+    assert_eq!(
+        projection,
+        br#"{"conversationId":"conversation-1","messages":[]}"#
+    );
+    assert_eq!(setting, "light");
+    assert!(!new_column_present);
 }
 
 #[test]
