@@ -241,6 +241,48 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
 }
 
 #[test]
+fn replay_session_ids_use_the_http_lower_hex_wire_schema_everywhere() {
+    let output = tempfile::tempdir().unwrap();
+    generate_ui_contract(output.path()).unwrap();
+
+    let replay_schema: Value = serde_json::from_slice(
+        &fs::read(output.path().join("schemas/replay-v1.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let openapi: Value =
+        serde_json::from_slice(&fs::read(output.path().join("openapi.json")).unwrap()).unwrap();
+    let expected = serde_json::json!({
+        "pattern": "^[0-9a-f]{32}$",
+        "type": "string",
+    });
+    assert_eq!(
+        replay_schema["$defs"]["openSessionResponse"]["properties"]["sessionId"],
+        expected
+    );
+
+    let templated_paths = openapi["paths"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(path, _)| path.contains("{sessionId}"))
+        .collect::<Vec<_>>();
+    assert_eq!(templated_paths.len(), 6);
+    for (path, path_item) in templated_paths {
+        for operation in path_item.as_object().unwrap().values() {
+            let session_id_schema = operation["parameters"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|parameter| parameter["in"] == "path" && parameter["name"] == "sessionId")
+                .unwrap_or_else(|| panic!("{path} operation omitted sessionId"))
+                .get("schema")
+                .unwrap();
+            assert_eq!(session_id_schema, &expected, "{path}");
+        }
+    }
+}
+
+#[test]
 fn public_taskrun_failure_reason_conversion_is_bounded() {
     assert!(
         CanonicalReplayPayloadV1::try_from(&TaskRunEvent::TaskRunFailed {

@@ -209,6 +209,10 @@ fn nullable_uuid_v7_schema() -> Value {
     json!({"oneOf": [uuid_v7_schema(), {"type": "null"}]})
 }
 
+fn replay_session_id_schema() -> Value {
+    json!({"pattern": LOWER_HEX_16_PATTERN, "type": "string"})
+}
+
 fn positive_integer_schema() -> Value {
     json!({"minimum": 1, "type": "integer"})
 }
@@ -535,7 +539,7 @@ fn replay_schema() -> Value {
                     },
                     "hasMore": {"type": "boolean"},
                     "highWaterRef": string_schema(8192),
-                    "sessionId": uuid_v7_schema(),
+                    "sessionId": replay_session_id_schema(),
                 }),
                 &["events", "hasMore", "highWaterRef", "sessionId"],
             ),
@@ -688,7 +692,7 @@ fn sse_delivery_schema() -> Value {
             "deliverySequence": positive_integer_schema(),
             "liveDeliveryId": nullable_uuid_v7_schema(),
             "replayCursor": {"maxLength": 8192, "pattern": CURSOR_PATTERN, "type": "string"},
-            "replaySessionId": uuid_v7_schema(),
+            "replaySessionId": replay_session_id_schema(),
             "transportVersion": {"const": 1, "type": "integer"},
         }),
         &[
@@ -733,7 +737,7 @@ fn openapi() -> Value {
             "in": "path",
             "name": "sessionId",
             "required": true,
-            "schema": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
+            "schema": replay_session_id_schema(),
         })
     };
     json!({
@@ -900,7 +904,7 @@ fn sse_delivery_golden() -> Value {
         "deliverySequence": 1,
         "liveDeliveryId": "018f2e3a-7000-7000-8000-000000000117",
         "replayCursor": "gocode-replay-cursor-v1.7b7d",
-        "replaySessionId": "018f2e3a-7000-7000-8000-000000000118",
+        "replaySessionId": "018f2e3a700070008000000000000118",
         "transportVersion": 1,
     })
 }
