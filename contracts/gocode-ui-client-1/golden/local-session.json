@@ -1,0 +1,19 @@
+{
+  "authenticateRequest": {
+    "authority": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo",
+    "challengeId": "AQEBAQEBAQEBAQEBAQEBAQ",
+    "proof": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc"
+  },
+  "authenticateResponse": {
+    "expiresAtMonotonicMillis": 600000,
+    "sessionId": "018f2e3a700070008000000000000112"
+  },
+  "challengeRequest": {
+    "clientNonce": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+    "serverNonce": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg"
+  },
+  "challengeResponse": {
+    "challengeId": "AQEBAQEBAQEBAQEBAQEBAQ",
+    "serverNonce": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg"
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "info": {
+    "title": "GOCODE Local Runtime API",
+    "version": "1.0.0"
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/local-session/authenticate": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/local-session-v1.schema.json#/$defs/authenticateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/local-session-v1.schema.json#/$defs/authenticateResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    },
+    "/v1/local-session/challenges": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/local-session-v1.schema.json#/$defs/challengeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/local-session-v1.schema.json#/$defs/challengeResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    },
+    "/v1/replay/open-session": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/replay-v1.schema.json#/$defs/openSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/replay-v1.schema.json#/$defs/openSessionResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    },
+    "/v1/replay/{sessionId}/acknowledge": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/replay-v1.schema.json#/$defs/acknowledgeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/replay-v1.schema.json#/$defs/acknowledgeResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    },
+    "/v1/replay/{sessionId}/close": {
+      "post": {
+        "responses": {
+          "204": {
+            "description": "Replay session closed"
+          }
+        }
+      }
+    },
+    "/v1/replay/{sessionId}/complete-catch-up": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/replay-v1.schema.json#/$defs/completeCatchUpResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    },
+    "/v1/replay/{sessionId}/continue-live": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/replay-v1.schema.json#/$defs/continueLiveResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    },
+    "/v1/replay/{sessionId}/events": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "schemas/sse-v1.schema.json"
+                }
+              }
+            },
+            "description": "Bounded replay/live SSE"
+          }
+        }
+      }
+    },
+    "/v1/replay/{sessionId}/read-page": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/replay-v1.schema.json#/$defs/readPageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/replay-v1.schema.json#/$defs/readPageResponse"
+                }
+              }
+            },
+            "description": "Canonical response"
+          }
+        }
+      }
+    }
+  }
+}

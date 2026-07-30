@@ -1,0 +1,59 @@
+{
+  "apiProfileId": "gocode-ui-client/1",
+  "artifactDigests": [
+    {
+      "path": "golden/local-session.json",
+      "sha256": "779211a081c21bd8bbfca6613f94629ceb9f941988f7bcace5c1d4664ada4669"
+    },
+    {
+      "path": "golden/replay-conversation.json",
+      "sha256": "d922ec098f855bf64181c25f00accf84ff4a7cfd10611a6f76d7f466833771b9"
+    },
+    {
+      "path": "golden/replay-taskrun.json",
+      "sha256": "afb3287c53df9421af80735151170e6db5605a2cca7aae69b078b68bfe2df553"
+    },
+    {
+      "path": "golden/sse-delivery.json",
+      "sha256": "86dd10d225eac375733a55690ca31a87c9343cec8203185360902983c062c15b"
+    },
+    {
+      "path": "openapi.json",
+      "sha256": "a93618774754350a0e848fa0d8740a77da746f35b19a45bb1d88b9c6ae9f772a"
+    },
+    {
+      "path": "schemas/local-runtime-profile-v2.schema.json",
+      "sha256": "cadf2320526665a0cc762b698fe1008585aeb3250c5af221fb2163f19348bf38"
+    },
+    {
+      "path": "schemas/local-session-v1.schema.json",
+      "sha256": "c897befe17834b965f49e5c3d471253ca77917e67676d15166b1318e85eaf97b"
+    },
+    {
+      "path": "schemas/replay-v1.schema.json",
+      "sha256": "6f0fcea102cd7cadcf7ae9f1ec585553f29f278420a4d0fddca568cd6851a9cc"
+    },
+    {
+      "path": "schemas/sse-v1.schema.json",
+      "sha256": "5931c077affd254b460848b84e161153b426313cc00e296d09a7aa025acfa08c"
+    }
+  ],
+  "capabilityCatalog": [
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1"
+  ],
+  "generatorSchemaVersion": 1,
+  "publishedCapabilities": [
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1"
+  ],
+  "transportProfileId": "gocode-local-runtime/2"
+}

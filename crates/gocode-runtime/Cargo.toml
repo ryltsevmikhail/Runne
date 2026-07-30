@@ -14,7 +14,9 @@ gocode-plugin-host = { path = "../gocode-plugin-host" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-tools = { path = "../gocode-tools" }
 hex = "=0.4.3"
+serde_json = "=1.0.151"
 sha2 = { workspace = true }
+tempfile = "=3.27.0"
 thiserror.workspace = true
 tokio = { version = "=1.44.0", features = ["sync", "rt", "macros", "time"] }
 tokio-util = { version = "=0.7.14", features = ["rt"] }
