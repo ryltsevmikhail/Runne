@@ -1,5 +1,7 @@
 //! Authenticated exact runtime profile query.
 
+#![allow(dead_code)] // Mounted only by the crate-owned local TLS boundary in Task 4B.
+
 use axum::{
     Json, Router,
     extract::Extension,
@@ -131,7 +133,7 @@ mod tests {
         assert_eq!(body["launchGeneration"], 7);
         assert_eq!(body["sessionId"], hex::encode([5; 16]));
         assert_eq!(body["authorizationEpoch"], 3);
-        assert_eq!(body["sensitivityCeiling"], "Internal");
+        assert_eq!(body["sensitivityCeiling"], "internal");
         assert_eq!(body["certificateSha256"], hex::encode([6; 32]));
         for forbidden in [
             "authority",
@@ -234,10 +236,18 @@ async fn session_runtime_profile(
         launch_generation: ephemeral.launch_generation(),
         session_id: hex::encode(ephemeral.session_id()),
         authorization_epoch: ephemeral.authorization_epoch(),
-        sensitivity_ceiling: format!("{:?}", ephemeral.sensitivity_ceiling()),
+        sensitivity_ceiling: sensitivity_label(ephemeral.sensitivity_ceiling()).to_owned(),
         certificate_sha256: hex::encode(session.binding.certificate_sha256()),
     })
     .into_response()
+}
+
+const fn sensitivity_label(sensitivity: gocode_domain::event::Sensitivity) -> &'static str {
+    match sensitivity {
+        gocode_domain::event::Sensitivity::Public => "public",
+        gocode_domain::event::Sensitivity::Internal => "internal",
+        gocode_domain::event::Sensitivity::Sensitive => "sensitive",
+    }
 }
 
 /// Computes the domain-separated digest of the exact ordered capabilities.

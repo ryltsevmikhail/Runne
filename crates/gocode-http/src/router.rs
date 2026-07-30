@@ -35,23 +35,22 @@ use crate::task_runs::{TaskRunHttpState, task_run_router};
 
 /// Builds the TLS-gated local-session bootstrap surface without changing the
 /// legacy bearer-protected production router before the Task 4 cutover.
+#[allow(dead_code)] // Used by SecureLocalHttpHost when Task 4B adds TLS serving.
 pub(crate) fn create_local_session_bootstrap_router(state: LocalSessionHttpState) -> Router {
     local_session_router(state)
 }
 
-/// Opaque TLS-only local runtime HTTP composition.
+/// Crate-private local runtime HTTP composition following TLS verification.
 ///
-/// The host is the sole public composition point for the local-session
-/// bootstrap routes and the canonical session-authenticated routes. It never
-/// returns an Axum `Router`; the crate-owned TLS serving boundary is the only
-/// code allowed to consume its opaque service.
-pub struct SecureLocalHttpHost {
+/// The host is built only after the crate-owned TLS serving boundary supplies
+/// its verified capability. It never returns an Axum `Router`.
+pub(crate) struct SecureLocalHttpHost {
     router: Router,
 }
 
 /// Rejected inconsistent local runtime profile configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum SecureLocalHttpHostError {
+pub(crate) enum SecureLocalHttpHostError {
     /// The advertised ordered capabilities do not match the authenticated binding.
     #[error("runtime profile capability digest does not match session binding")]
     CapabilityDigestMismatch,
@@ -59,9 +58,11 @@ pub enum SecureLocalHttpHostError {
 
 impl SecureLocalHttpHost {
     /// Composes bootstrap, health, and every canonical protected route over one
-    /// shared local-session service.
+    /// shared local-session service after verified TLS listener setup.
     #[allow(clippy::too_many_arguments)]
-    pub fn new<T, C>(
+    #[allow(dead_code)] // Called by the crate-owned TLS serving boundary in Task 4B.
+    pub(crate) fn new<T, C>(
+        verified_tls: VerifiedLocalTls,
         health_state: HealthState,
         admission_state: AdmissionState,
         local_session_service: Arc<Mutex<gocode_application::local_session::LocalSessionService>>,
@@ -76,6 +77,11 @@ impl SecureLocalHttpHost {
         T: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
         C: ConversationCommandHostPort + ConversationQueryHostPort + 'static,
     {
+        if runtime_profile_state.ordered_capability_digest()
+            != *binding.stable().capability_digest()
+        {
+            return Err(SecureLocalHttpHostError::CapabilityDigestMismatch);
+        }
         let protected = Router::new()
             .merge(runtime_profile_session_router(
                 runtime_profile_state.clone(),
@@ -83,46 +89,8 @@ impl SecureLocalHttpHost {
             .merge(task_run_router(task_run_state))
             .merge(conversation_router(conversation_state))
             .merge(replay_router(replay_state));
-        Self::with_protected_router(
-            health_state,
-            admission_state,
-            local_session_service,
-            binding,
-            clock,
-            runtime_profile_state,
-            protected,
-        )
-    }
-
-    /// Consumes the host into an opaque HTTP service for the crate-owned TLS
-    /// accept loop. It is intentionally unavailable to external crates.
-    #[allow(dead_code)] // Task 4B moves the daemon TLS accept loop to this boundary.
-    pub(crate) fn into_service(
-        self,
-    ) -> impl tower::Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone
-    {
-        self.router
-    }
-
-    fn with_protected_router(
-        health_state: HealthState,
-        admission_state: AdmissionState,
-        local_session_service: Arc<Mutex<gocode_application::local_session::LocalSessionService>>,
-        binding: gocode_api::RuntimeSessionBinding,
-        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
-        runtime_profile_state: RuntimeProfileHttpState,
-        protected: Router,
-    ) -> Result<Self, SecureLocalHttpHostError> {
-        if runtime_profile_state.ordered_capability_digest()
-            != *binding.stable().capability_digest()
-        {
-            return Err(SecureLocalHttpHostError::CapabilityDigestMismatch);
-        }
-        let local_session_state = LocalSessionHttpState::new(
-            local_session_service,
-            Arc::clone(&clock),
-            VerifiedLocalTls::from_verified_listener(),
-        );
+        let local_session_state =
+            LocalSessionHttpState::new(local_session_service, Arc::clone(&clock), verified_tls);
         let protected = protected
             .layer(axum_mw::from_fn_with_state(
                 admission_state,
@@ -140,6 +108,16 @@ impl SecureLocalHttpHost {
                 .merge(create_local_session_bootstrap_router(local_session_state))
                 .merge(protected),
         })
+    }
+
+    /// Consumes the host into an opaque HTTP service for the crate-owned TLS
+    /// accept loop. It is intentionally unavailable to external crates.
+    #[allow(dead_code)] // Task 4B moves the daemon TLS accept loop to this boundary.
+    pub(crate) fn into_service(
+        self,
+    ) -> impl tower::Service<Request<Body>, Response = Response<Body>, Error = Infallible> + Clone
+    {
+        self.router
     }
 
     #[cfg(test)]
@@ -249,14 +227,108 @@ mod tests {
         http::{Request, StatusCode},
     };
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use gocode_api::{ApiPrincipalId, DaemonInstanceId, StableRuntimeBinding};
+    use gocode_api::{
+        ApiActor, ApiPrincipalId, CompleteTaskRunCommand, ConversationCommandContext,
+        ConversationCommandHostPort, ConversationCreatedAck, ConversationHostError,
+        ConversationMessagesSnapshot, ConversationQueryHostPort, ConversationTextResult,
+        CreateCanonicalConversationCommand, CreateTaskRunCommand, DaemonInstanceId,
+        ExistingTaskRunCommand, GenerateConversationTextCommand, StableRuntimeBinding,
+        TaskRunCommandAck, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
+        TaskRunQueryHostPort, TaskRunSnapshot,
+    };
     use gocode_application::local_session::{LocalSessionService, bootstrap_proof_transcript};
-    use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
+    use gocode_application::replay_service::ReplayService;
+    use gocode_domain::{
+        event::Sensitivity,
+        id::{ConversationId, EventLogLineageId, TaskRunId},
+    };
+    use gocode_store::{replay_store::ReplayStore, schema::apply_migrations};
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     use tower::ServiceExt;
 
     const CAPABILITIES: &[&str] = &["conversation.create.v1", "conversation.list.v1"];
+
+    #[derive(Clone)]
+    struct UnavailableTaskRunHost;
+
+    impl TaskRunCommandHostPort for UnavailableTaskRunHost {
+        async fn create_task_run(
+            &self,
+            _: TaskRunCommandContext,
+            _: CreateTaskRunCommand,
+        ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+            Err(TaskRunHostError::Unavailable)
+        }
+
+        async fn queue_task_run(
+            &self,
+            _: TaskRunCommandContext,
+            _: ExistingTaskRunCommand,
+        ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+            Err(TaskRunHostError::Unavailable)
+        }
+
+        async fn admit_task_run(
+            &self,
+            _: TaskRunCommandContext,
+            _: ExistingTaskRunCommand,
+        ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+            Err(TaskRunHostError::Unavailable)
+        }
+
+        async fn start_attempt(
+            &self,
+            _: TaskRunCommandContext,
+            _: ExistingTaskRunCommand,
+        ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+            Err(TaskRunHostError::Unavailable)
+        }
+
+        async fn complete_task_run(
+            &self,
+            _: TaskRunCommandContext,
+            _: CompleteTaskRunCommand,
+        ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+            Err(TaskRunHostError::Unavailable)
+        }
+    }
+
+    impl TaskRunQueryHostPort for UnavailableTaskRunHost {
+        async fn get_task_run(&self, _: TaskRunId) -> Result<TaskRunSnapshot, TaskRunHostError> {
+            Err(TaskRunHostError::Unavailable)
+        }
+    }
+
+    #[derive(Clone)]
+    struct UnavailableConversationHost;
+
+    impl ConversationCommandHostPort for UnavailableConversationHost {
+        async fn create_conversation(
+            &self,
+            _: ConversationCommandContext,
+            _: CreateCanonicalConversationCommand,
+        ) -> Result<ConversationCreatedAck, ConversationHostError> {
+            Err(ConversationHostError::Unavailable)
+        }
+
+        async fn generate_text(
+            &self,
+            _: ConversationCommandContext,
+            _: GenerateConversationTextCommand,
+        ) -> Result<ConversationTextResult, ConversationHostError> {
+            Err(ConversationHostError::Unavailable)
+        }
+    }
+
+    impl ConversationQueryHostPort for UnavailableConversationHost {
+        async fn list_messages(
+            &self,
+            _: ConversationId,
+        ) -> Result<ConversationMessagesSnapshot, ConversationHostError> {
+            Err(ConversationHostError::Unavailable)
+        }
+    }
 
     fn binding() -> gocode_api::RuntimeSessionBinding {
         gocode_api::RuntimeSessionBinding::new(
@@ -291,13 +363,35 @@ mod tests {
         RuntimeProfileHttpState::new("legacy", "legacy", "0.1.0-test", CAPABILITIES)
     }
 
+    fn replay_state() -> ReplayHttpState {
+        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        apply_migrations(&connection).unwrap();
+        let binding = binding();
+        let service = ReplayService::new(
+            Arc::new(ReplayStore::new(connection)),
+            [11; 32],
+            *binding.stable().lineage_id(),
+        );
+        ReplayHttpState::new(
+            service,
+            crate::replay::ReplayHttpBinding::new(
+                *binding.stable().authority_id(),
+                i64::try_from(binding.ephemeral().launch_generation()).unwrap(),
+                i64::try_from(binding.ephemeral().authorization_epoch()).unwrap(),
+            )
+            .unwrap(),
+            crate::limits::LimitsConfig::default(),
+        )
+    }
+
     fn host() -> SecureLocalHttpHost {
         let binding = binding();
         let service = Arc::new(Mutex::new(LocalSessionService::new(
             binding.clone(),
             [7; 32],
         )));
-        SecureLocalHttpHost::with_protected_router(
+        SecureLocalHttpHost::new(
+            VerifiedLocalTls::from_verified_listener(),
             HealthState {
                 recovery_state: crate::health::RecoveryState::Ready,
             },
@@ -306,7 +400,15 @@ mod tests {
             binding,
             clock(),
             profile_state(),
-            runtime_profile_session_router(profile_state()),
+            TaskRunHttpState::new(
+                UnavailableTaskRunHost,
+                ApiActor::new("gocode-http-test").unwrap(),
+            ),
+            ConversationHttpState::new(
+                UnavailableConversationHost,
+                ApiActor::new("gocode-http-test").unwrap(),
+            ),
+            replay_state(),
         )
         .unwrap()
     }
@@ -327,19 +429,31 @@ mod tests {
                 .status(),
             StatusCode::OK
         );
-        assert_eq!(
-            app.clone()
-                .oneshot(
-                    Request::builder()
-                        .uri("/v1/runtime/profile")
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap()
-                .status(),
-            StatusCode::UNAUTHORIZED
-        );
+        for (method, uri) in [
+            ("GET", "/v1/runtime/profile"),
+            ("POST", "/v1/task-runs"),
+            (
+                "GET",
+                "/v1/conversations/018f2e3a-7000-7000-8000-000000000001/messages",
+            ),
+            ("POST", "/v1/replay/open-session"),
+        ] {
+            assert_eq!(
+                app.clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(uri)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::UNAUTHORIZED,
+                "{method} {uri} must be protected by SessionAuthLayer"
+            );
+        }
 
         let client_nonce = [9; 32];
         let server_nonce = [8; 32];
