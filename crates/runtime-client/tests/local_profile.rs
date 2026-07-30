@@ -4,15 +4,10 @@ use std::net::{Ipv4Addr, SocketAddr};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gocode_runtime_client::{
     EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, LocalProfileError, LocalRuntimeProfile,
+    REQUIRED_RUNTIME_CAPABILITIES,
 };
 use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256, SanType};
 use sha2::{Digest, Sha256};
-
-const CAPABILITIES: &[&str] = &[
-    "conversation.create.v1",
-    "conversation.generate_text.v1",
-    "conversation.list_messages.v1",
-];
 
 fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::PathBuf {
     let bootstrap_path = directory.join("bootstrap.secret");
@@ -27,8 +22,8 @@ fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::Path
             "transportProfileId": "gocode-local-runtime/2",
             "profileId": EXPECTED_BUNDLE_ID,
             "schemaHash": GOLDEN_BUNDLE_HASH,
-            "capabilities": CAPABILITIES,
-            "capabilityDigest": hex::encode(ordered_capability_digest(CAPABILITIES)),
+            "capabilities": REQUIRED_RUNTIME_CAPABILITIES,
+            "capabilityDigest": hex::encode(ordered_capability_digest(REQUIRED_RUNTIME_CAPABILITIES)),
             "endpoint": endpoint,
             "certificateDerBase64": STANDARD.encode(&certificate),
             "certificateSha256": hex::encode(Sha256::digest(&certificate)),
