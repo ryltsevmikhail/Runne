@@ -30,6 +30,20 @@ fn replay_key_path(config: &ConfigurationSnapshot) -> PathBuf {
     PathBuf::from(&config.replay_integrity_key_path)
 }
 
+fn local_session_authority_path(config: &ConfigurationSnapshot) -> PathBuf {
+    replay_key_path(config).with_file_name("local-session-authority-id")
+}
+
+fn remove_sidecar_migration_marker(config: &ConfigurationSnapshot) {
+    let connection = schema::open_with_pragmas(&config.db_path).unwrap();
+    connection
+        .execute(
+            "DELETE FROM _daemon_info WHERE key = 'local_session_sidecars_v1'",
+            [],
+        )
+        .unwrap();
+}
+
 /// Extract daemon_dir from db_path.
 fn daemon_dir(db: &Path) -> &std::path::Path {
     db.parent().unwrap()
@@ -296,6 +310,7 @@ fn replay_key_missing_for_existing_db_is_provisioned_without_legacy_token_reuse(
     drop(o1);
 
     // Simulate a production-v1 install: DB + legacy bearer, no replay key.
+    remove_sidecar_migration_marker(&config);
     fs::remove_file(replay_key_path(&config)).unwrap();
     let legacy_token_path = replay_key_path(&config).with_file_name("token.json");
     let legacy_token = [0x2a; 32];
@@ -315,12 +330,58 @@ fn replay_key_missing_for_existing_db_is_provisioned_without_legacy_token_reuse(
 }
 
 #[test]
+fn replay_key_deleted_after_migration_fails_closed_without_replacement() {
+    let temp = TempDir::new().unwrap();
+    let config = test_config(&temp);
+    let initial = bootstrap(&config).unwrap();
+    drop(initial);
+    fs::remove_file(replay_key_path(&config)).unwrap();
+
+    assert!(bootstrap(&config).is_err());
+    assert!(!replay_key_path(&config).exists());
+}
+
+#[test]
+fn local_session_authority_deleted_after_migration_fails_closed_without_replacement() {
+    let temp = TempDir::new().unwrap();
+    let config = test_config(&temp);
+    let initial = bootstrap(&config).unwrap();
+    drop(initial);
+    remove_sidecar_migration_marker(&config);
+
+    let legacy_authority = [0x42; 16];
+    let connection = schema::open_with_pragmas(&config.db_path).unwrap();
+    connection
+        .execute(
+            "UPDATE _authority SET authority_id = ?1 WHERE id = 1",
+            rusqlite::params![legacy_authority.as_slice()],
+        )
+        .unwrap();
+    drop(connection);
+    let database_path = db_path(&config);
+    let locks =
+        LockSet::acquire_path(&database_path, runtime_dir(daemon_dir(&database_path))).unwrap();
+    locks.write_metadata(&legacy_authority).unwrap();
+    drop(locks);
+    let _ = fs::remove_file(local_session_authority_path(&config));
+
+    let migrated = bootstrap(&config).expect("first migration provisions authority sidecar");
+    drop(migrated);
+    let authority_path = local_session_authority_path(&config);
+    assert!(authority_path.exists());
+    fs::remove_file(&authority_path).unwrap();
+
+    assert!(bootstrap(&config).is_err());
+    assert!(!authority_path.exists());
+}
+
+#[test]
 fn invalid_existing_local_session_authority_fails_closed_without_rewrite() {
     let temp = TempDir::new().unwrap();
     let config = test_config(&temp);
     let initial = bootstrap(&config).unwrap();
     drop(initial);
-    let path = replay_key_path(&config).with_file_name("local-session-authority-id");
+    let path = local_session_authority_path(&config);
     let marker = b"invalid-authority";
     fs::write(&path, marker).unwrap();
     #[cfg(unix)]

@@ -24,6 +24,10 @@ use std::path::{Path, PathBuf};
 
 use gocode_domain::id::validate_uuid_v7_bytes;
 use gocode_store::schema;
+use rusqlite::OptionalExtension;
+use sha2::{Digest, Sha256};
+
+const SIDECAR_MIGRATION_MARKER_KEY: &str = "local_session_sidecars_v1";
 
 // ── Startup mode ──────────────────────────────────────────────────────
 
@@ -123,11 +127,6 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
         _ => StartupMode::Restart,
     };
 
-    // ── Step 8: stable, non-published replay-integrity key ───────────
-    let replay_integrity_key =
-        ReplayIntegrityKeyManager::load_or_provision(&replay_integrity_key_path)
-            .map_err(|_| DaemonError::Bootstrap("load replay-integrity key".into()))?;
-
     // ── Step 9: DB verify / create ──────────────────────────────────
     if db_existed {
         // Open verify handle (no-follow) for existing DB
@@ -143,18 +142,15 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     // ── Step 11: schema migration ───────────────────────────────────
     schema::apply_migrations(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("schema migration: {e}")))?;
+    // ── Step 12: authority ID ───────────────────────────────────────
+    let (authority_id, db_authority_after) =
+        acquire_authority(db_existed, &db_conn, &mut locks, &runtime_dir)?;
+    let (replay_integrity_key, local_session_authority_id) =
+        load_or_migrate_local_sidecars(&db_conn, &replay_integrity_key_path, authority_id)?;
     let launch_generation = schema::next_launch_generation(&db_conn)
         .map_err(|_| DaemonError::Bootstrap("allocate launch generation: corrupt state".into()))?;
     let launch_identity = LaunchIdentity::generate(launch_generation)
         .map_err(|_| DaemonError::Bootstrap("generate launch TLS identity".into()))?;
-
-    // ── Step 12: authority ID ───────────────────────────────────────
-    let (authority_id, db_authority_after) =
-        acquire_authority(db_existed, &db_conn, &mut locks, &runtime_dir)?;
-    let local_session_authority_id = load_or_provision_local_session_authority(
-        &replay_integrity_key_path.with_file_name("local-session-authority-id"),
-        authority_id,
-    )?;
 
     // ── Step 13: reconcile metadata ─────────────────────────────────
     reconcile_metadata(
@@ -188,6 +184,108 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     })
 }
 
+struct SidecarMigrationMarker {
+    replay_key_digest: [u8; 32],
+    local_authority_digest: [u8; 32],
+}
+
+fn load_or_migrate_local_sidecars(
+    conn: &rusqlite::Connection,
+    replay_key_path: &Path,
+    database_authority: [u8; 16],
+) -> Result<(ReplayIntegrityKey, [u8; 16]), DaemonError> {
+    let authority_path = replay_key_path.with_file_name("local-session-authority-id");
+    match read_sidecar_migration_marker(conn)? {
+        Some(marker) => {
+            let replay_key = ReplayIntegrityKeyManager::load_existing(replay_key_path)
+                .map_err(|_| sidecar_state_error())?;
+            let local_authority =
+                load_local_session_authority(&authority_path).map_err(|_| sidecar_state_error())?;
+            if replay_key.sidecar_digest() != marker.replay_key_digest
+                || Sha256::digest(local_authority).as_slice() != marker.local_authority_digest
+            {
+                return Err(sidecar_state_error());
+            }
+            Ok((replay_key, local_authority))
+        }
+        None => {
+            let replay_key = ReplayIntegrityKeyManager::load_or_provision(replay_key_path)
+                .map_err(|_| sidecar_state_error())?;
+            let local_authority =
+                load_or_provision_local_session_authority(&authority_path, database_authority)?;
+            let marker = SidecarMigrationMarker {
+                replay_key_digest: replay_key.sidecar_digest(),
+                local_authority_digest: Sha256::digest(local_authority).into(),
+            };
+            write_sidecar_migration_marker(conn, &marker)?;
+            Ok((replay_key, local_authority))
+        }
+    }
+}
+
+fn read_sidecar_migration_marker(
+    conn: &rusqlite::Connection,
+) -> Result<Option<SidecarMigrationMarker>, DaemonError> {
+    let value: Option<String> = conn
+        .query_row(
+            "SELECT value FROM _daemon_info WHERE key = ?1",
+            [SIDECAR_MIGRATION_MARKER_KEY],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|_| sidecar_state_error())?;
+    value
+        .map(|value| parse_sidecar_migration_marker(&value))
+        .transpose()
+}
+
+fn parse_sidecar_migration_marker(value: &str) -> Result<SidecarMigrationMarker, DaemonError> {
+    let mut parts = value.split(':');
+    let (Some("1"), Some(replay_digest), Some(authority_digest), None) =
+        (parts.next(), parts.next(), parts.next(), parts.next())
+    else {
+        return Err(sidecar_state_error());
+    };
+    Ok(SidecarMigrationMarker {
+        replay_key_digest: decode_lower_hex_32(replay_digest)?,
+        local_authority_digest: decode_lower_hex_32(authority_digest)?,
+    })
+}
+
+fn write_sidecar_migration_marker(
+    conn: &rusqlite::Connection,
+    marker: &SidecarMigrationMarker,
+) -> Result<(), DaemonError> {
+    let value = format!(
+        "1:{}:{}",
+        hex::encode(marker.replay_key_digest),
+        hex::encode(marker.local_authority_digest)
+    );
+    conn.execute(
+        "INSERT INTO _daemon_info (key, value) VALUES (?1, ?2)",
+        (SIDECAR_MIGRATION_MARKER_KEY, value),
+    )
+    .map_err(|_| sidecar_state_error())?;
+    Ok(())
+}
+
+fn decode_lower_hex_32(value: &str) -> Result<[u8; 32], DaemonError> {
+    if value.len() != 64
+        || value
+            .bytes()
+            .any(|byte| !matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(sidecar_state_error());
+    }
+    let mut output = [0; 32];
+    hex::decode_to_slice(value, &mut output).map_err(|_| sidecar_state_error())?;
+    Ok(output)
+}
+
+fn sidecar_state_error() -> DaemonError {
+    DaemonError::Bootstrap("load local session sidecar state".into())
+}
+
 fn load_or_provision_local_session_authority(
     path: &Path,
     database_authority: [u8; 16],
@@ -201,11 +299,11 @@ fn load_or_provision_local_session_authority(
         }
         Err(_) => {}
     }
-    if validate_uuid_v7_bytes(&database_authority).is_ok() {
-        return Ok(database_authority);
-    }
-
-    let authority = *uuid::Uuid::now_v7().as_bytes();
+    let authority = if validate_uuid_v7_bytes(&database_authority).is_ok() {
+        database_authority
+    } else {
+        *uuid::Uuid::now_v7().as_bytes()
+    };
     let mut options = fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
