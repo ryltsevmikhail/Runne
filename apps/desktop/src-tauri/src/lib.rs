@@ -1,15 +1,20 @@
+mod bundled_runtime;
 pub mod conversation_channel;
 
+use std::ffi::{OsStr, OsString};
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use bundled_runtime::{BundledRuntimeController, BundledShutdownOutcome};
 use conversation_channel::{
     ConversationChannelError, ConversationChannelEvent, ConversationSubscriptionManager,
 };
 use gocode_app_core::{
-    AppCore, BootstrapState, ConversationSnapshot, DiagnosticsSnapshot, ProjectSummary,
-    RuntimeAvailability, RuntimeMode,
+    AppCore, AppCoreError, BootstrapState, ConversationSnapshot, DiagnosticsSnapshot,
+    ProjectSummary, RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
 };
 use gocode_platform_desktop::ProfileLock;
 use serde::Serialize;
@@ -21,11 +26,19 @@ struct IpcError {
     code: &'static str,
 }
 
+pub type RuntimeConnectionFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<RuntimeAvailability, AppCoreError>> + Send + 'a>>;
+
 /// Host-only lifecycle control for a runtime proven owned by this desktop.
 ///
 /// Implementations must retain ownership evidence internally and must not
 /// report runtime work cancellation merely because shutdown was requested.
 pub trait OwnedRuntimeLifecycle: Send + Sync {
+    /// Connects only through the controller's protected native path.
+    fn connect_runtime(&self) -> RuntimeConnectionFuture<'_> {
+        Box::pin(async { Err(AppCoreError::RuntimeUnavailable) })
+    }
+
     /// Runs the explicit-quit shutdown sequence for the proven owned runtime.
     fn stop_on_explicit_quit(&self);
 }
@@ -33,10 +46,11 @@ pub trait OwnedRuntimeLifecycle: Send + Sync {
 /// Renderer-private runtime lifecycle hook registered by the desktop host.
 ///
 /// External runtimes have no controller and therefore remain an intentional
-/// no-op. A future bundled setup can register only a controller that proves
-/// the exact owned launch before it signals or terminates it.
+/// no-op. Bundled mode registers only a controller that proves the exact owned
+/// launch before it signals or terminates it.
 pub struct RuntimeLifecycleManager {
     owned_runtime: Option<Arc<dyn OwnedRuntimeLifecycle>>,
+    runtime_mode: RuntimeMode,
     shutting_down: AtomicBool,
 }
 
@@ -45,6 +59,7 @@ impl RuntimeLifecycleManager {
     pub const fn external() -> Self {
         Self {
             owned_runtime: None,
+            runtime_mode: RuntimeMode::ExternalLocal,
             shutting_down: AtomicBool::new(false),
         }
     }
@@ -53,6 +68,16 @@ impl RuntimeLifecycleManager {
     pub fn bundled(owned_runtime: Arc<dyn OwnedRuntimeLifecycle>) -> Self {
         Self {
             owned_runtime: Some(owned_runtime),
+            runtime_mode: RuntimeMode::Bundled,
+            shutting_down: AtomicBool::new(false),
+        }
+    }
+
+    #[must_use]
+    pub const fn bundled_unavailable() -> Self {
+        Self {
+            owned_runtime: None,
+            runtime_mode: RuntimeMode::Bundled,
             shutting_down: AtomicBool::new(false),
         }
     }
@@ -77,12 +102,75 @@ impl RuntimeLifecycleManager {
         }
     }
 
+    /// Connects the selected mode without permitting bundled-to-external
+    /// fallback.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed runtime error when shutdown is fenced or the selected
+    /// controller is unavailable.
+    pub async fn connect_runtime(
+        &self,
+        core: &AppCore,
+    ) -> Result<RuntimeAvailability, AppCoreError> {
+        if self.is_shutting_down() {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        match self.runtime_mode {
+            RuntimeMode::ExternalLocal => core.connect_runtime().await,
+            RuntimeMode::Bundled => match &self.owned_runtime {
+                Some(owned_runtime) => owned_runtime.connect_runtime().await,
+                None => Err(AppCoreError::RuntimeUnavailable),
+            },
+        }
+    }
+
     /// Fences host lifecycle work on explicit quit without adopting an
     /// external daemon.
     pub fn explicit_quit(&self) {
         if self.begin_explicit_quit() {
             self.stop_owned_runtime();
         }
+    }
+}
+
+/// Closed rejection for conflicting native runtime-mode flags.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeModeSelectionError;
+
+impl std::fmt::Display for RuntimeModeSelectionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("runtime mode selection rejected")
+    }
+}
+
+impl std::error::Error for RuntimeModeSelectionError {}
+
+/// Selects bundled mode by default; external mode requires an explicit native
+/// flag. No profile or connection failure can change the selected mode.
+///
+/// # Errors
+///
+/// Returns a closed error when both mode flags are supplied.
+pub fn select_runtime_mode<I>(arguments: I) -> Result<RuntimeMode, RuntimeModeSelectionError>
+where
+    I: IntoIterator<Item = OsString>,
+{
+    let mut bundled = false;
+    let mut external = false;
+    for argument in arguments {
+        if argument == OsStr::new("--bundled-runtime") {
+            bundled = true;
+        } else if argument == OsStr::new("--external-runtime") {
+            external = true;
+        }
+    }
+    if bundled && external {
+        Err(RuntimeModeSelectionError)
+    } else if external {
+        Ok(RuntimeMode::ExternalLocal)
+    } else {
+        Ok(RuntimeMode::Bundled)
     }
 }
 
@@ -160,9 +248,12 @@ async fn connect_runtime(
     lifecycle: State<'_, RuntimeLifecycleManager>,
 ) -> Result<RuntimeAvailability, IpcError> {
     require_runtime_admission(&lifecycle)?;
-    state.connect_runtime().await.map_err(|_| IpcError {
-        code: "runtime_connection_unavailable",
-    })
+    lifecycle
+        .connect_runtime(&state)
+        .await
+        .map_err(|_| IpcError {
+            code: "runtime_connection_unavailable",
+        })
 }
 
 #[tauri::command]
@@ -239,10 +330,14 @@ async fn subscribe_project_conversation(
 #[allow(clippy::needless_pass_by_value)]
 fn ack_conversation_update(
     window: WebviewWindow,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
     subscriptions: State<'_, ConversationSubscriptionManager>,
     subscription_id: String,
     projection_revision: u64,
 ) -> Result<(), ConversationChannelError> {
+    if lifecycle.is_shutting_down() {
+        return Err(ConversationChannelError::unavailable());
+    }
     subscriptions.ack(window.label(), &subscription_id, projection_revision)
 }
 
@@ -250,9 +345,13 @@ fn ack_conversation_update(
 #[allow(clippy::needless_pass_by_value)]
 fn cancel_conversation_subscription(
     window: WebviewWindow,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
     subscriptions: State<'_, ConversationSubscriptionManager>,
     subscription_id: String,
 ) -> Result<(), ConversationChannelError> {
+    if lifecycle.is_shutting_down() {
+        return Err(ConversationChannelError::unavailable());
+    }
     subscriptions.cancel(window.label(), &subscription_id)
 }
 
@@ -282,14 +381,41 @@ pub fn run() {
             let profile_directory = app.path().app_data_dir()?;
             std::fs::create_dir_all(&profile_directory)?;
             let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
-            let core = AppCore::open_with_runtime_mode(
+            let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
+            let core = Arc::new(AppCore::open_with_runtime_mode(
                 &profile_directory.join("profile.sqlite3"),
-                RuntimeMode::ExternalLocal,
-            )?;
+                runtime_mode,
+            )?);
+            let lifecycle = match runtime_mode {
+                RuntimeMode::ExternalLocal => RuntimeLifecycleManager::external(),
+                RuntimeMode::Bundled => {
+                    let controller = std::env::current_exe()
+                        .map_err(|_| RuntimeFailureCode::BundledExecutableUnavailable)
+                        .and_then(|desktop_executable| {
+                            BundledRuntimeController::discover(
+                                Arc::clone(&core),
+                                &desktop_executable,
+                                &profile_directory.join("bundled-runtime"),
+                            )
+                        });
+                    match controller {
+                        Ok(controller) => {
+                            controller.spawn_monitor();
+                            RuntimeLifecycleManager::bundled(controller)
+                        }
+                        Err(failure) => {
+                            tauri::async_runtime::block_on(
+                                core.mark_bundled_runtime_failed(failure),
+                            )?;
+                            RuntimeLifecycleManager::bundled_unavailable()
+                        }
+                    }
+                }
+            };
             app.manage(profile_lock);
-            app.manage(Arc::new(core));
+            app.manage(core);
             app.manage(ConversationSubscriptionManager::new());
-            app.manage(RuntimeLifecycleManager::external());
+            app.manage(lifecycle);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

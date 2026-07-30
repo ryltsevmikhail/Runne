@@ -8,12 +8,16 @@ describe('bootstrap IPC adapter', () => {
       theme: 'light',
       runtimeMode: 'external_local',
       runtime: 'unconfigured',
+      runtimeLifecycle: 'external',
+      runtimeFailure: null,
     }))
 
     expect(state).toEqual({
       theme: 'light',
       runtimeMode: 'external_local',
       runtime: 'unconfigured',
+      runtimeLifecycle: 'external',
+      runtimeFailure: null,
     })
   })
 
@@ -23,6 +27,8 @@ describe('bootstrap IPC adapter', () => {
         theme: 'dark',
         runtimeMode: 'external_local',
         runtime: 'connected',
+        runtimeLifecycle: 'external',
+        runtimeFailure: null,
       })),
     ).rejects.toThrow('Invalid bootstrap response')
   })
@@ -33,8 +39,51 @@ describe('bootstrap IPC adapter', () => {
         theme: 'dark',
         runtimeMode: 'managed',
         runtime: 'unconfigured',
+        runtimeLifecycle: 'external',
+        runtimeFailure: null,
       })),
     ).rejects.toThrow('Invalid bootstrap response')
+  })
+
+  it('accepts only the closed lifecycle and safe failure vocabularies', async () => {
+    const lifecycle = ['starting', 'ready', 'restarting', 'degraded', 'failed', 'external'] as const
+    for (const runtimeLifecycle of lifecycle) {
+      await expect(loadBootstrap(async () => ({
+        theme: 'dark',
+        runtimeMode: 'bundled',
+        runtime: 'reconnecting',
+        runtimeLifecycle,
+        runtimeFailure: null,
+      }))).resolves.toMatchObject({ runtimeLifecycle })
+    }
+
+    const failures = [
+      'protected_activation_unavailable',
+      'bundled_executable_unavailable',
+      'bundled_executable_identity_mismatch',
+      'protected_readiness_rejected',
+      'bundled_restart_exhausted',
+      'bundled_shutdown_incomplete',
+      'unsupported_platform_backend',
+      'downgraded_external_profile',
+    ] as const
+    for (const runtimeFailure of failures) {
+      await expect(loadBootstrap(async () => ({
+        theme: 'dark',
+        runtimeMode: 'bundled',
+        runtime: 'fatal',
+        runtimeLifecycle: 'failed',
+        runtimeFailure,
+      }))).resolves.toMatchObject({ runtimeFailure })
+    }
+
+    await expect(loadBootstrap(async () => ({
+      theme: 'dark',
+      runtimeMode: 'bundled',
+      runtime: 'fatal',
+      runtimeLifecycle: 'compromised',
+      runtimeFailure: '/private/token',
+    }))).rejects.toThrow('Invalid bootstrap response')
   })
 
   it('sends a typed theme update without other settings', async () => {

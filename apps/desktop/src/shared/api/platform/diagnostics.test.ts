@@ -12,6 +12,8 @@ describe('diagnostics platform API', () => {
       projectCount: 2,
       runtimeMode: 'external_local',
       runtime: 'unconfigured',
+      runtimeLifecycle: 'external',
+      runtimeFailure: null,
     }))
 
     expect(snapshot.databaseGeneration).toBe(4)
@@ -26,6 +28,8 @@ describe('diagnostics platform API', () => {
       projectCount: 2,
       runtimeMode: 'external_local',
       runtime: 'unconfigured',
+      runtimeLifecycle: 'external',
+      runtimeFailure: null,
       projectPath: '/private/project',
     }))).rejects.toThrow('Invalid diagnostics response')
   })

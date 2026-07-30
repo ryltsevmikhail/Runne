@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use gocode_api::RuntimeSessionBinding;
+use gocode_api::{LOCAL_RUNTIME_SESSION_TTL, RuntimeSessionBinding};
 use gocode_domain::event::Sensitivity;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -13,7 +13,6 @@ use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
 const CHALLENGE_TTL: Duration = Duration::from_secs(30);
-const SESSION_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_CHALLENGES: usize = 32;
 const MAX_ISSUED_PER_MINUTE: usize = 60;
 const MAX_SESSIONS_PER_PRINCIPAL: usize = 8;
@@ -278,7 +277,7 @@ impl LocalSessionService {
         }
         let authenticated = AuthenticatedRuntimeSession {
             binding: self.binding.clone(),
-            expires_at_monotonic: now + SESSION_TTL,
+            expires_at_monotonic: now + LOCAL_RUNTIME_SESSION_TTL,
         };
         self.sessions.insert(
             authority_bytes,

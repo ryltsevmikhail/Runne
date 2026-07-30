@@ -1,11 +1,21 @@
 //! Local runtime-session binding contracts.
 
+use std::time::Duration;
+
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{EventLogLineageId, InvalidIdReason, validate_uuid_v7_bytes};
 
 use crate::ApiPrincipalId;
 
 pub use gocode_domain::id::DaemonInstanceId;
+
+/// Exact lifetime of one authenticated local runtime session.
+pub const LOCAL_RUNTIME_SESSION_TTL: Duration = Duration::from_secs(10 * 60);
+/// Conservative bundled-session rotation point, leaving two minutes for a
+/// protected renewal handshake before the daemon-owned session expires.
+pub const PROTECTED_BUNDLED_SESSION_RENEW_AFTER: Duration = Duration::from_secs(8 * 60);
+const _: () =
+    assert!(PROTECTED_BUNDLED_SESSION_RENEW_AFTER.as_secs() < LOCAL_RUNTIME_SESSION_TTL.as_secs());
 
 /// Stable identity shared by every local runtime launch for one authority.
 #[derive(Clone, PartialEq, Eq)]

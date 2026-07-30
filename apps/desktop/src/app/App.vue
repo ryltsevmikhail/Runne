@@ -11,7 +11,7 @@ import { GcSidebar } from '@gocode/product/shared/ui'
 import '@gocode/product/shared/ui/styles/tokens.css'
 import '@gocode/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
@@ -20,12 +20,21 @@ import {
   saveTheme,
 } from '@/shared/api/platform/bootstrap'
 import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
+import type {
+  RuntimeFailureCode,
+  RuntimeLifecycleStatus,
+  RuntimeMode,
+} from '@/shared/api/platform/bootstrap'
 import brandIcon from '@/shared/assets/gocode-app-icon.png'
 import brandLockup from '@/shared/assets/gocode-lockup.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
+import { RuntimeStatus } from '@/widgets/runtime-status'
 
 const theme = ref<'dark' | 'light'>('dark')
 const runtimeState = ref<RuntimeConnectionState>('unconfigured')
+const runtimeMode = ref<RuntimeMode>('external_local')
+const runtimeLifecycle = ref<RuntimeLifecycleStatus>('external')
+const runtimeFailure = ref<RuntimeFailureCode | null>(null)
 const sidebarCollapsed = ref(false)
 const route = useRoute()
 const router = useRouter()
@@ -35,18 +44,45 @@ const sidebarItems = [
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ]
 const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
+let runtimePoll: ReturnType<typeof setInterval> | undefined
+
+function applyBootstrap(bootstrap: Awaited<ReturnType<typeof loadBootstrap>>) {
+  theme.value = bootstrap.theme
+  runtimeMode.value = bootstrap.runtimeMode
+  runtimeState.value = bootstrap.runtime
+  runtimeLifecycle.value = bootstrap.runtimeLifecycle
+  runtimeFailure.value = bootstrap.runtimeFailure
+}
+
+async function refreshRuntimeStatus() {
+  try {
+    applyBootstrap(await loadBootstrap())
+  }
+  catch {
+    runtimeLifecycle.value = 'failed'
+    runtimeFailure.value = null
+  }
+}
 
 onMounted(async () => {
   if (isTauri()) {
-    const bootstrap = await loadBootstrap()
-    theme.value = bootstrap.theme
-    runtimeState.value = bootstrap.runtime
+    await refreshRuntimeStatus()
     try {
       runtimeState.value = await connectRuntime()
     }
     catch {
-      runtimeState.value = (await loadBootstrap()).runtime
+      // The next sanitized bootstrap refresh carries the closed failure code.
     }
+    await refreshRuntimeStatus()
+    runtimePoll = setInterval(() => {
+      void refreshRuntimeStatus()
+    }, 1_000)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (runtimePoll !== undefined) {
+    clearInterval(runtimePoll)
   }
 })
 
@@ -127,16 +163,12 @@ async function navigateSidebar(id: string) {
       />
 
       <div class="sidebar-status">
-        <div
-          class="runtime-status"
-          :title="`Runtime ${runtimeState}`"
-        >
-          <span class="status-dot" />
-          <span class="status-copy">
-            <strong>{{ runtimeState === 'live' ? 'Runtime live' : 'Runtime offline' }}</strong>
-            <small>{{ runtimeState }}</small>
-          </span>
-        </div>
+        <RuntimeStatus
+          :mode="runtimeMode"
+          :connection="runtimeState"
+          :lifecycle="runtimeLifecycle"
+          :failure="runtimeFailure"
+        />
 
         <div class="sidebar-actions">
           <RouterLink

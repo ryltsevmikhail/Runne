@@ -1,3 +1,6 @@
+use std::path::Path;
+
+use base64::Engine as _;
 use gocode_api::{
     ExecutableIdentityV1, PendingFirstActivationV1, ProtectedRuntimeProfileV1,
     StableRuntimeBindingV1,
@@ -22,6 +25,48 @@ const FIRST_LAUNCH: [u8; 16] = [
 const SECOND_LAUNCH: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 5,
 ];
+
+fn secret_representations(secret: &[u8; 32]) -> Vec<Vec<u8>> {
+    vec![
+        secret.to_vec(),
+        base64::engine::general_purpose::STANDARD
+            .encode(secret)
+            .into_bytes(),
+        base64::engine::general_purpose::STANDARD_NO_PAD
+            .encode(secret)
+            .into_bytes(),
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(secret)
+            .into_bytes(),
+        hex::encode(secret).into_bytes(),
+        hex::encode_upper(secret).into_bytes(),
+    ]
+}
+
+fn assert_secret_absent_from_runtime_artifacts(root: &Path, secret: &[u8; 32]) {
+    let representations = secret_representations(secret);
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            pending.extend(
+                std::fs::read_dir(&path)
+                    .expect("read runtime artifact directory")
+                    .map(|entry| entry.expect("runtime artifact entry").path()),
+            );
+            continue;
+        }
+        let bytes = std::fs::read(&path).expect("read runtime artifact");
+        for representation in &representations {
+            assert!(
+                !bytes
+                    .windows(representation.len())
+                    .any(|window| window == representation),
+                "protected launch secret leaked to {}",
+                path.display()
+            );
+        }
+    }
+}
 
 fn pending() -> PendingFirstActivationV1 {
     PendingFirstActivationV1::new(
@@ -70,6 +115,16 @@ fn protected_bootstrap_commits_prepared_identity_and_consumes_authority_first() 
         first.launch_identity.bootstrap_secret_marker(),
         expected_secret_marker
     );
+    let rendered = format!("{first:?}");
+    for representation in secret_representations(&first_secret) {
+        assert!(
+            !rendered
+                .as_bytes()
+                .windows(representation.len())
+                .any(|window| window == representation)
+        );
+    }
+    assert_secret_absent_from_runtime_artifacts(directory.path(), &first_secret);
     drop(first);
 
     let reused = bootstrap_protected(&config, FIRST_LAUNCH, [0x62; 32], Some(&pending()), || {

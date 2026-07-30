@@ -362,8 +362,8 @@ impl AppCore {
 
     /// Opens the application service with an explicit host-owned runtime mode.
     ///
-    /// Bundled mode is intentionally unavailable until a supervised launch path
-    /// can supply protected runtime credentials.
+    /// Bundled mode remains disconnected until the native supervisor installs
+    /// an exact protected client through a one-time activation lease.
     ///
     /// # Errors
     ///
@@ -495,6 +495,26 @@ impl AppCore {
     ) -> Result<BundledRuntimeActivationLease, AppCoreError> {
         self.begin_bundled_runtime_connection(RuntimeLifecycleStatus::Restarting)
             .await
+    }
+
+    /// Fences the current bundled client and activation epoch for the native
+    /// host's explicit-quit sequence. The host-level shutdown fence remains
+    /// responsible for rejecting every later activation attempt.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for external mode or poisoned application state.
+    pub async fn fence_bundled_runtime_shutdown(&self) -> Result<(), AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.require_bundled_mode()?;
+        self.invalidate_bundled_activation_lease()?;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
+        self.set_runtime_lifecycle(RuntimeLifecycleStatus::Restarting)?;
+        self.set_runtime_failure_code(None)
     }
 
     async fn begin_bundled_runtime_connection(

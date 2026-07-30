@@ -1,6 +1,16 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
-import { isRuntimeConnectionState, isRuntimeMode } from './bootstrap'
-import type { RuntimeConnectionState, RuntimeMode } from './bootstrap'
+import {
+  isRuntimeConnectionState,
+  isRuntimeFailureCode,
+  isRuntimeLifecycleStatus,
+  isRuntimeMode,
+} from './bootstrap'
+import type {
+  RuntimeConnectionState,
+  RuntimeFailureCode,
+  RuntimeLifecycleStatus,
+  RuntimeMode,
+} from './bootstrap'
 
 export interface DiagnosticsSnapshot {
   readonly appVersion: string
@@ -10,6 +20,8 @@ export interface DiagnosticsSnapshot {
   readonly projectCount: number
   readonly runtimeMode: RuntimeMode
   readonly runtime: RuntimeConnectionState
+  readonly runtimeLifecycle: RuntimeLifecycleStatus
+  readonly runtimeFailure: RuntimeFailureCode | null
 }
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
@@ -30,7 +42,7 @@ function isDiagnosticsSnapshot(value: unknown): value is DiagnosticsSnapshot {
   }
   const record = value as Record<string, unknown>
   return (
-    Object.keys(record).length === 7
+    Object.keys(record).length === 9
     && typeof record.appVersion === 'string'
     && typeof record.platform === 'string'
     && Number.isSafeInteger(record.databaseSchemaVersion)
@@ -38,5 +50,7 @@ function isDiagnosticsSnapshot(value: unknown): value is DiagnosticsSnapshot {
     && Number.isSafeInteger(record.projectCount)
     && isRuntimeMode(record.runtimeMode)
     && isRuntimeConnectionState(record.runtime)
+    && isRuntimeLifecycleStatus(record.runtimeLifecycle)
+    && (record.runtimeFailure === null || isRuntimeFailureCode(record.runtimeFailure))
   )
 }

@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::future::{Future, pending};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -6,14 +7,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gocode_app_core::{
-    AppCoreError, ConversationMessageSummary, ConversationRecoveryDisposition,
-    ConversationTimelineUpdate,
+    AppCore, AppCoreError, ConversationMessageSummary, ConversationRecoveryDisposition,
+    ConversationTimelineUpdate, RuntimeAvailability, RuntimeMode,
 };
 use gocode_desktop::conversation_channel::{
     ConversationChannelErrorCode, ConversationChannelEvent, ConversationSubscriptionManager,
     ConversationUpdateSource,
 };
-use gocode_desktop::{OwnedRuntimeLifecycle, RuntimeLifecycleManager};
+use gocode_desktop::{
+    OwnedRuntimeLifecycle, RuntimeConnectionFuture, RuntimeLifecycleManager, select_runtime_mode,
+};
 use serde_json::Value;
 use tauri::ipc::{Channel, InvokeResponseBody};
 
@@ -33,6 +36,17 @@ impl OwnedRuntimeLifecycle for CountedOwnedRuntime {
     fn stop_on_explicit_quit(&self) {
         self.0.fetch_add(1, Ordering::AcqRel);
     }
+}
+
+struct ConnectingOwnedRuntime(Arc<AtomicUsize>);
+
+impl OwnedRuntimeLifecycle for ConnectingOwnedRuntime {
+    fn connect_runtime(&self) -> RuntimeConnectionFuture<'_> {
+        self.0.fetch_add(1, Ordering::AcqRel);
+        Box::pin(async { Ok(RuntimeAvailability::Live) })
+    }
+
+    fn stop_on_explicit_quit(&self) {}
 }
 
 #[derive(Clone)]
@@ -628,4 +642,53 @@ fn explicit_quit_fences_admission_and_runs_owned_lifecycle_once() {
     lifecycle.stop_owned_runtime();
     assert!(!lifecycle.begin_explicit_quit());
     assert_eq!(stops.load(Ordering::Acquire), 1);
+}
+
+#[test]
+fn bundled_is_default_and_external_mode_requires_an_explicit_flag() {
+    assert_eq!(
+        select_runtime_mode(Vec::<OsString>::new()).expect("default mode"),
+        RuntimeMode::Bundled
+    );
+    assert_eq!(
+        select_runtime_mode([OsString::from("--external-runtime")]).expect("external mode"),
+        RuntimeMode::ExternalLocal
+    );
+    assert!(
+        select_runtime_mode([
+            OsString::from("--external-runtime"),
+            OsString::from("--bundled-runtime"),
+        ])
+        .is_err()
+    );
+}
+
+#[tokio::test]
+async fn bundled_connection_never_falls_back_and_quit_fences_connector_admission() {
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let core = AppCore::open_with_runtime_mode(
+        &directory.path().join("profile.sqlite3"),
+        RuntimeMode::Bundled,
+    )
+    .expect("open core");
+
+    assert!(
+        RuntimeLifecycleManager::bundled_unavailable()
+            .connect_runtime(&core)
+            .await
+            .is_err()
+    );
+
+    let connects = Arc::new(AtomicUsize::new(0));
+    let lifecycle =
+        RuntimeLifecycleManager::bundled(Arc::new(ConnectingOwnedRuntime(Arc::clone(&connects))));
+    assert_eq!(
+        lifecycle.connect_runtime(&core).await.expect("connect"),
+        RuntimeAvailability::Live
+    );
+    assert_eq!(connects.load(Ordering::Acquire), 1);
+
+    assert!(lifecycle.begin_explicit_quit());
+    assert!(lifecycle.connect_runtime(&core).await.is_err());
+    assert_eq!(connects.load(Ordering::Acquire), 1);
 }
