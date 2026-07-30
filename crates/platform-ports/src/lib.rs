@@ -86,7 +86,9 @@ impl PlatformMatrix {
                 (
                     RuntimeLifecycle,
                     Unavailable {
-                        reason: "bundled runtime lifecycle Slice 2A is in progress".into(),
+                        reason:
+                            "protected transport and production v2 integration are not implemented"
+                                .into(),
                     },
                 ),
                 (Notifications, Available),
@@ -240,7 +242,8 @@ mod tests {
         assert_eq!(
             desktop.availability(CapabilityId::RuntimeLifecycle),
             CapabilityAvailability::Unavailable {
-                reason: "bundled runtime lifecycle Slice 2A is in progress".into()
+                reason: "protected transport and production v2 integration are not implemented"
+                    .into()
             }
         );
     }

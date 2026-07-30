@@ -281,7 +281,7 @@ describe('conversation IPC adapter', () => {
     await session.unsubscribe()
   })
 
-  it('keeps resync closed when replacement subscription fails after a successful open', async () => {
+  it('retries only subscription after native resync succeeds but replacement subscription fails', async () => {
     let onmessage: ((value: unknown) => void) | undefined
     let subscriptions = 0
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
@@ -315,6 +315,13 @@ describe('conversation IPC adapter', () => {
       'resync_required',
     ])
     expect(invoke).toHaveBeenCalledTimes(4)
+
+    const restored = await session.resync()
+
+    expect(restored.recovery).toBe('live')
+    expect(recoveries.slice(-2)).toEqual(['reconnecting', 'live'])
+    expect(invoke).toHaveBeenCalledTimes(5)
+    expect(invoke.mock.calls.filter(([command]) => command === 'resync_project_conversation')).toHaveLength(1)
     await session.unsubscribe()
   })
 

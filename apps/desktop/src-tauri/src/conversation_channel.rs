@@ -59,7 +59,7 @@ pub struct ConversationChannelError {
 }
 
 impl ConversationChannelError {
-    const fn unavailable() -> Self {
+    pub(crate) const fn unavailable() -> Self {
         Self {
             code: ConversationChannelErrorCode::ConversationSubscriptionUnavailable,
         }
@@ -336,7 +336,7 @@ impl ConversationSubscriptionManager {
         subscription_id: &str,
     ) -> Result<(), ConversationChannelError> {
         let control = {
-            let registry = self
+            let mut registry = self
                 .inner
                 .registry
                 .lock()
@@ -348,9 +348,8 @@ impl ConversationSubscriptionManager {
             if record.window_label != window_label {
                 return Err(ConversationChannelError::unavailable());
             }
-            let control = Arc::clone(&record.control);
-            drop(registry);
-            control
+            remove_subscription(&mut registry, subscription_id)
+                .ok_or_else(ConversationChannelError::unavailable)?
         };
         control.cancel();
         Ok(())

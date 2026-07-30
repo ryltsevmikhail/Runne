@@ -2,6 +2,7 @@ pub mod conversation_channel;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use conversation_channel::{
     ConversationChannelError, ConversationChannelEvent, ConversationSubscriptionManager,
@@ -36,6 +37,7 @@ pub trait OwnedRuntimeLifecycle: Send + Sync {
 /// the exact owned launch before it signals or terminates it.
 pub struct RuntimeLifecycleManager {
     owned_runtime: Option<Arc<dyn OwnedRuntimeLifecycle>>,
+    shutting_down: AtomicBool,
 }
 
 impl RuntimeLifecycleManager {
@@ -43,6 +45,7 @@ impl RuntimeLifecycleManager {
     pub const fn external() -> Self {
         Self {
             owned_runtime: None,
+            shutting_down: AtomicBool::new(false),
         }
     }
 
@@ -50,16 +53,46 @@ impl RuntimeLifecycleManager {
     pub fn bundled(owned_runtime: Arc<dyn OwnedRuntimeLifecycle>) -> Self {
         Self {
             owned_runtime: Some(owned_runtime),
+            shutting_down: AtomicBool::new(false),
+        }
+    }
+
+    /// Atomically fences new runtime commands. The caller that receives true
+    /// owns the one-time explicit-quit sequence.
+    pub fn begin_explicit_quit(&self) -> bool {
+        self.shutting_down
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+    }
+
+    #[must_use]
+    pub fn is_shutting_down(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire)
+    }
+
+    /// Stops only a proven owned runtime; external runtime mode stays a no-op.
+    pub fn stop_owned_runtime(&self) {
+        if let Some(owned_runtime) = &self.owned_runtime {
+            owned_runtime.stop_on_explicit_quit();
         }
     }
 
     /// Fences host lifecycle work on explicit quit without adopting an
     /// external daemon.
     pub fn explicit_quit(&self) {
-        if let Some(owned_runtime) = &self.owned_runtime {
-            owned_runtime.stop_on_explicit_quit();
+        if self.begin_explicit_quit() {
+            self.stop_owned_runtime();
         }
     }
+}
+
+fn require_runtime_admission(lifecycle: &RuntimeLifecycleManager) -> Result<(), IpcError> {
+    if lifecycle.is_shutting_down() {
+        return Err(IpcError {
+            code: "runtime_shutdown_in_progress",
+        });
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -122,7 +155,11 @@ fn get_diagnostics(state: State<'_, Arc<AppCore>>) -> Result<DiagnosticsSnapshot
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-async fn connect_runtime(state: State<'_, Arc<AppCore>>) -> Result<RuntimeAvailability, IpcError> {
+async fn connect_runtime(
+    state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
+) -> Result<RuntimeAvailability, IpcError> {
+    require_runtime_admission(&lifecycle)?;
     state.connect_runtime().await.map_err(|_| IpcError {
         code: "runtime_connection_unavailable",
     })
@@ -132,8 +169,10 @@ async fn connect_runtime(state: State<'_, Arc<AppCore>>) -> Result<RuntimeAvaila
 #[allow(clippy::needless_pass_by_value)]
 async fn open_project_conversation(
     state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
     project_id: i64,
 ) -> Result<ConversationSnapshot, IpcError> {
+    require_runtime_admission(&lifecycle)?;
     state
         .open_project_conversation(project_id)
         .await
@@ -146,8 +185,10 @@ async fn open_project_conversation(
 #[allow(clippy::needless_pass_by_value)]
 async fn resync_project_conversation(
     state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
     project_id: i64,
 ) -> Result<ConversationSnapshot, IpcError> {
+    require_runtime_admission(&lifecycle)?;
     state
         .resync_project_conversation(project_id)
         .await
@@ -160,9 +201,11 @@ async fn resync_project_conversation(
 #[allow(clippy::needless_pass_by_value)]
 async fn send_project_message(
     state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
     project_id: i64,
     text: String,
 ) -> Result<ConversationSnapshot, IpcError> {
+    require_runtime_admission(&lifecycle)?;
     state
         .send_project_message(project_id, &text)
         .await
@@ -176,10 +219,14 @@ async fn send_project_message(
 async fn subscribe_project_conversation(
     window: WebviewWindow,
     core: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
     subscriptions: State<'_, ConversationSubscriptionManager>,
     project_id: i64,
     on_update: Channel<ConversationChannelEvent>,
 ) -> Result<String, ConversationChannelError> {
+    if lifecycle.is_shutting_down() {
+        return Err(ConversationChannelError::unavailable());
+    }
     subscriptions.subscribe(
         Arc::clone(core.inner()),
         project_id,
@@ -264,8 +311,11 @@ pub fn run() {
         .expect("failed to initialize GOCODE desktop application");
     app.run(|app, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            app.state::<ConversationSubscriptionManager>().shutdown();
-            app.state::<RuntimeLifecycleManager>().explicit_quit();
+            let lifecycle = app.state::<RuntimeLifecycleManager>();
+            if lifecycle.begin_explicit_quit() {
+                app.state::<ConversationSubscriptionManager>().shutdown();
+                lifecycle.stop_owned_runtime();
+            }
         }
     });
 }
