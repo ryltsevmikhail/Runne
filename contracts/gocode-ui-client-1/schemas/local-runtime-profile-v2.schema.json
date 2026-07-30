@@ -1,0 +1,104 @@
+{
+  "$id": "gocode://schemas/local-runtime-profile-v2",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authorityId": {
+      "pattern": "^[0-9a-f]{32}$",
+      "type": "string"
+    },
+    "bootstrapSecretPath": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string"
+    },
+    "capabilities": {
+      "items": false,
+      "maxItems": 3,
+      "minItems": 3,
+      "prefixItems": [
+        {
+          "const": "conversation.create.v1",
+          "type": "string"
+        },
+        {
+          "const": "conversation.generate_text.v1",
+          "type": "string"
+        },
+        {
+          "const": "conversation.list_messages.v1",
+          "type": "string"
+        }
+      ],
+      "type": "array"
+    },
+    "capabilityDigest": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "certificateDerBase64": {
+      "maxLength": 65536,
+      "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+      "type": "string"
+    },
+    "certificateSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "daemonInstanceId": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "endpoint": {
+      "pattern": "^https://(?:127\\.0\\.0\\.1|\\[::1\\]):[1-9][0-9]{0,4}$",
+      "type": "string"
+    },
+    "eventLogLineageId": {
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "type": "string"
+    },
+    "launchGeneration": {
+      "minimum": 1,
+      "type": "integer"
+    },
+    "principalId": {
+      "const": "local-owner",
+      "type": "string"
+    },
+    "profileId": {
+      "const": "gocode-ui-client/1",
+      "type": "string"
+    },
+    "schemaHash": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "schemaVersion": {
+      "const": 2,
+      "type": "integer"
+    },
+    "transportProfileId": {
+      "const": "gocode-local-runtime/2",
+      "type": "string"
+    }
+  },
+  "required": [
+    "authorityId",
+    "bootstrapSecretPath",
+    "capabilities",
+    "capabilityDigest",
+    "certificateDerBase64",
+    "certificateSha256",
+    "daemonInstanceId",
+    "endpoint",
+    "eventLogLineageId",
+    "launchGeneration",
+    "principalId",
+    "profileId",
+    "schemaHash",
+    "schemaVersion",
+    "transportProfileId"
+  ],
+  "title": "Local Runtime Profile V2",
+  "type": "object"
+}

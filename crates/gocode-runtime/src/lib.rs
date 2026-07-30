@@ -34,6 +34,7 @@ pub use startup::{
 pub use task_run_host::RuntimeTaskRunHost;
 pub mod bundle;
 pub mod canonical_conversation_host;
+pub mod contract_generation;
 
 pub use canonical_conversation_host::{
     DeterministicTextProvider, LocalTextProvider, LocalTextProviderError,

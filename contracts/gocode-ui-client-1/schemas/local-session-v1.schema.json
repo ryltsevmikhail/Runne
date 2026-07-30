@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "authenticateRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "maxLength": 43,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "challengeId": {
+          "maxLength": 22,
+          "minLength": 22,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "proof": {
+          "maxLength": 43,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authority",
+        "challengeId",
+        "proof"
+      ],
+      "type": "object"
+    },
+    "authenticateResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAtMonotonicMillis": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "sessionId": {
+          "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expiresAtMonotonicMillis",
+        "sessionId"
+      ],
+      "type": "object"
+    },
+    "challengeRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "clientNonce": {
+          "maxLength": 43,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "serverNonce": {
+          "maxLength": 43,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "clientNonce",
+        "serverNonce"
+      ],
+      "type": "object"
+    },
+    "challengeResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "challengeId": {
+          "maxLength": 22,
+          "minLength": 22,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "serverNonce": {
+          "maxLength": 43,
+          "minLength": 43,
+          "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "challengeId",
+        "serverNonce"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/local-session-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "authenticateRequest": {
+      "$ref": "#/$defs/authenticateRequest"
+    },
+    "authenticateResponse": {
+      "$ref": "#/$defs/authenticateResponse"
+    },
+    "challengeRequest": {
+      "$ref": "#/$defs/challengeRequest"
+    },
+    "challengeResponse": {
+      "$ref": "#/$defs/challengeResponse"
+    }
+  },
+  "required": [
+    "authenticateRequest",
+    "authenticateResponse",
+    "challengeRequest",
+    "challengeResponse"
+  ],
+  "title": "Local Session V1 Golden Exchange",
+  "type": "object"
+}

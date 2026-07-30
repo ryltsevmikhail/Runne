@@ -1,0 +1,18 @@
+{
+  "aggregateId": "018f2e3a-7000-7000-8000-000000000113",
+  "aggregateType": "taskRun",
+  "causationEventId": null,
+  "correlationId": "018f2e3a-7000-7000-8000-000000000110",
+  "correlationType": "conversation",
+  "cursor": "gocode-replay-cursor-v1.7b2261223a317d",
+  "eventId": "018f2e3a-7000-7000-8000-000000000116",
+  "eventType": "taskRun.attempt.started",
+  "payload": {
+    "attemptId": "018f2e3a-7000-7000-8000-000000000114",
+    "type": "taskRun.attempt.started"
+  },
+  "schemaVersion": 1,
+  "sensitivity": "public",
+  "sequence": 4,
+  "timestampUnixMicros": 1722330000000001
+}

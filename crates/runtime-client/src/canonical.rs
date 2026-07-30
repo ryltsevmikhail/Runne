@@ -16,6 +16,8 @@ const MAXIMUM_MESSAGE_TEXT_BYTES: usize = 64 * 1024;
 /// Exact command/query capabilities required by this client build.
 ///
 /// Ordering is canonical and part of the authenticated profile response.
+/// Replay remains intentionally absent until the full route surface is
+/// published in Task 10.
 pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
