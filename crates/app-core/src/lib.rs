@@ -155,6 +155,7 @@ impl RuntimeAvailability {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BootstrapState {
     pub theme: String,
     pub runtime_mode: RuntimeMode,

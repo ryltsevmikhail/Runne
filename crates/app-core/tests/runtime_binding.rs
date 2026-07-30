@@ -40,6 +40,26 @@ fn runtime_modes_are_closed() {
     assert_eq!(serialized, ["\"external_local\"", "\"bundled\""]);
 }
 
+#[test]
+fn bootstrap_state_serializes_renderer_wire_contract() {
+    let state = gocode_app_core::BootstrapState {
+        theme: "dark".to_string(),
+        runtime_mode: RuntimeMode::ExternalLocal,
+        runtime: RuntimeAvailability::Reconnecting,
+    };
+
+    let serialized = serde_json::to_value(state).expect("serialize bootstrap");
+
+    assert_eq!(
+        serialized,
+        serde_json::json!({
+            "theme": "dark",
+            "runtimeMode": "external_local",
+            "runtime": "reconnecting",
+        })
+    );
+}
+
 #[tokio::test]
 async fn external_local_mode_uses_the_configured_profile_path() {
     let directory = tempfile::tempdir().expect("temp directory");
