@@ -25,7 +25,7 @@ pub use local_profile::{
 
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
 pub const GOLDEN_BUNDLE_HASH: &str =
-    "25ad560ec7b5313d73d28c550444b9a6d01206c689a731926832c8a7a01d4298";
+    "e0fe031b7206c02f10cadbcef276a72b112678fb4b43529dbe16881cf6b394d4";
 
 /// Bundle ID expected from the runtime.
 pub const EXPECTED_BUNDLE_ID: &str = "gocode-ui-client/1";

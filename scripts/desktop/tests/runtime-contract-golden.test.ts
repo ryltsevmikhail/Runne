@@ -76,6 +76,12 @@ function cursor(value: unknown): string {
   return parsed
 }
 
+function replaySessionId(value: unknown): string {
+  const parsed = string(value)
+  if (!LOWER_HEX_16.test(parsed)) throw new Error('invalid replay session')
+  return parsed
+}
+
 function parsePayload(value: unknown): JsonObject {
   const payload = object(value)
   const type = string(payload.type)
@@ -208,7 +214,7 @@ function parseSseDelivery(value: unknown): JsonObject {
   if (!Number.isSafeInteger(delivery.deliverySequence) || (delivery.deliverySequence as number) < 1) {
     throw new Error('invalid delivery sequence')
   }
-  uuid(delivery.replaySessionId)
+  replaySessionId(delivery.replaySessionId)
   if (delivery.liveDeliveryId !== null) uuid(delivery.liveDeliveryId)
   cursor(delivery.replayCursor)
   parseCanonicalEvent(delivery.canonicalEvent, false)
@@ -240,6 +246,14 @@ describe('runtime-owned exact contract goldens', () => {
   it('rejects malformed cursors', () => {
     const replay = object(golden('replay-conversation.json'))
     expect(() => parseReplayEvent({ ...replay, cursor: 'gocode-replay-cursor-v1.not-hex' })).toThrow('invalid cursor')
+  })
+
+  it('rejects UUID-form replay session identities', () => {
+    const delivery = object(golden('sse-delivery.json'))
+    expect(() => parseSseDelivery({
+      ...delivery,
+      replaySessionId: '018f2e3a-7000-7000-8000-000000000118',
+    })).toThrow('invalid replay session')
   })
 
   it('rejects null required payload identities', () => {
