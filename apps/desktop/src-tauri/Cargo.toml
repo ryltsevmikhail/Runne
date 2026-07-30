@@ -13,9 +13,15 @@ tauri-build = { version = "=2.6.3", features = [] }
 gocode-app-core = { path = "../../../crates/app-core" }
 gocode-platform-desktop = { path = "../../../crates/platform-desktop" }
 serde.workspace = true
+serde_json.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog = "=2.7.2"
 tauri-plugin-single-instance = "=2.4.3"
+tokio.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

@@ -1733,10 +1733,13 @@ dependencies = [
  "gocode-app-core",
  "gocode-platform-desktop",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
