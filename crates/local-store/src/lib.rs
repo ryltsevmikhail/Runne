@@ -204,6 +204,17 @@ pub struct ReplayTransition<'a> {
     pub projection_digest: String,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct AppliedReplayEvent<'a> {
+    pub scope: &'a ReplayScopeKey,
+    pub event_id: &'a str,
+    pub cursor: &'a str,
+    pub generation: u64,
+    pub event_sequence: u64,
+    pub event_bytes: &'a [u8],
+    pub event_digest: &'a str,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplayApplyOutcome {
     Applied { database_generation: u64 },
@@ -704,6 +715,92 @@ impl LocalStore {
     ) -> Result<Option<StoredConversationProjection>, ReplayStoreError> {
         validate_replay_scope(scope)?;
         Ok(read_replay_state(&self.connection, scope)?.map(|state| state.projection))
+    }
+
+    /// Confirms an older inclusive/concurrent delivery against the exact
+    /// verified durable journal identity without changing any local state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an identity conflict for a missing/rebound event or changed
+    /// cursor, generation, sequence, canonical bytes or digest.
+    pub fn confirm_replay_event_applied(
+        &self,
+        event: &AppliedReplayEvent<'_>,
+    ) -> Result<ReplayApplyOutcome, ReplayStoreError> {
+        validate_replay_scope(event.scope)?;
+        if event.event_id.is_empty() {
+            return Err(ReplayStoreError::InvalidScope);
+        }
+        if event.cursor.is_empty() {
+            return Err(ReplayStoreError::EmptyCursor);
+        }
+        if event.event_sequence == 0 {
+            return Err(ReplayStoreError::NonContiguousSequence);
+        }
+        if !is_lower_hex_digest(event.event_digest)
+            || sha256_lower_hex(event.event_bytes) != event.event_digest
+        {
+            return Err(ReplayStoreError::EventDigestMismatch);
+        }
+        read_replay_state(&self.connection, event.scope)?
+            .ok_or(ReplayStoreError::EventIdentityConflict)?;
+        let generation =
+            i64::try_from(event.generation).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let event_sequence =
+            i64::try_from(event.event_sequence).map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
+        let stored: Option<(String, String, i64, i64, Vec<u8>, String)> = self
+            .connection
+            .query_row(
+                "
+                SELECT
+                    binding_digest,
+                    cursor,
+                    generation,
+                    event_sequence,
+                    validated_event,
+                    event_digest
+                FROM event_journal
+                WHERE runtime_authority = ?1
+                  AND principal = ?2
+                  AND lineage = ?3
+                  AND scope = ?4
+                  AND event_id = ?5
+                ",
+                params![
+                    event.scope.runtime_authority,
+                    event.scope.principal,
+                    event.scope.lineage,
+                    event.scope.scope,
+                    event.event_id
+                ],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some(stored) = stored else {
+            return Err(ReplayStoreError::EventIdentityConflict);
+        };
+        if stored.0 != event.scope.binding_digest
+            || stored.1 != event.cursor
+            || stored.2 != generation
+            || stored.3 != event_sequence
+            || stored.4 != event.event_bytes
+            || stored.5 != event.event_digest
+        {
+            return Err(ReplayStoreError::EventIdentityConflict);
+        }
+        Ok(ReplayApplyOutcome::AlreadyApplied {
+            database_generation: read_database_generation(&self.connection)?,
+        })
     }
 
     /// Atomically journals one validated event, replaces its verified

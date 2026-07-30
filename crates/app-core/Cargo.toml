@@ -15,7 +15,10 @@ thiserror.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+axum = "0.8"
+hex.workspace = true
 tempfile = "=3.27.0"
+tokio-stream = "0.1"
 
 [lints]
 workspace = true
