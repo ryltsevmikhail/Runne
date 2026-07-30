@@ -4,6 +4,8 @@ export interface BootstrapState {
   readonly theme: 'dark' | 'light'
   readonly runtimeMode: RuntimeMode
   readonly runtime: RuntimeConnectionState
+  readonly runtimeLifecycle: RuntimeLifecycleStatus
+  readonly runtimeFailure: RuntimeFailureCode | null
 }
 
 export type RuntimeMode = 'external_local' | 'bundled'
@@ -12,6 +14,54 @@ const runtimeModes: readonly RuntimeMode[] = ['external_local', 'bundled']
 
 export function isRuntimeMode(value: unknown): value is RuntimeMode {
   return typeof value === 'string' && runtimeModes.includes(value as RuntimeMode)
+}
+
+export type RuntimeLifecycleStatus =
+  | 'starting'
+  | 'ready'
+  | 'restarting'
+  | 'degraded'
+  | 'failed'
+  | 'external'
+
+const runtimeLifecycleStatuses: readonly RuntimeLifecycleStatus[] = [
+  'starting',
+  'ready',
+  'restarting',
+  'degraded',
+  'failed',
+  'external',
+]
+
+export function isRuntimeLifecycleStatus(value: unknown): value is RuntimeLifecycleStatus {
+  return typeof value === 'string'
+    && runtimeLifecycleStatuses.includes(value as RuntimeLifecycleStatus)
+}
+
+export type RuntimeFailureCode =
+  | 'protected_activation_unavailable'
+  | 'bundled_executable_unavailable'
+  | 'bundled_executable_identity_mismatch'
+  | 'protected_readiness_rejected'
+  | 'bundled_restart_exhausted'
+  | 'bundled_shutdown_incomplete'
+  | 'unsupported_platform_backend'
+  | 'downgraded_external_profile'
+
+const runtimeFailureCodes: readonly RuntimeFailureCode[] = [
+  'protected_activation_unavailable',
+  'bundled_executable_unavailable',
+  'bundled_executable_identity_mismatch',
+  'protected_readiness_rejected',
+  'bundled_restart_exhausted',
+  'bundled_shutdown_incomplete',
+  'unsupported_platform_backend',
+  'downgraded_external_profile',
+]
+
+export function isRuntimeFailureCode(value: unknown): value is RuntimeFailureCode {
+  return typeof value === 'string'
+    && runtimeFailureCodes.includes(value as RuntimeFailureCode)
 }
 
 export type RuntimeConnectionState =
@@ -81,9 +131,11 @@ function isBootstrapState(value: unknown): value is BootstrapState {
   }
   const record = value as Record<string, unknown>
   return (
-    Object.keys(record).length === 3
+    Object.keys(record).length === 5
     && (record.theme === 'dark' || record.theme === 'light')
     && isRuntimeMode(record.runtimeMode)
     && isRuntimeConnectionState(record.runtime)
+    && isRuntimeLifecycleStatus(record.runtimeLifecycle)
+    && (record.runtimeFailure === null || isRuntimeFailureCode(record.runtimeFailure))
   )
 }

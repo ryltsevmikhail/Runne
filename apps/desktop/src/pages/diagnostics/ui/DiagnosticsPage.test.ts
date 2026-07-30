@@ -15,6 +15,8 @@ describe('diagnostics page', () => {
           projectCount: 2,
           runtimeMode: 'external_local',
           runtime: 'unconfigured',
+          runtimeLifecycle: 'external',
+          runtimeFailure: null,
         }),
       },
     })
@@ -22,6 +24,7 @@ describe('diagnostics page', () => {
 
     expect(wrapper.text()).toContain('Database generation')
     expect(wrapper.text()).toContain('4')
+    expect(wrapper.text()).toContain('External runtime')
     expect(wrapper.text()).not.toContain('/Users/')
     expect(wrapper.text()).not.toContain('prompt')
   })

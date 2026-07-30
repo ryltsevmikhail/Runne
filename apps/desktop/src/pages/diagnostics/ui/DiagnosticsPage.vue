@@ -21,6 +21,8 @@ const props = withDefaults(defineProps<{
         projectCount: 0,
         runtimeMode: 'external_local',
         runtime: 'unconfigured',
+        runtimeLifecycle: 'external',
+        runtimeFailure: null,
       },
 })
 
@@ -94,8 +96,20 @@ onMounted(async () => {
         <dd>{{ diagnostics.projectCount }}</dd>
       </div>
       <div>
-        <dt>Runtime</dt>
+        <dt>Runtime mode</dt>
+        <dd>{{ diagnostics.runtimeMode === 'external_local' ? 'External runtime' : 'Bundled runtime' }}</dd>
+      </div>
+      <div>
+        <dt>Runtime connection</dt>
         <dd>{{ diagnostics.runtime }}</dd>
+      </div>
+      <div>
+        <dt>Runtime lifecycle</dt>
+        <dd>{{ diagnostics.runtimeLifecycle }}</dd>
+      </div>
+      <div v-if="diagnostics.runtimeFailure !== null">
+        <dt>Actionable failure</dt>
+        <dd>{{ diagnostics.runtimeFailure }}</dd>
       </div>
     </dl>
   </section>

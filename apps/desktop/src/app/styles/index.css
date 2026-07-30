@@ -235,6 +235,23 @@ nav {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 16%, transparent);
 }
 
+.runtime-status[data-lifecycle="starting"] .status-dot,
+.runtime-status[data-lifecycle="restarting"] .status-dot {
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.runtime-status[data-lifecycle="ready"] .status-dot,
+.runtime-status[data-lifecycle="external"][data-connection="live"] .status-dot {
+  background: var(--lead);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lead) 16%, transparent);
+}
+
+.runtime-status[data-lifecycle="degraded"] .status-dot {
+  background: var(--gocode-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gocode-warning) 16%, transparent);
+}
+
 .status-copy {
   display: grid;
   min-width: 0;

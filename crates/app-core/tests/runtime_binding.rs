@@ -267,6 +267,58 @@ async fn protected_bundled_client_can_rotate_after_restart() {
 }
 
 #[tokio::test]
+async fn explicit_shutdown_fence_invalidates_client_and_pending_activation() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let core = AppCore::open_with_runtime_mode(
+        &directory.path().join("profile.sqlite3"),
+        RuntimeMode::Bundled,
+    )
+    .expect("open bundled core");
+    let first_lease = core
+        .begin_bundled_runtime_start()
+        .await
+        .expect("begin activation");
+    let first_client = mock_protected_authenticated_runtime_client(
+        "http://127.0.0.1:41001",
+        runtime_session(1, "018f2e3a-7000-7000-8000-000000000111"),
+    )
+    .expect("protected client");
+    core.install_bundled_runtime_client(first_lease, first_client)
+        .await
+        .expect("install client");
+
+    let pending_lease = core
+        .begin_bundled_runtime_restart()
+        .await
+        .expect("begin pending restart");
+    core.fence_bundled_runtime_shutdown()
+        .await
+        .expect("fence shutdown");
+
+    let stale_client = mock_protected_authenticated_runtime_client(
+        "http://127.0.0.1:41002",
+        runtime_session(2, "018f2e3a-7000-7000-8000-000000000112"),
+    )
+    .expect("stale client");
+    assert!(matches!(
+        core.install_bundled_runtime_client(pending_lease, stale_client)
+            .await,
+        Err(AppCoreError::RuntimeUnavailable)
+    ));
+    assert!(matches!(
+        core.open_project_conversation(1).await,
+        Err(AppCoreError::RuntimeUnavailable)
+    ));
+    let bootstrap = core.bootstrap().expect("bootstrap");
+    assert_eq!(bootstrap.runtime, RuntimeAvailability::Reconnecting);
+    assert_eq!(
+        bootstrap.runtime_lifecycle,
+        RuntimeLifecycleStatus::Restarting
+    );
+    assert_eq!(bootstrap.runtime_failure, None);
+}
+
+#[tokio::test]
 async fn bundled_failures_are_closed_and_do_not_retain_a_live_client() {
     let directory = tempfile::tempdir().expect("temp directory");
     let core = AppCore::open_with_runtime_mode(

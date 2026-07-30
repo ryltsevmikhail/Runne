@@ -1218,6 +1218,19 @@ impl ProtectedBundledRuntimeSupervisor {
         Ok(profile)
     }
 
+    /// Queues a freshly rotated one-time profile for the native `AppCore`
+    /// integration. The previous daemon HTTP session is invalidated before
+    /// this method returns.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed lifecycle, renewal, proof, or channel failure.
+    pub fn queue_renewal_profile(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        let profile = self.renew_profile()?;
+        self.pending_profile = Some(profile);
+        Ok(())
+    }
+
     /// Handles a failed HTTP bootstrap without admitting a downgraded mode.
     ///
     /// # Errors
