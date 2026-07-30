@@ -3,7 +3,7 @@
 
 use core::fmt;
 
-use crate::id::{InvalidIdReason, uuid_v7_newtype};
+use crate::id::{InvalidIdReason, SecretRefId, uuid_v7_newtype};
 use crate::timestamp::Timestamp;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -45,6 +45,48 @@ impl PrincipalIdentity {
 }
 
 uuid_v7_newtype!(GrantId, "Идентификатор CapabilityGrant — UUIDv7.");
+
+/// Opaque, non-authorizing reference to a registered secret.
+///
+/// The reference deliberately contains neither secret material nor metadata
+/// that could reveal its provider, label, or value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct SecretRef {
+    /// Fresh UUIDv7 identity allocated by the secret broker.
+    pub secret_ref_id: SecretRefId,
+    /// Positive version of the secret material.
+    pub version: u64,
+}
+
+impl SecretRef {
+    /// Creates an opaque secret reference with a positive version.
+    pub fn new(secret_ref_id: SecretRefId, version: u64) -> Result<Self, SecretRefError> {
+        if version == 0 {
+            return Err(SecretRefError::ZeroVersion);
+        }
+        Ok(Self {
+            secret_ref_id,
+            version,
+        })
+    }
+}
+
+/// Reason an opaque secret reference was rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SecretRefError {
+    /// Secret versions start at one.
+    ZeroVersion,
+}
+
+impl fmt::Display for SecretRefError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ZeroVersion => write!(f, "secret reference version must be positive"),
+        }
+    }
+}
+
+impl std::error::Error for SecretRefError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AuthEpoch(u64);

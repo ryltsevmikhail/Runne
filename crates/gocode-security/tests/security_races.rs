@@ -444,7 +444,9 @@ async fn race_restart_before_cleanup() {
 #[tokio::test]
 async fn race_secret_resolve_before_revoke() {
     let mut broker = SecretBroker::new();
-    let secret_ref = broker.register("race-secret-1", b"secret-value".to_vec());
+    let secret_ref = broker
+        .register("race-secret-1", b"secret-value".to_vec())
+        .unwrap();
     let handle = broker.resolve(&secret_ref, true).unwrap();
 
     broker.revoke(&secret_ref).unwrap();
@@ -459,7 +461,9 @@ async fn race_secret_resolve_before_revoke() {
 #[tokio::test]
 async fn race_secret_revoke_before_resolve() {
     let mut broker = SecretBroker::new();
-    let secret_ref = broker.register("race-secret-2", b"secret-value".to_vec());
+    let secret_ref = broker
+        .register("race-secret-2", b"secret-value".to_vec())
+        .unwrap();
 
     broker.revoke(&secret_ref).unwrap();
     let result = broker.resolve(&secret_ref, true);

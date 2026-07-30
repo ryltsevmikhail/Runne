@@ -22,6 +22,7 @@ pub mod local_session;
 pub mod migration;
 pub(crate) mod pipeline;
 pub mod ports;
+pub mod prohibited_content;
 pub mod provider;
 pub mod replay_service;
 pub mod security;

@@ -1985,11 +1985,13 @@ dependencies = [
 name = "gocode-security"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "gocode-application",
  "gocode-domain",
  "gocode-platform",
  "gocode-store",
+ "hex",
  "rustix",
  "serde",
  "sha2",
@@ -1997,6 +1999,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
