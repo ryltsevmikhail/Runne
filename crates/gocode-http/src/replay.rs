@@ -1034,8 +1034,26 @@ mod tests {
     use super::*;
     use gocode_application::replay_service::{
         REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_EVENT_VARIABLE_MAX_BYTES,
-        REPLAY_FRAME_CAPACITY_BYTES,
+        ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayState,
     };
+    use gocode_domain::event::Sensitivity;
+    use gocode_domain::id::EventLogLineageId;
+    use gocode_store::replay_store::ReplayStore;
+
+    struct AvailableReplayAuthorization;
+
+    impl ReplayAuthorizationPort for AvailableReplayAuthorization {
+        fn current_lease(
+            &self,
+            request: &ReplayAuthorizationRequest,
+        ) -> Result<ReplayAuthorizationLease, ReplayError> {
+            ReplayAuthorizationLease::new(
+                request.principal_id.clone(),
+                request.expected_epoch,
+                Sensitivity::Sensitive,
+            )
+        }
+    }
 
     #[test]
     fn page_claim_is_exclusive_and_released_on_drop() {
@@ -1049,56 +1067,73 @@ mod tests {
     }
 
     #[test]
-    fn maximum_payload_bearing_http_frame_fits_declared_capacity() {
-        let cursor = format!(
-            "{CURSOR_TOKEN_PREFIX}{}",
-            "ab".repeat(MAX_CURSOR_TOKEN_BYTES)
+    fn maximum_payload_bearing_live_delivery_fits_sse_frame_limit() {
+        let service = ReplayService::new(
+            Arc::new(ReplayStore::new(
+                rusqlite::Connection::open_in_memory().unwrap(),
+            )),
+            [0x11; 32],
+            EventLogLineageId::from_bytes([0x22; 16]),
+            Arc::new(AvailableReplayAuthorization),
         );
-        let payload_data = "ab".repeat(REPLAY_EVENT_VARIABLE_MAX_BYTES / 2);
-        let event = DeliveredReplayEventWire {
-            event: StoredReplayEventWire {
-                global_position: i64::MAX,
-                event_id: "a".repeat(32),
-                aggregate_type: 2,
-                aggregate_id: "b".repeat(32),
-                sequence: i64::MAX,
-                timestamp: i64::MIN,
-                sensitivity: "sensitive",
-                schema_version: u32::MAX,
-                event_type: "e".repeat(256),
-                causation_id: Some("c".repeat(32)),
-                command_id: "d".repeat(32),
-                idempotency_key: "i".repeat(256),
-                actor: "a".repeat(256),
-                integrity_digest: "f".repeat(64),
-                correlation_id: "1".repeat(32),
-                correlation_type: 2,
-                integrity_profile: 2,
-                payload: ReplayPayloadWire {
-                    encoding: "gocode-durable-event-codec-v1-hex",
-                    data: payload_data,
-                },
-            },
-            cursor,
+        let session = ReplaySession {
+            session_id: [0x33; 16],
+            principal_id: "principal".to_owned(),
+            session_generation: i64::MAX,
+            authority_id: [0x44; 16],
+            authorization_epoch: i64::MAX,
+            aggregate_type: 2,
+            aggregate_id: [0x55; 16],
+            retained_floor: Some(1),
+            retention_generation: 0,
+            high_water_position: i64::MAX,
+            next_page_position: None,
+            last_delivered_position: Some(i64::MAX),
+            last_acked_position: Some(i64::MAX),
+            state: ReplayState::Live,
+            high_water_ref: vec![0x66; 32],
+            catch_up_completion: None,
+            live_delivery_id: Some(vec![0x77; 16]),
+            created_at: "9999-12-31T23:59:59.999999Z".to_owned(),
         };
-        let response = OpenSessionResponse {
-            session_id: "2".repeat(32),
-            high_water_ref: "3".repeat(64),
-            events: vec![event],
-            has_more: true,
+        let event = ReplayEvent {
+            global_position: i64::MAX,
+            event_id: [0x88; 16],
+            aggregate_type: 2,
+            aggregate_id: session.aggregate_id,
+            payload: vec![0xab; REPLAY_EVENT_VARIABLE_MAX_BYTES / 2],
+            timestamp: i64::MIN,
+            event_type: "e".repeat(256),
+            sequence: i64::MAX,
+            sensitivity: 2,
+            schema_version: u32::MAX,
+            causation_id: Some([0x99; 16]),
+            command_id: [0xaa; 16],
+            idempotency_key: "i".repeat(256),
+            actor: "a".repeat(256),
+            integrity_digest: [0xbb; 32],
+            correlation_id: [0xcc; 16],
+            correlation_type: 2,
+            integrity_profile: 2,
         };
+        let delivery = live_delivery(&service, &session, &event, u64::MAX).unwrap();
 
-        let encoded = serde_json::to_vec(&response).unwrap();
+        let encoded_payload_bytes = delivery.canonical_event["payload"]["data"]
+            .as_str()
+            .unwrap()
+            .len();
+        let encoded = serde_json::to_vec(&delivery).unwrap();
         let actual_wrapper_bytes = encoded.len() - REPLAY_EVENT_VARIABLE_MAX_BYTES;
 
+        assert_eq!(encoded_payload_bytes, REPLAY_EVENT_VARIABLE_MAX_BYTES);
         assert!(
             actual_wrapper_bytes <= REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
             "actual wrapper={actual_wrapper_bytes} \
              declared={REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES}"
         );
         assert!(
-            encoded.len() <= REPLAY_FRAME_CAPACITY_BYTES,
-            "actual frame={} declared={REPLAY_FRAME_CAPACITY_BYTES}",
+            encoded.len() <= MAX_SSE_FRAME_BYTES,
+            "actual frame={} declared={MAX_SSE_FRAME_BYTES}",
             encoded.len()
         );
     }
