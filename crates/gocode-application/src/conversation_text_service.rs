@@ -255,7 +255,9 @@ where
         validate_receipt(&durable, input.original.conversation_id)?;
         if matches!(
             durable.phase,
-            TextGenerationPhase::Completed | TextGenerationPhase::Rejected
+            TextGenerationPhase::Completed
+                | TextGenerationPhase::Rejected
+                | TextGenerationPhase::ProhibitedInputRejected
         ) {
             return Ok(durable);
         }
@@ -285,7 +287,14 @@ where
         let taskrun = TaskRun::replay(&taskrun_stream.events)
             .map_err(|_| ConversationTextServiceError::StoredDataUnavailable)?;
 
-        let terminal_phase = match input.completion {
+        let terminal_phase = match &input.completion {
+            ConversationTextCompletion::AssistantText(_) => TextGenerationPhase::Completed,
+            ConversationTextCompletion::ProhibitedInputRejected { .. } => {
+                TextGenerationPhase::ProhibitedInputRejected
+            }
+            ConversationTextCompletion::Rejected { .. } => TextGenerationPhase::Rejected,
+        };
+        let (conversation_drafts, taskrun_drafts) = match input.completion {
             ConversationTextCompletion::AssistantText(assistant_text) => {
                 let conversation_drafts = conversation
                     .decide(
@@ -302,13 +311,10 @@ where
                         result: TerminalResult::Success,
                     })
                     .map_err(|_| ConversationTextServiceError::TaskRunDomain)?;
-                (
-                    TextGenerationPhase::Completed,
-                    conversation_drafts,
-                    taskrun_drafts,
-                )
+                (conversation_drafts, taskrun_drafts)
             }
-            ConversationTextCompletion::Rejected { reason } => {
+            ConversationTextCompletion::ProhibitedInputRejected { reason }
+            | ConversationTextCompletion::Rejected { reason } => {
                 let conversation_drafts = conversation
                     .decide(
                         gocode_domain::command::ConversationCommand::FailGeneration {
@@ -321,14 +327,9 @@ where
                 let taskrun_drafts = taskrun
                     .decide(TaskRunCommand::FailGeneration { reason })
                     .map_err(|_| ConversationTextServiceError::TaskRunDomain)?;
-                (
-                    TextGenerationPhase::Rejected,
-                    conversation_drafts,
-                    taskrun_drafts,
-                )
+                (conversation_drafts, taskrun_drafts)
             }
         };
-        let (terminal_phase, conversation_drafts, taskrun_drafts) = terminal_phase;
         let event_ids = self
             .id_generator
             .next_event_ids(conversation_drafts.len() + taskrun_drafts.len())
@@ -376,20 +377,19 @@ where
                         receipt: terminal,
                     })
             }
-            TextGenerationPhase::Rejected => {
-                self.repository
-                    .reject_text_generation(RejectTextGenerationCommit {
-                        command_id: context.command_id,
-                        idempotency_key: context.idempotency_key.clone(),
-                        idempotency_scope: scope,
-                        command_fingerprint: fingerprint,
-                        expected_conversation_version: input.started.conversation_version,
-                        expected_taskrun_version: input.started.taskrun_version,
-                        conversation_events,
-                        taskrun_events,
-                        receipt: terminal,
-                    })
-            }
+            TextGenerationPhase::Rejected | TextGenerationPhase::ProhibitedInputRejected => self
+                .repository
+                .reject_text_generation(RejectTextGenerationCommit {
+                    command_id: context.command_id,
+                    idempotency_key: context.idempotency_key.clone(),
+                    idempotency_scope: scope,
+                    command_fingerprint: fingerprint,
+                    expected_conversation_version: input.started.conversation_version,
+                    expected_taskrun_version: input.started.taskrun_version,
+                    conversation_events,
+                    taskrun_events,
+                    receipt: terminal,
+                }),
             TextGenerationPhase::Started => unreachable!("started is not a terminal phase"),
         }
         .map_err(map_commit)?;
@@ -461,9 +461,9 @@ fn validate_receipt(
 ) -> Result<(), ConversationTextServiceError> {
     let versions_valid = match receipt.phase {
         TextGenerationPhase::Started => receipt.taskrun_version == 4,
-        TextGenerationPhase::Completed | TextGenerationPhase::Rejected => {
-            receipt.taskrun_version == 5
-        }
+        TextGenerationPhase::Completed
+        | TextGenerationPhase::Rejected
+        | TextGenerationPhase::ProhibitedInputRejected => receipt.taskrun_version == 5,
     };
     if receipt.conversation_id != conversation_id || !versions_valid {
         return Err(ConversationTextServiceError::ReceiptMismatch);
