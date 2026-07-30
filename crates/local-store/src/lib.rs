@@ -195,7 +195,7 @@ pub enum AnchorError {
     SecureStore(#[from] SecureStoreError),
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ReplayScopeKey {
     pub runtime_authority: String,
     pub principal: String,

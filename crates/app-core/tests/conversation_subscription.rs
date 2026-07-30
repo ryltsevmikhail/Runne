@@ -226,6 +226,46 @@ async fn explicit_resync_remains_retryable_after_transient_rebuild_failure() {
 }
 
 #[tokio::test]
+async fn pending_resync_scope_survives_unrelated_live_reconnect_state() {
+    let fixture = Fixture::opened().await;
+    let other_project_path = fixture.directory.path().join("project-with-gap");
+    std::fs::create_dir(&other_project_path).expect("other project");
+    let other_project_id = fixture
+        .core
+        .open_local_project(&other_project_path)
+        .expect("open other project")
+        .id;
+    fixture
+        .core
+        .open_project_conversation(other_project_id)
+        .await
+        .expect("bind other project");
+    fixture.runtime.force_retention_gap_once();
+    let error = fixture
+        .core
+        .open_project_conversation(other_project_id)
+        .await
+        .expect_err("other project requires resync");
+    assert_eq!(error.to_string(), "replay_resync_required");
+
+    fixture
+        .core
+        .force_runtime_reconnecting_for_test()
+        .expect("simulate unrelated raw reconnect transition");
+
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::ResyncRequired
+    );
+    let snapshot = fixture
+        .core
+        .resync_project_conversation(other_project_id)
+        .await
+        .expect("resync scope remains authoritative after unrelated reconnect");
+    assert_eq!(snapshot.messages.len(), 0);
+}
+
+#[tokio::test]
 async fn mutation_remains_live_while_subscription_reconcile_waits_and_race_applies_once() {
     let fixture = Fixture::opened().await;
     let updates = Arc::new(Mutex::new(Vec::new()));

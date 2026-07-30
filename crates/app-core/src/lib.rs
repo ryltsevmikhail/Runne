@@ -1,5 +1,6 @@
 //! Platform-neutral application orchestration.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -222,7 +223,7 @@ pub struct AppCore {
     store: Mutex<LocalStore>,
     runtime_profile_path: Option<PathBuf>,
     runtime_state: RwLock<RuntimeAvailability>,
-    pending_resync_scope: RwLock<Option<ReplayScopeKey>>,
+    pending_resync_scopes: RwLock<HashSet<ReplayScopeKey>>,
     runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
     runtime_connect: tokio::sync::Mutex<()>,
     runtime_operation: tokio::sync::Mutex<()>,
@@ -273,7 +274,7 @@ impl AppCore {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
-            pending_resync_scope: RwLock::new(None),
+            pending_resync_scopes: RwLock::new(HashSet::new()),
             runtime_client: RwLock::new(None),
             runtime_connect: tokio::sync::Mutex::new(()),
             runtime_operation: tokio::sync::Mutex::new(()),
@@ -296,11 +297,17 @@ impl AppCore {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_profile_path: None,
             runtime_state: RwLock::new(RuntimeAvailability::Live),
-            pending_resync_scope: RwLock::new(None),
+            pending_resync_scopes: RwLock::new(HashSet::new()),
             runtime_client: RwLock::new(Some(client)),
             runtime_connect: tokio::sync::Mutex::new(()),
             runtime_operation: tokio::sync::Mutex::new(()),
         })
+    }
+
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn force_runtime_reconnecting_for_test(&self) -> Result<(), AppCoreError> {
+        self.set_runtime_failure(RuntimeAvailability::Reconnecting)
     }
 
     /// Returns sanitized renderer bootstrap state.
@@ -315,7 +322,7 @@ impl AppCore {
             .map_err(|_| AppCoreError::StateUnavailable)?;
         let mut bootstrap = load_bootstrap(&store)?;
         drop(store);
-        bootstrap.runtime = self.runtime_availability()?;
+        bootstrap.runtime = self.effective_runtime_availability()?;
         Ok(bootstrap)
     }
 
@@ -492,8 +499,12 @@ impl AppCore {
             return Err(AppCoreError::RuntimeIdentityConflict);
         }
         let scope_key = identity.scope(&reference);
-        if self.runtime_availability()? != RuntimeAvailability::ResyncRequired
-            || self.pending_resync_scope()?.as_ref() != Some(&scope_key)
+        if matches!(
+            self.runtime_availability()?,
+            RuntimeAvailability::Fatal
+                | RuntimeAvailability::Incompatible
+                | RuntimeAvailability::Revoked
+        ) || !self.resync_required_for_scope(&scope_key)?
         {
             return Err(AppCoreError::ReplayResyncRequired);
         }
@@ -511,7 +522,10 @@ impl AppCore {
             .reconcile_conversation(&client, &reference, &identity, |_| {})
             .await
         {
-            Ok(snapshot) => Ok(snapshot),
+            Ok(snapshot) => {
+                self.clear_resync_scope(&scope_key)?;
+                Ok(snapshot)
+            }
             Err(error) => {
                 if self.runtime_availability()? == RuntimeAvailability::Reconnecting {
                     self.set_resync_required_for_scope(scope_key)?;
@@ -773,7 +787,7 @@ impl AppCore {
             database_schema_version: local.schema_version,
             database_generation: local.database_generation,
             project_count: local.project_count,
-            runtime: self.runtime_availability()?,
+            runtime: self.effective_runtime_availability()?,
         })
     }
 
@@ -784,16 +798,31 @@ impl AppCore {
             .map_err(|_| AppCoreError::StateUnavailable)
     }
 
+    fn effective_runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {
+        let raw = self.runtime_availability()?;
+        let pending_resync = !self
+            .pending_resync_scopes
+            .read()
+            .map_err(|_| AppCoreError::StateUnavailable)?
+            .is_empty();
+        if pending_resync
+            && !matches!(
+                raw,
+                RuntimeAvailability::Fatal
+                    | RuntimeAvailability::Incompatible
+                    | RuntimeAvailability::Revoked
+            )
+        {
+            Ok(RuntimeAvailability::ResyncRequired)
+        } else {
+            Ok(raw)
+        }
+    }
+
     fn set_runtime_availability(
         &self,
         availability: RuntimeAvailability,
     ) -> Result<(), AppCoreError> {
-        if availability != RuntimeAvailability::ResyncRequired {
-            *self
-                .pending_resync_scope
-                .write()
-                .map_err(|_| AppCoreError::StateUnavailable)? = None;
-        }
         *self
             .runtime_state
             .write()
@@ -814,18 +843,26 @@ impl AppCore {
     }
 
     fn set_resync_required_for_scope(&self, scope_key: ReplayScopeKey) -> Result<(), AppCoreError> {
-        *self
-            .pending_resync_scope
+        self.pending_resync_scopes
             .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = Some(scope_key);
+            .map_err(|_| AppCoreError::StateUnavailable)?
+            .insert(scope_key);
         self.set_runtime_availability(RuntimeAvailability::ResyncRequired)
     }
 
-    fn pending_resync_scope(&self) -> Result<Option<ReplayScopeKey>, AppCoreError> {
-        self.pending_resync_scope
+    fn resync_required_for_scope(&self, scope_key: &ReplayScopeKey) -> Result<bool, AppCoreError> {
+        self.pending_resync_scopes
             .read()
-            .map(|scope| scope.clone())
+            .map(|scopes| scopes.contains(scope_key))
             .map_err(|_| AppCoreError::StateUnavailable)
+    }
+
+    fn clear_resync_scope(&self, scope_key: &ReplayScopeKey) -> Result<(), AppCoreError> {
+        self.pending_resync_scopes
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)?
+            .remove(scope_key);
+        Ok(())
     }
 
     fn runtime_client(&self) -> Result<Option<AuthenticatedRuntimeClient>, AppCoreError> {
