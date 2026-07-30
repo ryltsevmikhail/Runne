@@ -41,6 +41,7 @@ struct MockState {
     generate_count: AtomicUsize,
     block_generate: AtomicBool,
     retention_gap_once: AtomicBool,
+    reconnectable_open_failure_once: AtomicBool,
     open_changed: Notify,
     live_changed: Notify,
     generate_changed: Notify,
@@ -66,6 +67,7 @@ impl MockRuntime {
             generate_count: AtomicUsize::new(0),
             block_generate: AtomicBool::new(false),
             retention_gap_once: AtomicBool::new(false),
+            reconnectable_open_failure_once: AtomicBool::new(false),
             open_changed: Notify::new(),
             live_changed: Notify::new(),
             generate_changed: Notify::new(),
@@ -200,6 +202,12 @@ impl MockRuntime {
     pub fn force_retention_gap_once(&self) {
         self.state.retention_gap_once.store(true, Ordering::SeqCst);
     }
+
+    pub fn fail_next_open_with_reconnectable_error(&self) {
+        self.state
+            .reconnectable_open_failure_once
+            .store(true, Ordering::SeqCst);
+    }
 }
 
 pub struct Fixture {
@@ -270,6 +278,10 @@ async fn create_conversation(
     let conversation_id = body["conversationId"].as_str().expect("conversation ID");
     let workspace_id = body["workspaceId"].as_str().expect("workspace ID");
     let mut inner = state.inner.lock().expect("mock state");
+    if inner.conversation_id.as_deref() != Some(conversation_id) {
+        inner.events.clear();
+        inner.live_senders.clear();
+    }
     if inner.events.is_empty() {
         inner.events.push(event(
             conversation_id,
@@ -373,6 +385,22 @@ async fn open_session(
 ) -> Response<Body> {
     state.open_count.fetch_add(1, Ordering::SeqCst);
     state.open_changed.notify_waiters();
+    if state
+        .reconnectable_open_failure_once
+        .swap(false, Ordering::SeqCst)
+    {
+        return Response::builder()
+            .status(StatusCode::SERVICE_UNAVAILABLE)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({
+                    "code": "runtime_unavailable",
+                    "requestId": "018f2e3a-7000-7000-8000-000000000191"
+                }))
+                .expect("unavailable JSON"),
+            ))
+            .expect("unavailable response");
+    }
     if body.get("fromCursor").is_some_and(|value| !value.is_null())
         && state.retention_gap_once.swap(false, Ordering::SeqCst)
     {

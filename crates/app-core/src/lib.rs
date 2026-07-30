@@ -5,7 +5,8 @@ use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use gocode_local_store::{
-    LocalProject, LocalStore, ProjectOpenError, SecurityTransactionError, StoreOpenError,
+    LocalProject, LocalStore, ProjectOpenError, ReplayScopeKey, SecurityTransactionError,
+    StoreOpenError,
 };
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, CreateConversationRequest,
@@ -221,6 +222,7 @@ pub struct AppCore {
     store: Mutex<LocalStore>,
     runtime_profile_path: Option<PathBuf>,
     runtime_state: RwLock<RuntimeAvailability>,
+    pending_resync_scope: RwLock<Option<ReplayScopeKey>>,
     runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
     runtime_connect: tokio::sync::Mutex<()>,
     runtime_operation: tokio::sync::Mutex<()>,
@@ -271,6 +273,7 @@ impl AppCore {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
+            pending_resync_scope: RwLock::new(None),
             runtime_client: RwLock::new(None),
             runtime_connect: tokio::sync::Mutex::new(()),
             runtime_operation: tokio::sync::Mutex::new(()),
@@ -293,6 +296,7 @@ impl AppCore {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_profile_path: None,
             runtime_state: RwLock::new(RuntimeAvailability::Live),
+            pending_resync_scope: RwLock::new(None),
             runtime_client: RwLock::new(Some(client)),
             runtime_connect: tokio::sync::Mutex::new(()),
             runtime_operation: tokio::sync::Mutex::new(()),
@@ -475,9 +479,6 @@ impl AppCore {
         project_id: i64,
     ) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
-        if self.runtime_availability()? != RuntimeAvailability::ResyncRequired {
-            return Err(AppCoreError::ReplayResyncRequired);
-        }
         let client = self
             .runtime_client()?
             .ok_or(AppCoreError::RuntimeUnavailable)?;
@@ -491,6 +492,11 @@ impl AppCore {
             return Err(AppCoreError::RuntimeIdentityConflict);
         }
         let scope_key = identity.scope(&reference);
+        if self.runtime_availability()? != RuntimeAvailability::ResyncRequired
+            || self.pending_resync_scope()?.as_ref() != Some(&scope_key)
+        {
+            return Err(AppCoreError::ReplayResyncRequired);
+        }
         {
             let mut store = self
                 .store
@@ -501,8 +507,18 @@ impl AppCore {
                 AppCoreError::LocalProjectionUnavailable
             })?;
         }
-        self.reconcile_conversation(&client, &reference, &identity, |_| {})
+        match self
+            .reconcile_conversation(&client, &reference, &identity, |_| {})
             .await
+        {
+            Ok(snapshot) => Ok(snapshot),
+            Err(error) => {
+                if self.runtime_availability()? == RuntimeAvailability::Reconnecting {
+                    self.set_resync_required_for_scope(scope_key)?;
+                }
+                Err(error)
+            }
+        }
     }
 
     /// Reconciles from the durable checkpoint and then emits acknowledged live
@@ -600,7 +616,7 @@ impl AppCore {
                 }
                 Err(error) => {
                     if error.recovery_disposition() != ReplayRecoveryDisposition::Reconnectable {
-                        return Err(self.map_replay_failure(&error));
+                        return Err(self.map_replay_failure(&error, &scope_key));
                     }
                     self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
                     let delay = match reconnect_policy.record_failure() {
@@ -658,7 +674,7 @@ impl AppCore {
                 }
             };
             if recovery != ReplayRecoveryDisposition::Reconnectable {
-                return Err(self.map_recovery_failure(recovery));
+                return Err(self.map_recovery_failure(recovery, &scope_key));
             }
             let operation = self.runtime_operation.lock().await;
             if !self.runtime_client_is_current(&client)? {
@@ -772,6 +788,12 @@ impl AppCore {
         &self,
         availability: RuntimeAvailability,
     ) -> Result<(), AppCoreError> {
+        if availability != RuntimeAvailability::ResyncRequired {
+            *self
+                .pending_resync_scope
+                .write()
+                .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        }
         *self
             .runtime_state
             .write()
@@ -789,6 +811,21 @@ impl AppCore {
 
     fn set_runtime_failure(&self, availability: RuntimeAvailability) -> Result<(), AppCoreError> {
         self.set_runtime_availability(availability)
+    }
+
+    fn set_resync_required_for_scope(&self, scope_key: ReplayScopeKey) -> Result<(), AppCoreError> {
+        *self
+            .pending_resync_scope
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = Some(scope_key);
+        self.set_runtime_availability(RuntimeAvailability::ResyncRequired)
+    }
+
+    fn pending_resync_scope(&self) -> Result<Option<ReplayScopeKey>, AppCoreError> {
+        self.pending_resync_scope
+            .read()
+            .map(|scope| scope.clone())
+            .map_err(|_| AppCoreError::StateUnavailable)
     }
 
     fn runtime_client(&self) -> Result<Option<AuthenticatedRuntimeClient>, AppCoreError> {
@@ -941,7 +978,7 @@ impl AppCore {
                 self.set_runtime_failure(RuntimeAvailability::Fatal)?;
                 return Err(error);
             }
-            return Err(self.map_replay_failure(&error));
+            return Err(self.map_replay_failure(&error, &scope_key));
         }
         let snapshot_result = {
             let store = self
@@ -961,11 +998,19 @@ impl AppCore {
         Ok(snapshot)
     }
 
-    fn map_replay_failure(&self, error: &ReplayClientError) -> AppCoreError {
-        self.map_recovery_failure(error.recovery_disposition())
+    fn map_replay_failure(
+        &self,
+        error: &ReplayClientError,
+        scope_key: &ReplayScopeKey,
+    ) -> AppCoreError {
+        self.map_recovery_failure(error.recovery_disposition(), scope_key)
     }
 
-    fn map_recovery_failure(&self, recovery: ReplayRecoveryDisposition) -> AppCoreError {
+    fn map_recovery_failure(
+        &self,
+        recovery: ReplayRecoveryDisposition,
+        scope_key: &ReplayScopeKey,
+    ) -> AppCoreError {
         let (state, error) = match recovery {
             ReplayRecoveryDisposition::Reconnectable => (
                 RuntimeAvailability::Reconnecting,
@@ -987,7 +1032,11 @@ impl AppCore {
                 AppCoreError::RuntimeIdentityConflict,
             ),
         };
-        let _ = self.set_runtime_failure(state);
+        if state == RuntimeAvailability::ResyncRequired {
+            let _ = self.set_resync_required_for_scope(scope_key.clone());
+        } else {
+            let _ = self.set_runtime_failure(state);
+        }
         error
     }
 }

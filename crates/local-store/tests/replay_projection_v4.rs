@@ -387,6 +387,46 @@ fn invalid_existing_pre_v4_backup_blocks_migration_without_rewriting_v3() {
 }
 
 #[test]
+fn rollback_reupgrade_with_existing_pre_v4_backup_is_blocked_without_reuse() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let path = directory.path().join("profile.sqlite3");
+    drop(create_v3_database(&path));
+    drop(LocalStore::open(&path).expect("first migration creates backup"));
+    let backup_path = pre_v4_migration_backup_path(&path).expect("backup path");
+    let held_v4 = directory.path().join("profile.sqlite3.v4-held");
+    std::fs::rename(&path, &held_v4).expect("hold migrated v4 database");
+    std::fs::copy(&backup_path, &path).expect("restore v3 rollback copy");
+    {
+        let connection = Connection::open(&path).expect("open restored v3");
+        connection
+            .execute(
+                "UPDATE settings SET value = 'dark' WHERE key = 'appearance.theme'",
+                [],
+            )
+            .expect("mutate restored v3 after rollback");
+    }
+
+    let Err(error) = LocalStore::open(&path) else {
+        panic!("stale backup reuse must block re-upgrade");
+    };
+
+    assert!(matches!(error, StoreOpenError::MigrationBackupUnavailable));
+    let connection = Connection::open(&path).expect("reopen restored v3 after blocked re-upgrade");
+    let version: i64 = connection
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("version");
+    let theme: String = connection
+        .query_row(
+            "SELECT value FROM settings WHERE key = 'appearance.theme'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("post-rollback v3 state");
+    assert_eq!(version, 3);
+    assert_eq!(theme, "dark");
+}
+
+#[test]
 fn empty_base_v4_schema_is_upgraded_before_replay_use() {
     let directory = tempfile::tempdir().expect("temp directory");
     let path = directory.path().join("profile.sqlite3");

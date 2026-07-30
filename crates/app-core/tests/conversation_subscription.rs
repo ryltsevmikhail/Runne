@@ -145,6 +145,87 @@ async fn explicit_resync_resets_only_the_affected_scope_and_rebuilds_from_floor(
 }
 
 #[tokio::test]
+async fn explicit_resync_rejects_unaffected_project_scope_without_resetting_it() {
+    let fixture = Fixture::opened().await;
+    let other_project_path = fixture.directory.path().join("other-project");
+    std::fs::create_dir(&other_project_path).expect("other project");
+    let other_project_id = fixture
+        .core
+        .open_local_project(&other_project_path)
+        .expect("open other project")
+        .id;
+    fixture
+        .core
+        .open_project_conversation(other_project_id)
+        .await
+        .expect("bind other project conversation");
+    fixture.runtime.force_retention_gap_once();
+    let error = fixture
+        .core
+        .open_project_conversation(other_project_id)
+        .await
+        .expect_err("other project requires resync");
+    assert_eq!(error.to_string(), "replay_resync_required");
+
+    let wrong_scope = fixture
+        .core
+        .resync_project_conversation(fixture.project_id)
+        .await
+        .expect_err("unaffected project cannot claim resync");
+
+    assert_eq!(wrong_scope.to_string(), "replay_resync_required");
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::ResyncRequired
+    );
+    let snapshot = fixture
+        .core
+        .resync_project_conversation(other_project_id)
+        .await
+        .expect("affected project remains retryable and rebuilds");
+    assert_eq!(snapshot.messages.len(), 0);
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Live
+    );
+}
+
+#[tokio::test]
+async fn explicit_resync_remains_retryable_after_transient_rebuild_failure() {
+    let fixture = Fixture::opened().await;
+    fixture.runtime.force_retention_gap_once();
+    let error = fixture
+        .core
+        .open_project_conversation(fixture.project_id)
+        .await
+        .expect_err("persisted cursor is outside retention");
+    assert_eq!(error.to_string(), "replay_resync_required");
+
+    fixture.runtime.fail_next_open_with_reconnectable_error();
+    let transient = fixture
+        .core
+        .resync_project_conversation(fixture.project_id)
+        .await
+        .expect_err("transient rebuild failure");
+
+    assert_eq!(transient.to_string(), "runtime is unavailable");
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::ResyncRequired
+    );
+    let snapshot = fixture
+        .core
+        .resync_project_conversation(fixture.project_id)
+        .await
+        .expect("resync can be retried after transient failure");
+    assert_eq!(snapshot.messages.len(), 0);
+    assert_eq!(
+        fixture.core.bootstrap().expect("bootstrap").runtime,
+        RuntimeAvailability::Live
+    );
+}
+
+#[tokio::test]
 async fn mutation_remains_live_while_subscription_reconcile_waits_and_race_applies_once() {
     let fixture = Fixture::opened().await;
     let updates = Arc::new(Mutex::new(Vec::new()));

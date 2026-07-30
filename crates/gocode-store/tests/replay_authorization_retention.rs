@@ -79,6 +79,24 @@ impl ReplayAuthorizationPort for MutableAuthorization {
         }
         ReplayAuthorizationLease::new(request.principal_id.clone(), state.epoch, self.ceiling)
     }
+
+    fn mutate_with_current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+        mutation: &mut dyn FnMut(&ReplayAuthorizationLease) -> Result<usize, ReplayError>,
+    ) -> Result<usize, ReplayError> {
+        let mut state = self.state.lock().unwrap();
+        if let Some(remaining) = state.leases_until_revocation.as_mut() {
+            *remaining -= 1;
+            if *remaining == 0 {
+                state.epoch += 1;
+                state.leases_until_revocation = None;
+            }
+        }
+        let lease =
+            ReplayAuthorizationLease::new(request.principal_id.clone(), state.epoch, self.ceiling)?;
+        mutation(&lease)
+    }
 }
 
 struct RevokingDeliveryGuard(MutableAuthorization);
