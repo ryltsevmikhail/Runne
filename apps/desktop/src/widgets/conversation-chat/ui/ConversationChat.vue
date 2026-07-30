@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { GcAlert, GcButton, GcTextarea } from '@gocode/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
-import type { ConversationSnapshot } from '@/entities/conversation'
+import type {
+  ConversationSnapshot,
+  ConversationTimelineListener,
+  ConversationUnsubscribe,
+} from '@/entities/conversation'
 import {
   openProjectConversation,
   sendProjectMessage,
+  subscribeProjectConversation,
 } from '@/entities/conversation'
 import {
   connectRuntime,
@@ -16,6 +21,11 @@ import {
 type Connect = () => Promise<RuntimeConnectionState>
 type OpenConversation = (projectId: number) => Promise<ConversationSnapshot>
 type SendMessage = (projectId: number, text: string) => Promise<ConversationSnapshot>
+type SubscribeConversation = (
+  projectId: number,
+  initialSnapshot: ConversationSnapshot,
+  onTimeline: ConversationTimelineListener,
+) => Promise<ConversationUnsubscribe>
 
 async function defaultConnect(): Promise<RuntimeConnectionState> {
   return isTauri() ? connectRuntime() : 'unconfigured'
@@ -38,11 +48,23 @@ async function defaultSendMessage(
   return sendProjectMessage(projectId, text)
 }
 
+async function defaultSubscribeConversation(
+  projectId: number,
+  initialSnapshot: ConversationSnapshot,
+  onTimeline: ConversationTimelineListener,
+): Promise<ConversationUnsubscribe> {
+  if (!isTauri()) {
+    throw new Error('runtime unavailable')
+  }
+  return subscribeProjectConversation(projectId, initialSnapshot, onTimeline)
+}
+
 const props = defineProps<{
   projectId: number
   connect?: Connect
   openConversation?: OpenConversation
   sendMessage?: SendMessage
+  subscribeConversation?: SubscribeConversation
 }>()
 
 const snapshot = ref<ConversationSnapshot | null>(null)
@@ -51,16 +73,61 @@ const loading = ref(true)
 const sending = ref(false)
 const unavailable = ref(false)
 const draft = ref('')
-const canSend = computed(() => (
+let unsubscribe: ConversationUnsubscribe | null = null
+let loadGeneration = 0
+let disposed = false
+const recovery = computed(() => snapshot.value?.recovery ?? 'live')
+const canCompose = computed(() => (
   runtimeState.value === 'live'
+  && recovery.value === 'live'
   && !loading.value
   && !sending.value
+))
+const canSend = computed(() => (
+  canCompose.value
   && draft.value.length > 0
 ))
+const statusCopy = computed(() => {
+  switch (recovery.value) {
+    case 'live':
+      return null
+    case 'reconnecting':
+      return 'Reconnecting — confirmed messages remain read-only.'
+    case 'incompatible':
+      return 'Runtime version is incompatible.'
+    case 'revoked':
+      return 'Runtime access was revoked.'
+    case 'resync_required':
+      return 'Conversation resync is required.'
+    case 'fatal':
+      return 'Conversation recovery failed.'
+    default:
+      return null
+  }
+})
 
 onMounted(loadConversation)
+onBeforeUnmount(() => {
+  disposed = true
+  loadGeneration += 1
+  const current = unsubscribe
+  unsubscribe = null
+  if (current !== null) {
+    void current()
+  }
+})
 
 async function loadConversation() {
+  const generation = loadGeneration + 1
+  loadGeneration = generation
+  const current = unsubscribe
+  unsubscribe = null
+  if (current !== null) {
+    await current()
+  }
+  if (disposed || generation !== loadGeneration) {
+    return
+  }
   loading.value = true
   unavailable.value = false
   try {
@@ -68,13 +135,45 @@ async function loadConversation() {
     if (runtimeState.value !== 'live') {
       throw new Error('runtime unavailable')
     }
-    snapshot.value = await (props.openConversation ?? defaultOpenConversation)(props.projectId)
+    const initial = await (props.openConversation ?? defaultOpenConversation)(props.projectId)
+    if (disposed || generation !== loadGeneration) {
+      return
+    }
+    snapshot.value = initial
+    const candidate = await (
+      props.subscribeConversation ?? defaultSubscribeConversation
+    )(
+      props.projectId,
+      initial,
+      (value) => {
+        if (!disposed && generation === loadGeneration) {
+          snapshot.value = value
+        }
+      },
+    )
+    if (disposed || generation !== loadGeneration) {
+      await candidate()
+      return
+    }
+    unsubscribe = candidate
   }
   catch {
-    unavailable.value = true
+    if (!disposed && generation === loadGeneration) {
+      if (snapshot.value === null) {
+        unavailable.value = true
+      }
+      else {
+        snapshot.value = {
+          ...snapshot.value,
+          recovery: 'reconnecting',
+        }
+      }
+    }
   }
   finally {
-    loading.value = false
+    if (!disposed && generation === loadGeneration) {
+      loading.value = false
+    }
   }
 }
 
@@ -90,7 +189,15 @@ async function submitMessage() {
     draft.value = ''
   }
   catch {
-    unavailable.value = true
+    if (snapshot.value === null) {
+      unavailable.value = true
+    }
+    else {
+      snapshot.value = {
+        ...snapshot.value,
+        recovery: 'reconnecting',
+      }
+    }
   }
   finally {
     sending.value = false
@@ -113,9 +220,9 @@ async function submitMessage() {
       </div>
       <span
         class="conversation-chat__runtime"
-        :class="{ 'conversation-chat__runtime--live': runtimeState === 'live' }"
+        :class="{ 'conversation-chat__runtime--live': runtimeState === 'live' && recovery === 'live' }"
       >
-        Runtime {{ runtimeState }}
+        Runtime {{ recovery === 'live' ? runtimeState : recovery }}
       </span>
     </header>
 
@@ -147,30 +254,40 @@ async function submitMessage() {
     </div>
 
     <template v-else>
-      <ol
-        class="conversation-chat__messages"
-        aria-label="Conversation messages"
-        aria-live="polite"
-      >
-        <li
-          v-for="message in snapshot?.messages ?? []"
-          :key="message.messageId"
-          class="conversation-chat__message"
-          :class="`conversation-chat__message--${message.role}`"
-          :data-message-role="message.role"
+      <div class="conversation-chat__timeline">
+        <p
+          v-if="statusCopy !== null"
+          class="conversation-chat__recovery"
+          role="status"
         >
-          <span class="conversation-chat__role">
-            {{ message.role === 'user' ? 'You' : 'GOCODE' }}
-          </span>
-          <p>{{ message.text }}</p>
-        </li>
-        <li
-          v-if="snapshot?.messages.length === 0"
-          class="conversation-chat__empty"
+          {{ statusCopy }}
+        </p>
+        <ol
+          class="conversation-chat__messages"
+          aria-label="Conversation messages"
+          aria-live="polite"
         >
-          Send a message to start this project conversation.
-        </li>
-      </ol>
+          <li
+            v-for="message in snapshot?.messages ?? []"
+            :key="message.messageId"
+            class="conversation-chat__message"
+            :class="`conversation-chat__message--${message.role}`"
+            :data-message-id="message.messageId"
+            :data-message-role="message.role"
+          >
+            <span class="conversation-chat__role">
+              {{ message.role === 'user' ? 'You' : 'GOCODE' }}
+            </span>
+            <p>{{ message.text }}</p>
+          </li>
+          <li
+            v-if="snapshot?.messages.length === 0"
+            class="conversation-chat__empty"
+          >
+            Send a message to start this project conversation.
+          </li>
+        </ol>
+      </div>
 
       <form
         class="conversation-chat__composer"
@@ -181,7 +298,7 @@ async function submitMessage() {
           label="Message"
           placeholder="Ask GOCODE to work on this project"
           :rows="3"
-          :state="sending ? 'disabled' : 'default'"
+          :state="canCompose ? 'default' : 'disabled'"
         />
         <GcButton
           :disabled="!canSend"
@@ -235,6 +352,20 @@ async function submitMessage() {
 
 .conversation-chat__runtime--live {
   color: var(--gocode-success-mint);
+}
+
+.conversation-chat__timeline {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.conversation-chat__recovery {
+  margin: 0;
+  padding: var(--gocode-space-xs) var(--gocode-space-lg);
+  border-bottom: 1px solid var(--gocode-border);
+  color: var(--gocode-ui-muted);
+  font-size: 11px;
 }
 
 .conversation-chat__messages {

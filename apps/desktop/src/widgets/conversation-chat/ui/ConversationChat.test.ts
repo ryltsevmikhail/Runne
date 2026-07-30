@@ -1,18 +1,24 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import type { ConversationSnapshot } from '@/entities/conversation'
+import type {
+  ConversationSnapshot,
+  ConversationTimelineListener,
+} from '@/entities/conversation'
 
 import ConversationChat from './ConversationChat.vue'
 
 const empty: ConversationSnapshot = {
   conversationId: '018f2e3a-7000-7000-8000-000000000111',
+  projectionRevision: 1,
   streamVersion: 1,
   messages: [],
+  recovery: 'live',
 }
 
 const generated: ConversationSnapshot = {
   conversationId: empty.conversationId,
+  projectionRevision: 3,
   streamVersion: 3,
   messages: [
     {
@@ -32,6 +38,7 @@ const generated: ConversationSnapshot = {
       committedAt: 1_753_800_000_002,
     },
   ],
+  recovery: 'live',
 }
 
 describe('conversation chat widget', () => {
@@ -48,12 +55,16 @@ describe('conversation chat widget', () => {
           calls.push(`open:${projectId}`)
           return generated
         },
+        subscribeConversation: async (projectId) => {
+          calls.push(`subscribe:${projectId}`)
+          return async () => undefined
+        },
         sendMessage: async () => generated,
       },
     })
     await flushPromises()
 
-    expect(calls).toEqual(['connect', 'open:7'])
+    expect(calls).toEqual(['connect', 'open:7', 'subscribe:7'])
     expect(wrapper.get('[aria-label="Conversation messages"]').text()).toContain('hello')
     expect(wrapper.text()).toContain('GOCODE local response: hello')
     expect(wrapper.text()).toContain('Runtime live')
@@ -66,6 +77,7 @@ describe('conversation chat widget', () => {
         projectId: 7,
         connect: async () => 'live',
         openConversation: async () => empty,
+        subscribeConversation: async () => async () => undefined,
         sendMessage: async (projectId, text) => {
           sends.push([projectId, text])
           return generated
@@ -93,6 +105,7 @@ describe('conversation chat widget', () => {
           throw new Error('unavailable')
         },
         openConversation: async () => empty,
+        subscribeConversation: async () => async () => undefined,
         sendMessage: async () => generated,
       },
     })
@@ -102,5 +115,127 @@ describe('conversation chat widget', () => {
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(attempts).toBe(2)
+  })
+
+  it('renders each message ID once across live and reconnect duplicates', async () => {
+    let listener: ConversationTimelineListener | undefined
+    const wrapper = mount(ConversationChat, {
+      props: {
+        projectId: 7,
+        connect: async () => 'live',
+        openConversation: async () => generated,
+        subscribeConversation: async (_projectId, _initial, onTimeline) => {
+          listener = onTimeline
+          return async () => undefined
+        },
+        sendMessage: async () => generated,
+      },
+    })
+    await flushPromises()
+
+    listener?.(generated)
+    listener?.({
+      ...generated,
+      projectionRevision: 4,
+      streamVersion: 4,
+      recovery: 'reconnecting',
+    })
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.findAll('[data-message-role]')).toHaveLength(2)
+    expect(new Set(
+      wrapper.findAll('[data-message-id]').map(node => node.attributes('data-message-id')),
+    ).size).toBe(2)
+    expect(wrapper.text()).toContain('Reconnecting')
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  })
+
+  it.each([
+    ['incompatible', 'Runtime version is incompatible.'],
+    ['revoked', 'Runtime access was revoked.'],
+    ['resync_required', 'Conversation resync is required.'],
+    ['fatal', 'Conversation recovery failed.'],
+  ] as const)('renders %s recovery closed and disables sending', async (recovery, copy) => {
+    const wrapper = mount(ConversationChat, {
+      props: {
+        projectId: 7,
+        connect: async () => 'live',
+        openConversation: async () => ({ ...generated, recovery }),
+        subscribeConversation: async () => async () => undefined,
+        sendMessage: async () => generated,
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain(copy)
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('unsubscribes on unmount after the subscription has been installed', async () => {
+    const unsubscribe = vi.fn(async () => undefined)
+    const wrapper = mount(ConversationChat, {
+      props: {
+        projectId: 7,
+        connect: async () => 'live',
+        openConversation: async () => generated,
+        subscribeConversation: async () => unsubscribe,
+        sendMessage: async () => generated,
+      },
+    })
+    await flushPromises()
+
+    wrapper.unmount()
+    await flushPromises()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('preserves confirmed messages read-only when sending loses the runtime', async () => {
+    const wrapper = mount(ConversationChat, {
+      props: {
+        projectId: 7,
+        connect: async () => 'live',
+        openConversation: async () => generated,
+        subscribeConversation: async () => async () => undefined,
+        sendMessage: async () => {
+          throw new Error('runtime unavailable')
+        },
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('textarea').setValue('next')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-message-role]')).toHaveLength(2)
+    expect(wrapper.text()).toContain('Reconnecting')
+    expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  })
+
+  it('never renders an unknown channel field supplied below the widget boundary', async () => {
+    let listener: ConversationTimelineListener | undefined
+    const wrapper = mount(ConversationChat, {
+      props: {
+        projectId: 7,
+        connect: async () => 'live',
+        openConversation: async () => generated,
+        subscribeConversation: async (_projectId, _initial, onTimeline) => {
+          listener = onTimeline
+          return async () => undefined
+        },
+        sendMessage: async () => generated,
+      },
+    })
+    await flushPromises()
+
+    listener?.({
+      ...generated,
+      recovery: 'incompatible',
+      secretCursor: 'must-not-render',
+    } as ConversationSnapshot)
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.html()).not.toContain('secretCursor')
   })
 })

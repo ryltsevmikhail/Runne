@@ -48,4 +48,31 @@ describe('bootstrap IPC adapter', () => {
       'Invalid runtime connection response',
     )
   })
+
+  it('accepts exactly the proof-gated runtime connection states', async () => {
+    const states = [
+      'unconfigured',
+      'profile_loaded',
+      'peer_verified',
+      'bootstrap_proved',
+      'authenticated',
+      'reconciling',
+      'live',
+      'reconnecting',
+      'incompatible',
+      'revoked',
+      'resync_required',
+      'fatal',
+    ] as const
+
+    for (const state of states) {
+      await expect(connectRuntime(async () => state)).resolves.toBe(state)
+    }
+
+    for (const state of ['connecting', 'authenticating', 'stale']) {
+      await expect(connectRuntime(async () => state)).rejects.toThrow(
+        'Invalid runtime connection response',
+      )
+    }
+  })
 })
