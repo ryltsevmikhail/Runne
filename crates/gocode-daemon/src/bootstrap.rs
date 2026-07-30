@@ -19,8 +19,10 @@ use crate::launch_identity::LaunchIdentity;
 use crate::lock::{LockSet, MetadataSnapshot};
 use crate::replay_key::{ReplayIntegrityKey, ReplayIntegrityKeyManager};
 use std::fs;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use gocode_domain::id::validate_uuid_v7_bytes;
 use gocode_store::schema;
 
 // ── Startup mode ──────────────────────────────────────────────────────
@@ -49,6 +51,8 @@ pub struct BootstrapOutcome {
     pub db_conn: rusqlite::Connection,
     /// Authority ID from the `_authority` table.
     pub authority_id: [u8; 16],
+    /// Stable UUIDv7 authority for peer-authenticated local sessions.
+    pub local_session_authority_id: [u8; 16],
     /// Whether the DB file existed before this bootstrap.
     pub db_existed: bool,
     /// How the daemon started.
@@ -67,6 +71,7 @@ impl std::fmt::Debug for BootstrapOutcome {
             .field("locks", &self.locks)
             .field("db_conn", &"<Connection>")
             .field("authority_id", &hex::encode(self.authority_id))
+            .field("local_session_authority_id", &"<redacted>")
             .field("db_existed", &self.db_existed)
             .field("startup_mode", &self.startup_mode)
             .field("launch_identity", &"<redacted>")
@@ -119,11 +124,6 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     };
 
     // ── Step 8: stable, non-published replay-integrity key ───────────
-    if db_existed && !replay_integrity_key_path.exists() {
-        return Err(DaemonError::Bootstrap(
-            "database exists but replay-integrity key is missing".into(),
-        ));
-    }
     let replay_integrity_key =
         ReplayIntegrityKeyManager::load_or_provision(&replay_integrity_key_path)
             .map_err(|_| DaemonError::Bootstrap("load replay-integrity key".into()))?;
@@ -151,6 +151,10 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
     // ── Step 12: authority ID ───────────────────────────────────────
     let (authority_id, db_authority_after) =
         acquire_authority(db_existed, &db_conn, &mut locks, &runtime_dir)?;
+    let local_session_authority_id = load_or_provision_local_session_authority(
+        &replay_integrity_key_path.with_file_name("local-session-authority-id"),
+        authority_id,
+    )?;
 
     // ── Step 13: reconcile metadata ─────────────────────────────────
     reconcile_metadata(
@@ -175,12 +179,93 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
         locks,
         db_conn,
         authority_id,
+        local_session_authority_id,
         db_existed,
         startup_mode,
         launch_identity,
         launch_generation,
         replay_integrity_key,
     })
+}
+
+fn load_or_provision_local_session_authority(
+    path: &Path,
+    database_authority: [u8; 16],
+) -> Result<[u8; 16], DaemonError> {
+    match load_local_session_authority(path) {
+        Ok(authority) => return Ok(authority),
+        Err(_) if path.exists() => {
+            return Err(DaemonError::Bootstrap(
+                "load local session authority".into(),
+            ));
+        }
+        Err(_) => {}
+    }
+    if validate_uuid_v7_bytes(&database_authority).is_ok() {
+        return Ok(database_authority);
+    }
+
+    let authority = *uuid::Uuid::now_v7().as_bytes();
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(crate::lock::O_NOFOLLOW_VAL);
+        options.mode(0o600);
+    }
+    let mut file = match options.open(path) {
+        Ok(file) => file,
+        Err(_) if path.exists() => return load_local_session_authority(path),
+        Err(_) => {
+            return Err(DaemonError::Bootstrap(
+                "provision local session authority".into(),
+            ));
+        }
+    };
+    file.write_all(&authority)
+        .and_then(|()| file.sync_all())
+        .map_err(|_| DaemonError::Bootstrap("provision local session authority".into()))?;
+    Ok(authority)
+}
+
+fn load_local_session_authority(path: &Path) -> Result<[u8; 16], DaemonError> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(crate::lock::O_NOFOLLOW_VAL);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|_| DaemonError::Bootstrap("load local session authority".into()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| DaemonError::Bootstrap("load local session authority".into()))?;
+    if !metadata.file_type().is_file() {
+        return Err(DaemonError::Bootstrap(
+            "load local session authority".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o777 != 0o600 {
+            return Err(DaemonError::Bootstrap(
+                "load local session authority".into(),
+            ));
+        }
+    }
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .map_err(|_| DaemonError::Bootstrap("load local session authority".into()))?;
+    let authority: [u8; 16] = bytes
+        .try_into()
+        .map_err(|_| DaemonError::Bootstrap("load local session authority".into()))?;
+    validate_uuid_v7_bytes(&authority)
+        .map_err(|_| DaemonError::Bootstrap("load local session authority".into()))?;
+    Ok(authority)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

@@ -85,6 +85,7 @@ struct AuthenticateRequest {
 #[serde(rename_all = "camelCase")]
 struct AuthenticateResponse {
     expires_at_monotonic_millis: u64,
+    session_id: String,
 }
 
 /// Builds the two bounded bootstrap endpoints. The caller must mount this router only on TLS.
@@ -172,6 +173,7 @@ async fn authenticate(
         Ok(value) => Json(AuthenticateResponse {
             expires_at_monotonic_millis: u64::try_from(value.expires_at_monotonic.as_millis())
                 .unwrap_or(u64::MAX),
+            session_id: hex::encode(value.binding.ephemeral().session_id()),
         })
         .into_response(),
         Err(LocalSessionError::Unavailable) => unavailable(),
@@ -325,10 +327,13 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
-        assert!(
-            std::str::from_utf8(&body)
-                .unwrap()
-                .contains("expiresAtMonotonicMillis")
+        let authenticated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            authenticated,
+            serde_json::json!({
+                "expiresAtMonotonicMillis": 600_000,
+                "sessionId": hex::encode(binding().ephemeral().session_id()),
+            })
         );
         let replay = app
             .oneshot(

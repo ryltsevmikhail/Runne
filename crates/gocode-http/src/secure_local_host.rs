@@ -27,6 +27,7 @@ use crate::runtime_profile::RuntimeProfileHttpState;
 use crate::task_runs::TaskRunHttpState;
 
 const PRE_AUTH_HANDSHAKE_LIMIT: usize = 32;
+const PRE_AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Redacted local TLS host failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -187,10 +188,15 @@ where
                     let service = service.clone();
                     let acceptor = tokio_rustls::TlsAcceptor::from(Arc::clone(&server_config));
                     connections.spawn(async move {
-                        let _permit = permit;
-                        let Ok(stream) = acceptor.accept(stream).await else {
+                        let Ok(Ok(stream)) = tokio::time::timeout(
+                            PRE_AUTH_HANDSHAKE_TIMEOUT,
+                            acceptor.accept(stream),
+                        )
+                        .await
+                        else {
                             return;
                         };
+                        drop(permit);
                         let http = service_fn(move |request| {
                             let service = service.clone();
                             async move {
