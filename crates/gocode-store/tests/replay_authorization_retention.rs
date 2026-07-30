@@ -13,7 +13,7 @@ use gocode_domain::id::{
     AggregateId, AttemptId, CommandId, ConversationId, EventId, EventLogLineageId, IdempotencyKey,
     IntegrityDigest, MessageId, TaskRunId, WorkspaceId,
 };
-use gocode_domain::message::MessageText;
+use gocode_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
 use gocode_domain::replay::ReplayScope;
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
@@ -673,6 +673,45 @@ async fn retention_manifest_proves_one_contiguous_snapshot() {
     assert_eq!(manifest.high_water_position(), 3);
     assert!(manifest.maximum_encoded_event_bytes() > 0);
     assert_ne!(manifest.no_gap_evidence().as_bytes(), &[0; 32]);
+}
+
+#[tokio::test]
+async fn retention_manifest_measures_actual_hex_transport_payload() {
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations(&connection).unwrap();
+    connection
+        .execute(
+            "INSERT INTO aggregate_streams
+             (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at)
+             VALUES (2, ?1, 1, ?2, 0, 0)",
+            rusqlite::params![AGGREGATE.as_slice(), event_id(1).as_slice()],
+        )
+        .unwrap();
+    let payload = ConversationEvent::UserMessageAppended {
+        message_id: MessageId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x21,
+        ]),
+        taskrun_id: TaskRunId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x22,
+        ]),
+        attempt_id: AttemptId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x01, 0, 0, 0, 0, 0, 0x23,
+        ]),
+        text: MessageText::new("x".repeat(MAX_MESSAGE_TEXT_BYTES)).unwrap(),
+    };
+    let durable_payload_bytes = ConversationEventCodec.encode(&payload).unwrap().len();
+    insert_conversation_event(&connection, 1, 1, payload);
+    let store = ReplayStore::new(connection);
+
+    let manifest = store
+        .retention_manifest(&EventLogLineageId::from_bytes(LINEAGE), &SECRET)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        manifest.maximum_encoded_event_bytes(),
+        durable_payload_bytes * 2
+    );
 }
 
 #[tokio::test]
