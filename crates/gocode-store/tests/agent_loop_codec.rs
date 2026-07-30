@@ -5,13 +5,21 @@
 //! Additionally verifies existing golden tags (0x01..0x14) remain unchanged.
 
 use gocode_application::commands::CommandOutcome;
+use gocode_application::ports::{TextGenerationPhase, TextGenerationReceipt};
 use gocode_domain::command::TerminalResult;
+use gocode_domain::conversation::{ConversationEvent, GenerationFailureReason};
 use gocode_domain::id::*;
 use gocode_domain::task_run::TaskRunEvent;
-use gocode_store::codec::{CommandOutcomeCodec, StoreCodec, StoreCodecError, TaskRunEventCodec};
+use gocode_store::codec::{
+    CommandOutcomeCodec, ConversationEventCodec, StoreCodec, StoreCodecError, TaskRunEventCodec,
+    TextGenerationReceiptCodec,
+};
 
 const TASK: &str = "018f2e3a-7000-7000-8000-000000000001";
 const ATT_ID: &str = "018f2e3a-7000-7000-8000-000000000002";
+const CONVERSATION: &str = "018f2e3a-7000-7000-8000-000000000003";
+const WORKSPACE: &str = "018f2e3a-7000-7000-8000-000000000004";
+const MESSAGE: &str = "018f2e3a-7000-7000-8000-000000000005";
 
 // ═══════════════════════════════════════════════════════════════════════
 // TaskRunEvent malformed-input tests
@@ -211,4 +219,129 @@ fn phase5_golden_tags_unrecoverable_and_cancelled() {
         assert_eq!(bytes[2], expected_tag);
         assert_eq!(codec.decode(&bytes).unwrap(), *event);
     }
+}
+
+#[test]
+fn conversation_generation_rejection_adds_one_tag_without_changing_existing_tags() {
+    let codec = ConversationEventCodec;
+    let taskrun_id: TaskRunId = TASK.parse().unwrap();
+    let attempt_id: AttemptId = ATT_ID.parse().unwrap();
+    let existing = [
+        (
+            ConversationEvent::ConversationCreated {
+                workspace_id: WORKSPACE.parse().unwrap(),
+            },
+            0x20,
+        ),
+        (ConversationEvent::ConversationClosed, 0x21),
+        (
+            ConversationEvent::UserMessageAppended {
+                message_id: MESSAGE.parse().unwrap(),
+                taskrun_id,
+                attempt_id,
+                text: gocode_domain::message::MessageText::new("user").unwrap(),
+            },
+            0x22,
+        ),
+        (
+            ConversationEvent::AssistantMessageAppended {
+                message_id: MESSAGE.parse().unwrap(),
+                taskrun_id,
+                attempt_id,
+                text: gocode_domain::message::MessageText::new("assistant").unwrap(),
+            },
+            0x23,
+        ),
+    ];
+    for (event, expected_tag) in existing {
+        let bytes = codec.encode(&event).unwrap();
+        assert_eq!(bytes[2], expected_tag);
+        assert_eq!(codec.decode(&bytes).unwrap(), event);
+    }
+
+    let rejected = ConversationEvent::GenerationFailed {
+        taskrun_id,
+        attempt_id,
+        reason: GenerationFailureReason::ProviderOutputRejected,
+    };
+    let bytes = codec.encode(&rejected).unwrap();
+    assert_eq!(bytes[2], 0x24);
+    assert_eq!(bytes.last(), Some(&0x00));
+    assert_eq!(codec.decode(&bytes).unwrap(), rejected);
+}
+
+#[test]
+fn conversation_generation_rejection_fails_closed_on_unknown_reason_and_trailing_bytes() {
+    let codec = ConversationEventCodec;
+    let event = ConversationEvent::GenerationFailed {
+        taskrun_id: TASK.parse().unwrap(),
+        attempt_id: ATT_ID.parse().unwrap(),
+        reason: GenerationFailureReason::ProviderOutputRejected,
+    };
+    let mut unknown_reason = codec.encode(&event).unwrap();
+    *unknown_reason.last_mut().unwrap() = 0xff;
+    assert!(matches!(
+        codec.decode(&unknown_reason),
+        Err(StoreCodecError::UnknownTag {
+            context: "GenerationFailureReason",
+            ..
+        })
+    ));
+
+    let mut trailing = codec.encode(&event).unwrap();
+    trailing.push(0);
+    assert_eq!(
+        codec.decode(&trailing),
+        Err(StoreCodecError::TrailingBytes { remaining: 1 })
+    );
+}
+
+fn text_receipt(phase: TextGenerationPhase) -> TextGenerationReceipt {
+    TextGenerationReceipt {
+        phase,
+        conversation_id: CONVERSATION.parse().unwrap(),
+        workspace_id: WORKSPACE.parse().unwrap(),
+        taskrun_id: TASK.parse().unwrap(),
+        attempt_id: ATT_ID.parse().unwrap(),
+        user_message_id: MESSAGE.parse().unwrap(),
+        assistant_message_id: "018f2e3a-7000-7000-8000-000000000006".parse().unwrap(),
+        conversation_version: 3,
+        taskrun_version: 5,
+    }
+}
+
+#[test]
+fn text_generation_receipt_phase_tags_remain_byte_stable_and_fail_closed() {
+    let codec = TextGenerationReceiptCodec;
+    for (phase, expected_tag) in [
+        (TextGenerationPhase::Started, 0x00),
+        (TextGenerationPhase::Completed, 0x01),
+        (TextGenerationPhase::Rejected, 0x02),
+    ] {
+        let receipt = text_receipt(phase);
+        let bytes = codec.encode(&receipt).unwrap();
+        assert_eq!(bytes[2], expected_tag);
+        assert_eq!(codec.decode(&bytes).unwrap(), receipt);
+    }
+
+    let mut unknown_phase = codec
+        .encode(&text_receipt(TextGenerationPhase::Started))
+        .unwrap();
+    unknown_phase[2] = 0xff;
+    assert!(matches!(
+        codec.decode(&unknown_phase),
+        Err(StoreCodecError::UnknownTag {
+            context: "TextGenerationPhase",
+            ..
+        })
+    ));
+
+    let mut trailing = codec
+        .encode(&text_receipt(TextGenerationPhase::Rejected))
+        .unwrap();
+    trailing.push(0);
+    assert_eq!(
+        codec.decode(&trailing),
+        Err(StoreCodecError::TrailingBytes { remaining: 1 })
+    );
 }

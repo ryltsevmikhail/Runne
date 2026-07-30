@@ -7,6 +7,7 @@ use gocode_domain::agent_loop::{
 };
 use gocode_domain::command::TerminalResult;
 use gocode_domain::context::ContextManifestRef;
+use gocode_domain::conversation::GenerationFailureReason;
 use gocode_domain::id::{
     AttemptId, CheckpointId, ConversationId, CycleId, IntegrityDigest, StepId, TaskRunId,
     WorkspaceId,
@@ -82,8 +83,20 @@ pub struct FinishConversationTextInput {
     pub original: BeginConversationTextInput,
     /// Started durable coordination receipt.
     pub started: crate::ports::TextGenerationReceipt,
-    /// Deterministic provider output.
-    pub assistant_text: MessageText,
+    /// Safe terminal outcome selected after provider-boundary inspection.
+    pub completion: ConversationTextCompletion,
+}
+
+/// Closed terminal outcome for a started Conversation text execution.
+#[derive(Debug, Clone)]
+pub enum ConversationTextCompletion {
+    /// Validated assistant output may enter canonical state.
+    AssistantText(MessageText),
+    /// Provider-bound material was rejected without retaining its bytes.
+    Rejected {
+        /// Closed, non-sensitive rejection reason.
+        reason: GenerationFailureReason,
+    },
 }
 
 #[derive(Debug, Clone)]

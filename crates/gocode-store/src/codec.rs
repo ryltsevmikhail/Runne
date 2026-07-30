@@ -17,7 +17,7 @@ use gocode_domain::agent_loop::{
 };
 use gocode_domain::command::TerminalResult;
 use gocode_domain::context::ContextManifestRef;
-use gocode_domain::conversation::ConversationEvent;
+use gocode_domain::conversation::{ConversationEvent, GenerationFailureReason};
 use gocode_domain::id::{
     AttemptId, BudgetReservationId, CheckpointId, ContextManifestId, ConversationId, CycleId,
     EffectId, IntegrityDigest, MessageId, PlanEvaluationId, PlanId, ReconciliationRunId, ResultId,
@@ -1394,6 +1394,8 @@ const TAG_CONVERSATION_CREATED: u8 = 0x20;
 const TAG_CONVERSATION_CLOSED: u8 = 0x21;
 const TAG_USER_MESSAGE_APPENDED: u8 = 0x22;
 const TAG_ASSISTANT_MESSAGE_APPENDED: u8 = 0x23;
+const TAG_GENERATION_FAILED: u8 = 0x24;
+const REASON_PROVIDER_OUTPUT_REJECTED: u8 = 0x00;
 
 /// Codec for [`ConversationEvent`] payload BLOBs.
 pub struct ConversationEventCodec;
@@ -1427,6 +1429,20 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
             } => {
                 buffer.push(TAG_ASSISTANT_MESSAGE_APPENDED);
                 encode_message_event(&mut buffer, *message_id, *taskrun_id, *attempt_id, text);
+            }
+            ConversationEvent::GenerationFailed {
+                taskrun_id,
+                attempt_id,
+                reason,
+            } => {
+                buffer.push(TAG_GENERATION_FAILED);
+                write_uuid(&mut buffer, taskrun_id.as_bytes());
+                write_uuid(&mut buffer, attempt_id.as_bytes());
+                buffer.push(match reason {
+                    GenerationFailureReason::ProviderOutputRejected => {
+                        REASON_PROVIDER_OUTPUT_REJECTED
+                    }
+                });
             }
         }
         Ok(buffer)
@@ -1475,6 +1491,30 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                     taskrun_id,
                     attempt_id,
                     text,
+                }
+            }
+            TAG_GENERATION_FAILED => {
+                let taskrun_id =
+                    parse_codec_uuid::<TaskRunId>(read_uuid(bytes, &mut position)?, "TaskRunId")?;
+                let attempt_id =
+                    parse_codec_uuid::<AttemptId>(read_uuid(bytes, &mut position)?, "AttemptId")?;
+                let reason_tag = *bytes.get(position).ok_or(StoreCodecError::Truncated)?;
+                position += 1;
+                let reason = match reason_tag {
+                    REASON_PROVIDER_OUTPUT_REJECTED => {
+                        GenerationFailureReason::ProviderOutputRejected
+                    }
+                    tag => {
+                        return Err(StoreCodecError::UnknownTag {
+                            tag,
+                            context: "GenerationFailureReason",
+                        });
+                    }
+                };
+                ConversationEvent::GenerationFailed {
+                    taskrun_id,
+                    attempt_id,
+                    reason,
                 }
             }
             _ => {
@@ -2101,6 +2141,7 @@ impl StoreCodec<TextGenerationReceipt> for TextGenerationReceiptCodec {
         buffer.push(match value.phase {
             TextGenerationPhase::Started => 0,
             TextGenerationPhase::Completed => 1,
+            TextGenerationPhase::Rejected => 2,
         });
         write_uuid(&mut buffer, value.conversation_id.as_bytes());
         write_uuid(&mut buffer, value.workspace_id.as_bytes());
@@ -2125,6 +2166,7 @@ impl StoreCodec<TextGenerationReceipt> for TextGenerationReceiptCodec {
         let phase = match *bytes.get(position).ok_or(StoreCodecError::Truncated)? {
             0 => TextGenerationPhase::Started,
             1 => TextGenerationPhase::Completed,
+            2 => TextGenerationPhase::Rejected,
             tag => {
                 return Err(StoreCodecError::UnknownTag {
                     tag,

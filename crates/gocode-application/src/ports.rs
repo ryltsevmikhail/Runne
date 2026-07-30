@@ -76,6 +76,13 @@ pub trait ConversationTextRepository {
         &self,
         payload: FinishTextGenerationCommit,
     ) -> Result<TextGenerationCommitResult, CommitError>;
+
+    /// Atomically releases the generation, fails its TaskRun, and advances the
+    /// original receipt to `Rejected` without an assistant message.
+    fn reject_text_generation(
+        &self,
+        payload: RejectTextGenerationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError>;
 }
 
 /// A committed conversation stream.
@@ -155,6 +162,8 @@ pub enum TextGenerationPhase {
     Started,
     /// Assistant message and successful terminal TaskRun are durable.
     Completed,
+    /// The generation ended safely without an assistant message.
+    Rejected,
 }
 
 /// Durable coordination receipt linking Conversation messages to TaskRun.
@@ -233,6 +242,29 @@ pub struct FinishTextGenerationCommit {
     /// Successful TaskRun completion event.
     pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
     /// Completed coordination receipt.
+    pub receipt: TextGenerationReceipt,
+}
+
+/// Atomic terminal rejection for a Conversation text execution.
+#[derive(Debug, Clone)]
+pub struct RejectTextGenerationCommit {
+    /// Original command identity.
+    pub command_id: CommandId,
+    /// Original client idempotency key.
+    pub idempotency_key: IdempotencyKey,
+    /// Original uniqueness scope.
+    pub idempotency_scope: IdempotencyScope,
+    /// Original semantic input fingerprint.
+    pub command_fingerprint: CommandFingerprint,
+    /// Expected Conversation version from the started phase.
+    pub expected_conversation_version: u64,
+    /// Expected TaskRun version from the started phase.
+    pub expected_taskrun_version: u64,
+    /// Safe generation-failure event.
+    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
+    /// Failed TaskRun terminal event.
+    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
+    /// Rejected coordination receipt.
     pub receipt: TextGenerationReceipt,
 }
 
