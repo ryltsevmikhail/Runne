@@ -114,16 +114,16 @@ impl CommandIdentity {
     }
 }
 
-/// Host-owned 32-byte daemon credential.
+/// Host-owned 32-byte daemon session authority.
 ///
 /// The type intentionally implements neither `Debug`, `Display`, nor
 /// serialization. The bytes are zeroized after the final clone is dropped.
 #[derive(Clone)]
-pub struct RuntimeCredential {
+pub struct RuntimeSessionAuthority {
     bytes: Arc<Zeroizing<[u8; 32]>>,
 }
 
-impl RuntimeCredential {
+impl RuntimeSessionAuthority {
     pub(crate) fn from_local_session(bytes: [u8; 32]) -> Self {
         Self {
             bytes: Arc::new(Zeroizing::new(bytes)),
@@ -140,6 +140,8 @@ impl RuntimeCredential {
         Ok(header)
     }
 }
+
+pub type RuntimeCredential = RuntimeSessionAuthority;
 
 /// Result of the exact authenticated runtime profile handshake.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -180,7 +182,7 @@ pub struct RuntimeSessionInfo {
 pub struct AuthenticatedRuntimeClient {
     client: reqwest::Client,
     origin: String,
-    credential: RuntimeCredential,
+    authority: RuntimeSessionAuthority,
     session: RuntimeSessionInfo,
 }
 
@@ -194,13 +196,13 @@ impl AuthenticatedRuntimeClient {
     pub(crate) const fn from_local_session(
         client: reqwest::Client,
         origin: String,
-        credential: RuntimeCredential,
+        authority: RuntimeSessionAuthority,
         session: RuntimeSessionInfo,
     ) -> Self {
         Self {
             client,
             origin,
-            credential,
+            authority,
             session,
         }
     }
@@ -296,17 +298,21 @@ impl AuthenticatedRuntimeClient {
         Ok(snapshot)
     }
 
-    fn url(&self, path: &str) -> String {
+    pub(crate) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.origin)
     }
 
-    fn authenticated_request(
+    pub(crate) fn authenticated_request(
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::RequestBuilder, RuntimeApiError> {
         Ok(request
             .header(ACCEPT, "application/json")
-            .header(AUTHORIZATION, self.credential.authorization_header()?))
+            .header(AUTHORIZATION, self.authority.authorization_header()?))
+    }
+
+    pub(crate) const fn http_client(&self) -> &reqwest::Client {
+        &self.client
     }
 
     fn command_request(
