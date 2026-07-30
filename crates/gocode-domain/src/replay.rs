@@ -10,6 +10,86 @@ use crate::id::{AggregateId, EventId, EventLogLineageId, IntegrityDigest};
 /// Current cursor schema version.
 pub const CURSOR_SCHEMA_VERSION: u32 = 1;
 
+/// Integrity-protected inventory of the retained canonical event log.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetentionManifest {
+    lineage_id: EventLogLineageId,
+    retention_generation: u64,
+    retained_floor: Option<i64>,
+    high_water_position: i64,
+    maximum_encoded_event_bytes: usize,
+    no_gap_evidence: IntegrityDigest,
+}
+
+impl RetentionManifest {
+    /// Builds a manifest after the store has validated one complete read snapshot.
+    pub fn new(
+        lineage_id: EventLogLineageId,
+        retention_generation: u64,
+        retained_floor: Option<i64>,
+        high_water_position: i64,
+        maximum_encoded_event_bytes: usize,
+        no_gap_evidence: IntegrityDigest,
+    ) -> Result<Self, CursorError> {
+        if high_water_position < 0
+            || retained_floor.is_some_and(|floor| floor <= 0 || floor > high_water_position)
+            || (retained_floor.is_none() && high_water_position != 0)
+            || no_gap_evidence.as_bytes() == &[0; 32]
+        {
+            return Err(CursorError::PositionOutOfRange);
+        }
+        Ok(Self {
+            lineage_id,
+            retention_generation,
+            retained_floor,
+            high_water_position,
+            maximum_encoded_event_bytes,
+            no_gap_evidence,
+        })
+    }
+
+    pub const fn lineage_id(&self) -> &EventLogLineageId {
+        &self.lineage_id
+    }
+
+    pub const fn retention_generation(&self) -> u64 {
+        self.retention_generation
+    }
+
+    pub const fn retained_floor(&self) -> Option<i64> {
+        self.retained_floor
+    }
+
+    pub const fn high_water_position(&self) -> i64 {
+        self.high_water_position
+    }
+
+    pub const fn maximum_encoded_event_bytes(&self) -> usize {
+        self.maximum_encoded_event_bytes
+    }
+
+    pub const fn no_gap_evidence(&self) -> &IntegrityDigest {
+        &self.no_gap_evidence
+    }
+}
+
+/// Opaque authenticated reference to one missing retained position range.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GapRangeRef(IntegrityDigest);
+
+impl GapRangeRef {
+    pub fn new(integrity: IntegrityDigest) -> Result<Self, CursorError> {
+        if integrity.as_bytes() == &[0; 32] {
+            return Err(CursorError::InvalidIntegrity);
+        }
+        Ok(Self(integrity))
+    }
+
+    pub const fn integrity(&self) -> &IntegrityDigest {
+        &self.0
+    }
+}
+
 /// Replay scope — a closed tagged selector for event streams.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ReplayScope {

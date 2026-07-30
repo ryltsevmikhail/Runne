@@ -3,10 +3,18 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use gocode_application::ports::{ReplayError, ReplayEvent, ReplaySession, ReplayStorePort};
+use gocode_application::ports::{
+    ReplayError, ReplayEvent, ReplayOpenResult, ReplaySession, ReplayStorePort, RetentionManifest,
+};
+use gocode_application::replay_service::{
+    REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_FRAME_CAPACITY_BYTES,
+    REPLAY_PAGE_CAPACITY_BYTES, validate_replay_reader_capacity,
+};
 use gocode_application::replay_service::{ReplayDeliveryPrecommitGuard, ReplayService};
-use gocode_domain::id::EventLogLineageId;
-use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope};
+use gocode_domain::id::{EventLogLineageId, IntegrityDigest};
+use gocode_domain::replay::{
+    CURSOR_SCHEMA_VERSION, ReplayCursor, ReplayScope, RetentionManifest as DomainRetentionManifest,
+};
 
 struct DummyStore;
 
@@ -67,9 +75,17 @@ impl ReplayStorePort for DummyStore {
         _: i32,
         _: &[u8; 16],
         _: Option<&ReplayCursor>,
+        _: &EventLogLineageId,
         _: &[u8; 32],
         _: Arc<dyn ReplayDeliveryPrecommitGuard>,
-    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+    ) -> Result<ReplayOpenResult, ReplayError> {
+        Err(ReplayError::Storage("dummy".into()))
+    }
+    async fn retention_manifest(
+        &self,
+        _: &EventLogLineageId,
+        _: &[u8; 32],
+    ) -> Result<RetentionManifest, ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }
     async fn read_page(
@@ -92,6 +108,7 @@ impl ReplayStorePort for DummyStore {
         _: &[u8; 16],
         _: i64,
         _: &ReplayCursor,
+        _: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(), ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }
@@ -273,4 +290,52 @@ fn scope_digest_differs_for_different_scopes() {
     };
 
     assert_ne!(first.canonical_digest(), second.canonical_digest());
+}
+
+#[test]
+fn readiness_rejects_retained_event_that_cannot_fit_frame_plus_overhead() {
+    let maximum_event_bytes =
+        REPLAY_FRAME_CAPACITY_BYTES - REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES + 1;
+    let manifest = DomainRetentionManifest::new(
+        EventLogLineageId::from_bytes([4; 16]),
+        0,
+        Some(1),
+        1,
+        maximum_event_bytes,
+        IntegrityDigest::from_bytes([9; 32]),
+    )
+    .unwrap();
+
+    assert!(matches!(
+        validate_replay_reader_capacity(
+            &manifest,
+            REPLAY_FRAME_CAPACITY_BYTES,
+            REPLAY_PAGE_CAPACITY_BYTES,
+            REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+        ),
+        Err(ReplayError::Integrity(_))
+    ));
+}
+
+#[test]
+fn readiness_accepts_exact_frame_capacity_without_truncation() {
+    let maximum_event_bytes =
+        REPLAY_FRAME_CAPACITY_BYTES - REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES;
+    let manifest = DomainRetentionManifest::new(
+        EventLogLineageId::from_bytes([4; 16]),
+        0,
+        Some(1),
+        1,
+        maximum_event_bytes,
+        IntegrityDigest::from_bytes([9; 32]),
+    )
+    .unwrap();
+
+    validate_replay_reader_capacity(
+        &manifest,
+        REPLAY_FRAME_CAPACITY_BYTES,
+        REPLAY_PAGE_CAPACITY_BYTES,
+        REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+    )
+    .unwrap();
 }

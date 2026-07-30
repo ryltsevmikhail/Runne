@@ -19,7 +19,12 @@ use gocode_application::conversation_text_service::{
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::RuntimeAuthorityId;
 use gocode_application::prohibited_content::ProhibitedContentPort;
-use gocode_application::replay_service::ReplayService;
+use gocode_application::replay_service::{
+    REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_FRAME_CAPACITY_BYTES,
+    REPLAY_PAGE_CAPACITY_BYTES, ReplayAuthorizationLease, ReplayAuthorizationPort,
+    ReplayAuthorizationRequest, ReplayError, ReplayService, ReplayStorePort,
+    validate_replay_reader_capacity,
+};
 use gocode_application::service::TaskRunService;
 use gocode_domain::event::Sensitivity;
 use gocode_http::admission::AdmissionState;
@@ -43,6 +48,33 @@ use gocode_store::store::StoreTransaction;
 
 type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
+
+struct DaemonReplayAuthorization {
+    principal_id: String,
+    authority_id: [u8; 16],
+    launch_generation: i64,
+    authorization_epoch: i64,
+    sensitivity_ceiling: Sensitivity,
+}
+
+impl ReplayAuthorizationPort for DaemonReplayAuthorization {
+    fn current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        if request.principal_id != self.principal_id
+            || request.authority_id != self.authority_id
+            || request.session_generation != self.launch_generation
+        {
+            return Err(ReplayError::AuthorizationRevoked);
+        }
+        ReplayAuthorizationLease::new(
+            self.principal_id.clone(),
+            self.authorization_epoch,
+            self.sensitivity_ceiling,
+        )
+    }
+}
 
 /// Fully composed daemon with bootstrap locks, durable store, runtime,
 /// canonical router, and shutdown authority kept alive together.
@@ -145,13 +177,23 @@ impl DaemonApplication {
             0,
         )
         .map_err(|error| DaemonError::Bootstrap(format!("configure replay transport: {error}")))?;
-        let replay_service = ReplayService::new(
-            Arc::new(ReplayStore::new(replay_connection)),
-            bootstrap
-                .replay_integrity_key
-                .derive_hmac(b"gocode/replay-cursor-hmac/v1\0"),
-            replay_lineage,
-        );
+        let replay_integrity_secret = bootstrap
+            .replay_integrity_key
+            .derive_hmac(b"gocode/replay-cursor-hmac/v1\0");
+        let replay_store = ReplayStore::new(replay_connection);
+        let retention_manifest = replay_store
+            .retention_manifest(&replay_lineage, &replay_integrity_secret)
+            .await
+            .map_err(|error| {
+                DaemonError::Bootstrap(format!("measure retained replay inventory: {error}"))
+            })?;
+        validate_replay_reader_capacity(
+            &retention_manifest,
+            REPLAY_FRAME_CAPACITY_BYTES,
+            REPLAY_PAGE_CAPACITY_BYTES,
+            REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES,
+        )
+        .map_err(|error| DaemonError::Config(error.to_string()))?;
         let schema_hash: [u8; 32] = hex::decode(gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH)
             .map_err(|_| DaemonError::Bootstrap("decode schema hash".into()))?
             .try_into()
@@ -187,6 +229,22 @@ impl DaemonApplication {
             binding.clone(),
             bootstrap.launch_identity.bootstrap_secret(),
         )));
+        let replay_service = ReplayService::new_authorized(
+            Arc::new(replay_store),
+            replay_integrity_secret,
+            replay_lineage,
+            Arc::new(DaemonReplayAuthorization {
+                principal_id: binding.stable().principal_id().as_str().to_owned(),
+                authority_id: bootstrap.authority_id,
+                launch_generation: i64::try_from(binding.ephemeral().launch_generation())
+                    .map_err(|_| DaemonError::Bootstrap("replay generation overflow".to_owned()))?,
+                authorization_epoch: i64::try_from(binding.ephemeral().authorization_epoch())
+                    .map_err(|_| {
+                        DaemonError::Bootstrap("replay authorization epoch overflow".to_owned())
+                    })?,
+                sensitivity_ceiling: binding.ephemeral().sensitivity_ceiling(),
+            }),
+        );
         let launched_at = Instant::now();
         let clock: Arc<dyn Fn() -> Duration + Send + Sync> =
             Arc::new(move || launched_at.elapsed());

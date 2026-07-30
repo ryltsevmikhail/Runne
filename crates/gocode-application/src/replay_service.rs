@@ -3,16 +3,132 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use gocode_api::CanonicalReplayPayloadV1;
+use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{
     AggregateId, ConversationId, EventId, EventLogLineageId, IntegrityDigest, TaskRunId,
 };
 use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, CatchUpCompletion, ReplayCursor, ReplayScope};
+use gocode_domain::replay::{GapRangeRef, RetentionManifest};
+use gocode_domain::task_run::TaskRunEvent;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
 const MAX_EVENT_TYPE_BYTES: usize = 256;
+pub const REPLAY_FRAME_CAPACITY_BYTES: usize = 256 * 1024;
+pub const REPLAY_PAGE_CAPACITY_BYTES: usize = 1024 * 1024;
+pub const REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES: usize = 16 * 1024;
+
+/// Reader-first readiness gate for the largest retained canonical event.
+pub fn validate_replay_reader_capacity(
+    manifest: &RetentionManifest,
+    frame_capacity_bytes: usize,
+    page_capacity_bytes: usize,
+    declared_overhead_bytes: usize,
+) -> Result<(), ReplayError> {
+    let required = manifest
+        .maximum_encoded_event_bytes()
+        .checked_add(declared_overhead_bytes)
+        .ok_or_else(|| ReplayError::Integrity("replay capacity calculation overflow".to_owned()))?;
+    if required > frame_capacity_bytes || required > page_capacity_bytes {
+        return Err(ReplayError::Integrity(format!(
+            "replay reader capacity insufficient: required={required}, \
+             frame={frame_capacity_bytes}, page={page_capacity_bytes}"
+        )));
+    }
+    Ok(())
+}
+
+/// Encoded canonical event metadata, excluding cursor and replay binding
+/// wrappers which are admitted separately by the reader.
+pub fn measured_conversation_replay_event_bytes(
+    event: &ReplayEvent,
+    payload: &ConversationEvent,
+) -> Result<usize, ReplayError> {
+    measured_canonical_replay_event_bytes(event, CanonicalReplayPayloadV1::from(payload))
+}
+
+/// Encoded canonical event metadata, excluding cursor and replay binding
+/// wrappers which are admitted separately by the reader.
+pub fn measured_taskrun_replay_event_bytes(
+    event: &ReplayEvent,
+    payload: &TaskRunEvent,
+) -> Result<usize, ReplayError> {
+    let payload = CanonicalReplayPayloadV1::try_from(payload)
+        .map_err(|_| ReplayError::Integrity("invalid public TaskRun replay payload".to_owned()))?;
+    measured_canonical_replay_event_bytes(event, payload)
+}
+
+fn measured_canonical_replay_event_bytes(
+    event: &ReplayEvent,
+    payload: CanonicalReplayPayloadV1,
+) -> Result<usize, ReplayError> {
+    let aggregate_type = match event.aggregate_type {
+        1 => "taskRun",
+        2 => "conversation",
+        _ => {
+            return Err(ReplayError::Integrity(
+                "invalid canonical replay aggregate type".to_owned(),
+            ));
+        }
+    };
+    let correlation_type = match event.correlation_type {
+        1 => "taskRun",
+        2 => "conversation",
+        _ => {
+            return Err(ReplayError::Integrity(
+                "invalid canonical replay correlation type".to_owned(),
+            ));
+        }
+    };
+    let sensitivity = match event.sensitivity {
+        0 => "public",
+        1 => "internal",
+        2 => "sensitive",
+        _ => {
+            return Err(ReplayError::Integrity(
+                "invalid canonical replay sensitivity".to_owned(),
+            ));
+        }
+    };
+    let payload = serde_json::to_value(payload)
+        .map_err(|_| ReplayError::Integrity("encode canonical replay payload".to_owned()))?;
+    let event_type = payload
+        .get("type")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| ReplayError::Integrity("canonical replay payload has no type".to_owned()))?;
+    let uuid = |bytes: [u8; 16]| uuid::Uuid::from_bytes(bytes).to_string();
+    let value = serde_json::json!({
+        "aggregateId": uuid(event.aggregate_id),
+        "aggregateType": aggregate_type,
+        "causationEventId": event.causation_id.map(uuid),
+        "correlationId": uuid(event.correlation_id),
+        "correlationType": correlation_type,
+        "eventId": uuid(event.event_id),
+        "eventType": event_type,
+        "integrityDigest": lower_hex(&event.integrity_digest),
+        "payload": payload,
+        "schemaVersion": event.schema_version,
+        "sensitivity": sensitivity,
+        "sequence": event.sequence,
+        "timestampUnixMicros": event.timestamp,
+    });
+    serde_json::to_vec(&value)
+        .map(|encoded| encoded.len())
+        .map_err(|_| ReplayError::Integrity("encode canonical replay event".to_owned()))
+}
+
+fn lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(*byte >> 4)]));
+        output.push(char::from(HEX[usize::from(*byte & 0x0f)]));
+    }
+    output
+}
 
 /// Состояние durable replay session.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,6 +225,103 @@ pub struct ReplayEvent {
 /// unavailable.
 pub trait ReplayDeliveryPrecommitGuard: Send + Sync {
     fn inspect(&self, session: &ReplaySession, events: &[ReplayEvent]) -> Result<(), ReplayError>;
+
+    /// Checks one live event immediately before it becomes eligible for delivery.
+    fn inspect_event(
+        &self,
+        session: &ReplaySession,
+        event: &ReplayEvent,
+    ) -> Result<(), ReplayError> {
+        self.inspect(session, std::slice::from_ref(event))
+    }
+
+    /// Checks an acknowledgement immediately before durable cursor mutation.
+    fn inspect_ack(&self, _session: &ReplaySession) -> Result<(), ReplayError> {
+        Ok(())
+    }
+}
+
+/// Inputs used to acquire a current replay authorization lease.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplayAuthorizationRequest {
+    pub principal_id: String,
+    pub authority_id: [u8; 16],
+    pub session_generation: i64,
+    pub expected_epoch: i64,
+    pub session_id: Option<[u8; 16]>,
+    pub scope: Option<ReplayScope>,
+}
+
+/// Current authorization values that may fence exactly one replay operation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplayAuthorizationLease {
+    principal_id: String,
+    authorization_epoch: i64,
+    sensitivity_ceiling: Sensitivity,
+}
+
+impl ReplayAuthorizationLease {
+    pub fn new(
+        principal_id: impl Into<String>,
+        authorization_epoch: i64,
+        sensitivity_ceiling: Sensitivity,
+    ) -> Result<Self, ReplayError> {
+        let principal_id = principal_id.into();
+        if principal_id.is_empty() || authorization_epoch < 0 {
+            return Err(ReplayError::AuthorizationRevoked);
+        }
+        Ok(Self {
+            principal_id,
+            authorization_epoch,
+            sensitivity_ceiling,
+        })
+    }
+
+    pub fn principal_id(&self) -> &str {
+        &self.principal_id
+    }
+
+    pub const fn authorization_epoch(&self) -> i64 {
+        self.authorization_epoch
+    }
+
+    pub const fn sensitivity_ceiling(&self) -> Sensitivity {
+        self.sensitivity_ceiling
+    }
+}
+
+/// Current authorization authority for replay open/page/ack/live operations.
+pub trait ReplayAuthorizationPort: Send + Sync {
+    fn current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError>;
+}
+
+/// Store result which keeps retained floor material internal until the
+/// application has applied the current sensitivity lease.
+#[derive(Clone, Debug)]
+pub enum ReplayOpenResult {
+    Opened {
+        session: ReplaySession,
+        events: Vec<ReplayEvent>,
+    },
+    RetentionGap {
+        floor_event: Option<ReplayEvent>,
+        gap_range_ref: GapRangeRef,
+    },
+}
+
+impl ReplayOpenResult {
+    pub fn into_opened(self) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+        match self {
+            Self::Opened { session, events } => Ok((session, events)),
+            Self::RetentionGap { gap_range_ref, .. } => Err(ReplayError::ReplayRetentionGap {
+                floor_cursor: None,
+                gap_range_ref,
+            }),
+        }
+    }
 }
 
 /// Durable storage port for replay sessions.
@@ -124,9 +337,16 @@ pub trait ReplayStorePort: Send + Sync {
         aggregate_type: i32,
         aggregate_id: &[u8; 16],
         from_cursor: Option<&ReplayCursor>,
+        lineage_id: &EventLogLineageId,
         server_secret: &[u8; 32],
         delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
-    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
+    ) -> Result<ReplayOpenResult, ReplayError>;
+
+    async fn retention_manifest(
+        &self,
+        lineage_id: &EventLogLineageId,
+        server_secret: &[u8; 32],
+    ) -> Result<RetentionManifest, ReplayError>;
 
     async fn read_page(
         &self,
@@ -147,6 +367,7 @@ pub trait ReplayStorePort: Send + Sync {
         authority_id: &[u8; 16],
         epoch: i64,
         cursor: &ReplayCursor,
+        authorization_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(), ReplayError>;
 
     async fn complete_catch_up(
@@ -195,6 +416,8 @@ pub enum ReplayError {
     SessionNotFound,
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+    #[error("replay authorization was revoked")]
+    AuthorizationRevoked,
     #[error("invalid state transition from {0}")]
     InvalidState(String),
     #[error("stale generation")]
@@ -207,8 +430,11 @@ pub enum ReplayError {
     CursorInvalid { reason: String },
     #[error("event sensitivity is not permitted")]
     SensitivityDenied,
-    #[error("replay cursor precedes retained history")]
-    RetentionGap,
+    #[error("replay cursor crosses unavailable retained history")]
+    ReplayRetentionGap {
+        floor_cursor: Option<Box<ReplayCursor>>,
+        gap_range_ref: GapRangeRef,
+    },
     #[error("delivered events have not been acknowledged")]
     NotAcknowledged,
     #[error("cursor was already acknowledged")]
@@ -222,8 +448,89 @@ pub enum ReplayError {
 /// Координатор cursor-based durable replay.
 pub struct ReplayService {
     store: Arc<dyn ReplayStorePort>,
+    authorization: Arc<dyn ReplayAuthorizationPort>,
     server_secret: [u8; 32],
     lineage_id: EventLogLineageId,
+}
+
+struct CallerBoundReplayAuthorization;
+
+impl ReplayAuthorizationPort for CallerBoundReplayAuthorization {
+    fn current_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        ReplayAuthorizationLease::new(
+            request.principal_id.clone(),
+            request.expected_epoch,
+            Sensitivity::Sensitive,
+        )
+    }
+}
+
+struct AuthorizedDeliveryGuard {
+    authorization: Arc<dyn ReplayAuthorizationPort>,
+    request: ReplayAuthorizationRequest,
+    lease: ReplayAuthorizationLease,
+    delegate: Arc<dyn ReplayDeliveryPrecommitGuard>,
+}
+
+impl AuthorizedDeliveryGuard {
+    fn revalidate(&self) -> Result<(), ReplayError> {
+        let current = self.authorization.current_lease(&self.request)?;
+        if current != self.lease {
+            return Err(ReplayError::AuthorizationRevoked);
+        }
+        Ok(())
+    }
+
+    fn inspect_sensitivity(&self, event: &ReplayEvent) -> Result<(), ReplayError> {
+        let event_sensitivity = match event.sensitivity {
+            0 => Sensitivity::Public,
+            1 => Sensitivity::Internal,
+            2 => Sensitivity::Sensitive,
+            _ => {
+                return Err(ReplayError::Integrity(
+                    "invalid delivered replay sensitivity".to_owned(),
+                ));
+            }
+        };
+        let rank = |value| match value {
+            Sensitivity::Public => 0,
+            Sensitivity::Internal => 1,
+            Sensitivity::Sensitive => 2,
+        };
+        if rank(event_sensitivity) > rank(self.lease.sensitivity_ceiling()) {
+            return Err(ReplayError::SensitivityDenied);
+        }
+        Ok(())
+    }
+}
+
+impl ReplayDeliveryPrecommitGuard for AuthorizedDeliveryGuard {
+    fn inspect(&self, session: &ReplaySession, events: &[ReplayEvent]) -> Result<(), ReplayError> {
+        for event in events {
+            self.inspect_sensitivity(event)?;
+        }
+        self.delegate.inspect(session, events)?;
+        self.revalidate()
+    }
+
+    fn inspect_event(
+        &self,
+        session: &ReplaySession,
+        event: &ReplayEvent,
+    ) -> Result<(), ReplayError> {
+        self.revalidate()?;
+        self.inspect_sensitivity(event)?;
+        self.delegate.inspect_event(session, event)?;
+        self.revalidate()
+    }
+
+    fn inspect_ack(&self, session: &ReplaySession) -> Result<(), ReplayError> {
+        self.delegate.inspect_ack(session)?;
+        self.revalidate()
+    }
 }
 
 impl ReplayService {
@@ -232,11 +539,93 @@ impl ReplayService {
         server_secret: [u8; 32],
         lineage_id: EventLogLineageId,
     ) -> Self {
-        Self {
+        Self::new_authorized(
             store,
             server_secret,
             lineage_id,
+            Arc::new(CallerBoundReplayAuthorization),
+        )
+    }
+
+    pub fn new_authorized(
+        store: Arc<dyn ReplayStorePort>,
+        server_secret: [u8; 32],
+        lineage_id: EventLogLineageId,
+        authorization: Arc<dyn ReplayAuthorizationPort>,
+    ) -> Self {
+        Self {
+            store,
+            authorization,
+            server_secret,
+            lineage_id,
         }
+    }
+
+    fn authorization_request(
+        principal_id: &str,
+        session_generation: i64,
+        authority_id: &[u8; 16],
+        expected_epoch: i64,
+        aggregate_type: i32,
+        aggregate_id: &[u8; 16],
+    ) -> Result<ReplayAuthorizationRequest, ReplayError> {
+        Ok(ReplayAuthorizationRequest {
+            principal_id: principal_id.to_owned(),
+            authority_id: *authority_id,
+            session_generation,
+            expected_epoch,
+            session_id: None,
+            scope: Some(ReplayScope::Aggregate {
+                aggregate_type: u8::try_from(aggregate_type).map_err(|_| {
+                    ReplayError::Integrity("invalid replay authorization scope".to_owned())
+                })?,
+                aggregate_id: *aggregate_id,
+            }),
+        })
+    }
+
+    fn session_authorization_request(
+        session_id: &[u8; 16],
+        principal_id: &str,
+        session_generation: i64,
+        authority_id: &[u8; 16],
+        expected_epoch: i64,
+    ) -> ReplayAuthorizationRequest {
+        ReplayAuthorizationRequest {
+            principal_id: principal_id.to_owned(),
+            authority_id: *authority_id,
+            session_generation,
+            expected_epoch,
+            session_id: Some(*session_id),
+            scope: None,
+        }
+    }
+
+    fn acquire_lease(
+        &self,
+        request: &ReplayAuthorizationRequest,
+    ) -> Result<ReplayAuthorizationLease, ReplayError> {
+        let lease = self.authorization.current_lease(request)?;
+        if lease.principal_id() != request.principal_id
+            || lease.authorization_epoch() != request.expected_epoch
+        {
+            return Err(ReplayError::AuthorizationRevoked);
+        }
+        Ok(lease)
+    }
+
+    fn authorized_guard(
+        &self,
+        request: ReplayAuthorizationRequest,
+        lease: ReplayAuthorizationLease,
+        delegate: Arc<dyn ReplayDeliveryPrecommitGuard>,
+    ) -> Arc<dyn ReplayDeliveryPrecommitGuard> {
+        Arc::new(AuthorizedDeliveryGuard {
+            authorization: Arc::clone(&self.authorization),
+            request,
+            lease,
+            delegate,
+        })
     }
 
     fn cursor_message(cursor: &ReplayCursor) -> Result<Vec<u8>, ReplayError> {
@@ -402,19 +791,67 @@ impl ReplayService {
                 });
             }
         }
-        self.store
+        let request = Self::authorization_request(
+            principal_id,
+            session_generation,
+            authority_id,
+            authorization_epoch,
+            aggregate_type,
+            aggregate_id,
+        )?;
+        let lease = self.acquire_lease(&request)?;
+        let sensitivity_ceiling = lease.sensitivity_ceiling();
+        let result = self
+            .store
             .open_session(
                 principal_id,
                 session_generation,
                 authority_id,
-                authorization_epoch,
+                lease.authorization_epoch(),
                 aggregate_type,
                 aggregate_id,
                 from_cursor.as_ref(),
+                &self.lineage_id,
                 &self.server_secret,
-                delivery_guard,
+                self.authorized_guard(request, lease, delivery_guard),
             )
-            .await
+            .await?;
+        match result {
+            ReplayOpenResult::Opened { session, events } => Ok((session, events)),
+            ReplayOpenResult::RetentionGap {
+                floor_event,
+                gap_range_ref,
+            } => {
+                let floor_cursor = floor_event
+                    .filter(|event| {
+                        let rank = |value| match value {
+                            Sensitivity::Public => 0,
+                            Sensitivity::Internal => 1,
+                            Sensitivity::Sensitive => 2,
+                        };
+                        rank(match event.sensitivity {
+                            0 => Sensitivity::Public,
+                            1 => Sensitivity::Internal,
+                            2 => Sensitivity::Sensitive,
+                            _ => return false,
+                        }) <= rank(sensitivity_ceiling)
+                    })
+                    .map(|event| {
+                        self.build_cursor(
+                            &event,
+                            &ReplayScope::Aggregate {
+                                aggregate_type: u8::try_from(aggregate_type).unwrap_or_default(),
+                                aggregate_id: *aggregate_id,
+                            },
+                        )
+                    })
+                    .transpose()?;
+                Err(ReplayError::ReplayRetentionGap {
+                    floor_cursor: floor_cursor.map(Box::new),
+                    gap_range_ref,
+                })
+            }
+        }
     }
 
     /// Читает следующую страницу; cursor каждого event строится transport adapter через `build_cursor_from_event`.
@@ -429,15 +866,23 @@ impl ReplayService {
         limit: usize,
         delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+        let request = Self::session_authorization_request(
+            session_id,
+            principal_id,
+            generation,
+            authority_id,
+            epoch,
+        );
+        let lease = self.acquire_lease(&request)?;
         self.store
             .read_page(
                 session_id,
                 principal_id,
                 generation,
                 authority_id,
-                epoch,
+                lease.authorization_epoch(),
                 limit,
-                delivery_guard,
+                self.authorized_guard(request, lease, delivery_guard),
             )
             .await
     }
@@ -453,14 +898,34 @@ impl ReplayService {
         cursor: &ReplayCursor,
     ) -> Result<(), ReplayError> {
         self.validate_cursor_integrity(cursor)?;
+        let request = Self::authorization_request(
+            principal_id,
+            generation,
+            authority_id,
+            epoch,
+            match &cursor.scope {
+                ReplayScope::Aggregate { aggregate_type, .. } => i32::from(*aggregate_type),
+                _ => {
+                    return Err(ReplayError::CursorInvalid {
+                        reason: "unsupported acknowledgement scope".to_owned(),
+                    });
+                }
+            },
+            match &cursor.scope {
+                ReplayScope::Aggregate { aggregate_id, .. } => aggregate_id,
+                _ => unreachable!("scope was checked above"),
+            },
+        )?;
+        let lease = self.acquire_lease(&request)?;
         self.store
             .acknowledge(
                 session_id,
                 principal_id,
                 generation,
                 authority_id,
-                epoch,
+                lease.authorization_epoch(),
                 cursor,
+                self.authorized_guard(request, lease, Arc::new(NoopDeliveryGuard)),
             )
             .await
     }
@@ -534,14 +999,22 @@ impl ReplayService {
         epoch: i64,
         delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+        let request = Self::session_authorization_request(
+            session_id,
+            principal_id,
+            generation,
+            authority_id,
+            epoch,
+        );
+        let lease = self.acquire_lease(&request)?;
         self.store
             .poll_live(
                 session_id,
                 principal_id,
                 generation,
                 authority_id,
-                epoch,
-                delivery_guard,
+                lease.authorization_epoch(),
+                self.authorized_guard(request, lease, delivery_guard),
             )
             .await
     }
@@ -557,5 +1030,17 @@ impl ReplayService {
         self.store
             .close_session(session_id, principal_id, generation, authority_id, epoch)
             .await
+    }
+}
+
+struct NoopDeliveryGuard;
+
+impl ReplayDeliveryPrecommitGuard for NoopDeliveryGuard {
+    fn inspect(
+        &self,
+        _session: &ReplaySession,
+        _events: &[ReplayEvent],
+    ) -> Result<(), ReplayError> {
+        Ok(())
     }
 }

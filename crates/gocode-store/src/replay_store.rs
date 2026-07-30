@@ -10,15 +10,19 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use gocode_application::ports::{
-    ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
+    ReplayError, ReplayEvent, ReplayOpenResult, ReplaySession, ReplayState, ReplayStorePort,
 };
-use gocode_application::replay_service::ReplayDeliveryPrecommitGuard;
+use gocode_application::replay_service::{
+    ReplayDeliveryPrecommitGuard, measured_conversation_replay_event_bytes,
+    measured_taskrun_replay_event_bytes,
+};
 use gocode_domain::conversation::ConversationEvent;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
 use gocode_domain::id::{
-    AggregateId, CommandId, ConversationId, EventId, IdempotencyKey, IntegrityDigest, TaskRunId,
+    AggregateId, CommandId, ConversationId, EventId, EventLogLineageId, IdempotencyKey,
+    IntegrityDigest, TaskRunId,
 };
-use gocode_domain::replay::ReplayCursor;
+use gocode_domain::replay::{GapRangeRef, ReplayCursor, ReplayScope, RetentionManifest};
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
 use rand::RngCore;
@@ -37,6 +41,7 @@ use crate::integrity::{
 
 type HmacSha256 = Hmac<Sha256>;
 const HIGH_WATER_REF_SCHEMA_VERSION: u32 = 1;
+const RETENTION_GENERATION: u64 = 0;
 
 /// Build a 77-byte HMAC-protected `HighWaterRef`.
 ///
@@ -80,6 +85,118 @@ fn build_high_water_ref(
     hw.extend_from_slice(&pos_bytes);
     hw.extend_from_slice(&proof);
     hw
+}
+
+struct RetainedInventory {
+    events: Vec<ReplayEvent>,
+    interior_gap: Option<(i64, i64)>,
+}
+
+fn retained_inventory(conn: &Connection) -> Result<RetainedInventory, ReplayError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT event_id, aggregate_type, aggregate_id, sequence,
+                    global_position, timestamp, sensitivity, schema_version,
+                    causation_id, command_id, idempotency_key, actor,
+                    payload, integrity_digest, correlation_id,
+                    correlation_type, integrity_profile
+             FROM events
+             ORDER BY global_position",
+        )
+        .map_err(|error| ReplayError::Storage(format!("prepare retention inventory: {error}")))?;
+    let events = statement
+        .query_map([], read_replay_event)
+        .map_err(|error| ReplayError::Storage(format!("read retention inventory: {error}")))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| replay_row_error("decode retention inventory", error))?;
+    let mut gap = None;
+    for pair in events.windows(2) {
+        let expected = pair[0].global_position.checked_add(1).ok_or_else(|| {
+            ReplayError::Integrity("retained global position overflow".to_owned())
+        })?;
+        if pair[1].global_position != expected {
+            gap = Some((expected, pair[1].global_position.saturating_sub(1)));
+            break;
+        }
+    }
+    Ok(RetainedInventory {
+        events,
+        interior_gap: gap,
+    })
+}
+
+fn retention_manifest_for_events(
+    events: &[ReplayEvent],
+    lineage_id: EventLogLineageId,
+    server_secret: &[u8; 32],
+) -> Result<RetentionManifest, ReplayError> {
+    let retained_floor = events.first().map(|event| event.global_position);
+    let high_water_position = events.last().map_or(0, |event| event.global_position);
+    let maximum_encoded_event_bytes = events
+        .iter()
+        .map(|event| {
+            validate_replay_event_integrity(event)
+                .map(|(_, encoded_size)| encoded_size)
+                .map_err(|error| replay_row_error("measure retained replay event", error))
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .unwrap_or(0);
+    let mut message = b"gocode/replay-retention-manifest/v1\0".to_vec();
+    message.extend_from_slice(lineage_id.as_bytes());
+    message.extend_from_slice(&RETENTION_GENERATION.to_be_bytes());
+    match retained_floor {
+        Some(floor) => {
+            message.push(1);
+            message.extend_from_slice(&floor.to_be_bytes());
+        }
+        None => {
+            message.push(0);
+            message.extend_from_slice(&0_i64.to_be_bytes());
+        }
+    }
+    message.extend_from_slice(&high_water_position.to_be_bytes());
+    message.extend_from_slice(
+        &u64::try_from(maximum_encoded_event_bytes)
+            .map_err(|_| ReplayError::Integrity("retained event size overflow".to_owned()))?
+            .to_be_bytes(),
+    );
+    let mut mac = HmacSha256::new_from_slice(server_secret).expect("fixed HMAC key size");
+    mac.update(&message);
+    let evidence: [u8; 32] = mac.finalize().into_bytes().into();
+    RetentionManifest::new(
+        lineage_id,
+        RETENTION_GENERATION,
+        retained_floor,
+        high_water_position,
+        maximum_encoded_event_bytes,
+        IntegrityDigest::from_bytes(evidence),
+    )
+    .map_err(|_| ReplayError::Integrity("invalid retention manifest".to_owned()))
+}
+
+fn build_gap_range_ref(
+    lineage_id: &EventLogLineageId,
+    retention_generation: u64,
+    missing_start: i64,
+    missing_end: i64,
+    scope: &ReplayScope,
+    authorization_epoch: i64,
+    server_secret: &[u8; 32],
+) -> GapRangeRef {
+    let mut message = b"gocode/replay-gap-range/v1\0".to_vec();
+    message.extend_from_slice(lineage_id.as_bytes());
+    message.extend_from_slice(&retention_generation.to_be_bytes());
+    message.extend_from_slice(&missing_start.to_be_bytes());
+    message.extend_from_slice(&missing_end.to_be_bytes());
+    message.extend_from_slice(&scope.canonical_digest());
+    message.extend_from_slice(&authorization_epoch.to_be_bytes());
+    let mut mac = HmacSha256::new_from_slice(server_secret).expect("fixed HMAC key size");
+    mac.update(&message);
+    let integrity: [u8; 32] = mac.finalize().into_bytes().into();
+    GapRangeRef::new(IntegrityDigest::from_bytes(integrity))
+        .expect("HMAC output is a non-empty gap reference")
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -179,7 +296,7 @@ fn validated_command_id(bytes: [u8; 16], index: usize) -> rusqlite::Result<Comma
         .map_err(|_| invalid_column(index, rusqlite::types::Type::Blob))
 }
 
-fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<String> {
+fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<(String, usize)> {
     let sequence = u64::try_from(event.sequence)
         .ok()
         .filter(|sequence| *sequence > 0)
@@ -235,6 +352,8 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<Stri
                 .decode(&event.payload)
                 .map_err(|_| invalid_column(12, rusqlite::types::Type::Blob))?;
             let event_type = taskrun_event_type(&payload).to_owned();
+            let encoded_size = measured_taskrun_replay_event_bytes(event, &payload)
+                .map_err(|_| invalid_column(12, rusqlite::types::Type::Blob))?;
             let envelope = EventEnvelope::from_parts(
                 event_id,
                 AggregateId::TaskRun(taskrun_id),
@@ -259,7 +378,7 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<Stri
             if expected.as_bytes() != &event.integrity_digest {
                 return Err(invalid_column(13, rusqlite::types::Type::Blob));
             }
-            Ok(event_type)
+            Ok((event_type, encoded_size))
         }
         2 => {
             if event.correlation_type != 2
@@ -280,6 +399,8 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<Stri
                 return Err(invalid_column(6, rusqlite::types::Type::Integer));
             }
             let event_type = conversation_event_type(&payload).to_owned();
+            let encoded_size = measured_conversation_replay_event_bytes(event, &payload)
+                .map_err(|_| invalid_column(12, rusqlite::types::Type::Blob))?;
             let envelope = EventEnvelope::from_parts(
                 event_id,
                 AggregateId::Conversation(conversation_id),
@@ -304,7 +425,7 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<Stri
             if expected.as_bytes() != &event.integrity_digest {
                 return Err(invalid_column(13, rusqlite::types::Type::Blob));
             }
-            Ok(event_type)
+            Ok((event_type, encoded_size))
         }
         _ => Err(invalid_column(1, rusqlite::types::Type::Integer)),
     }
@@ -368,7 +489,7 @@ fn read_replay_event(row: &rusqlite::Row) -> rusqlite::Result<ReplayEvent> {
         correlation_type,
         integrity_profile,
     };
-    event.event_type = validate_replay_event_integrity(&event)?;
+    event.event_type = validate_replay_event_integrity(&event)?.0;
     Ok(event)
 }
 
@@ -479,7 +600,7 @@ fn validate_auth(
         return Err(ReplayError::Unauthorized("authority mismatch".to_string()));
     }
     if session.authorization_epoch != epoch {
-        return Err(ReplayError::Unauthorized("epoch mismatch".to_string()));
+        return Err(ReplayError::AuthorizationRevoked);
     }
     Ok(())
 }
@@ -639,6 +760,27 @@ impl ReplayStore {
         OsRng.fill_bytes(&mut id);
         id
     }
+
+    /// Deterministic authenticated reference used by gap responses.
+    pub fn build_gap_range_ref(
+        lineage_id: &EventLogLineageId,
+        retention_generation: u64,
+        missing_start: i64,
+        missing_end: i64,
+        scope: &ReplayScope,
+        authorization_epoch: i64,
+        server_secret: &[u8; 32],
+    ) -> GapRangeRef {
+        build_gap_range_ref(
+            lineage_id,
+            retention_generation,
+            missing_start,
+            missing_end,
+            scope,
+            authorization_epoch,
+            server_secret,
+        )
+    }
 }
 
 // ── ReplayStorePort impl ─────────────────────────────────────────────────────
@@ -654,15 +796,17 @@ impl ReplayStorePort for ReplayStore {
         aggregate_type: i32,
         aggregate_id: &[u8; 16],
         from_cursor: Option<&ReplayCursor>,
+        lineage_id: &EventLogLineageId,
         server_secret: &[u8; 32],
         delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
-    ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
+    ) -> Result<ReplayOpenResult, ReplayError> {
         let conn = Arc::clone(&self.conn);
         let principal_id = principal_id.to_string();
         let authority_id = *authority_id;
         let aggregate_id_copy = *aggregate_id;
         let from_cursor = from_cursor.cloned();
         let from_position = from_cursor.as_ref().map(|cursor| cursor.global_position);
+        let lineage_id = *lineage_id;
         let server_secret = *server_secret;
 
         tokio::task::spawn_blocking(move || {
@@ -673,6 +817,49 @@ impl ReplayStorePort for ReplayStore {
             let tx = conn
                 .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
                 .map_err(|e| ReplayError::Storage(format!("transaction: {}", e)))?;
+
+            let inventory = retained_inventory(&tx)?;
+            let retention_manifest =
+                retention_manifest_for_events(&inventory.events, lineage_id, &server_secret)?;
+            let scope = ReplayScope::Aggregate {
+                aggregate_type: u8::try_from(aggregate_type).map_err(|_| {
+                    ReplayError::Integrity("invalid replay aggregate type".to_owned())
+                })?,
+                aggregate_id: aggregate_id_copy,
+            };
+            let gap = match (
+                from_position,
+                retention_manifest.retained_floor(),
+                inventory.interior_gap,
+            ) {
+                (Some(position), Some(floor), _) if position < floor => {
+                    Some((position, floor.saturating_sub(1)))
+                }
+                (_, _, Some(bounds)) => Some(bounds),
+                _ => None,
+            };
+            if let Some((missing_start, missing_end)) = gap {
+                let floor_event = inventory
+                    .events
+                    .iter()
+                    .find(|event| {
+                        event.aggregate_type == aggregate_type
+                            && event.aggregate_id == aggregate_id_copy
+                    })
+                    .cloned();
+                return Ok(ReplayOpenResult::RetentionGap {
+                    floor_event,
+                    gap_range_ref: build_gap_range_ref(
+                        &lineage_id,
+                        retention_manifest.retention_generation(),
+                        missing_start,
+                        missing_end,
+                        &scope,
+                        authorization_epoch,
+                        &server_secret,
+                    ),
+                });
+            }
 
             // Capture current high-water mark
             let high_water: i64 = tx
@@ -727,7 +914,7 @@ impl ReplayStorePort for ReplayStore {
             // Build high_water_ref
             let high_water_ref = build_high_water_ref(
                 &authority_id,
-                None, // retained_floor = None
+                retention_manifest.retained_floor(),
                 high_water,
                 &server_secret,
                 &session_id,
@@ -795,8 +982,11 @@ impl ReplayStorePort for ReplayStore {
                 authorization_epoch,
                 aggregate_type,
                 aggregate_id: aggregate_id_copy,
-                retained_floor: None,
-                retention_generation: 0,
+                retained_floor: retention_manifest.retained_floor(),
+                retention_generation: i64::try_from(retention_manifest.retention_generation())
+                    .map_err(|_| {
+                        ReplayError::Integrity("retention generation overflow".to_owned())
+                    })?,
                 high_water_position: high_water,
                 next_page_position: next_page,
                 last_delivered_position: last_delivered,
@@ -814,13 +1004,13 @@ impl ReplayStorePort for ReplayStore {
                 "INSERT INTO _replay_subscriptions (
                     session_id, principal_id, session_generation, authority_id,
                     authorization_epoch, aggregate_type, aggregate_id,
-                    retention_generation, high_water_position,
+                    retained_floor, retention_generation, high_water_position,
                     next_page_position, last_delivered_position,
                     state, high_water_ref, created_at
                 ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8,
-                    ?9, ?10,
-                    'catching_up', ?11, datetime('now')
+                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                    ?10, ?11, ?12,
+                    'catching_up', ?13, datetime('now')
                 )",
                 params![
                     session_id.as_slice(),
@@ -830,6 +1020,10 @@ impl ReplayStorePort for ReplayStore {
                     authorization_epoch,
                     aggregate_type,
                     aggregate_id_copy.as_slice(),
+                    retention_manifest.retained_floor(),
+                    i64::try_from(retention_manifest.retention_generation()).map_err(|_| {
+                        ReplayError::Integrity("retention generation overflow".to_owned())
+                    })?,
                     high_water,
                     next_page,
                     last_delivered,
@@ -857,10 +1051,37 @@ impl ReplayStorePort for ReplayStore {
                 )
                 .map_err(|e| ReplayError::Storage(format!("re-read session: {}", e)))?;
 
-            Ok((session, events))
+            Ok(ReplayOpenResult::Opened { session, events })
         })
         .await
         .map_err(|e| ReplayError::Storage(format!("join error: {}", e)))?
+    }
+
+    async fn retention_manifest(
+        &self,
+        lineage_id: &EventLogLineageId,
+        server_secret: &[u8; 32],
+    ) -> Result<RetentionManifest, ReplayError> {
+        let conn = Arc::clone(&self.conn);
+        let lineage_id = *lineage_id;
+        let server_secret = *server_secret;
+        tokio::task::spawn_blocking(move || {
+            let conn = conn
+                .lock()
+                .map_err(|error| ReplayError::Storage(format!("lock poisoned: {error}")))?;
+            let transaction = conn
+                .unchecked_transaction()
+                .map_err(|error| ReplayError::Storage(format!("retention snapshot: {error}")))?;
+            let inventory = retained_inventory(&transaction)?;
+            if inventory.interior_gap.is_some() {
+                return Err(ReplayError::Integrity(
+                    "retained event log contains an interior gap".to_owned(),
+                ));
+            }
+            retention_manifest_for_events(&inventory.events, lineage_id, &server_secret)
+        })
+        .await
+        .map_err(|error| ReplayError::Storage(format!("join error: {error}")))?
     }
 
     async fn read_page(
@@ -1042,6 +1263,7 @@ impl ReplayStorePort for ReplayStore {
         authority_id: &[u8; 16],
         epoch: i64,
         cursor: &ReplayCursor,
+        authorization_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(), ReplayError> {
         let conn = Arc::clone(&self.conn);
         let session_id = *session_id;
@@ -1084,6 +1306,7 @@ impl ReplayStorePort for ReplayStore {
                 session.aggregate_type,
                 &session.aggregate_id,
             )?;
+            authorization_guard.inspect_ack(&session)?;
             match session.last_acked_position {
                 Some(last_acked) if position < last_acked => {
                     return Err(ReplayError::AlreadyAcknowledged);
@@ -1463,6 +1686,9 @@ impl ReplayStorePort for ReplayStore {
             let mut candidate = session.clone();
             if let Some(last_event) = events.last() {
                 candidate.last_delivered_position = Some(last_event.global_position);
+            }
+            for event in &events {
+                delivery_guard.inspect_event(&candidate, event)?;
             }
             delivery_guard.inspect(&candidate, &events)?;
 
