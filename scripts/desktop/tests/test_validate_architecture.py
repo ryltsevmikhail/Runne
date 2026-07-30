@@ -87,6 +87,26 @@ class RendererConversationBoundaryTest(unittest.TestCase):
             violations,
         )
 
+    def test_rejects_namespace_tauri_emission_for_conversation_payloads(self):
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/namespace-live.ts",
+            """
+            import * as events from "@tauri-apps/api/event"
+            export const publishConversation = (payload: unknown) =>
+              events.emit("conversation-update", payload)
+            """,
+        )
+
+        violations = architecture.find_renderer_conversation_violations(self.root)
+
+        self.assertEqual(
+            [
+                "apps/desktop/src/widgets/conversation-chat/model/namespace-live.ts "
+                "emits Conversation payloads through generic Tauri events"
+            ],
+            violations,
+        )
+
     def test_only_conversation_entity_api_may_construct_typed_channels(self):
         self.write(
             "apps/desktop/src/pages/workspace/model/live.ts",
@@ -109,6 +129,76 @@ class RendererConversationBoundaryTest(unittest.TestCase):
             [
                 "apps/desktop/src/pages/workspace/model/live.ts constructs a "
                 "Conversation channel outside entities/conversation/api"
+            ],
+            violations,
+        )
+
+    def test_rejects_namespace_channel_construction_outside_entity_api(self):
+        self.write(
+            "apps/desktop/src/pages/workspace/model/namespace-live.ts",
+            """
+            import * as tauri from "@tauri-apps/api/core"
+            export const onUpdate = new tauri.Channel()
+            """,
+        )
+
+        violations = architecture.find_renderer_conversation_violations(self.root)
+
+        self.assertEqual(
+            [
+                "apps/desktop/src/pages/workspace/model/namespace-live.ts constructs a "
+                "Conversation channel outside entities/conversation/api"
+            ],
+            violations,
+        )
+
+    def test_rejects_default_and_dynamic_member_import_bypasses(self):
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/default-live.ts",
+            """
+            import events from "@tauri-apps/api/event"
+            export const publishConversation = (payload: unknown) =>
+              events.emit("conversation-update", payload)
+            """,
+        )
+        self.write(
+            "apps/desktop/src/widgets/conversation-chat/model/dynamic-live.ts",
+            """
+            export async function publishConversation(payload: unknown) {
+              const events = await import("@tauri-apps/api/event")
+              await events.emit("conversation-update", payload)
+            }
+            """,
+        )
+        self.write(
+            "apps/desktop/src/pages/workspace/model/default-channel.ts",
+            """
+            import tauri from "@tauri-apps/api/core"
+            export const onUpdate = new tauri.Channel()
+            """,
+        )
+        self.write(
+            "apps/desktop/src/pages/workspace/model/dynamic-channel.ts",
+            """
+            export async function createChannel() {
+              const tauri = await import("@tauri-apps/api/core")
+              return new tauri.Channel()
+            }
+            """,
+        )
+
+        violations = architecture.find_renderer_conversation_violations(self.root)
+
+        self.assertEqual(
+            [
+                "apps/desktop/src/pages/workspace/model/default-channel.ts constructs a "
+                "Conversation channel outside entities/conversation/api",
+                "apps/desktop/src/pages/workspace/model/dynamic-channel.ts constructs a "
+                "Conversation channel outside entities/conversation/api",
+                "apps/desktop/src/widgets/conversation-chat/model/default-live.ts emits "
+                "Conversation payloads through generic Tauri events",
+                "apps/desktop/src/widgets/conversation-chat/model/dynamic-live.ts emits "
+                "Conversation payloads through generic Tauri events",
             ],
             violations,
         )
