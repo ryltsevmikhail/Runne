@@ -17,7 +17,9 @@ use axum::{
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
-use gocode_application::replay_service::{ReplayError, ReplayEvent, ReplayService};
+use gocode_application::replay_service::{
+    ReplayDeliveryPrecommitGuard, ReplayError, ReplayEvent, ReplayService, ReplaySession,
+};
 use gocode_domain::replay::{ReplayCursor, ReplayScope};
 use serde::{Deserialize, Serialize};
 
@@ -329,24 +331,97 @@ fn wire_event(event: &ReplayEvent) -> Result<StoredReplayEventWire, ReplayHttpFa
 fn wire_delivery(
     event: &ReplayEvent,
     cursor: &ReplayCursor,
-    prohibited_content: &dyn ProhibitedContentPort,
 ) -> Result<DeliveredReplayEventWire, ReplayHttpFailure> {
-    let delivery = DeliveredReplayEventWire {
+    Ok(DeliveredReplayEventWire {
         event: wire_event(event)?,
         cursor: encode_cursor(cursor)?,
-    };
-    let bytes = serde_json::to_vec(&delivery).map_err(|_| replay_invariant_violation())?;
-    guard_replay_bytes(prohibited_content, &bytes)?;
-    Ok(delivery)
+    })
 }
 
-fn guard_replay_bytes(
+fn inspect_replay_bytes(
     prohibited_content: &dyn ProhibitedContentPort,
     bytes: &[u8],
-) -> Result<(), ReplayHttpFailure> {
+) -> Result<(), ReplayError> {
     match prohibited_content.inspect(CanonicalContentBoundary::OutboundDelivery, bytes) {
         Ok(ContentDisposition::Allowed { .. }) => Ok(()),
-        Ok(ContentDisposition::Prohibited { .. }) | Err(_) => Err(replay_invariant_violation()),
+        Ok(ContentDisposition::Prohibited { .. }) | Err(_) => Err(ReplayError::SensitivityDenied),
+    }
+}
+
+fn replay_delivery_integrity_error() -> ReplayError {
+    ReplayError::Integrity("replay delivery encoding failed".to_owned())
+}
+
+fn wire_deliveries(
+    service: &ReplayService,
+    session: &ReplaySession,
+    events: &[ReplayEvent],
+) -> Result<Vec<DeliveredReplayEventWire>, ReplayHttpFailure> {
+    let scope = ReplayScope::Aggregate {
+        aggregate_type: u8::try_from(session.aggregate_type)
+            .map_err(|_| replay_invariant_violation())?,
+        aggregate_id: session.aggregate_id,
+    };
+    events
+        .iter()
+        .map(|event| {
+            let cursor = service
+                .build_cursor_from_event(event, &scope)
+                .map_err(|_| replay_invariant_violation())?;
+            wire_delivery(event, &cursor)
+        })
+        .collect()
+}
+
+fn open_session_response(
+    service: &ReplayService,
+    session: &ReplaySession,
+    events: &[ReplayEvent],
+) -> Result<OpenSessionResponse, ReplayHttpFailure> {
+    Ok(OpenSessionResponse {
+        session_id: session_id_hex(&session.session_id),
+        high_water_ref: high_water_ref_hex(&session.high_water_ref),
+        events: wire_deliveries(service, session, events)?,
+        has_more: session.next_page_position.is_some(),
+    })
+}
+
+fn read_page_response(
+    service: &ReplayService,
+    session: &ReplaySession,
+    events: &[ReplayEvent],
+) -> Result<ReadPageResponse, ReplayHttpFailure> {
+    Ok(ReadPageResponse {
+        events: wire_deliveries(service, session, events)?,
+        has_more: session.next_page_position.is_some(),
+    })
+}
+
+struct OpenSessionDeliveryGuard {
+    service: Arc<ReplayService>,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
+}
+
+impl ReplayDeliveryPrecommitGuard for OpenSessionDeliveryGuard {
+    fn inspect(&self, session: &ReplaySession, events: &[ReplayEvent]) -> Result<(), ReplayError> {
+        let response = open_session_response(self.service.as_ref(), session, events)
+            .map_err(|_| replay_delivery_integrity_error())?;
+        let bytes = serde_json::to_vec(&response).map_err(|_| replay_delivery_integrity_error())?;
+        inspect_replay_bytes(self.prohibited_content.as_ref(), &bytes)
+    }
+}
+
+struct ReadPageDeliveryGuard {
+    service: Arc<ReplayService>,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
+}
+
+impl ReplayDeliveryPrecommitGuard for ReadPageDeliveryGuard {
+    fn inspect(&self, session: &ReplaySession, events: &[ReplayEvent]) -> Result<(), ReplayError> {
+        let response = read_page_response(self.service.as_ref(), session, events)
+            .map_err(|_| replay_delivery_integrity_error())?;
+        let bytes = serde_json::to_vec(&response).map_err(|_| replay_delivery_integrity_error())?;
+        inspect_replay_bytes(self.prohibited_content.as_ref(), &bytes)
     }
 }
 
@@ -439,11 +514,11 @@ async fn open_session(
                 "unsupported_replay_scope",
             ));
         }
-        let scope = ReplayScope::Aggregate {
-            aggregate_type,
-            aggregate_id,
-        };
         let from_cursor = req.from_cursor.as_deref().map(decode_cursor).transpose()?;
+        let delivery_guard = Arc::new(OpenSessionDeliveryGuard {
+            service: Arc::clone(&state.service),
+            prohibited_content: Arc::clone(&state.prohibited_content),
+        });
         let (session, events) = state
             .service
             .open_session(
@@ -454,27 +529,12 @@ async fn open_session(
                 req.aggregate_type,
                 &aggregate_id,
                 from_cursor,
+                delivery_guard,
             )
             .await
             .map_err(|error| replay_error_to_http(&error))?;
 
-        let wire_events = events
-            .iter()
-            .map(|event| {
-                let cursor = state
-                    .service
-                    .build_cursor_from_event(event, &scope)
-                    .map_err(|_| replay_invariant_violation())?;
-                wire_delivery(event, &cursor, state.prohibited_content.as_ref())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(OpenSessionResponse {
-            session_id: session_id_hex(&session.session_id),
-            high_water_ref: high_water_ref_hex(&session.high_water_ref),
-            events: wire_events,
-            has_more: session.next_page_position.is_some(),
-        })
+        open_session_response(state.service.as_ref(), &session, &events)
     }
     .await;
 
@@ -505,6 +565,10 @@ async fn read_page(
         let _page_claim = state.claim_page_read(session_id).ok_or_else(|| {
             ReplayHttpFailure::new(StatusCode::CONFLICT, "replay_page_in_progress")
         })?;
+        let delivery_guard = Arc::new(ReadPageDeliveryGuard {
+            service: Arc::clone(&state.service),
+            prohibited_content: Arc::clone(&state.prohibited_content),
+        });
         let (session, events) = state
             .service
             .read_page(
@@ -514,30 +578,12 @@ async fn read_page(
                 &state.binding.authority_id,
                 state.binding.authorization_epoch,
                 limit,
+                delivery_guard,
             )
             .await
             .map_err(|error| replay_error_to_http(&error))?;
 
-        let scope = ReplayScope::Aggregate {
-            aggregate_type: u8::try_from(session.aggregate_type)
-                .map_err(|_| replay_invariant_violation())?,
-            aggregate_id: session.aggregate_id,
-        };
-        let wire_events = events
-            .iter()
-            .map(|event| {
-                let cursor = state
-                    .service
-                    .build_cursor_from_event(event, &scope)
-                    .map_err(|_| replay_invariant_violation())?;
-                wire_delivery(event, &cursor, state.prohibited_content.as_ref())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        Ok(ReadPageResponse {
-            has_more: session.next_page_position.is_some(),
-            events: wire_events,
-        })
+        read_page_response(state.service.as_ref(), &session, &events)
     }
     .await;
 
@@ -690,6 +736,90 @@ fn try_terminal(sender: &tokio::sync::mpsc::Sender<SseItem>, item: SseItem) {
     let _ = sender.try_send(item);
 }
 
+fn live_delivery(
+    service: &ReplayService,
+    session: &ReplaySession,
+    event: &ReplayEvent,
+    delivery_sequence: u64,
+) -> Result<SseDelivery, ReplayHttpFailure> {
+    if event.aggregate_type != session.aggregate_type
+        || event.aggregate_id != session.aggregate_id
+        || !matches!(event.sensitivity, 0..=2)
+        || event.schema_version == 0
+    {
+        return Err(replay_invariant_violation());
+    }
+    let aggregate_type =
+        u8::try_from(session.aggregate_type).map_err(|_| replay_invariant_violation())?;
+    let cursor = service
+        .build_cursor_from_event(
+            event,
+            &ReplayScope::Aggregate {
+                aggregate_type,
+                aggregate_id: session.aggregate_id,
+            },
+        )
+        .map_err(|_| replay_invariant_violation())?;
+    let replay_cursor = encode_cursor(&cursor)?;
+    let canonical_event = wire_event(event)
+        .ok()
+        .and_then(|event| serde_json::to_value(event).ok())
+        .ok_or_else(replay_invariant_violation)?;
+    let live_delivery_id = session
+        .live_delivery_id
+        .as_deref()
+        .filter(|id| id.len() == 16)
+        .map(hex::encode)
+        .ok_or_else(replay_invariant_violation)?;
+    Ok(SseDelivery {
+        transport_version: 1,
+        replay_session_id: session_id_hex(&session.session_id),
+        live_delivery_id: Some(live_delivery_id),
+        delivery_sequence,
+        canonical_event,
+        replay_cursor,
+    })
+}
+
+struct LiveDeliveryGuard {
+    service: Arc<ReplayService>,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
+    first_delivery_sequence: u64,
+}
+
+impl ReplayDeliveryPrecommitGuard for LiveDeliveryGuard {
+    fn inspect(&self, session: &ReplaySession, events: &[ReplayEvent]) -> Result<(), ReplayError> {
+        for (index, event) in events.iter().enumerate() {
+            let sequence_offset =
+                u64::try_from(index).map_err(|_| ReplayError::BackpressureExceeded)?;
+            let delivery_sequence = self
+                .first_delivery_sequence
+                .checked_add(sequence_offset)
+                .ok_or(ReplayError::BackpressureExceeded)?;
+            let delivery = live_delivery(self.service.as_ref(), session, event, delivery_sequence)
+                .map_err(|_| replay_delivery_integrity_error())?;
+            let bytes =
+                serde_json::to_vec(&delivery).map_err(|_| replay_delivery_integrity_error())?;
+            if bytes.len() > MAX_SSE_FRAME_BYTES {
+                return Err(ReplayError::BackpressureExceeded);
+            }
+            inspect_replay_bytes(self.prohibited_content.as_ref(), &bytes)?;
+        }
+        Ok(())
+    }
+}
+
+fn live_delivery_guard(
+    state: &ReplayHttpState,
+    first_delivery_sequence: u64,
+) -> Arc<dyn ReplayDeliveryPrecommitGuard> {
+    Arc::new(LiveDeliveryGuard {
+        service: Arc::clone(&state.service),
+        prohibited_content: Arc::clone(&state.prohibited_content),
+        first_delivery_sequence,
+    })
+}
+
 async fn produce_live_events(
     state: ReplayHttpState,
     session_id: [u8; 16],
@@ -700,89 +830,22 @@ async fn produce_live_events(
 ) {
     let mut delivery_sequence = 1_u64;
     let mut stop = false;
+    let mut preserve_session = false;
 
     while !stop && !sender.is_closed() {
-        let scope = match u8::try_from(session.aggregate_type) {
-            Ok(aggregate_type) => ReplayScope::Aggregate {
-                aggregate_type,
-                aggregate_id: session.aggregate_id,
-            },
-            Err(_) => {
-                try_terminal(
-                    &sender,
-                    terminal("UnsupportedSchema", "stored replay scope is invalid"),
-                );
-                break;
-            }
-        };
-        let live_delivery_id = match session.live_delivery_id.as_deref() {
-            Some(id) if id.len() == 16 => hex::encode(id),
-            _ => {
-                try_terminal(
-                    &sender,
-                    terminal("SessionClosed", "live delivery identity is unavailable"),
-                );
-                break;
-            }
-        };
-
         for event in events.drain(..) {
-            if event.aggregate_type != session.aggregate_type
-                || event.aggregate_id != session.aggregate_id
-                || !matches!(event.sensitivity, 0..=2)
-                || event.schema_version == 0
-            {
-                try_terminal(
-                    &sender,
-                    terminal("UnsupportedSchema", "stored replay event is invalid"),
-                );
-                stop = true;
-                break;
-            }
-            let cursor = match state.service.build_cursor_from_event(&event, &scope) {
-                Ok(cursor) => cursor,
-                Err(_) => {
-                    try_terminal(
-                        &sender,
-                        terminal("UnsupportedSchema", "stored replay event is invalid"),
-                    );
-                    stop = true;
-                    break;
-                }
-            };
-            let replay_cursor = match encode_cursor(&cursor) {
-                Ok(cursor) => cursor,
-                Err(_) => {
-                    try_terminal(
-                        &sender,
-                        terminal("UnsupportedSchema", "replay cursor encoding failed"),
-                    );
-                    stop = true;
-                    break;
-                }
-            };
-            let canonical_event = match wire_event(&event)
-                .ok()
-                .and_then(|event| serde_json::to_value(event).ok())
-            {
-                Some(event) => event,
-                None => {
-                    try_terminal(
-                        &sender,
-                        terminal("UnsupportedSchema", "replay event encoding failed"),
-                    );
-                    stop = true;
-                    break;
-                }
-            };
-            let delivery = SseDelivery {
-                transport_version: 1,
-                replay_session_id: session_id_hex(&session_id),
-                live_delivery_id: Some(live_delivery_id.clone()),
-                delivery_sequence,
-                canonical_event,
-                replay_cursor,
-            };
+            let delivery =
+                match live_delivery(state.service.as_ref(), &session, &event, delivery_sequence) {
+                    Ok(delivery) => delivery,
+                    Err(_) => {
+                        try_terminal(
+                            &sender,
+                            terminal("UnsupportedSchema", "stored replay event is invalid"),
+                        );
+                        stop = true;
+                        break;
+                    }
+                };
             let delivery_bytes = match serde_json::to_vec(&delivery) {
                 Ok(bytes) => bytes,
                 Err(_) => {
@@ -794,14 +857,6 @@ async fn produce_live_events(
                     break;
                 }
             };
-            if guard_replay_bytes(state.prohibited_content.as_ref(), &delivery_bytes).is_err() {
-                try_terminal(
-                    &sender,
-                    terminal("Unauthorized", "replay content delivery denied"),
-                );
-                stop = true;
-                break;
-            }
             let frame_size = delivery_bytes.len();
             if frame_size > MAX_SSE_FRAME_BYTES {
                 try_terminal(
@@ -852,6 +907,7 @@ async fn produce_live_events(
                 state.binding.session_generation,
                 &state.binding.authority_id,
                 state.binding.authorization_epoch,
+                live_delivery_guard(&state, delivery_sequence),
             )
             .await
         {
@@ -871,6 +927,7 @@ async fn produce_live_events(
                     &sender,
                     terminal("SensitivityDenied", "event sensitivity is not permitted"),
                 );
+                preserve_session = true;
                 break;
             }
             Err(ReplayError::RetentionGap) => {
@@ -890,16 +947,18 @@ async fn produce_live_events(
         }
     }
 
-    let _ = state
-        .service
-        .close_session(
-            &session_id,
-            &principal_id,
-            state.binding.session_generation,
-            &state.binding.authority_id,
-            state.binding.authorization_epoch,
-        )
-        .await;
+    if !preserve_session {
+        let _ = state
+            .service
+            .close_session(
+                &session_id,
+                &principal_id,
+                state.binding.session_generation,
+                &state.binding.authority_id,
+                state.binding.authorization_epoch,
+            )
+            .await;
+    }
     state.release_live_drain(&session_id);
 }
 
@@ -926,6 +985,7 @@ async fn stream_live(
             state.binding.session_generation,
             &state.binding.authority_id,
             state.binding.authorization_epoch,
+            live_delivery_guard(&state, 1),
         )
         .await;
     let (session, events) = match initial {

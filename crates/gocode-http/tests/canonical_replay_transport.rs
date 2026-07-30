@@ -1,6 +1,7 @@
 //! Behavioral contract for authenticated replay transport over real SQLite.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
@@ -77,6 +78,52 @@ impl ProhibitedContentPort for DenyGuard {
     }
 }
 
+#[derive(Clone, Copy)]
+#[repr(u8)]
+enum SwitchMode {
+    Available = 0,
+    Marker = 1,
+    Unavailable = 2,
+}
+
+struct SwitchableGuard(AtomicU8);
+
+impl SwitchableGuard {
+    fn new(mode: SwitchMode) -> Self {
+        Self(AtomicU8::new(mode as u8))
+    }
+
+    fn set(&self, mode: SwitchMode) {
+        self.0.store(mode as u8, Ordering::SeqCst);
+    }
+}
+
+impl ProhibitedContentPort for SwitchableGuard {
+    fn inspect(
+        &self,
+        _boundary: CanonicalContentBoundary,
+        bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        match self.0.load(Ordering::SeqCst) {
+            value if value == SwitchMode::Available as u8 => {
+                Ok(ContentDisposition::Allowed { policy_epoch: 1 })
+            }
+            value
+                if value == SwitchMode::Marker as u8
+                    && bytes
+                        .windows(PROHIBITED_MARKER.len())
+                        .any(|window| window == PROHIBITED_MARKER.as_bytes()) =>
+            {
+                Ok(ContentDisposition::Prohibited { policy_epoch: 2 })
+            }
+            value if value == SwitchMode::Marker as u8 => {
+                Ok(ContentDisposition::Allowed { policy_epoch: 2 })
+            }
+            _ => Err(ContentGuardError::Unavailable),
+        }
+    }
+}
+
 struct TaskRunRow {
     event_id: [u8; 16],
     idempotency_key: Vec<u8>,
@@ -137,36 +184,53 @@ fn setup_with(
     idempotency_key: &str,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
 ) -> (axum::Router, TempDir) {
+    setup_with_events(vec![idempotency_key.to_owned()], prohibited_content)
+}
+
+fn setup_with_events(
+    idempotency_keys: Vec<String>,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
+) -> (axum::Router, TempDir) {
+    assert!(!idempotency_keys.is_empty());
     let directory = tempfile::tempdir().unwrap();
     let database_path = directory.path().join("replay.sqlite");
     let connection = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
     apply_migrations(&connection).unwrap();
-    let row = taskrun_row(1, 1, idempotency_key.to_owned());
+    let event_count = i64::try_from(idempotency_keys.len()).unwrap();
     connection
         .execute(
             "INSERT INTO aggregate_streams \
              (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) \
-             VALUES (1, ?1, 1, ?2, 0, 0)",
-            rusqlite::params![AGGREGATE.as_slice(), row.event_id.as_slice()],
-        )
-        .unwrap();
-    connection
-        .execute(
-            "INSERT INTO events \
-             (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
-              sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
-              payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
-             VALUES (?1, 1, ?2, 1, 1, 0, 0, 1, NULL, ?1, ?3, ?4, ?5, ?6, ?2, 1, 1)",
+             VALUES (1, ?1, ?2, ?3, 0, 0)",
             rusqlite::params![
-                row.event_id.as_slice(),
                 AGGREGATE.as_slice(),
-                row.idempotency_key,
-                b"test-actor".as_slice(),
-                row.payload,
-                row.integrity_digest.as_slice(),
+                event_count,
+                event_id(event_count).as_slice()
             ],
         )
         .unwrap();
+    for (index, idempotency_key) in idempotency_keys.into_iter().enumerate() {
+        let position = i64::try_from(index + 1).unwrap();
+        let row = taskrun_row(position, position, idempotency_key);
+        connection
+            .execute(
+                "INSERT INTO events \
+                 (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+                  sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+                  payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+                 VALUES (?1, 1, ?2, ?3, ?3, 0, 0, 1, NULL, ?1, ?4, ?5, ?6, ?7, ?2, 1, 1)",
+                rusqlite::params![
+                    row.event_id.as_slice(),
+                    AGGREGATE.as_slice(),
+                    position,
+                    row.idempotency_key,
+                    b"test-actor".as_slice(),
+                    row.payload,
+                    row.integrity_digest.as_slice(),
+                ],
+            )
+            .unwrap();
+    }
 
     let service = ReplayService::new(
         Arc::new(ReplayStore::new(connection)),
@@ -185,13 +249,41 @@ fn setup_with(
     (router, directory)
 }
 
+fn replay_connection(directory: &TempDir) -> rusqlite::Connection {
+    let database_path = directory.path().join("replay.sqlite");
+    open_with_pragmas(database_path.to_str().unwrap()).unwrap()
+}
+
+fn subscription_count(directory: &TempDir) -> i64 {
+    replay_connection(directory)
+        .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+}
+
+fn replay_progress(
+    directory: &TempDir,
+    session_id: &str,
+) -> (String, Option<i64>, Option<i64>, Option<i64>) {
+    replay_connection(directory)
+        .query_row(
+            "SELECT state, next_page_position, last_delivered_position, last_acked_position
+             FROM _replay_subscriptions
+             WHERE session_id = ?1",
+            [hex::decode(session_id).unwrap()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap()
+}
+
 #[tokio::test]
-async fn replay_serialization_denial_returns_zero_event_bytes() {
+async fn open_session_classification_denial_leaves_no_durable_session() {
     for guard in [
         Arc::new(DenyGuard(DenyMode::Marker)) as Arc<dyn ProhibitedContentPort>,
         Arc::new(DenyGuard(DenyMode::Unavailable)) as Arc<dyn ProhibitedContentPort>,
     ] {
-        let (app, _directory) = setup_with(PROHIBITED_MARKER, guard);
+        let (app, directory) = setup_with(PROHIBITED_MARKER, guard);
         let response = app
             .oneshot(post(
                 "/v1/replay/open-session",
@@ -202,7 +294,7 @@ async fn replay_serialization_denial_returns_zero_event_bytes() {
             ))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!response.status().is_success());
         let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
         assert!(
             !bytes
@@ -210,6 +302,161 @@ async fn replay_serialization_denial_returns_zero_event_bytes() {
                 .any(|window| window == PROHIBITED_MARKER.as_bytes()),
             "canonical error contained prohibited replay representation"
         );
+        assert_eq!(subscription_count(&directory), 0);
+    }
+}
+
+#[tokio::test]
+async fn read_page_classification_denial_preserves_delivery_progress() {
+    for denied_mode in [SwitchMode::Marker, SwitchMode::Unavailable] {
+        let guard = Arc::new(SwitchableGuard::new(SwitchMode::Available));
+        let mut keys = (1..=100)
+            .map(|position| format!("replay-page-{position}"))
+            .collect::<Vec<_>>();
+        keys.push(PROHIBITED_MARKER.to_owned());
+        let (app, directory) =
+            setup_with_events(keys, Arc::clone(&guard) as Arc<dyn ProhibitedContentPort>);
+        let opened = app
+            .clone()
+            .oneshot(post(
+                "/v1/replay/open-session",
+                json!({
+                    "aggregateType": 1,
+                    "aggregateId": hex::encode(AGGREGATE),
+                }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(opened.status(), StatusCode::OK);
+        let opened = json_body(opened).await;
+        let session_id = opened["sessionId"].as_str().unwrap();
+        let before = replay_progress(&directory, session_id);
+        guard.set(denied_mode);
+
+        let response = app
+            .oneshot(post(
+                &format!("/v1/replay/{session_id}/read-page"),
+                json!({"limit": 1}),
+            ))
+            .await
+            .unwrap();
+
+        assert!(!response.status().is_success());
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        assert!(
+            !bytes
+                .windows(PROHIBITED_MARKER.len())
+                .any(|window| window == PROHIBITED_MARKER.as_bytes()),
+            "canonical error contained prohibited replay representation"
+        );
+        assert_eq!(replay_progress(&directory, session_id), before);
+    }
+}
+
+async fn open_and_continue_live(app: &axum::Router) -> String {
+    let opened = app
+        .clone()
+        .oneshot(post(
+            "/v1/replay/open-session",
+            json!({
+                "aggregateType": 1,
+                "aggregateId": hex::encode(AGGREGATE),
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(opened.status(), StatusCode::OK);
+    let opened = json_body(opened).await;
+    let session_id = opened["sessionId"].as_str().unwrap().to_owned();
+    let cursor = opened["events"][0]["cursor"].as_str().unwrap();
+    let acknowledged = app
+        .clone()
+        .oneshot(post(
+            &format!("/v1/replay/{session_id}/acknowledge"),
+            json!({"cursor": cursor}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(acknowledged.status(), StatusCode::OK);
+    let completed = app
+        .clone()
+        .oneshot(post(
+            &format!("/v1/replay/{session_id}/complete-catch-up"),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::OK);
+    let continued = app
+        .clone()
+        .oneshot(post(
+            &format!("/v1/replay/{session_id}/continue-live"),
+            json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(continued.status(), StatusCode::OK);
+    session_id
+}
+
+fn append_taskrun_event(directory: &TempDir, position: i64, idempotency_key: &str) {
+    let writer = replay_connection(directory);
+    let row = taskrun_row(position, position, idempotency_key.to_owned());
+    writer
+        .execute(
+            "INSERT INTO events \
+             (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, \
+              sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, \
+              payload, integrity_digest, correlation_id, correlation_type, integrity_profile) \
+             VALUES (?1, 1, ?2, ?3, ?3, 0, 0, 1, NULL, ?1, ?4, ?5, ?6, ?7, ?2, 1, 1)",
+            rusqlite::params![
+                row.event_id.as_slice(),
+                AGGREGATE.as_slice(),
+                position,
+                row.idempotency_key,
+                b"test-actor".as_slice(),
+                row.payload,
+                row.integrity_digest.as_slice(),
+            ],
+        )
+        .unwrap();
+    writer
+        .execute(
+            "UPDATE aggregate_streams
+             SET current_version = ?1, last_event_id = ?2
+             WHERE aggregate_type = 1 AND aggregate_id = ?3",
+            rusqlite::params![position, row.event_id.as_slice(), AGGREGATE.as_slice()],
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn live_classification_denial_preserves_session_and_delivery_progress() {
+    for denied_mode in [SwitchMode::Marker, SwitchMode::Unavailable] {
+        let guard = Arc::new(SwitchableGuard::new(SwitchMode::Available));
+        let (app, directory) = setup_with(
+            "replay-live-initial",
+            Arc::clone(&guard) as Arc<dyn ProhibitedContentPort>,
+        );
+        let session_id = open_and_continue_live(&app).await;
+        append_taskrun_event(&directory, 2, PROHIBITED_MARKER);
+        let before = replay_progress(&directory, &session_id);
+        guard.set(denied_mode);
+
+        let response = app
+            .oneshot(get(&format!("/v1/replay/{session_id}/events")))
+            .await
+            .unwrap();
+
+        assert!(!response.status().is_success());
+        let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+        assert!(
+            !bytes
+                .windows(PROHIBITED_MARKER.len())
+                .any(|window| window == PROHIBITED_MARKER.as_bytes()),
+            "canonical error contained prohibited replay representation"
+        );
+        assert_eq!(replay_progress(&directory, &session_id), before);
     }
 }
 

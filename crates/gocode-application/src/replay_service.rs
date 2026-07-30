@@ -104,6 +104,13 @@ pub struct ReplayEvent {
     pub integrity_profile: i32,
 }
 
+/// Synchronous pre-commit check for the exact replay delivery a transport will
+/// serialize. Implementations must fail closed when classification is
+/// unavailable.
+pub trait ReplayDeliveryPrecommitGuard: Send + Sync {
+    fn inspect(&self, session: &ReplaySession, events: &[ReplayEvent]) -> Result<(), ReplayError>;
+}
+
 /// Durable storage port for replay sessions.
 #[async_trait]
 #[allow(clippy::too_many_arguments)]
@@ -118,6 +125,7 @@ pub trait ReplayStorePort: Send + Sync {
         aggregate_id: &[u8; 16],
         from_cursor: Option<&ReplayCursor>,
         server_secret: &[u8; 32],
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
 
     async fn read_page(
@@ -128,6 +136,7 @@ pub trait ReplayStorePort: Send + Sync {
         authority_id: &[u8; 16],
         epoch: i64,
         limit: usize,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
 
     async fn acknowledge(
@@ -166,6 +175,7 @@ pub trait ReplayStorePort: Send + Sync {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError>;
 
     async fn close_session(
@@ -378,6 +388,7 @@ impl ReplayService {
         aggregate_type: i32,
         aggregate_id: &[u8; 16],
         from_cursor: Option<ReplayCursor>,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         if let Some(cursor) = &from_cursor {
             self.validate_cursor_integrity(cursor)?;
@@ -401,11 +412,13 @@ impl ReplayService {
                 aggregate_id,
                 from_cursor.as_ref(),
                 &self.server_secret,
+                delivery_guard,
             )
             .await
     }
 
     /// Читает следующую страницу; cursor каждого event строится transport adapter через `build_cursor_from_event`.
+    #[allow(clippy::too_many_arguments)]
     pub async fn read_page(
         &self,
         session_id: &[u8; 16],
@@ -414,6 +427,7 @@ impl ReplayService {
         authority_id: &[u8; 16],
         epoch: i64,
         limit: usize,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         self.store
             .read_page(
@@ -423,6 +437,7 @@ impl ReplayService {
                 authority_id,
                 epoch,
                 limit,
+                delivery_guard,
             )
             .await
     }
@@ -517,9 +532,17 @@ impl ReplayService {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         self.store
-            .poll_live(session_id, principal_id, generation, authority_id, epoch)
+            .poll_live(
+                session_id,
+                principal_id,
+                generation,
+                authority_id,
+                epoch,
+                delivery_guard,
+            )
             .await
     }
 

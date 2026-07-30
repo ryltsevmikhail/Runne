@@ -1,8 +1,11 @@
 //! Интеграционные тесты server-issued catch-up и acknowledge ReplayStore.
 
+use std::sync::Arc;
+
 use gocode_application::ports::{
     ReplayError, ReplayEvent, ReplaySession, ReplayState, ReplayStorePort,
 };
+use gocode_application::replay_service::ReplayDeliveryPrecommitGuard;
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
 use gocode_domain::id::{
     AggregateId, CommandId, EventId, EventLogLineageId, IdempotencyKey, IntegrityDigest, TaskRunId,
@@ -22,6 +25,22 @@ const AGGREGATE: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0xbb,
 ];
 const SECRET: [u8; 32] = [0xCC; 32];
+
+struct AvailableDeliveryGuard;
+
+impl ReplayDeliveryPrecommitGuard for AvailableDeliveryGuard {
+    fn inspect(
+        &self,
+        _session: &ReplaySession,
+        _events: &[ReplayEvent],
+    ) -> Result<(), ReplayError> {
+        Ok(())
+    }
+}
+
+fn delivery_guard() -> Arc<dyn ReplayDeliveryPrecommitGuard> {
+    Arc::new(AvailableDeliveryGuard)
+}
 
 struct TaskRunRow {
     event_id: [u8; 16],
@@ -212,6 +231,7 @@ async fn open(
             &AGGREGATE,
             from_cursor,
             &SECRET,
+            delivery_guard(),
         )
         .await
         .unwrap()
@@ -239,7 +259,17 @@ fn cursor(position: i64) -> ReplayCursor {
 async fn empty_catch_up_has_server_issued_proof() {
     let store = store();
     let (session, events) = store
-        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            &AGGREGATE,
+            None,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     assert!(events.is_empty());
@@ -259,7 +289,17 @@ async fn empty_catch_up_has_server_issued_proof() {
 async fn nonempty_catch_up_requires_acknowledgement() {
     let store = store();
     let (session, _) = store
-        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            &AGGREGATE,
+            None,
+            &SECRET,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     let error = store
@@ -329,6 +369,7 @@ async fn open_session_rejects_cursor_for_unknown_event_position() {
             &AGGREGATE,
             Some(&cursor(2)),
             &SECRET,
+            delivery_guard(),
         )
         .await
         .unwrap_err();
@@ -343,11 +384,27 @@ async fn test_read_page_pagination() {
     assert_eq!(initial_events.len(), 100);
 
     let first_page = store
-        .read_page(&session.session_id, "principal", 1, &AUTHORITY, 0, 1)
+        .read_page(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     let second_page = store
-        .read_page(&session.session_id, "principal", 1, &AUTHORITY, 0, 1)
+        .read_page(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -655,11 +712,25 @@ async fn poll_live_advances_past_delivered_events() {
         .unwrap();
 
     let first = store
-        .poll_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .poll_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await
         .unwrap();
     let second = store
-        .poll_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .poll_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await
         .unwrap();
 
@@ -682,7 +753,17 @@ async fn replay_rejects_interior_sequence_gap() {
         .unwrap();
 
     let result = store
-        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            &AGGREGATE,
+            None,
+            &SECRET,
+            delivery_guard(),
+        )
         .await;
 
     assert!(matches!(result, Err(ReplayError::Integrity(_))));
@@ -740,7 +821,14 @@ async fn poll_live_rejects_sequence_jump() {
         .unwrap();
 
     let result = store
-        .poll_live(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .poll_live(
+            &session.session_id,
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            delivery_guard(),
+        )
         .await;
 
     assert!(matches!(result, Err(ReplayError::Integrity(_))));
@@ -757,7 +845,17 @@ async fn replay_rejects_payload_changed_without_integrity_digest_update() {
         .unwrap();
 
     let result = store
-        .open_session("principal", 1, &AUTHORITY, 0, 1, &AGGREGATE, None, &SECRET)
+        .open_session(
+            "principal",
+            1,
+            &AUTHORITY,
+            0,
+            1,
+            &AGGREGATE,
+            None,
+            &SECRET,
+            delivery_guard(),
+        )
         .await;
 
     assert!(matches!(result, Err(ReplayError::Integrity(_))));
