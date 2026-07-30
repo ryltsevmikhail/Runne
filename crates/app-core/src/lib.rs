@@ -239,7 +239,6 @@ impl From<LocalProject> for ProjectSummary {
 pub struct AppCore {
     store: Mutex<LocalStore>,
     runtime_mode: RuntimeMode,
-    bundled_development_profile: bool,
     runtime_profile_path: Option<PathBuf>,
     runtime_state: RwLock<RuntimeAvailability>,
     pending_resync_scopes: RwLock<HashSet<ReplayScopeKey>>,
@@ -255,7 +254,7 @@ impl AppCore {
     ///
     /// Returns a storage error when the profile cannot be opened or migrated.
     pub fn open(path: &Path) -> Result<Self, AppCoreError> {
-        Self::open_internal(path, RuntimeMode::ExternalLocal, false, None)
+        Self::open_internal(path, RuntimeMode::ExternalLocal, None)
     }
 
     /// Opens the application service with one host-owned runtime profile path.
@@ -270,12 +269,7 @@ impl AppCore {
         path: &Path,
         runtime_profile_path: PathBuf,
     ) -> Result<Self, AppCoreError> {
-        Self::open_internal(
-            path,
-            RuntimeMode::ExternalLocal,
-            false,
-            Some(runtime_profile_path),
-        )
+        Self::open_internal(path, RuntimeMode::ExternalLocal, Some(runtime_profile_path))
     }
 
     /// Opens the application service with the standard daemon-owned local
@@ -304,39 +298,18 @@ impl AppCore {
     ) -> Result<Self, AppCoreError> {
         match runtime_mode {
             RuntimeMode::ExternalLocal => Self::open_with_default_runtime_profile(path),
-            RuntimeMode::Bundled => Self::open_internal(path, RuntimeMode::Bundled, false, None),
+            RuntimeMode::Bundled => Self::open_internal(path, RuntimeMode::Bundled, None),
         }
-    }
-
-    /// Opens the debug-only bundled development profile created for a
-    /// supervisor-owned process.
-    ///
-    /// This explicit entry point does not alter normal bundled mode and keeps
-    /// the profile path inside the Rust host. The caller must report readiness
-    /// only after the Secure Replay v2 profile/session handshake succeeds.
-    ///
-    /// # Errors
-    ///
-    /// Returns a storage error when the desktop profile cannot be opened.
-    #[cfg(debug_assertions)]
-    #[doc(hidden)]
-    pub fn open_with_bundled_development_profile(
-        path: &Path,
-        runtime_profile_path: PathBuf,
-    ) -> Result<Self, AppCoreError> {
-        Self::open_internal(path, RuntimeMode::Bundled, true, Some(runtime_profile_path))
     }
 
     fn open_internal(
         path: &Path,
         runtime_mode: RuntimeMode,
-        bundled_development_profile: bool,
         runtime_profile_path: Option<PathBuf>,
     ) -> Result<Self, AppCoreError> {
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_mode,
-            bundled_development_profile,
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
             pending_resync_scopes: RwLock::new(HashSet::new()),
@@ -361,7 +334,6 @@ impl AppCore {
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_mode: RuntimeMode::ExternalLocal,
-            bundled_development_profile: false,
             runtime_profile_path: None,
             runtime_state: RwLock::new(RuntimeAvailability::Live),
             pending_resync_scopes: RwLock::new(HashSet::new()),
@@ -408,7 +380,7 @@ impl AppCore {
             .runtime_client
             .write()
             .map_err(|_| AppCoreError::StateUnavailable)? = None;
-        if self.runtime_mode == RuntimeMode::Bundled && !self.bundled_development_profile {
+        if self.runtime_mode == RuntimeMode::Bundled {
             self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
             return Err(AppCoreError::RuntimeUnavailable);
         }
