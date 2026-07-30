@@ -162,8 +162,10 @@ pub enum TextGenerationPhase {
     Started,
     /// Assistant message and successful terminal TaskRun are durable.
     Completed,
-    /// The generation ended safely without an assistant message.
+    /// Provider output was rejected safely without an assistant message.
     Rejected,
+    /// Provider input was rejected safely before outbound delivery.
+    ProhibitedInputRejected,
 }
 
 /// Durable coordination receipt linking Conversation messages to TaskRun.

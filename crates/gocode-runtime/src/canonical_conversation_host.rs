@@ -165,6 +165,9 @@ where
             TextGenerationPhase::Rejected => {
                 return Err(ConversationHostError::ProviderOutputRejected);
             }
+            TextGenerationPhase::ProhibitedInputRejected => {
+                return Err(ConversationHostError::ProhibitedSecretMaterial);
+            }
             TextGenerationPhase::Started => {
                 if !matches!(
                     self.prohibited_content.inspect(
@@ -180,14 +183,15 @@ where
                             FinishConversationTextInput {
                                 original,
                                 started,
-                                completion: ConversationTextCompletion::Rejected {
+                                completion:
+                                    ConversationTextCompletion::ProhibitedInputRejected {
                                     reason: gocode_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
                                 },
                             },
                         )
                         .await
                         .map_err(map_runtime_error)?;
-                    if rejected.phase != TextGenerationPhase::Rejected {
+                    if rejected.phase != TextGenerationPhase::ProhibitedInputRejected {
                         return Err(ConversationHostError::InvariantViolation);
                     }
                     return Err(ConversationHostError::ProhibitedSecretMaterial);

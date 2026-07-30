@@ -2142,6 +2142,7 @@ impl StoreCodec<TextGenerationReceipt> for TextGenerationReceiptCodec {
             TextGenerationPhase::Started => 0,
             TextGenerationPhase::Completed => 1,
             TextGenerationPhase::Rejected => 2,
+            TextGenerationPhase::ProhibitedInputRejected => 3,
         });
         write_uuid(&mut buffer, value.conversation_id.as_bytes());
         write_uuid(&mut buffer, value.workspace_id.as_bytes());
@@ -2167,6 +2168,7 @@ impl StoreCodec<TextGenerationReceipt> for TextGenerationReceiptCodec {
             0 => TextGenerationPhase::Started,
             1 => TextGenerationPhase::Completed,
             2 => TextGenerationPhase::Rejected,
+            3 => TextGenerationPhase::ProhibitedInputRejected,
             tag => {
                 return Err(StoreCodecError::UnknownTag {
                     tag,

@@ -1099,7 +1099,9 @@ impl ConversationTextRepository for StoreTransaction {
         };
         if matches!(
             stored.phase,
-            TextGenerationPhase::Completed | TextGenerationPhase::Rejected
+            TextGenerationPhase::Completed
+                | TextGenerationPhase::Rejected
+                | TextGenerationPhase::ProhibitedInputRejected
         ) {
             return Ok(TextGenerationCommitResult::Duplicate {
                 stored_result: stored,
@@ -1263,14 +1265,16 @@ impl ConversationTextRepository for StoreTransaction {
         };
         if matches!(
             stored.phase,
-            TextGenerationPhase::Completed | TextGenerationPhase::Rejected
+            TextGenerationPhase::Completed
+                | TextGenerationPhase::Rejected
+                | TextGenerationPhase::ProhibitedInputRejected
         ) {
             return Ok(TextGenerationCommitResult::Duplicate {
                 stored_result: stored,
             });
         }
         let expected_rejected = TextGenerationReceipt {
-            phase: TextGenerationPhase::Rejected,
+            phase: payload.receipt.phase,
             conversation_version: stored.conversation_version.checked_add(1).ok_or(
                 CommitError::VersionExhausted {
                     current: stored.conversation_version,
@@ -1635,7 +1639,10 @@ fn validate_reject_text_payload(
 ) -> Result<(), CommitError> {
     if payload.conversation_events.len() != 1
         || payload.taskrun_events.len() != 1
-        || payload.receipt.phase != TextGenerationPhase::Rejected
+        || !matches!(
+            payload.receipt.phase,
+            TextGenerationPhase::Rejected | TextGenerationPhase::ProhibitedInputRejected
+        )
         || payload.receipt.conversation_version
             != payload.expected_conversation_version.checked_add(1).ok_or(
                 CommitError::VersionExhausted {

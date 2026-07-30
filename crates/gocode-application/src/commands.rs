@@ -92,6 +92,11 @@ pub struct FinishConversationTextInput {
 pub enum ConversationTextCompletion {
     /// Validated assistant output may enter canonical state.
     AssistantText(MessageText),
+    /// Provider input was rejected after the durable start and before delivery.
+    ProhibitedInputRejected {
+        /// Closed, non-sensitive rejection reason.
+        reason: GenerationFailureReason,
+    },
     /// Provider-bound material was rejected without retaining its bytes.
     Rejected {
         /// Closed, non-sensitive rejection reason.

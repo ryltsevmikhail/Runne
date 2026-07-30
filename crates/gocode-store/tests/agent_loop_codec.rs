@@ -317,6 +317,7 @@ fn text_generation_receipt_phase_tags_remain_byte_stable_and_fail_closed() {
         (TextGenerationPhase::Started, 0x00),
         (TextGenerationPhase::Completed, 0x01),
         (TextGenerationPhase::Rejected, 0x02),
+        (TextGenerationPhase::ProhibitedInputRejected, 0x03),
     ] {
         let receipt = text_receipt(phase);
         let bytes = codec.encode(&receipt).unwrap();
