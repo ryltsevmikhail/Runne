@@ -92,7 +92,8 @@ pub async fn connect(
         .await
         .map_err(|_| RuntimeTransportError::Unavailable)?;
     let authenticated: AuthenticateResponse = read_json(authenticate_response).await?;
-    if authenticated.expires_at_monotonic_millis == 0 {
+    let issued_session_id = decode_lower_hex_16(&authenticated.session_id)?;
+    if authenticated.expires_at_monotonic_millis == 0 || issued_session_id == [0; 16] {
         authority.zeroize();
         return Err(incompatible());
     }
@@ -107,7 +108,7 @@ pub async fn connect(
         .await
         .map_err(|_| RuntimeTransportError::Unavailable)?;
     let remote: SessionRuntimeProfileWire = read_json(profile_response).await?;
-    let session = verify_remote_profile(&profile, remote)?;
+    let session = verify_remote_profile(&profile, remote, issued_session_id)?;
     Ok(AuthenticatedRuntimeClient::from_local_session(
         client,
         profile.origin,
@@ -119,9 +120,10 @@ pub async fn connect(
 fn verify_remote_profile(
     local: &LocalRuntimeProfile,
     remote: SessionRuntimeProfileWire,
+    issued_session_id: [u8; 16],
 ) -> Result<RuntimeSessionInfo, LocalRuntimeConnectError> {
     let session_id = decode_lower_hex_16(&remote.session_id)?;
-    if session_id == [0; 16]
+    if session_id != issued_session_id
         || session_id == *local.daemon_instance_id.as_bytes()
         || remote.profile_id != crate::EXPECTED_BUNDLE_ID
         || remote.schema_hash != GOLDEN_BUNDLE_HASH
@@ -277,6 +279,7 @@ struct AuthenticateRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AuthenticateResponse {
     expires_at_monotonic_millis: u64,
+    session_id: String,
 }
 
 #[derive(Deserialize)]
@@ -317,7 +320,42 @@ mod tests {
     }
 
     #[test]
-    fn mismatched_launch_generation_is_typed_incompatible() {
+    fn exact_session_tuple_mismatches_are_typed_incompatible() {
+        let local = local_profile_fixture();
+        verify_remote_profile(&local, remote_profile_fixture(&local), [0x22; 16])
+            .expect("exact tuple");
+
+        macro_rules! reject_field {
+            ($field:ident, $value:expr) => {{
+                let mut remote = remote_profile_fixture(&local);
+                remote.$field = $value;
+                assert_incompatible(&local, remote, [0x22; 16]);
+            }};
+        }
+        reject_field!(profile_id, "wrong-profile".to_owned());
+        reject_field!(schema_hash, "00".repeat(32));
+        reject_field!(runtime_version, String::new());
+        reject_field!(capabilities, vec!["conversation.create.v1".to_owned()]);
+        reject_field!(capability_digest, "00".repeat(32));
+        reject_field!(authority_id, "00".repeat(16));
+        reject_field!(principal_id, "other-owner".to_owned());
+        reject_field!(
+            event_log_lineage_id,
+            "018f2e3a-7000-7000-8000-000000000004".to_owned()
+        );
+        reject_field!(
+            daemon_instance_id,
+            "018f2e3a-7000-7000-8000-000000000005".to_owned()
+        );
+        reject_field!(launch_generation, 8);
+        reject_field!(session_id, "44".repeat(16));
+        reject_field!(authorization_epoch, 1);
+        reject_field!(sensitivity_ceiling, "internal".to_owned());
+        reject_field!(certificate_sha256, "55".repeat(32));
+        assert_incompatible(&local, remote_profile_fixture(&local), [0x44; 16]);
+    }
+
+    fn local_profile_fixture() -> LocalRuntimeProfile {
         let schema_hash: [u8; 32] = hex::decode(GOLDEN_BUNDLE_HASH)
             .expect("schema digest")
             .try_into()
@@ -333,7 +371,7 @@ mod tests {
             .collect::<Vec<_>>();
         let capability_digest = [0x22; 32];
         let certificate_sha256 = [0x33; 32];
-        let local = LocalRuntimeProfile {
+        LocalRuntimeProfile {
             endpoint: RuntimeEndpoint::loopback(SocketAddr::from((Ipv4Addr::LOCALHOST, 8443)))
                 .expect("loopback"),
             origin: "https://127.0.0.1:8443".to_owned(),
@@ -346,27 +384,37 @@ mod tests {
             daemon_instance_id,
             launch_generation: 7,
             schema_hash,
-            capabilities: capabilities.clone(),
+            capabilities,
             capability_digest,
-        };
-        let remote = SessionRuntimeProfileWire {
+        }
+    }
+
+    fn remote_profile_fixture(local: &LocalRuntimeProfile) -> SessionRuntimeProfileWire {
+        SessionRuntimeProfileWire {
             profile_id: crate::EXPECTED_BUNDLE_ID.to_owned(),
             schema_hash: GOLDEN_BUNDLE_HASH.to_owned(),
             runtime_version: "0.0.1".to_owned(),
-            capabilities,
-            capability_digest: hex::encode(capability_digest),
-            authority_id: hex::encode(authority_id),
+            capabilities: local.capabilities.clone(),
+            capability_digest: hex::encode(local.capability_digest),
+            authority_id: hex::encode(local.authority_id),
             principal_id: "local-owner".to_owned(),
-            event_log_lineage_id: event_log_lineage_id.to_string(),
-            daemon_instance_id: daemon_instance_id.to_string(),
-            launch_generation: 8,
+            event_log_lineage_id: local.event_log_lineage_id.to_string(),
+            daemon_instance_id: local.daemon_instance_id.to_string(),
+            launch_generation: 7,
             session_id: "22222222222222222222222222222222".to_owned(),
             authorization_epoch: 0,
             sensitivity_ceiling: "sensitive".to_owned(),
-            certificate_sha256: hex::encode(certificate_sha256),
-        };
+            certificate_sha256: hex::encode(local.certificate_sha256),
+        }
+    }
 
-        let error = verify_remote_profile(&local, remote).expect_err("generation mismatch");
+    fn assert_incompatible(
+        local: &LocalRuntimeProfile,
+        remote: SessionRuntimeProfileWire,
+        issued_session_id: [u8; 16],
+    ) {
+        let error = verify_remote_profile(local, remote, issued_session_id)
+            .expect_err("tuple mismatch must be rejected");
         assert!(matches!(
             error,
             LocalRuntimeConnectError::Api(ref api)

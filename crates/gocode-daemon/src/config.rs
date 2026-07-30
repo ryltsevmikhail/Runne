@@ -324,7 +324,7 @@ fn select_provenance(overridden: bool, sys: &FieldSource) -> FieldSource {
 /// Load configuration.
 ///
 /// If `system_config_path` is `Some` and the file exists, it is parsed as
-/// TOML and merged over `BuiltInDefaults`.  Schema version must be `1`;
+/// TOML and merged over `BuiltInDefaults`.  Schema version must be `2`;
 /// unknown keys, duplicate keys, and type mismatches are rejected.
 ///
 /// If the path is `None` or the file does not exist, a snapshot built

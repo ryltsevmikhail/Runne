@@ -285,9 +285,9 @@ fn empty_db_recovery_ready() {
     assert_eq!(state, RecoveryState::Ready);
 }
 
-// ── 10. replay_key_missing_for_existing_db_is_fatal ─────────────────
+// ── 10. replay_key_missing_for_existing_db_is_provisioned ───────────
 #[test]
-fn replay_key_missing_for_existing_db_is_fatal() {
+fn replay_key_missing_for_existing_db_is_provisioned_without_legacy_token_reuse() {
     let temp = TempDir::new().unwrap();
     let config = test_config(&temp);
 
@@ -295,17 +295,42 @@ fn replay_key_missing_for_existing_db_is_fatal() {
     let o1 = bootstrap(&config).unwrap();
     drop(o1);
 
-    // Delete the replay-integrity key
+    // Simulate a production-v1 install: DB + legacy bearer, no replay key.
     fs::remove_file(replay_key_path(&config)).unwrap();
+    let legacy_token_path = replay_key_path(&config).with_file_name("token.json");
+    let legacy_token = [0x2a; 32];
+    fs::write(&legacy_token_path, legacy_token).unwrap();
 
-    // Bootstrap must fail — DB exists but the stable replay key is missing
-    let result = bootstrap(&config);
-    assert!(result.is_err());
-    let msg = format!("{}", result.unwrap_err());
-    assert!(
-        msg.contains("replay-integrity") || msg.contains("missing"),
-        "expected replay-key-missing error, got: {msg}"
+    let outcome = bootstrap(&config).expect("add-only replay key provision");
+    let provisioned = fs::read(replay_key_path(&config)).expect("provisioned replay key");
+    assert_eq!(provisioned.len(), 32);
+    assert_ne!(provisioned, legacy_token);
+    assert_eq!(fs::read(legacy_token_path).unwrap(), legacy_token);
+    assert_ne!(
+        outcome
+            .replay_integrity_key
+            .derive_hmac(b"upgrade-evidence"),
+        [0; 32]
     );
+}
+
+#[test]
+fn invalid_existing_local_session_authority_fails_closed_without_rewrite() {
+    let temp = TempDir::new().unwrap();
+    let config = test_config(&temp);
+    let initial = bootstrap(&config).unwrap();
+    drop(initial);
+    let path = replay_key_path(&config).with_file_name("local-session-authority-id");
+    let marker = b"invalid-authority";
+    fs::write(&path, marker).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    assert!(bootstrap(&config).is_err());
+    assert_eq!(fs::read(path).unwrap(), marker);
 }
 
 #[test]

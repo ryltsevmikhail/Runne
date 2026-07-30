@@ -139,7 +139,7 @@ impl DaemonApplication {
             gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
         );
         let stable_binding = StableRuntimeBinding::new(
-            bootstrap.authority_id,
+            bootstrap.local_session_authority_id,
             ApiPrincipalId::new("local-owner")
                 .map_err(|_| DaemonError::Bootstrap("invalid local principal".into()))?,
             replay_lineage,
@@ -208,7 +208,7 @@ impl DaemonApplication {
                         directory,
                         address,
                         &bootstrap.launch_identity,
-                        bootstrap.authority_id,
+                        bootstrap.local_session_authority_id,
                         uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
                     )
                 });
