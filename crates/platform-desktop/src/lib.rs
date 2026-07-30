@@ -507,6 +507,7 @@ where
             return Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch);
         }
 
+        let shutdown_was_pending = self.state == BundledRuntimeLifecycleState::Stopping;
         self.state = BundledRuntimeLifecycleState::Stopping;
         self.restart_at = None;
         self.backoff.record_disconnected();
@@ -515,7 +516,9 @@ where
                 return Err(BundledRuntimeSupervisorError::ShutdownOwnershipMismatch);
             };
             if process.request_graceful_stop().is_err() {
-                self.state = BundledRuntimeLifecycleState::Ready;
+                if !shutdown_was_pending {
+                    self.state = BundledRuntimeLifecycleState::Ready;
+                }
                 return Err(BundledRuntimeSupervisorError::GracefulStopUnavailable);
             }
             process
@@ -803,7 +806,7 @@ mod tests {
         statuses: VecDeque<BundledRuntimeProcessStatus>,
         graceful_stop_requests: Rc<Cell<u32>>,
         termination_requests: Rc<Cell<u32>>,
-        graceful_stop_fails: bool,
+        graceful_stop_outcomes: VecDeque<bool>,
         wait_failures_remaining: usize,
         terminate_failures_remaining: usize,
     }
@@ -814,7 +817,7 @@ mod tests {
                 statuses: statuses.into_iter().collect(),
                 graceful_stop_requests: Rc::new(Cell::new(0)),
                 termination_requests: Rc::new(Cell::new(0)),
-                graceful_stop_fails: false,
+                graceful_stop_outcomes: VecDeque::new(),
                 wait_failures_remaining: 0,
                 terminate_failures_remaining: 0,
             }
@@ -838,7 +841,7 @@ mod tests {
                     statuses: statuses.into_iter().collect(),
                     graceful_stop_requests: Rc::clone(&graceful_stop_requests),
                     termination_requests: Rc::clone(&termination_requests),
-                    graceful_stop_fails: false,
+                    graceful_stop_outcomes: VecDeque::new(),
                     wait_failures_remaining: 0,
                     terminate_failures_remaining: 0,
                 },
@@ -852,7 +855,7 @@ mod tests {
                 statuses: VecDeque::new(),
                 graceful_stop_requests: Rc::new(Cell::new(0)),
                 termination_requests: Rc::new(Cell::new(0)),
-                graceful_stop_fails,
+                graceful_stop_outcomes: VecDeque::from([graceful_stop_fails]),
                 wait_failures_remaining: usize::from(wait_fails),
                 terminate_failures_remaining: 0,
             }
@@ -867,7 +870,7 @@ mod tests {
                     statuses: statuses.into_iter().collect(),
                     graceful_stop_requests: Rc::new(Cell::new(0)),
                     termination_requests: Rc::clone(&termination_requests),
-                    graceful_stop_fails: false,
+                    graceful_stop_outcomes: VecDeque::new(),
                     wait_failures_remaining: 0,
                     terminate_failures_remaining: 1,
                 },
@@ -882,10 +885,18 @@ mod tests {
                 statuses: statuses.into_iter().collect(),
                 graceful_stop_requests: Rc::new(Cell::new(0)),
                 termination_requests: Rc::new(Cell::new(0)),
-                graceful_stop_fails: false,
+                graceful_stop_outcomes: VecDeque::new(),
                 wait_failures_remaining: 1,
                 terminate_failures_remaining: 0,
             }
+        }
+
+        fn with_wait_failure_then_graceful_failure(
+            statuses: impl IntoIterator<Item = BundledRuntimeProcessStatus>,
+        ) -> Self {
+            let mut process = Self::with_wait_failure_once(statuses);
+            process.graceful_stop_outcomes = VecDeque::from([false, true]);
+            process
         }
     }
 
@@ -900,7 +911,7 @@ mod tests {
         fn request_graceful_stop(&mut self) -> io::Result<()> {
             self.graceful_stop_requests
                 .set(self.graceful_stop_requests.get() + 1);
-            if self.graceful_stop_fails {
+            if self.graceful_stop_outcomes.pop_front().unwrap_or(false) {
                 return Err(io::Error::other("graceful stop failure"));
             }
             Ok(())
@@ -1320,6 +1331,40 @@ mod tests {
             ),
             Ok(BundledRuntimeStopDisposition::Graceful)
         );
+    }
+
+    #[test]
+    fn supervisor_keeps_shutdown_fence_when_retry_graceful_request_fails() {
+        let clock = FakeClock::new(Instant::now());
+        let (launcher, _) =
+            FakeLauncher::new([Ok(FakeProcess::with_wait_failure_then_graceful_failure([
+                BundledRuntimeProcessStatus::Exited,
+            ]))]);
+        let mut supervisor = BundledRuntimeSupervisor::new(launcher, clock, launch_spec());
+        supervisor.start().expect("spawn owned process");
+        supervisor
+            .record_authenticated_ready(&authenticated_handshake())
+            .expect("prove current owned launch");
+
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Err(BundledRuntimeSupervisorError::ProcessStatusUnavailable)
+        );
+        assert_eq!(
+            supervisor.stop(
+                &authenticated_handshake(),
+                BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT
+            ),
+            Err(BundledRuntimeSupervisorError::GracefulStopUnavailable)
+        );
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopping);
+        supervisor
+            .monitor()
+            .expect("shutdown fence prevents restart after retry failure");
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Stopped);
     }
 
     #[test]
