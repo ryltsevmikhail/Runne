@@ -156,6 +156,7 @@ impl ReplayStorePort for DummyStore {
         _: &[u8; 16],
         _: i64,
         _: &[u8; 32],
+        _: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Option<ReplayEvent>), ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }
@@ -166,6 +167,7 @@ impl ReplayStorePort for DummyStore {
         _: i64,
         _: &[u8; 16],
         _: i64,
+        _: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<ReplaySession, ReplayError> {
         Err(ReplayError::Storage("dummy".into()))
     }

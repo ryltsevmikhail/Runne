@@ -16,7 +16,7 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::Arc,
 };
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Fresh, non-serializable identity for one daemon launch.
 pub struct LaunchIdentity {
@@ -26,6 +26,12 @@ pub struct LaunchIdentity {
     daemon_instance_id: DaemonInstanceId,
     launch_generation: u64,
     server_config: Arc<ServerConfig>,
+}
+
+impl Drop for LaunchIdentity {
+    fn drop(&mut self) {
+        self.bootstrap_secret.zeroize();
+    }
 }
 
 impl LaunchIdentity {

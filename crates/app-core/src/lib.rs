@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gocode_local_store::{
     LocalProject, LocalStore, ProjectOpenError, SecurityTransactionError, StoreOpenError,
@@ -10,8 +10,9 @@ use gocode_local_store::{
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, CreateConversationRequest,
     GenerateTextRequest, LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile,
-    ReplayAggregateKind, ReplayClientError, ReplayIdentityTracker, ReplayRecoveryDisposition,
-    ReplayScope, ReplayStreamEvent, RuntimeApiErrorKind, default_local_profile_path,
+    ReconnectDecision, ReconnectPolicy, ReplayAggregateKind, ReplayClientError,
+    ReplayIdentityTracker, ReplayRecoveryDisposition, ReplayScope, ReplayStreamEvent,
+    RuntimeApiErrorKind, default_local_profile_path,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -111,7 +112,10 @@ impl RuntimeAvailability {
                 | (Self::ProfileLoaded, Self::PeerVerified)
                 | (Self::PeerVerified, Self::BootstrapProved)
                 | (Self::BootstrapProved, Self::Authenticated)
-                | (Self::Authenticated | Self::Live, Self::Reconciling)
+                | (
+                    Self::Authenticated | Self::Live | Self::Reconnecting | Self::ResyncRequired,
+                    Self::Reconciling
+                )
                 | (Self::Reconciling, Self::Live)
                 | (
                     Self::ProfileLoaded
@@ -459,6 +463,48 @@ impl AppCore {
             .await
     }
 
+    /// Explicitly discards only the affected retained replay projection and
+    /// rebuilds it from the runtime's current authoritative floor.
+    ///
+    /// # Errors
+    ///
+    /// This operation is admitted only from `resync_required`; identity
+    /// mismatch or local reset failure remains fail-closed.
+    pub async fn resync_project_conversation(
+        &self,
+        project_id: i64,
+    ) -> Result<ConversationSnapshot, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        if self.runtime_availability()? != RuntimeAvailability::ResyncRequired {
+            return Err(AppCoreError::ReplayResyncRequired);
+        }
+        let client = self
+            .runtime_client()?
+            .ok_or(AppCoreError::RuntimeUnavailable)?;
+        let reference = self.load_or_prepare_conversation_reference(project_id)?;
+        let identity = replay::StableRuntimeIdentity::from_client(&client);
+        let Some(bound) = reference.bound() else {
+            return Err(AppCoreError::InvalidConversationReference);
+        };
+        if !identity.matches_reference(bound) {
+            self.set_runtime_failure(RuntimeAvailability::Fatal)?;
+            return Err(AppCoreError::RuntimeIdentityConflict);
+        }
+        let scope_key = identity.scope(&reference);
+        {
+            let mut store = self
+                .store
+                .lock()
+                .map_err(|_| AppCoreError::StateUnavailable)?;
+            store.reset_replay_scope(&scope_key).map_err(|_| {
+                let _ = self.set_runtime_failure(RuntimeAvailability::Fatal);
+                AppCoreError::LocalProjectionUnavailable
+            })?;
+        }
+        self.reconcile_conversation(&client, &reference, &identity, |_| {})
+            .await
+    }
+
     /// Reconciles from the durable checkpoint and then emits acknowledged live
     /// Conversation updates until the stream terminates or the caller cancels
     /// the future.
@@ -476,119 +522,155 @@ impl AppCore {
     where
         F: FnMut(ConversationTimelineUpdate) + Send,
     {
-        let operation = self.runtime_operation.lock().await;
-        let client = self.live_runtime_client()?;
-        let reference = self.load_or_prepare_conversation_reference(project_id)?;
-        let identity = replay::StableRuntimeIdentity::from_client(&client);
-        let Some(bound) = reference.bound() else {
-            return Err(AppCoreError::InvalidConversationReference);
-        };
-        if !identity.matches_reference(bound) {
-            self.set_runtime_failure(RuntimeAvailability::Fatal)?;
-            return Err(AppCoreError::RuntimeIdentityConflict);
-        }
-        self.transition_runtime(RuntimeAvailability::Reconciling)?;
-        let scope_key = identity.scope(&reference);
-        let checkpoint_result = {
-            let store = self
-                .store
-                .lock()
-                .map_err(|_| AppCoreError::StateUnavailable)?;
-            replay::checkpoint(&store, &scope_key)
-        };
-        let checkpoint = match checkpoint_result {
-            Ok(checkpoint) => checkpoint,
-            Err(error) => {
-                self.set_runtime_failure(RuntimeAvailability::Fatal)?;
-                return Err(error);
-            }
-        };
-        let replay_scope = ReplayScope::new(
-            ReplayAggregateKind::Conversation,
-            reference.conversation_id(),
-        );
-        let mut local_error = None;
-        let live_result = client
-            .catch_up_from_persisted_cursor(
-                replay_scope,
-                checkpoint.as_ref().map(|value| value.cursor.as_str()),
-                ReplayIdentityTracker::new(),
-                |delivery| {
-                    let Ok(mut store) = self.store.lock() else {
-                        local_error = Some(AppCoreError::StateUnavailable);
-                        return Err(());
-                    };
-                    match replay::apply_delivery(&mut store, &reference, &identity, delivery) {
-                        Ok(update) => Ok(update),
-                        Err(error) => {
-                            local_error = Some(error);
-                            Err(())
-                        }
-                    }
-                },
-                |update| {
-                    if let Some(update) = update {
-                        on_update(update);
-                    }
-                },
-            )
-            .await;
-        let mut live = match live_result {
-            Ok(live) => live,
-            Err(_) if local_error.is_some() => {
-                self.set_runtime_failure(RuntimeAvailability::Fatal)?;
-                return Err(local_error
-                    .take()
-                    .unwrap_or(AppCoreError::LocalProjectionUnavailable));
-            }
-            Err(error) => return Err(self.map_replay_failure(&error)),
-        };
-        self.transition_runtime(RuntimeAvailability::Live)?;
-        drop(operation);
-
+        let mut reconnect_policy = ReconnectPolicy::new();
         loop {
-            let event = match live.next_event().await {
-                Ok(event) => event,
-                Err(error) => {
-                    let _operation = self.runtime_operation.lock().await;
-                    if !self.runtime_client_is_current(&client)? {
-                        return Err(AppCoreError::RuntimeUnavailable);
+            let operation = self.runtime_operation.lock().await;
+            let client = self
+                .runtime_client()?
+                .ok_or(AppCoreError::RuntimeUnavailable)?;
+            if !matches!(
+                self.runtime_availability()?,
+                RuntimeAvailability::Live | RuntimeAvailability::Reconnecting
+            ) || !self.runtime_client_is_current(&client)?
+            {
+                return Err(AppCoreError::RuntimeUnavailable);
+            }
+            let reference = self.load_or_prepare_conversation_reference(project_id)?;
+            let identity = replay::StableRuntimeIdentity::from_client(&client);
+            let Some(bound) = reference.bound() else {
+                return Err(AppCoreError::InvalidConversationReference);
+            };
+            if !identity.matches_reference(bound) {
+                self.set_runtime_failure(RuntimeAvailability::Fatal)?;
+                return Err(AppCoreError::RuntimeIdentityConflict);
+            }
+            self.transition_runtime(RuntimeAvailability::Reconciling)?;
+            let scope_key = identity.scope(&reference);
+            let checkpoint = {
+                let store = self
+                    .store
+                    .lock()
+                    .map_err(|_| AppCoreError::StateUnavailable)?;
+                match replay::checkpoint(&store, &scope_key) {
+                    Ok(checkpoint) => checkpoint,
+                    Err(error) => {
+                        self.set_runtime_failure(RuntimeAvailability::Fatal)?;
+                        return Err(error);
                     }
-                    return Err(self.map_replay_failure(&error));
                 }
             };
-            let _operation = self.runtime_operation.lock().await;
+            let replay_scope = ReplayScope::new(
+                ReplayAggregateKind::Conversation,
+                reference.conversation_id(),
+            );
+            let identities = ReplayIdentityTracker::new();
+            let mut local_error = None;
+            let live_result = client
+                .catch_up_from_persisted_cursor(
+                    replay_scope,
+                    checkpoint.as_ref().map(|value| value.cursor.as_str()),
+                    identities,
+                    |delivery| {
+                        let Ok(mut store) = self.store.lock() else {
+                            local_error = Some(AppCoreError::StateUnavailable);
+                            return Err(());
+                        };
+                        match replay::apply_delivery(&mut store, &reference, &identity, delivery) {
+                            Ok(update) => Ok(update),
+                            Err(error) => {
+                                local_error = Some(error);
+                                Err(())
+                            }
+                        }
+                    },
+                    |update| {
+                        if let Some(update) = update {
+                            on_update(update);
+                        }
+                    },
+                )
+                .await;
+            let mut live = match live_result {
+                Ok(live) => live,
+                Err(_) if local_error.is_some() => {
+                    self.set_runtime_failure(RuntimeAvailability::Fatal)?;
+                    return Err(local_error
+                        .take()
+                        .unwrap_or(AppCoreError::LocalProjectionUnavailable));
+                }
+                Err(error) => {
+                    if error.recovery_disposition() != ReplayRecoveryDisposition::Reconnectable {
+                        return Err(self.map_replay_failure(&error));
+                    }
+                    self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
+                    let delay = match reconnect_policy.record_failure() {
+                        ReconnectDecision::RetryAfter(delay) => delay,
+                        ReconnectDecision::Exhausted => {
+                            return Err(AppCoreError::RuntimeUnavailable);
+                        }
+                    };
+                    drop(operation);
+                    tokio::time::sleep(delay).await;
+                    continue;
+                }
+            };
+            self.transition_runtime(RuntimeAvailability::Live)?;
+            drop(operation);
+
+            let live_started = Instant::now();
+            let recovery = loop {
+                let event = match live.next_event().await {
+                    Ok(event) => event,
+                    Err(error) => break error.recovery_disposition(),
+                };
+                let _operation = self.runtime_operation.lock().await;
+                if !self.runtime_client_is_current(&client)? {
+                    return Err(AppCoreError::RuntimeUnavailable);
+                }
+                match event {
+                    ReplayStreamEvent::Heartbeat => {}
+                    ReplayStreamEvent::Terminal(terminal) => {
+                        break terminal.recovery_disposition();
+                    }
+                    ReplayStreamEvent::Delivery(delivery) => {
+                        let update_result = {
+                            let mut store = self
+                                .store
+                                .lock()
+                                .map_err(|_| AppCoreError::StateUnavailable)?;
+                            replay::apply_delivery(&mut store, &reference, &identity, &delivery)
+                        };
+                        let update = match update_result {
+                            Ok(update) => update,
+                            Err(error) => {
+                                self.set_runtime_failure(RuntimeAvailability::Fatal)?;
+                                return Err(error);
+                            }
+                        };
+                        if let Err(error) = live.acknowledge(&delivery).await {
+                            break error.recovery_disposition();
+                        }
+                        if let Some(update) = update {
+                            on_update(update);
+                        }
+                        reconnect_policy.record_live_delivery(live_started.elapsed());
+                    }
+                }
+            };
+            if recovery != ReplayRecoveryDisposition::Reconnectable {
+                return Err(self.map_recovery_failure(recovery));
+            }
+            let operation = self.runtime_operation.lock().await;
             if !self.runtime_client_is_current(&client)? {
                 return Err(AppCoreError::RuntimeUnavailable);
             }
-            match event {
-                ReplayStreamEvent::Heartbeat => {}
-                ReplayStreamEvent::Terminal(terminal) => {
-                    return Err(self.map_recovery_failure(terminal.recovery_disposition()));
-                }
-                ReplayStreamEvent::Delivery(delivery) => {
-                    let update_result = {
-                        let mut store = self
-                            .store
-                            .lock()
-                            .map_err(|_| AppCoreError::StateUnavailable)?;
-                        replay::apply_delivery(&mut store, &reference, &identity, &delivery)
-                    };
-                    let update = match update_result {
-                        Ok(update) => update,
-                        Err(error) => {
-                            self.set_runtime_failure(RuntimeAvailability::Fatal)?;
-                            return Err(error);
-                        }
-                    };
-                    if let Err(error) = live.acknowledge(&delivery).await {
-                        return Err(self.map_replay_failure(&error));
-                    }
-                    if let Some(update) = update {
-                        on_update(update);
-                    }
-                }
-            }
+            self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
+            let delay = match reconnect_policy.record_failure() {
+                ReconnectDecision::RetryAfter(delay) => delay,
+                ReconnectDecision::Exhausted => return Err(AppCoreError::RuntimeUnavailable),
+            };
+            drop(operation);
+            tokio::time::sleep(delay).await;
         }
     }
 

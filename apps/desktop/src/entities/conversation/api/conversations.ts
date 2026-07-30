@@ -71,6 +71,19 @@ export async function openProjectConversation(
   return snapshot
 }
 
+export async function resyncProjectConversation(
+  projectId: number,
+  invoke: Invoke = tauriInvoke,
+): Promise<ConversationSnapshot> {
+  validateProjectId(projectId)
+  const value = await invoke('resync_project_conversation', { projectId })
+  const snapshot = parseConversationSnapshot(value)
+  if (snapshot === null) {
+    throw new Error('Invalid conversation resync response')
+  }
+  return snapshot
+}
+
 export async function sendProjectMessage(
   projectId: number,
   text: string,
@@ -313,7 +326,25 @@ export async function subscribeProjectConversation(
     }
     publishRecovery('reconnecting')
     try {
-      await reconcileAndResubscribe()
+      await cancelActive()
+      if (closed) {
+        throw new Error('Conversation subscription is closed')
+      }
+      const snapshot = await resyncProjectConversation(projectId, invoke)
+      if (
+        snapshot.conversationId !== timeline.snapshot.conversationId
+        || snapshot.recovery !== 'live'
+      ) {
+        await terminate('incompatible')
+        throw new Error('Incompatible conversation resync response')
+      }
+      const reconciledTimeline = createConversationTimeline(snapshot)
+      await startSubscription()
+      if (closed) {
+        throw new Error('Conversation subscription is closed')
+      }
+      timeline = reconciledTimeline
+      onTimeline(timeline.snapshot)
     }
     catch (error) {
       if (!closed && currentRecovery() === 'reconnecting') {

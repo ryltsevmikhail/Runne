@@ -13,6 +13,7 @@ use gocode_daemon::lock::LockSet;
 use gocode_runtime_client::LocalRuntimeProfile;
 use gocode_store::schema;
 use rustls::pki_types::ServerName;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::oneshot;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -203,6 +204,80 @@ async fn completed_tls_handshakes_do_not_hold_pre_auth_permits_for_keepalive() {
         .await
         .expect("legitimate client is admitted after completed handshakes");
     drop(idle_tls_connections);
+    running.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn completed_tls_connections_are_bounded_for_their_full_http_lifetime() {
+    let running = RunningDaemon::start().await;
+    let connector = pinned_connector(&running.profile_path);
+    let mut idle_tls_connections = Vec::new();
+    for _ in 0..64 {
+        let tcp = tokio::net::TcpStream::connect(running.address)
+            .await
+            .expect("TCP connection");
+        idle_tls_connections.push(
+            connector
+                .connect(
+                    ServerName::IpAddress(rustls::pki_types::IpAddr::V4([127, 0, 0, 1].into())),
+                    tcp,
+                )
+                .await
+                .expect("pinned TLS handshake"),
+        );
+    }
+
+    let over_limit_tcp = tokio::net::TcpStream::connect(running.address)
+        .await
+        .expect("TCP backlog remains available");
+    let over_limit = tokio::time::timeout(
+        Duration::from_millis(250),
+        connector.connect(
+            ServerName::IpAddress(rustls::pki_types::IpAddr::V4([127, 0, 0, 1].into())),
+            over_limit_tcp,
+        ),
+    )
+    .await;
+    assert!(
+        over_limit.is_err() || over_limit.is_ok_and(|result| result.is_err()),
+        "a sixty-fifth live HTTP connection must not be admitted"
+    );
+
+    idle_tls_connections.pop();
+    LocalRuntimeProfile::load(&running.profile_path)
+        .expect("profile")
+        .connect(Duration::from_secs(5))
+        .await
+        .expect("released lifetime permit admits a replacement");
+    drop(idle_tls_connections);
+    running.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn incomplete_http_headers_are_closed_after_the_read_deadline() {
+    let running = RunningDaemon::start().await;
+    let connector = pinned_connector(&running.profile_path);
+    let tcp = tokio::net::TcpStream::connect(running.address)
+        .await
+        .expect("TCP connection");
+    let mut stream = connector
+        .connect(
+            ServerName::IpAddress(rustls::pki_types::IpAddr::V4([127, 0, 0, 1].into())),
+            tcp,
+        )
+        .await
+        .expect("pinned TLS handshake");
+    stream
+        .write_all(b"GET /v1/health HTTP/1.1\r\nHost: localhost\r\n")
+        .await
+        .expect("partial HTTP headers");
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let mut byte = [0_u8; 1];
+    let closed = tokio::time::timeout(Duration::from_secs(1), stream.read(&mut byte))
+        .await
+        .expect("header deadline must close the connection");
+    assert!(closed.is_err() || closed.is_ok_and(|read| read == 0));
     running.stop().await;
 }
 

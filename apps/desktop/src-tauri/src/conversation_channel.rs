@@ -473,8 +473,14 @@ async fn run_subscription(
 ) {
     let mut source_error = None;
     let mut in_flight = None;
+    let mut terminal_error = None;
     loop {
-        if control.is_cancelled() || overflowed.load(Ordering::Acquire) {
+        if control.is_cancelled() {
+            break;
+        }
+        if overflowed.load(Ordering::Acquire) {
+            terminal_error =
+                Some(ConversationChannelErrorCode::ConversationSubscriptionUnavailable);
             break;
         }
 
@@ -493,6 +499,8 @@ async fn run_subscription(
                     source_error = Some(map_source_result(result));
                 }
                 () = tokio::time::sleep_until(sent_at + ACK_TIMEOUT) => {
+                    terminal_error =
+                        Some(ConversationChannelErrorCode::ConversationSubscriptionUnavailable);
                     break;
                 }
             }
@@ -542,6 +550,9 @@ async fn run_subscription(
     if source_error.is_none() {
         source_task.abort();
         let _ = source_task.await;
+    }
+    if let Some(error) = terminal_error {
+        let _ = on_update.send(ConversationChannelEvent::error(error));
     }
     release_finished(&manager, &subscription_id);
 }

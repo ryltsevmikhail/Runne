@@ -102,6 +102,20 @@ async fn open_project_conversation(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
+async fn resync_project_conversation(
+    state: State<'_, Arc<AppCore>>,
+    project_id: i64,
+) -> Result<ConversationSnapshot, IpcError> {
+    state
+        .resync_project_conversation(project_id)
+        .await
+        .map_err(|_| IpcError {
+            code: "replay_resync_required",
+        })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
 async fn send_project_message(
     state: State<'_, Arc<AppCore>>,
     project_id: i64,
@@ -196,6 +210,7 @@ pub fn run() {
             get_diagnostics,
             connect_runtime,
             open_project_conversation,
+            resync_project_conversation,
             send_project_message,
             subscribe_project_conversation,
             ack_conversation_update,

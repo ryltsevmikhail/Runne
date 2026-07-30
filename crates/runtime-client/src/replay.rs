@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use reqwest::header::{ACCEPT, CONTENT_TYPE};
@@ -532,21 +532,6 @@ pub trait ReconnectRuntime: Sync {
     fn now(&self) -> Duration;
 
     fn sleep(&self, delay: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>>;
-}
-
-struct TokioReconnectRuntime;
-
-impl ReconnectRuntime for TokioReconnectRuntime {
-    fn now(&self) -> Duration {
-        static MONOTONIC_EPOCH: OnceLock<tokio::time::Instant> = OnceLock::new();
-        MONOTONIC_EPOCH
-            .get_or_init(tokio::time::Instant::now)
-            .elapsed()
-    }
-
-    fn sleep(&self, delay: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-        Box::pin(tokio::time::sleep(delay))
-    }
 }
 
 /// Bounded deterministic reconnect policy.
@@ -1586,7 +1571,6 @@ impl AuthenticatedRuntimeClient {
             last_delivery_sequence: None,
             terminal_returned: false,
             unacknowledged: None,
-            reconnect_policy: ReconnectPolicy::new(),
         })
     }
 
@@ -1742,7 +1726,6 @@ pub struct ReplayLiveSession {
     last_delivery_sequence: Option<u64>,
     terminal_returned: bool,
     unacknowledged: Option<ReplayCursor>,
-    reconnect_policy: ReconnectPolicy,
 }
 
 impl ReplayLiveSession {
@@ -1771,45 +1754,7 @@ impl ReplayLiveSession {
     /// Returns a closed replay failure for transport silence/EOF or any
     /// malformed, oversized, mismatched or terminally invalid frame.
     pub async fn next_event(&mut self) -> Result<ReplayStreamEvent, ReplayClientError> {
-        self.next_event_with_reconnect_runtime(&TokioReconnectRuntime)
-            .await
-    }
-
-    /// Receives the next event with an injectable reconnect clock and sleeper.
-    ///
-    /// Reconnectable stream failures drop the failed response and incomplete
-    /// decoder state, then reopen the same authenticated events endpoint under
-    /// the bounded reconnect policy.
-    ///
-    /// # Errors
-    ///
-    /// Returns the last reconnectable error after policy exhaustion, or the
-    /// first closed non-reconnectable failure.
-    pub async fn next_event_with_reconnect_runtime(
-        &mut self,
-        runtime: &impl ReconnectRuntime,
-    ) -> Result<ReplayStreamEvent, ReplayClientError> {
-        loop {
-            match self.next_event_once().await {
-                Ok(event) => {
-                    if matches!(event, ReplayStreamEvent::Delivery(_)) {
-                        self.reconnect_policy.record_live_delivery_with(runtime);
-                    }
-                    return Ok(event);
-                }
-                Err(error)
-                    if error.recovery_disposition() == ReplayRecoveryDisposition::Reconnectable =>
-                {
-                    self.reset_stream();
-                    if self.reconnect_policy.wait_after_failure(runtime).await
-                        == ReconnectDecision::Exhausted
-                    {
-                        return Err(error);
-                    }
-                }
-                Err(error) => return Err(error),
-            }
-        }
+        self.next_event_once().await
     }
 
     async fn next_event_once(&mut self) -> Result<ReplayStreamEvent, ReplayClientError> {
@@ -2606,52 +2551,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn live_session_reopens_events_request_after_eof() {
-        struct RecordingRuntime {
-            sleeps: Mutex<Vec<Duration>>,
-        }
-
-        impl ReconnectRuntime for RecordingRuntime {
-            fn now(&self) -> Duration {
-                Duration::ZERO
-            }
-
-            fn sleep(&self, delay: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + '_>> {
-                self.sleeps.lock().unwrap().push(delay);
-                Box::pin(std::future::ready(()))
-            }
-        }
-
+    async fn live_session_returns_eof_to_the_outer_reconnect_owner() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let address = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             let (mut stream, _) = listener.accept().await.unwrap();
-            for body in [b"".as_slice(), b": heartbeat\n\n"] {
-                let (path, _) = read_request(&mut stream).await;
-                assert_eq!(path, "/v1/replay/018f2e3a700070008000000000000118/events");
-                let headers = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n",
-                    body.len()
-                );
-                stream.write_all(headers.as_bytes()).await.unwrap();
-                stream.write_all(body).await.unwrap();
-            }
+            let (path, _) = read_request(&mut stream).await;
+            assert_eq!(path, "/v1/replay/018f2e3a700070008000000000000118/events");
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: 0\r\n\r\n",
+                )
+                .await
+                .unwrap();
         });
 
-        let runtime = RecordingRuntime {
-            sleeps: Mutex::new(Vec::new()),
-        };
         let mut live = test_live_session_with_client(test_client(address));
 
         assert_eq!(
-            live.next_event_with_reconnect_runtime(&runtime)
-                .await
-                .unwrap(),
-            ReplayStreamEvent::Heartbeat
-        );
-        assert_eq!(
-            runtime.sleeps.lock().unwrap().as_slice(),
-            &[Duration::from_millis(250)]
+            live.next_event().await.unwrap_err().kind(),
+            ReplayClientErrorKind::Transport
         );
         server.await.unwrap();
     }
@@ -2690,7 +2609,6 @@ mod tests {
             last_delivery_sequence: None,
             terminal_returned: false,
             unacknowledged: None,
-            reconnect_policy: ReconnectPolicy::new(),
         }
     }
 

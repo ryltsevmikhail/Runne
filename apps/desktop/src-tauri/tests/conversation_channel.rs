@@ -444,6 +444,15 @@ async fn ack_silence_cancels_after_45_seconds_and_releases_the_pair() {
 
     tokio::time::advance(Duration::from_secs(46)).await;
     tokio::task::yield_now().await;
+    wait_for_messages(&messages, 2).await;
+
+    assert_eq!(
+        messages.lock().expect("messages")[1],
+        serde_json::json!({
+            "kind": "error",
+            "code": "conversation_subscription_unavailable",
+        })
+    );
 
     let replacement = wait_for_replacement(&manager, source, &first).await;
     assert_ne!(replacement, first);
@@ -468,11 +477,27 @@ async fn queue_count_or_byte_overflow_cancels_and_releases_the_pair() {
             updates,
             terminal: Terminal::Pending,
         });
-        let (on_update, _) = channel();
+        let (on_update, messages) = channel();
         let first = manager
             .subscribe(Arc::clone(&source), PROJECT_ID, "main", on_update)
             .expect("subscribe");
 
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if messages.lock().expect("messages").iter().any(|message| {
+                    *message
+                        == serde_json::json!({
+                            "kind": "error",
+                            "code": "conversation_subscription_unavailable",
+                        })
+                }) {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("renderer-visible overflow recovery");
         let replacement = wait_for_replacement(&manager, source, &first).await;
         assert_ne!(replacement, first);
     }

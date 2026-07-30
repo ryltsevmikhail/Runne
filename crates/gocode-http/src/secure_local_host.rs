@@ -10,7 +10,7 @@ use gocode_api::{
     TaskRunCommandHostPort, TaskRunQueryHostPort,
 };
 use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
 use hyper_util::server::conn::auto::Builder as ConnectionBuilder;
 use tokio::net::TcpListener;
 use tokio::sync::{Semaphore, oneshot};
@@ -28,6 +28,10 @@ use crate::task_runs::TaskRunHttpState;
 
 const PRE_AUTH_HANDSHAKE_LIMIT: usize = 32;
 const PRE_AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(1);
+const TOTAL_CONNECTION_LIMIT: usize = 64;
+const HTTP_HEADER_READ_TIMEOUT: Duration = Duration::from_secs(2);
+const HTTP2_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
+const HTTP2_KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Redacted local TLS host failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -118,6 +122,12 @@ impl LocalRuntimeTlsHost {
         PRE_AUTH_HANDSHAKE_LIMIT
     }
 
+    /// Returns the cap held for every accepted connection's full lifetime.
+    #[must_use]
+    pub const fn total_connection_limit(&self) -> usize {
+        TOTAL_CONNECTION_LIMIT
+    }
+
     /// Starts the owned TLS accept loop.
     #[must_use]
     pub fn start(self) -> LocalRuntimeTlsHostTask {
@@ -172,6 +182,7 @@ where
 {
     let mut connections = JoinSet::new();
     let handshakes = Arc::new(Semaphore::new(PRE_AUTH_HANDSHAKE_LIMIT));
+    let total_connections = Arc::new(Semaphore::new(TOTAL_CONNECTION_LIMIT));
     let service = host.into_router();
     tokio::pin!(shutdown);
     loop {
@@ -182,6 +193,11 @@ where
             }
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
+                    let Ok(connection_permit) =
+                        Arc::clone(&total_connections).try_acquire_owned()
+                    else {
+                        continue;
+                    };
                     let Ok(permit) = Arc::clone(&handshakes).try_acquire_owned() else {
                         continue;
                     };
@@ -205,9 +221,19 @@ where
                                     .await
                             }
                         });
-                        let _ = ConnectionBuilder::new(TokioExecutor::new())
-                            .serve_connection(TokioIo::new(stream), http)
-                            .await;
+                        let mut builder = ConnectionBuilder::new(TokioExecutor::new());
+                        builder
+                            .http1()
+                            .timer(TokioTimer::new())
+                            .header_read_timeout(Some(HTTP_HEADER_READ_TIMEOUT));
+                        builder
+                            .http2()
+                            .timer(TokioTimer::new())
+                            .keep_alive_interval(Some(HTTP2_KEEP_ALIVE_INTERVAL))
+                            .keep_alive_timeout(HTTP2_KEEP_ALIVE_TIMEOUT)
+                            .max_concurrent_streams(Some(32));
+                        let _ = builder.serve_connection(TokioIo::new(stream), http).await;
+                        drop(connection_permit);
                     });
                 }
                 Err(_) => {

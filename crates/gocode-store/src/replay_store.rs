@@ -1383,6 +1383,7 @@ impl ReplayStorePort for ReplayStore {
         authority_id: &[u8; 16],
         epoch: i64,
         server_secret: &[u8; 32],
+        authorization_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<(ReplaySession, Option<ReplayEvent>), ReplayError> {
         let conn = Arc::clone(&self.conn);
         let session_id = *session_id;
@@ -1414,6 +1415,7 @@ impl ReplayStorePort for ReplayStore {
                 .ok_or(ReplayError::SessionNotFound)?;
 
             validate_auth(&session, &principal_id, generation, &authority_id, epoch)?;
+            authorization_guard.inspect_ack(&session)?;
 
             if session.state == ReplayState::CatchUpComplete
                 && session.catch_up_completion.is_some()
@@ -1519,6 +1521,7 @@ impl ReplayStorePort for ReplayStore {
         generation: i64,
         authority_id: &[u8; 16],
         epoch: i64,
+        authorization_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
     ) -> Result<ReplaySession, ReplayError> {
         let conn = Arc::clone(&self.conn);
         let session_id = *session_id;
@@ -1549,50 +1552,24 @@ impl ReplayStorePort for ReplayStore {
                 .ok_or(ReplayError::SessionNotFound)?;
 
             validate_auth(&session, &principal_id, generation, &authority_id, epoch)?;
+            authorization_guard.inspect_ack(&session)?;
 
             if session.state != ReplayState::CatchUpComplete {
                 return Err(ReplayError::InvalidState(session.state.as_db().to_string()));
             }
 
-            // CAS: catch_up_complete → activating_live (only one activator wins)
-            let affected = conn
-                .execute(
-                    "UPDATE _replay_subscriptions
-                     SET state = 'activating_live'
-                     WHERE session_id = ?1
-                       AND state = 'catch_up_complete'
-                       AND principal_id = ?2
-                       AND session_generation = ?3
-                       AND authority_id = ?4
-                       AND authorization_epoch = ?5",
-                    params![
-                        session_id.as_slice(),
-                        principal_id.as_str(),
-                        generation,
-                        authority_id.as_slice(),
-                        epoch,
-                    ],
-                )
-                .map_err(|e| ReplayError::Storage(format!("cas activating: {}", e)))?;
-
-            if affected != 1 {
-                return Err(ReplayError::InvalidState(
-                    "another activator already claimed this session".to_string(),
-                ));
-            }
-
-            // Generate live_delivery_id
             let mut live_delivery_id = [0u8; 16];
             OsRng.fill_bytes(&mut live_delivery_id);
 
-            // Immediately transition activating_live → live
+            // Generate the delivery identity first, then publish Live in one
+            // durable CAS. No restart can observe an intermediate activation.
             let affected = conn
                 .execute(
                     "UPDATE _replay_subscriptions
                      SET state = 'live',
                          live_delivery_id = ?1
                      WHERE session_id = ?2
-                       AND state = 'activating_live'
+                       AND state = 'catch_up_complete'
                        AND principal_id = ?3
                        AND session_generation = ?4
                        AND authority_id = ?5
@@ -1606,11 +1583,11 @@ impl ReplayStorePort for ReplayStore {
                         epoch,
                     ],
                 )
-                .map_err(|e| ReplayError::Storage(format!("cas live: {}", e)))?;
+                .map_err(|e| ReplayError::Storage(format!("activate live: {}", e)))?;
 
             if affected != 1 {
-                return Err(ReplayError::Integrity(
-                    "live transition failed after activating_live CAS".to_string(),
+                return Err(ReplayError::InvalidState(
+                    "another activator already claimed this session".to_string(),
                 ));
             }
 
