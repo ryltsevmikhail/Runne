@@ -160,7 +160,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     );
     assert_eq!(
         runtime_profile["schemaHash"],
-        "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429"
+        "dca8e3a64b77171495a5474a4994dcd8c33a715f2d6b492a9fc2d14e30619862"
     );
     assert_eq!(runtime_profile["runtimeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(runtime_profile["launchGeneration"], 1);
@@ -378,7 +378,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
         .post(url(daemon.address, "/v1/replay/open-session"))
         .header("authorization", &authorization)
         .json(&json!({
-            "aggregateType": 2,
+            "aggregateType": "conversation",
             "aggregateId": aggregate_id,
         }))
         .send()
@@ -454,9 +454,9 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
     .await
     .expect("live Conversation event must arrive before timeout");
 
-    assert!(delivery.contains("\"aggregateType\":2"));
-    assert!(delivery.contains(&format!("\"aggregateId\":\"{aggregate_id}\"")));
-    assert!(delivery.contains("\"eventType\":\"ConversationCreated\""));
+    assert!(delivery.contains("\"aggregateType\":\"conversation\""));
+    assert!(delivery.contains(&format!("\"aggregateId\":\"{CONVERSATION_ID}\"")));
+    assert!(delivery.contains("\"eventType\":\"conversation.created\""));
     assert!(delivery.contains("\"replayCursor\":\"gocode-replay-cursor-v1."));
 
     drop(stream);
@@ -493,7 +493,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         .post(url(daemon.address, "/v1/replay/open-session"))
         .header("authorization", &authorization)
         .json(&json!({
-            "aggregateType": 2,
+            "aggregateType": "conversation",
             "aggregateId": aggregate_id,
         }))
         .send()
@@ -542,7 +542,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         .post(url(restarted.address, "/v1/replay/open-session"))
         .header("authorization", &restarted_authorization)
         .json(&json!({
-            "aggregateType": 2,
+            "aggregateType": "conversation",
             "aggregateId": aggregate_id,
             "fromCursor": acknowledged_cursor,
         }))
@@ -552,7 +552,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
     assert_eq!(reopened.status(), StatusCode::OK);
     let reopened = reopened.json::<Value>().await.unwrap();
     assert_eq!(reopened["events"].as_array().unwrap().len(), 1);
-    assert_eq!(reopened["events"][0]["eventType"], "ConversationCreated");
+    assert_eq!(reopened["events"][0]["eventType"], "conversation.created");
     assert_eq!(
         reopened["events"][0]["cursor"].as_str().unwrap(),
         acknowledged_cursor

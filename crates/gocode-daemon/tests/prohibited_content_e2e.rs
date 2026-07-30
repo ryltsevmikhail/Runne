@@ -9,12 +9,13 @@ use base64::Engine as _;
 use gocode_api::{
     ApiActor, ApiPrincipalId, CanonicalMessageText, ConversationCommandContext,
     ConversationCommandHostPort, ConversationHostError, CreateCanonicalConversationCommand,
-    GenerateConversationTextCommand,
+    DaemonInstanceId, GenerateConversationTextCommand, RuntimeSessionBinding, StableRuntimeBinding,
 };
 use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextService,
 };
+use gocode_application::local_session::AuthenticatedRuntimeSession;
 use gocode_application::ports::{
     ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
     RuntimeAuthorityId,
@@ -28,7 +29,9 @@ use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
 use gocode_application::verification::export_port::VerificationExporter;
 use gocode_domain::event::Sensitivity;
-use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
+use gocode_domain::id::{
+    CommandId, ConversationId, EventLogLineageId, IdempotencyKey, WorkspaceId,
+};
 use gocode_domain::message::MessageText;
 use gocode_domain::verification::backup::StreamInventory;
 use gocode_domain::verification::digest::VerificationDigest;
@@ -60,6 +63,9 @@ const MARKER: &str = "task-seven-e2e-inert-marker";
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000771";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000772";
 const TOKEN: [u8; 32] = [0x77; 32];
+const AUTHORITY: [u8; 16] = [
+    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x77,
+];
 
 type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 
@@ -98,6 +104,34 @@ fn conversation_context(sequence: u8, key: &str) -> ConversationCommandContext {
         idempotency_key: IdempotencyKey::new(key).unwrap(),
         principal: ApiPrincipalId::new("local-owner").unwrap(),
         actor: ApiActor::new("prohibited-content-e2e").unwrap(),
+    }
+}
+
+fn authenticated_runtime_session(lineage: EventLogLineageId) -> AuthenticatedRuntimeSession {
+    AuthenticatedRuntimeSession {
+        binding: RuntimeSessionBinding::new(
+            StableRuntimeBinding::new(
+                AUTHORITY,
+                ApiPrincipalId::new("local-owner").unwrap(),
+                lineage,
+                "gocode-ui-client/1",
+                [0x31; 32],
+                [0x41; 32],
+            )
+            .unwrap(),
+            DaemonInstanceId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x78,
+            ]),
+            1,
+            [
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x79,
+            ],
+            0,
+            Sensitivity::Sensitive,
+            [0x51; 32],
+        )
+        .unwrap(),
+        expires_at_monotonic: Duration::from_secs(600),
     }
 }
 
@@ -386,6 +420,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     drop(statement);
 
     let lineage = ensure_event_log_lineage_id(&connection).unwrap();
+    let authenticated = authenticated_runtime_session(lineage);
     drop(connection);
     let replay_connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
     let replay_service = ReplayService::new(
@@ -396,11 +431,12 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     );
     let replay_state = ReplayHttpState::new(
         replay_service,
-        ReplayHttpBinding::new([0x77; 16], 1, 0).unwrap(),
+        ReplayHttpBinding::new(AUTHORITY, 1, 0).unwrap(),
         LimitsConfig::default(),
         Arc::clone(&guard),
     );
     let replay = replay_router(replay_state)
+        .layer(axum::Extension(authenticated))
         .layer(AuthLayer::new(TOKEN))
         .layer(axum::middleware::from_fn(request_id_middleware));
     let response = replay
@@ -412,7 +448,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "aggregateType": 2,
+                        "aggregateType": "conversation",
                         "aggregateId": hex::encode(conversation_id.as_bytes()),
                     }))
                     .unwrap(),
@@ -421,8 +457,14 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    let replay_status = response.status();
     let replay_bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    assert_eq!(
+        replay_status,
+        StatusCode::OK,
+        "unexpected replay response: {}",
+        String::from_utf8_lossy(&replay_bytes)
+    );
     assert_absent("replay response", &replay_bytes, &representations);
 
     let exporter = VerificationExporter::new(Arc::clone(&guard));

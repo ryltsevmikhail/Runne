@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use gocode_api::CanonicalReplayPayloadV1;
 use gocode_domain::command::TerminalResult;
 use gocode_domain::task_run::TaskRunEvent;
-use gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH;
+use gocode_runtime::bundle::{
+    PUBLISHED_BUNDLE_HASH, PUBLISHED_RUNTIME_CAPABILITIES, RUNTIME_CAPABILITY_CATALOG,
+};
 use gocode_runtime::contract_generation::{
     GENERATED_ARTIFACT_PATHS, check_ui_contract, generate_ui_contract,
 };
@@ -329,13 +331,12 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
     assert_eq!(bundle["transportProfileId"], "gocode-local-runtime/2");
     assert_eq!(
         bundle["publishedCapabilities"],
-        serde_json::json!([
-            "conversation.create.v1",
-            "conversation.generate_text.v1",
-            "conversation.list_messages.v1"
-        ])
+        serde_json::json!(PUBLISHED_RUNTIME_CAPABILITIES)
     );
-    assert_eq!(bundle["capabilityCatalog"].as_array().unwrap().len(), 9);
+    assert_eq!(
+        bundle["capabilityCatalog"],
+        serde_json::json!(RUNTIME_CAPABILITY_CATALOG)
+    );
     assert!(
         !bundle
             .as_object()

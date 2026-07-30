@@ -216,6 +216,71 @@ describe('conversation IPC adapter', () => {
     await session.unsubscribe()
   })
 
+  it('explicitly resyncs a retention-gap session through a fresh open and subscription', async () => {
+    const order: string[] = []
+    const channels: Array<(value: unknown) => void> = []
+    let subscriptions = 0
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      order.push(command)
+      if (command === 'subscribe_project_conversation') {
+        channels.push((args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage)
+        subscriptions += 1
+        return `018f2e3a-7000-7000-8000-${String(120 + subscriptions).padStart(12, '0')}`
+      }
+      if (command === 'open_project_conversation') {
+        return snapshot
+      }
+    })
+    const recoveries: string[] = []
+    const session = await subscribeProjectConversation(
+      7,
+      snapshot,
+      value => recoveries.push(value.recovery),
+      invoke,
+    )
+    channels[0]?.({ kind: 'error', code: 'replay_resync_required' })
+    await vi.waitFor(() => expect(recoveries.at(-1)).toBe('resync_required'))
+
+    const restored = await session.resync()
+
+    expect(restored.recovery).toBe('live')
+    expect(recoveries).toEqual(['resync_required', 'reconnecting', 'live'])
+    expect(order).toEqual([
+      'subscribe_project_conversation',
+      'cancel_conversation_subscription',
+      'open_project_conversation',
+      'subscribe_project_conversation',
+    ])
+    await session.unsubscribe()
+  })
+
+  it('returns a failed explicit resync to the actionable closed state', async () => {
+    let onmessage: ((value: unknown) => void) | undefined
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_project_conversation') {
+        onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
+        return '018f2e3a-7000-7000-8000-000000000120'
+      }
+      if (command === 'open_project_conversation') {
+        throw new Error('retention still unavailable')
+      }
+    })
+    const recoveries: string[] = []
+    const session = await subscribeProjectConversation(
+      7,
+      snapshot,
+      value => recoveries.push(value.recovery),
+      invoke,
+    )
+    onmessage?.({ kind: 'error', code: 'replay_resync_required' })
+    await vi.waitFor(() => expect(recoveries.at(-1)).toBe('resync_required'))
+
+    await expect(session.resync()).rejects.toThrow('retention still unavailable')
+
+    expect(recoveries.slice(-2)).toEqual(['reconnecting', 'resync_required'])
+    await session.unsubscribe()
+  })
+
   it('advances a successful send in the session before processing the next live update', async () => {
     let onmessage: ((value: unknown) => void) | undefined
     const sentSnapshot = {

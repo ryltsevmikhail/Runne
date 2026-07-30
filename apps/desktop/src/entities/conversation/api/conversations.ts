@@ -18,6 +18,7 @@ export type ConversationTimelineListener = (snapshot: ConversationSnapshot) => v
 export type ConversationUnsubscribe = () => Promise<void>
 export interface ConversationSession {
   readonly sendMessage: (text: string) => Promise<ConversationSnapshot>
+  readonly resync: () => Promise<ConversationSnapshot>
   readonly unsubscribe: ConversationUnsubscribe
 }
 
@@ -118,6 +119,7 @@ export async function subscribeProjectConversation(
     timeline = setConversationRecovery(timeline, recovery)
     onTimeline(timeline.snapshot)
   }
+  const currentRecovery = (): ConversationRecoveryState => timeline.snapshot.recovery
 
   const cancelActive = async (): Promise<void> => {
     generation += 1
@@ -298,8 +300,32 @@ export async function subscribeProjectConversation(
     return timeline.snapshot
   })
 
+  const resync = (): Promise<ConversationSnapshot> => serialize(async () => {
+    if (closed) {
+      throw new Error('Conversation subscription is closed')
+    }
+    if (currentRecovery() !== 'resync_required') {
+      throw new Error('Conversation resync is not required')
+    }
+    publishRecovery('reconnecting')
+    try {
+      await reconcileAndResubscribe()
+    }
+    catch (error) {
+      if (!closed && currentRecovery() === 'reconnecting') {
+        publishRecovery('resync_required')
+      }
+      throw error
+    }
+    if (currentRecovery() !== 'live') {
+      throw new Error('Conversation resync failed safely')
+    }
+    return timeline.snapshot
+  })
+
   return {
     sendMessage,
+    resync,
     unsubscribe,
   }
 }
