@@ -26,6 +26,20 @@ const MAX_CERTIFICATE_DER_BYTES: usize = 16 * 1024;
 const MAX_LAUNCH_TTL_MILLIS: u64 = 30_000;
 /// Transport identifier reserved for inherited-channel bundled activation.
 pub const PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID: &str = "gocode-bundled-runtime/1";
+/// Exact credential-free provider profile identity.
+pub const DETERMINISTIC_PROVIDER_PROFILE_ID: &str = "gocode-deterministic-text/1";
+/// Exact bounded OpenAI Responses text provider profile identity.
+pub const OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "gocode-openai-responses-text/1";
+/// Digest of the released deterministic text provider contract.
+pub const DETERMINISTIC_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
+    0xb7, 0x9e, 0xfd, 0x52, 0xcd, 0x0d, 0xe3, 0x29, 0x17, 0x0e, 0xfa, 0xae, 0xd2, 0xa1, 0x8e, 0x6d,
+    0x9f, 0xb0, 0xb9, 0xd7, 0x3d, 0x8b, 0x47, 0x40, 0x65, 0x14, 0x45, 0xb4, 0xe9, 0x0a, 0x95, 0x17,
+];
+/// Digest of the exact distributed OpenAI Responses text profile bytes.
+pub const OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
+    0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1, 0x73, 0x98,
+    0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d, 0xd0, 0xfb, 0xed, 0x80,
+];
 const EXTERNAL_TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
 const KEY_DERIVATION_DOMAIN: &[u8] = b"gocode/bundled-launch/key-derivation/v1\0";
 const BOOTSTRAP_DOMAIN: &[u8] = b"gocode/bundled-launch/bootstrap/v1";
@@ -445,7 +459,20 @@ impl ProviderActivationBindingV1 {
         profile_digest: [u8; 32],
     ) -> Result<Self, LaunchAuthorityError> {
         let profile_id = profile_id.into();
-        if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES) || profile_digest == [0; 32] {
+        let expected = match mode {
+            ProviderActivationModeV1::DeterministicV1 => (
+                DETERMINISTIC_PROVIDER_PROFILE_ID,
+                DETERMINISTIC_PROVIDER_PROFILE_DIGEST,
+            ),
+            ProviderActivationModeV1::OpenAiResponsesTextV1 => (
+                OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID,
+                OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
+            ),
+        };
+        if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
+            || profile_id != expected.0
+            || profile_digest != expected.1
+        {
             return Err(LaunchAuthorityError::ProviderProfileMismatch);
         }
         Ok(Self {
@@ -453,6 +480,26 @@ impl ProviderActivationBindingV1 {
             profile_id,
             profile_digest,
         })
+    }
+
+    /// Returns the released deterministic provider binding.
+    #[must_use]
+    pub fn deterministic_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::DeterministicV1,
+            profile_id: DETERMINISTIC_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: DETERMINISTIC_PROVIDER_PROFILE_DIGEST,
+        }
+    }
+
+    /// Returns the released exact OpenAI Responses text provider binding.
+    #[must_use]
+    pub fn openai_responses_text_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::OpenAiResponsesTextV1,
+            profile_id: OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
+        }
     }
 
     /// Returns the exact activation mode.

@@ -4,8 +4,8 @@
   "message_type_id": 21,
   "provider_mode": "openai_responses_text_v1",
   "provider_profile_id": "gocode-openai-responses-text/1",
-  "provider_profile_digest": "5252525252525252525252525252525252525252525252525252525252525252",
+  "provider_profile_digest": "d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80",
   "frame_length": 561,
-  "frame_sha256": "e567f6edb24387f3eca129ccae32eee2a4fc217177415140d639a74777963263",
+  "frame_sha256": "4aeccf959e099b443391a9aafb9dd2483e33f47ba94b2f89938216054014e086",
   "content_policy": "digest-only; launch secrets are never stored in golden fixtures"
 }
