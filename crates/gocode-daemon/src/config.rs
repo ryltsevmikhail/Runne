@@ -429,17 +429,18 @@ pub fn load_external_config() -> Result<ConfigurationSnapshot, DaemonError> {
 
 /// Loads an injected fixed external source for native-entry tests.
 pub fn load_external_config_at(path: &Path) -> Result<ConfigurationSnapshot, DaemonError> {
-    if !path.exists() {
-        return load_config(None);
+    match fs::symlink_metadata(path) {
+        Ok(_) => load_config(Some(path)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => load_config(None),
+        Err(error) => Err(DaemonError::Io(error)),
     }
-    load_config(Some(path))
 }
 
 fn read_explicit_config(path: &Path) -> Result<String, DaemonError> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
-        let mut file = fs::OpenOptions::new()
+        let file = fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)
             .open(path)?;
@@ -457,9 +458,16 @@ fn read_explicit_config(path: &Path) -> Result<String, DaemonError> {
                 "external config exceeds size limit".into(),
             ));
         }
-        let mut contents = String::with_capacity(metadata.len() as usize);
-        file.read_to_string(&mut contents)?;
-        Ok(contents)
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.take(MAX_EXTERNAL_CONFIG_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_EXTERNAL_CONFIG_BYTES {
+            return Err(DaemonError::Config(
+                "external config exceeds size limit".into(),
+            ));
+        }
+        String::from_utf8(bytes)
+            .map_err(|_| DaemonError::Config("external config is not UTF-8".into()))
     }
     #[cfg(not(unix))]
     {

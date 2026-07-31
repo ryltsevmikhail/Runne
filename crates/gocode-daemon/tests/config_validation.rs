@@ -240,3 +240,31 @@ fn external_explicit_source_rejects_symlink_and_oversize() {
     .unwrap();
     assert!(config::load_config(Some(&oversized)).is_err());
 }
+
+#[test]
+fn fixed_external_source_defaults_only_when_absent_and_rejects_broken_symlink() {
+    let dir = tempfile::tempdir().unwrap();
+    let absent = dir.path().join("absent.toml");
+    assert!(
+        !config::load_external_config_at(&absent)
+            .unwrap()
+            .provider_activation
+            .requires_openai_execution()
+    );
+    #[cfg(unix)]
+    {
+        let broken = dir.path().join("broken.toml");
+        std::os::unix::fs::symlink(dir.path().join("missing-target"), &broken).unwrap();
+        assert!(config::load_external_config_at(&broken).is_err());
+    }
+}
+
+#[test]
+fn bounded_reader_rejects_content_larger_than_verified_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("large.toml");
+    std::fs::write(&path, "#".repeat(16 * 1024 + 1)).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
+    assert!(config::load_external_config_at(&path).is_err());
+}
