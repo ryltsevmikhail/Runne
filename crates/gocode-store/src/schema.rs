@@ -24,7 +24,7 @@ use rusqlite::{
 };
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 12;
+pub const CURRENT_SCHEMA_VERSION: i64 = 13;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -397,6 +397,7 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
         10 => is_released_provider_v10(conn, schema_version)?,
         11 => is_released_provider_v11(conn, schema_version)?,
         12 => is_released_provider_v12(conn, schema_version)?,
+        13 => is_released_provider_v13(conn, schema_version)?,
         _ => false,
     };
     if compatible {
@@ -786,6 +787,26 @@ fn install_v12_fence_triggers(conn: &Connection) -> SqliteResult<()> {
     Ok(())
 }
 
+fn install_missing_v12_fence_triggers(conn: &Connection) -> SqliteResult<()> {
+    for table in authoritative_v12_tables(conn)? {
+        for operation in ["insert", "update", "delete"] {
+            let (name, sql) = v12_fence_trigger(&table, operation)?;
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'trigger' AND name = ?1
+                 )",
+                [&name],
+                |row| row.get(0),
+            )?;
+            if !exists {
+                conn.execute_batch(&sql)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 fn v12_fence_triggers_match(conn: &Connection) -> SqliteResult<bool> {
     let tables = authoritative_v12_tables(conn)?;
     let expected_count = i64::try_from(
@@ -853,6 +874,17 @@ fn apply_migrations_with_maintenance_hook(
     conn: &Connection,
     maintenance_hook: Option<&dyn Fn(SchemaMaintenancePoint)>,
 ) -> SqliteResult<()> {
+    apply_migrations_through(conn, CURRENT_SCHEMA_VERSION, maintenance_hook)
+}
+
+fn apply_migrations_through(
+    conn: &Connection,
+    target_version: i64,
+    maintenance_hook: Option<&dyn Fn(SchemaMaintenancePoint)>,
+) -> SqliteResult<()> {
+    if !(1..=CURRENT_SCHEMA_VERSION).contains(&target_version) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
     let has_version_table: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
         [],
@@ -870,6 +902,7 @@ fn apply_migrations_with_maintenance_hook(
             10 => is_released_provider_v10(conn, existing_version)?,
             11 => is_released_provider_v11(conn, existing_version)?,
             12 => is_released_provider_v12(conn, existing_version)?,
+            13 => is_released_provider_v13(conn, existing_version)?,
             _ => false,
         };
         if !compatible {
@@ -891,14 +924,14 @@ fn apply_migrations_with_maintenance_hook(
         )
         .unwrap_or(0);
 
-    if current_version < 1 {
+    if current_version < 1 && target_version >= 1 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V1)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (1)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 2 {
+    if current_version < 2 && target_version >= 2 {
         // Keep DDL, V1 backfill, and the version marker in one transaction.
         // `Transaction` rolls back on drop if any ALTER or rename fails.
         let tx = conn.unchecked_transaction()?;
@@ -914,70 +947,70 @@ fn apply_migrations_with_maintenance_hook(
         tx.commit()?;
     }
 
-    if current_version < 3 {
+    if current_version < 3 && target_version >= 3 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V3)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (3)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 4 {
+    if current_version < 4 && target_version >= 4 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V4)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (4)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 5 {
+    if current_version < 5 && target_version >= 5 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V5)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (5)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 6 {
+    if current_version < 6 && target_version >= 6 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V6)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (6)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 7 {
+    if current_version < 7 && target_version >= 7 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V7)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (7)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 8 {
+    if current_version < 8 && target_version >= 8 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V8)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (8)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 9 {
+    if current_version < 9 && target_version >= 9 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V9)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (9)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 10 {
+    if current_version < 10 && target_version >= 10 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V10)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (10)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 11 {
+    if current_version < 11 && target_version >= 11 {
         let tx = conn.unchecked_transaction()?;
         tx.execute_batch(MIGRATION_V11)?;
         tx.execute("INSERT INTO schema_version (version) VALUES (11)", [])?;
         tx.commit()?;
     }
 
-    if current_version < 12 {
+    if current_version < 12 && target_version >= 12 {
         if conn.path().is_some_and(|path| !path.is_empty()) {
             conn.execute_batch(
                 "PRAGMA journal_mode = WAL;
@@ -1013,7 +1046,15 @@ fn apply_migrations_with_maintenance_hook(
         tx.commit()?;
     }
 
-    if current_version < CURRENT_SCHEMA_VERSION {
+    if current_version < 13 && target_version >= 13 {
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
+        tx.execute_batch(MIGRATION_V13)?;
+        install_missing_v12_fence_triggers(&tx)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (13)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < target_version {
         // Preflight classifies the immutable main database without consulting
         // a hot WAL. Publish completed schema migrations before another
         // process or connection attempts admission.
@@ -1053,9 +1094,8 @@ fn rollback_pre_v12_snapshot_with_hook(
             |row| row.get(0),
         )
         .map_err(|_| SchemaRollbackError::UnsupportedSchema)?;
-    if version != 12
-        || !is_released_provider_v12(&connection, 12)
-            .map_err(|_| SchemaRollbackError::UnsupportedSchema)?
+    if !is_supported_pre_v12_rollback_source(&connection, version)
+        .map_err(|_| SchemaRollbackError::UnsupportedSchema)?
     {
         return Err(SchemaRollbackError::UnsupportedSchema);
     }
@@ -1207,13 +1247,29 @@ fn recheck_rollback_fence(
     {
         return Err(SchemaRollbackError::SnapshotMismatch);
     }
-    if !is_released_provider_v12(conn, 12).map_err(|_| SchemaRollbackError::UnsupportedSchema)?
+    let version: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|_| SchemaRollbackError::UnsupportedSchema)?;
+    if !is_supported_pre_v12_rollback_source(conn, version)
+        .map_err(|_| SchemaRollbackError::UnsupportedSchema)?
         || v12_write_latch_closed(conn).map_err(|_| SchemaRollbackError::UnsupportedSchema)?
         || !current_v12_high_water_matches(conn, fence)?
     {
         return Err(SchemaRollbackError::RollbackClosed);
     }
     Ok(())
+}
+
+fn is_supported_pre_v12_rollback_source(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    match version {
+        12 => is_released_provider_v12(conn, version),
+        13 => is_released_provider_v13(conn, version),
+        _ => Ok(false),
+    }
 }
 
 fn resolve_private_snapshot(
@@ -1324,7 +1380,16 @@ fn is_released_provider_v11(conn: &Connection, version: i64) -> SqliteResult<boo
 }
 
 fn is_released_provider_v12(conn: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 12 || !is_released_strict_v9(conn, 9)? {
+    if version != 12 {
+        return Ok(false);
+    }
+    Ok(provider_v12_core_matches(conn)?
+        && v12_fence_triggers_match(conn)?
+        && released_v12_catalog_matches(conn)?)
+}
+
+fn provider_v12_core_matches(conn: &Connection) -> SqliteResult<bool> {
+    if !is_released_strict_v9(conn, 9)? {
         return Ok(false);
     }
     Ok(table_shape_matches(
@@ -1355,9 +1420,64 @@ fn is_released_provider_v12(conn: &Connection, version: i64) -> SqliteResult<boo
         )?
         && table_sql_matches_migration(conn, "schema_upgrade_write_latch", MIGRATION_V12)?
         && v12_upgrade_fence_matches(conn)?
-        && v12_write_latch_matches(conn)?
+        && v12_write_latch_matches(conn)?)
+}
+
+fn is_released_provider_v13(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != 13 || !provider_v12_core_matches(conn)? {
+        return Ok(false);
+    }
+    Ok(table_shape_matches(
+        conn,
+        "provider_runtime_authority_state",
+        &PROVIDER_RUNTIME_AUTHORITY_STATE_COLUMNS,
+    )? && table_sql_matches_migration(conn, "provider_runtime_authority_state", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_execution_admissions",
+            &PROVIDER_EXECUTION_ADMISSION_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_execution_admissions", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_budget_reservations",
+            &PROVIDER_BUDGET_RESERVATION_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_budget_reservations", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_journal_key_refs",
+            &PROVIDER_JOURNAL_KEY_REF_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_journal_key_refs", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_encryption_nonces",
+            &PROVIDER_ENCRYPTION_NONCE_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_encryption_nonces", MIGRATION_V13)?
+        && table_shape_matches(conn, "provider_poll_flights", &PROVIDER_POLL_FLIGHT_COLUMNS)?
+        && table_sql_matches_migration(conn, "provider_poll_flights", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_stream_journal",
+            &PROVIDER_STREAM_JOURNAL_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_stream_journal", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_accounting_settlements",
+            &PROVIDER_ACCOUNTING_SETTLEMENT_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_accounting_settlements", MIGRATION_V13)?
+        && table_shape_matches(
+            conn,
+            "provider_terminal_outbox",
+            &PROVIDER_TERMINAL_OUTBOX_COLUMNS,
+        )?
+        && table_sql_matches_migration(conn, "provider_terminal_outbox", MIGRATION_V13)?
         && v12_fence_triggers_match(conn)?
-        && released_v12_catalog_matches(conn)?)
+        && released_v13_catalog_matches(conn)?)
 }
 
 type ColumnShape = (&'static str, &'static str, bool, i64);
@@ -1465,6 +1585,146 @@ const SCHEMA_UPGRADE_FENCE_COLUMNS: [ColumnShape; 8] = [
 ];
 const SCHEMA_UPGRADE_WRITE_LATCH_COLUMNS: [ColumnShape; 2] =
     [("id", "INTEGER", false, 1), ("closed", "INTEGER", true, 0)];
+const PROVIDER_RUNTIME_AUTHORITY_STATE_COLUMNS: [ColumnShape; 28] = [
+    ("id", "INTEGER", false, 1),
+    ("runtime_authority_id", "BLOB", true, 0),
+    ("database_generation", "INTEGER", true, 0),
+    ("principal_id", "TEXT", true, 0),
+    ("owner_id", "TEXT", true, 0),
+    ("scope", "TEXT", true, 0),
+    ("expected_generation", "INTEGER", true, 0),
+    ("lease_generation", "INTEGER", true, 0),
+    ("expected_fencing_token", "INTEGER", true, 0),
+    ("lease_fencing_token", "INTEGER", true, 0),
+    ("capability_grant_id", "TEXT", true, 0),
+    ("capability_revision", "INTEGER", true, 0),
+    ("capability_allowed", "INTEGER", true, 0),
+    ("approval_id", "TEXT", true, 0),
+    ("approval_revision", "INTEGER", true, 0),
+    ("approval_allowed", "INTEGER", true, 0),
+    ("approval_expires_at", "INTEGER", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("pricing_revision_digest", "BLOB", true, 0),
+    ("token_budget_limit", "INTEGER", true, 0),
+    ("token_budget_reserved", "INTEGER", true, 0),
+    ("token_budget_settled", "INTEGER", true, 0),
+    ("cost_budget_limit_micros", "INTEGER", true, 0),
+    ("cost_budget_reserved_micros", "INTEGER", true, 0),
+    ("cost_budget_settled_micros", "INTEGER", true, 0),
+    ("authority_ttl_seconds", "INTEGER", true, 0),
+    ("state_revision", "INTEGER", true, 0),
+    ("active", "INTEGER", true, 0),
+];
+const PROVIDER_EXECUTION_ADMISSION_COLUMNS: [ColumnShape; 27] = [
+    ("provider_idempotency_key", "TEXT", true, 1),
+    ("semantic_digest", "BLOB", true, 0),
+    ("principal_id", "TEXT", true, 0),
+    ("conversation_id", "BLOB", true, 0),
+    ("taskrun_id", "BLOB", true, 0),
+    ("execution_attempt_id", "BLOB", true, 0),
+    ("call_id", "BLOB", true, 0),
+    ("dispatch_attempt_id", "BLOB", true, 0),
+    ("authority_id", "BLOB", true, 0),
+    ("authority_revision", "INTEGER", true, 0),
+    ("permit_id", "BLOB", true, 0),
+    ("token_reservation_id", "BLOB", true, 0),
+    ("cost_reservation_id", "BLOB", true, 0),
+    ("runtime_authority_id", "BLOB", true, 0),
+    ("database_generation", "INTEGER", true, 0),
+    ("generation", "INTEGER", true, 0),
+    ("fencing_token", "INTEGER", true, 0),
+    ("prepared_digest", "BLOB", true, 0),
+    ("render_digest", "BLOB", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("pricing_revision_digest", "BLOB", true, 0),
+    ("requested_input_tokens", "INTEGER", true, 0),
+    ("requested_output_tokens", "INTEGER", true, 0),
+    ("max_cost_micros", "INTEGER", true, 0),
+    ("currency", "TEXT", true, 0),
+    ("issued_at", "INTEGER", true, 0),
+    ("expires_at", "INTEGER", true, 0),
+];
+const PROVIDER_BUDGET_RESERVATION_COLUMNS: [ColumnShape; 7] = [
+    ("reservation_id", "BLOB", true, 1),
+    ("provider_idempotency_key", "TEXT", true, 0),
+    ("dimension", "INTEGER", true, 0),
+    ("amount", "INTEGER", true, 0),
+    ("state", "INTEGER", true, 0),
+    ("settled_amount", "INTEGER", false, 0),
+    ("released_at", "INTEGER", false, 0),
+];
+const PROVIDER_JOURNAL_KEY_REF_COLUMNS: [ColumnShape; 8] = [
+    ("key_id", "BLOB", true, 1),
+    ("key_version", "INTEGER", true, 2),
+    ("runtime_authority_id", "BLOB", true, 0),
+    ("database_generation", "INTEGER", true, 0),
+    ("state", "INTEGER", true, 0),
+    ("active_slot", "INTEGER", false, 0),
+    ("created_at", "INTEGER", true, 0),
+    ("retired_at", "INTEGER", false, 0),
+];
+const PROVIDER_ENCRYPTION_NONCE_COLUMNS: [ColumnShape; 6] = [
+    ("key_id", "BLOB", true, 1),
+    ("key_version", "INTEGER", true, 2),
+    ("nonce", "BLOB", true, 3),
+    ("purpose", "INTEGER", true, 0),
+    ("dispatch_attempt_id", "BLOB", true, 0),
+    ("sequence", "INTEGER", false, 0),
+];
+const PROVIDER_POLL_FLIGHT_COLUMNS: [ColumnShape; 5] = [
+    ("dispatch_attempt_id", "BLOB", true, 1),
+    ("cursor", "INTEGER", true, 0),
+    ("runtime_generation", "INTEGER", true, 0),
+    ("fencing_token", "INTEGER", true, 0),
+    ("opened_at", "INTEGER", true, 0),
+];
+const PROVIDER_STREAM_JOURNAL_COLUMNS: [ColumnShape; 13] = [
+    ("dispatch_attempt_id", "BLOB", true, 1),
+    ("sequence", "INTEGER", true, 2),
+    ("key_id", "BLOB", true, 0),
+    ("key_version", "INTEGER", true, 0),
+    ("nonce", "BLOB", true, 0),
+    ("call_digest_version", "INTEGER", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("runtime_generation", "INTEGER", true, 0),
+    ("event_kind", "INTEGER", true, 0),
+    ("terminal", "INTEGER", true, 0),
+    ("ciphertext", "BLOB", true, 0),
+    ("plaintext_len", "INTEGER", true, 0),
+    ("plaintext_digest", "BLOB", true, 0),
+];
+const PROVIDER_ACCOUNTING_SETTLEMENT_COLUMNS: [ColumnShape; 10] = [
+    ("dispatch_attempt_id", "BLOB", true, 1),
+    ("pricing_revision_digest", "BLOB", true, 0),
+    ("input_tokens", "INTEGER", true, 0),
+    ("output_tokens", "INTEGER", true, 0),
+    ("cached_input_tokens", "INTEGER", true, 0),
+    ("reasoning_output_tokens", "INTEGER", true, 0),
+    ("charge_micros", "INTEGER", true, 0),
+    ("currency", "TEXT", true, 0),
+    ("settlement_digest", "BLOB", true, 0),
+    ("committed_at", "INTEGER", true, 0),
+];
+const PROVIDER_TERMINAL_OUTBOX_COLUMNS: [ColumnShape; 18] = [
+    ("outbox_id", "BLOB", true, 1),
+    ("dispatch_attempt_id", "BLOB", true, 0),
+    ("terminal_sequence", "INTEGER", true, 0),
+    ("call_digest_version", "INTEGER", true, 0),
+    ("key_id", "BLOB", true, 0),
+    ("key_version", "INTEGER", true, 0),
+    ("nonce", "BLOB", true, 0),
+    ("runtime_generation", "INTEGER", true, 0),
+    ("profile_digest", "BLOB", true, 0),
+    ("ciphertext", "BLOB", true, 0),
+    ("plaintext_len", "INTEGER", true, 0),
+    ("plaintext_digest", "BLOB", true, 0),
+    ("settlement_digest", "BLOB", true, 0),
+    ("application_idempotency_key", "TEXT", true, 0),
+    ("state", "INTEGER", true, 0),
+    ("receipt_digest", "BLOB", false, 0),
+    ("created_at", "INTEGER", true, 0),
+    ("applied_at", "INTEGER", false, 0),
+];
 
 const CANONICAL_VERIFICATION_EVIDENCE_SQL: &str = "CREATE TABLE verification_evidence (evidence_id BLOB PRIMARY KEY CHECK(length(evidence_id) = 16), run_id BLOB NOT NULL CHECK(length(run_id) = 16), profile_id BLOB NOT NULL CHECK(length(profile_id) = 16), profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32), layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5)), evidence_type INTEGER NOT NULL CHECK(evidence_type IN (0, 1, 2, 3, 4)), evidence_digest BLOB NOT NULL CHECK(length(evidence_digest) = 32), content_ref TEXT NOT NULL CHECK(length(content_ref) > 0), source TEXT NOT NULL CHECK(length(source) > 0), producer_identity TEXT NOT NULL CHECK(length(producer_identity) > 0), sensitivity INTEGER NOT NULL CHECK(sensitivity IN (0, 1, 2)), verified_by TEXT NOT NULL CHECK(length(verified_by) > 0))";
 const CANONICAL_CONSUMPTION_INTENTS_SQL: &str = "CREATE TABLE consumption_intents (intent_id BLOB PRIMARY KEY CHECK(length(intent_id) = 16), idempotency_key TEXT NOT NULL UNIQUE CHECK(length(idempotency_key) BETWEEN 1 AND 256), state TEXT NOT NULL CHECK(state IN ('Reserved','Dispatching','Completed','Failed','Invalidated','Abandoned')), gate_head_snapshot_digest BLOB NOT NULL CHECK(length(gate_head_snapshot_digest) = 32), target_artifact_digest BLOB NOT NULL CHECK(length(target_artifact_digest) = 32), integrity_digest BLOB NOT NULL CHECK(length(integrity_digest) = 32))";
@@ -1557,6 +1817,64 @@ const RELEASED_V12_EXPLICIT_INDEXES: &[&str] = &[
 ];
 
 fn released_v12_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
+    released_catalog_matches(conn, RELEASED_V12_TABLES, RELEASED_V12_EXPLICIT_INDEXES)
+}
+
+const RELEASED_V13_TABLES: &[&str] = &[
+    "_authority",
+    "_daemon_info",
+    "_replay_subscriptions",
+    "aggregate_streams",
+    "command_receipts",
+    "consumption_intents",
+    "cutover_manifests",
+    "event_log_state",
+    "events",
+    "migration_audit",
+    "migration_evidence",
+    "migration_plans",
+    "migration_receipts",
+    "migration_reports",
+    "migration_transitions",
+    "provider_accounting_settlements",
+    "provider_budget_reservations",
+    "provider_dispatch_attempts",
+    "provider_effect_authorities",
+    "provider_encryption_nonces",
+    "provider_execution_admissions",
+    "provider_journal_key_refs",
+    "provider_poll_flights",
+    "provider_prepared_requests",
+    "provider_runtime_authority_state",
+    "provider_stream_journal",
+    "provider_terminal_outbox",
+    "retirement_manifests",
+    "rollback_manifests",
+    "routing_dispatch_intents",
+    "routing_head",
+    "routing_snapshots",
+    "runtime_bindings",
+    "schema_lineage",
+    "schema_upgrade_fence",
+    "schema_upgrade_write_latch",
+    "schema_version",
+    "security_audit_pre_effect",
+    "security_authorization_decisions",
+    "security_budget_consumptions",
+    "security_dispatch_intents",
+    "security_permit_claims",
+    "verification_evidence",
+];
+
+fn released_v13_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
+    released_catalog_matches(conn, RELEASED_V13_TABLES, RELEASED_V12_EXPLICIT_INDEXES)
+}
+
+fn released_catalog_matches(
+    conn: &Connection,
+    released_tables: &[&str],
+    released_indexes: &[&str],
+) -> SqliteResult<bool> {
     let mut tables = conn
         .prepare(
             "SELECT name FROM sqlite_master
@@ -1565,7 +1883,7 @@ fn released_v12_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
         )?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
-    let mut expected_tables = RELEASED_V12_TABLES.to_vec();
+    let mut expected_tables = released_tables.to_vec();
     tables.sort();
     expected_tables.sort();
     if tables
@@ -1584,7 +1902,7 @@ fn released_v12_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
         )?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
-    let mut expected_indexes = RELEASED_V12_EXPLICIT_INDEXES.to_vec();
+    let mut expected_indexes = released_indexes.to_vec();
     explicit_indexes.sort();
     expected_indexes.sort();
     if explicit_indexes
@@ -1804,7 +2122,7 @@ fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
             "verification_evidence" | "consumption_intents" | "schema_lineage"
         );
         let released_v12_fence =
-            schema_version == 12 && kind == "trigger" && name.starts_with("schema_v12_fence_");
+            schema_version >= 12 && kind == "trigger" && name.starts_with("schema_v12_fence_");
         is_candidate_named
             || (targets_owned_table
                 && !released_v12_fence
@@ -2506,6 +2824,219 @@ CREATE TABLE schema_upgrade_fence (
 CREATE TABLE schema_upgrade_write_latch (
     id INTEGER PRIMARY KEY CHECK(id = 1),
     closed INTEGER NOT NULL CHECK(closed = 1)
+);
+"#;
+
+// ── Migration V13: runtime-issued provider authority and encrypted recovery ──
+
+const MIGRATION_V13: &str = r#"
+CREATE TABLE provider_runtime_authority_state (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    runtime_authority_id BLOB NOT NULL
+        CHECK(length(runtime_authority_id) = 16 AND runtime_authority_id != zeroblob(16)),
+    database_generation INTEGER NOT NULL CHECK(database_generation > 0),
+    principal_id TEXT NOT NULL CHECK(length(principal_id) BETWEEN 1 AND 256),
+    owner_id TEXT NOT NULL CHECK(length(owner_id) BETWEEN 1 AND 256),
+    scope TEXT NOT NULL CHECK(length(scope) BETWEEN 1 AND 256),
+    expected_generation INTEGER NOT NULL CHECK(expected_generation > 0),
+    lease_generation INTEGER NOT NULL CHECK(lease_generation > 0),
+    expected_fencing_token INTEGER NOT NULL CHECK(expected_fencing_token > 0),
+    lease_fencing_token INTEGER NOT NULL CHECK(lease_fencing_token > 0),
+    capability_grant_id TEXT NOT NULL
+        CHECK(length(capability_grant_id) BETWEEN 1 AND 256),
+    capability_revision INTEGER NOT NULL CHECK(capability_revision > 0),
+    capability_allowed INTEGER NOT NULL CHECK(capability_allowed IN (0, 1)),
+    approval_id TEXT NOT NULL CHECK(length(approval_id) BETWEEN 1 AND 256),
+    approval_revision INTEGER NOT NULL CHECK(approval_revision > 0),
+    approval_allowed INTEGER NOT NULL CHECK(approval_allowed IN (0, 1)),
+    approval_expires_at INTEGER NOT NULL,
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    pricing_revision_digest BLOB NOT NULL
+        CHECK(length(pricing_revision_digest) = 32),
+    token_budget_limit INTEGER NOT NULL CHECK(token_budget_limit >= 0),
+    token_budget_reserved INTEGER NOT NULL
+        CHECK(token_budget_reserved >= 0 AND token_budget_reserved <= token_budget_limit),
+    token_budget_settled INTEGER NOT NULL
+        CHECK(
+            token_budget_settled >= 0 AND
+            token_budget_reserved + token_budget_settled <= token_budget_limit
+        ),
+    cost_budget_limit_micros INTEGER NOT NULL CHECK(cost_budget_limit_micros >= 0),
+    cost_budget_reserved_micros INTEGER NOT NULL
+        CHECK(
+            cost_budget_reserved_micros >= 0 AND
+            cost_budget_reserved_micros <= cost_budget_limit_micros
+        ),
+    cost_budget_settled_micros INTEGER NOT NULL
+        CHECK(
+            cost_budget_settled_micros >= 0 AND
+            cost_budget_reserved_micros + cost_budget_settled_micros
+                <= cost_budget_limit_micros
+        ),
+    authority_ttl_seconds INTEGER NOT NULL
+        CHECK(authority_ttl_seconds BETWEEN 1 AND 300),
+    state_revision INTEGER NOT NULL CHECK(state_revision > 0),
+    active INTEGER NOT NULL CHECK(active IN (0, 1))
+);
+
+CREATE TABLE provider_execution_admissions (
+    provider_idempotency_key TEXT NOT NULL PRIMARY KEY
+        CHECK(length(provider_idempotency_key) BETWEEN 1 AND 256),
+    semantic_digest BLOB NOT NULL CHECK(length(semantic_digest) = 32),
+    principal_id TEXT NOT NULL CHECK(length(principal_id) BETWEEN 1 AND 256),
+    conversation_id BLOB NOT NULL CHECK(length(conversation_id) = 16),
+    taskrun_id BLOB NOT NULL CHECK(length(taskrun_id) = 16),
+    execution_attempt_id BLOB NOT NULL CHECK(length(execution_attempt_id) = 16),
+    call_id BLOB NOT NULL UNIQUE
+        REFERENCES provider_prepared_requests(call_id),
+    dispatch_attempt_id BLOB NOT NULL UNIQUE
+        REFERENCES provider_dispatch_attempts(attempt_id),
+    authority_id BLOB NOT NULL CHECK(length(authority_id) = 16),
+    authority_revision INTEGER NOT NULL CHECK(authority_revision > 0),
+    permit_id BLOB NOT NULL UNIQUE CHECK(length(permit_id) = 16),
+    token_reservation_id BLOB NOT NULL UNIQUE CHECK(length(token_reservation_id) = 16),
+    cost_reservation_id BLOB NOT NULL UNIQUE CHECK(length(cost_reservation_id) = 16),
+    runtime_authority_id BLOB NOT NULL CHECK(length(runtime_authority_id) = 16),
+    database_generation INTEGER NOT NULL CHECK(database_generation > 0),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    fencing_token INTEGER NOT NULL CHECK(fencing_token > 0),
+    prepared_digest BLOB NOT NULL CHECK(length(prepared_digest) = 32),
+    render_digest BLOB NOT NULL CHECK(length(render_digest) = 32),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    pricing_revision_digest BLOB NOT NULL
+        CHECK(length(pricing_revision_digest) = 32),
+    requested_input_tokens INTEGER NOT NULL CHECK(requested_input_tokens >= 0),
+    requested_output_tokens INTEGER NOT NULL CHECK(requested_output_tokens > 0),
+    max_cost_micros INTEGER NOT NULL CHECK(max_cost_micros > 0),
+    currency TEXT NOT NULL CHECK(length(currency) = 3),
+    issued_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL CHECK(expires_at > issued_at),
+    FOREIGN KEY(authority_id, authority_revision)
+        REFERENCES provider_effect_authorities(authority_id, revision)
+);
+
+CREATE TABLE provider_budget_reservations (
+    reservation_id BLOB NOT NULL PRIMARY KEY CHECK(length(reservation_id) = 16),
+    provider_idempotency_key TEXT NOT NULL
+        REFERENCES provider_execution_admissions(provider_idempotency_key),
+    dimension INTEGER NOT NULL CHECK(dimension IN (1, 2)),
+    amount INTEGER NOT NULL CHECK(amount > 0),
+    state INTEGER NOT NULL CHECK(state IN (1, 2)),
+    settled_amount INTEGER CHECK(settled_amount IS NULL OR settled_amount >= 0),
+    released_at INTEGER,
+    UNIQUE(provider_idempotency_key, dimension),
+    CHECK(
+        (state = 1 AND settled_amount IS NULL AND released_at IS NULL) OR
+        (state = 2 AND settled_amount IS NOT NULL AND released_at IS NOT NULL)
+    )
+);
+
+CREATE TABLE provider_journal_key_refs (
+    key_id BLOB NOT NULL CHECK(length(key_id) = 16 AND key_id != zeroblob(16)),
+    key_version INTEGER NOT NULL CHECK(key_version > 0),
+    runtime_authority_id BLOB NOT NULL CHECK(length(runtime_authority_id) = 16),
+    database_generation INTEGER NOT NULL CHECK(database_generation > 0),
+    state INTEGER NOT NULL CHECK(state IN (1, 2)),
+    active_slot INTEGER UNIQUE CHECK(active_slot IS NULL OR active_slot = 1),
+    created_at INTEGER NOT NULL,
+    retired_at INTEGER,
+    PRIMARY KEY(key_id, key_version),
+    CHECK(
+        (state = 1 AND active_slot = 1 AND retired_at IS NULL) OR
+        (state = 2 AND active_slot IS NULL AND retired_at IS NOT NULL)
+    )
+);
+
+CREATE TABLE provider_encryption_nonces (
+    key_id BLOB NOT NULL,
+    key_version INTEGER NOT NULL,
+    nonce BLOB NOT NULL CHECK(length(nonce) = 12),
+    purpose INTEGER NOT NULL CHECK(purpose IN (1, 2)),
+    dispatch_attempt_id BLOB NOT NULL
+        REFERENCES provider_dispatch_attempts(attempt_id),
+    sequence INTEGER CHECK(sequence IS NULL OR sequence >= 0),
+    PRIMARY KEY(key_id, key_version, nonce),
+    FOREIGN KEY(key_id, key_version)
+        REFERENCES provider_journal_key_refs(key_id, key_version),
+    CHECK(
+        (purpose = 1 AND sequence IS NOT NULL) OR
+        (purpose = 2 AND sequence IS NULL)
+    )
+);
+
+CREATE TABLE provider_poll_flights (
+    dispatch_attempt_id BLOB NOT NULL PRIMARY KEY
+        REFERENCES provider_dispatch_attempts(attempt_id),
+    cursor INTEGER NOT NULL CHECK(cursor >= 0),
+    runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+    fencing_token INTEGER NOT NULL CHECK(fencing_token > 0),
+    opened_at INTEGER NOT NULL
+);
+
+CREATE TABLE provider_stream_journal (
+    dispatch_attempt_id BLOB NOT NULL
+        REFERENCES provider_dispatch_attempts(attempt_id),
+    sequence INTEGER NOT NULL CHECK(sequence >= 0),
+    key_id BLOB NOT NULL,
+    key_version INTEGER NOT NULL,
+    nonce BLOB NOT NULL CHECK(length(nonce) = 12),
+    call_digest_version INTEGER NOT NULL CHECK(call_digest_version IN (1, 2)),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+    event_kind INTEGER NOT NULL CHECK(event_kind BETWEEN 1 AND 7),
+    terminal INTEGER NOT NULL CHECK(terminal IN (0, 1)),
+    ciphertext BLOB NOT NULL CHECK(length(ciphertext) BETWEEN 16 AND 2097152),
+    plaintext_len INTEGER NOT NULL CHECK(plaintext_len >= 0),
+    plaintext_digest BLOB NOT NULL CHECK(length(plaintext_digest) = 32),
+    PRIMARY KEY(dispatch_attempt_id, sequence),
+    FOREIGN KEY(key_id, key_version, nonce)
+        REFERENCES provider_encryption_nonces(key_id, key_version, nonce)
+);
+
+CREATE TABLE provider_accounting_settlements (
+    dispatch_attempt_id BLOB NOT NULL PRIMARY KEY
+        REFERENCES provider_dispatch_attempts(attempt_id),
+    pricing_revision_digest BLOB NOT NULL
+        CHECK(length(pricing_revision_digest) = 32),
+    input_tokens INTEGER NOT NULL CHECK(input_tokens >= 0),
+    output_tokens INTEGER NOT NULL CHECK(output_tokens >= 0),
+    cached_input_tokens INTEGER NOT NULL
+        CHECK(cached_input_tokens >= 0 AND cached_input_tokens <= input_tokens),
+    reasoning_output_tokens INTEGER NOT NULL
+        CHECK(reasoning_output_tokens >= 0 AND reasoning_output_tokens <= output_tokens),
+    charge_micros INTEGER NOT NULL CHECK(charge_micros >= 0),
+    currency TEXT NOT NULL CHECK(length(currency) = 3),
+    settlement_digest BLOB NOT NULL UNIQUE CHECK(length(settlement_digest) = 32),
+    committed_at INTEGER NOT NULL
+);
+
+CREATE TABLE provider_terminal_outbox (
+    outbox_id BLOB NOT NULL PRIMARY KEY CHECK(length(outbox_id) = 16),
+    dispatch_attempt_id BLOB NOT NULL UNIQUE
+        REFERENCES provider_dispatch_attempts(attempt_id),
+    terminal_sequence INTEGER NOT NULL CHECK(terminal_sequence >= 0),
+    call_digest_version INTEGER NOT NULL CHECK(call_digest_version IN (1, 2)),
+    key_id BLOB NOT NULL,
+    key_version INTEGER NOT NULL,
+    nonce BLOB NOT NULL CHECK(length(nonce) = 12),
+    runtime_generation INTEGER NOT NULL CHECK(runtime_generation > 0),
+    profile_digest BLOB NOT NULL CHECK(length(profile_digest) = 32),
+    ciphertext BLOB NOT NULL CHECK(length(ciphertext) BETWEEN 16 AND 4194304),
+    plaintext_len INTEGER NOT NULL CHECK(plaintext_len >= 0),
+    plaintext_digest BLOB NOT NULL CHECK(length(plaintext_digest) = 32),
+    settlement_digest BLOB NOT NULL CHECK(length(settlement_digest) = 32),
+    application_idempotency_key TEXT NOT NULL UNIQUE
+        CHECK(length(application_idempotency_key) BETWEEN 1 AND 256),
+    state INTEGER NOT NULL CHECK(state IN (1, 2)),
+    receipt_digest BLOB CHECK(receipt_digest IS NULL OR length(receipt_digest) = 32),
+    created_at INTEGER NOT NULL,
+    applied_at INTEGER,
+    FOREIGN KEY(key_id, key_version, nonce)
+        REFERENCES provider_encryption_nonces(key_id, key_version, nonce),
+    CHECK(
+        (state = 1 AND receipt_digest IS NULL AND applied_at IS NULL) OR
+        (state = 2 AND receipt_digest IS NOT NULL AND applied_at IS NOT NULL)
+    )
 );
 "#;
 
@@ -3245,7 +3776,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 12);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -3438,7 +3969,7 @@ mod tests {
             )
             .unwrap();
 
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
 
         let snapshot_filename: String = connection
             .query_row(
@@ -3516,7 +4047,7 @@ mod tests {
         let path = temporary.path().join("authoritative.sqlite");
         let connection = Connection::open(&path).unwrap();
         initialize_released_v11(&connection);
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
 
         let authoritative_tables = connection
             .prepare(
@@ -3611,7 +4142,7 @@ mod tests {
         let path = temporary.path().join("authoritative.sqlite");
         let connection = Connection::open(&path).unwrap();
         initialize_released_v11(&connection);
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
         let snapshot_filename: String = connection
             .query_row(
                 "SELECT snapshot_filename FROM schema_upgrade_fence WHERE id = 1",
@@ -3660,7 +4191,7 @@ mod tests {
                     release_rx.recv().unwrap();
                 }
             };
-            apply_migrations_with_maintenance_hook(&connection, Some(&hook))
+            apply_migrations_through(&connection, 12, Some(&hook))
         });
         captured_rx.recv().unwrap();
 
@@ -3701,7 +4232,7 @@ mod tests {
         let path = temporary.path().join("authoritative.sqlite");
         let connection = Connection::open(&path).unwrap();
         initialize_released_v11(&connection);
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
         drop(connection);
         let (checked_tx, checked_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -3760,7 +4291,7 @@ mod tests {
         let path = temporary.path().join("authoritative.sqlite");
         let connection = Connection::open(&path).unwrap();
         initialize_released_v11(&connection);
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
         drop(connection);
         let (verified_tx, verified_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -3819,7 +4350,7 @@ mod tests {
         let path = temporary.path().join("authoritative.sqlite");
         let connection = Connection::open(&path).unwrap();
         initialize_released_v11(&connection);
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
         let snapshot_filename: String = connection
             .query_row(
                 "SELECT snapshot_filename FROM schema_upgrade_fence WHERE id = 1",
@@ -3859,7 +4390,7 @@ mod tests {
     #[test]
     fn v12_write_latch_is_irreversible_and_extra_trigger_is_not_released_schema() {
         let connection = Connection::open_in_memory().unwrap();
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 12, None).unwrap();
         connection
             .execute(
                 "INSERT INTO _daemon_info (key, value) VALUES ('close-latch', '1')",
@@ -3892,13 +4423,37 @@ mod tests {
     }
 
     #[test]
+    fn released_v13_requires_the_exact_catalog_and_table_shapes() {
+        let connection = Connection::open_in_memory().unwrap();
+        apply_migrations(&connection).unwrap();
+        assert!(is_released_provider_v13(&connection, 13).unwrap());
+
+        connection
+            .execute_batch(
+                "CREATE TRIGGER extra_v13_provider_trigger
+                 AFTER UPDATE ON provider_terminal_outbox
+                 BEGIN SELECT 1; END;",
+            )
+            .unwrap();
+        assert!(!is_released_provider_v13(&connection, 13).unwrap());
+
+        connection
+            .execute_batch(
+                "DROP TRIGGER extra_v13_provider_trigger;
+                 ALTER TABLE provider_terminal_outbox ADD COLUMN unexpected TEXT;",
+            )
+            .unwrap();
+        assert!(!is_released_provider_v13(&connection, 13).unwrap());
+    }
+
+    #[test]
     fn released_v8_upgrades_atomically_through_provider_v12() {
         let conn = Connection::open_in_memory().unwrap();
         initialize_released_v8(&conn);
 
-        apply_migrations(&conn).unwrap();
+        apply_migrations_through(&conn, 12, None).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 12);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
         assert_eq!(
             conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
@@ -3974,7 +4529,7 @@ mod tests {
             .unwrap();
         }
 
-        apply_migrations(&conn).unwrap();
+        apply_migrations_through(&conn, 12, None).unwrap();
 
         let (version, prepared_digest): (i64, Vec<u8>) = conn
             .query_row(
@@ -4011,7 +4566,7 @@ mod tests {
 
     #[test]
     fn candidate_or_future_markers_are_rejected_without_mutation() {
-        for marker in [9, 10, 11, 12, 13] {
+        for marker in [9, 10, 11, 12, 13, 14] {
             let conn = Connection::open_in_memory().unwrap();
             conn.execute_batch("CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL DEFAULT (datetime('now'))); CREATE TABLE candidate_data (value TEXT NOT NULL);").unwrap();
             conn.execute("INSERT INTO schema_version (version) VALUES (?1)", [marker])

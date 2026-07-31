@@ -1,0 +1,41 @@
+use gocode_secure_store::{ProviderJournalKeyMaterial, ProviderJournalKeyRef};
+#[cfg(not(target_os = "macos"))]
+use gocode_secure_store::{ProviderJournalKeyring, SecureStoreError, StubStore};
+
+#[test]
+fn journal_key_requires_nonzero_identity_version_generation_and_authority() {
+    assert!(ProviderJournalKeyRef::new([0; 16], 1, [2; 16], 3).is_err());
+    assert!(ProviderJournalKeyRef::new([1; 16], 0, [2; 16], 3).is_err());
+    assert!(ProviderJournalKeyRef::new([1; 16], 1, [0; 16], 3).is_err());
+    assert!(ProviderJournalKeyRef::new([1; 16], 1, [2; 16], 0).is_err());
+}
+
+#[test]
+fn key_material_debug_never_exposes_secret_bytes() {
+    let key_ref = ProviderJournalKeyRef::new([1; 16], 2, [3; 16], 4).unwrap();
+    let marker = [0x5a; 32];
+    let key = ProviderJournalKeyMaterial::new(key_ref, marker).unwrap();
+
+    let debug = format!("{key:?}");
+    assert!(!debug.contains(&hex::encode(marker)));
+    assert!(debug.contains("redacted"));
+    assert_eq!(key.with_bytes(|bytes| *bytes), marker);
+}
+
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn unsupported_native_backend_fails_closed_for_key_retention() {
+    let store = StubStore::new();
+    let key_ref = ProviderJournalKeyRef::new([1; 16], 2, [3; 16], 4).unwrap();
+    let key = ProviderJournalKeyMaterial::new(key_ref, [5; 32]).unwrap();
+
+    assert!(!store.retains_multiple_provider_journal_keys());
+    assert!(matches!(
+        store.store_provider_journal_key(&key),
+        Err(SecureStoreError::Unavailable)
+    ));
+    assert!(matches!(
+        store.load_provider_journal_key(key_ref),
+        Err(SecureStoreError::Unavailable)
+    ));
+}

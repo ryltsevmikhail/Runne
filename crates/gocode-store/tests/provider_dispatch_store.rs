@@ -1,14 +1,18 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
+use gocode_application::provider::{
+    ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest, RuntimeProviderAuthorityIssuer,
+};
+use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderDispatchRepository,
     ProviderPreEffectRejection, ProviderStreamId,
 };
 use gocode_store::provider::{
-    MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderClaimOutcome,
-    ProviderDispatchClaim, ProviderDispatchState, ProviderStoreError, SettleProviderDispatch,
-    SqliteProviderDispatchStore,
+    MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderDispatchClaim,
+    ProviderDispatchState, ProviderRuntimeAuthorityConfig, ProviderStoreError,
+    SettleProviderDispatch, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
 fn database_path(name: &str) -> PathBuf {
@@ -36,7 +40,7 @@ fn prepared(call_byte: u8) -> PreparedProviderRecord {
     }
 }
 
-fn claim(call_byte: u8) -> ProviderDispatchClaim {
+fn legacy_claim(call_byte: u8) -> ProviderDispatchClaim {
     ProviderDispatchClaim {
         call_id: ProviderCallId::from_bytes([call_byte; 16]),
         attempt_id: DispatchAttemptId::from_bytes([5; 16]),
@@ -49,6 +53,59 @@ fn claim(call_byte: u8) -> ProviderDispatchClaim {
         fencing_token: 9,
         provider_idempotency_key: "provider-attempt-5".to_owned(),
     }
+}
+
+fn issue_dispatch(path: &std::path::Path, call_byte: u8) -> gocode_provider::ProviderDispatchClaim {
+    let record = prepared(call_byte);
+    let execution = SqliteProviderExecutionStore::open(path).unwrap();
+    execution
+        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+            runtime_authority_id: [21; 16],
+            database_generation: 1,
+            principal_id: "provider-dispatch-test-principal".to_owned(),
+            owner_id: "provider-dispatch-test-runtime".to_owned(),
+            scope: "provider.dispatch".to_owned(),
+            generation: 1,
+            fencing_token: 9,
+            capability_grant_id: "provider-dispatch-test-grant".to_owned(),
+            capability_revision: 1,
+            capability_allowed: true,
+            approval_id: "provider-dispatch-test-approval".to_owned(),
+            approval_revision: 1,
+            approval_allowed: true,
+            approval_expires_at: i64::MAX,
+            profile_digest: record.profile_digest,
+            pricing_revision_digest: [22; 32],
+            token_budget_limit: 10_000,
+            cost_budget_limit_micros: 1_000_000,
+            authority_ttl_seconds: 120,
+        })
+        .unwrap();
+    let ProviderAuthorityIssueOutcome::Winner(admitted) = execution
+        .issue(&ProviderAuthorityIssueRequest {
+            principal_id: "provider-dispatch-test-principal".to_owned(),
+            conversation_id: ConversationId::from_bytes([call_byte.wrapping_add(30); 16]),
+            taskrun_id: TaskRunId::from_bytes([call_byte.wrapping_add(40); 16]),
+            execution_attempt_id: AttemptId::from_bytes([call_byte.wrapping_add(50); 16]),
+            prepared: gocode_provider::PreparedProviderRecord {
+                call_id: record.call_id,
+                call_digest_version: record.call_digest_version,
+                prepared_digest: record.prepared_digest,
+                render_digest: record.render_digest,
+                profile_digest: record.profile_digest,
+            },
+            pricing_revision_digest: [22; 32],
+            requested_input_tokens: 1,
+            requested_output_tokens: 1,
+            max_cost_micros: 1,
+            currency: "USD".to_owned(),
+            provider_idempotency_key: format!("provider-dispatch-test-{call_byte}"),
+        })
+        .unwrap()
+    else {
+        panic!("fresh runtime issuance must win")
+    };
+    (*admitted).into_claim()
 }
 
 #[test]
@@ -125,8 +182,7 @@ fn prepared_outer_digest_domains_are_versioned_and_mismatch_fails_closed() {
 fn impossible_dispatch_state_shape_is_corrupt_not_recoverable() {
     let (path, store) = fresh_store("corrupt-state-shape");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
 
     let connection = rusqlite::Connection::open(path).unwrap();
     connection
@@ -152,8 +208,7 @@ fn impossible_dispatch_state_shape_is_corrupt_not_recoverable() {
 fn v2_dispatch_cannot_downgrade_to_legacy_settlement_without_stream_evidence() {
     let (path, store) = fresh_store("legacy-settlement-downgrade");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
 
     let connection = rusqlite::Connection::open(path).unwrap();
     connection
@@ -186,77 +241,38 @@ fn v2_dispatch_cannot_downgrade_to_legacy_settlement_without_stream_evidence() {
 }
 
 #[test]
-fn concurrent_exact_claim_has_one_permit_winner_and_one_existing_observer() {
-    let (path, first) = fresh_store("claim-race");
-    first.persist_prepared(&prepared(1)).unwrap();
-    let second = SqliteProviderDispatchStore::open(&path).unwrap();
-    let barrier = Arc::new(Barrier::new(2));
-    let first_barrier = barrier.clone();
-    let first_thread = std::thread::spawn(move || {
-        first_barrier.wait();
-        first.claim(&claim(1))
-    });
-    let second_barrier = barrier.clone();
-    let second_thread = std::thread::spawn(move || {
-        second_barrier.wait();
-        second.claim(&claim(1))
-    });
-
-    let outcomes = [
-        first_thread.join().unwrap().unwrap(),
-        second_thread.join().unwrap().unwrap(),
-    ];
-
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(outcome, ProviderClaimOutcome::Winner { .. }))
-            .count(),
-        1
-    );
-    assert_eq!(
-        outcomes
-            .iter()
-            .filter(|outcome| matches!(
-                outcome,
-                ProviderClaimOutcome::Existing {
-                    state: ProviderDispatchState::Dispatching,
-                    ..
-                }
-            ))
-            .count(),
-        1
-    );
-}
-
-#[test]
-fn claim_mismatch_or_stale_fence_changes_nothing() {
-    let (_path, store) = fresh_store("claim-validation");
+fn legacy_caller_selected_claim_is_typed_and_leaves_no_effect_rows() {
+    let (path, store) = fresh_store("claim-disabled");
     store.persist_prepared(&prepared(1)).unwrap();
-    let mut mismatched = claim(1);
-    mismatched.render_digest = [42; 32];
 
     assert_eq!(
-        store.claim(&mismatched),
-        Err(ProviderStoreError::PreparedMismatch)
+        store.claim(&legacy_claim(1)),
+        Err(ProviderStoreError::LegacyClaimDisabled)
     );
-
-    let mut stale = claim(1);
-    stale.fencing_token = 0;
-    assert_eq!(
-        store.claim(&stale),
-        Err(ProviderStoreError::StaleFencingToken)
-    );
-    assert!(store.get_dispatch(stale.attempt_id).unwrap().is_none());
+    let connection = rusqlite::Connection::open(path).unwrap();
+    for table in [
+        "provider_dispatch_attempts",
+        "provider_effect_authorities",
+        "provider_execution_admissions",
+        "provider_budget_reservations",
+    ] {
+        assert_eq!(
+            connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0,
+            "legacy claim mutated {table}"
+        );
+    }
 }
 
 #[test]
 fn dispatch_lifecycle_replays_exactly_and_reopens_incomplete_as_uncertain() {
     let (path, store) = fresh_store("lifecycle");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    let winner = store.claim(&dispatch_claim).unwrap();
-    assert!(matches!(winner, ProviderClaimOutcome::Winner { .. }));
+    let dispatch_claim = issue_dispatch(&path, 1);
 
     let streaming = MarkProviderStreaming {
         attempt_id: dispatch_claim.attempt_id,
@@ -281,10 +297,9 @@ fn dispatch_lifecycle_replays_exactly_and_reopens_incomplete_as_uncertain() {
 
 #[test]
 fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
-    let (_path, store) = fresh_store("settlement");
+    let (path, store) = fresh_store("settlement");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -358,8 +373,7 @@ fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
 fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
     let (path, first) = fresh_store("terminal-race");
     first.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    first.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
     first
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -410,10 +424,9 @@ fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
 
 #[test]
 fn repository_port_commits_terminal_settlement_after_stream_binding() {
-    let (_path, store) = fresh_store("settlement-port");
+    let (path, store) = fresh_store("settlement-port");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -447,10 +460,9 @@ fn repository_port_commits_terminal_settlement_after_stream_binding() {
 
 #[test]
 fn settlement_before_stream_binding_fails_without_terminal_mutation() {
-    let (_path, store) = fresh_store("settlement-before-stream");
+    let (path, store) = fresh_store("settlement-before-stream");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
     let settlement = SettleProviderDispatch {
         attempt_id: dispatch_claim.attempt_id,
         fencing_token: dispatch_claim.fencing_token,
@@ -468,10 +480,9 @@ fn settlement_before_stream_binding_fails_without_terminal_mutation() {
 
 #[test]
 fn settlement_before_terminal_evidence_preserves_streaming_state() {
-    let (_path, store) = fresh_store("settlement-before-terminal");
+    let (path, store) = fresh_store("settlement-before-terminal");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -499,10 +510,9 @@ fn settlement_before_terminal_evidence_preserves_streaming_state() {
 
 #[test]
 fn pre_effect_rejection_is_terminal_exact_and_never_becomes_streaming() {
-    let (_path, store) = fresh_store("pre-effect-rejection");
+    let (path, store) = fresh_store("pre-effect-rejection");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = claim(1);
-    store.claim(&dispatch_claim).unwrap();
+    let dispatch_claim = issue_dispatch(&path, 1);
 
     ProviderDispatchRepository::mark_rejected_before_effect(
         &store,

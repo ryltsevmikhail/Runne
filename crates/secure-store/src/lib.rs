@@ -9,11 +9,18 @@
 use std::fmt;
 use thiserror::Error;
 
+mod provider_journal_key;
+
+pub use provider_journal_key::{
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyring,
+};
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum SecureStoreError {
     #[error("secure store is unavailable on this platform")]
     Unavailable,
@@ -23,6 +30,14 @@ pub enum SecureStoreError {
     CorruptAnchor,
     #[error("anchor not found")]
     NotFound,
+    #[error("provider journal key is corrupt or has the wrong authority binding")]
+    CorruptProviderJournalKey,
+    #[error("provider journal key was not found")]
+    ProviderJournalKeyNotFound,
+    #[error("secure-store backend cannot retain provider journal key versions")]
+    RetentionUnsupported,
+    #[error("provider journal key deletion proof was denied")]
+    DeletionDenied,
 }
 
 // ---------------------------------------------------------------------------

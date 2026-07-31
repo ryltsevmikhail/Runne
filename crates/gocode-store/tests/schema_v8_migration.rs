@@ -47,9 +47,25 @@ fn drop_v12_fences(conn: &Connection) {
     .unwrap();
 }
 
+fn drop_v13_provider_execution(conn: &Connection) {
+    conn.execute_batch(
+        "DROP TABLE provider_terminal_outbox;
+         DROP TABLE provider_accounting_settlements;
+         DROP TABLE provider_stream_journal;
+         DROP TABLE provider_poll_flights;
+         DROP TABLE provider_encryption_nonces;
+         DROP TABLE provider_journal_key_refs;
+         DROP TABLE provider_budget_reservations;
+         DROP TABLE provider_execution_admissions;
+         DROP TABLE provider_runtime_authority_state;",
+    )
+    .unwrap();
+}
+
 fn released_v8_db() -> Connection {
     let conn = fresh_v8_db();
     drop_v12_fences(&conn);
+    drop_v13_provider_execution(&conn);
     conn.execute_batch(
         "DROP TABLE provider_effect_authorities;
          DROP TABLE provider_dispatch_attempts;
@@ -216,6 +232,7 @@ fn startup_purge_clears_subscriptions() {
 fn v6_to_v8_migration() {
     let conn = fresh_v8_db();
     drop_v12_fences(&conn);
+    drop_v13_provider_execution(&conn);
     conn.execute_batch(
         "DROP TABLE provider_effect_authorities;
          DROP TABLE provider_dispatch_attempts;
@@ -276,7 +293,7 @@ fn released_v8_upgrades_to_strict_v9_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 12);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 13);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));

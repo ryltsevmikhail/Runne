@@ -1964,11 +1964,13 @@ dependencies = [
  "gocode-platform",
  "gocode-plugin-host",
  "gocode-provider",
+ "gocode-secure-store",
  "gocode-security",
  "gocode-store",
  "gocode-tools",
  "hex",
  "jsonschema",
+ "ring",
  "rusqlite",
  "serde_json",
  "sha2",
@@ -1976,6 +1978,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "zeroize",
 ]
 
 [[package]]
@@ -2008,8 +2011,10 @@ dependencies = [
 name = "gocode-secure-store"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "security-framework",
  "thiserror 2.0.18",
+ "zeroize",
 ]
 
 [[package]]
@@ -2047,6 +2052,7 @@ dependencies = [
  "rand 0.8.7",
  "rusqlite",
  "same-file",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",

@@ -5,9 +5,10 @@ use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-    ProviderEffectAdmission, ProviderEffectAuthorityRef, ProviderEffectRequest,
+    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderAuthorityIssuerDecision,
+    ProviderCoordinatorRequest, ProviderDispatchCoordinator, RuntimeProviderAuthorityIssuer,
 };
+use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
     DispatchAttemptId, DispatchError, DispatchRequest, ModelRef, PrepareError,
     PreparedProviderRecord, PreparedRequest, ProviderCall, ProviderCallId, ProviderDispatchClaim,
@@ -169,10 +170,13 @@ impl ProviderDispatchRepository for RecordingRepository {
     }
 }
 
-struct RecordingAdmission;
+struct RecordingIssuer;
 
-impl ProviderEffectAdmission for RecordingAdmission {
-    fn admit(&self, _request: &ProviderEffectRequest) -> Result<(), ProviderAdmissionError> {
+impl RuntimeProviderAuthorityIssuer for RecordingIssuer {
+    fn issue_decision(
+        &self,
+        _request: &ProviderAuthorityIssueRequest,
+    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError> {
         unreachable!("policy-denied calls must not reach admission")
     }
 }
@@ -192,25 +196,26 @@ fn request() -> ProviderCoordinatorRequest {
             serde_json::json!({"inert": MARKER}),
         )
         .unwrap(),
-        authority_ref: ProviderEffectAuthorityRef::new([3; 16], 1).unwrap(),
+        principal_id: "principal".into(),
+        conversation_id: ConversationId::from_bytes([3; 16]),
+        taskrun_id: TaskRunId::from_bytes([4; 16]),
+        execution_attempt_id: AttemptId::from_bytes([6; 16]),
         profile_digest: [5; 32],
-        attempt_id: DispatchAttemptId::from_bytes([6; 16]),
-        permit_id: [7; 16],
-        token_reservation_id: [8; 16],
-        cost_reservation_id: [9; 16],
-        fencing_token: 1,
-        owner_id: "owner".into(),
-        scope: "provider.dispatch".into(),
+        pricing_revision_digest: [7; 32],
+        requested_input_tokens: 64,
+        requested_output_tokens: 128,
+        max_cost_micros: 10_000,
+        currency: "USD".into(),
         provider_idempotency_key: "provider-secret-boundary".into(),
     }
 }
 
 fn assert_denied_before_prepare(mode: GuardMode) {
     let repository = RecordingRepository::default();
-    let admission = RecordingAdmission;
+    let issuer = RecordingIssuer;
     let provider = RecordingProvider::default();
     let guard = BoundaryGuard(mode);
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &admission, &provider, &guard);
+    let coordinator = ProviderDispatchCoordinator::new(&repository, &issuer, &provider, &guard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())),

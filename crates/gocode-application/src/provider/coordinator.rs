@@ -1,7 +1,8 @@
+use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
     DispatchError, DispatchRequest, PreparedProviderRecord, ProviderCall, ProviderDispatchClaim,
-    ProviderDispatchRepository, ProviderPort, ProviderPreEffectRejection,
-    ProviderRepositoryClaimOutcome, ProviderRepositoryState, ProviderStreamId,
+    ProviderDispatchRepository, ProviderPort, ProviderPreEffectRejection, ProviderRepositoryState,
+    ProviderStreamId,
 };
 
 use crate::prohibited_content::{
@@ -9,8 +10,7 @@ use crate::prohibited_content::{
 };
 
 use super::{
-    ProviderAdmissionError, ProviderEffectAdmission, ProviderEffectAuthorityRef,
-    ProviderEffectRequest,
+    ProviderAdmissionError, ProviderAuthorityIssueOutcome, RuntimeProviderAuthorityIssuer,
 };
 
 /// Complete application input for one provider prepare/claim/admit/dispatch.
@@ -18,24 +18,26 @@ use super::{
 pub struct ProviderCoordinatorRequest {
     /// Normalized provider call.
     pub call: ProviderCall,
-    /// Issuer-created, revision-bound authority for provider dispatch.
-    pub authority_ref: ProviderEffectAuthorityRef,
+    /// Authenticated command principal.
+    pub principal_id: String,
+    /// Owning Conversation aggregate.
+    pub conversation_id: ConversationId,
+    /// Owning TaskRun aggregate.
+    pub taskrun_id: TaskRunId,
+    /// Owning domain execution attempt.
+    pub execution_attempt_id: AttemptId,
     /// Exact provider adapter/model profile digest.
     pub profile_digest: [u8; 32],
-    /// Durable dispatch attempt.
-    pub attempt_id: gocode_provider::DispatchAttemptId,
-    /// Winner-only permit identity.
-    pub permit_id: [u8; 16],
-    /// Token budget reservation.
-    pub token_reservation_id: [u8; 16],
-    /// Cost budget reservation.
-    pub cost_reservation_id: [u8; 16],
-    /// Current non-zero worker fencing token.
-    pub fencing_token: u64,
-    /// Caller identity reference verified against the authority issuer's owner.
-    pub owner_id: String,
-    /// Requested authority scope reference.
-    pub scope: String,
+    /// Exact immutable pricing revision digest.
+    pub pricing_revision_digest: [u8; 32],
+    /// Requested input-token reservation.
+    pub requested_input_tokens: u64,
+    /// Requested output-token reservation, equal to the call bound.
+    pub requested_output_tokens: u32,
+    /// Exact worst-case cost ceiling.
+    pub max_cost_micros: u64,
+    /// Uppercase three-byte currency code.
+    pub currency: String,
     /// Stable provider idempotency key.
     pub provider_idempotency_key: String,
 }
@@ -63,29 +65,29 @@ pub enum ProviderCoordinatorOutcome {
 }
 
 /// Orders provider prepare, persistence, single-dispatch claim and admission.
-pub struct ProviderDispatchCoordinator<'a, R, A, P> {
+pub struct ProviderDispatchCoordinator<'a, R, I, P> {
     repository: &'a R,
-    admission: &'a A,
+    issuer: &'a I,
     provider: &'a P,
     prohibited_content: &'a dyn ProhibitedContentPort,
 }
 
-impl<'a, R, A, P> ProviderDispatchCoordinator<'a, R, A, P>
+impl<'a, R, I, P> ProviderDispatchCoordinator<'a, R, I, P>
 where
     R: ProviderDispatchRepository,
-    A: ProviderEffectAdmission,
+    I: RuntimeProviderAuthorityIssuer,
     P: ProviderPort,
 {
     /// Constructs a coordinator from inward-facing ports.
     pub const fn new(
         repository: &'a R,
-        admission: &'a A,
+        issuer: &'a I,
         provider: &'a P,
         prohibited_content: &'a dyn ProhibitedContentPort,
     ) -> Self {
         Self {
             repository,
-            admission,
+            issuer,
             provider,
             prohibited_content,
         }
@@ -120,81 +122,27 @@ where
         .map_err(|_| ProviderAdmissionError::PrepareRejected)?;
         let prepared_digest = *prepared.request_ref().as_bytes();
         let render_digest = *prepared.render_digest();
-        self.repository
-            .persist_prepared(&PreparedProviderRecord {
-                call_id: request.call.call_id(),
-                call_digest_version: prepared.request_ref().digest_version(),
-                prepared_digest,
-                render_digest,
-                profile_digest: request.profile_digest,
-            })
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let claim = ProviderDispatchClaim {
+        let prepared_record = PreparedProviderRecord {
             call_id: request.call.call_id(),
-            attempt_id: request.attempt_id,
-            permit_id: request.permit_id,
+            call_digest_version: prepared.request_ref().digest_version(),
             prepared_digest,
             render_digest,
             profile_digest: request.profile_digest,
-            token_reservation_id: request.token_reservation_id,
-            cost_reservation_id: request.cost_reservation_id,
-            fencing_token: request.fencing_token,
-            provider_idempotency_key: request.provider_idempotency_key,
         };
-        let (permit_id, existing_state) = match self
-            .repository
-            .claim(&claim)
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?
-        {
-            ProviderRepositoryClaimOutcome::Winner { permit_id } => (permit_id, None),
-            ProviderRepositoryClaimOutcome::Existing { state, .. } => {
-                (request.permit_id, Some(state))
+        self.repository
+            .persist_prepared(&prepared_record)
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let issue_request = request.authority_request(prepared_record)?;
+        let admitted = match self.issuer.issue(&issue_request)? {
+            ProviderAuthorityIssueOutcome::Winner(admitted) => admitted,
+            ProviderAuthorityIssueOutcome::Existing { state } => {
+                return Ok(ProviderCoordinatorOutcome::Existing { state });
             }
         };
-        if permit_id != request.permit_id {
-            return Err(ProviderAdmissionError::PermitMismatch);
-        }
-        let effect = ProviderEffectRequest {
-            authority_ref: request.authority_ref,
-            attempt_id: request.attempt_id,
-            permit_id,
-            prepared_digest,
-            render_digest,
-            profile_digest: request.profile_digest,
-            token_reservation_id: request.token_reservation_id,
-            cost_reservation_id: request.cost_reservation_id,
-            fencing_token: request.fencing_token,
-            owner_id: request.owner_id,
-            scope: request.scope,
-        };
-        if let Err(error) = self.admission.admit(&effect) {
-            if existing_state.is_some() {
-                return Err(error);
-            }
-            if matches!(
-                error,
-                ProviderAdmissionError::PostClaimUncertain
-                    | ProviderAdmissionError::RepositoryFailure
-            ) {
-                self.repository
-                    .mark_uncertain(request.attempt_id, request.fencing_token)
-                    .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-                return Ok(ProviderCoordinatorOutcome::Uncertain);
-            }
-            let rejection = match error {
-                ProviderAdmissionError::CapabilityDenied => {
-                    ProviderPreEffectRejection::CapabilityDenied
-                }
-                _ => ProviderPreEffectRejection::AdmissionRejected,
-            };
-            self.repository
-                .mark_rejected_before_effect(request.attempt_id, request.fencing_token, rejection)
-                .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-            return Err(error);
-        }
-        if let Some(state) = existing_state {
-            return Ok(ProviderCoordinatorOutcome::Existing { state });
-        }
+        super::execution::validate_issued_claim(&request.call, &issue_request, admitted.claim())?;
+        let claim: ProviderDispatchClaim = (*admitted).into_claim();
+        let attempt_id = claim.attempt_id;
+        let fencing_token = claim.fencing_token;
 
         match self
             .provider
@@ -207,11 +155,11 @@ where
             Ok(stream_id) => {
                 if self
                     .repository
-                    .mark_streaming(request.attempt_id, request.fencing_token, stream_id)
+                    .mark_streaming(attempt_id, fencing_token, stream_id)
                     .is_err()
                 {
                     self.repository
-                        .mark_uncertain(request.attempt_id, request.fencing_token)
+                        .mark_uncertain(attempt_id, fencing_token)
                         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
                     return Ok(ProviderCoordinatorOutcome::Uncertain);
                 }
@@ -219,7 +167,7 @@ where
             }
             Err(DispatchError::RejectedBeforeEffect(reason)) => {
                 self.repository
-                    .mark_rejected_before_effect(request.attempt_id, request.fencing_token, reason)
+                    .mark_rejected_before_effect(attempt_id, fencing_token, reason)
                     .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
                 Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
             }
@@ -229,7 +177,7 @@ where
                 | DispatchError::StreamNotFound,
             ) => {
                 self.repository
-                    .mark_uncertain(request.attempt_id, request.fencing_token)
+                    .mark_uncertain(attempt_id, fencing_token)
                     .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
                 Ok(ProviderCoordinatorOutcome::Uncertain)
             }
