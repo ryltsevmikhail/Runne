@@ -8,8 +8,10 @@ autobins = false
 
 [dependencies]
 gocode-runtime-client = { path = "../runtime-client" }
+gocode-secure-store = { path = "../secure-store" }
 serde_json.workspace = true
 tokio.workspace = true
+zeroize.workspace = true
 
 [dev-dependencies]
 gocode-daemon = { path = "../gocode-daemon" }
