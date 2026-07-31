@@ -2,6 +2,7 @@ mod support;
 
 use std::time::Duration;
 
+use gocode_provider::ProviderFuture;
 use gocode_provider_openai::{
     OpenAiCredentialError, OpenAiCredentialMaterializer, OpenAiHttpTransport, OpenAiTransportError,
     OpenAiTransportPolicy,
@@ -11,8 +12,8 @@ use zeroize::Zeroizing;
 struct FixedCredential;
 
 impl OpenAiCredentialMaterializer for FixedCredential {
-    fn materialize(&self) -> Result<Zeroizing<Vec<u8>>, OpenAiCredentialError> {
-        Ok(Zeroizing::new(b"fixture-credential-never-print".to_vec()))
+    fn materialize(&self) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
+        Box::pin(async { Ok(Zeroizing::new(b"fixture-credential-never-print".to_vec())) })
     }
 }
 
@@ -40,9 +41,9 @@ fn exact_transport_policy_is_https_post_without_proxy_redirect_or_retry() {
     OpenAiHttpTransport::new(policy).expect("rustls transport");
 }
 
-#[test]
-fn credential_and_transport_errors_never_expose_material() {
-    let credential = FixedCredential.materialize().expect("credential");
+#[tokio::test]
+async fn credential_and_transport_errors_never_expose_material() {
+    let credential = FixedCredential.materialize().await.expect("credential");
     assert_eq!(credential.len(), 30);
     for error in [
         OpenAiCredentialError::Missing,

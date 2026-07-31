@@ -1,8 +1,8 @@
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
     ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
-    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyring, SecureStore,
-    SecureStoreError,
+    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
+    ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
 
 /// Stub implementation for platforms where the secure store is not yet wired.
@@ -34,6 +34,13 @@ impl SecureStore for StubStore {
 impl ProviderJournalKeyring for StubStore {
     fn retains_multiple_provider_journal_keys(&self) -> bool {
         false
+    }
+
+    fn provider_journal_key_status(
+        &self,
+        _key_ref: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        Ok(ProviderJournalKeyStatus::Unsupported)
     }
 
     fn store_provider_journal_key(

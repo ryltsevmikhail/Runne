@@ -69,11 +69,6 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
         unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
     })
     .map_err(|_| ())?;
-    if launch.provider_activation().requires_openai_execution() {
-        // The protected V2 transcript is preserved, but no readiness may be
-        // emitted until the exact credential-backed composition is available.
-        return Err(());
-    }
     let bootstrap = launch
         .bootstrap(|| unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority))
         .map_err(|_| ())?;

@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gocode_api::{
-    ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError,
+    ActivationDispositionV1, ExecutableIdentityV1, LOCAL_RUNTIME_SESSION_TTL, LaunchAuthorityError,
     LaunchAuthorityValidationV1, PendingFirstActivationV1, ProtectedActivationKeys,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
     ProtectedLaunchRequestV2, ProtectedOwnedLaunchV1, ProtectedOwnedLaunchV2,
@@ -29,6 +29,8 @@ use crate::provider_activation::ProviderActivation;
 
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
 const CHANNEL_TIMEOUT: Duration = Duration::from_secs(30);
+const CONTROL_IDLE_TIMEOUT: Duration =
+    Duration::from_secs(LOCAL_RUNTIME_SESSION_TTL.as_secs() + CHANNEL_TIMEOUT.as_secs());
 const LOCAL_PRINCIPAL: &str = "local-owner";
 
 /// Owned daemon side of the inherited full-duplex activation channel.
@@ -107,6 +109,12 @@ impl ProtectedActivationChannel {
     /// Writes one bounded post-readiness control response.
     pub fn write_control_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
         self.write_frame(frame)
+    }
+
+    fn enter_control_loop(&self) -> Result<(), LaunchAuthorityError> {
+        self.stream
+            .set_read_timeout(Some(CONTROL_IDLE_TIMEOUT))
+            .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
     }
 }
 
@@ -573,6 +581,7 @@ pub fn run_control_loop(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
 ) -> Result<(), LaunchAuthorityError> {
+    channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;
@@ -659,6 +668,7 @@ pub fn run_control_loop_v2(
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
 ) -> Result<(), LaunchAuthorityError> {
+    channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;

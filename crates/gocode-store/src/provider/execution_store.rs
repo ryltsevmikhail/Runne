@@ -328,12 +328,23 @@ impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
             .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
         Ok(ProviderAuthorityIssuerDecision::Winner {
             authority_ref,
+            runtime_generation: state.expected_generation,
             claim: Box::new(claim),
         })
     }
 }
 
 impl ProviderExecutionStore for SqliteProviderExecutionStore {
+    fn active_journal_key_binding(
+        &self,
+    ) -> Result<Option<ProviderJournalKeyBinding>, ProviderExecutionError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        load_active_journal_key(&connection).map(|record| record.map(|record| record.binding))
+    }
+
     fn activate_journal_key(
         &self,
         key: ProviderJournalKeyBinding,

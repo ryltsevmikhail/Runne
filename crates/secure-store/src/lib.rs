@@ -19,7 +19,7 @@ pub use provider_credential::{
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
-    ProviderJournalKeyring,
+    ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
 
 // ---------------------------------------------------------------------------

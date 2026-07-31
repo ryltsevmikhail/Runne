@@ -30,7 +30,7 @@ use gocode_runtime::provider_execution::{
 };
 use gocode_secure_store::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
-    ProviderJournalKeyring, SecureStoreError,
+    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
 };
 use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderRuntimeAuthorityConfig,
@@ -40,6 +40,7 @@ use gocode_store::provider::{
 #[derive(Default)]
 struct MemoryKeyring {
     keys: Mutex<HashMap<ProviderJournalKeyRef, [u8; 32]>>,
+    loads: AtomicUsize,
 }
 
 impl MemoryKeyring {
@@ -51,6 +52,17 @@ impl MemoryKeyring {
 impl ProviderJournalKeyring for MemoryKeyring {
     fn retains_multiple_provider_journal_keys(&self) -> bool {
         true
+    }
+
+    fn provider_journal_key_status(
+        &self,
+        key_ref: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        Ok(if self.keys.lock().unwrap().contains_key(&key_ref) {
+            ProviderJournalKeyStatus::Available
+        } else {
+            ProviderJournalKeyStatus::Missing
+        })
     }
 
     fn store_provider_journal_key(
@@ -74,6 +86,7 @@ impl ProviderJournalKeyring for MemoryKeyring {
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
+        self.loads.fetch_add(1, Ordering::SeqCst);
         let bytes = self
             .keys
             .lock()
@@ -96,6 +109,19 @@ impl ProviderJournalKeyring for MemoryKeyring {
             .map(|_| ())
             .ok_or(SecureStoreError::ProviderJournalKeyNotFound)
     }
+}
+
+#[test]
+fn existing_key_preflight_validates_metadata_without_loading_key_bytes() {
+    let fixture = fixture();
+    let keyring = MemoryKeyring::default();
+    let writer = runtime(&keyring, fixture.execution.as_ref());
+    let key = writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    keyring.loads.store(0, Ordering::SeqCst);
+
+    let restarted = runtime(&keyring, fixture.execution.as_ref());
+    assert_eq!(restarted.preflight_existing_active_key([1; 16], 7), Ok(key));
+    assert_eq!(keyring.loads.load(Ordering::SeqCst), 0);
 }
 
 struct Fixture {

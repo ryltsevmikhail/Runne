@@ -1,7 +1,7 @@
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
-    MAX_PROVIDER_USAGE_TOKENS, PreparedProviderRecord, ProviderDispatchClaim,
-    ProviderRepositoryState,
+    DispatchAttemptId, MAX_PROVIDER_USAGE_TOKENS, PreparedProviderRecord,
+    ProviderCallDigestVersion, ProviderDispatchClaim, ProviderRepositoryState, ProviderStreamId,
 };
 
 use super::{ProviderAdmissionError, ProviderEffectAuthorityRef};
@@ -69,18 +69,21 @@ impl ProviderAuthorityIssueRequest {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdmittedProviderDispatch {
     authority_ref: ProviderEffectAuthorityRef,
+    runtime_generation: u64,
     claim: ProviderDispatchClaim,
 }
 
 impl AdmittedProviderDispatch {
     fn new(
         authority_ref: ProviderEffectAuthorityRef,
+        runtime_generation: u64,
         claim: ProviderDispatchClaim,
     ) -> Result<Self, ProviderAdmissionError> {
         if claim.permit_id == [0; 16]
             || claim.token_reservation_id == [0; 16]
             || claim.cost_reservation_id == [0; 16]
             || claim.fencing_token == 0
+            || runtime_generation == 0
             || claim.provider_idempotency_key.is_empty()
             || claim.provider_idempotency_key.len() > 256
             || claim
@@ -92,6 +95,7 @@ impl AdmittedProviderDispatch {
         }
         Ok(Self {
             authority_ref,
+            runtime_generation,
             claim,
         })
     }
@@ -106,9 +110,91 @@ impl AdmittedProviderDispatch {
         &self.claim
     }
 
+    /// Returns the runtime generation that admitted this effect.
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+
     /// Consumes the admitted metadata into its provider claim.
     pub fn into_claim(self) -> ProviderDispatchClaim {
         self.claim
+    }
+}
+
+/// Opaque runtime-issued binding for one admitted and opened provider stream.
+///
+/// The binding is constructed only by application coordination after the
+/// runtime issuer returns a winner and the adapter opens the exact stream. It
+/// carries no credential material and prevents hosts from rebuilding journal
+/// authority from caller-selected fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderExecutionBinding {
+    attempt_id: DispatchAttemptId,
+    fencing_token: u64,
+    runtime_generation: u64,
+    call_digest_version: ProviderCallDigestVersion,
+    prepared_digest: [u8; 32],
+    profile_digest: [u8; 32],
+    stream_id: ProviderStreamId,
+}
+
+impl ProviderExecutionBinding {
+    pub(crate) fn from_admitted(
+        admitted: &AdmittedProviderDispatch,
+        prepared: PreparedProviderRecord,
+        stream_id: ProviderStreamId,
+    ) -> Result<Self, ProviderAdmissionError> {
+        if prepared.prepared_digest == [0; 32]
+            || prepared.profile_digest == [0; 32]
+            || admitted.claim.prepared_digest != prepared.prepared_digest
+            || admitted.claim.profile_digest != prepared.profile_digest
+        {
+            return Err(ProviderAdmissionError::AuthorityConflict);
+        }
+        Ok(Self {
+            attempt_id: admitted.claim.attempt_id,
+            fencing_token: admitted.claim.fencing_token,
+            runtime_generation: admitted.runtime_generation,
+            call_digest_version: prepared.call_digest_version,
+            prepared_digest: prepared.prepared_digest,
+            profile_digest: prepared.profile_digest,
+            stream_id,
+        })
+    }
+
+    /// Returns the durable provider attempt identity.
+    pub const fn attempt_id(&self) -> DispatchAttemptId {
+        self.attempt_id
+    }
+
+    /// Returns the runtime-issued fencing token.
+    pub const fn fencing_token(&self) -> u64 {
+        self.fencing_token
+    }
+
+    /// Returns the runtime generation that admitted the effect.
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+
+    /// Returns the exact provider-call digest domain.
+    pub const fn call_digest_version(&self) -> ProviderCallDigestVersion {
+        self.call_digest_version
+    }
+
+    /// Returns the exact credential-free prepared digest.
+    pub const fn prepared_digest(&self) -> &[u8; 32] {
+        &self.prepared_digest
+    }
+
+    /// Returns the exact immutable provider profile digest.
+    pub const fn profile_digest(&self) -> &[u8; 32] {
+        &self.profile_digest
+    }
+
+    /// Returns the normalized adapter stream identity.
+    pub const fn stream_id(&self) -> ProviderStreamId {
+        self.stream_id
     }
 }
 
@@ -123,6 +209,8 @@ pub enum ProviderAuthorityIssuerDecision {
     Winner {
         /// Durable runtime-issued authority.
         authority_ref: ProviderEffectAuthorityRef,
+        /// Runtime generation read by the issuer inside the admission transaction.
+        runtime_generation: u64,
         /// Exact winner-only claim.
         claim: Box<ProviderDispatchClaim>,
     },
@@ -166,9 +254,10 @@ pub trait RuntimeProviderAuthorityIssuer: Send + Sync {
         match self.issue_decision(request)? {
             ProviderAuthorityIssuerDecision::Winner {
                 authority_ref,
+                runtime_generation,
                 claim,
             } => Ok(ProviderAuthorityIssueOutcome::Winner(Box::new(
-                AdmittedProviderDispatch::new(authority_ref, *claim)?,
+                AdmittedProviderDispatch::new(authority_ref, runtime_generation, *claim)?,
             ))),
             ProviderAuthorityIssuerDecision::Existing { state } => {
                 Ok(ProviderAuthorityIssueOutcome::Existing { state })

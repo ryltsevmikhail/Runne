@@ -8,6 +8,17 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::SecureStoreError;
 
+/// Renderer-safe, non-secret availability of one exact journal key binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderJournalKeyStatus {
+    /// The exact key item exists; material has not been read.
+    Available,
+    /// No item exists for the exact non-secret binding.
+    Missing,
+    /// The native backend cannot retain provider journal keys.
+    Unsupported,
+}
+
 #[cfg(test)]
 static COPY_ARRAY_CONSTRUCTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
 
@@ -176,6 +187,19 @@ impl ProviderJournalKeyDeletionProof {
 pub trait ProviderJournalKeyring: Send + Sync {
     /// Whether the backend can retain active and retired versions concurrently.
     fn retains_multiple_provider_journal_keys(&self) -> bool;
+
+    /// Returns metadata-only availability without materializing key bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed secure-store error when metadata cannot be queried
+    /// without weakening the backend or exact key binding.
+    fn provider_journal_key_status(
+        &self,
+        _key_ref: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        Ok(ProviderJournalKeyStatus::Unsupported)
+    }
 
     /// Persists one authority/generation-bound key version.
     ///

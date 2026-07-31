@@ -240,6 +240,7 @@ fn issuer_winner_is_the_only_claim_dispatched_and_fences_state_updates() {
     let issuer = RecordingIssuer {
         outcome: Ok(ProviderAuthorityIssuerDecision::Winner {
             authority_ref: ProviderEffectAuthorityRef::new([8; 16], 1).unwrap(),
+            runtime_generation: 17,
             claim: Box::new(claim),
         }),
         requests: Mutex::new(Vec::new()),
@@ -247,10 +248,20 @@ fn issuer_winner_is_the_only_claim_dispatched_and_fences_state_updates() {
     let coordinator =
         ProviderDispatchCoordinator::new(&repository, &issuer, &provider, &AllowingGuard);
 
-    assert!(matches!(
-        block_on(coordinator.dispatch(request())).unwrap(),
-        ProviderCoordinatorOutcome::Streaming { .. }
-    ));
+    let ProviderCoordinatorOutcome::Streaming { binding } =
+        block_on(coordinator.dispatch(request())).unwrap()
+    else {
+        panic!("winner must return one opaque execution binding");
+    };
+    assert_eq!(binding.attempt_id(), expected_attempt_id);
+    assert_eq!(binding.fencing_token(), expected_fencing_token);
+    assert_eq!(binding.runtime_generation(), 17);
+    assert_eq!(
+        binding.call_digest_version(),
+        gocode_provider::ProviderCallDigestVersion::V2
+    );
+    assert_eq!(binding.profile_digest(), &[6; 32]);
+    assert_ne!(binding.stream_id().as_bytes(), &[0; 16]);
     assert_eq!(provider.dispatch_count(), 1);
     assert_eq!(*repository.claim_count.lock().unwrap(), 0);
     assert_eq!(

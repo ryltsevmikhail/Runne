@@ -229,6 +229,7 @@ impl RuntimeProviderAuthorityIssuer for RecordingIssuer {
                 };
                 Ok(ProviderAuthorityIssuerDecision::Winner {
                     authority_ref: ProviderEffectAuthorityRef::new([13; 16], 1).unwrap(),
+                    runtime_generation: 12,
                     claim: Box::new(claim),
                 })
             }

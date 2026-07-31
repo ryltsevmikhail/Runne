@@ -6,6 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::bootstrap::{BootstrapOutcome, bootstrap};
+use crate::canonical_provider::{
+    DaemonCanonicalOpenAiComposition, DaemonCanonicalOpenAiService, compose_selected_provider,
+};
 use crate::client_profile::PublishedClientProfileV2;
 use crate::config::ConfigurationSnapshot;
 use crate::error::DaemonError;
@@ -144,7 +147,7 @@ impl DaemonApplication {
         Self::validate_config(config)?;
         if config.provider_activation.requires_openai_execution() {
             return Err(DaemonError::Config(
-                "OpenAI provider composition is unavailable".to_owned(),
+                "OpenAI provider qualification is unavailable".to_owned(),
             ));
         }
         let bootstrap = bootstrap(config)?;
@@ -228,6 +231,38 @@ impl DaemonApplication {
                 Arc::clone(&prohibited_content),
             ));
 
+        let mut session_id = *uuid::Uuid::now_v7().as_bytes();
+        while session_id == bootstrap.launch_identity.daemon_instance_id().into_bytes() {
+            session_id = *uuid::Uuid::now_v7().as_bytes();
+        }
+
+        let provider_identity = provider_activation_identity(
+            config,
+            protected_activation,
+            session_id,
+            provider_activation.binding(),
+        );
+        let provider_profile_digest = *provider_activation.binding().profile_digest();
+        let provider_service = compose_selected_provider(&provider_activation, || {
+            let conversation_store = store.clone();
+            let conversation_service = Arc::clone(&conversation_text_service);
+            let prohibited_content = Arc::clone(&prohibited_content);
+            async move {
+                DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
+                    db_path: config.db_path.clone(),
+                    runtime_authority_id: bootstrap.authority_id,
+                    runtime_generation: bootstrap.launch_generation,
+                    activation_identity: provider_identity,
+                    expected_profile_digest: provider_profile_digest,
+                    conversation_store,
+                    conversation_service,
+                    prohibited_content,
+                })
+                .await
+            }
+        })
+        .await?;
+
         let runtime_config = RuntimeConfig {
             max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
                 DaemonError::Config("max_in_flight does not fit this platform".to_owned())
@@ -235,22 +270,41 @@ impl DaemonApplication {
             ..RuntimeConfig::default()
         };
         let generation = RuntimeGenerationId(bootstrap.launch_generation);
-        let (handle, mut runtime_controller) = Runtime::start_borrowed_with_conversations(
-            TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
-            service,
-            conversation_text_service,
-            runtime_config,
-        )
+        let (handle, mut runtime_controller) = if let Some(provider_service) = provider_service {
+            Runtime::start_borrowed_with_provider_conversations(
+                TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
+                service,
+                conversation_text_service,
+                provider_service,
+                runtime_config,
+            )
+        } else {
+            Runtime::start_borrowed_with_conversations(
+                TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
+                service,
+                conversation_text_service,
+                runtime_config,
+            )
+        }
         .map_err(|error| DaemonError::Bootstrap(format!("start runtime: {error}")))?;
 
         let task_run_host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
-        let conversation_host = RuntimeCanonicalConversationHost::new(
-            handle,
-            conversation_service,
-            store.clone(),
-            DeterministicTextProvider,
-            Arc::clone(&prohibited_content),
-        );
+        let conversation_host = if provider_activation.requires_openai_execution() {
+            RuntimeCanonicalConversationHost::<_, _, _, DeterministicTextProvider>::new_provider(
+                handle,
+                conversation_service,
+                store.clone(),
+                Arc::clone(&prohibited_content),
+            )
+        } else {
+            RuntimeCanonicalConversationHost::new(
+                handle,
+                conversation_service,
+                store.clone(),
+                DeterministicTextProvider,
+                Arc::clone(&prohibited_content),
+            )
+        };
         let http_recovery_state = map_recovery_state(recovery_state);
         let actor =
             ApiActor::new("gocode-daemon").expect("the built-in daemon actor identity is valid");
@@ -295,10 +349,6 @@ impl DaemonApplication {
             capability_digest,
         )
         .map_err(|_| DaemonError::Bootstrap("build stable local session binding".into()))?;
-        let mut session_id = *uuid::Uuid::now_v7().as_bytes();
-        while session_id == bootstrap.launch_identity.daemon_instance_id().into_bytes() {
-            session_id = *uuid::Uuid::now_v7().as_bytes();
-        }
         let binding = RuntimeSessionBinding::new(
             stable_binding,
             bootstrap.launch_identity.daemon_instance_id(),
@@ -574,6 +624,28 @@ impl DaemonApplication {
 
         combine_shutdown_results(http_result, runtime_result)
     }
+}
+
+fn provider_activation_identity(
+    config: &ConfigurationSnapshot,
+    protected: bool,
+    session_id: [u8; 16],
+    binding: &gocode_api::ProviderActivationBindingV1,
+) -> [u8; 32] {
+    use sha2::{Digest as _, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"GOCODE_DAEMON_PROVIDER_ACTIVATION_IDENTITY_V1\0");
+    hasher.update(binding.mode().as_str().as_bytes());
+    hasher.update(binding.profile_id().as_bytes());
+    hasher.update(binding.profile_digest());
+    if protected {
+        hasher.update(b"protected\0");
+        hasher.update(session_id);
+    } else {
+        hasher.update(b"external\0");
+        hasher.update(config.digest.as_bytes());
+    }
+    hasher.finalize().into()
 }
 
 fn map_recovery_state(state: RecoveryState) -> HttpRecoveryState {

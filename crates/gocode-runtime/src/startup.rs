@@ -8,6 +8,7 @@ use gocode_application::ports::{EventStore, IdGenerator, UnitOfWork};
 use gocode_application::service::TaskRunService;
 use tokio::sync::{Semaphore, mpsc, oneshot};
 
+use crate::canonical_provider_execution::CanonicalProviderExecutionService;
 pub use crate::config::{RuntimeConfig, RuntimeStartError};
 use crate::controller::{ControlCommand, RuntimeController, ShutdownOutcome};
 use crate::gate::AdmissionGate;
@@ -81,7 +82,7 @@ impl Runtime {
         U: UnitOfWork + Send + Sync + 'static,
         I: IdGenerator + Send + Sync + 'static,
     {
-        Self::start_internal(ctx, service, None, config)
+        Self::start_internal(ctx, service, None, None, config)
     }
 
     /// Starts the runtime with the canonical Conversation text coordinator.
@@ -96,13 +97,36 @@ impl Runtime {
         U: UnitOfWork + Send + Sync + 'static,
         I: IdGenerator + Send + Sync + 'static,
     {
-        Self::start_internal(ctx, service, Some(conversation_service), config)
+        Self::start_internal(ctx, service, Some(conversation_service), None, config)
+    }
+
+    /// Starts canonical Conversation coordination with a runtime-supervised provider service.
+    pub fn start_borrowed_with_provider_conversations<E, U, I>(
+        ctx: TokioRuntimeContext,
+        service: Arc<TaskRunService<E, U, I>>,
+        conversation_service: Arc<dyn ConversationTextCommandService>,
+        provider_service: Arc<dyn CanonicalProviderExecutionService>,
+        config: RuntimeConfig,
+    ) -> Result<(RuntimeHandle, RuntimeController), RuntimeStartError>
+    where
+        E: EventStore + Send + Sync + 'static,
+        U: UnitOfWork + Send + Sync + 'static,
+        I: IdGenerator + Send + Sync + 'static,
+    {
+        Self::start_internal(
+            ctx,
+            service,
+            Some(conversation_service),
+            Some(provider_service),
+            config,
+        )
     }
 
     fn start_internal<E, U, I>(
         ctx: TokioRuntimeContext,
         service: Arc<TaskRunService<E, U, I>>,
         conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+        provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
         config: RuntimeConfig,
     ) -> Result<(RuntimeHandle, RuntimeController), RuntimeStartError>
     where
@@ -142,6 +166,7 @@ impl Runtime {
                 cancel2,
                 service,
                 conversation_service,
+                provider_service,
                 drain_complete_tx,
             )
             .await;

@@ -2,7 +2,7 @@ use std::sync::{Arc, Barrier};
 
 use gocode_application::provider::{
     ProviderAdmissionError, ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest,
-    RuntimeProviderAuthorityIssuer,
+    ProviderExecutionStore, ProviderJournalKeyBinding, RuntimeProviderAuthorityIssuer,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -289,4 +289,16 @@ fn begin_immediate_allows_one_winner_across_two_store_handles() {
             .count(),
         1
     );
+}
+
+#[test]
+fn active_journal_key_preflight_returns_only_the_exact_non_secret_binding() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("provider-key-preflight.sqlite");
+    let (store, _) = initialize(&path);
+    let key = ProviderJournalKeyBinding::new([21; 16], 1, [1; 16], 7).unwrap();
+
+    assert_eq!(store.active_journal_key_binding().unwrap(), None);
+    store.activate_journal_key(key).unwrap();
+    assert_eq!(store.active_journal_key_binding().unwrap(), Some(key));
 }
