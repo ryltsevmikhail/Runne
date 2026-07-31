@@ -1678,9 +1678,11 @@ version = "0.1.0"
 dependencies = [
  "gocode-daemon",
  "gocode-runtime-client",
+ "gocode-secure-store",
  "serde_json",
  "tempfile",
  "tokio",
+ "zeroize",
 ]
 
 [[package]]
