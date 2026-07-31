@@ -26,7 +26,10 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     "gocode-platform-ports": set(),
     "gocode-pairing-crypto": set(),
     "gocode-runtime-client": {"gocode-api"},
-    "gocode-secure-store": set(),
+    "gocode-secure-store": {
+        "gocode-api",
+        "gocode-macos-keychain-acl",
+    },
 }
 
 RENDERER_ROOT = Path("apps/desktop/src")

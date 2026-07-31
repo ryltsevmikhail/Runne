@@ -33,6 +33,25 @@ class RustDependencyRulesTest(unittest.TestCase):
             violations,
         )
 
+    def test_secure_store_allows_only_public_identity_and_acl_wrapper(self):
+        allowed = architecture.find_rust_dependency_violations(
+            {
+                "gocode-secure-store": {
+                    "gocode-api",
+                    "gocode-macos-keychain-acl",
+                }
+            }
+        )
+        forbidden = architecture.find_rust_dependency_violations(
+            {"gocode-secure-store": {"gocode-runtime"}}
+        )
+
+        self.assertEqual([], allowed)
+        self.assertEqual(
+            ["gocode-secure-store -> gocode-runtime is forbidden"],
+            forbidden,
+        )
+
 
 class ProviderTerminalPersistenceBoundaryTest(unittest.TestCase):
     def setUp(self):
