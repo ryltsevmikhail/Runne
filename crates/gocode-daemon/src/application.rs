@@ -13,8 +13,8 @@ use crate::recovery::{RecoveryState, enumerate_recovery_tasks};
 use crate::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
 use gocode_api::{
     ApiActor, ApiPrincipalId, ExecutableIdentityV1, ProtectedActivationKeys,
-    ProtectedLaunchRequestV1, ProtectedReadyV1, RuntimeSessionBinding, StableRuntimeBinding,
-    StableRuntimeBindingV1,
+    ProtectedLaunchRequestV1, ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2,
+    RuntimeSessionBinding, StableRuntimeBinding, StableRuntimeBindingV1,
 };
 use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
@@ -140,6 +140,11 @@ impl DaemonApplication {
     /// router, and binds HTTP without accepting requests yet.
     pub async fn start(config: &ConfigurationSnapshot) -> Result<Self, DaemonError> {
         Self::validate_config(config)?;
+        if config.provider_activation.requires_openai_execution() {
+            return Err(DaemonError::Config(
+                "OpenAI provider composition is unavailable".to_owned(),
+            ));
+        }
         let bootstrap = bootstrap(config)?;
         Self::start_with_bootstrap(config, bootstrap, false).await
     }
@@ -468,6 +473,19 @@ impl DaemonApplication {
                 .collect(),
         )
         .map_err(|_| DaemonError::Bootstrap("build protected readiness".into()))?;
+        ready.sign(keys);
+        Ok(ready)
+    }
+
+    /// Builds V2 readiness only for the exact protected provider binding.
+    pub fn protected_ready_v2(
+        &self,
+        request: &ProtectedLaunchRequestV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<ProtectedReadyV2, DaemonError> {
+        let ready = self.protected_ready(request.compatibility_request(), keys)?;
+        let mut ready = ProtectedReadyV2::new(ready, request.provider_binding().clone())
+            .map_err(|_| DaemonError::Bootstrap("build provider-bound readiness".into()))?;
         ready.sign(keys);
         Ok(ready)
     }

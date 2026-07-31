@@ -9,9 +9,11 @@ use gocode_api::{
     ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError,
     LaunchAuthorityValidationV1, PendingFirstActivationV1, ProtectedActivationKeys,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
-    ProtectedOwnedLaunchV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1,
-    ProtectedRuntimeProfileV1, ProtectedShutdownAckV1, ProtectedShutdownV1, RuntimeSessionBinding,
-    StableRuntimeBindingV1,
+    ProtectedLaunchRequestV2, ProtectedOwnedLaunchV1, ProtectedOwnedLaunchV2,
+    ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
+    ProtectedRenewTicketV2, ProtectedRuntimeProfileV1, ProtectedShutdownAckV1,
+    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationModeV1,
+    RuntimeSessionBinding, StableRuntimeBindingV1,
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_store::schema;
@@ -23,6 +25,7 @@ use crate::bootstrap::{
     BootstrapOutcome, bootstrap_protected, preflight_recoverable_first_activation_sidecars,
 };
 use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
+use crate::provider_activation::ProviderActivation;
 
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
 const CHANNEL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -109,11 +112,72 @@ impl ProtectedActivationChannel {
 
 /// Validated protected launch retained only by the daemon native host.
 #[cfg(unix)]
+enum DaemonLaunchRequest {
+    V1(ProtectedLaunchRequestV1),
+    V2(ProtectedLaunchRequestV2),
+}
+
+#[cfg(unix)]
+impl DaemonLaunchRequest {
+    fn decode_frame(frame: &[u8]) -> Result<Self, LaunchAuthorityError> {
+        if let Ok(request) = ProtectedLaunchRequestV2::decode_frame(frame) {
+            return Ok(Self::V2(request));
+        }
+        ProtectedLaunchRequestV1::decode_frame(frame)
+            .map(Self::V1)
+            .map_err(|_| LaunchAuthorityError::InvalidContract)
+    }
+
+    const fn compatibility(&self) -> &ProtectedLaunchRequestV1 {
+        match self {
+            Self::V1(request) => request,
+            Self::V2(request) => request.compatibility_request(),
+        }
+    }
+
+    fn validate(
+        &self,
+        now_unix_millis: u64,
+        expected: &LaunchAuthorityValidationV1<'_>,
+    ) -> Result<ProviderActivation, LaunchAuthorityError> {
+        match self {
+            Self::V1(request) => {
+                request.validate(now_unix_millis, expected)?;
+                request.validate_provider_mode(ProviderActivationModeV1::DeterministicV1)?;
+                Ok(ProviderActivation::deterministic_v1())
+            }
+            Self::V2(request) => {
+                let activation =
+                    ProviderActivation::from_binding(request.provider_binding().clone());
+                request.validate(now_unix_millis, expected, activation.binding())?;
+                Ok(activation)
+            }
+        }
+    }
+
+    fn derive_keys_and_forget(&mut self) -> ProtectedActivationKeys {
+        match self {
+            Self::V1(request) => request.derive_keys_and_forget(),
+            Self::V2(request) => request.derive_keys_and_forget(),
+        }
+    }
+
+    fn validate_freshness(&self, now_unix_millis: u64) -> Result<(), LaunchAuthorityError> {
+        match self {
+            Self::V1(request) => request.validate_freshness(now_unix_millis),
+            Self::V2(request) => request.validate_freshness(now_unix_millis),
+        }
+    }
+}
+
+/// Validated protected launch retained only by the daemon native host.
+#[cfg(unix)]
 pub struct ProtectedDaemonLaunch {
-    request: ProtectedLaunchRequestV1,
+    request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,
     config: ConfigurationSnapshot,
     pending_first_activation: Option<PendingFirstActivationV1>,
+    provider_activation: ProviderActivation,
 }
 
 #[cfg(unix)]
@@ -128,11 +192,10 @@ impl ProtectedDaemonLaunch {
         F: FnMut() -> Result<u64, LaunchAuthorityError>,
     {
         let frame = channel.read_frame()?;
-        let mut request = ProtectedLaunchRequestV1::decode_frame(&frame)
-            .map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        let mut request = DaemonLaunchRequest::decode_frame(&frame)?;
         let executable = ExecutableIdentityV1::measure(executable_path)?;
         let profile = expected_profile()?;
-        request.validate(
+        let provider_activation = request.validate(
             now_unix_millis()?,
             &LaunchAuthorityValidationV1 {
                 principal_id: LOCAL_PRINCIPAL,
@@ -140,8 +203,8 @@ impl ProtectedDaemonLaunch {
                 executable: &executable,
             },
         )?;
-        let canonical_root = validate_runtime_root(request.runtime_root())?;
-        if canonical_root != request.runtime_root() {
+        let canonical_root = validate_runtime_root(request.compatibility().runtime_root())?;
+        if canonical_root != request.compatibility().runtime_root() {
             return Err(LaunchAuthorityError::InvalidContract);
         }
         let mut defaults = BuiltInDefaults::new(&canonical_root);
@@ -149,15 +212,15 @@ impl ProtectedDaemonLaunch {
         let config = ConfigurationSnapshot::from_defaults(&defaults);
         let keys = request.derive_keys_and_forget();
 
-        let pending_first_activation = match request.activation_disposition() {
+        let pending_first_activation = match request.compatibility().activation_disposition() {
             ActivationDispositionV1::FirstActivation => {
                 if Path::new(&config.db_path).exists() {
                     return Err(LaunchAuthorityError::UnexpectedExistingEventLog);
                 }
-                let pending = prepare_first_activation(&request, &canonical_root)?;
+                let pending = prepare_first_activation(request.compatibility(), &canonical_root)?;
                 let mut prepared = ProtectedFirstActivationPreparedV1::new(
-                    request.launch_authority_id(),
-                    request.desktop_host_instance_id(),
+                    request.compatibility().launch_authority_id(),
+                    request.compatibility().desktop_host_instance_id(),
                     pending.clone(),
                 );
                 prepared.sign(&keys);
@@ -168,7 +231,7 @@ impl ProtectedDaemonLaunch {
                 )?;
                 let commit = ProtectedFirstActivationCommitV1::decode_frame(&channel.read_frame()?)
                     .map_err(|_| LaunchAuthorityError::FirstActivationCommitIncomplete)?;
-                commit.verify_exact(&request, &pending, &keys)?;
+                commit.verify_exact(request.compatibility(), &pending, &keys)?;
                 request.validate_freshness(now_unix_millis()?)?;
                 Some(pending)
             }
@@ -177,7 +240,7 @@ impl ProtectedDaemonLaunch {
                 None
             }
             ActivationDispositionV1::ResumeFirstActivation(pending) => {
-                verify_pending_request(&request, pending, &canonical_root)?;
+                verify_pending_request(request.compatibility(), pending, &canonical_root)?;
                 if Path::new(&config.db_path).exists() {
                     preflight_resume_first_activation(&config, pending)?;
                 }
@@ -190,6 +253,7 @@ impl ProtectedDaemonLaunch {
             keys,
             config,
             pending_first_activation,
+            provider_activation,
         })
     }
 
@@ -205,7 +269,7 @@ impl ProtectedDaemonLaunch {
         let bootstrap_key = self.keys.bootstrap_key();
         let result = bootstrap_protected(
             &self.config,
-            self.request.launch_authority_id(),
+            self.request.compatibility().launch_authority_id(),
             *bootstrap_key,
             self.pending_first_activation.as_ref(),
             || {
@@ -235,8 +299,28 @@ impl ProtectedDaemonLaunch {
         })
     }
 
+    pub const fn request_v1(&self) -> Option<&ProtectedLaunchRequestV1> {
+        match &self.request {
+            DaemonLaunchRequest::V1(request) => Some(request),
+            DaemonLaunchRequest::V2(_) => None,
+        }
+    }
+
+    /// Returns the read-only V1 compatibility identity used by existing
+    /// first-activation recovery code. It never carries or selects a provider.
     pub const fn request(&self) -> &ProtectedLaunchRequestV1 {
-        &self.request
+        self.request.compatibility()
+    }
+
+    pub const fn request_v2(&self) -> Option<&ProtectedLaunchRequestV2> {
+        match &self.request {
+            DaemonLaunchRequest::V1(_) => None,
+            DaemonLaunchRequest::V2(request) => Some(request),
+        }
+    }
+
+    pub const fn provider_activation(&self) -> &ProviderActivation {
+        &self.provider_activation
     }
 
     pub const fn keys(&self) -> &ProtectedActivationKeys {
@@ -555,6 +639,86 @@ pub fn run_control_loop(
             .map_err(|_| LaunchAuthorityError::InvalidContract)?;
         shutdown.verify_exact(&owned_launch, &keys)?;
         let mut acknowledgement = ProtectedShutdownAckV1::new(owned_launch.clone(), true);
+        acknowledgement.sign(&keys);
+        channel.write_control_frame(
+            &acknowledgement
+                .encode_frame()
+                .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+        )?;
+        return Ok(());
+    }
+}
+
+/// Serves V2 control messages and rejects every V1 frame rather than allowing
+/// a provider-bound launch to downgrade its authenticated transcript.
+#[cfg(unix)]
+pub fn run_control_loop_v2(
+    mut channel: ProtectedActivationChannel,
+    keys: ProtectedActivationKeys,
+    mut owned_launch: ProtectedOwnedLaunchV2,
+    local_session_service: Arc<Mutex<LocalSessionService>>,
+    session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+) -> Result<(), LaunchAuthorityError> {
+    let mut last_renew_sequence = 0_u64;
+    loop {
+        let frame = channel.read_control_frame()?;
+        if let Ok(renewal) = ProtectedRenewRequestV2::decode_frame(&frame) {
+            renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
+            let current = local_session_service
+                .lock()
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?
+                .current_binding()
+                .clone();
+            let mut next_session_id = *uuid::Uuid::now_v7().as_bytes();
+            while next_session_id == *current.ephemeral().session_id()
+                || next_session_id == current.ephemeral().daemon_instance_id().into_bytes()
+            {
+                next_session_id = *uuid::Uuid::now_v7().as_bytes();
+            }
+            let mut bootstrap_ticket = random_control_secret();
+            let issued_at = session_clock();
+            let expires_at = issued_at
+                .checked_add(Duration::from_secs(30))
+                .ok_or(LaunchAuthorityError::RenewalUnavailable)?;
+            let next_binding = RuntimeSessionBinding::new(
+                current.stable().clone(),
+                current.ephemeral().daemon_instance_id(),
+                current.ephemeral().launch_generation(),
+                next_session_id,
+                current.ephemeral().authorization_epoch(),
+                current.ephemeral().sensitivity_ceiling(),
+                *current.certificate_sha256(),
+            )
+            .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            local_session_service
+                .lock()
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?
+                .rotate_protected_bootstrap(next_binding, bootstrap_ticket, issued_at, expires_at)
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            let mut ticket = ProtectedRenewTicketV2::new(
+                &renewal,
+                next_session_id,
+                bootstrap_ticket,
+                u64::try_from(issued_at.as_millis())
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?,
+                u64::try_from(expires_at.as_millis())
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?,
+            )?;
+            bootstrap_ticket.zeroize();
+            ticket.sign(&keys);
+            channel.write_control_frame(
+                &ticket
+                    .encode_frame()
+                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+            )?;
+            last_renew_sequence = renewal.sequence();
+            owned_launch = ticket.next_owned_launch();
+            continue;
+        }
+        let shutdown = ProtectedShutdownV2::decode_frame(&frame)
+            .map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        shutdown.verify_exact(&owned_launch, &keys)?;
+        let mut acknowledgement = ProtectedShutdownAckV2::new(owned_launch.clone(), true);
         acknowledgement.sign(&keys);
         channel.write_control_frame(
             &acknowledgement

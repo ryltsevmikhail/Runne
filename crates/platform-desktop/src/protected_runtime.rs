@@ -22,8 +22,11 @@ use gocode_api::{
     ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError, LaunchSecret,
     PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, PendingFirstActivationV1, ProtectedActivationKeys,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
-    ProtectedOwnedLaunchV1, ProtectedReadyV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1,
-    ProtectedRuntimeProfileV1, ProtectedShutdownAckV1, ProtectedShutdownV1, StableRuntimeBindingV1,
+    ProtectedLaunchRequestV2, ProtectedOwnedLaunchV1, ProtectedOwnedLaunchV2, ProtectedReadyV1,
+    ProtectedReadyV2, ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
+    ProtectedRenewTicketV2, ProtectedRuntimeProfileV1, ProtectedShutdownAckV1,
+    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1,
+    StableRuntimeBindingV1,
 };
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, ProtectedBundledRuntimeProfile,
@@ -161,6 +164,7 @@ pub struct ProtectedBundledRuntimeLaunchSpec {
     executable: PathBuf,
     runtime_root: PathBuf,
     trusted_source_identity: ExecutableIdentityV1,
+    provider_activation: Option<ProviderActivationBindingV1>,
 }
 
 impl fmt::Debug for ProtectedBundledRuntimeLaunchSpec {
@@ -169,7 +173,8 @@ impl fmt::Debug for ProtectedBundledRuntimeLaunchSpec {
             .debug_struct("ProtectedBundledRuntimeLaunchSpec")
             .field("executable", &"<measured>")
             .field("runtime_root", &"<owner-private>")
-            .finish()
+            .field("provider_activation", &self.provider_activation)
+            .finish_non_exhaustive()
     }
 }
 
@@ -198,6 +203,7 @@ impl ProtectedBundledRuntimeLaunchSpec {
                 executable,
                 runtime_root,
                 trusted_source_identity,
+                provider_activation: None,
             })
         }
     }
@@ -214,6 +220,22 @@ impl ProtectedBundledRuntimeLaunchSpec {
 
     const fn trusted_source_identity(&self) -> &ExecutableIdentityV1 {
         &self.trusted_source_identity
+    }
+
+    /// Selects provider-bound protected protocol V2 for this in-memory launch.
+    #[must_use]
+    pub fn with_provider_activation(
+        mut self,
+        provider_activation: ProviderActivationBindingV1,
+    ) -> Self {
+        self.provider_activation = Some(provider_activation);
+        self
+    }
+
+    /// Returns the exact non-secret provider binding selected for V2.
+    #[must_use]
+    pub const fn provider_activation(&self) -> Option<&ProviderActivationBindingV1> {
+        self.provider_activation.as_ref()
     }
 }
 
@@ -690,6 +712,138 @@ impl ActivationStateStore {
     }
 }
 
+#[cfg(unix)]
+enum DesktopLaunchRequest {
+    V1(ProtectedLaunchRequestV1),
+    V2(ProtectedLaunchRequestV2),
+}
+
+#[cfg(unix)]
+impl DesktopLaunchRequest {
+    const fn compatibility(&self) -> &ProtectedLaunchRequestV1 {
+        match self {
+            Self::V1(request) => request,
+            Self::V2(request) => request.compatibility_request(),
+        }
+    }
+
+    fn encode_frame(&self) -> Result<Vec<u8>, LaunchAuthorityError> {
+        match self {
+            Self::V1(request) => request.encode_frame(),
+            Self::V2(request) => request.encode_frame(),
+        }
+        .map_err(|_| LaunchAuthorityError::InvalidContract)
+    }
+
+    fn derive_keys_and_forget(&mut self) -> ProtectedActivationKeys {
+        match self {
+            Self::V1(request) => request.derive_keys_and_forget(),
+            Self::V2(request) => request.derive_keys_and_forget(),
+        }
+    }
+
+    fn decode_ready(
+        &self,
+        frame: &[u8],
+        keys: &ProtectedActivationKeys,
+    ) -> Result<DesktopReady, LaunchAuthorityError> {
+        match self {
+            Self::V1(request) => {
+                let ready = ProtectedReadyV1::decode_frame(frame)
+                    .map_err(|_| LaunchAuthorityError::ReadinessProofMismatch)?;
+                ready.verify_exact(request, keys)?;
+                Ok(DesktopReady::V1(ready))
+            }
+            Self::V2(request) => {
+                let ready = ProtectedReadyV2::decode_frame(frame)
+                    .map_err(|_| LaunchAuthorityError::ReadinessProofMismatch)?;
+                ready.verify_exact(request, keys)?;
+                Ok(DesktopReady::V2(ready))
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+enum DesktopReady {
+    V1(ProtectedReadyV1),
+    V2(ProtectedReadyV2),
+}
+
+#[cfg(unix)]
+impl DesktopReady {
+    const fn compatibility(&self) -> &ProtectedReadyV1 {
+        match self {
+            Self::V1(ready) => ready,
+            Self::V2(ready) => ready.compatibility_ready(),
+        }
+    }
+
+    fn into_process_activation(
+        self,
+        request: DesktopLaunchRequest,
+    ) -> Result<ProtectedProcessActivation, ProtectedBundledRuntimeError> {
+        match (request, self) {
+            (DesktopLaunchRequest::V1(request), Self::V1(ready)) => {
+                let owned = ready.owned_launch();
+                Ok(ProtectedProcessActivation::V1 {
+                    request,
+                    ready,
+                    owned,
+                })
+            }
+            (DesktopLaunchRequest::V2(request), Self::V2(ready)) => {
+                let owned = ready.owned_launch();
+                Ok(ProtectedProcessActivation::V2 {
+                    request,
+                    ready,
+                    owned,
+                })
+            }
+            _ => Err(ProtectedBundledRuntimeError::InvalidState),
+        }
+    }
+}
+
+#[cfg(unix)]
+#[allow(clippy::large_enum_variant)]
+enum ProtectedProcessActivation {
+    V1 {
+        request: ProtectedLaunchRequestV1,
+        ready: ProtectedReadyV1,
+        owned: ProtectedOwnedLaunchV1,
+    },
+    V2 {
+        request: ProtectedLaunchRequestV2,
+        ready: ProtectedReadyV2,
+        owned: ProtectedOwnedLaunchV2,
+    },
+}
+
+#[cfg(unix)]
+impl ProtectedProcessActivation {
+    const fn compatibility_ready(&self) -> &ProtectedReadyV1 {
+        match self {
+            Self::V1 { ready, .. } => ready,
+            Self::V2 { ready, .. } => ready.compatibility_ready(),
+        }
+    }
+
+    const fn compatibility_owned(&self) -> &ProtectedOwnedLaunchV1 {
+        match self {
+            Self::V1 { owned, .. } => owned,
+            Self::V2 { owned, .. } => owned.compatibility_owned_launch(),
+        }
+    }
+
+    const fn provider_activation(&self) -> Option<&ProviderActivationBindingV1> {
+        match self {
+            Self::V1 { .. } => None,
+            Self::V2 { request, .. } => Some(request.provider_binding()),
+        }
+    }
+}
+
 /// Native development/ad-hoc launcher for a protected bundled daemon.
 #[derive(Clone)]
 pub struct DevelopmentBundledRuntimeLauncher {
@@ -843,7 +997,7 @@ impl DevelopmentBundledRuntimeLauncher {
         }
         let secret = LaunchSecret::from_bytes(secret_bytes)?;
         secret_bytes.fill(0);
-        let mut request = ProtectedLaunchRequestV1::new(
+        let request_v1 = ProtectedLaunchRequestV1::new(
             launch_authority_id,
             self.desktop_host_instance_id,
             secret,
@@ -855,6 +1009,13 @@ impl DevelopmentBundledRuntimeLauncher {
             runtime_root,
             disposition,
         )?;
+        let mut request = match spec.provider_activation() {
+            Some(binding) => DesktopLaunchRequest::V2(ProtectedLaunchRequestV2::new(
+                request_v1,
+                binding.clone(),
+            )?),
+            None => DesktopLaunchRequest::V1(request_v1),
+        };
 
         let (mut parent_channel, child_channel) = UnixStream::pair()
             .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
@@ -887,33 +1048,29 @@ impl DevelopmentBundledRuntimeLauncher {
         let result = (|| {
             let spawned_identity = ExecutableIdentityV1::measure(&launch_executable_path)
                 .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            if spawned_identity != *request.executable() {
+            if spawned_identity != *request.compatibility().executable() {
                 return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
             }
-            let launch_frame = Zeroizing::new(
-                request
-                    .encode_frame()
-                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
-            );
+            let launch_frame = Zeroizing::new(request.encode_frame()?);
             write_frame(&mut parent_channel, &launch_frame)?;
             let mut keys = request.derive_keys_and_forget();
 
             let prepared_pending = if matches!(
-                request.activation_disposition(),
+                request.compatibility().activation_disposition(),
                 ActivationDispositionV1::FirstActivation
             ) {
                 let prepared_frame = read_frame(&mut parent_channel)?;
                 let prepared = ProtectedFirstActivationPreparedV1::decode_frame(&prepared_frame)
                     .map_err(|_| LaunchAuthorityError::FirstActivationPreparationMismatch)?;
-                prepared.verify_exact(&request, &keys)?;
+                prepared.verify_exact(request.compatibility(), &keys)?;
                 controls.checkpoint(ActivationCheckpoint::BeforePreparePersistence)?;
                 state_store.persist_pending_exact(prepared.pending(), controls)?;
                 controls.checkpoint(ActivationCheckpoint::AfterPreparePersistence)?;
                 let pending = prepared.pending().clone();
                 controls.checkpoint(ActivationCheckpoint::BeforeCommit)?;
                 let mut commit = ProtectedFirstActivationCommitV1::new(
-                    request.launch_authority_id(),
-                    request.desktop_host_instance_id(),
+                    request.compatibility().launch_authority_id(),
+                    request.compatibility().desktop_host_instance_id(),
                     pending.clone(),
                 );
                 commit.sign(&keys);
@@ -930,35 +1087,38 @@ impl DevelopmentBundledRuntimeLauncher {
             };
 
             let ready_frame = read_frame(&mut parent_channel)?;
-            let ready = ProtectedReadyV1::decode_frame(&ready_frame)
-                .map_err(|_| LaunchAuthorityError::ReadinessProofMismatch)?;
-            ready.verify_exact(&request, &keys)?;
+            let ready = request.decode_ready(&ready_frame, &keys)?;
             controls.checkpoint(ActivationCheckpoint::AfterEventLogCreation)?;
             if prepared_pending
                 .as_ref()
-                .is_some_and(|pending| ready.stable() != pending.stable())
+                .is_some_and(|pending| ready.compatibility().stable() != pending.stable())
             {
                 return Err(ProtectedBundledRuntimeError::LaunchAuthority(
                     LaunchAuthorityError::FirstActivationPreparationMismatch,
                 ));
             }
-            let runtime_profile =
-                ProtectedBundledRuntimeProfile::from_ready(&ready, &request, &keys)?;
+            let runtime_profile = match (&request, &ready) {
+                (DesktopLaunchRequest::V1(request), DesktopReady::V1(ready)) => {
+                    ProtectedBundledRuntimeProfile::from_ready(ready, request, &keys)?
+                }
+                (DesktopLaunchRequest::V2(request), DesktopReady::V2(ready)) => {
+                    ProtectedBundledRuntimeProfile::from_ready_v2(ready, request, &keys)?
+                }
+                _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+            };
             keys.forget_bootstrap_key();
             controls.checkpoint(ActivationCheckpoint::BeforeFinalPin)?;
-            state_store.persist_stable_exact(ready.stable(), controls)?;
+            state_store.persist_stable_exact(ready.compatibility().stable(), controls)?;
             controls.checkpoint(ActivationCheckpoint::AfterFinalPin)?;
             state_store.remove_pending()?;
-            let owned_launch = ready.owned_launch();
+            let activation = ready.into_process_activation(request)?;
             Ok(ProtectedBundledRuntimeProcess {
                 child: child
                     .take()
                     .ok_or(ProtectedBundledRuntimeError::InvalidState)?,
                 channel: parent_channel,
                 keys,
-                request,
-                ready,
-                owned_launch,
+                activation,
                 runtime_profile: Some(runtime_profile),
                 renewal_sequence: 0,
                 graceful_requested: false,
@@ -989,11 +1149,7 @@ pub struct ProtectedBundledRuntimeProcess {
     #[cfg(unix)]
     keys: ProtectedActivationKeys,
     #[cfg(unix)]
-    request: ProtectedLaunchRequestV1,
-    #[cfg(unix)]
-    ready: ProtectedReadyV1,
-    #[cfg(unix)]
-    owned_launch: ProtectedOwnedLaunchV1,
+    activation: ProtectedProcessActivation,
     runtime_profile: Option<ProtectedBundledRuntimeProfile>,
     renewal_sequence: u64,
     graceful_requested: bool,
@@ -1018,6 +1174,19 @@ impl ProtectedBundledRuntimeProcess {
     /// Moves the path-free, one-time bootstrap profile to the native caller.
     pub const fn take_runtime_profile(&mut self) -> Option<ProtectedBundledRuntimeProfile> {
         self.runtime_profile.take()
+    }
+
+    /// Returns the authenticated non-secret provider binding for V2 launches.
+    #[must_use]
+    pub const fn provider_activation(&self) -> Option<&ProviderActivationBindingV1> {
+        #[cfg(not(unix))]
+        {
+            None
+        }
+        #[cfg(unix)]
+        {
+            self.activation.provider_activation()
+        }
     }
 
     /// Copies role-separated activation keys only for test-support leak audits.
@@ -1068,20 +1237,22 @@ impl ProtectedBundledRuntimeProcess {
             if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
                 return false;
             }
+            let owned_launch = self.activation.compatibility_owned();
+            let ready = self.activation.compatibility_ready();
             let session = client.session_info();
-            session.profile_id == self.owned_launch.profile().profile_id()
-                && session.schema_hash == hex::encode(self.owned_launch.profile().profile_hash())
-                && session.authority_id == hex::encode(self.owned_launch.stable().authority_id())
-                && session.principal_id == self.owned_launch.stable().principal_id()
+            session.profile_id == owned_launch.profile().profile_id()
+                && session.schema_hash == hex::encode(owned_launch.profile().profile_hash())
+                && session.authority_id == hex::encode(owned_launch.stable().authority_id())
+                && session.principal_id == owned_launch.stable().principal_id()
                 && session.event_log_lineage_id
-                    == uuid::Uuid::from_bytes(*self.owned_launch.stable().lineage_id()).to_string()
+                    == uuid::Uuid::from_bytes(*owned_launch.stable().lineage_id()).to_string()
                 && session.daemon_instance_id
-                    == uuid::Uuid::from_bytes(*self.owned_launch.daemon_instance_id()).to_string()
-                && session.launch_generation == self.owned_launch.launch_generation()
-                && session.session_id == hex::encode(self.owned_launch.session_id())
+                    == uuid::Uuid::from_bytes(*owned_launch.daemon_instance_id()).to_string()
+                && session.launch_generation == owned_launch.launch_generation()
+                && session.session_id == hex::encode(owned_launch.session_id())
                 && session.capability_digest
-                    == hex::encode(self.owned_launch.profile().capability_digest())
-                && session.certificate_sha256 == hex::encode(self.ready.certificate_sha256())
+                    == hex::encode(owned_launch.profile().capability_digest())
+                && session.certificate_sha256 == hex::encode(ready.certificate_sha256())
                 && session
                     .capabilities
                     .iter()
@@ -1119,28 +1290,56 @@ impl ProtectedBundledRuntimeProcess {
                     LaunchAuthorityError::RenewalUnavailable,
                 ));
             }
-            let mut renewal =
-                ProtectedRenewRequestV1::new(self.owned_launch.clone(), sequence, nonce)?;
-            nonce.fill(0);
-            renewal.sign(&self.keys);
-            let renewal_frame = Zeroizing::new(
-                renewal
-                    .encode_frame()
-                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
-            );
-            write_frame(&mut self.channel, &renewal_frame)?;
-            let ticket_frame = read_frame(&mut self.channel)?;
-            let ticket = ProtectedRenewTicketV1::decode_frame(&ticket_frame)
-                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
-            ticket.verify_exact(&renewal, &self.keys)?;
-            let profile = ProtectedBundledRuntimeProfile::from_renewal(
-                &self.ready,
-                &self.request,
-                &renewal,
-                &ticket,
-                &self.keys,
-            )?;
-            self.owned_launch = ticket.next_owned_launch();
+            let profile = match &mut self.activation {
+                ProtectedProcessActivation::V1 {
+                    request,
+                    ready,
+                    owned,
+                } => {
+                    let mut renewal = ProtectedRenewRequestV1::new(owned.clone(), sequence, nonce)?;
+                    nonce.fill(0);
+                    renewal.sign(&self.keys);
+                    let renewal_frame = Zeroizing::new(
+                        renewal
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &renewal_frame)?;
+                    let ticket_frame = read_frame(&mut self.channel)?;
+                    let ticket = ProtectedRenewTicketV1::decode_frame(&ticket_frame)
+                        .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+                    ticket.verify_exact(&renewal, &self.keys)?;
+                    let profile = ProtectedBundledRuntimeProfile::from_renewal(
+                        ready, request, &renewal, &ticket, &self.keys,
+                    )?;
+                    *owned = ticket.next_owned_launch();
+                    profile
+                }
+                ProtectedProcessActivation::V2 {
+                    request,
+                    ready,
+                    owned,
+                } => {
+                    let mut renewal = ProtectedRenewRequestV2::new(owned.clone(), sequence, nonce)?;
+                    nonce.fill(0);
+                    renewal.sign(&self.keys);
+                    let renewal_frame = Zeroizing::new(
+                        renewal
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &renewal_frame)?;
+                    let ticket_frame = read_frame(&mut self.channel)?;
+                    let ticket = ProtectedRenewTicketV2::decode_frame(&ticket_frame)
+                        .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+                    ticket.verify_exact(&renewal, &self.keys)?;
+                    let profile = ProtectedBundledRuntimeProfile::from_renewal_v2(
+                        ready, request, &renewal, &ticket, &self.keys,
+                    )?;
+                    *owned = ticket.next_owned_launch();
+                    profile
+                }
+            };
             self.renewal_sequence = sequence;
             Ok(profile)
         }
@@ -1187,20 +1386,43 @@ impl ProtectedBundledRuntimeProcess {
             if self.graceful_requested {
                 return Ok(());
             }
-            let mut shutdown = ProtectedShutdownV1::new(self.owned_launch.clone());
-            shutdown.sign(&self.keys);
-            let frame = Zeroizing::new(
-                shutdown
-                    .encode_frame()
-                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
-            );
-            write_frame(&mut self.channel, &frame)?;
-            let acknowledgement_frame = read_frame(&mut self.channel)?;
-            let acknowledgement = ProtectedShutdownAckV1::decode_frame(&acknowledgement_frame)
-                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-            acknowledgement.verify_exact(&self.owned_launch, &self.keys)?;
-            if !acknowledgement.graceful() {
-                return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+            match &self.activation {
+                ProtectedProcessActivation::V1 { owned, .. } => {
+                    let mut shutdown = ProtectedShutdownV1::new(owned.clone());
+                    shutdown.sign(&self.keys);
+                    let frame = Zeroizing::new(
+                        shutdown
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &frame)?;
+                    let acknowledgement_frame = read_frame(&mut self.channel)?;
+                    let acknowledgement =
+                        ProtectedShutdownAckV1::decode_frame(&acknowledgement_frame)
+                            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+                    acknowledgement.verify_exact(owned, &self.keys)?;
+                    if !acknowledgement.graceful() {
+                        return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+                    }
+                }
+                ProtectedProcessActivation::V2 { owned, .. } => {
+                    let mut shutdown = ProtectedShutdownV2::new(owned.clone());
+                    shutdown.sign(&self.keys);
+                    let frame = Zeroizing::new(
+                        shutdown
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &frame)?;
+                    let acknowledgement_frame = read_frame(&mut self.channel)?;
+                    let acknowledgement =
+                        ProtectedShutdownAckV2::decode_frame(&acknowledgement_frame)
+                            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+                    acknowledgement.verify_exact(owned, &self.keys)?;
+                    if !acknowledgement.graceful() {
+                        return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+                    }
+                }
             }
             self.graceful_requested = true;
             Ok(())

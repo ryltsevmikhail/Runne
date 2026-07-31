@@ -8,7 +8,7 @@ use gocode_daemon::config::load_config;
 use gocode_daemon::error::DaemonError;
 #[cfg(unix)]
 use gocode_daemon::protected_activation::{
-    ProtectedActivationChannel, ProtectedDaemonLaunch, run_control_loop,
+    ProtectedActivationChannel, ProtectedDaemonLaunch, run_control_loop, run_control_loop_v2,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -69,6 +69,11 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
         unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
     })
     .map_err(|_| ())?;
+    if launch.provider_activation().requires_openai_execution() {
+        // The protected V2 transcript is preserved, but no readiness may be
+        // emitted until the exact credential-backed composition is available.
+        return Err(());
+    }
     let bootstrap = launch
         .bootstrap(|| unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority))
         .map_err(|_| ())?;
@@ -78,25 +83,46 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
             let application = DaemonApplication::start_protected(launch.config(), bootstrap)
                 .await
                 .map_err(|_| ())?;
-            let ready = application
-                .protected_ready(launch.request(), launch.keys())
-                .map_err(|_| ())?;
-            let owned_launch = ready.owned_launch();
             let keys = launch.keys().clone();
             let local_session_service = application.protected_session_service().map_err(|_| ())?;
             let session_clock = application.protected_session_clock().map_err(|_| ())?;
-            channel
-                .write_control_frame(&ready.encode_frame().map_err(|_| ())?)
-                .map_err(|_| ())?;
-            let control_loop = tokio::task::spawn_blocking(move || {
-                run_control_loop(
-                    channel,
-                    keys,
-                    owned_launch,
-                    local_session_service,
-                    session_clock,
-                )
-            });
+            let control_loop = if let Some(request) = launch.request_v1() {
+                let ready = application
+                    .protected_ready(request, launch.keys())
+                    .map_err(|_| ())?;
+                let owned_launch = ready.owned_launch();
+                channel
+                    .write_control_frame(&ready.encode_frame().map_err(|_| ())?)
+                    .map_err(|_| ())?;
+                tokio::task::spawn_blocking(move || {
+                    run_control_loop(
+                        channel,
+                        keys,
+                        owned_launch,
+                        local_session_service,
+                        session_clock,
+                    )
+                })
+            } else if let Some(request) = launch.request_v2() {
+                let ready = application
+                    .protected_ready_v2(request, launch.keys())
+                    .map_err(|_| ())?;
+                let owned_launch = ready.owned_launch();
+                channel
+                    .write_control_frame(&ready.encode_frame().map_err(|_| ())?)
+                    .map_err(|_| ())?;
+                tokio::task::spawn_blocking(move || {
+                    run_control_loop_v2(
+                        channel,
+                        keys,
+                        owned_launch,
+                        local_session_service,
+                        session_clock,
+                    )
+                })
+            } else {
+                return Err(());
+            };
             application
                 .run(async move {
                     control_loop
