@@ -21,5 +21,10 @@ tempfile = "=3.27.0"
 name = "gocode"
 path = "src/main.rs"
 
+[[test]]
+name = "provider_credential_harness"
+path = "tests/provider_credential_harness.rs"
+harness = false
+
 [lints]
 workspace = true

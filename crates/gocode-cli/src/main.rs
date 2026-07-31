@@ -112,14 +112,33 @@ async fn run(arguments: Vec<OsString>) -> Result<String, CliError> {
 }
 
 fn run_provider_credential(arguments: VecDeque<OsString>) -> Result<String, CliError> {
-    let command = parse_provider_credential(arguments)?;
     let mut backend = NativeProviderCredentialStore::new();
-    execute_provider_credential(
-        command,
+    run_provider_credential_with(
+        arguments,
         &mut std::io::stdin(),
         std::io::stdin().is_terminal(),
         &mut backend,
         &NativeCredentialIdentityResolver,
+        cfg!(target_os = "macos"),
+    )
+}
+
+fn run_provider_credential_with(
+    arguments: VecDeque<OsString>,
+    stdin: &mut impl Read,
+    stdin_is_terminal: bool,
+    backend: &mut impl CredentialBackend,
+    resolver: &impl CredentialIdentityResolver,
+    native_backend_supported: bool,
+) -> Result<String, CliError> {
+    let command = parse_provider_credential(arguments)?;
+    execute_provider_credential_on_platform(
+        command,
+        stdin,
+        stdin_is_terminal,
+        backend,
+        resolver,
+        native_backend_supported,
     )
 }
 
@@ -263,23 +282,6 @@ fn parse_openai_provider(arguments: &mut VecDeque<OsString>) -> Result<(), CliEr
     expect_token(arguments, "openai")
 }
 
-fn execute_provider_credential(
-    command: ProviderCredentialCommand,
-    stdin: &mut impl Read,
-    stdin_is_terminal: bool,
-    backend: &mut impl CredentialBackend,
-    resolver: &impl CredentialIdentityResolver,
-) -> Result<String, CliError> {
-    execute_provider_credential_on_platform(
-        command,
-        stdin,
-        stdin_is_terminal,
-        backend,
-        resolver,
-        cfg!(target_os = "macos"),
-    )
-}
-
 fn execute_provider_credential_on_platform(
     command: ProviderCredentialCommand,
     stdin: &mut impl Read,
@@ -317,8 +319,6 @@ fn execute_provider_credential_on_platform(
             if !native_backend_supported {
                 return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
             }
-            let access = resolver.resolve()?;
-            let _ = access;
             match backend.delete() {
                 Ok(()) => Ok(CredentialOutcome::Missing.stdout().to_owned()),
                 Err(
@@ -352,6 +352,112 @@ const fn map_credential_error(error: &SecureStoreError) -> CliError {
             CliError::UnsupportedCredentialBackend
         }
         _ => CliError::CredentialOperation,
+    }
+}
+
+#[cfg(test)]
+#[allow(dead_code)]
+pub mod credential_test_support {
+    use super::*;
+
+    pub struct ProcessResult {
+        pub output: Result<String, String>,
+        pub exit_code: i32,
+        pub delete_calls: usize,
+        pub resolver_calls: usize,
+    }
+
+    pub fn run(
+        arguments: Vec<OsString>,
+        stdin: &mut impl Read,
+        stdin_is_terminal: bool,
+        scenario: &str,
+    ) -> ProcessResult {
+        let mut backend = Backend {
+            configured: scenario == "status",
+            failure: scenario == "backend-error",
+            delete_calls: 0,
+        };
+        let resolver = Resolver {
+            fail: scenario == "resolver-error" || scenario == "delete",
+            calls: std::cell::Cell::new(0),
+        };
+        let result = run_provider_credential_with(
+            VecDeque::from(arguments),
+            stdin,
+            stdin_is_terminal,
+            &mut backend,
+            &resolver,
+            true,
+        );
+        let exit_code = result.as_ref().map_or_else(CliError::exit_code, |_| 0);
+        ProcessResult {
+            output: result.map_err(|error| error.to_string()),
+            exit_code,
+            delete_calls: backend.delete_calls,
+            resolver_calls: resolver.calls.get(),
+        }
+    }
+
+    struct Resolver {
+        fail: bool,
+        calls: std::cell::Cell<usize>,
+    }
+
+    impl CredentialIdentityResolver for Resolver {
+        fn resolve(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
+            self.calls.set(self.calls.get() + 1);
+            if self.fail {
+                return Err(CliError::CredentialOperation);
+            }
+            let current = std::env::current_exe().map_err(|_| CliError::CredentialOperation)?;
+            ProviderCredentialAccessPolicy::new(&current, &current)
+                .map_err(|_| CliError::CredentialOperation)
+        }
+    }
+
+    struct Backend {
+        configured: bool,
+        failure: bool,
+        delete_calls: usize,
+    }
+
+    impl CredentialBackend for Backend {
+        fn status(
+            &self,
+            _access: &ProviderCredentialAccessPolicy,
+        ) -> Result<CredentialOutcome, SecureStoreError> {
+            if self.failure {
+                return Err(SecureStoreError::OperationFailed(
+                    "backend-detail".to_owned(),
+                ));
+            }
+            Ok(if self.configured {
+                CredentialOutcome::Configured
+            } else {
+                CredentialOutcome::Missing
+            })
+        }
+
+        fn store(
+            &mut self,
+            _credential: &ProviderCredentialMaterial,
+            _access: &ProviderCredentialAccessPolicy,
+        ) -> Result<(), SecureStoreError> {
+            if self.failure {
+                return Err(SecureStoreError::OperationFailed(
+                    "backend-detail".to_owned(),
+                ));
+            }
+            self.configured = true;
+            Ok(())
+        }
+
+        fn delete(&mut self) -> Result<(), SecureStoreError> {
+            self.delete_calls += 1;
+            self.configured = false;
+            Ok(())
+        }
     }
 }
 
@@ -566,46 +672,50 @@ mod provider_credential_tests {
         let resolver = FakeResolver;
         let mut backend = FakeBackend::default();
         assert_eq!(
-            execute_provider_credential(
+            execute_provider_credential_on_platform(
                 ProviderCredentialCommand::Set,
                 &mut b"secret".as_slice(),
                 false,
                 &mut backend,
-                &resolver
+                &resolver,
+                true,
             )
             .unwrap(),
             "configured"
         );
         assert_eq!(
-            execute_provider_credential(
+            execute_provider_credential_on_platform(
                 ProviderCredentialCommand::Status,
                 &mut b"".as_slice(),
                 false,
                 &mut backend,
-                &resolver
+                &resolver,
+                true,
             )
             .unwrap(),
             "configured"
         );
         assert_eq!(
-            execute_provider_credential(
+            execute_provider_credential_on_platform(
                 ProviderCredentialCommand::Delete,
                 &mut b"".as_slice(),
                 false,
                 &mut backend,
-                &resolver
+                &resolver,
+                true,
             )
             .unwrap(),
             "missing"
         );
 
         backend.failure = true;
-        let error = execute_provider_credential(
+        let error = execute_provider_credential_on_platform(
             ProviderCredentialCommand::Status,
             &mut b"sensitive-marker".as_slice(),
             false,
             &mut backend,
             &resolver,
+            true,
         )
         .unwrap_err()
         .to_string();
@@ -618,12 +728,13 @@ mod provider_credential_tests {
     fn unsupported_backend_never_reports_persistence() {
         let mut backend = FakeBackend::unsupported();
         assert_eq!(
-            execute_provider_credential(
+            execute_provider_credential_on_platform(
                 ProviderCredentialCommand::Set,
                 &mut b"secret".as_slice(),
                 false,
                 &mut backend,
                 &FakeResolver,
+                true,
             )
             .unwrap(),
             "unsupported"
@@ -671,98 +782,6 @@ mod provider_credential_tests {
             "unsupported"
         );
         assert!(!backend.configured);
-    }
-
-    #[test]
-    fn credential_process_harness_exercises_happy_paths_and_redaction() {
-        for (scenario, input, expected_stdout, expected_status) in [
-            ("set", b"credential".as_slice(), "configured", true),
-            ("status", b"".as_slice(), "configured", true),
-            ("delete", b"".as_slice(), "missing", true),
-            ("exact4096", &vec![b'x'; 4_096], "configured", true),
-            ("tty", b"credential".as_slice(), "", false),
-            ("backend-error", b"".as_slice(), "", false),
-        ] {
-            let output = run_process_child(scenario, input);
-            assert_eq!(output.status.success(), expected_status, "{scenario}");
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(!stdout.contains("process-secret-marker"), "{scenario}");
-            assert!(!stderr.contains("process-secret-marker"), "{scenario}");
-            assert!(!stderr.contains("backend-detail"), "{scenario}");
-            if expected_status {
-                assert!(stdout.contains(expected_stdout), "{scenario}: {stdout}");
-            } else {
-                assert!(
-                    stdout.is_empty() || !stdout.contains("configured"),
-                    "{scenario}"
-                );
-            }
-        }
-    }
-
-    fn run_process_child(scenario: &str, input: &[u8]) -> std::process::Output {
-        use std::io::Write as _;
-        use std::process::{Command, Stdio};
-
-        let mut child = Command::new(std::env::current_exe().expect("test executable"))
-            .args([
-                "--exact",
-                "provider_credential_tests::credential_process_child",
-                "--nocapture",
-            ])
-            .env("GOCODE_CLI_TEST_CHILD", scenario)
-            .env("OPENAI_API_KEY", "process-secret-marker")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("start child");
-        child
-            .stdin
-            .take()
-            .expect("child stdin")
-            .write_all(input)
-            .expect("write child stdin");
-        child.wait_with_output().expect("wait child")
-    }
-
-    #[test]
-    fn credential_process_child() {
-        let Ok(scenario) = std::env::var("GOCODE_CLI_TEST_CHILD") else {
-            return;
-        };
-        let (command, stdin_is_terminal, backend_failure) = match scenario.as_str() {
-            "set" | "exact4096" => (ProviderCredentialCommand::Set, false, false),
-            "status" => (ProviderCredentialCommand::Status, false, false),
-            "delete" => (ProviderCredentialCommand::Delete, false, false),
-            "tty" => (ProviderCredentialCommand::Set, true, false),
-            "backend-error" => (ProviderCredentialCommand::Status, false, true),
-            _ => std::process::exit(2),
-        };
-        let mut backend = FakeBackend {
-            configured: scenario == "status",
-            failure: backend_failure,
-            ..FakeBackend::default()
-        };
-        let result = execute_provider_credential_on_platform(
-            command,
-            &mut std::io::stdin(),
-            stdin_is_terminal,
-            &mut backend,
-            &FakeResolver,
-            true,
-        );
-        match result {
-            Ok(output) => {
-                println!("{output}");
-                std::process::exit(0);
-            }
-            Err(error) => {
-                eprintln!("{error}");
-                std::process::exit(error.exit_code());
-            }
-        }
     }
 
     fn args(values: &[&str]) -> VecDeque<OsString> {
