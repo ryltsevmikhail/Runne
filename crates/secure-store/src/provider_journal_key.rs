@@ -1,5 +1,6 @@
 use core::fmt;
 
+use rand::{RngCore as _, rngs::OsRng};
 use zeroize::Zeroizing;
 
 use crate::SecureStoreError;
@@ -73,6 +74,20 @@ pub struct ProviderJournalKeyMaterial {
 }
 
 impl ProviderJournalKeyMaterial {
+    /// Generates fresh, non-zero material for one exact key reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed corruption failure if the operating system random
+    /// source returns an all-zero value.
+    pub fn generate(key_ref: ProviderJournalKeyRef) -> Result<Self, SecureStoreError> {
+        let mut bytes = Zeroizing::new([0; 32]);
+        OsRng
+            .try_fill_bytes(bytes.as_mut())
+            .map_err(|_| SecureStoreError::ProviderJournalKeyGenerationFailed)?;
+        Self::new(key_ref, *bytes)
+    }
+
     /// Constructs separate provider journal key material.
     ///
     /// # Errors

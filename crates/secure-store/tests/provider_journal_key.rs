@@ -22,6 +22,23 @@ fn key_material_debug_never_exposes_secret_bytes() {
     assert_eq!(key.with_bytes(|bytes| *bytes), marker);
 }
 
+#[test]
+fn generated_journal_keys_are_nonzero_distinct_and_keep_exact_binding() {
+    let first_ref = ProviderJournalKeyRef::new([1; 16], 1, [2; 16], 3).unwrap();
+    let second_ref = ProviderJournalKeyRef::new([4; 16], 2, [2; 16], 3).unwrap();
+    let first = ProviderJournalKeyMaterial::generate(first_ref).unwrap();
+    let second = ProviderJournalKeyMaterial::generate(second_ref).unwrap();
+
+    assert_eq!(first.key_ref(), first_ref);
+    assert_eq!(second.key_ref(), second_ref);
+    assert_ne!(
+        first.with_bytes(|bytes| *bytes),
+        second.with_bytes(|bytes| *bytes)
+    );
+    assert_ne!(first.with_bytes(|bytes| *bytes), [0; 32]);
+    assert_ne!(second.with_bytes(|bytes| *bytes), [0; 32]);
+}
+
 #[cfg(not(target_os = "macos"))]
 #[test]
 fn unsupported_native_backend_fails_closed_for_key_retention() {
@@ -32,10 +49,10 @@ fn unsupported_native_backend_fails_closed_for_key_retention() {
     assert!(!store.retains_multiple_provider_journal_keys());
     assert!(matches!(
         store.store_provider_journal_key(&key),
-        Err(SecureStoreError::Unavailable)
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
     ));
     assert!(matches!(
         store.load_provider_journal_key(key_ref),
-        Err(SecureStoreError::Unavailable)
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
     ));
 }

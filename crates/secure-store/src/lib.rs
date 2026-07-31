@@ -9,8 +9,14 @@
 use std::fmt;
 use thiserror::Error;
 
+mod provider_credential;
 mod provider_journal_key;
 
+pub use provider_credential::{
+    MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
+    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
+    ProviderCredentialStore,
+};
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyring,
@@ -38,6 +44,28 @@ pub enum SecureStoreError {
     RetentionUnsupported,
     #[error("provider journal key deletion proof was denied")]
     DeletionDenied,
+    #[error("provider journal key generation failed")]
+    ProviderJournalKeyGenerationFailed,
+    #[error("native secure-store backend is unsupported")]
+    UnsupportedSecureStoreBackend,
+    #[error("provider credential is invalid")]
+    InvalidProviderCredential,
+    #[error("provider credential was not found")]
+    ProviderCredentialNotFound,
+    #[error("provider credential access was denied")]
+    CredentialAccessDenied,
+    #[error("provider credential executable identity mismatch")]
+    CredentialIdentityMismatch,
+    #[error("provider credential ACL migration is required")]
+    CredentialAclMigrationRequired,
+    #[error("provider credential item is corrupt")]
+    CorruptProviderCredential,
+    #[error("provider credential operation failed")]
+    ProviderCredentialOperationFailed,
+    #[error("provider credential enrollment is incomplete")]
+    CredentialEnrollmentIncomplete,
+    #[error("provider credential ACL migration is incomplete")]
+    CredentialMigrationIncomplete,
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +161,9 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::MacOsKeychainStore;
 
+#[cfg(target_os = "macos")]
+pub use macos::MacOsProviderCredentialStore as NativeProviderCredentialStore;
+
 // ---------------------------------------------------------------------------
 // Stub implementations for platforms not yet wired
 // ---------------------------------------------------------------------------
@@ -142,3 +173,6 @@ mod stub;
 
 #[cfg(not(target_os = "macos"))]
 pub use stub::StubStore;
+
+#[cfg(not(target_os = "macos"))]
+pub use stub::StubStore as NativeProviderCredentialStore;
