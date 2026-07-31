@@ -82,21 +82,11 @@ fn launch_with_disposition(
 }
 
 fn deterministic_binding() -> ProviderActivationBindingV1 {
-    ProviderActivationBindingV1::new(
-        ProviderActivationModeV1::DeterministicV1,
-        "gocode-deterministic-text/1",
-        [0x51; 32],
-    )
-    .expect("deterministic provider binding")
+    ProviderActivationBindingV1::deterministic_v1()
 }
 
 fn openai_binding() -> ProviderActivationBindingV1 {
-    ProviderActivationBindingV1::new(
-        ProviderActivationModeV1::OpenAiResponsesTextV1,
-        "gocode-openai-responses-text/1",
-        [0x52; 32],
-    )
-    .expect("OpenAI provider binding")
+    ProviderActivationBindingV1::openai_responses_text_v1()
 }
 
 fn launch_v2(secret: LaunchSecret) -> ProtectedLaunchRequestV2 {
@@ -358,8 +348,16 @@ fn renewal_and_shutdown_are_bound_to_the_current_owned_launch() {
         renewal.verify_exact(&owned, 1, &keys).unwrap_err(),
         LaunchAuthorityError::RenewalReplay
     );
+    let mut maximum_renewal =
+        ProtectedRenewRequestV1::new(owned.clone(), u64::MAX, [0x73; 32]).unwrap();
+    maximum_renewal.sign(&keys);
+    maximum_renewal
+        .verify_exact(&owned, u64::MAX - 1, &keys)
+        .expect("maximum sequence is accepted exactly once");
     assert_eq!(
-        renewal.verify_exact(&owned, u64::MAX, &keys).unwrap_err(),
+        maximum_renewal
+            .verify_exact(&owned, u64::MAX, &keys)
+            .unwrap_err(),
         LaunchAuthorityError::RenewalReplay
     );
     assert_eq!(
@@ -436,12 +434,15 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
         )
         .expect("exact V2 launch binding");
 
-    let changed = ProviderActivationBindingV1::new(
-        ProviderActivationModeV1::OpenAiResponsesTextV1,
-        "gocode-openai-responses-text/1",
-        [0x53; 32],
-    )
-    .unwrap();
+    assert_eq!(
+        ProviderActivationBindingV1::new(
+            ProviderActivationModeV1::OpenAiResponsesTextV1,
+            "gocode-openai-responses-text/1",
+            [0x53; 32],
+        )
+        .unwrap_err(),
+        LaunchAuthorityError::ProviderProfileMismatch
+    );
     assert_eq!(
         request
             .validate(
@@ -451,10 +452,10 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
                     profile: &profile(),
                     executable: &executable(),
                 },
-                &changed,
+                &deterministic_binding(),
             )
             .unwrap_err(),
-        LaunchAuthorityError::ProviderProfileMismatch
+        LaunchAuthorityError::ProviderModeMismatch
     );
 
     let mut trailing = frame;
@@ -519,8 +520,16 @@ fn v2_readiness_renewal_and_shutdown_bind_provider_to_owned_session() {
     let mut renewal = ProtectedRenewRequestV2::new(owned.clone(), 1, [0x71; 32]).unwrap();
     renewal.sign(&keys);
     renewal.verify_exact(&owned, 0, &keys).unwrap();
+    let mut maximum_renewal =
+        ProtectedRenewRequestV2::new(owned.clone(), u64::MAX, [0x73; 32]).unwrap();
+    maximum_renewal.sign(&keys);
+    maximum_renewal
+        .verify_exact(&owned, u64::MAX - 1, &keys)
+        .expect("maximum V2 sequence is accepted exactly once");
     assert_eq!(
-        renewal.verify_exact(&owned, u64::MAX, &keys).unwrap_err(),
+        maximum_renewal
+            .verify_exact(&owned, u64::MAX, &keys)
+            .unwrap_err(),
         LaunchAuthorityError::RenewalReplay
     );
     assert_eq!(
