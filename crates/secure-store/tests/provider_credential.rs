@@ -10,6 +10,7 @@ impl ProviderCredentialStore for StatusOnlyStore {
     fn provider_credential_status(
         &self,
         provider: ProviderCredentialId,
+        _expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         assert_eq!(provider, ProviderCredentialId::OpenAi);
         Ok(self.0)
@@ -27,6 +28,7 @@ impl ProviderCredentialStore for StatusOnlyStore {
     fn load_provider_credential(
         &self,
         _provider: ProviderCredentialId,
+        _expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
@@ -92,9 +94,11 @@ fn provider_identity_and_status_vocabulary_are_exact() {
     );
 
     let store = StatusOnlyStore(ProviderCredentialStatus::Configured);
+    let current = std::env::current_exe().unwrap();
+    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
     assert_eq!(
         store
-            .provider_credential_status(ProviderCredentialId::OpenAi)
+            .provider_credential_status(ProviderCredentialId::OpenAi, &access)
             .unwrap(),
         ProviderCredentialStatus::Configured
     );
@@ -128,9 +132,11 @@ fn unsupported_platform_has_no_plaintext_fallback() {
     use gocode_secure_store::{NativeProviderCredentialStore, StubStore};
 
     let store = NativeProviderCredentialStore::new();
+    let current = std::env::current_exe().unwrap();
+    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
     assert_eq!(
         store
-            .provider_credential_status(ProviderCredentialId::OpenAi)
+            .provider_credential_status(ProviderCredentialId::OpenAi, &access)
             .unwrap(),
         ProviderCredentialStatus::Unsupported
     );

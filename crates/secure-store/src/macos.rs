@@ -30,9 +30,16 @@ type CredentialMetadataItem = Option<(ProviderCredentialMetadata, SecKeychainIte
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CredentialMigrationFailpoint {
+    BackupEmptyWritten,
     BackupWritten,
     PrimaryDeleted,
+    ReplacementEmptyWritten,
     ReplacementWritten,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CredentialPopulationFailpoint {
+    EmptyItemWritten,
 }
 
 pub struct MacOsKeychainStore {
@@ -129,13 +136,33 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
     fn provider_credential_status(
         &self,
         provider: ProviderCredentialId,
+        expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         self.validate_provider(provider)?;
+        expected_access
+            .validate_writer_or_reader_current()
+            .map_err(map_identity_access_error)?;
+        expected_access
+            .remeasure()
+            .map_err(map_identity_access_error)?;
+        let exact_access =
+            ExactKeychainAccess::new(expected_access.writer_path(), expected_access.reader_path())
+                .map_err(map_acl_error)?;
+        expected_access
+            .remeasure()
+            .map_err(map_identity_access_error)?;
         Self::with_noninteractive(|keychain| match self.find_metadata_pair(keychain)? {
             (None, None) => Ok(ProviderCredentialStatus::Missing),
             (Some((metadata, item)), None) => {
-                metadata.validate_writer_or_reader_current()?;
-                verify_item_acl(&item, metadata.acl_set_digest())?;
+                if !metadata.access_matches(expected_access)
+                    || metadata.acl_set_digest() != exact_access.digest()
+                {
+                    return Err(SecureStoreError::CredentialAccessDenied);
+                }
+                verify_item_acl(&item, exact_access.digest())?;
+                if !metadata.is_complete() {
+                    return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+                }
                 Ok(ProviderCredentialStatus::Configured)
             }
             _ => Err(SecureStoreError::CredentialMigrationIncomplete),
@@ -157,14 +184,33 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             let exact_access = ExactKeychainAccess::new(access.writer_path(), access.reader_path())
                 .map_err(map_acl_error)?;
             access.remeasure().map_err(map_identity_access_error)?;
-            let metadata =
-                ProviderCredentialMetadata::from_access(access, exact_access.digest()).encode();
+            let metadata = ProviderCredentialMetadata::from_access(access, exact_access.digest());
             let encoded =
                 StoredProviderCredential::encode(credential, access, exact_access.digest())?;
             match self.find_metadata_pair(keychain)? {
                 (Some((existing_metadata, metadata_item)), None) => {
                     existing_metadata.validate_writer_current()?;
-                    verify_item_acl(&metadata_item, existing_metadata.acl_set_digest())?;
+                    if !existing_metadata.access_matches(access) {
+                        return Err(SecureStoreError::CredentialAclMigrationRequired);
+                    }
+                    if existing_metadata.acl_set_digest() != exact_access.digest() {
+                        return Err(SecureStoreError::CredentialAccessDenied);
+                    }
+                    verify_item_acl(&metadata_item, exact_access.digest())?;
+                    if !existing_metadata.is_complete() {
+                        gocode_macos_keychain_acl::delete_item(&metadata_item)
+                            .map_err(map_acl_error)?;
+                        return create_populated_provider_item(
+                            keychain,
+                            &self.service,
+                            &self.account,
+                            &metadata,
+                            &exact_access,
+                            &encoded,
+                            None,
+                        )
+                        .map(|_| ());
+                    }
                     let Some((existing, mut item)) = self.find_primary_item(keychain)? else {
                         return Err(SecureStoreError::CredentialEnrollmentIncomplete);
                     };
@@ -175,7 +221,7 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
                     if !stored.access_matches(access) {
                         return Err(SecureStoreError::CredentialAclMigrationRequired);
                     }
-                    verify_item_acl(&item, stored.acl_set_digest())?;
+                    verify_item_acl(&item, exact_access.digest())?;
                     item.set_password(&encoded).map_err(map_keychain_error)?;
                     verify_item_acl(&item, exact_access.digest())
                 }
@@ -186,6 +232,7 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
                     &metadata,
                     &exact_access,
                     &encoded,
+                    None,
                 )
                 .map(|_| ()),
                 _ => Err(SecureStoreError::CredentialMigrationIncomplete),
@@ -196,16 +243,36 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
     fn load_provider_credential(
         &self,
         provider: ProviderCredentialId,
+        expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         self.validate_provider(provider)?;
+        expected_access
+            .validate_reader_current()
+            .map_err(map_identity_access_error)?;
+        expected_access
+            .remeasure()
+            .map_err(map_identity_access_error)?;
+        let exact_access =
+            ExactKeychainAccess::new(expected_access.writer_path(), expected_access.reader_path())
+                .map_err(map_acl_error)?;
+        expected_access
+            .remeasure()
+            .map_err(map_identity_access_error)?;
         Self::with_noninteractive(|keychain| {
             let (metadata, metadata_item) = match self.find_metadata_pair(keychain)? {
                 (Some(primary), None) => primary,
                 (None, None) => return Err(SecureStoreError::ProviderCredentialNotFound),
                 _ => return Err(SecureStoreError::CredentialMigrationIncomplete),
             };
-            metadata.validate_reader_current()?;
-            verify_item_acl(&metadata_item, metadata.acl_set_digest())?;
+            if !metadata.access_matches(expected_access)
+                || metadata.acl_set_digest() != exact_access.digest()
+            {
+                return Err(SecureStoreError::CredentialAccessDenied);
+            }
+            verify_item_acl(&metadata_item, exact_access.digest())?;
+            if !metadata.is_complete() {
+                return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+            }
             let Some((encoded, item)) = self.find_primary_item(keychain)? else {
                 return Err(SecureStoreError::CredentialEnrollmentIncomplete);
             };
@@ -213,7 +280,12 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             if !stored.metadata_matches(&metadata) {
                 return Err(SecureStoreError::CorruptProviderCredential);
             }
-            verify_item_acl(&item, stored.acl_set_digest())?;
+            if !stored.access_matches(expected_access)
+                || stored.acl_set_digest() != exact_access.digest()
+            {
+                return Err(SecureStoreError::CredentialAccessDenied);
+            }
+            verify_item_acl(&item, exact_access.digest())?;
             Ok(stored.into_material())
         })
     }
@@ -245,6 +317,8 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
 }
 
 impl MacOsProviderCredentialStore {
+    // Keep crash boundaries in one linear sequence so mutation order remains auditable.
+    #[allow(clippy::too_many_lines)]
     fn migrate_provider_credential_access_inner(
         &self,
         provider: ProviderCredentialId,
@@ -263,57 +337,76 @@ impl MacOsProviderCredentialStore {
         replacement.remeasure().map_err(map_identity_access_error)?;
         Self::with_noninteractive(|keychain| {
             self.reconcile_migration_backup(keychain, current, replacement)?;
-            let Some((encoded, item)) = self.find_primary_item(keychain)? else {
-                return Err(SecureStoreError::ProviderCredentialNotFound);
-            };
-            let stored = StoredProviderCredential::decode(&encoded)?;
             let Some((metadata, metadata_item)) =
                 self.find_named_metadata(keychain, &self.service)?
             else {
+                return Err(SecureStoreError::ProviderCredentialNotFound);
+            };
+            let current_access =
+                ExactKeychainAccess::new(current.writer_path(), current.reader_path())
+                    .map_err(map_acl_error)?;
+            let replacement_access =
+                ExactKeychainAccess::new(replacement.writer_path(), replacement.reader_path())
+                    .map_err(map_acl_error)?;
+            replacement.remeasure().map_err(map_identity_access_error)?;
+            let expected_digest = if metadata.access_matches(current) {
+                current_access.digest()
+            } else if metadata.access_matches(replacement) {
+                replacement_access.digest()
+            } else {
+                return Err(SecureStoreError::CredentialAclMigrationRequired);
+            };
+            if metadata.acl_set_digest() != expected_digest {
+                return Err(SecureStoreError::CredentialAccessDenied);
+            }
+            verify_item_acl(&metadata_item, expected_digest)?;
+            if !metadata.is_complete() {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
+            let Some((encoded, item)) = self.find_primary_item(keychain)? else {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             };
+            let stored = StoredProviderCredential::decode(&encoded)
+                .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
             if !stored.metadata_matches(&metadata) {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }
             if !stored.access_matches(current) && !stored.access_matches(replacement) {
                 return Err(SecureStoreError::CredentialAclMigrationRequired);
             }
-            verify_item_acl(&item, stored.acl_set_digest())?;
-            verify_item_acl(&metadata_item, metadata.acl_set_digest())?;
-            let replacement_access =
-                ExactKeychainAccess::new(replacement.writer_path(), replacement.reader_path())
-                    .map_err(map_acl_error)?;
-            replacement.remeasure().map_err(map_identity_access_error)?;
+            if stored.acl_set_digest() != expected_digest {
+                return Err(SecureStoreError::CredentialAccessDenied);
+            }
+            verify_item_acl(&item, expected_digest)?;
             if stored.access_matches(replacement) {
                 return verify_item_acl(&item, replacement_access.digest())
                     .map_err(|_| SecureStoreError::CredentialMigrationIncomplete);
             }
-            let current_access =
-                ExactKeychainAccess::new(current.writer_path(), current.reader_path())
-                    .map_err(map_acl_error)?;
-            if stored.acl_set_digest() != current_access.digest() {
-                return Err(SecureStoreError::CredentialAccessDenied);
-            }
             let material = stored.into_material();
             let current_metadata =
-                ProviderCredentialMetadata::from_access(current, current_access.digest()).encode();
+                ProviderCredentialMetadata::from_access(current, current_access.digest());
             let replacement_metadata =
-                ProviderCredentialMetadata::from_access(replacement, replacement_access.digest())
-                    .encode();
+                ProviderCredentialMetadata::from_access(replacement, replacement_access.digest());
             let replacement_encoded = StoredProviderCredential::encode(
                 &material,
                 replacement,
                 replacement_access.digest(),
             )?;
             let migration_service = self.migration_service();
-            let backup_item = create_populated_provider_item(
+            let backup_result = create_populated_provider_item(
                 keychain,
                 &migration_service,
                 &self.account,
                 &current_metadata,
                 &current_access,
                 &encoded,
-            )?;
+                (failpoint == Some(CredentialMigrationFailpoint::BackupEmptyWritten))
+                    .then_some(CredentialPopulationFailpoint::EmptyItemWritten),
+            );
+            if failpoint == Some(CredentialMigrationFailpoint::BackupEmptyWritten) {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
+            let backup_item = backup_result?;
             verify_item_acl(&backup_item, current_access.digest())?;
             if failpoint == Some(CredentialMigrationFailpoint::BackupWritten) {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
@@ -323,14 +416,20 @@ impl MacOsProviderCredentialStore {
             if failpoint == Some(CredentialMigrationFailpoint::PrimaryDeleted) {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }
-            let Ok(replacement_item) = create_populated_provider_item(
+            let replacement_result = create_populated_provider_item(
                 keychain,
                 &self.service,
                 &self.account,
                 &replacement_metadata,
                 &replacement_access,
                 &replacement_encoded,
-            ) else {
+                (failpoint == Some(CredentialMigrationFailpoint::ReplacementEmptyWritten))
+                    .then_some(CredentialPopulationFailpoint::EmptyItemWritten),
+            );
+            if failpoint == Some(CredentialMigrationFailpoint::ReplacementEmptyWritten) {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
+            let Ok(replacement_item) = replacement_result else {
                 gocode_macos_keychain_acl::rename_item_service(&backup_item, &self.service)
                     .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
@@ -351,47 +450,108 @@ impl MacOsProviderCredentialStore {
         })
     }
 
+    // Keep complete-copy selection and destructive steps visibly ordered.
+    #[allow(clippy::too_many_lines)]
     fn reconcile_migration_backup(
         &self,
         keychain: &SecKeychain,
         current: &ProviderCredentialAccessPolicy,
         replacement: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        let Some((backup_encoded, backup_item)) = self.find_migration_backup(keychain)? else {
-            return Ok(());
-        };
-        let backup = StoredProviderCredential::decode(&backup_encoded)?;
-        let Some((backup_metadata, backup_metadata_item)) =
+        let Some((backup_metadata, backup_item)) =
             self.find_named_metadata(keychain, &self.migration_service())?
         else {
-            return Err(SecureStoreError::CredentialMigrationIncomplete);
+            return Ok(());
         };
-        if !backup.metadata_matches(&backup_metadata) {
-            return Err(SecureStoreError::CredentialMigrationIncomplete);
-        }
-        if !backup.access_matches(current) {
-            return Err(SecureStoreError::CredentialMigrationIncomplete);
-        }
         let current_access = ExactKeychainAccess::new(current.writer_path(), current.reader_path())
             .map_err(map_acl_error)?;
-        if backup.acl_set_digest() != current_access.digest() {
+        let replacement_access =
+            ExactKeychainAccess::new(replacement.writer_path(), replacement.reader_path())
+                .map_err(map_acl_error)?;
+        verify_migration_metadata(&backup_metadata, &backup_item, current, &current_access)?;
+
+        let primary_metadata = self.find_named_metadata(keychain, &self.service)?;
+        if !backup_metadata.is_complete() {
+            let Some((primary_metadata, primary_item)) = primary_metadata else {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            };
+            if !primary_metadata.is_complete() {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
+            if primary_metadata.access_matches(current) {
+                verify_migration_metadata(
+                    &primary_metadata,
+                    &primary_item,
+                    current,
+                    &current_access,
+                )?;
+            } else if primary_metadata.access_matches(replacement) {
+                verify_migration_metadata(
+                    &primary_metadata,
+                    &primary_item,
+                    replacement,
+                    &replacement_access,
+                )?;
+            } else {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
+            let Some((primary_encoded, _)) = self.find_primary_item(keychain)? else {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            };
+            let primary = StoredProviderCredential::decode(&primary_encoded)
+                .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
+            if !primary.metadata_matches(&primary_metadata) {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
+            return gocode_macos_keychain_acl::delete_item(&backup_item)
+                .map_err(|_| SecureStoreError::CredentialMigrationIncomplete);
+        }
+
+        let Some((backup_encoded, _)) = self.find_migration_backup(keychain)? else {
+            return Err(SecureStoreError::CredentialMigrationIncomplete);
+        };
+        let backup = StoredProviderCredential::decode(&backup_encoded)
+            .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
+        if !backup.metadata_matches(&backup_metadata) || !backup.access_matches(current) {
             return Err(SecureStoreError::CredentialMigrationIncomplete);
         }
-        verify_item_acl(&backup_item, current_access.digest())?;
-        verify_item_acl(&backup_metadata_item, current_access.digest())?;
-        match self.find_primary_item(keychain) {
-            Ok(None) => {
+
+        match primary_metadata {
+            None => {
                 gocode_macos_keychain_acl::rename_item_service(&backup_item, &self.service)
                     .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
                 Err(SecureStoreError::CredentialMigrationIncomplete)
             }
-            Ok(Some((primary_encoded, primary_item))) => {
-                let primary = StoredProviderCredential::decode(&primary_encoded)?;
-                let Some((primary_metadata, primary_metadata_item)) =
-                    self.find_named_metadata(keychain, &self.service)?
-                else {
+            Some((primary_metadata, primary_item)) => {
+                if !primary_metadata.is_complete() {
+                    if primary_metadata.access_matches(current) {
+                        verify_migration_metadata(
+                            &primary_metadata,
+                            &primary_item,
+                            current,
+                            &current_access,
+                        )?;
+                    } else if primary_metadata.access_matches(replacement) {
+                        verify_migration_metadata(
+                            &primary_metadata,
+                            &primary_item,
+                            replacement,
+                            &replacement_access,
+                        )?;
+                    } else {
+                        return Err(SecureStoreError::CredentialMigrationIncomplete);
+                    }
+                    gocode_macos_keychain_acl::delete_item(&primary_item)
+                        .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
+                    gocode_macos_keychain_acl::rename_item_service(&backup_item, &self.service)
+                        .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
+                    return Err(SecureStoreError::CredentialMigrationIncomplete);
+                }
+                let Some((primary_encoded, _)) = self.find_primary_item(keychain)? else {
                     return Err(SecureStoreError::CredentialMigrationIncomplete);
                 };
+                let primary = StoredProviderCredential::decode(&primary_encoded)
+                    .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
                 if !primary.metadata_matches(&primary_metadata) {
                     return Err(SecureStoreError::CredentialMigrationIncomplete);
                 }
@@ -399,31 +559,30 @@ impl MacOsProviderCredentialStore {
                     if primary_encoded.as_slice() != backup_encoded.as_slice() {
                         return Err(SecureStoreError::CredentialMigrationIncomplete);
                     }
-                    verify_item_acl(&primary_item, current_access.digest())?;
-                    verify_item_acl(&primary_metadata_item, current_access.digest())?;
+                    verify_migration_metadata(
+                        &primary_metadata,
+                        &primary_item,
+                        current,
+                        &current_access,
+                    )?;
                     gocode_macos_keychain_acl::delete_item(&backup_item)
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
                 } else if primary.access_matches(replacement) {
-                    let replacement_access = ExactKeychainAccess::new(
-                        replacement.writer_path(),
-                        replacement.reader_path(),
-                    )
-                    .map_err(map_acl_error)?;
                     if primary.acl_set_digest() != replacement_access.digest() {
                         return Err(SecureStoreError::CredentialMigrationIncomplete);
                     }
-                    verify_item_acl(&primary_item, replacement_access.digest())?;
-                    verify_item_acl(&primary_metadata_item, replacement_access.digest())?;
+                    verify_migration_metadata(
+                        &primary_metadata,
+                        &primary_item,
+                        replacement,
+                        &replacement_access,
+                    )?;
                     gocode_macos_keychain_acl::delete_item(&backup_item)
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
                 } else {
                     Err(SecureStoreError::CredentialMigrationIncomplete)
                 }
             }
-            Err(SecureStoreError::CredentialAccessDenied) => {
-                Err(SecureStoreError::CredentialMigrationIncomplete)
-            }
-            Err(error) => Err(error),
         }
     }
     fn validate_provider(&self, provider: ProviderCredentialId) -> Result<(), SecureStoreError> {
@@ -510,22 +669,39 @@ fn verify_item_acl(
     gocode_macos_keychain_acl::verify_item_access(item, expected_digest).map_err(map_acl_error)
 }
 
+fn verify_migration_metadata(
+    metadata: &ProviderCredentialMetadata,
+    item: &SecKeychainItem,
+    access: &ProviderCredentialAccessPolicy,
+    exact_access: &ExactKeychainAccess,
+) -> Result<(), SecureStoreError> {
+    if !metadata.access_matches(access) || metadata.acl_set_digest() != exact_access.digest() {
+        return Err(SecureStoreError::CredentialMigrationIncomplete);
+    }
+    verify_item_acl(item, exact_access.digest())
+        .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
+}
+
 fn create_populated_provider_item(
     keychain: &SecKeychain,
     service: &str,
     account: &str,
-    metadata: &[u8],
+    metadata: &ProviderCredentialMetadata,
     exact_access: &ExactKeychainAccess,
     encoded: &[u8],
+    failpoint: Option<CredentialPopulationFailpoint>,
 ) -> Result<SecKeychainItem, SecureStoreError> {
     let mut item = gocode_macos_keychain_acl::create_empty_generic_password(
         keychain,
         service,
         account,
-        metadata,
+        &metadata.encode_incomplete(),
         exact_access,
     )
     .map_err(map_acl_error)?;
+    if failpoint == Some(CredentialPopulationFailpoint::EmptyItemWritten) {
+        return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+    }
     if let Err(error) = item.set_password(encoded).map_err(map_keychain_error) {
         return if gocode_macos_keychain_acl::delete_item(&item).is_ok() {
             Err(error)
@@ -536,6 +712,17 @@ fn create_populated_provider_item(
     if let Err(error) = verify_item_acl(&item, exact_access.digest()) {
         return if gocode_macos_keychain_acl::delete_item(&item).is_ok() {
             Err(error)
+        } else {
+            Err(SecureStoreError::CredentialEnrollmentIncomplete)
+        };
+    }
+    if gocode_macos_keychain_acl::set_generic_password_metadata(&item, &metadata.encode()).is_err()
+    {
+        return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+    }
+    if verify_item_acl(&item, exact_access.digest()).is_err() {
+        return if gocode_macos_keychain_acl::delete_item(&item).is_ok() {
+            Err(SecureStoreError::CredentialAccessDenied)
         } else {
             Err(SecureStoreError::CredentialEnrollmentIncomplete)
         };
@@ -850,6 +1037,28 @@ mod tests {
         }
     }
 
+    fn seed_incomplete_provider_item(
+        store: &MacOsProviderCredentialStore,
+        service: &str,
+        policy: &ProviderCredentialAccessPolicy,
+    ) {
+        let exact = ExactKeychainAccess::new(policy.writer_path(), policy.reader_path()).unwrap();
+        let metadata =
+            ProviderCredentialMetadata::from_access(policy, exact.digest()).encode_incomplete();
+        MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            gocode_macos_keychain_acl::create_empty_generic_password(
+                keychain,
+                service,
+                &store.account,
+                &metadata,
+                &exact,
+            )
+            .map(|_| ())
+            .map_err(map_acl_error)
+        })
+        .unwrap();
+    }
+
     #[test]
     fn profiles_use_distinct_keychain_accounts() {
         let first = MacOsKeychainStore::new("profile-a");
@@ -1004,7 +1213,7 @@ mod tests {
 
         assert_eq!(
             store
-                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .provider_credential_status(ProviderCredentialId::OpenAi, &policy)
                 .unwrap(),
             ProviderCredentialStatus::Missing
         );
@@ -1013,13 +1222,13 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .provider_credential_status(ProviderCredentialId::OpenAi, &policy)
                 .unwrap(),
             ProviderCredentialStatus::Configured
         );
         assert_eq!(
             store
-                .load_provider_credential(ProviderCredentialId::OpenAi)
+                .load_provider_credential(ProviderCredentialId::OpenAi, &policy)
                 .unwrap()
                 .with_bytes(<[u8]>::to_vec),
             b"native-test-first"
@@ -1029,7 +1238,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .load_provider_credential(ProviderCredentialId::OpenAi)
+                .load_provider_credential(ProviderCredentialId::OpenAi, &policy)
                 .unwrap()
                 .with_bytes(<[u8]>::to_vec),
             b"native-test-replacement"
@@ -1042,9 +1251,125 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .provider_credential_status(ProviderCredentialId::OpenAi, &policy)
                 .unwrap(),
             ProviderCredentialStatus::Missing
+        );
+    }
+
+    #[test]
+    fn provider_credential_incomplete_enrollment_never_reports_configured_and_can_retry() {
+        let (store, _cleanup) = unique_provider_store("incomplete-enrollment");
+        let current = std::env::current_exe().expect("current test executable");
+        let policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let exact = ExactKeychainAccess::new(&current, &current).unwrap();
+        let metadata = ProviderCredentialMetadata::from_access(&policy, exact.digest());
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-enrollment-retry".to_vec()).unwrap();
+        let encoded =
+            StoredProviderCredential::encode(&credential, &policy, exact.digest()).unwrap();
+
+        let failure = MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            create_populated_provider_item(
+                keychain,
+                &store.service,
+                &store.account,
+                &metadata,
+                &exact,
+                &encoded,
+                Some(CredentialPopulationFailpoint::EmptyItemWritten),
+            )
+            .map(|_| ())
+        });
+        assert_eq!(
+            failure,
+            Err(SecureStoreError::CredentialEnrollmentIncomplete)
+        );
+
+        assert_eq!(
+            store.provider_credential_status(ProviderCredentialId::OpenAi, &policy),
+            Err(SecureStoreError::CredentialEnrollmentIncomplete)
+        );
+        let replacement_policy =
+            ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();
+        assert_eq!(
+            store.migrate_provider_credential_access(
+                ProviderCredentialId::OpenAi,
+                &policy,
+                &replacement_policy,
+            ),
+            Err(SecureStoreError::CredentialMigrationIncomplete)
+        );
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &policy)
+            .expect("writer can replace a verified incomplete enrollment");
+        assert_eq!(
+            store
+                .load_provider_credential(ProviderCredentialId::OpenAi, &policy)
+                .unwrap()
+                .with_bytes(<[u8]>::to_vec),
+            b"native-test-enrollment-retry"
+        );
+    }
+
+    #[test]
+    fn provider_credential_broad_preseed_never_receives_replacement_material() {
+        let (store, _cleanup) = unique_provider_store("broad-preseed");
+        let current = std::env::current_exe().expect("current test executable");
+        let trusted_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let broad_access = ExactKeychainAccess::new(&current, Path::new("/bin/echo")).unwrap();
+        let metadata =
+            ProviderCredentialMetadata::from_access(&trusted_policy, broad_access.digest())
+                .encode();
+        let sentinel = ProviderCredentialMaterial::new(b"native-test-sentinel".to_vec()).unwrap();
+        let sentinel_encoded =
+            StoredProviderCredential::encode(&sentinel, &trusted_policy, broad_access.digest())
+                .unwrap();
+        MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            let mut item = gocode_macos_keychain_acl::create_empty_generic_password(
+                keychain,
+                &store.service,
+                &store.account,
+                &metadata,
+                &broad_access,
+            )
+            .map_err(map_acl_error)?;
+            item.set_password(&sentinel_encoded)
+                .map_err(map_keychain_error)
+        })
+        .unwrap();
+
+        assert_eq!(
+            store.provider_credential_status(ProviderCredentialId::OpenAi, &trusted_policy),
+            Err(SecureStoreError::CredentialAccessDenied)
+        );
+        assert_eq!(
+            store
+                .load_provider_credential(ProviderCredentialId::OpenAi, &trusted_policy)
+                .unwrap_err(),
+            SecureStoreError::CredentialAccessDenied
+        );
+
+        let replacement =
+            ProviderCredentialMaterial::new(b"native-test-must-not-be-written".to_vec()).unwrap();
+        assert_eq!(
+            store.store_provider_credential(
+                ProviderCredentialId::OpenAi,
+                &replacement,
+                &trusted_policy,
+            ),
+            Err(SecureStoreError::CredentialAccessDenied)
+        );
+        let preserved = MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            let (encoded, _) = keychain
+                .find_generic_password(&store.service, &store.account)
+                .map_err(map_keychain_error)?;
+            StoredProviderCredential::decode(&encoded)
+        })
+        .unwrap();
+        assert_eq!(
+            preserved.into_material().with_bytes(<[u8]>::to_vec),
+            b"native-test-sentinel"
         );
     }
 
@@ -1061,7 +1386,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .load_provider_credential(ProviderCredentialId::OpenAi)
+                .load_provider_credential(ProviderCredentialId::OpenAi, &policy)
                 .unwrap_err(),
             SecureStoreError::CredentialAccessDenied
         );
@@ -1171,13 +1496,13 @@ mod tests {
             .unwrap();
         assert_eq!(
             store
-                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .provider_credential_status(ProviderCredentialId::OpenAi, &replacement_policy)
                 .unwrap(),
             ProviderCredentialStatus::Configured
         );
         assert_eq!(
             store
-                .load_provider_credential(ProviderCredentialId::OpenAi)
+                .load_provider_credential(ProviderCredentialId::OpenAi, &replacement_policy)
                 .unwrap_err(),
             SecureStoreError::CredentialAccessDenied
         );
@@ -1189,13 +1514,19 @@ mod tests {
     #[test]
     fn provider_credential_migration_recovers_verified_backup_after_restart_boundaries() {
         for failpoint in [
+            CredentialMigrationFailpoint::BackupEmptyWritten,
             CredentialMigrationFailpoint::BackupWritten,
             CredentialMigrationFailpoint::PrimaryDeleted,
+            CredentialMigrationFailpoint::ReplacementEmptyWritten,
             CredentialMigrationFailpoint::ReplacementWritten,
         ] {
             let (store, _cleanup) = unique_provider_store(match failpoint {
+                CredentialMigrationFailpoint::BackupEmptyWritten => "recover-after-empty-backup",
                 CredentialMigrationFailpoint::BackupWritten => "recover-after-backup",
                 CredentialMigrationFailpoint::PrimaryDeleted => "recover-after-delete",
+                CredentialMigrationFailpoint::ReplacementEmptyWritten => {
+                    "recover-after-empty-replacement"
+                }
                 CredentialMigrationFailpoint::ReplacementWritten => "recover-after-replacement",
             });
             let current = std::env::current_exe().expect("current test executable");
@@ -1223,14 +1554,22 @@ mod tests {
             );
 
             assert_eq!(
-                store.provider_credential_status(ProviderCredentialId::OpenAi),
+                store.provider_credential_status(ProviderCredentialId::OpenAi, &current_policy),
                 Err(SecureStoreError::CredentialMigrationIncomplete)
             );
             assert_eq!(
                 store
-                    .load_provider_credential(ProviderCredentialId::OpenAi)
+                    .load_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
                     .unwrap_err(),
                 SecureStoreError::CredentialMigrationIncomplete
+            );
+            assert_eq!(
+                store.store_provider_credential(
+                    ProviderCredentialId::OpenAi,
+                    &credential,
+                    &current_policy,
+                ),
+                Err(SecureStoreError::CredentialMigrationIncomplete)
             );
 
             let first_recovery = store.migrate_provider_credential_access(
@@ -1238,7 +1577,11 @@ mod tests {
                 &current_policy,
                 &replacement_policy,
             );
-            if failpoint == CredentialMigrationFailpoint::PrimaryDeleted {
+            if matches!(
+                failpoint,
+                CredentialMigrationFailpoint::PrimaryDeleted
+                    | CredentialMigrationFailpoint::ReplacementEmptyWritten
+            ) {
                 assert_eq!(
                     first_recovery,
                     Err(SecureStoreError::CredentialMigrationIncomplete)
@@ -1255,7 +1598,7 @@ mod tests {
             }
             assert_eq!(
                 store
-                    .provider_credential_status(ProviderCredentialId::OpenAi)
+                    .provider_credential_status(ProviderCredentialId::OpenAi, &replacement_policy)
                     .unwrap(),
                 ProviderCredentialStatus::Configured
             );
@@ -1266,15 +1609,135 @@ mod tests {
     }
 
     #[test]
+    fn provider_credential_migration_discards_incomplete_backup_after_verifying_primary() {
+        let (store, _cleanup) = unique_provider_store("incomplete-backup");
+        let current = std::env::current_exe().unwrap();
+        let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let replacement_policy =
+            ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-incomplete-backup".to_vec()).unwrap();
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &current_policy)
+            .unwrap();
+        seed_incomplete_provider_item(&store, &store.migration_service(), &current_policy);
+
+        assert_eq!(
+            store.provider_credential_status(ProviderCredentialId::OpenAi, &current_policy),
+            Err(SecureStoreError::CredentialMigrationIncomplete)
+        );
+        assert_eq!(
+            store
+                .load_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
+                .unwrap_err(),
+            SecureStoreError::CredentialMigrationIncomplete
+        );
+        assert_eq!(
+            store.store_provider_credential(
+                ProviderCredentialId::OpenAi,
+                &credential,
+                &current_policy,
+            ),
+            Err(SecureStoreError::CredentialMigrationIncomplete)
+        );
+        store
+            .migrate_provider_credential_access(
+                ProviderCredentialId::OpenAi,
+                &current_policy,
+                &replacement_policy,
+            )
+            .expect("verified complete primary wins over incomplete backup");
+        assert_eq!(
+            store
+                .provider_credential_status(ProviderCredentialId::OpenAi, &replacement_policy,)
+                .unwrap(),
+            ProviderCredentialStatus::Configured
+        );
+        store
+            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .unwrap();
+    }
+
+    #[test]
+    fn provider_credential_migration_restores_complete_backup_over_incomplete_replacement() {
+        let (store, _cleanup) = unique_provider_store("incomplete-replacement");
+        let current = std::env::current_exe().unwrap();
+        let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let replacement_policy =
+            ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-incomplete-replacement".to_vec())
+                .unwrap();
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &current_policy)
+            .unwrap();
+        MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            let (encoded, primary) = store
+                .find_primary_item(keychain)?
+                .expect("complete primary before replacement crash");
+            let current_access = ExactKeychainAccess::new(
+                current_policy.writer_path(),
+                current_policy.reader_path(),
+            )
+            .map_err(map_acl_error)?;
+            let metadata =
+                ProviderCredentialMetadata::from_access(&current_policy, current_access.digest());
+            create_populated_provider_item(
+                keychain,
+                &store.migration_service(),
+                &store.account,
+                &metadata,
+                &current_access,
+                &encoded,
+                None,
+            )?;
+            gocode_macos_keychain_acl::delete_item(&primary).map_err(map_acl_error)
+        })
+        .unwrap();
+        seed_incomplete_provider_item(&store, &store.service, &replacement_policy);
+
+        assert_eq!(
+            store.migrate_provider_credential_access(
+                ProviderCredentialId::OpenAi,
+                &current_policy,
+                &replacement_policy,
+            ),
+            Err(SecureStoreError::CredentialMigrationIncomplete)
+        );
+        assert_eq!(
+            store
+                .provider_credential_status(ProviderCredentialId::OpenAi, &current_policy)
+                .unwrap(),
+            ProviderCredentialStatus::Configured
+        );
+        store
+            .migrate_provider_credential_access(
+                ProviderCredentialId::OpenAi,
+                &current_policy,
+                &replacement_policy,
+            )
+            .unwrap();
+        store
+            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .unwrap();
+    }
+
+    #[test]
     fn provider_credential_delete_is_monotonic_after_every_migration_failpoint() {
         for failpoint in [
+            CredentialMigrationFailpoint::BackupEmptyWritten,
             CredentialMigrationFailpoint::BackupWritten,
             CredentialMigrationFailpoint::PrimaryDeleted,
+            CredentialMigrationFailpoint::ReplacementEmptyWritten,
             CredentialMigrationFailpoint::ReplacementWritten,
         ] {
             let (store, _cleanup) = unique_provider_store(match failpoint {
+                CredentialMigrationFailpoint::BackupEmptyWritten => "delete-after-empty-backup",
                 CredentialMigrationFailpoint::BackupWritten => "delete-after-backup",
                 CredentialMigrationFailpoint::PrimaryDeleted => "delete-after-primary",
+                CredentialMigrationFailpoint::ReplacementEmptyWritten => {
+                    "delete-after-empty-replacement"
+                }
                 CredentialMigrationFailpoint::ReplacementWritten => "delete-after-replacement",
             });
             let current = std::env::current_exe().expect("current test executable");
@@ -1306,13 +1769,13 @@ mod tests {
                 .unwrap();
             assert_eq!(
                 store
-                    .provider_credential_status(ProviderCredentialId::OpenAi)
+                    .provider_credential_status(ProviderCredentialId::OpenAi, &current_policy)
                     .unwrap(),
                 ProviderCredentialStatus::Missing
             );
             assert_eq!(
                 store
-                    .load_provider_credential(ProviderCredentialId::OpenAi)
+                    .load_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
                     .unwrap_err(),
                 SecureStoreError::ProviderCredentialNotFound
             );
@@ -1342,6 +1805,7 @@ mod tests {
             ])
             .env("GOCODE_PROVIDER_STATUS_SERVICE", &store.service)
             .env("GOCODE_PROVIDER_STATUS_ACCOUNT", &store.account)
+            .env("GOCODE_PROVIDER_STATUS_WRITER", &current)
             .output()
             .expect("launch enrolled reader status child");
         assert!(
@@ -1353,9 +1817,10 @@ mod tests {
 
     #[test]
     fn provider_credential_reader_status_child() {
-        let (Some(service), Some(account)) = (
+        let (Some(service), Some(account), Some(writer)) = (
             std::env::var_os("GOCODE_PROVIDER_STATUS_SERVICE"),
             std::env::var_os("GOCODE_PROVIDER_STATUS_ACCOUNT"),
+            std::env::var_os("GOCODE_PROVIDER_STATUS_WRITER"),
         ) else {
             return;
         };
@@ -1363,9 +1828,11 @@ mod tests {
             service.into_string().expect("UTF-8 service"),
             account.into_string().expect("UTF-8 account"),
         );
+        let current = std::env::current_exe().unwrap();
+        let policy = ProviderCredentialAccessPolicy::new(Path::new(&writer), &current).unwrap();
         assert_eq!(
             store
-                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .provider_credential_status(ProviderCredentialId::OpenAi, &policy)
                 .unwrap(),
             ProviderCredentialStatus::Configured
         );
@@ -1460,9 +1927,11 @@ mod tests {
         let service = std::env::var("GOCODE_PROVIDER_LOCK_SERVICE").unwrap();
         let account = std::env::var("GOCODE_PROVIDER_LOCK_ACCOUNT").unwrap();
         let store = MacOsProviderCredentialStore::with_test_item(service, account);
+        let current = std::env::current_exe().unwrap();
+        let policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
         assert_eq!(
             store
-                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .provider_credential_status(ProviderCredentialId::OpenAi, &policy)
                 .unwrap(),
             ProviderCredentialStatus::Configured
         );
