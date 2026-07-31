@@ -7,7 +7,9 @@ use std::time::Duration;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use gocode_api::{
     LaunchAuthorityError, PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, ProtectedActivationKeys,
-    ProtectedLaunchRequestV1, ProtectedReadyV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1,
+    ProtectedLaunchRequestV1, ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2,
+    ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
+    ProtectedRenewTicketV2,
 };
 use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
@@ -90,6 +92,29 @@ impl ProtectedBundledRuntimeProfile {
         })
     }
 
+    /// Verifies provider-bound protocol V2 readiness and constructs a path-free bootstrap.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed launch-authority error when either the outer provider
+    /// binding or the nested runtime/session readiness tuple differs.
+    pub fn from_ready_v2(
+        ready: &ProtectedReadyV2,
+        request: &ProtectedLaunchRequestV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<Self, LaunchAuthorityError> {
+        ready.verify_exact(request, keys)?;
+        let peer = session_peer_from_ready(
+            ready.compatibility_ready(),
+            request.compatibility_request(),
+            keys,
+        )?;
+        Ok(Self {
+            peer,
+            bootstrap_key: keys.bootstrap_key(),
+        })
+    }
+
     /// Constructs the next path-free bootstrap from an authenticated renewal.
     ///
     /// # Errors
@@ -105,6 +130,33 @@ impl ProtectedBundledRuntimeProfile {
     ) -> Result<Self, LaunchAuthorityError> {
         ticket.verify_exact(renewal_request, keys)?;
         let mut peer = session_peer_from_ready(ready, launch_request, keys)?;
+        peer.expected_session_id = Some(*ticket.next_session_id());
+        Ok(Self {
+            peer,
+            bootstrap_key: ticket.bootstrap_ticket(),
+        })
+    }
+
+    /// Constructs the next path-free bootstrap from provider-bound V2 control messages.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed launch-authority error for a stale, changed, replayed,
+    /// or unauthenticated provider/session renewal tuple.
+    pub fn from_renewal_v2(
+        ready: &ProtectedReadyV2,
+        launch_request: &ProtectedLaunchRequestV2,
+        renewal_request: &ProtectedRenewRequestV2,
+        ticket: &ProtectedRenewTicketV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<Self, LaunchAuthorityError> {
+        ticket.verify_exact(renewal_request, keys)?;
+        ready.verify_exact(launch_request, keys)?;
+        let mut peer = session_peer_from_ready(
+            ready.compatibility_ready(),
+            launch_request.compatibility_request(),
+            keys,
+        )?;
         peer.expected_session_id = Some(*ticket.next_session_id());
         Ok(Self {
             peer,
@@ -547,7 +599,8 @@ mod tests {
     use crate::RuntimeEndpoint;
     use gocode_api::{
         ActivationDispositionV1, ExecutableIdentityV1, LaunchSecret, ProtectedLaunchRequestV1,
-        ProtectedReadyV1, ProtectedRuntimeProfileV1, StableRuntimeBindingV1,
+        ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2, ProtectedRuntimeProfileV1,
+        ProviderActivationBindingV1, StableRuntimeBindingV1,
     };
 
     #[test]
@@ -617,6 +670,29 @@ mod tests {
             )
             .expect_err("credential-first profile is never bundled"),
             LaunchAuthorityError::DowngradedExternalProfile
+        );
+    }
+
+    #[test]
+    fn provider_bound_v2_profile_requires_the_exact_outer_readiness_proof() {
+        let (request_v1, ready_v1, keys) =
+            protected_ready_fixture(PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID);
+        let binding = ProviderActivationBindingV1::openai_responses_text_v1();
+        let request = ProtectedLaunchRequestV2::new(request_v1, binding.clone()).unwrap();
+        let mut ready = ProtectedReadyV2::new(ready_v1, binding).unwrap();
+        ready.sign(&keys);
+
+        ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &request, &keys)
+            .expect("exact V2 protected profile");
+
+        let changed = ProviderActivationBindingV1::deterministic_v1();
+        let changed_request =
+            ProtectedLaunchRequestV2::new(request.compatibility_request().clone(), changed)
+                .unwrap();
+        assert_eq!(
+            ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &changed_request, &keys)
+                .expect_err("provider profile change must fail closed"),
+            LaunchAuthorityError::ProviderModeMismatch
         );
     }
 

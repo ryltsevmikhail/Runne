@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use gocode_api::ProviderActivationBindingV1;
 use gocode_app_core::{AppCore, RuntimeAvailability, RuntimeMode};
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
@@ -335,6 +336,62 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
     assert_eq!(
         supervisor.stop().expect("second graceful owned stop"),
         BundledRuntimeStopDisposition::Graceful
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn provider_bound_v2_bundled_process_renews_and_stops_without_v1_downgrade() {
+    let temporary = tempfile::tempdir().expect("temporary V2 runtime root");
+    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let spec =
+        ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+            .expect("protected launch spec")
+            .with_provider_activation(ProviderActivationBindingV1::deterministic_v1());
+    let mut process = DevelopmentBundledRuntimeLauncher::new()
+        .launch(&spec)
+        .expect("provider-bound V2 launch");
+    assert_eq!(
+        process.provider_activation(),
+        Some(&ProviderActivationBindingV1::deterministic_v1())
+    );
+
+    let initial = process
+        .take_runtime_profile()
+        .expect("initial V2 profile")
+        .connect(Duration::from_secs(10))
+        .await
+        .expect("initial V2 session");
+    assert!(process.matches_client(&initial));
+    let initial_session = initial.session_info().clone();
+
+    let renewed = process
+        .renew_profile()
+        .expect("V2 renewal")
+        .connect(Duration::from_secs(10))
+        .await
+        .expect("renewed V2 session");
+    assert!(process.matches_client(&renewed));
+    assert_eq!(
+        renewed.session_info().authority_id,
+        initial_session.authority_id
+    );
+    assert_eq!(
+        renewed.session_info().event_log_lineage_id,
+        initial_session.event_log_lineage_id
+    );
+    assert_ne!(
+        renewed.session_info().session_id,
+        initial_session.session_id
+    );
+
+    process
+        .request_graceful_stop()
+        .expect("V2 authenticated shutdown");
+    assert_eq!(
+        process
+            .wait_for_exit(Duration::from_secs(5))
+            .expect("V2 daemon exit"),
+        BundledRuntimeProcessStatus::Exited
     );
 }
 

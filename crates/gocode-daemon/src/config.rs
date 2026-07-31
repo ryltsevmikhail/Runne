@@ -7,6 +7,8 @@
 //!   deterministic digest (SHA-256 of canonical JSON).
 
 use crate::error::DaemonError;
+use crate::provider_activation::ProviderActivation;
+use gocode_api::{ProviderActivationBindingV1, ProviderActivationModeV1};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -118,6 +120,29 @@ pub struct SystemConfig {
     pub replay_integrity_key_path: Option<String>,
     pub max_in_flight: Option<u32>,
     pub shutdown_timeout_ms: Option<u64>,
+    pub provider_activation: Option<ExternalProviderActivationConfig>,
+}
+
+/// Explicit owner-controlled, non-secret external provider selection.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalProviderActivationConfig {
+    mode: String,
+    profile_id: String,
+    profile_digest: String,
+}
+
+impl ExternalProviderActivationConfig {
+    fn binding(&self) -> Result<ProviderActivationBindingV1, DaemonError> {
+        let mode = ProviderActivationModeV1::try_from(self.mode.as_str())
+            .map_err(|_| DaemonError::Config("invalid provider activation mode".into()))?;
+        let digest = hex::decode(&self.profile_digest)
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| DaemonError::Config("invalid provider activation digest".into()))?;
+        ProviderActivationBindingV1::new(mode, self.profile_id.clone(), digest)
+            .map_err(|_| DaemonError::Config("invalid provider activation profile".into()))
+    }
 }
 
 // ── ConfigurationSnapshot ─────────────────────────────────────────────
@@ -136,6 +161,8 @@ pub struct ConfigurationSnapshot {
     pub replay_integrity_key_path: String,
     pub max_in_flight: u32,
     pub shutdown_timeout_ms: u64,
+    /// Exact non-secret provider selection; defaulting is deterministic only.
+    pub provider_activation: ProviderActivation,
 
     /// Per-field provenance map (field name → source).
     pub provenance: BTreeMap<String, FieldSource>,
@@ -156,6 +183,7 @@ impl ConfigurationSnapshot {
         provenance.insert("max_in_flight".into(), builtin_source());
         provenance.insert("shutdown_timeout_ms".into(), builtin_source());
 
+        let provider_activation = ProviderActivation::deterministic_v1();
         let values = canonical_values_map(
             defaults.schema_version,
             &defaults.db_path,
@@ -163,6 +191,7 @@ impl ConfigurationSnapshot {
             &defaults.replay_integrity_key_path,
             defaults.max_in_flight,
             defaults.shutdown_timeout_ms,
+            provider_activation.binding(),
         );
 
         Self {
@@ -172,6 +201,7 @@ impl ConfigurationSnapshot {
             replay_integrity_key_path: defaults.replay_integrity_key_path.clone(),
             max_in_flight: defaults.max_in_flight,
             shutdown_timeout_ms: defaults.shutdown_timeout_ms,
+            provider_activation,
             provenance,
             digest: compute_digest(&values),
         }
@@ -188,7 +218,7 @@ impl ConfigurationSnapshot {
         defaults: &BuiltInDefaults,
         system: &SystemConfig,
         system_path: &Path,
-    ) -> Self {
+    ) -> Result<Self, DaemonError> {
         let schema_version = defaults.schema_version;
         let db_path = system
             .db_path
@@ -210,6 +240,13 @@ impl ConfigurationSnapshot {
             .shutdown_timeout_ms
             .unwrap_or(defaults.shutdown_timeout_ms);
 
+        let provider_activation = system
+            .provider_activation
+            .as_ref()
+            .map(ExternalProviderActivationConfig::binding)
+            .transpose()?
+            .map(ProviderActivation::from_binding)
+            .unwrap_or_else(ProviderActivation::deterministic_v1);
         let mut provenance = BTreeMap::new();
         provenance.insert("schema_version".into(), builtin_source()); // never overridden
 
@@ -240,6 +277,10 @@ impl ConfigurationSnapshot {
             "shutdown_timeout_ms".into(),
             select_provenance(system.shutdown_timeout_ms.is_some(), &sys_src),
         );
+        provenance.insert(
+            "provider_activation".into(),
+            select_provenance(system.provider_activation.is_some(), &sys_src),
+        );
 
         let values = canonical_values_map(
             schema_version,
@@ -248,18 +289,20 @@ impl ConfigurationSnapshot {
             &replay_integrity_key_path,
             max_in_flight,
             shutdown_timeout_ms,
+            provider_activation.binding(),
         );
 
-        Self {
+        Ok(Self {
             schema_version,
             db_path,
             http_bind,
             replay_integrity_key_path,
             max_in_flight,
             shutdown_timeout_ms,
+            provider_activation,
             provenance,
             digest: compute_digest(&values),
-        }
+        })
     }
 }
 
@@ -273,6 +316,7 @@ fn canonical_values_map(
     replay_integrity_key_path: &str,
     max_in_flight: u32,
     shutdown_timeout_ms: u64,
+    provider_activation: &ProviderActivationBindingV1,
 ) -> serde_json::Map<String, serde_json::Value> {
     // Insert keys in alphabetical order — serde_json::Map is BTreeMap-backed,
     // so iteration order matches insertion order, giving us canonical output.
@@ -297,6 +341,14 @@ fn canonical_values_map(
     map.insert(
         "replay_integrity_key_path".into(),
         serde_json::Value::String(replay_integrity_key_path.into()),
+    );
+    map.insert(
+        "provider_activation".into(),
+        serde_json::json!({
+            "mode": provider_activation.mode().as_str(),
+            "profile_digest": hex::encode(provider_activation.profile_digest()),
+            "profile_id": provider_activation.profile_id(),
+        }),
     );
     map
 }
@@ -351,8 +403,32 @@ pub fn load_config(
                 )));
             }
 
-            Ok(ConfigurationSnapshot::from_merge(&defaults, &system, path))
+            if system.provider_activation.is_some() {
+                validate_owner_private_config(path)?;
+            }
+            ConfigurationSnapshot::from_merge(&defaults, &system, path)
         }
         _ => Ok(ConfigurationSnapshot::from_defaults(&defaults)),
     }
+}
+
+fn validate_owner_private_config(path: &Path) -> Result<(), DaemonError> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        return Err(DaemonError::Config(
+            "provider config must be a regular file".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+        if metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(DaemonError::Config(
+                "provider config is not owner-private".into(),
+            ));
+        }
+    }
+    Ok(())
 }

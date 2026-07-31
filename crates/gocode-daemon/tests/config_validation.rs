@@ -166,3 +166,43 @@ http_bind = "10.0.0.1:3000"
     let b = config::load_config(Some(&p2)).unwrap();
     assert_ne!(a.digest, b.digest);
 }
+
+#[test]
+fn external_openai_activation_requires_the_released_non_secret_profile_tuple() {
+    let (_dir, path) = temp_toml(
+        r#"
+schema_version = 2
+
+[provider_activation]
+mode = "openai_responses_text_v1"
+profile_id = "gocode-openai-responses-text/1"
+profile_digest = "d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80"
+"#,
+    );
+    #[cfg(unix)]
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+        .expect("owner-private config");
+    let snapshot = config::load_config(Some(&path)).expect("exact owner config");
+    assert_eq!(
+        snapshot.provider_activation.binding().profile_id(),
+        "gocode-openai-responses-text/1"
+    );
+}
+
+#[test]
+fn external_openai_activation_rejects_a_changed_profile_digest() {
+    let (_dir, path) = temp_toml(
+        r#"
+schema_version = 2
+
+[provider_activation]
+mode = "openai_responses_text_v1"
+profile_id = "gocode-openai-responses-text/1"
+profile_digest = "0000000000000000000000000000000000000000000000000000000000000000"
+"#,
+    );
+    #[cfg(unix)]
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+        .expect("owner-private config");
+    assert!(config::load_config(Some(&path)).is_err());
+}
