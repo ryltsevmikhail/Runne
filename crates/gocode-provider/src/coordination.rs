@@ -1,12 +1,14 @@
 use thiserror::Error;
 
-use crate::{DispatchAttemptId, ProviderCallId, ProviderStreamId};
+use crate::{DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderStreamId};
 
 /// Immutable provider prepare metadata persisted before dispatch claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreparedProviderRecord {
     /// Durable provider call identity.
     pub call_id: ProviderCallId,
+    /// Exact canonical provider-call digest contract.
+    pub call_digest_version: ProviderCallDigestVersion,
     /// Exact prepared request digest.
     pub prepared_digest: [u8; 32],
     /// Committed render evidence digest.
@@ -45,12 +47,35 @@ pub struct ProviderDispatchClaim {
 pub enum ProviderRepositoryState {
     /// Dispatch claim exists.
     Dispatching,
+    /// Claimed attempt was proved not to have crossed the adapter effect boundary.
+    RejectedBeforeEffect,
     /// Adapter stream identity is durable.
     Streaming,
+    /// Terminal provider evidence is durable and awaits authoritative completion.
+    TerminalPendingCommit,
     /// Exact terminal settlement is durable.
     Settled,
     /// External effect disposition is ambiguous.
     Uncertain,
+}
+
+/// Closed reason proving a claimed provider attempt did not dispatch externally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderPreEffectRejection {
+    /// Required credential is not configured.
+    CredentialUnavailable,
+    /// Secure-store policy denied credential access.
+    CredentialAccessDenied,
+    /// Exact provider profile was unavailable or incompatible.
+    ProfileRejected,
+    /// Runtime capability or approval denied the effect.
+    CapabilityDenied,
+    /// Token or cost reservation denied the effect.
+    BudgetDenied,
+    /// Runtime admission rejected an invalid or stale binding before dispatch.
+    AdmissionRejected,
+    /// Adapter rejected validated local preparation before network start.
+    AdapterRejected,
 }
 
 /// Result of one atomic provider repository claim.
@@ -92,6 +117,12 @@ pub enum ProviderRepositoryError {
 
 /// Persistence boundary consumed by application provider orchestration.
 pub trait ProviderDispatchRepository: Send + Sync {
+    /// Loads immutable prepare metadata to select an exact replay digest domain.
+    fn load_prepared(
+        &self,
+        call_id: ProviderCallId,
+    ) -> Result<Option<PreparedProviderRecord>, ProviderRepositoryError>;
+
     /// Persists or exactly replays immutable prepare metadata.
     fn persist_prepared(
         &self,
@@ -110,6 +141,30 @@ pub trait ProviderDispatchRepository: Send + Sync {
         attempt_id: DispatchAttemptId,
         fencing_token: u64,
         stream_id: ProviderStreamId,
+    ) -> Result<(), ProviderRepositoryError>;
+
+    /// Commits an exact terminal rejection proved to precede external dispatch.
+    fn mark_rejected_before_effect(
+        &self,
+        attempt_id: DispatchAttemptId,
+        fencing_token: u64,
+        rejection: ProviderPreEffectRejection,
+    ) -> Result<(), ProviderRepositoryError>;
+
+    /// Commits exact terminal evidence before authoritative completion.
+    fn mark_terminal_pending(
+        &self,
+        attempt_id: DispatchAttemptId,
+        fencing_token: u64,
+        settlement_digest: [u8; 32],
+    ) -> Result<(), ProviderRepositoryError>;
+
+    /// Commits exact terminal settlement evidence after stream binding.
+    fn settle(
+        &self,
+        attempt_id: DispatchAttemptId,
+        fencing_token: u64,
+        settlement_digest: [u8; 32],
     ) -> Result<(), ProviderRepositoryError>;
 
     /// Conservatively marks a claimed effect uncertain.

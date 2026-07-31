@@ -1,7 +1,14 @@
 use gocode_provider::{
-    InvalidProviderId, ModelRef, ProviderCall, ProviderCallId, ProviderCapability,
-    ProviderFinishReason, ProviderId, canonical_provider_call_digest,
+    InvalidProviderId, ModelRef, ProviderCall, ProviderCallDigestVersion, ProviderCallId,
+    ProviderCapability, ProviderFinishReason, ProviderId, ProviderInputRole, ProviderStreamEvent,
+    ProviderTextInput, ProviderUsage, canonical_provider_call_digest,
+    canonical_provider_call_digest_for_version, provider_call_wire_bytes_for_version,
 };
+use sha2::{Digest, Sha256};
+
+fn lower_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
 fn call_with_extension(extension: serde_json::Value) -> ProviderCall {
     ProviderCall::new(
@@ -41,6 +48,178 @@ fn canonical_call_digest_is_order_independent_but_value_sensitive() {
         canonical_provider_call_digest(&left).unwrap(),
         canonical_provider_call_digest(&changed).unwrap()
     );
+}
+
+#[test]
+fn canonical_call_digest_commits_text_input_role_order_and_bytes() {
+    let base = call_with_extension(serde_json::json!({"mode": "safe"}));
+    let user_then_assistant = base
+        .clone()
+        .with_text_inputs(vec![
+            ProviderTextInput::new(ProviderInputRole::User, "first").unwrap(),
+            ProviderTextInput::new(ProviderInputRole::Assistant, "second").unwrap(),
+        ])
+        .unwrap();
+    let assistant_then_user = base
+        .clone()
+        .with_text_inputs(vec![
+            ProviderTextInput::new(ProviderInputRole::Assistant, "second").unwrap(),
+            ProviderTextInput::new(ProviderInputRole::User, "first").unwrap(),
+        ])
+        .unwrap();
+    let changed_text = base
+        .with_text_inputs(vec![
+            ProviderTextInput::new(ProviderInputRole::User, "changed").unwrap(),
+            ProviderTextInput::new(ProviderInputRole::Assistant, "second").unwrap(),
+        ])
+        .unwrap();
+
+    assert_ne!(
+        canonical_provider_call_digest(&user_then_assistant).unwrap(),
+        canonical_provider_call_digest(&assistant_then_user).unwrap()
+    );
+    assert_ne!(
+        canonical_provider_call_digest(&user_then_assistant).unwrap(),
+        canonical_provider_call_digest(&changed_text).unwrap()
+    );
+}
+
+#[test]
+fn provider_call_v1_digest_keeps_the_released_golden_and_v2_is_separate() {
+    let legacy_call = call_with_extension(serde_json::json!({"mode": "safe"}))
+        .with_required_capabilities(vec![ProviderCapability::Streaming]);
+    let v1 =
+        canonical_provider_call_digest_for_version(&legacy_call, ProviderCallDigestVersion::V1)
+            .unwrap();
+    let v2 =
+        canonical_provider_call_digest_for_version(&legacy_call, ProviderCallDigestVersion::V2)
+            .unwrap();
+
+    assert_eq!(
+        v1.as_bytes(),
+        &[
+            190, 47, 217, 145, 45, 178, 108, 204, 39, 214, 3, 75, 33, 39, 30, 202, 15, 104, 53, 32,
+            119, 150, 211, 18, 157, 61, 50, 92, 8, 180, 18, 66,
+        ]
+    );
+    assert_eq!(v1.version(), ProviderCallDigestVersion::V1);
+    assert_eq!(v2.version(), ProviderCallDigestVersion::V2);
+    assert_ne!(v1.as_bytes(), v2.as_bytes());
+}
+
+#[test]
+fn provider_call_wire_v1_omits_inputs_and_keeps_its_exact_render_golden() {
+    let call = call_with_extension(serde_json::json!({"mode": "safe"}));
+    let v1 = provider_call_wire_bytes_for_version(&call, ProviderCallDigestVersion::V1).unwrap();
+    let v2 = provider_call_wire_bytes_for_version(&call, ProviderCallDigestVersion::V2).unwrap();
+
+    assert!(!String::from_utf8_lossy(&v1).contains("\"inputs\""));
+    assert!(String::from_utf8_lossy(&v2).contains("\"inputs\":[]"));
+    assert_eq!(
+        lower_hex(&Sha256::digest(&v1)),
+        "58450ef9b24e6c54b66d01002c1347c27ac91d5c23a3c1c97b48c9fd9c027c22"
+    );
+    assert_eq!(
+        lower_hex(&Sha256::digest(&v2)),
+        "00f54823d1002453d92391bd169f5135001a2e3bf8bb224151885d3d1243b8e7"
+    );
+}
+
+#[test]
+fn provider_call_v1_digest_rejects_v2_text_inputs() {
+    let call = call_with_extension(serde_json::Value::Null)
+        .with_text_inputs(vec![
+            ProviderTextInput::new(ProviderInputRole::User, "new semantics").unwrap(),
+        ])
+        .unwrap();
+
+    assert!(
+        canonical_provider_call_digest_for_version(&call, ProviderCallDigestVersion::V1).is_err()
+    );
+}
+
+#[test]
+fn provider_text_input_rejects_empty_and_more_than_65536_utf8_bytes() {
+    assert!(ProviderTextInput::new(ProviderInputRole::User, "").is_err());
+    assert!(ProviderTextInput::new(ProviderInputRole::User, "x".repeat(65_536)).is_ok());
+    assert!(ProviderTextInput::new(ProviderInputRole::User, "x".repeat(65_537)).is_err());
+    assert!(ProviderTextInput::new(ProviderInputRole::User, "я".repeat(32_768)).is_ok());
+}
+
+#[test]
+fn provider_call_rejects_more_than_64_text_inputs() {
+    let inputs = (0..65)
+        .map(|index| {
+            ProviderTextInput::new(ProviderInputRole::User, format!("input-{index}")).unwrap()
+        })
+        .collect();
+
+    assert!(
+        call_with_extension(serde_json::Value::Null)
+            .with_text_inputs(inputs)
+            .is_err()
+    );
+}
+
+#[test]
+fn provider_call_rejects_more_than_262144_aggregate_input_bytes() {
+    let inputs = (0..5)
+        .map(|_| ProviderTextInput::new(ProviderInputRole::User, "x".repeat(65_536)).unwrap())
+        .collect();
+
+    assert!(
+        call_with_extension(serde_json::Value::Null)
+            .with_text_inputs(inputs)
+            .is_err()
+    );
+}
+
+#[test]
+fn provider_usage_rejects_inconsistent_details_and_unbounded_totals() {
+    assert!(ProviderUsage::new(100, 25, 40, 10).is_ok());
+    assert!(ProviderUsage::new(100, 25, 101, 10).is_err());
+    assert!(ProviderUsage::new(100, 25, 40, 26).is_err());
+    assert!(ProviderUsage::new(1_000_000_000, 0, 0, 0).is_ok());
+    assert!(ProviderUsage::new(1_000_000_001, 0, 0, 0).is_err());
+    assert!(ProviderUsage::new(u64::MAX, 1, 0, 0).is_err());
+}
+
+#[test]
+fn normalized_input_usage_and_call_reject_unknown_fields() {
+    assert!(
+        serde_json::from_value::<ProviderTextInput>(serde_json::json!({
+            "role": "user",
+            "text": "bounded",
+            "credential": "must-not-be-ignored"
+        }))
+        .is_err()
+    );
+    assert!(
+        serde_json::from_value::<ProviderUsage>(serde_json::json!({
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "cached_input_tokens": 0,
+            "reasoning_output_tokens": 0,
+            "future_billing_field": 1
+        }))
+        .is_err()
+    );
+    let mut call = valid_serialized_call();
+    call["credential"] = serde_json::json!("must-not-be-ignored");
+    assert!(serde_json::from_value::<ProviderCall>(call).is_err());
+
+    let mut nested = valid_serialized_call();
+    nested["model_ref"]["credential"] = serde_json::json!("must-not-be-ignored");
+    assert!(serde_json::from_value::<ProviderCall>(nested).is_err());
+
+    let event = serde_json::json!({
+        "sequence": 0,
+        "kind": {
+            "kind": "started",
+            "credential": "must-not-be-ignored"
+        }
+    });
+    assert!(serde_json::from_value::<ProviderStreamEvent>(event).is_err());
 }
 
 #[test]

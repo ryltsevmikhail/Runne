@@ -1,7 +1,7 @@
 use gocode_provider::{
-    DispatchRequest, PreparedProviderRecord, ProviderCall, ProviderDispatchClaim,
-    ProviderDispatchRepository, ProviderPort, ProviderRepositoryClaimOutcome,
-    ProviderRepositoryState, ProviderStreamId,
+    DispatchError, DispatchRequest, PreparedProviderRecord, ProviderCall, ProviderDispatchClaim,
+    ProviderDispatchRepository, ProviderPort, ProviderPreEffectRejection,
+    ProviderRepositoryClaimOutcome, ProviderRepositoryState, ProviderStreamId,
 };
 
 use crate::prohibited_content::{
@@ -20,8 +20,6 @@ pub struct ProviderCoordinatorRequest {
     pub call: ProviderCall,
     /// Issuer-created, revision-bound authority for provider dispatch.
     pub authority_ref: ProviderEffectAuthorityRef,
-    /// Committed render evidence digest.
-    pub render_digest: [u8; 32],
     /// Exact provider adapter/model profile digest.
     pub profile_digest: [u8; 32],
     /// Durable dispatch attempt.
@@ -54,6 +52,11 @@ pub enum ProviderCoordinatorOutcome {
     Existing {
         /// Existing repository state.
         state: ProviderRepositoryState,
+    },
+    /// Adapter proved that no external provider effect began.
+    RejectedBeforeEffect {
+        /// Closed non-secret rejection reason.
+        reason: ProviderPreEffectRejection,
     },
     /// Post-claim disposition is ambiguous and progression must freeze.
     Uncertain,
@@ -104,16 +107,25 @@ where
                 return Err(ProviderAdmissionError::PolicyDenied);
             }
         }
-        let prepared = self
-            .provider
-            .prepare(&request.call)
-            .map_err(|_| ProviderAdmissionError::PrepareRejected)?;
+        let existing_prepared = self
+            .repository
+            .load_prepared(request.call.call_id())
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let prepared = match existing_prepared {
+            Some(record) => self
+                .provider
+                .prepare_for_digest_version(&request.call, record.call_digest_version),
+            None => self.provider.prepare(&request.call),
+        }
+        .map_err(|_| ProviderAdmissionError::PrepareRejected)?;
         let prepared_digest = *prepared.request_ref().as_bytes();
+        let render_digest = *prepared.render_digest();
         self.repository
             .persist_prepared(&PreparedProviderRecord {
                 call_id: request.call.call_id(),
+                call_digest_version: prepared.request_ref().digest_version(),
                 prepared_digest,
-                render_digest: request.render_digest,
+                render_digest,
                 profile_digest: request.profile_digest,
             })
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
@@ -122,7 +134,7 @@ where
             attempt_id: request.attempt_id,
             permit_id: request.permit_id,
             prepared_digest,
-            render_digest: request.render_digest,
+            render_digest,
             profile_digest: request.profile_digest,
             token_reservation_id: request.token_reservation_id,
             cost_reservation_id: request.cost_reservation_id,
@@ -147,7 +159,7 @@ where
             attempt_id: request.attempt_id,
             permit_id,
             prepared_digest,
-            render_digest: request.render_digest,
+            render_digest,
             profile_digest: request.profile_digest,
             token_reservation_id: request.token_reservation_id,
             cost_reservation_id: request.cost_reservation_id,
@@ -156,12 +168,28 @@ where
             scope: request.scope,
         };
         if let Err(error) = self.admission.admit(&effect) {
-            if error == ProviderAdmissionError::PostClaimUncertain {
+            if existing_state.is_some() {
+                return Err(error);
+            }
+            if matches!(
+                error,
+                ProviderAdmissionError::PostClaimUncertain
+                    | ProviderAdmissionError::RepositoryFailure
+            ) {
                 self.repository
                     .mark_uncertain(request.attempt_id, request.fencing_token)
                     .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
                 return Ok(ProviderCoordinatorOutcome::Uncertain);
             }
+            let rejection = match error {
+                ProviderAdmissionError::CapabilityDenied => {
+                    ProviderPreEffectRejection::CapabilityDenied
+                }
+                _ => ProviderPreEffectRejection::AdmissionRejected,
+            };
+            self.repository
+                .mark_rejected_before_effect(request.attempt_id, request.fencing_token, rejection)
+                .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
             return Err(error);
         }
         if let Some(state) = existing_state {
@@ -170,7 +198,10 @@ where
 
         match self
             .provider
-            .dispatch(DispatchRequest::new(prepared, request.attempt_id))
+            .dispatch(
+                DispatchRequest::new(prepared, claim)
+                    .map_err(|_| ProviderAdmissionError::PolicyDenied)?,
+            )
             .await
         {
             Ok(stream_id) => {
@@ -186,7 +217,17 @@ where
                 }
                 Ok(ProviderCoordinatorOutcome::Streaming { stream_id })
             }
-            Err(_) => {
+            Err(DispatchError::RejectedBeforeEffect(reason)) => {
+                self.repository
+                    .mark_rejected_before_effect(request.attempt_id, request.fencing_token, reason)
+                    .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+                Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
+            }
+            Err(
+                DispatchError::MaybeDispatched
+                | DispatchError::AttemptConflict
+                | DispatchError::StreamNotFound,
+            ) => {
                 self.repository
                     .mark_uncertain(request.attempt_id, request.fencing_token)
                     .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;

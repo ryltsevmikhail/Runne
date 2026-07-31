@@ -25,8 +25,31 @@ fn fresh_v8_db() -> Connection {
     conn
 }
 
+fn drop_v12_fences(conn: &Connection) {
+    let triggers = conn
+        .prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'trigger' AND name LIKE 'schema_v12_%'",
+        )
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for trigger in triggers {
+        conn.execute_batch(&format!("DROP TRIGGER \"{trigger}\";"))
+            .unwrap();
+    }
+    conn.execute_batch(
+        "DROP TABLE schema_upgrade_write_latch;
+         DROP TABLE schema_upgrade_fence;",
+    )
+    .unwrap();
+}
+
 fn released_v8_db() -> Connection {
     let conn = fresh_v8_db();
+    drop_v12_fences(&conn);
     conn.execute_batch(
         "DROP TABLE provider_effect_authorities;
          DROP TABLE provider_dispatch_attempts;
@@ -191,24 +214,26 @@ fn startup_purge_clears_subscriptions() {
 
 #[test]
 fn v6_to_v8_migration() {
-    let conn = Connection::open_in_memory().unwrap();
-
-    // Simulate a v6 database: create schema_version and insert versions 1-6
+    let conn = fresh_v8_db();
+    drop_v12_fences(&conn);
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS schema_version (
-            version INTEGER PRIMARY KEY,
-            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );",
+        "DROP TABLE provider_effect_authorities;
+         DROP TABLE provider_dispatch_attempts;
+         DROP TABLE provider_prepared_requests;
+         DROP TABLE schema_lineage;
+         DROP TABLE consumption_intents;
+         DROP TABLE verification_evidence;
+         DROP TABLE _replay_subscriptions;
+         DROP TABLE _daemon_info;
+         DROP TABLE _authority;
+         DROP TABLE security_permit_claims;
+         DROP TABLE security_audit_pre_effect;
+         DROP TABLE security_budget_consumptions;
+         DROP TABLE security_authorization_decisions;
+         DROP TABLE security_dispatch_intents;
+         DELETE FROM schema_version WHERE version >= 7;",
     )
     .unwrap();
-
-    for v in 1..=6 {
-        conn.execute(
-            "INSERT INTO schema_version (version) VALUES (?1)",
-            params![v],
-        )
-        .unwrap();
-    }
 
     // Apply remaining migrations (v7, v8)
     apply_migrations(&conn).unwrap();
@@ -251,7 +276,7 @@ fn released_v8_upgrades_to_strict_v9_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 11);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 12);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));

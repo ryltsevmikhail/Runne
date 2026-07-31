@@ -1,9 +1,10 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use futures::executor::block_on;
 use gocode_provider::{
-    DispatchAttemptId, DispatchRequest, ModelRef, ProviderCall, ProviderCallId, ProviderCapability,
-    ProviderId, ProviderPort, StreamCursor,
+    DispatchAttemptId, DispatchError, DispatchRequest, ModelRef, ProviderCall, ProviderCallId,
+    ProviderCapability, ProviderDispatchClaim, ProviderId, ProviderPort, ReconcileRequest,
+    ReconciliationDisposition, StreamCursor,
 };
 use gocode_provider_http::{
     HttpProviderAdapter, HttpTransport, HttpTransportRequest, HttpTransportResponse,
@@ -11,18 +12,27 @@ use gocode_provider_http::{
 };
 use zeroize::Zeroizing;
 
+#[derive(Debug, PartialEq, Eq)]
+struct TransportObservation {
+    follow_redirects: bool,
+    use_ambient_proxy: bool,
+    authorization_bytes: usize,
+    provider_idempotency_key: String,
+}
+
 struct FixtureTransport {
     response: HttpTransportResponse,
-    observed: Mutex<Vec<(bool, bool, usize)>>,
+    observed: Arc<Mutex<Vec<TransportObservation>>>,
 }
 
 impl HttpTransport for FixtureTransport {
     fn send(&self, request: HttpTransportRequest) -> Result<HttpTransportResponse, TransportError> {
-        self.observed.lock().unwrap().push((
-            request.follow_redirects,
-            request.use_ambient_proxy,
-            request.authorization.len(),
-        ));
+        self.observed.lock().unwrap().push(TransportObservation {
+            follow_redirects: request.follow_redirects,
+            use_ambient_proxy: request.use_ambient_proxy,
+            authorization_bytes: request.authorization.len(),
+            provider_idempotency_key: request.provider_idempotency_key.clone(),
+        });
         Ok(self.response.clone())
     }
 }
@@ -77,7 +87,7 @@ fn adapter(
         profile(),
         FixtureTransport {
             response,
-            observed: Mutex::new(Vec::new()),
+            observed: Arc::new(Mutex::new(Vec::new())),
         },
         FixtureSecret,
     )
@@ -90,6 +100,26 @@ fn valid_response() -> HttpTransportResponse {
         path: "/v1/responses".into(),
         body: include_bytes!("fixtures/synthetic_stream.json").to_vec(),
     }
+}
+
+fn dispatch_request(
+    prepared: gocode_provider::PreparedRequest,
+    attempt_id: DispatchAttemptId,
+    provider_idempotency_key: &str,
+) -> DispatchRequest {
+    let claim = ProviderDispatchClaim {
+        call_id: prepared.call().call_id(),
+        attempt_id,
+        permit_id: [4; 16],
+        prepared_digest: *prepared.request_ref().as_bytes(),
+        render_digest: *prepared.render_digest(),
+        profile_digest: [7; 32],
+        token_reservation_id: [8; 16],
+        cost_reservation_id: [9; 16],
+        fencing_token: 1,
+        provider_idempotency_key: provider_idempotency_key.to_owned(),
+    };
+    DispatchRequest::new(prepared, claim).unwrap()
 }
 
 #[test]
@@ -116,17 +146,36 @@ fn exact_profile_and_pricing_digests_are_required_before_dispatch() {
 
 #[test]
 fn transport_disables_redirects_and_ambient_proxy_and_normalizes_fixture() {
-    let adapter = adapter(valid_response());
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let adapter = HttpProviderAdapter::new(
+        profile(),
+        FixtureTransport {
+            response: valid_response(),
+            observed: Arc::clone(&observed),
+        },
+        FixtureSecret,
+    )
+    .unwrap();
     let prepared = adapter
         .prepare(&call(&"07".repeat(32), &"08".repeat(32)))
         .unwrap();
-    let stream = block_on(adapter.dispatch(DispatchRequest::new(
+    let stream = block_on(adapter.dispatch(dispatch_request(
         prepared,
         DispatchAttemptId::from_bytes([3; 16]),
+        "fixture-transport-normalization",
     )))
     .unwrap();
     let started = block_on(adapter.next(&stream, StreamCursor::new(0))).unwrap();
     assert_eq!(started.event().sequence(), 0);
+    assert_eq!(
+        observed.lock().unwrap().as_slice(),
+        &[TransportObservation {
+            follow_redirects: false,
+            use_ambient_proxy: false,
+            authorization_bytes: 24,
+            provider_idempotency_key: "fixture-transport-normalization".into(),
+        }]
+    );
 }
 
 #[test]
@@ -145,7 +194,7 @@ fn origin_path_unknown_terminal_and_frame_bounds_fail_closed() {
         bounded_profile,
         FixtureTransport {
             response: valid_response(),
-            observed: Mutex::new(Vec::new()),
+            observed: Arc::new(Mutex::new(Vec::new())),
         },
         FixtureSecret,
     )
@@ -166,7 +215,7 @@ fn attempt_replay_requires_the_exact_prepared_request() {
         .prepare(&call(&"07".repeat(32), &"08".repeat(32)))
         .unwrap();
     let attempt = DispatchAttemptId::from_bytes([3; 16]);
-    block_on(adapter.dispatch(DispatchRequest::new(first, attempt))).unwrap();
+    block_on(adapter.dispatch(dispatch_request(first, attempt, "fixture-attempt-replay"))).unwrap();
 
     let changed = ProviderCall::new(
         ProviderCallId::from_bytes([2; 16]),
@@ -187,7 +236,34 @@ fn attempt_replay_requires_the_exact_prepared_request() {
     .with_required_capabilities(vec![ProviderCapability::Streaming]);
     let changed = adapter.prepare(&changed).unwrap();
 
-    assert!(block_on(adapter.dispatch(DispatchRequest::new(changed, attempt))).is_err());
+    assert!(
+        block_on(adapter.dispatch(dispatch_request(changed, attempt, "fixture-attempt-replay")))
+            .is_err()
+    );
+}
+
+#[test]
+fn invalid_remote_response_never_reconciles_as_absent() {
+    let mut response = valid_response();
+    response.body = b"{invalid-response".to_vec();
+    let adapter = adapter(response);
+    let attempt = DispatchAttemptId::from_bytes([4; 16]);
+    let prepared = adapter
+        .prepare(&call(&"07".repeat(32), &"08".repeat(32)))
+        .unwrap();
+
+    assert_eq!(
+        block_on(adapter.dispatch(dispatch_request(
+            prepared,
+            attempt,
+            "fixture-ambiguous-response"
+        ))),
+        Err(DispatchError::MaybeDispatched)
+    );
+    assert_eq!(
+        block_on(adapter.reconcile(ReconcileRequest::new(attempt))).unwrap(),
+        ReconciliationDisposition::Uncertain
+    );
 }
 
 fn dispatch_once(
@@ -196,8 +272,9 @@ fn dispatch_once(
     let prepared = adapter
         .prepare(&call(&"07".repeat(32), &"08".repeat(32)))
         .unwrap();
-    block_on(adapter.dispatch(DispatchRequest::new(
+    block_on(adapter.dispatch(dispatch_request(
         prepared,
         DispatchAttemptId::from_bytes([3; 16]),
+        "fixture-dispatch-once",
     )))
 }

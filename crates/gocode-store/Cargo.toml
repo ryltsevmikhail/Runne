@@ -9,7 +9,7 @@ gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-provider = { path = "../gocode-provider" }
 rand = "0.8"
-rusqlite = { version = "=0.34.0", features = ["bundled"] }
+rusqlite = { version = "=0.34.0", features = ["backup", "bundled"] }
 sha2 = "=0.10.8"
 hmac = "0.12"
 async-trait = { workspace = true }

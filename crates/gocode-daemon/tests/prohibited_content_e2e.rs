@@ -192,6 +192,15 @@ impl ProviderPort for RecordingProvider {
         PreparedRequest::from_call(call)
     }
 
+    fn prepare_for_digest_version(
+        &self,
+        call: &ProviderCall,
+        digest_version: gocode_provider::ProviderCallDigestVersion,
+    ) -> Result<PreparedRequest, PrepareError> {
+        *self.prepared_bytes.lock().unwrap() = serde_json::to_vec(call).unwrap();
+        PreparedRequest::from_call_for_digest_version(call, digest_version)
+    }
+
     fn dispatch(
         &self,
         _request: DispatchRequest,
@@ -227,6 +236,13 @@ impl ProviderPort for RecordingProvider {
 struct UnreachableRepository;
 
 impl ProviderDispatchRepository for UnreachableRepository {
+    fn load_prepared(
+        &self,
+        _call_id: gocode_provider::ProviderCallId,
+    ) -> Result<Option<PreparedProviderRecord>, ProviderRepositoryError> {
+        unreachable!("denied provider call must not load prepared state")
+    }
+
     fn persist_prepared(
         &self,
         _record: &PreparedProviderRecord,
@@ -248,6 +264,33 @@ impl ProviderDispatchRepository for UnreachableRepository {
         _stream_id: ProviderStreamId,
     ) -> Result<(), ProviderRepositoryError> {
         unreachable!("denied provider call must not mark streaming")
+    }
+
+    fn mark_rejected_before_effect(
+        &self,
+        _attempt_id: DispatchAttemptId,
+        _fencing_token: u64,
+        _rejection: gocode_provider::ProviderPreEffectRejection,
+    ) -> Result<(), ProviderRepositoryError> {
+        unreachable!("denied provider call must not mark rejected")
+    }
+
+    fn mark_terminal_pending(
+        &self,
+        _attempt_id: DispatchAttemptId,
+        _fencing_token: u64,
+        _settlement_digest: [u8; 32],
+    ) -> Result<(), ProviderRepositoryError> {
+        unreachable!("denied provider call must not mark terminal")
+    }
+
+    fn settle(
+        &self,
+        _attempt_id: DispatchAttemptId,
+        _fencing_token: u64,
+        _settlement_digest: [u8; 32],
+    ) -> Result<(), ProviderRepositoryError> {
+        unreachable!("denied provider call must not settle")
     }
 
     fn mark_uncertain(
@@ -283,7 +326,6 @@ fn provider_request() -> ProviderCoordinatorRequest {
         )
         .unwrap(),
         authority_ref: ProviderEffectAuthorityRef::new([3; 16], 1).unwrap(),
-        render_digest: [4; 32],
         profile_digest: [5; 32],
         attempt_id: DispatchAttemptId::from_bytes([6; 16]),
         permit_id: [7; 16],

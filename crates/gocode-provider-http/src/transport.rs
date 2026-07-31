@@ -15,6 +15,8 @@ pub struct HttpTransportRequest {
     pub path: String,
     /// Serialized bounded body.
     pub body: Vec<u8>,
+    /// Stable non-secret key used by the remote provider for effect deduplication.
+    pub provider_idempotency_key: String,
     /// Ephemeral authorization bytes. Diagnostics must never include them.
     pub authorization: Zeroizing<Vec<u8>>,
     /// Redirect following is always false.

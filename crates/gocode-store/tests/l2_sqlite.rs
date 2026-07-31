@@ -1427,7 +1427,7 @@ fn test_schema_mismatch_fail_closed() {
     cleanup_db(&db_path);
 
     // Phase 1: create a valid store with data
-    let tr_id: TaskRunId = {
+    let _tr_id: TaskRunId = {
         let (_store, svc) = open_service(&db_path);
 
         let outcome = svc
@@ -1454,21 +1454,14 @@ fn test_schema_mismatch_fail_closed() {
         conn.execute_batch("DROP TABLE events;").unwrap();
     }
 
-    // Phase 3: reopen — should succeed (PRAGMA integrity_check passes)
-    let (store, _svc) = open_service(&db_path);
-
-    // Phase 4: try to load the stream — should fail because events table is missing
-    let result = store.load_task_run(tr_id);
-    assert!(
-        result.is_err(),
-        "loading with missing tables should fail — fail-closed"
+    // Phase 3: the exact schema catalog gate rejects the missing table before
+    // any store handle is admitted.
+    let result = StoreTransaction::open(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
     );
-    match result {
-        Err(EventStoreError::CorruptData) => {
-            // Expected: fail-closed on corrupted schema
-        }
-        other => panic!("expected CorruptData, got {:?}", other),
-    }
+    assert!(matches!(result, Err(CommitError::StorageFailure(_))));
 
     cleanup_db(&db_path);
 }
