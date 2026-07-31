@@ -1,5 +1,8 @@
 use std::sync::Mutex;
 
+#[cfg(test)]
+use std::cell::Cell;
+
 use gocode_macos_keychain_acl::{
     ExactKeychainAccess, KeychainAclError, ProviderCredentialProcessLock,
 };
@@ -25,6 +28,10 @@ const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
 const ERR_SEC_NO_ACCESS_FOR_ITEM: i32 = -25_243;
 const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25_244;
 static PROVIDER_CREDENTIAL_KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
+#[cfg(test)]
+std::thread_local! {
+    static PROVIDER_CREDENTIAL_PASSWORD_READS: Cell<usize> = const { Cell::new(0) };
+}
 type CredentialKeychainItem = Option<(Zeroizing<Vec<u8>>, SecKeychainItem)>;
 type CredentialMetadataItem = Option<(ProviderCredentialMetadata, SecKeychainItem)>;
 
@@ -547,6 +554,23 @@ impl MacOsProviderCredentialStore {
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
                     return Err(SecureStoreError::CredentialMigrationIncomplete);
                 }
+                if primary_metadata.access_matches(current) {
+                    verify_migration_metadata(
+                        &primary_metadata,
+                        &primary_item,
+                        current,
+                        &current_access,
+                    )?;
+                } else if primary_metadata.access_matches(replacement) {
+                    verify_migration_metadata(
+                        &primary_metadata,
+                        &primary_item,
+                        replacement,
+                        &replacement_access,
+                    )?;
+                } else {
+                    return Err(SecureStoreError::CredentialMigrationIncomplete);
+                }
                 let Some((primary_encoded, _)) = self.find_primary_item(keychain)? else {
                     return Err(SecureStoreError::CredentialMigrationIncomplete);
                 };
@@ -559,24 +583,12 @@ impl MacOsProviderCredentialStore {
                     if primary_encoded.as_slice() != backup_encoded.as_slice() {
                         return Err(SecureStoreError::CredentialMigrationIncomplete);
                     }
-                    verify_migration_metadata(
-                        &primary_metadata,
-                        &primary_item,
-                        current,
-                        &current_access,
-                    )?;
                     gocode_macos_keychain_acl::delete_item(&backup_item)
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
                 } else if primary.access_matches(replacement) {
                     if primary.acl_set_digest() != replacement_access.digest() {
                         return Err(SecureStoreError::CredentialMigrationIncomplete);
                     }
-                    verify_migration_metadata(
-                        &primary_metadata,
-                        &primary_item,
-                        replacement,
-                        &replacement_access,
-                    )?;
                     gocode_macos_keychain_acl::delete_item(&backup_item)
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
                 } else {
@@ -650,6 +662,8 @@ impl MacOsProviderCredentialStore {
         keychain: &SecKeychain,
         service: &str,
     ) -> Result<CredentialKeychainItem, SecureStoreError> {
+        #[cfg(test)]
+        PROVIDER_CREDENTIAL_PASSWORD_READS.set(PROVIDER_CREDENTIAL_PASSWORD_READS.get() + 1);
         match keychain.find_generic_password(service, &self.account) {
             Ok((password, item)) => Ok(Some((Zeroizing::new(password.to_vec()), item))),
             Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(None),
@@ -1720,6 +1734,75 @@ mod tests {
         store
             .delete_provider_credential(ProviderCredentialId::OpenAi)
             .unwrap();
+    }
+
+    #[test]
+    fn migration_rejects_broad_primary_before_materializing_its_password() {
+        let (store, _cleanup) = unique_provider_store("broad-primary-reconcile");
+        let current = std::env::current_exe().unwrap();
+        let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let replacement_policy =
+            ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-broad-primary".to_vec()).unwrap();
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &current_policy)
+            .unwrap();
+        MacOsProviderCredentialStore::with_noninteractive(|keychain| {
+            let (encoded, primary) = store
+                .find_primary_item(keychain)?
+                .expect("complete primary before forged replacement");
+            let current_access =
+                ExactKeychainAccess::new(&current, &current).map_err(map_acl_error)?;
+            let current_metadata =
+                ProviderCredentialMetadata::from_access(&current_policy, current_access.digest());
+            create_populated_provider_item(
+                keychain,
+                &store.migration_service(),
+                &store.account,
+                &current_metadata,
+                &current_access,
+                &encoded,
+                None,
+            )?;
+            gocode_macos_keychain_acl::delete_item(&primary).map_err(map_acl_error)?;
+
+            let broad_access = ExactKeychainAccess::new(&current, Path::new("/bin/echo"))
+                .map_err(map_acl_error)?;
+            let broad_metadata =
+                ProviderCredentialMetadata::from_access(&current_policy, broad_access.digest());
+            let broad_encoded = StoredProviderCredential::encode(
+                &credential,
+                &current_policy,
+                broad_access.digest(),
+            )?;
+            create_populated_provider_item(
+                keychain,
+                &store.service,
+                &store.account,
+                &broad_metadata,
+                &broad_access,
+                &broad_encoded,
+                None,
+            )
+            .map(|_| ())
+        })
+        .unwrap();
+
+        PROVIDER_CREDENTIAL_PASSWORD_READS.set(0);
+        assert_eq!(
+            store.migrate_provider_credential_access(
+                ProviderCredentialId::OpenAi,
+                &current_policy,
+                &replacement_policy,
+            ),
+            Err(SecureStoreError::CredentialMigrationIncomplete)
+        );
+        assert_eq!(
+            PROVIDER_CREDENTIAL_PASSWORD_READS.get(),
+            1,
+            "only the verified backup may be materialized before primary ACL rejection"
+        );
     }
 
     #[test]

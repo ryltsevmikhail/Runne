@@ -3,7 +3,13 @@ use core::fmt;
 use rand::{RngCore as _, rngs::OsRng};
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use crate::SecureStoreError;
+
+#[cfg(test)]
+static COPY_ARRAY_CONSTRUCTOR_CALLS: AtomicUsize = AtomicUsize::new(0);
 
 /// Non-secret identity and authority binding for one provider journal key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -85,7 +91,10 @@ impl ProviderJournalKeyMaterial {
         OsRng
             .try_fill_bytes(bytes.as_mut())
             .map_err(|_| SecureStoreError::ProviderJournalKeyGenerationFailed)?;
-        Self::new(key_ref, *bytes)
+        if bytes.iter().all(|byte| *byte == 0) {
+            return Err(SecureStoreError::CorruptProviderJournalKey);
+        }
+        Ok(Self { key_ref, bytes })
     }
 
     /// Constructs separate provider journal key material.
@@ -95,6 +104,8 @@ impl ProviderJournalKeyMaterial {
     /// Returns [`SecureStoreError::CorruptProviderJournalKey`] for all-zero
     /// key material.
     pub fn new(key_ref: ProviderJournalKeyRef, bytes: [u8; 32]) -> Result<Self, SecureStoreError> {
+        #[cfg(test)]
+        COPY_ARRAY_CONSTRUCTOR_CALLS.fetch_add(1, Ordering::Relaxed);
         if bytes == [0; 32] {
             return Err(SecureStoreError::CorruptProviderJournalKey);
         }
@@ -220,5 +231,16 @@ mod tests {
             Err(SecureStoreError::DeletionDenied)
         );
         assert!(ProviderJournalKeyDeletionProof::for_verified_catalog(0, 0, [9; 32]).is_ok());
+    }
+
+    #[test]
+    fn generation_never_routes_rng_bytes_through_copy_array_constructor() {
+        COPY_ARRAY_CONSTRUCTOR_CALLS.store(0, Ordering::Relaxed);
+        let key_ref = ProviderJournalKeyRef::new([1; 16], 1, [2; 16], 1).unwrap();
+
+        let generated = ProviderJournalKeyMaterial::generate(key_ref).unwrap();
+
+        assert_ne!(generated.with_bytes(|bytes| *bytes), [0; 32]);
+        assert_eq!(COPY_ARRAY_CONSTRUCTOR_CALLS.load(Ordering::Relaxed), 0);
     }
 }
