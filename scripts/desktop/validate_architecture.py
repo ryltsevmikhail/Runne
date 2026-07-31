@@ -31,6 +31,12 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
 
 RENDERER_ROOT = Path("apps/desktop/src")
 CONVERSATION_ENTITY_API = Path("apps/desktop/src/entities/conversation/api")
+PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
+    Path("crates/gocode-runtime/src/provider_execution.rs"),
+    Path("crates/gocode-store/src/provider/execution_store.rs"),
+}
+PROVIDER_TERMINAL_TEST_FEATURE = "provider-terminal-test-support"
+RAW_PROVIDER_TERMINAL_TYPE = re.compile(r"\bProviderTerminalCommitRequest\b")
 IMPORT_SOURCE_PATTERN = re.compile(
     r"""\b(?:from|import)\s*(?:\(\s*)?["']([^"']+)["']"""
 )
@@ -92,6 +98,50 @@ def find_renderer_conversation_violations(root: Path) -> list[str]:
                 f"{relative_path} constructs a Conversation channel outside "
                 "entities/conversation/api"
             )
+    return violations
+
+
+def find_provider_terminal_persistence_violations(root: Path) -> list[str]:
+    """Keep the opaque accounting/outbox command inside runtime persistence."""
+    violations: list[str] = []
+    roots = (root / "crates", root / "apps" / "desktop" / "src-tauri" / "src")
+    sources = sorted(
+        path
+        for source_root in roots
+        if source_root.exists()
+        for path in source_root.rglob("*.rs")
+        if "tests" not in path.relative_to(root).parts
+    )
+    for path in sources:
+        relative = path.relative_to(root)
+        if relative in PROVIDER_TERMINAL_PERSISTENCE_ALLOWED:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if RAW_PROVIDER_TERMINAL_TYPE.search(source):
+            violations.append(
+                f"{relative.as_posix()} accesses raw provider terminal "
+                "persistence outside the runtime-owned boundary"
+            )
+    return violations
+
+
+def find_provider_terminal_test_feature_violations(
+    packages: list[dict],
+) -> list[str]:
+    """Prevent test-only terminal forging on production dependency edges."""
+    violations: list[str] = []
+    for package in packages:
+        for dependency in package.get("dependencies", []):
+            if (
+                dependency.get("name") == "gocode-runtime"
+                and PROVIDER_TERMINAL_TEST_FEATURE
+                in dependency.get("features", [])
+                and dependency.get("kind") != "dev"
+            ):
+                violations.append(
+                    f"{package['name']} enables {PROVIDER_TERMINAL_TEST_FEATURE} "
+                    "outside dev-dependencies"
+                )
     return violations
 
 
@@ -245,14 +295,7 @@ def _is_conversation_entity_api(path: Path, root: Path) -> bool:
 
 
 def load_workspace_dependencies(root: Path) -> dict[str, set[str]]:
-    result = subprocess.run(
-        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
-        cwd=root,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    metadata = json.loads(result.stdout)
+    metadata = load_workspace_metadata(root)
     return {
         package["name"]: {
             dependency["name"]
@@ -264,11 +307,36 @@ def load_workspace_dependencies(root: Path) -> dict[str, set[str]]:
     }
 
 
+def load_workspace_metadata(root: Path) -> dict:
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(result.stdout)
+
+
 def main() -> int:
     root = Path(__file__).resolve().parents[2]
+    metadata = load_workspace_metadata(root)
     violations = find_rust_dependency_violations(
-        load_workspace_dependencies(root)
-    ) + find_renderer_conversation_violations(root)
+        {
+            package["name"]: {
+                dependency["name"]
+                for dependency in package["dependencies"]
+                if dependency["name"].startswith("gocode-")
+            }
+            for package in metadata["packages"]
+            if package["name"] in ALLOWED_RUST_DEPENDENCIES
+        }
+    )
+    violations += find_renderer_conversation_violations(root)
+    violations += find_provider_terminal_persistence_violations(root)
+    violations += find_provider_terminal_test_feature_violations(
+        metadata["packages"]
+    )
     if violations:
         for violation in violations:
             print(f"ERROR: {violation}")

@@ -3,7 +3,6 @@ use core::fmt;
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
     DispatchAttemptId, PreparedProviderRecord, ProviderCall, ProviderCallDigestVersion,
-    ProviderUsage,
 };
 use thiserror::Error;
 
@@ -256,39 +255,6 @@ impl ProviderTerminalPricingBinding {
     }
 }
 
-/// Atomic terminal journal/accounting/reservation/outbox commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderTerminalCommitRequest {
-    /// Stable runtime-issued outbox identity.
-    pub outbox_id: [u8; 16],
-    /// Durable provider attempt.
-    pub attempt_id: DispatchAttemptId,
-    /// Current runtime-issued fencing token.
-    pub fencing_token: u64,
-    /// Sequence of the already committed terminal journal event.
-    pub terminal_sequence: u64,
-    /// Exact prepared call digest domain bound into AEAD AAD.
-    pub call_digest_version: ProviderCallDigestVersion,
-    /// Exact key binding for recoverable assembled output.
-    pub key: ProviderJournalKeyBinding,
-    /// Encrypted recoverable assembled output.
-    pub encrypted_output: ProviderEncryptedPayload,
-    /// Exact runtime generation.
-    pub runtime_generation: u64,
-    /// Exact provider profile.
-    pub profile_digest: [u8; 32],
-    /// Validated provider usage.
-    pub usage: ProviderUsage,
-    /// Exact validated charge.
-    pub charge_micros: u64,
-    /// Uppercase three-byte pricing currency.
-    pub currency: String,
-    /// Exact pricing/accounting/outcome settlement digest.
-    pub settlement_digest: [u8; 32],
-    /// Stable Conversation completion idempotency key.
-    pub application_idempotency_key: String,
-}
-
 /// Idempotent terminal commit result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderTerminalCommitOutcome {
@@ -414,12 +380,6 @@ pub trait ProviderExecutionStore: Send + Sync {
         &self,
         attempt_id: DispatchAttemptId,
     ) -> Result<ProviderTerminalPricingBinding, ProviderExecutionError>;
-
-    /// Atomically settles usage/accounting/reservations and creates outbox.
-    fn commit_terminal(
-        &self,
-        request: &ProviderTerminalCommitRequest,
-    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError>;
 
     /// Loads pending encrypted terminal outbox records.
     fn pending_terminal_outbox(

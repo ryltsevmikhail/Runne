@@ -9,6 +9,7 @@ mod fake;
 mod id;
 mod model;
 mod port;
+mod pricing;
 mod stream;
 
 pub use coordination::{
@@ -33,6 +34,7 @@ pub use port::{
     PrepareError, PreparedRequest, PreparedRequestRef, ProviderFuture, ProviderPort,
     ReconcileRequest, ReconciliationDisposition,
 };
+pub use pricing::{ProviderPricedUsage, ProviderTerminalPricing, ProviderTerminalPricingError};
 pub use stream::{
     MAX_PROVIDER_TEXT_DELTA_BYTES, MAX_PROVIDER_TOOL_ARGUMENT_BYTES,
     MAX_PROVIDER_TOOL_IDENTIFIER_BYTES, MAX_PROVIDER_USAGE_TOKENS, ProviderStreamEvent,
