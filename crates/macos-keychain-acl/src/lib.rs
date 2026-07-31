@@ -13,6 +13,9 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::path::Path;
 use std::ptr;
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicIsize, Ordering};
+
 use core_foundation::array::{CFArray, CFArrayRef};
 use core_foundation::base::{CFType, CFTypeRef, OSStatus, TCFType as _};
 use core_foundation::data::{CFData, CFDataRef};
@@ -39,6 +42,9 @@ const GENERIC_ITEM_ATTRIBUTE: u32 = u32::from_be_bytes(*b"gena");
 const DARWIN_USER_CACHE_DIRECTORY: libc::c_int = 65_538;
 const PROVIDER_CREDENTIAL_LOCK_DIRECTORY: &[u8] = b"dev.gocode.provider-credential.v1.lock\0";
 
+#[cfg(test)]
+static LIVE_COPIED_APPLICATION_LISTS: AtomicIsize = AtomicIsize::new(0);
+
 #[link(name = "Security", kind = "framework")]
 unsafe extern "C" {
     fn SecTrustedApplicationCreateFromPath(
@@ -58,7 +64,16 @@ unsafe extern "C" {
         description: *mut CFStringRef,
         prompt_selector: *mut u16,
     ) -> OSStatus;
+    #[cfg(test)]
+    fn SecACLSetContents(
+        acl: CFTypeRef,
+        application_list: CFArrayRef,
+        description: CFStringRef,
+        prompt_selector: u16,
+    ) -> OSStatus;
     fn SecKeychainItemCopyAccess(item: SecKeychainItemRef, access: *mut SecAccessRef) -> OSStatus;
+    #[cfg(test)]
+    fn SecKeychainItemSetAccess(item: SecKeychainItemRef, access: SecAccessRef) -> OSStatus;
     fn SecKeychainItemCreateFromContent(
         item_class: u32,
         attributes: *mut SecKeychainAttributeList,
@@ -426,8 +441,7 @@ pub fn find_generic_password_metadata(
         unsafe {
             std::slice::from_raw_parts(
                 metadata_attribute.data.cast::<u8>(),
-                usize::try_from(metadata_attribute.length)
-                    .map_err(|_| KeychainAclError::OperationFailed)?,
+                metadata_attribute.length as usize,
             )
             .to_vec()
         }
@@ -533,6 +547,10 @@ pub fn verify_item_access(
                 &raw mut prompt_selector,
             )
         })?;
+        #[cfg(test)]
+        if !applications.is_null() {
+            LIVE_COPIED_APPLICATION_LISTS.fetch_add(1, Ordering::Relaxed);
+        }
         if !description.is_null() {
             // SAFETY: `SecACLCopyContents` returned a retained non-null string.
             let _description = unsafe { CFString::wrap_under_create_rule(description) };
@@ -540,11 +558,13 @@ pub fn verify_item_access(
         if applications.is_null() {
             return Err(KeychainAclError::AccessDenied);
         }
+        // SAFETY: `SecACLCopyContents` returned a retained non-null array.
+        let applications = unsafe { CFArray::<CFType>::wrap_under_create_rule(applications) };
+        #[cfg(test)]
+        LIVE_COPIED_APPLICATION_LISTS.fetch_sub(1, Ordering::Relaxed);
         if !prompt_selector_is_unconditional(prompt_selector) {
             return Err(KeychainAclError::AccessDenied);
         }
-        // SAFETY: `SecACLCopyContents` returned a retained non-null array.
-        let applications = unsafe { CFArray::<CFType>::wrap_under_create_rule(applications) };
         let digests = applications
             .iter()
             .map(|application| trusted_application_digest(application.as_CFTypeRef()))
@@ -715,7 +735,101 @@ const fn prompt_selector_is_unconditional(prompt_selector: u16) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::prompt_selector_is_unconditional;
+    use super::*;
+
+    struct TestItem(SecKeychainItem);
+
+    impl Drop for TestItem {
+        fn drop(&mut self) {
+            let _ = delete_item(&self.0);
+        }
+    }
+
+    fn item_access(item: &SecKeychainItem) -> SecAccess {
+        let mut access = ptr::null_mut();
+        // SAFETY: item is live and access is a valid retained out-pointer.
+        status(unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) })
+            .unwrap();
+        assert!(!access.is_null());
+        // SAFETY: the copy call returned a retained access reference.
+        unsafe { SecAccess::wrap_under_create_rule(access) }
+    }
+
+    fn decrypt_acl_list(access: &SecAccess) -> CFArray<CFType> {
+        // SAFETY: access and the static authorization tag are live.
+        let acl_list = unsafe {
+            SecAccessCopyMatchingACLList(
+                access.as_concrete_TypeRef(),
+                kSecACLAuthorizationDecrypt.cast(),
+            )
+        };
+        assert!(!acl_list.is_null());
+        // SAFETY: the Copy call returned a retained array.
+        unsafe { CFArray::wrap_under_create_rule(acl_list) }
+    }
+
+    fn copy_acl_applications(acl: &CFType) -> CFArray<CFType> {
+        let mut applications = ptr::null();
+        let mut description = ptr::null();
+        let mut prompt_selector = 0;
+        // SAFETY: acl and all retained out-pointers are valid.
+        status(unsafe {
+            SecACLCopyContents(
+                acl.as_CFTypeRef(),
+                &raw mut applications,
+                &raw mut description,
+                &raw mut prompt_selector,
+            )
+        })
+        .unwrap();
+        assert!(!applications.is_null());
+        if !description.is_null() {
+            // SAFETY: the copy call returned a retained description.
+            let _description = unsafe { CFString::wrap_under_create_rule(description) };
+        }
+        // SAFETY: the copy call returned a retained applications array.
+        unsafe { CFArray::wrap_under_create_rule(applications) }
+    }
+
+    fn set_item_prompt_selector(item: &SecKeychainItem, prompt_selector: u16) {
+        let access = item_access(item);
+        let acl_list = decrypt_acl_list(&access);
+        for acl in acl_list.iter() {
+            let mut applications = ptr::null();
+            let mut description = ptr::null();
+            let mut existing_prompt_selector = 0;
+            // SAFETY: acl and retained output pointers are valid.
+            status(unsafe {
+                SecACLCopyContents(
+                    acl.as_CFTypeRef(),
+                    &raw mut applications,
+                    &raw mut description,
+                    &raw mut existing_prompt_selector,
+                )
+            })
+            .unwrap();
+            assert!(!applications.is_null());
+            assert!(!description.is_null());
+            // SAFETY: both copy outputs are retained and wrapped immediately.
+            let applications = unsafe { CFArray::<CFType>::wrap_under_create_rule(applications) };
+            let description = unsafe { CFString::wrap_under_create_rule(description) };
+            // SAFETY: acl and wrapped contents stay live through the mutation.
+            status(unsafe {
+                SecACLSetContents(
+                    acl.as_CFTypeRef(),
+                    applications.as_concrete_TypeRef(),
+                    description.as_concrete_TypeRef(),
+                    prompt_selector,
+                )
+            })
+            .unwrap();
+        }
+        // SAFETY: item and access are live for the native update.
+        status(unsafe {
+            SecKeychainItemSetAccess(item.as_concrete_TypeRef(), access.as_concrete_TypeRef())
+        })
+        .unwrap();
+    }
 
     #[test]
     fn every_nonzero_prompt_selector_is_rejected() {
@@ -723,5 +837,43 @@ mod tests {
         for prompt_selector in [1, 2, 4, 8, u16::MAX] {
             assert!(!prompt_selector_is_unconditional(prompt_selector));
         }
+    }
+
+    #[test]
+    fn repeated_native_prompt_acl_rejection_releases_copied_applications() {
+        let _interaction = SecKeychain::disable_user_interaction().unwrap();
+        let keychain = SecKeychain::default().unwrap();
+        let current = std::env::current_exe().unwrap();
+        let exact = ExactKeychainAccess::new(&current, &current).unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let item = TestItem(
+            create_empty_generic_password(
+                &keychain,
+                &format!("dev.gocode.prompt-ownership-test.{unique}"),
+                &format!("prompt-ownership-{unique}"),
+                b"non-secret-test-metadata",
+                &exact,
+            )
+            .unwrap(),
+        );
+        set_item_prompt_selector(&item.0, 1);
+        let access = item_access(&item.0);
+        let acl_list = decrypt_acl_list(&access);
+        let applications = copy_acl_applications(&acl_list.get(0).unwrap());
+        let before = applications.retain_count();
+        LIVE_COPIED_APPLICATION_LISTS.store(0, Ordering::Relaxed);
+
+        for _ in 0..256 {
+            assert_eq!(
+                verify_item_access(&item.0, exact.digest()),
+                Err(KeychainAclError::AccessDenied)
+            );
+        }
+
+        assert_eq!(applications.retain_count(), before);
+        assert_eq!(LIVE_COPIED_APPLICATION_LISTS.load(Ordering::Relaxed), 0);
     }
 }
