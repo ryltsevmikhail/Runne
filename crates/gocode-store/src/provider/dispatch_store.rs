@@ -8,7 +8,7 @@ use gocode_provider::{
     ProviderPreEffectRejection, ProviderRepositoryClaimOutcome, ProviderRepositoryError,
     ProviderRepositoryState, ProviderStreamId,
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -16,7 +16,6 @@ use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
 
 const PREPARED_V1_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V1\0";
 const PREPARED_V2_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V2\0";
-const MAX_IDEMPOTENCY_KEY_BYTES: usize = 256;
 
 /// Durable metadata of one non-effecting prepared provider request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +193,9 @@ pub enum ProviderStoreError {
     /// Idempotency key violates its stable bound.
     #[error("provider idempotency key is invalid")]
     InvalidIdempotencyKey,
+    /// Caller-selected V12 claim path is disabled after runtime-owned V13 admission.
+    #[error("legacy caller-selected provider claim is disabled")]
+    LegacyClaimDisabled,
 }
 
 /// Repository-owned SQLite provider dispatch store.
@@ -261,46 +263,15 @@ impl SqliteProviderDispatchStore {
         load_prepared(&connection, call_id)
     }
 
-    /// Atomically claims one dispatch. Only the insert winner receives permit.
+    /// Rejects the retired caller-selected V12 claim path.
+    ///
+    /// V13 inserts a claim only through the runtime authority issuer, in the
+    /// same transaction as semantic admission and both budget reservations.
     pub fn claim(
         &self,
-        claim: &ProviderDispatchClaim,
+        _claim: &ProviderDispatchClaim,
     ) -> Result<ProviderClaimOutcome, ProviderStoreError> {
-        validate_claim(claim)?;
-        let mut connection = self
-            .connection
-            .lock()
-            .map_err(|_| ProviderStoreError::Unavailable)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| ProviderStoreError::Unavailable)?;
-        let prepared = load_prepared(&transaction, claim.call_id)?
-            .ok_or(ProviderStoreError::PreparedMismatch)?;
-        if prepared.prepared_digest != claim.prepared_digest
-            || prepared.render_digest != claim.render_digest
-            || prepared.profile_digest != claim.profile_digest
-        {
-            return Err(ProviderStoreError::PreparedMismatch);
-        }
-        if let Some(existing) = load_dispatch_by_attempt(&transaction, claim.attempt_id)? {
-            if dispatch_matches_claim(&existing, claim) {
-                return Ok(ProviderClaimOutcome::Existing {
-                    attempt_id: existing.attempt_id,
-                    state: existing.state,
-                });
-            }
-            return Err(ProviderStoreError::ClaimConflict);
-        }
-        if load_dispatch_by_call(&transaction, claim.call_id)?.is_some() {
-            return Err(ProviderStoreError::ClaimConflict);
-        }
-        insert_dispatch(&transaction, claim)?;
-        transaction
-            .commit()
-            .map_err(|_| ProviderStoreError::Unavailable)?;
-        Ok(ProviderClaimOutcome::Winner {
-            permit_id: claim.permit_id,
-        })
+        Err(ProviderStoreError::LegacyClaimDisabled)
     }
 
     /// Binds a normalized stream with expected-fence idempotency.
@@ -768,22 +739,6 @@ impl ProviderDispatchRepository for SqliteProviderDispatchStore {
     }
 }
 
-fn validate_claim(claim: &ProviderDispatchClaim) -> Result<(), ProviderStoreError> {
-    if claim.fencing_token == 0 {
-        return Err(ProviderStoreError::StaleFencingToken);
-    }
-    if claim.provider_idempotency_key.is_empty()
-        || claim.provider_idempotency_key.len() > MAX_IDEMPOTENCY_KEY_BYTES
-        || claim
-            .provider_idempotency_key
-            .bytes()
-            .any(|byte| byte.is_ascii_control())
-    {
-        return Err(ProviderStoreError::InvalidIdempotencyKey);
-    }
-    Ok(())
-}
-
 fn prepared_record_digest(record: &PreparedProviderRecord) -> [u8; 32] {
     let mut hasher = Sha256::new();
     match record.call_digest_version {
@@ -853,36 +808,6 @@ fn decode_digest_version(value: i64) -> Result<ProviderCallDigestVersion, Provid
     }
 }
 
-fn insert_dispatch(
-    transaction: &Transaction<'_>,
-    claim: &ProviderDispatchClaim,
-) -> Result<(), ProviderStoreError> {
-    let fencing_token =
-        i64::try_from(claim.fencing_token).map_err(|_| ProviderStoreError::StaleFencingToken)?;
-    transaction
-        .execute(
-            "INSERT INTO provider_dispatch_attempts
-             (attempt_id, call_id, permit_id, token_reservation_id,
-              cost_reservation_id, fencing_token, provider_idempotency_key,
-              prepared_digest, render_digest, profile_digest, state)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1)",
-            params![
-                claim.attempt_id.as_bytes().as_slice(),
-                claim.call_id.as_bytes().as_slice(),
-                claim.permit_id.as_slice(),
-                claim.token_reservation_id.as_slice(),
-                claim.cost_reservation_id.as_slice(),
-                fencing_token,
-                claim.provider_idempotency_key,
-                claim.prepared_digest.as_slice(),
-                claim.render_digest.as_slice(),
-                claim.profile_digest.as_slice(),
-            ],
-        )
-        .map_err(|_| ProviderStoreError::Unavailable)?;
-    Ok(())
-}
-
 fn load_dispatch_by_attempt(
     connection: &Connection,
     attempt_id: DispatchAttemptId,
@@ -901,30 +826,6 @@ fn load_dispatch_by_attempt(
                ON prepared.call_id = dispatch.call_id
              WHERE dispatch.attempt_id = ?1",
             [attempt_id.as_bytes().as_slice()],
-            decode_dispatch_row,
-        )
-        .optional()
-        .map_err(|_| ProviderStoreError::CorruptData)
-}
-
-fn load_dispatch_by_call(
-    connection: &Connection,
-    call_id: ProviderCallId,
-) -> Result<Option<ProviderDispatchRecord>, ProviderStoreError> {
-    connection
-        .query_row(
-            "SELECT dispatch.attempt_id, dispatch.call_id, dispatch.permit_id,
-                    dispatch.token_reservation_id, dispatch.cost_reservation_id,
-                    dispatch.fencing_token, dispatch.provider_idempotency_key,
-                    dispatch.prepared_digest, dispatch.render_digest,
-                    dispatch.profile_digest, dispatch.state, dispatch.stream_id,
-                    dispatch.settlement_digest, dispatch.pre_effect_rejection,
-                    prepared.call_digest_version, prepared.record_digest
-             FROM provider_dispatch_attempts AS dispatch
-             JOIN provider_prepared_requests AS prepared
-               ON prepared.call_id = dispatch.call_id
-             WHERE dispatch.call_id = ?1",
-            [call_id.as_bytes().as_slice()],
             decode_dispatch_row,
         )
         .optional()
@@ -1070,18 +971,6 @@ fn decode_pre_effect_rejection(value: i64) -> rusqlite::Result<ProviderPreEffect
     }
 }
 
-fn dispatch_matches_claim(record: &ProviderDispatchRecord, claim: &ProviderDispatchClaim) -> bool {
-    record.call_id == claim.call_id
-        && record.permit_id == claim.permit_id
-        && record.token_reservation_id == claim.token_reservation_id
-        && record.cost_reservation_id == claim.cost_reservation_id
-        && record.fencing_token == claim.fencing_token
-        && record.provider_idempotency_key == claim.provider_idempotency_key
-        && record.prepared_digest == claim.prepared_digest
-        && record.render_digest == claim.render_digest
-        && record.profile_digest == claim.profile_digest
-}
-
 fn verify_fence(
     record: &ProviderDispatchRecord,
     fencing_token: u64,
@@ -1123,7 +1012,8 @@ const fn repository_error(error: ProviderStoreError) -> ProviderRepositoryError 
         | ProviderStoreError::SettlementBeforeStreaming
         | ProviderStoreError::SettlementBeforeTerminal
         | ProviderStoreError::AlreadyTerminal
-        | ProviderStoreError::InvalidIdempotencyKey => ProviderRepositoryError::Conflict,
+        | ProviderStoreError::InvalidIdempotencyKey
+        | ProviderStoreError::LegacyClaimDisabled => ProviderRepositoryError::Conflict,
     }
 }
 

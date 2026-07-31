@@ -7,9 +7,13 @@ rust-version.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+zeroize.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework = "=3.7.0"
+
+[dev-dependencies]
+hex.workspace = true
 
 [lints]
 workspace = true

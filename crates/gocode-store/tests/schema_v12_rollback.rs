@@ -85,7 +85,7 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
                 row.get::<_, i64>(0)
             })
             .unwrap(),
-        12
+        13
     );
     assert_eq!(
         verification

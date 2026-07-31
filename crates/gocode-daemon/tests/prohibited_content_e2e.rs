@@ -22,15 +22,15 @@ use gocode_application::ports::{
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-    ProviderEffectAdmission, ProviderEffectAuthorityRef, ProviderEffectRequest,
+    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderAuthorityIssuerDecision,
+    ProviderCoordinatorRequest, ProviderDispatchCoordinator, RuntimeProviderAuthorityIssuer,
 };
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
 use gocode_application::verification::export_port::VerificationExporter;
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{
-    CommandId, ConversationId, EventLogLineageId, IdempotencyKey, WorkspaceId,
+    AttemptId, CommandId, ConversationId, EventLogLineageId, IdempotencyKey, TaskRunId, WorkspaceId,
 };
 use gocode_domain::message::MessageText;
 use gocode_domain::verification::backup::StreamInventory;
@@ -302,10 +302,13 @@ impl ProviderDispatchRepository for UnreachableRepository {
     }
 }
 
-struct UnreachableAdmission;
+struct UnreachableIssuer;
 
-impl ProviderEffectAdmission for UnreachableAdmission {
-    fn admit(&self, _request: &ProviderEffectRequest) -> Result<(), ProviderAdmissionError> {
+impl RuntimeProviderAuthorityIssuer for UnreachableIssuer {
+    fn issue_decision(
+        &self,
+        _request: &ProviderAuthorityIssueRequest,
+    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError> {
         unreachable!("denied provider call must not reach admission")
     }
 }
@@ -325,15 +328,16 @@ fn provider_request() -> ProviderCoordinatorRequest {
             json!({"inert": MARKER}),
         )
         .unwrap(),
-        authority_ref: ProviderEffectAuthorityRef::new([3; 16], 1).unwrap(),
+        principal_id: "local-principal".into(),
+        conversation_id: ConversationId::from_bytes([3; 16]),
+        taskrun_id: TaskRunId::from_bytes([4; 16]),
+        execution_attempt_id: AttemptId::from_bytes([6; 16]),
         profile_digest: [5; 32],
-        attempt_id: DispatchAttemptId::from_bytes([6; 16]),
-        permit_id: [7; 16],
-        token_reservation_id: [8; 16],
-        cost_reservation_id: [9; 16],
-        fencing_token: 1,
-        owner_id: "local-owner".into(),
-        scope: "provider.dispatch".into(),
+        pricing_revision_digest: [7; 32],
+        requested_input_tokens: 32,
+        requested_output_tokens: 64,
+        max_cost_micros: 10_000,
+        currency: "USD".into(),
         provider_idempotency_key: "task-seven-provider".into(),
     }
 }
@@ -556,13 +560,9 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
 
     let recording_provider = RecordingProvider::default();
     let repository = UnreachableRepository;
-    let admission = UnreachableAdmission;
-    let coordinator = ProviderDispatchCoordinator::new(
-        &repository,
-        &admission,
-        &recording_provider,
-        guard.as_ref(),
-    );
+    let issuer = UnreachableIssuer;
+    let coordinator =
+        ProviderDispatchCoordinator::new(&repository, &issuer, &recording_provider, guard.as_ref());
     assert_eq!(
         coordinator.dispatch(provider_request()).await,
         Err(ProviderAdmissionError::PolicyDenied)
