@@ -99,6 +99,7 @@ pub struct ProviderToolRecoveryState {
     next_cursor: u64,
     text: String,
     usage: Option<ProviderUsage>,
+    usage_unavailable: bool,
     status: ProviderToolRecoveryStatus,
 }
 
@@ -109,6 +110,7 @@ impl fmt::Debug for ProviderToolRecoveryState {
             .field("next_cursor", &self.next_cursor)
             .field("text_len", &self.text.len())
             .field("usage", &self.usage)
+            .field("usage_unavailable", &self.usage_unavailable)
             .field("status", &self.status)
             .finish()
     }
@@ -118,7 +120,13 @@ impl ProviderToolRecoveryState {
     /// Constructs an active recovered prefix. Grammar consistency is checked
     /// by the pump.
     pub fn new(next_cursor: u64, text: String, usage: Option<ProviderUsage>) -> Self {
-        Self::from_parts(next_cursor, text, usage, ProviderToolRecoveryStatus::Active)
+        Self::from_parts(
+            next_cursor,
+            text,
+            usage,
+            false,
+            ProviderToolRecoveryStatus::Active,
+        )
     }
 
     /// Constructs an exact recovered prefix and durable disposition.
@@ -126,12 +134,14 @@ impl ProviderToolRecoveryState {
         next_cursor: u64,
         text: String,
         usage: Option<ProviderUsage>,
+        usage_unavailable: bool,
         status: ProviderToolRecoveryStatus,
     ) -> Self {
         Self {
             next_cursor,
             text,
             usage,
+            usage_unavailable,
             status,
         }
     }
@@ -149,6 +159,11 @@ impl ProviderToolRecoveryState {
     /// Returns already persisted usage evidence, if any.
     pub const fn usage(&self) -> Option<ProviderUsage> {
         self.usage
+    }
+
+    /// Returns whether a closed remote terminal reported no exact usage.
+    pub const fn usage_unavailable(&self) -> bool {
+        self.usage_unavailable
     }
 
     /// Returns the exact durable stream/tool disposition.
@@ -217,6 +232,21 @@ pub enum ProviderToolLoopOutcome {
     },
     /// Further effects are frozen pending reconciliation.
     Uncertain,
+    /// Provider returned an authenticated failed/incomplete terminal that may
+    /// be settled without applying partial text to Conversation state.
+    RemoteTerminal {
+        /// Closed remote effect disposition.
+        disposition: ProviderTerminalDisposition,
+        /// Normalized terminal reason.
+        reason: ProviderFinishReason,
+        /// Bounded partial output retained only as recovery evidence.
+        text: String,
+        /// Exact provider usage, when supplied.
+        usage: Option<ProviderUsage>,
+        /// Whether the runtime must conservatively consume the full admitted
+        /// reservation because exact usage was unavailable.
+        usage_unavailable: bool,
+    },
 }
 
 impl fmt::Debug for ProviderToolLoopOutcome {
@@ -237,6 +267,20 @@ impl fmt::Debug for ProviderToolLoopOutcome {
                 .field("result_digest", result_digest)
                 .finish(),
             Self::Uncertain => formatter.write_str("Uncertain"),
+            Self::RemoteTerminal {
+                disposition,
+                reason,
+                text,
+                usage,
+                usage_unavailable,
+            } => formatter
+                .debug_struct("RemoteTerminal")
+                .field("disposition", disposition)
+                .field("reason", reason)
+                .field("text_len", &text.len())
+                .field("usage", usage)
+                .field("usage_unavailable", usage_unavailable)
+                .finish(),
         }
     }
 }
@@ -300,8 +344,12 @@ where
         let mut cursor = recovery.next_cursor();
         let mut text = recovery.text().to_owned();
         let mut usage = recovery.usage();
+        let mut usage_unavailable = recovery.usage_unavailable();
         if text.len() > self.max_text_bytes {
             return self.freeze(stream_id, "journal_text_bound");
+        }
+        if usage.is_some() && usage_unavailable {
+            return self.freeze(stream_id, "provider_journal");
         }
         if recovery.next_cursor() == 0
             && matches!(
@@ -318,9 +366,27 @@ where
             ProviderToolRecoveryStatus::Terminal {
                 disposition: ProviderTerminalDisposition::Completed,
                 reason: ProviderFinishReason::Stop,
-            } => return Ok(ProviderToolLoopOutcome::Completed { text, usage }),
-            ProviderToolRecoveryStatus::Terminal { .. }
-            | ProviderToolRecoveryStatus::ToolCallPending { .. }
+            } if !usage_unavailable => {
+                return Ok(ProviderToolLoopOutcome::Completed { text, usage });
+            }
+            ProviderToolRecoveryStatus::Terminal {
+                disposition,
+                reason,
+            } if valid_remote_terminal(disposition, reason)
+                && (usage.is_some() || usage_unavailable) =>
+            {
+                return Ok(ProviderToolLoopOutcome::RemoteTerminal {
+                    disposition: *disposition,
+                    reason: reason.clone(),
+                    text,
+                    usage,
+                    usage_unavailable,
+                });
+            }
+            ProviderToolRecoveryStatus::Terminal { .. } => {
+                return self.freeze(stream_id, "terminal_reason");
+            }
+            ProviderToolRecoveryStatus::ToolCallPending { .. }
             | ProviderToolRecoveryStatus::CancellationPending
             | ProviderToolRecoveryStatus::Frozen => {
                 return Ok(ProviderToolLoopOutcome::Uncertain);
@@ -338,7 +404,10 @@ where
                 return Ok(ProviderToolLoopOutcome::Cancelled);
             }
         }
-        let mut validator = match ProviderStreamValidator::resume_at(cursor, usage.is_some()) {
+        let mut validator = match ProviderStreamValidator::resume_at(
+            cursor,
+            usage.is_some() || usage_unavailable,
+        ) {
             Ok(validator) => validator,
             Err(_) => return self.freeze(stream_id, "provider_journal"),
         };
@@ -386,9 +455,15 @@ where
                     text.push_str(delta);
                 }
                 ProviderStreamEventKind::Usage { usage: event_usage } => {
-                    if usage.replace(*event_usage).is_some() {
+                    if usage_unavailable || usage.replace(*event_usage).is_some() {
                         return self.freeze(stream_id, "duplicate_usage");
                     }
+                }
+                ProviderStreamEventKind::UsageUnavailable => {
+                    if usage.is_some() || usage_unavailable {
+                        return self.freeze(stream_id, "duplicate_usage");
+                    }
+                    usage_unavailable = true;
                 }
                 ProviderStreamEventKind::ToolCallRequested {
                     call_id,
@@ -420,8 +495,22 @@ where
                 ProviderStreamEventKind::Finished {
                     disposition: ProviderTerminalDisposition::Completed,
                     reason: ProviderFinishReason::Stop,
-                } => {
+                } if !usage_unavailable => {
                     return Ok(ProviderToolLoopOutcome::Completed { text, usage });
+                }
+                ProviderStreamEventKind::Finished {
+                    disposition,
+                    reason,
+                } if valid_remote_terminal(disposition, reason)
+                    && (usage.is_some() || usage_unavailable) =>
+                {
+                    return Ok(ProviderToolLoopOutcome::RemoteTerminal {
+                        disposition: *disposition,
+                        reason: reason.clone(),
+                        text,
+                        usage,
+                        usage_unavailable,
+                    });
                 }
                 ProviderStreamEventKind::Finished { .. } => {
                     return self.freeze(stream_id, "terminal_reason");
@@ -439,4 +528,22 @@ where
             .append(ProviderToolTransition::Frozen { stream_id, reason })?;
         Ok(ProviderToolLoopOutcome::Uncertain)
     }
+}
+
+fn valid_remote_terminal(
+    disposition: &ProviderTerminalDisposition,
+    reason: &ProviderFinishReason,
+) -> bool {
+    matches!(
+        (disposition, reason),
+        (
+            ProviderTerminalDisposition::RemoteFailed,
+            ProviderFinishReason::Error
+        ) | (
+            ProviderTerminalDisposition::RemoteIncomplete,
+            ProviderFinishReason::Length
+                | ProviderFinishReason::ContentFilter
+                | ProviderFinishReason::Error
+        )
+    )
 }

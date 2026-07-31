@@ -170,6 +170,7 @@ if all(os.path.isfile(path) for path in openai_paths):
             err("OpenAI request golden is not exact compact UTF-8 JSON plus LF")
         expected_golden_keys = {
             "model",
+            "service_tier",
             "input",
             "max_output_tokens",
             "reasoning",
@@ -183,6 +184,8 @@ if all(os.path.isfile(path) for path in openai_paths):
             not isinstance(golden, dict)
             or set(golden) != expected_golden_keys
             or golden.get("model") != profile.get("model", {}).get("request_id")
+            or golden.get("service_tier")
+            != profile.get("request", {}).get("service_tier")
             or not isinstance(golden.get("input"), list)
             or not golden.get("input")
             or golden.get("reasoning") != {"effort": "none"}

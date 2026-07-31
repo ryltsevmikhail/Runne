@@ -1,5 +1,8 @@
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
-use gocode_provider::{PreparedProviderRecord, ProviderDispatchClaim, ProviderRepositoryState};
+use gocode_provider::{
+    MAX_PROVIDER_USAGE_TOKENS, PreparedProviderRecord, ProviderDispatchClaim,
+    ProviderRepositoryState,
+};
 
 use super::{ProviderAdmissionError, ProviderEffectAuthorityRef};
 
@@ -43,7 +46,9 @@ impl ProviderAuthorityIssueRequest {
                 .principal_id
                 .bytes()
                 .any(|byte| byte.is_ascii_control())
+            || self.requested_input_tokens > MAX_PROVIDER_USAGE_TOKENS
             || self.requested_output_tokens == 0
+            || self.requested_output_tokens > MAX_PROVIDER_USAGE_TOKENS
             || self.max_cost_micros == 0
             || self.currency.len() != 3
             || !self.currency.bytes().all(|byte| byte.is_ascii_uppercase())

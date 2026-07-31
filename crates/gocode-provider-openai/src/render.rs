@@ -61,6 +61,7 @@ impl OpenAiResponsesTextRenderer {
         let input = self.render_inputs(call)?;
         let request = ResponsesRequest {
             model: self.profile.request_model(),
+            service_tier: self.profile.service_tier(),
             input,
             max_output_tokens: call.max_output_tokens(),
             reasoning: Reasoning { effort: "none" },
@@ -191,6 +192,7 @@ const fn map_prepare_error(error: &PrepareError) -> OpenAiRenderError {
 #[derive(Serialize)]
 struct ResponsesRequest<'a> {
     model: &'a str,
+    service_tier: &'a str,
     input: Vec<ResponsesInput<'a>>,
     max_output_tokens: u32,
     reasoning: Reasoning<'a>,

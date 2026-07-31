@@ -751,10 +751,16 @@ impl ProviderExecutionStore for SqliteProviderExecutionStore {
         if attempt.state == 6 {
             return Err(ProviderExecutionError::AttemptUncertain);
         }
-        if attempt.state != 3 {
+        if !matches!(attempt.state, 3..=5) {
             return Err(ProviderExecutionError::TerminalConflict);
         }
-        ProviderTerminalPricingBinding::new(attempt.pricing_revision_digest, attempt.currency)
+        ProviderTerminalPricingBinding::with_reservation(
+            attempt.pricing_revision_digest,
+            attempt.currency,
+            attempt.requested_input_tokens,
+            attempt.requested_output_tokens,
+            attempt.max_cost_micros,
+        )
     }
 
     fn pending_terminal_outbox(
@@ -982,14 +988,6 @@ impl ProviderTerminalPersistence for SqliteProviderExecutionStore {
         {
             return Err(ProviderExecutionError::ReservationMismatch);
         }
-        insert_nonce(
-            &transaction,
-            request.key(),
-            request.encrypted_output().nonce(),
-            2,
-            request.attempt_id(),
-            None,
-        )?;
         let now = unix_timestamp();
         transaction
             .execute(
@@ -1012,36 +1010,54 @@ impl ProviderTerminalPersistence for SqliteProviderExecutionStore {
                 ],
             )
             .map_err(|_| ProviderExecutionError::TerminalConflict)?;
-        transaction
-            .execute(
-                "INSERT INTO provider_terminal_outbox (
-                    outbox_id, dispatch_attempt_id, terminal_sequence, call_digest_version,
-                    key_id, key_version, nonce, runtime_generation, profile_digest, ciphertext,
-                    plaintext_len, plaintext_digest, settlement_digest,
-                    application_idempotency_key, state, receipt_digest, created_at, applied_at
-                 ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                    1, NULL, ?15, NULL
-                 )",
-                params![
-                    request.outbox_id().as_slice(),
-                    request.attempt_id().as_bytes().as_slice(),
-                    execution_i64(request.terminal_sequence())?,
-                    encode_call_digest_version(request.call_digest_version()),
-                    request.key().key_id().as_slice(),
-                    execution_i64(request.key().key_version())?,
-                    request.encrypted_output().nonce().as_slice(),
-                    execution_i64(request.runtime_generation())?,
-                    request.profile_digest().as_slice(),
-                    request.encrypted_output().ciphertext(),
-                    execution_i64(request.encrypted_output().plaintext_len())?,
-                    request.encrypted_output().plaintext_digest().as_slice(),
-                    request.settlement_digest().as_slice(),
-                    request.application_idempotency_key(),
-                    now,
-                ],
-            )
-            .map_err(|_| ProviderExecutionError::TerminalConflict)?;
+        let next_state =
+            if request.disposition() == gocode_provider::ProviderTerminalDisposition::Completed {
+                let encrypted_output = request
+                    .encrypted_output()
+                    .ok_or(ProviderExecutionError::TerminalConflict)?;
+                insert_nonce(
+                    &transaction,
+                    request.key(),
+                    encrypted_output.nonce(),
+                    2,
+                    request.attempt_id(),
+                    None,
+                )?;
+                transaction
+                    .execute(
+                        "INSERT INTO provider_terminal_outbox (
+                            outbox_id, dispatch_attempt_id, terminal_sequence, call_digest_version,
+                            key_id, key_version, nonce, runtime_generation, profile_digest,
+                            ciphertext, plaintext_len, plaintext_digest, settlement_digest,
+                            application_idempotency_key, state, receipt_digest, created_at,
+                            applied_at
+                         ) VALUES (
+                            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                            1, NULL, ?15, NULL
+                         )",
+                        params![
+                            request.outbox_id().as_slice(),
+                            request.attempt_id().as_bytes().as_slice(),
+                            execution_i64(request.terminal_sequence())?,
+                            encode_call_digest_version(request.call_digest_version()),
+                            request.key().key_id().as_slice(),
+                            execution_i64(request.key().key_version())?,
+                            encrypted_output.nonce().as_slice(),
+                            execution_i64(request.runtime_generation())?,
+                            request.profile_digest().as_slice(),
+                            encrypted_output.ciphertext(),
+                            execution_i64(encrypted_output.plaintext_len())?,
+                            encrypted_output.plaintext_digest().as_slice(),
+                            request.settlement_digest().as_slice(),
+                            request.application_idempotency_key(),
+                            now,
+                        ],
+                    )
+                    .map_err(|_| ProviderExecutionError::TerminalConflict)?;
+                4_i64
+            } else {
+                5_i64
+            };
         release_reservations(
             &transaction,
             &attempt.provider_idempotency_key,
@@ -1053,11 +1069,12 @@ impl ProviderTerminalPersistence for SqliteProviderExecutionStore {
         let changed = transaction
             .execute(
                 "UPDATE provider_dispatch_attempts
-                 SET state = 4, settlement_digest = ?3
+                 SET state = ?3, settlement_digest = ?4
                  WHERE attempt_id = ?1 AND fencing_token = ?2 AND state = 3",
                 params![
                     request.attempt_id().as_bytes().as_slice(),
                     execution_i64(request.fencing_token())?,
+                    next_state,
                     request.settlement_digest().as_slice(),
                 ],
             )
@@ -1156,6 +1173,9 @@ struct ExecutionAttempt {
     call_digest_version: ProviderCallDigestVersion,
     runtime_authority_id: [u8; 16],
     database_generation: u64,
+    requested_input_tokens: u64,
+    requested_output_tokens: u64,
+    max_cost_micros: u64,
 }
 
 fn load_execution_attempt(
@@ -1168,7 +1188,8 @@ fn load_execution_attempt(
                     admission.profile_digest, admission.pricing_revision_digest,
                     admission.currency, admission.provider_idempotency_key,
                     prepared.call_digest_version, admission.runtime_authority_id,
-                    admission.database_generation
+                    admission.database_generation, admission.requested_input_tokens,
+                    admission.requested_output_tokens, admission.max_cost_micros
              FROM provider_dispatch_attempts dispatch
              JOIN provider_execution_admissions admission
                ON admission.dispatch_attempt_id = dispatch.attempt_id
@@ -1188,6 +1209,9 @@ fn load_execution_attempt(
                     call_digest_version: decode_call_digest_version(row.get(7)?)?,
                     runtime_authority_id: fixed_bytes(row.get(8)?)?,
                     database_generation: positive_u64(row.get(9)?)?,
+                    requested_input_tokens: nonnegative_u64(row.get(10)?)?,
+                    requested_output_tokens: positive_u64(row.get(11)?)?,
+                    max_cost_micros: positive_u64(row.get(12)?)?,
                 })
             },
         )
@@ -1288,7 +1312,7 @@ fn validate_journal_append(
 ) -> Result<(), ProviderExecutionError> {
     if request.fencing_token == 0
         || request.runtime_generation == 0
-        || !(1..=5).contains(&request.event_kind)
+        || !(1..=6).contains(&request.event_kind)
         || request.encrypted.ciphertext().len() > 2_097_152
         || (request.terminal && request.event_kind != 5)
         || (!request.terminal && request.event_kind == 5)
@@ -1424,6 +1448,8 @@ fn insert_nonce(
 fn validate_terminal_commit(
     request: &ProviderTerminalCommitRequest,
 ) -> Result<(), ProviderExecutionError> {
+    let completed =
+        request.disposition() == gocode_provider::ProviderTerminalDisposition::Completed;
     if request.outbox_id() == &[0; 16]
         || request.fencing_token() == 0
         || request.runtime_generation() == 0
@@ -1439,6 +1465,12 @@ fn validate_terminal_commit(
             .application_idempotency_key()
             .bytes()
             .any(|byte| byte.is_ascii_control())
+        || matches!(
+            request.disposition(),
+            gocode_provider::ProviderTerminalDisposition::CancelledUncertain
+        )
+        || (completed && request.usage_unavailable())
+        || completed != request.encrypted_output().is_some()
     {
         return Err(ProviderExecutionError::TerminalConflict);
     }
@@ -1589,6 +1621,12 @@ fn terminal_commit_exists(
     connection: &Connection,
     request: &ProviderTerminalCommitRequest,
 ) -> Result<bool, ProviderExecutionError> {
+    if request.disposition() != gocode_provider::ProviderTerminalDisposition::Completed {
+        return terminal_non_delivery_commit_exists(connection, request);
+    }
+    let encrypted_output = request
+        .encrypted_output()
+        .ok_or(ProviderExecutionError::TerminalConflict)?;
     let existing = connection
         .query_row(
             "SELECT outbox.outbox_id, outbox.dispatch_attempt_id,
@@ -1663,7 +1701,8 @@ fn terminal_commit_exists(
         || existing.2 != request.terminal_sequence()
         || existing.3 != request.call_digest_version()
         || existing.4 != request.key()
-        || existing.5 != *request.encrypted_output()
+        || existing.5.plaintext_len() != encrypted_output.plaintext_len()
+        || existing.5.plaintext_digest() != encrypted_output.plaintext_digest()
         || existing.6 != request.runtime_generation()
         || existing.7 != *request.profile_digest()
         || existing.8 != *request.settlement_digest()
@@ -1673,6 +1712,64 @@ fn terminal_commit_exists(
         || existing.12 != request.currency()
         || existing.13 != attempt.pricing_revision_digest
         || !matches!(attempt.state, 4 | 5)
+    {
+        return Err(ProviderExecutionError::TerminalConflict);
+    }
+    Ok(true)
+}
+
+fn terminal_non_delivery_commit_exists(
+    connection: &Connection,
+    request: &ProviderTerminalCommitRequest,
+) -> Result<bool, ProviderExecutionError> {
+    let existing = connection
+        .query_row(
+            "SELECT dispatch.state, dispatch.settlement_digest,
+                    accounting.input_tokens, accounting.output_tokens,
+                    accounting.cached_input_tokens, accounting.reasoning_output_tokens,
+                    accounting.charge_micros, accounting.currency,
+                    accounting.pricing_revision_digest,
+                    EXISTS(
+                        SELECT 1 FROM provider_terminal_outbox outbox
+                        WHERE outbox.dispatch_attempt_id = dispatch.attempt_id
+                    )
+             FROM provider_dispatch_attempts dispatch
+             JOIN provider_accounting_settlements accounting
+               ON accounting.dispatch_attempt_id = dispatch.attempt_id
+             WHERE dispatch.attempt_id = ?1",
+            [request.attempt_id().as_bytes().as_slice()],
+            |row| {
+                let usage = gocode_provider::ProviderUsage::new(
+                    nonnegative_u64(row.get(2)?)?,
+                    nonnegative_u64(row.get(3)?)?,
+                    nonnegative_u64(row.get(4)?)?,
+                    nonnegative_u64(row.get(5)?)?,
+                )
+                .map_err(|_| rusqlite::Error::InvalidQuery)?;
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    fixed_bytes::<32>(row.get(1)?)?,
+                    usage,
+                    nonnegative_u64(row.get(6)?)?,
+                    row.get::<_, String>(7)?,
+                    fixed_bytes::<32>(row.get(8)?)?,
+                    decode_bool(row.get(9)?)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(|_| ProviderExecutionError::JournalCorrupt)?;
+    let Some(existing) = existing else {
+        return Ok(false);
+    };
+    let attempt = load_execution_attempt(connection, request.attempt_id())?;
+    if existing.0 != 5
+        || existing.1 != *request.settlement_digest()
+        || existing.2 != request.usage()
+        || existing.3 != request.charge_micros()
+        || existing.4 != request.currency()
+        || existing.5 != attempt.pricing_revision_digest
+        || existing.6
     {
         return Err(ProviderExecutionError::TerminalConflict);
     }

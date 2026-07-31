@@ -110,6 +110,24 @@ fn scripted_stream_rejects_duplicate_usage() {
 }
 
 #[test]
+fn usage_unavailable_is_typed_and_conflicts_with_exact_usage() {
+    let event = ProviderStreamEvent::new(1, ProviderStreamEventKind::UsageUnavailable).unwrap();
+    let encoded = serde_json::to_vec(&event).unwrap();
+    assert_eq!(
+        serde_json::from_slice::<ProviderStreamEvent>(&encoded).unwrap(),
+        event
+    );
+
+    let usage = ProviderUsage::new(10, 5, 2, 1).unwrap();
+    let script = vec![
+        ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
+        event,
+        ProviderStreamEvent::new(2, ProviderStreamEventKind::Usage { usage }).unwrap(),
+    ];
+    assert!(ScriptedProvider::new([ProviderCapability::Streaming], script).is_err());
+}
+
+#[test]
 fn scripted_stream_rejects_duplicate_start() {
     let script = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),

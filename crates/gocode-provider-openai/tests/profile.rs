@@ -1,7 +1,7 @@
 use gocode_provider::{ProviderTerminalPricing, ProviderTerminalPricingError, ProviderUsage};
 use gocode_provider_openai::{
     OPENAI_MODEL_ID, OPENAI_MODEL_REVISION, OPENAI_REQUEST_MODEL, OPENAI_RESPONSES_PROFILE_ID,
-    OpenAiProfileError, OpenAiResponsesTextProfile,
+    OPENAI_SERVICE_TIER, OpenAiProfileError, OpenAiResponsesTextProfile,
 };
 use jsonschema::{Draft, JSONSchema};
 use serde_json::{Value, json};
@@ -52,6 +52,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
     assert_eq!(profile.origin(), "https://api.openai.com");
     assert_eq!(profile.path(), "/v1/responses");
     assert_eq!(profile.request_model(), OPENAI_REQUEST_MODEL);
+    assert_eq!(profile.service_tier(), OPENAI_SERVICE_TIER);
     assert_eq!(profile.model_id(), OPENAI_MODEL_ID);
     assert_eq!(profile.model_revision(), OPENAI_MODEL_REVISION);
     assert_eq!(profile.currency(), "USD");
@@ -91,6 +92,7 @@ fn aliases_endpoint_model_pricing_and_request_policy_are_exact() {
     let original = parse_profile_value();
     let mutations: Vec<ProfileMutation> = vec![
         Box::new(|value| value["profile_id"] = json!("gocode-openai-responses-text")),
+        Box::new(|value| value["profile_revision"] = json!(1)),
         Box::new(|value| value["provider_id"] = json!("openai-compatible")),
         Box::new(|value| value["origin"] = json!("https://proxy.example")),
         Box::new(|value| value["path"] = json!("/v1/chat/completions")),
@@ -105,6 +107,13 @@ fn aliases_endpoint_model_pricing_and_request_policy_are_exact() {
         Box::new(|value| value["pricing"]["long_context_enabled"] = json!(true)),
         Box::new(|value| value["capabilities"] = json!(["streaming", "tools"])),
         Box::new(|value| value["developer_prompt"] = json!("hidden")),
+        Box::new(|value| value["request"]["service_tier"] = json!("auto")),
+        Box::new(|value| {
+            value["request"]
+                .as_object_mut()
+                .expect("request object")
+                .remove("service_tier");
+        }),
         Box::new(|value| value["request"]["reasoning_effort"] = json!("low")),
         Box::new(|value| value["request"]["tools"] = json!([{"type": "web_search"}])),
         Box::new(|value| value["request"]["tool_choice"] = json!("auto")),

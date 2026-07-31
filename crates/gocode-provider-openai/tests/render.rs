@@ -66,6 +66,8 @@ fn renderer_emits_exact_literal_credential_free_golden_bytes() {
         gocode_provider::ProviderCallDigestVersion::V2
     );
     let lower = String::from_utf8_lossy(prepared.rendered_bytes()).to_ascii_lowercase();
+    let value: Value = serde_json::from_slice(prepared.rendered_bytes()).unwrap();
+    assert_eq!(value["service_tier"], "default");
     for forbidden in [
         "authorization",
         "bearer",

@@ -11,9 +11,9 @@ use gocode_application::provider::{
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
-    DispatchAttemptId, ModelRef, PreparedProviderRecord, ProviderCall, ProviderCallId,
-    ProviderCapability, ProviderDispatchClaim, ProviderDispatchRepository, ProviderPort,
-    ProviderRepositoryClaimOutcome, ProviderRepositoryError, ProviderRepositoryState,
+    DispatchAttemptId, MAX_PROVIDER_USAGE_TOKENS, ModelRef, PreparedProviderRecord, ProviderCall,
+    ProviderCallId, ProviderCapability, ProviderDispatchClaim, ProviderDispatchRepository,
+    ProviderPort, ProviderRepositoryClaimOutcome, ProviderRepositoryError, ProviderRepositoryState,
     ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId, ScriptedProvider,
 };
 
@@ -284,4 +284,44 @@ fn exact_issuance_replay_never_reenters_adapter() {
     );
     assert_eq!(provider.dispatch_count(), 0);
     assert_eq!(*repository.claim_count.lock().unwrap(), 0);
+}
+
+#[test]
+fn oversized_token_reservations_are_rejected_before_authority_or_dispatch() {
+    for oversized_output in [false, true] {
+        let repository = RecordingRepository::default();
+        let issuer = RecordingIssuer {
+            outcome: Ok(ProviderAuthorityIssuerDecision::Existing {
+                state: ProviderRepositoryState::Streaming,
+            }),
+            requests: Mutex::new(Vec::new()),
+        };
+        let provider = adapter();
+        let coordinator =
+            ProviderDispatchCoordinator::new(&repository, &issuer, &provider, &AllowingGuard);
+        let mut request = request();
+        if oversized_output {
+            let output = u32::try_from(MAX_PROVIDER_USAGE_TOKENS + 1).unwrap();
+            request.call = ProviderCall::new(
+                ProviderCallId::from_bytes([1; 16]),
+                request.call.model_ref().clone(),
+                [2; 32],
+                output,
+                serde_json::Value::Null,
+            )
+            .unwrap()
+            .with_required_capabilities(vec![ProviderCapability::Streaming]);
+            request.requested_output_tokens = output;
+        } else {
+            request.requested_input_tokens = MAX_PROVIDER_USAGE_TOKENS + 1;
+        }
+
+        assert_eq!(
+            block_on(coordinator.dispatch(request)),
+            Err(ProviderAdmissionError::InvalidSemanticContext)
+        );
+        assert!(issuer.requests.lock().unwrap().is_empty());
+        assert_eq!(provider.dispatch_count(), 0);
+        assert_eq!(*repository.claim_count.lock().unwrap(), 0);
+    }
 }
