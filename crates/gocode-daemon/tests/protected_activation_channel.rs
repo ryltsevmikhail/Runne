@@ -159,9 +159,13 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
             .to_path_buf();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            let application = DaemonApplication::start_protected(launch.config(), bootstrap)
-                .await
-                .unwrap();
+            let application = DaemonApplication::start_protected(
+                launch.config(),
+                bootstrap,
+                launch.provider_activation().clone(),
+            )
+            .await
+            .unwrap();
             let ready = application
                 .protected_ready(launch.request(), launch.keys())
                 .unwrap();

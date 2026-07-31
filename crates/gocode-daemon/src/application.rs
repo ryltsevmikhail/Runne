@@ -9,6 +9,7 @@ use crate::bootstrap::{BootstrapOutcome, bootstrap};
 use crate::client_profile::PublishedClientProfileV2;
 use crate::config::ConfigurationSnapshot;
 use crate::error::DaemonError;
+use crate::provider_activation::ProviderActivation;
 use crate::recovery::{RecoveryState, enumerate_recovery_tasks};
 use crate::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
 use gocode_api::{
@@ -129,6 +130,7 @@ pub struct DaemonApplication {
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     protected_activation: bool,
+    provider_activation: ProviderActivation,
     runtime_controller: RuntimeController,
     _secret_broker: Arc<Mutex<SecretBroker>>,
     task_supervisor: Arc<RuntimeTaskSupervisor>,
@@ -146,16 +148,25 @@ impl DaemonApplication {
             ));
         }
         let bootstrap = bootstrap(config)?;
-        Self::start_with_bootstrap(config, bootstrap, false).await
+        Self::start_with_bootstrap(config, bootstrap, false, config.provider_activation.clone())
+            .await
     }
 
     /// Starts from an already authenticated protected bundled bootstrap.
     pub async fn start_protected(
         config: &ConfigurationSnapshot,
         bootstrap: BootstrapOutcome,
+        provider_activation: ProviderActivation,
     ) -> Result<Self, DaemonError> {
         Self::validate_config(config)?;
-        Self::start_with_bootstrap(config, bootstrap, true).await
+        if provider_activation.requires_openai_execution()
+            || provider_activation.binding() != config.provider_activation.binding()
+        {
+            return Err(DaemonError::Bootstrap(
+                "protected provider activation is unavailable".into(),
+            ));
+        }
+        Self::start_with_bootstrap(config, bootstrap, true, provider_activation).await
     }
 
     fn validate_config(config: &ConfigurationSnapshot) -> Result<(), DaemonError> {
@@ -176,6 +187,7 @@ impl DaemonApplication {
         config: &ConfigurationSnapshot,
         bootstrap: BootstrapOutcome,
         protected_activation: bool,
+        provider_activation: ProviderActivation,
     ) -> Result<Self, DaemonError> {
         let recovery_state = enumerate_recovery_tasks(&bootstrap.db_conn)?;
         let replay_lineage = ensure_event_log_lineage_id(&bootstrap.db_conn).map_err(|error| {
@@ -398,6 +410,7 @@ impl DaemonApplication {
             local_session_service,
             session_clock,
             protected_activation,
+            provider_activation,
             runtime_controller,
             _secret_broker: secret_broker,
             task_supervisor: RuntimeTaskSupervisor::new(),
@@ -483,6 +496,13 @@ impl DaemonApplication {
         request: &ProtectedLaunchRequestV2,
         keys: &ProtectedActivationKeys,
     ) -> Result<ProtectedReadyV2, DaemonError> {
+        if self.provider_activation.binding() != request.provider_binding()
+            || self.provider_activation.requires_openai_execution()
+        {
+            return Err(DaemonError::Bootstrap(
+                "provider-bound readiness is unavailable".into(),
+            ));
+        }
         let ready = self.protected_ready(request.compatibility_request(), keys)?;
         let mut ready = ProtectedReadyV2::new(ready, request.provider_binding().clone())
             .map_err(|_| DaemonError::Bootstrap("build provider-bound readiness".into()))?;
@@ -529,6 +549,7 @@ impl DaemonApplication {
             local_session_service,
             session_clock,
             protected_activation,
+            provider_activation,
             mut runtime_controller,
             _secret_broker,
             task_supervisor,
@@ -546,6 +567,7 @@ impl DaemonApplication {
         drop(local_session_service);
         drop(session_clock);
         let _ = protected_activation;
+        drop(provider_activation);
         drop(_secret_broker);
         drop(store);
         drop(bootstrap);

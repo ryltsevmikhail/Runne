@@ -3,7 +3,7 @@
 #[cfg(unix)]
 use gocode_api::LaunchAuthorityError;
 use gocode_daemon::application::DaemonApplication;
-use gocode_daemon::config::load_config;
+use gocode_daemon::config::load_external_config;
 #[cfg(unix)]
 use gocode_daemon::error::DaemonError;
 #[cfg(unix)]
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_external() -> Result<(), Box<dyn std::error::Error>> {
-    let config = load_config(None).map_err(|error| {
+    let config = load_external_config().map_err(|error| {
         eprintln!("fatal: config error: {error}");
         std::process::exit(1);
     })?;
@@ -80,9 +80,13 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
     let runtime = tokio::runtime::Runtime::new().map_err(|_| ())?;
     runtime
         .block_on(async move {
-            let application = DaemonApplication::start_protected(launch.config(), bootstrap)
-                .await
-                .map_err(|_| ())?;
+            let application = DaemonApplication::start_protected(
+                launch.config(),
+                bootstrap,
+                launch.provider_activation().clone(),
+            )
+            .await
+            .map_err(|_| ())?;
             let keys = launch.keys().clone();
             let local_session_service = application.protected_session_service().map_err(|_| ())?;
             let session_clock = application.protected_session_clock().map_err(|_| ())?;

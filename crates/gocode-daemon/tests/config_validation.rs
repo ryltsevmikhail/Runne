@@ -13,6 +13,8 @@ fn temp_toml(content: &str) -> (tempfile::TempDir, PathBuf) {
     let path = dir.path().join("config.toml");
     let mut f = std::fs::File::create(&path).unwrap();
     write!(f, "{content}").unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600)).unwrap();
     (dir, path)
 }
 
@@ -140,11 +142,10 @@ fn digest_deterministic() {
 
 // ── 8. missing_optional_file_ok ─────────────────────────────────
 #[test]
-fn missing_optional_file_ok() {
+fn missing_explicit_file_fails_closed() {
     let non_existent = PathBuf::from("/tmp/gocode-daemon-nonexistent-42ab9c.toml");
     assert!(!non_existent.exists());
-    let snapshot = config::load_config(Some(&non_existent)).unwrap();
-    assert!(!snapshot.digest.is_empty());
+    assert!(config::load_config(Some(&non_existent)).is_err());
 }
 
 // ── 9. digest_differs_for_different_configs ─────────────────────
@@ -205,4 +206,37 @@ profile_digest = "00000000000000000000000000000000000000000000000000000000000000
     std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o600))
         .expect("owner-private config");
     assert!(config::load_config(Some(&path)).is_err());
+}
+
+#[test]
+fn external_entry_source_selects_exact_openai_without_downgrade() {
+    let (_dir, path) = temp_toml(
+        "schema_version = 2\n[provider_activation]\nmode = \"openai_responses_text_v1\"\nprofile_id = \"gocode-openai-responses-text/1\"\nprofile_digest = \"d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80\"\n",
+    );
+    let snapshot = config::load_external_config_at(&path).unwrap();
+    assert!(snapshot.provider_activation.requires_openai_execution());
+}
+
+#[test]
+fn external_explicit_source_rejects_symlink_and_oversize() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("target.toml");
+    std::fs::write(&target, "schema_version = 2\n").unwrap();
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(&target, std::os::unix::fs::PermissionsExt::from_mode(0o600))
+            .unwrap();
+        let link = dir.path().join("link.toml");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(config::load_config(Some(&link)).is_err());
+    }
+    let oversized = dir.path().join("oversized.toml");
+    std::fs::write(&oversized, "x".repeat(16 * 1024 + 1)).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(
+        &oversized,
+        std::os::unix::fs::PermissionsExt::from_mode(0o600),
+    )
+    .unwrap();
+    assert!(config::load_config(Some(&oversized)).is_err());
 }

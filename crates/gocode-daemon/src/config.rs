@@ -12,6 +12,7 @@ use gocode_api::{ProviderActivationBindingV1, ProviderActivationModeV1};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
 // ── Resolution helpers ───────────────────────────────────────────────
@@ -29,6 +30,18 @@ fn resolve_runtime_dir() -> PathBuf {
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
             home.join(".local").join("share")
         })
+}
+
+const MAX_EXTERNAL_CONFIG_BYTES: u64 = 16 * 1024;
+
+/// Fixed native owner-scoped source for external daemon selection.
+#[must_use]
+pub fn external_config_path() -> PathBuf {
+    dirs::config_local_dir()
+        .or_else(dirs::config_dir)
+        .unwrap_or_else(resolve_runtime_dir)
+        .join("gocode-daemon")
+        .join("config.toml")
 }
 
 // ── Provenance ────────────────────────────────────────────────────────
@@ -375,12 +388,12 @@ fn select_provenance(overridden: bool, sys: &FieldSource) -> FieldSource {
 
 /// Load configuration.
 ///
-/// If `system_config_path` is `Some` and the file exists, it is parsed as
+/// If `system_config_path` is `Some`, it is an explicit owner-private file and
+/// is parsed from the verified open handle. A missing explicit path is an error.
 /// TOML and merged over `BuiltInDefaults`.  Schema version must be `2`;
 /// unknown keys, duplicate keys, and type mismatches are rejected.
 ///
-/// If the path is `None` or the file does not exist, a snapshot built
-/// purely from defaults is returned (this is *not* an error).
+/// If the path is `None`, a snapshot built purely from defaults is returned.
 ///
 /// If the file exists but is malformed or invalid, an error is returned
 /// and no partial snapshot is published.
@@ -391,8 +404,8 @@ pub fn load_config(
     let defaults = BuiltInDefaults::new(&runtime_dir);
 
     match system_config_path {
-        Some(path) if path.exists() => {
-            let contents = fs::read_to_string(path)?;
+        Some(path) => {
+            let contents = read_explicit_config(path)?;
             let system: SystemConfig = toml::from_str(&contents)?;
 
             // Schema version gate
@@ -403,32 +416,56 @@ pub fn load_config(
                 )));
             }
 
-            if system.provider_activation.is_some() {
-                validate_owner_private_config(path)?;
-            }
             ConfigurationSnapshot::from_merge(&defaults, &system, path)
         }
         _ => Ok(ConfigurationSnapshot::from_defaults(&defaults)),
     }
 }
 
-fn validate_owner_private_config(path: &Path) -> Result<(), DaemonError> {
-    let metadata = fs::symlink_metadata(path)?;
-    if !metadata.is_file() || metadata.file_type().is_symlink() {
-        return Err(DaemonError::Config(
-            "provider config must be a regular file".into(),
-        ));
+/// Loads the fixed external source, treating its absence as no selection.
+pub fn load_external_config() -> Result<ConfigurationSnapshot, DaemonError> {
+    load_external_config_at(&external_config_path())
+}
+
+/// Loads an injected fixed external source for native-entry tests.
+pub fn load_external_config_at(path: &Path) -> Result<ConfigurationSnapshot, DaemonError> {
+    if !path.exists() {
+        return load_config(None);
     }
+    load_config(Some(path))
+}
+
+fn read_explicit_config(path: &Path) -> Result<String, DaemonError> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
-        if metadata.uid() != rustix::process::geteuid().as_raw()
+        use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.uid() != rustix::process::geteuid().as_raw()
             || metadata.permissions().mode() & 0o077 != 0
         {
             return Err(DaemonError::Config(
-                "provider config is not owner-private".into(),
+                "external config is not owner-private".into(),
             ));
         }
+        if metadata.len() > MAX_EXTERNAL_CONFIG_BYTES {
+            return Err(DaemonError::Config(
+                "external config exceeds size limit".into(),
+            ));
+        }
+        let mut contents = String::with_capacity(metadata.len() as usize);
+        file.read_to_string(&mut contents)?;
+        Ok(contents)
     }
-    Ok(())
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(DaemonError::Config(
+            "external config validation is unsupported".into(),
+        ))
+    }
 }
