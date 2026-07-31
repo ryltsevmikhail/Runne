@@ -16,6 +16,6 @@ pub use coordinator::{
 pub use execution::{
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalCommitRequest,
-    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
+    ProviderTerminalPricingBinding,
 };

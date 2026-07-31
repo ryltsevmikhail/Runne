@@ -5,7 +5,7 @@ Usage:
     python3 scripts/validate-docs.py
     python3 scripts/validate-docs.py --strict   # также проверяет warnings
 """
-import os, json, re, sys
+import hashlib, os, json, re, sys
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -55,6 +55,33 @@ def walk_files(root, suffixes=None):
 def is_implementation_plan(path):
     return path.startswith(IMPLEMENTATION_PLANS_DIR + os.sep)
 
+def validate_const_instance(instance, schema, location):
+    """Validate the closed const-only subset used by immutable profiles."""
+    if "const" in schema and instance != schema["const"]:
+        err(f"{location}: value differs from schema const")
+        return
+    expected_type = schema.get("type")
+    if expected_type == "null" and instance is not None:
+        err(f"{location}: expected null")
+        return
+    if expected_type == "object":
+        if not isinstance(instance, dict):
+            err(f"{location}: expected object")
+            return
+        properties = schema.get("properties", {})
+        required = schema.get("required", [])
+        missing = sorted(set(required) - set(instance))
+        if missing:
+            err(f"{location}: missing required fields {missing}")
+        if schema.get("additionalProperties") is False:
+            unknown = sorted(set(instance) - set(properties))
+            if unknown:
+                err(f"{location}: unknown fields {unknown}")
+        for key in sorted(set(instance) & set(properties)):
+            validate_const_instance(
+                instance[key], properties[key], f"{location}.{key}"
+            )
+
 # ── 1. JSON Schema validity ──────────────────────────────────────────
 
 schemas_dir = os.path.join(BASE, "docs", "schemas")
@@ -93,6 +120,96 @@ for f in sorted(os.listdir(schemas_dir)):
         err(f"Top-level schema must be closed (additionalProperties=false): {f}")
     if "preliminary" in json.dumps(data).lower():
         err(f"Preliminary schema cannot be implementation input: {f}")
+
+# ── 1a. Immutable OpenAI profile/golden integrity ───────────────────
+
+openai_profile_path = os.path.join(
+    DOCS_DIR, "profiles", "openai-responses-text-v1.json"
+)
+openai_digest_path = os.path.join(
+    DOCS_DIR, "profiles", "openai-responses-text-v1.digest"
+)
+openai_schema_path = os.path.join(
+    schemas_dir, "openai-responses-text-profile-v1.schema.json"
+)
+openai_golden_path = os.path.join(
+    DOCS_DIR, "golden", "openai-responses-text-request-v1.json"
+)
+openai_paths = (
+    openai_profile_path,
+    openai_digest_path,
+    openai_schema_path,
+    openai_golden_path,
+)
+if all(os.path.isfile(path) for path in openai_paths):
+    try:
+        profile_bytes = open(openai_profile_path, "rb").read()
+        profile = json.loads(profile_bytes)
+        profile_schema = json.loads(open(openai_schema_path, encoding="utf-8").read())
+        golden_bytes = open(openai_golden_path, "rb").read()
+        golden = json.loads(golden_bytes)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        err(f"OpenAI immutable profile artifacts are unreadable: {error}")
+    else:
+        expected_digest = "sha256:" + hashlib.sha256(profile_bytes).hexdigest()
+        actual_digest = open(openai_digest_path, encoding="utf-8").read().strip()
+        if actual_digest != expected_digest:
+            err("OpenAI profile digest sidecar mismatch")
+        canonical_profile = (
+            json.dumps(profile, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            + b"\n"
+        )
+        if profile_bytes != canonical_profile:
+            err("OpenAI profile bytes are not exact compact UTF-8 JSON plus LF")
+        validate_const_instance(profile, profile_schema, "openai-profile")
+        canonical_golden = (
+            json.dumps(golden, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            + b"\n"
+        )
+        if golden_bytes != canonical_golden:
+            err("OpenAI request golden is not exact compact UTF-8 JSON plus LF")
+        expected_golden_keys = {
+            "model",
+            "input",
+            "max_output_tokens",
+            "reasoning",
+            "tools",
+            "tool_choice",
+            "background",
+            "store",
+            "stream",
+        }
+        if (
+            not isinstance(golden, dict)
+            or set(golden) != expected_golden_keys
+            or golden.get("model") != profile.get("model", {}).get("request_id")
+            or not isinstance(golden.get("input"), list)
+            or not golden.get("input")
+            or golden.get("reasoning") != {"effort": "none"}
+            or golden.get("tools") != []
+            or golden.get("tool_choice") != "none"
+            or golden.get("background") is not False
+            or golden.get("store") is not False
+            or golden.get("stream") is not True
+        ):
+            err("OpenAI request golden differs from the exact text-only profile")
+        lowered_golden = golden_bytes.lower()
+        for forbidden in (
+            b"authorization",
+            b"bearer",
+            b"credential",
+            b"api_key",
+            b"secret_ref",
+        ):
+            if forbidden in lowered_golden:
+                err(f"OpenAI request golden contains forbidden marker {forbidden!r}")
+else:
+    missing = [
+        os.path.relpath(path, BASE)
+        for path in openai_paths
+        if not os.path.isfile(path)
+    ]
+    err(f"Missing immutable OpenAI profile artifacts: {missing}")
 
 # ── 2. Front matter on all docs/*.md ─────────────────────────────────
 

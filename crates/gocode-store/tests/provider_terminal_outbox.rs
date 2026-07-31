@@ -2,8 +2,7 @@ use gocode_application::provider::{
     ProviderAdmissionError, ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest,
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalCommitRequest,
-    RuntimeProviderAuthorityIssuer,
+    ProviderPollRequest, ProviderTerminalCommitOutcome, RuntimeProviderAuthorityIssuer,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -15,6 +14,10 @@ use gocode_store::provider::{
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
+
+use gocode_runtime::provider_execution::{
+    ProviderTerminalCommitRequest, ProviderTerminalPersistence,
+};
 
 struct Fixture {
     execution: SqliteProviderExecutionStore,
@@ -159,22 +162,22 @@ fn arm_poll(fixture: &Fixture, cursor: u64) -> Result<(), ProviderExecutionError
 }
 
 fn terminal_request(fixture: &Fixture) -> ProviderTerminalCommitRequest {
-    ProviderTerminalCommitRequest {
-        outbox_id: [30; 16],
-        attempt_id: fixture.attempt_id,
-        fencing_token: fixture.fencing_token,
-        terminal_sequence: 0,
-        call_digest_version: gocode_provider::ProviderCallDigestVersion::V2,
-        key: fixture.key,
-        encrypted_output: encrypted(31, 71),
-        runtime_generation: 11,
-        profile_digest: [2; 32],
-        usage: ProviderUsage::new(500, 900, 0, 0).unwrap(),
-        charge_micros: 40_000,
-        currency: "USD".to_owned(),
-        settlement_digest: [32; 32],
-        application_idempotency_key: "conversation-complete-provider-terminal-1".to_owned(),
-    }
+    ProviderTerminalCommitRequest::forge_for_tests(
+        [30; 16],
+        fixture.attempt_id,
+        fixture.fencing_token,
+        0,
+        gocode_provider::ProviderCallDigestVersion::V2,
+        fixture.key,
+        encrypted(31, 71),
+        11,
+        [2; 32],
+        ProviderUsage::new(500, 900, 0, 0).unwrap(),
+        40_000,
+        "USD".to_owned(),
+        [32; 32],
+        "conversation-complete-provider-terminal-1".to_owned(),
+    )
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -325,22 +328,22 @@ fn terminal_commit_atomically_settles_accounting_releases_reservations_and_creat
         .execution
         .append_encrypted_event(&event(&fixture, 1, 21, true))
         .unwrap();
-    let request = ProviderTerminalCommitRequest {
-        outbox_id: [30; 16],
-        attempt_id: fixture.attempt_id,
-        fencing_token: fixture.fencing_token,
-        terminal_sequence: 1,
-        call_digest_version: gocode_provider::ProviderCallDigestVersion::V2,
-        key: fixture.key,
-        encrypted_output: encrypted(31, 71),
-        runtime_generation: 11,
-        profile_digest: [2; 32],
-        usage: ProviderUsage::new(500, 900, 0, 0).unwrap(),
-        charge_micros: 40_000,
-        currency: "USD".to_owned(),
-        settlement_digest: [32; 32],
-        application_idempotency_key: "conversation-complete-provider-terminal-1".to_owned(),
-    };
+    let request = ProviderTerminalCommitRequest::forge_for_tests(
+        [30; 16],
+        fixture.attempt_id,
+        fixture.fencing_token,
+        1,
+        gocode_provider::ProviderCallDigestVersion::V2,
+        fixture.key,
+        encrypted(31, 71),
+        11,
+        [2; 32],
+        ProviderUsage::new(500, 900, 0, 0).unwrap(),
+        40_000,
+        "USD".to_owned(),
+        [32; 32],
+        "conversation-complete-provider-terminal-1".to_owned(),
+    );
 
     assert_eq!(
         fixture.execution.commit_terminal(&request).unwrap(),
@@ -353,7 +356,7 @@ fn terminal_commit_atomically_settles_accounting_releases_reservations_and_creat
     let pending = fixture.execution.pending_terminal_outbox().unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].outbox_id, [30; 16]);
-    assert_eq!(pending[0].encrypted_output, request.encrypted_output);
+    assert_eq!(pending[0].encrypted_output, *request.encrypted_output());
 
     let connection = Connection::open(&fixture.path).unwrap();
     assert_eq!(
@@ -429,22 +432,22 @@ fn terminal_settlement_over_reservation_rolls_back_every_edge() {
         .execution
         .append_encrypted_event(&event(&fixture, 0, 20, true))
         .unwrap();
-    let request = ProviderTerminalCommitRequest {
-        outbox_id: [30; 16],
-        attempt_id: fixture.attempt_id,
-        fencing_token: fixture.fencing_token,
-        terminal_sequence: 0,
-        call_digest_version: gocode_provider::ProviderCallDigestVersion::V2,
-        key: fixture.key,
-        encrypted_output: encrypted(31, 71),
-        runtime_generation: 11,
-        profile_digest: [2; 32],
-        usage: ProviderUsage::new(1_000, 1_000, 0, 0).unwrap(),
-        charge_micros: 50_001,
-        currency: "USD".to_owned(),
-        settlement_digest: [32; 32],
-        application_idempotency_key: "conversation-complete-provider-terminal-1".to_owned(),
-    };
+    let request = ProviderTerminalCommitRequest::forge_for_tests(
+        [30; 16],
+        fixture.attempt_id,
+        fixture.fencing_token,
+        0,
+        gocode_provider::ProviderCallDigestVersion::V2,
+        fixture.key,
+        encrypted(31, 71),
+        11,
+        [2; 32],
+        ProviderUsage::new(1_000, 1_000, 0, 0).unwrap(),
+        50_001,
+        "USD".to_owned(),
+        [32; 32],
+        "conversation-complete-provider-terminal-1".to_owned(),
+    );
 
     assert_eq!(
         fixture.execution.commit_terminal(&request),

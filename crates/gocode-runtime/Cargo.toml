@@ -4,6 +4,9 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+provider-terminal-test-support = []
+
 [dependencies]
 gocode-api = { path = "../gocode-api" }
 gocode-application = { path = "../gocode-application" }
@@ -28,6 +31,7 @@ zeroize.workspace = true
 gocode-opencode-adapter-sqlite = { path = "../gocode-opencode-adapter-sqlite" }
 gocode-opencode-compat = { path = "../gocode-opencode-compat" }
 gocode-platform = { path = "../gocode-platform" }
+gocode-provider-openai = { path = "../gocode-provider-openai" }
 gocode-security = { path = "../gocode-security" }
 gocode-store = { path = "../gocode-store" }
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }

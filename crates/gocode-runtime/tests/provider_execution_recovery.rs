@@ -10,7 +10,7 @@ use gocode_application::provider::{
     ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest, ProviderExecutionError,
     ProviderExecutionStore, ProviderJournalAppendOutcome, ProviderJournalAppendRequest,
     ProviderJournalKeyBinding, ProviderPollRequest, ProviderTerminalCommitOutcome,
-    ProviderTerminalCommitRequest, ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -21,10 +21,12 @@ use gocode_provider::{
     ProviderStreamItem, ProviderTerminalDisposition, ProviderUsage, ReconcileRequest,
     ReconciliationDisposition, StreamCursor, StreamError,
 };
+use gocode_provider_openai::OpenAiResponsesTextProfile;
 use gocode_runtime::provider_execution::{
     ProviderEventJournalContext, ProviderPricedUsage, ProviderTerminalApplicationError,
-    ProviderTerminalOutboxApplication, ProviderTerminalPricing, ProviderTerminalPricingError,
-    RuntimeProviderExecution, RuntimeProviderExecutionError,
+    ProviderTerminalCommitRequest, ProviderTerminalOutboxApplication, ProviderTerminalPersistence,
+    ProviderTerminalPricing, ProviderTerminalPricingError, RuntimeProviderExecution,
+    RuntimeProviderExecutionError,
 };
 use gocode_secure_store::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
@@ -230,8 +232,8 @@ fn successful_events(output: &str) -> Vec<ProviderStreamEvent> {
     ]
 }
 
-async fn poll_events(
-    runtime: &RuntimeProviderExecution<'_, MemoryKeyring, SqliteProviderExecutionStore>,
+async fn poll_events<P: ProviderTerminalPricing>(
+    runtime: &RuntimeProviderExecution<'_, MemoryKeyring, SqliteProviderExecutionStore, P>,
     fixture: &Fixture,
     events: Vec<ProviderStreamEvent>,
 ) {
@@ -295,12 +297,26 @@ impl ProviderTerminalPricing for FixedPricing {
     }
 }
 
+static FIXED_PRICING: FixedPricing = FixedPricing;
+static ALLOWING_GUARD: AllowingGuard = AllowingGuard;
+static DENYING_GUARD: DenyingGuard = DenyingGuard;
+
+fn runtime<'a, S>(
+    keyring: &'a MemoryKeyring,
+    store: &'a S,
+) -> RuntimeProviderExecution<'a, MemoryKeyring, S, FixedPricing>
+where
+    S: ProviderExecutionStore + ProviderTerminalPersistence,
+{
+    RuntimeProviderExecution::new(keyring, store, &FIXED_PRICING, &ALLOWING_GUARD)
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn aead_journal_recovers_exact_event_and_plaintext_is_absent_from_database_files() {
     const MARKER: &str = "provider-journal-plaintext-marker-71";
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let runtime = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let runtime = runtime(&keyring, fixture.execution.as_ref());
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
@@ -333,7 +349,7 @@ async fn aead_journal_recovers_exact_event_and_plaintext_is_absent_from_database
 async fn corrupt_ciphertext_and_missing_retired_key_fail_closed() {
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let runtime = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let runtime = runtime(&keyring, fixture.execution.as_ref());
     let first_key = runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
@@ -369,7 +385,7 @@ async fn terminal_output_is_encrypted_recoverable_and_settled_only_after_receipt
     const OUTPUT: &[u8] = b"assembled-provider-output-marker-81";
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let runtime = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let runtime = runtime(&keyring, fixture.execution.as_ref());
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     poll_events(
         &runtime,
@@ -379,7 +395,7 @@ async fn terminal_output_is_encrypted_recoverable_and_settled_only_after_receipt
     .await;
 
     runtime
-        .finalize_terminal_output(&context(&fixture), &FixedPricing, &AllowingGuard)
+        .finalize_terminal_output(&context(&fixture))
         .unwrap();
     let pending = runtime.recover_pending_terminal_outputs().unwrap();
     assert_eq!(pending.len(), 1);
@@ -402,12 +418,17 @@ async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
     const OUTPUT: &str = "registered-prohibited-provider-output-marker-82";
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let runtime = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let runtime = RuntimeProviderExecution::new(
+        &keyring,
+        fixture.execution.as_ref(),
+        &FIXED_PRICING,
+        &DENYING_GUARD,
+    );
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     poll_events(&runtime, &fixture, successful_events(OUTPUT)).await;
 
     assert_eq!(
-        runtime.finalize_terminal_output(&context(&fixture), &FixedPricing, &DenyingGuard),
+        runtime.finalize_terminal_output(&context(&fixture)),
         Err(RuntimeProviderExecutionError::PolicyDenied)
     );
     let connection = rusqlite::Connection::open(&fixture.path).unwrap();
@@ -423,6 +444,49 @@ async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
                 .unwrap(),
             0,
             "policy denial mutated {table}"
+        );
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn mismatched_exact_profile_pricing_creates_no_accounting_or_outbox() {
+    let fixture = fixture();
+    let keyring = MemoryKeyring::default();
+    let openai_profile = OpenAiResponsesTextProfile::from_json(include_bytes!(
+        "../../../docs/profiles/openai-responses-text-v1.json"
+    ))
+    .unwrap();
+    let runtime = RuntimeProviderExecution::new(
+        &keyring,
+        fixture.execution.as_ref(),
+        &openai_profile,
+        &ALLOWING_GUARD,
+    );
+    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    poll_events(
+        &runtime,
+        &fixture,
+        successful_events("exact-pricing-mismatch"),
+    )
+    .await;
+
+    assert_eq!(
+        runtime.finalize_terminal_output(&context(&fixture)),
+        Err(RuntimeProviderExecutionError::PricingUnavailable)
+    );
+    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    for table in [
+        "provider_accounting_settlements",
+        "provider_terminal_outbox",
+    ] {
+        assert_eq!(
+            connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .unwrap(),
+            0,
+            "pricing mismatch mutated {table}"
         );
     }
 }
@@ -492,7 +556,7 @@ impl ProviderPort for CommitCheckingProvider {
 async fn each_event_commit_precedes_the_next_adapter_poll() {
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let runtime = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let runtime = runtime(&keyring, fixture.execution.as_ref());
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
@@ -530,7 +594,7 @@ async fn each_event_commit_precedes_the_next_adapter_poll() {
 async fn provider_bytes_without_local_commit_freeze_attempt_as_uncertain() {
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let runtime = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let runtime = runtime(&keyring, fixture.execution.as_ref());
     let provider = CommitCheckingProvider {
         store: Arc::clone(&fixture.execution),
         attempt_id: fixture.attempt_id,
@@ -615,13 +679,6 @@ impl ProviderExecutionStore for FailAppendAndFreezeStore {
         self.inner.load_terminal_pricing_binding(attempt_id)
     }
 
-    fn commit_terminal(
-        &self,
-        request: &ProviderTerminalCommitRequest,
-    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
-        self.inner.commit_terminal(request)
-    }
-
     fn pending_terminal_outbox(
         &self,
     ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
@@ -646,6 +703,15 @@ impl ProviderExecutionStore for FailAppendAndFreezeStore {
     }
 }
 
+impl ProviderTerminalPersistence for FailAppendAndFreezeStore {
+    fn commit_terminal(
+        &self,
+        request: &ProviderTerminalCommitRequest,
+    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
+        self.inner.commit_terminal(request)
+    }
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
     let fixture = fixture();
@@ -653,7 +719,7 @@ async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
     let failing = FailAppendAndFreezeStore {
         inner: Arc::clone(&fixture.execution),
     };
-    let writer = RuntimeProviderExecution::new(&keyring, &failing);
+    let writer = runtime(&keyring, &failing);
     writer.create_and_activate_key([1; 16], 7, 1).unwrap();
     let event = ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap();
     let provider = CommitCheckingProvider {
@@ -695,7 +761,7 @@ async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
     );
     drop(connection);
 
-    let recovery = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let recovery = runtime(&keyring, fixture.execution.as_ref());
     assert_eq!(
         recovery
             .next_and_commit(
@@ -775,13 +841,6 @@ impl ProviderExecutionStore for FailFirstAcknowledgementStore {
         self.inner.load_terminal_pricing_binding(attempt_id)
     }
 
-    fn commit_terminal(
-        &self,
-        request: &ProviderTerminalCommitRequest,
-    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
-        self.inner.commit_terminal(request)
-    }
-
     fn pending_terminal_outbox(
         &self,
     ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
@@ -807,6 +866,15 @@ impl ProviderExecutionStore for FailFirstAcknowledgementStore {
     ) -> Result<(), ProviderExecutionError> {
         self.inner
             .mark_execution_uncertain(attempt_id, fencing_token)
+    }
+}
+
+impl ProviderTerminalPersistence for FailFirstAcknowledgementStore {
+    fn commit_terminal(
+        &self,
+        request: &ProviderTerminalCommitRequest,
+    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
+        self.inner.commit_terminal(request)
     }
 }
 
@@ -848,7 +916,7 @@ async fn crash_after_application_commit_before_outbox_ack_replays_one_completion
     const OUTPUT: &[u8] = b"idempotent-terminal-output-marker-92";
     let fixture = fixture();
     let keyring = MemoryKeyring::default();
-    let writer = RuntimeProviderExecution::new(&keyring, fixture.execution.as_ref());
+    let writer = runtime(&keyring, fixture.execution.as_ref());
     writer.create_and_activate_key([1; 16], 7, 1).unwrap();
     poll_events(
         &writer,
@@ -856,15 +924,13 @@ async fn crash_after_application_commit_before_outbox_ack_replays_one_completion
         successful_events(std::str::from_utf8(OUTPUT).unwrap()),
     )
     .await;
-    writer
-        .finalize_terminal_output(&context(&fixture), &FixedPricing, &AllowingGuard)
-        .unwrap();
+    writer.finalize_terminal_output(&context(&fixture)).unwrap();
 
     let store = FailFirstAcknowledgementStore {
         inner: Arc::clone(&fixture.execution),
         fail_acknowledgement: AtomicBool::new(true),
     };
-    let recovery = RuntimeProviderExecution::new(&keyring, &store);
+    let recovery = runtime(&keyring, &store);
     let application = IdempotentTerminalApplication::default();
     assert_eq!(
         recovery.apply_pending_terminal_outputs(&application),

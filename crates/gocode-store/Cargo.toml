@@ -8,6 +8,7 @@ rust-version.workspace = true
 gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-provider = { path = "../gocode-provider" }
+gocode-runtime = { path = "../gocode-runtime" }
 rand = "0.8"
 rusqlite = { version = "=0.34.0", features = ["backup", "bundled"] }
 sha2 = "=0.10.8"
@@ -22,6 +23,7 @@ same-file = "1"
 
 [dev-dependencies]
 gocode-api = { path = "../gocode-api" }
+gocode-runtime = { path = "../gocode-runtime", features = ["provider-terminal-test-support"] }
 gocode-security = { path = "../gocode-security" }
 tempfile = "3"
 serde_json.workspace = true

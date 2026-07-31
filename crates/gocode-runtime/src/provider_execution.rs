@@ -9,13 +9,16 @@ use gocode_application::prohibited_content::{
 use gocode_application::provider::{
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalCommitRequest,
-    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
+    ProviderTerminalPricingBinding,
 };
 use gocode_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderPort, ProviderStreamEvent,
     ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem, ProviderStreamValidator,
     ProviderUsage, StreamCursor,
+};
+pub use gocode_provider::{
+    ProviderPricedUsage, ProviderTerminalPricing, ProviderTerminalPricingError,
 };
 use gocode_secure_store::{
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyring, SecureStoreError,
@@ -47,49 +50,171 @@ pub struct ProviderEventJournalContext {
     pub runtime_generation: u64,
 }
 
-/// Runtime-trusted result of immutable pricing for exact journal usage.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderPricedUsage {
+/// Opaque runtime-owned terminal settlement command.
+///
+/// Fields have no public constructor or setters. Persistence adapters can
+/// inspect an instance supplied by the runtime, but safe code outside this
+/// module cannot manufacture terminal usage, charge, outbox identity or
+/// settlement evidence.
+///
+/// ```compile_fail
+/// use gocode_runtime::provider_execution::ProviderTerminalCommitRequest;
+///
+/// fn forge() -> ProviderTerminalCommitRequest {
+///     ProviderTerminalCommitRequest {}
+/// }
+/// ```
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProviderTerminalCommitRequest {
+    outbox_id: [u8; 16],
+    attempt_id: DispatchAttemptId,
+    fencing_token: u64,
+    terminal_sequence: u64,
+    call_digest_version: ProviderCallDigestVersion,
+    key: ProviderJournalKeyBinding,
+    encrypted_output: ProviderEncryptedPayload,
+    runtime_generation: u64,
+    profile_digest: [u8; 32],
+    usage: ProviderUsage,
     charge_micros: u64,
     currency: String,
+    settlement_digest: [u8; 32],
+    application_idempotency_key: String,
 }
 
-impl ProviderPricedUsage {
-    /// Constructs a bounded uppercase-currency price.
-    pub fn new(charge_micros: u64, currency: String) -> Result<Self, ProviderTerminalPricingError> {
-        if charge_micros > i64::MAX as u64
-            || currency.len() != 3
-            || !currency.bytes().all(|byte| byte.is_ascii_uppercase())
-        {
-            return Err(ProviderTerminalPricingError::InvalidQuote);
-        }
-        Ok(Self {
+impl ProviderTerminalCommitRequest {
+    /// Constructs deliberately caller-selected evidence for persistence
+    /// adapter tests. This API is absent unless the explicit test-support
+    /// feature is enabled.
+    #[cfg(feature = "provider-terminal-test-support")]
+    #[doc(hidden)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn forge_for_tests(
+        outbox_id: [u8; 16],
+        attempt_id: DispatchAttemptId,
+        fencing_token: u64,
+        terminal_sequence: u64,
+        call_digest_version: ProviderCallDigestVersion,
+        key: ProviderJournalKeyBinding,
+        encrypted_output: ProviderEncryptedPayload,
+        runtime_generation: u64,
+        profile_digest: [u8; 32],
+        usage: ProviderUsage,
+        charge_micros: u64,
+        currency: String,
+        settlement_digest: [u8; 32],
+        application_idempotency_key: String,
+    ) -> Self {
+        Self {
+            outbox_id,
+            attempt_id,
+            fencing_token,
+            terminal_sequence,
+            call_digest_version,
+            key,
+            encrypted_output,
+            runtime_generation,
+            profile_digest,
+            usage,
             charge_micros,
             currency,
-        })
+            settlement_digest,
+            application_idempotency_key,
+        }
+    }
+
+    /// Returns the stable runtime-derived outbox identity.
+    #[must_use]
+    pub const fn outbox_id(&self) -> &[u8; 16] {
+        &self.outbox_id
+    }
+
+    /// Returns the durable provider attempt.
+    #[must_use]
+    pub const fn attempt_id(&self) -> DispatchAttemptId {
+        self.attempt_id
+    }
+
+    /// Returns the current runtime-issued fencing token.
+    #[must_use]
+    pub const fn fencing_token(&self) -> u64 {
+        self.fencing_token
+    }
+
+    /// Returns the authenticated terminal journal sequence.
+    #[must_use]
+    pub const fn terminal_sequence(&self) -> u64 {
+        self.terminal_sequence
+    }
+
+    /// Returns the prepared call digest domain.
+    #[must_use]
+    pub const fn call_digest_version(&self) -> ProviderCallDigestVersion {
+        self.call_digest_version
+    }
+
+    /// Returns the journal-key binding used for terminal ciphertext.
+    #[must_use]
+    pub const fn key(&self) -> ProviderJournalKeyBinding {
+        self.key
+    }
+
+    /// Returns the encrypted recoverable terminal output.
+    #[must_use]
+    pub const fn encrypted_output(&self) -> &ProviderEncryptedPayload {
+        &self.encrypted_output
+    }
+
+    /// Returns the exact runtime generation.
+    #[must_use]
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
+    }
+
+    /// Returns the exact provider profile digest.
+    #[must_use]
+    pub const fn profile_digest(&self) -> &[u8; 32] {
+        &self.profile_digest
+    }
+
+    /// Returns authenticated and validated provider usage.
+    #[must_use]
+    pub const fn usage(&self) -> ProviderUsage {
+        self.usage
+    }
+
+    /// Returns the exact fixed-point charge.
+    #[must_use]
+    pub const fn charge_micros(&self) -> u64 {
+        self.charge_micros
+    }
+
+    /// Returns the canonical settlement currency.
+    #[must_use]
+    pub fn currency(&self) -> &str {
+        &self.currency
+    }
+
+    /// Returns the runtime-derived settlement digest.
+    #[must_use]
+    pub const fn settlement_digest(&self) -> &[u8; 32] {
+        &self.settlement_digest
+    }
+
+    /// Returns the stable Conversation completion identity.
+    #[must_use]
+    pub fn application_idempotency_key(&self) -> &str {
+        &self.application_idempotency_key
     }
 }
 
-/// Closed immutable-pricing failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-pub enum ProviderTerminalPricingError {
-    /// Pricing revision is unavailable.
-    #[error("provider pricing revision is unavailable")]
-    Unavailable,
-    /// Pricing returned malformed or unbounded values.
-    #[error("provider pricing quote is invalid")]
-    InvalidQuote,
-}
-
-/// Runtime-owned immutable pricing boundary.
-pub trait ProviderTerminalPricing: Send + Sync {
-    /// Prices exact authenticated usage under the admitted immutable revision.
-    fn price_terminal_usage(
+/// Runtime-only persistence boundary for one opaque terminal settlement.
+pub trait ProviderTerminalPersistence: Send + Sync {
+    /// Atomically settles accounting/reservations and creates the outbox.
+    fn commit_terminal(
         &self,
-        pricing_revision_digest: &[u8; 32],
-        profile_digest: &[u8; 32],
-        usage: ProviderUsage,
-    ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError>;
+        request: &ProviderTerminalCommitRequest,
+    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError>;
 }
 
 /// Decrypted terminal output retained only in runtime memory.
@@ -186,24 +311,36 @@ pub trait ProviderTerminalOutboxApplication: Send + Sync {
     ) -> Result<[u8; 32], ProviderTerminalApplicationError>;
 }
 
-/// Runtime service that owns journal keys, AEAD and commit-before-next-poll.
-pub struct RuntimeProviderExecution<'a, K, S> {
+/// Runtime service that owns journal keys, AEAD, pinned terminal policy and
+/// commit-before-next-poll.
+pub struct RuntimeProviderExecution<'a, K, S, P> {
     keyring: &'a K,
     store: &'a S,
+    pricing: &'a P,
+    prohibited_content: &'a dyn ProhibitedContentPort,
     random: SystemRandom,
     active_key: Mutex<Option<ProviderJournalKeyBinding>>,
 }
 
-impl<'a, K, S> RuntimeProviderExecution<'a, K, S>
+impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
     K: ProviderJournalKeyring,
-    S: ProviderExecutionStore,
+    S: ProviderExecutionStore + ProviderTerminalPersistence,
+    P: ProviderTerminalPricing,
 {
-    /// Constructs an execution service from inward-facing secure/store ports.
-    pub fn new(keyring: &'a K, store: &'a S) -> Self {
+    /// Constructs one service with immutable pricing and prohibited-content
+    /// policy pinned for its full lifetime.
+    pub fn new(
+        keyring: &'a K,
+        store: &'a S,
+        pricing: &'a P,
+        prohibited_content: &'a dyn ProhibitedContentPort,
+    ) -> Self {
         Self {
             keyring,
             store,
+            pricing,
+            prohibited_content,
             random: SystemRandom::new(),
             active_key: Mutex::new(None),
         }
@@ -298,9 +435,9 @@ where
     ///
     /// If local commit cannot be proven after provider bytes arrive, the
     /// attempt is marked `Uncertain`; the caller receives no item to advance.
-    pub async fn next_and_commit<P: ProviderPort>(
+    pub async fn next_and_commit<A: ProviderPort>(
         &self,
-        provider: &P,
+        provider: &A,
         stream_id: &ProviderStreamId,
         cursor: StreamCursor,
         context: &ProviderEventJournalContext,
@@ -372,92 +509,6 @@ where
                 Ok(event)
             })
             .collect()
-    }
-
-    /// Reconstructs terminal output/usage from the authenticated journal,
-    /// applies prohibited-content policy and immutable pricing, then commits
-    /// the encrypted accounting/outbox transaction.
-    pub fn finalize_terminal_output<P: ProviderTerminalPricing>(
-        &self,
-        context: &ProviderEventJournalContext,
-        pricing: &P,
-        prohibited_content: &dyn ProhibitedContentPort,
-    ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
-        let pricing_binding = self
-            .store
-            .load_terminal_pricing_binding(context.attempt_id)
-            .map_err(map_execution_error)?;
-        let events = self.recover_events(context.attempt_id)?;
-        let assembled = assemble_terminal_stream(&events)?;
-        match prohibited_content.inspect(
-            CanonicalContentBoundary::CanonicalMutation,
-            &assembled.output,
-        ) {
-            Ok(ContentDisposition::Allowed { .. }) => {}
-            Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
-                return Err(RuntimeProviderExecutionError::PolicyDenied);
-            }
-        }
-        let priced = pricing
-            .price_terminal_usage(
-                pricing_binding.pricing_revision_digest(),
-                &context.profile_digest,
-                assembled.usage,
-            )
-            .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
-        if priced.currency != pricing_binding.currency() {
-            return Err(RuntimeProviderExecutionError::PricingUnavailable);
-        }
-        let terminal = self
-            .store
-            .load_encrypted_events(context.attempt_id)
-            .map_err(map_execution_error)?
-            .into_iter()
-            .find(|record| record.sequence == assembled.terminal_sequence && record.terminal)
-            .ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
-        if terminal.call_digest_version != context.call_digest_version
-            || terminal.profile_digest != context.profile_digest
-            || terminal.runtime_generation != context.runtime_generation
-        {
-            return Err(RuntimeProviderExecutionError::TerminalRejected);
-        }
-        let outbox_id = stable_outbox_id(context, assembled.terminal_sequence);
-        let settlement_digest = settlement_digest(
-            context,
-            &pricing_binding,
-            assembled.terminal_sequence,
-            &assembled.output,
-            assembled.usage,
-            priced.charge_micros,
-            &priced.currency,
-        );
-        let application_idempotency_key = terminal_application_key(context.attempt_id);
-        let material = self.load_key(terminal.key)?;
-        let aad = outbox_aad(
-            context,
-            terminal.key,
-            assembled.terminal_sequence,
-            outbox_id,
-        );
-        let encrypted_output = self.seal(&material, &aad, &assembled.output)?;
-        self.store
-            .commit_terminal(&ProviderTerminalCommitRequest {
-                outbox_id,
-                attempt_id: context.attempt_id,
-                fencing_token: context.fencing_token,
-                terminal_sequence: assembled.terminal_sequence,
-                call_digest_version: context.call_digest_version,
-                key: terminal.key,
-                encrypted_output,
-                runtime_generation: context.runtime_generation,
-                profile_digest: context.profile_digest,
-                usage: assembled.usage,
-                charge_micros: priced.charge_micros,
-                currency: priced.currency,
-                settlement_digest,
-                application_idempotency_key,
-            })
-            .map_err(map_execution_error)
     }
 
     /// Loads and decrypts pending terminal outputs for idempotent application.
@@ -568,6 +619,98 @@ where
     ) -> Result<ProviderEncryptedPayload, RuntimeProviderExecutionError> {
         let nonce = self.random_nonzero::<12>()?;
         seal_payload_with_nonce(material, nonce, aad, plaintext)
+    }
+}
+
+impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
+where
+    K: ProviderJournalKeyring,
+    S: ProviderExecutionStore + ProviderTerminalPersistence,
+    P: ProviderTerminalPricing,
+{
+    /// Reconstructs terminal output/usage from the authenticated journal,
+    /// applies pinned prohibited-content policy and immutable pricing, then
+    /// commits the encrypted accounting/outbox transaction.
+    pub fn finalize_terminal_output(
+        &self,
+        context: &ProviderEventJournalContext,
+    ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
+        let pricing_binding = self
+            .store
+            .load_terminal_pricing_binding(context.attempt_id)
+            .map_err(map_execution_error)?;
+        let events = self.recover_events(context.attempt_id)?;
+        let assembled = assemble_terminal_stream(&events)?;
+        match self.prohibited_content.inspect(
+            CanonicalContentBoundary::CanonicalMutation,
+            &assembled.output,
+        ) {
+            Ok(ContentDisposition::Allowed { .. }) => {}
+            Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
+                return Err(RuntimeProviderExecutionError::PolicyDenied);
+            }
+        }
+        let priced = self
+            .pricing
+            .price_terminal_usage(
+                pricing_binding.pricing_revision_digest(),
+                &context.profile_digest,
+                assembled.usage,
+            )
+            .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
+        if priced.currency() != pricing_binding.currency() {
+            return Err(RuntimeProviderExecutionError::PricingUnavailable);
+        }
+        let terminal = self
+            .store
+            .load_encrypted_events(context.attempt_id)
+            .map_err(map_execution_error)?
+            .into_iter()
+            .find(|record| record.sequence == assembled.terminal_sequence && record.terminal)
+            .ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
+        if terminal.call_digest_version != context.call_digest_version
+            || terminal.profile_digest != context.profile_digest
+            || terminal.runtime_generation != context.runtime_generation
+        {
+            return Err(RuntimeProviderExecutionError::TerminalRejected);
+        }
+        let outbox_id = stable_outbox_id(context, assembled.terminal_sequence);
+        let settlement_digest = settlement_digest(
+            context,
+            &pricing_binding,
+            assembled.terminal_sequence,
+            &assembled.output,
+            assembled.usage,
+            priced.charge_micros(),
+            priced.currency(),
+        );
+        let application_idempotency_key = terminal_application_key(context.attempt_id);
+        let material = self.load_key(terminal.key)?;
+        let aad = outbox_aad(
+            context,
+            terminal.key,
+            assembled.terminal_sequence,
+            outbox_id,
+        );
+        let encrypted_output = self.seal(&material, &aad, &assembled.output)?;
+        self.store
+            .commit_terminal(&ProviderTerminalCommitRequest {
+                outbox_id,
+                attempt_id: context.attempt_id,
+                fencing_token: context.fencing_token,
+                terminal_sequence: assembled.terminal_sequence,
+                call_digest_version: context.call_digest_version,
+                key: terminal.key,
+                encrypted_output,
+                runtime_generation: context.runtime_generation,
+                profile_digest: context.profile_digest,
+                usage: assembled.usage,
+                charge_micros: priced.charge_micros(),
+                currency: priced.currency().to_owned(),
+                settlement_digest,
+                application_idempotency_key,
+            })
+            .map_err(map_execution_error)
     }
 }
 
