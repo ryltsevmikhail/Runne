@@ -25,13 +25,36 @@ Usage:
 
 #[tokio::main]
 async fn main() {
-    match run(std::env::args_os().skip(1).collect()).await {
-        Ok(output) => println!("{output}"),
-        Err(error) => {
-            eprintln!("{error}");
-            std::process::exit(error.exit_code());
-        }
+    let outcome = process_outcome(run(std::env::args_os().skip(1).collect()).await);
+    write_process_outcome(&outcome);
+}
+
+pub struct ProcessOutcome {
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: i32,
+}
+
+fn process_outcome(result: Result<String, CliError>) -> ProcessOutcome {
+    match result {
+        Ok(stdout) => ProcessOutcome {
+            stdout: format!("{stdout}\n"),
+            stderr: String::new(),
+            exit_code: 0,
+        },
+        Err(error) => ProcessOutcome {
+            stdout: String::new(),
+            stderr: format!("{error}\n"),
+            exit_code: error.exit_code(),
+        },
     }
+}
+
+pub fn write_process_outcome(outcome: &ProcessOutcome) -> ! {
+    use std::io::Write as _;
+    let _ = std::io::stdout().write_all(outcome.stdout.as_bytes());
+    let _ = std::io::stderr().write_all(outcome.stderr.as_bytes());
+    std::process::exit(outcome.exit_code);
 }
 
 async fn run(arguments: Vec<OsString>) -> Result<String, CliError> {
@@ -361,10 +384,11 @@ pub mod credential_test_support {
     use super::*;
 
     pub struct ProcessResult {
-        pub output: Result<String, String>,
-        pub exit_code: i32,
+        pub outcome: ProcessOutcome,
         pub delete_calls: usize,
         pub resolver_calls: usize,
+        pub store_calls: usize,
+        pub store_received_stdin_secret: bool,
     }
 
     pub fn run(
@@ -375,11 +399,15 @@ pub mod credential_test_support {
     ) -> ProcessResult {
         let mut backend = Backend {
             configured: scenario == "status",
-            failure: scenario == "backend-error",
+            failure: scenario == "backend-error" || scenario == "set-backend-error",
             delete_calls: 0,
+            store_calls: 0,
+            store_received_stdin_secret: false,
         };
         let resolver = Resolver {
-            fail: scenario == "resolver-error" || scenario == "delete",
+            fail: scenario == "resolver-error"
+                || scenario == "set-resolver-error"
+                || scenario == "delete",
             calls: std::cell::Cell::new(0),
         };
         let result = run_provider_credential_with(
@@ -390,12 +418,12 @@ pub mod credential_test_support {
             &resolver,
             true,
         );
-        let exit_code = result.as_ref().map_or_else(CliError::exit_code, |_| 0);
         ProcessResult {
-            output: result.map_err(|error| error.to_string()),
-            exit_code,
+            outcome: process_outcome(result),
             delete_calls: backend.delete_calls,
             resolver_calls: resolver.calls.get(),
+            store_calls: backend.store_calls,
+            store_received_stdin_secret: backend.store_received_stdin_secret,
         }
     }
 
@@ -420,6 +448,8 @@ pub mod credential_test_support {
         configured: bool,
         failure: bool,
         delete_calls: usize,
+        store_calls: usize,
+        store_received_stdin_secret: bool,
     }
 
     impl CredentialBackend for Backend {
@@ -441,9 +471,12 @@ pub mod credential_test_support {
 
         fn store(
             &mut self,
-            _credential: &ProviderCredentialMaterial,
+            credential: &ProviderCredentialMaterial,
             _access: &ProviderCredentialAccessPolicy,
         ) -> Result<(), SecureStoreError> {
+            self.store_calls += 1;
+            self.store_received_stdin_secret =
+                credential.with_bytes(|bytes| bytes == b"stdin-secret");
             if self.failure {
                 return Err(SecureStoreError::OperationFailed(
                     "backend-detail".to_owned(),
