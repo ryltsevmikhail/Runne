@@ -15,6 +15,7 @@ use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
 
 const PROTOCOL_SCHEMA_VERSION: u32 = 1;
+const PROTOCOL_SCHEMA_VERSION_V2: u32 = 2;
 const MAX_FRAME_BYTES: usize = 65_540;
 const MAX_PAYLOAD_BYTES: usize = 65_536;
 const MAX_TEXT_BYTES: usize = 4_096;
@@ -33,6 +34,9 @@ const RENEW_DOMAIN: &[u8] = b"gocode/bundled-launch/renew/v1";
 const SHUTDOWN_DOMAIN: &[u8] = b"gocode/bundled-launch/shutdown/v1";
 const FIRST_ACTIVATION_PREPARE_DOMAIN: &[u8] = b"gocode/bundled-launch/first-activation-prepare/v1";
 const FIRST_ACTIVATION_COMMIT_DOMAIN: &[u8] = b"gocode/bundled-launch/first-activation-commit/v1";
+const READINESS_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/readiness/v2";
+const RENEW_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/renew/v2";
+const SHUTDOWN_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/shutdown/v2";
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -57,6 +61,9 @@ pub enum LaunchAuthorityError {
     RenewalReplay,
     RenewalUnavailable,
     OwnershipMismatch,
+    MissingProviderBinding,
+    ProviderModeMismatch,
+    ProviderProfileMismatch,
     InvalidContract,
 }
 
@@ -81,6 +88,9 @@ impl fmt::Display for LaunchAuthorityError {
             Self::RenewalReplay => "renewal_replay",
             Self::RenewalUnavailable => "renewal_unavailable",
             Self::OwnershipMismatch => "ownership_mismatch",
+            Self::MissingProviderBinding => "missing_provider_binding",
+            Self::ProviderModeMismatch => "provider_mode_mismatch",
+            Self::ProviderProfileMismatch => "provider_profile_mismatch",
             Self::InvalidContract => "invalid_contract",
         })
     }
@@ -372,6 +382,109 @@ impl ProtectedRuntimeProfileV1 {
     }
 }
 
+/// Exact daemon provider activation mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderActivationModeV1 {
+    /// Credential-free deterministic compatibility provider.
+    DeterministicV1,
+    /// Exact bounded OpenAI Responses text provider.
+    OpenAiResponsesTextV1,
+}
+
+impl ProviderActivationModeV1 {
+    /// Returns the stable public mode identifier.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DeterministicV1 => "deterministic_v1",
+            Self::OpenAiResponsesTextV1 => "openai_responses_text_v1",
+        }
+    }
+
+    const fn wire_code(self) -> u64 {
+        match self {
+            Self::DeterministicV1 => 1,
+            Self::OpenAiResponsesTextV1 => 2,
+        }
+    }
+
+    fn from_wire_code(code: u64) -> Result<Self, DecodeError> {
+        match code {
+            1 => Ok(Self::DeterministicV1),
+            2 => Ok(Self::OpenAiResponsesTextV1),
+            key => Err(DecodeError::UnknownField { key }),
+        }
+    }
+}
+
+impl TryFrom<&str> for ProviderActivationModeV1 {
+    type Error = LaunchAuthorityError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "deterministic_v1" => Ok(Self::DeterministicV1),
+            "openai_responses_text_v1" => Ok(Self::OpenAiResponsesTextV1),
+            _ => Err(LaunchAuthorityError::ProviderModeMismatch),
+        }
+    }
+}
+
+/// Exact non-secret provider mode/profile tuple authenticated by protocol V2.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderActivationBindingV1 {
+    mode: ProviderActivationModeV1,
+    profile_id: String,
+    profile_digest: [u8; 32],
+}
+
+impl ProviderActivationBindingV1 {
+    /// Creates a bounded exact provider activation binding.
+    pub fn new(
+        mode: ProviderActivationModeV1,
+        profile_id: impl Into<String>,
+        profile_digest: [u8; 32],
+    ) -> Result<Self, LaunchAuthorityError> {
+        let profile_id = profile_id.into();
+        if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES) || profile_digest == [0; 32] {
+            return Err(LaunchAuthorityError::ProviderProfileMismatch);
+        }
+        Ok(Self {
+            mode,
+            profile_id,
+            profile_digest,
+        })
+    }
+
+    /// Returns the exact activation mode.
+    #[must_use]
+    pub const fn mode(&self) -> ProviderActivationModeV1 {
+        self.mode
+    }
+
+    /// Returns the exact immutable provider profile identifier.
+    #[must_use]
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+
+    /// Returns the exact immutable provider profile digest.
+    #[must_use]
+    pub const fn profile_digest(&self) -> &[u8; 32] {
+        &self.profile_digest
+    }
+
+    fn verify_exact(&self, expected: &Self) -> Result<(), LaunchAuthorityError> {
+        if self.mode != expected.mode {
+            return Err(LaunchAuthorityError::ProviderModeMismatch);
+        }
+        if self.profile_id != expected.profile_id || self.profile_digest != expected.profile_digest
+        {
+            return Err(LaunchAuthorityError::ProviderProfileMismatch);
+        }
+        Ok(())
+    }
+}
+
 /// Stable runtime identity expected across daemon restarts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StableRuntimeBindingV1 {
@@ -605,6 +718,23 @@ impl ProtectedLaunchRequestV1 {
             return Err(LaunchAuthorityError::ProfileHashMismatch);
         }
         Ok(())
+    }
+
+    /// Enforces the reader-only V1 compatibility boundary.
+    ///
+    /// V1 has no authenticated provider binding and therefore can activate
+    /// only the credential-free deterministic provider. OpenAI activation must
+    /// use [`ProtectedLaunchRequestV2`].
+    pub const fn validate_provider_mode(
+        &self,
+        mode: ProviderActivationModeV1,
+    ) -> Result<(), LaunchAuthorityError> {
+        match mode {
+            ProviderActivationModeV1::DeterministicV1 => Ok(()),
+            ProviderActivationModeV1::OpenAiResponsesTextV1 => {
+                Err(LaunchAuthorityError::MissingProviderBinding)
+            }
+        }
     }
 
     /// Rechecks the signed launch-authority deadline immediately before use.
@@ -2143,6 +2273,1152 @@ impl DeterministicCodec for ProtectedReadyV1 {
     }
 }
 
+/// Protocol V2 protected launch request with an authenticated provider binding.
+///
+/// The nested V1 request is a compatibility core only. The outer V2 message
+/// type and schema are the negotiated wire contract, so a V1 reader rejects
+/// the frame instead of silently discarding the provider binding.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedLaunchRequestV2 {
+    protocol_schema_version: u32,
+    compatibility_request: ProtectedLaunchRequestV1,
+    provider_binding: ProviderActivationBindingV1,
+}
+
+impl ProtectedLaunchRequestV2 {
+    /// Promotes one protected V1 launch core into the provider-bound V2 wire.
+    pub fn new(
+        compatibility_request: ProtectedLaunchRequestV1,
+        provider_binding: ProviderActivationBindingV1,
+    ) -> Result<Self, LaunchAuthorityError> {
+        if compatibility_request.profile.transport_profile_id
+            != PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID
+        {
+            return Err(LaunchAuthorityError::DowngradedExternalProfile);
+        }
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            compatibility_request,
+            provider_binding,
+        })
+    }
+
+    /// Validates the launch core and exact expected provider mode/profile.
+    pub fn validate(
+        &self,
+        now_unix_millis: u64,
+        expected: &LaunchAuthorityValidationV1<'_>,
+        expected_provider: &ProviderActivationBindingV1,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.compatibility_request
+            .validate(now_unix_millis, expected)?;
+        self.provider_binding.verify_exact(expected_provider)
+    }
+
+    /// Rechecks the launch deadline without consuming the provider binding.
+    pub fn validate_freshness(&self, now_unix_millis: u64) -> Result<(), LaunchAuthorityError> {
+        if self.protocol_schema_version != PROTOCOL_SCHEMA_VERSION_V2 {
+            return Err(LaunchAuthorityError::StaleLaunchAuthority);
+        }
+        self.compatibility_request
+            .validate_freshness(now_unix_millis)
+    }
+
+    /// Encodes the strict bounded V2 launch frame.
+    pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_codec_frame(
+            self,
+            &FrameLimits {
+                max_frame_bytes: MAX_FRAME_BYTES,
+            },
+        )
+    }
+
+    /// Decodes only the exact V2 launch frame.
+    pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> {
+        decode_codec_frame(frame, &decode_limits())
+    }
+
+    /// Returns the reader-only V1 core used by first-activation migration.
+    #[must_use]
+    pub const fn compatibility_request(&self) -> &ProtectedLaunchRequestV1 {
+        &self.compatibility_request
+    }
+
+    #[must_use]
+    pub const fn provider_binding(&self) -> &ProviderActivationBindingV1 {
+        &self.provider_binding
+    }
+
+    #[must_use]
+    pub const fn launch_authority_id(&self) -> [u8; 16] {
+        self.compatibility_request.launch_authority_id()
+    }
+
+    #[must_use]
+    pub const fn desktop_host_instance_id(&self) -> [u8; 16] {
+        self.compatibility_request.desktop_host_instance_id()
+    }
+
+    #[must_use]
+    pub fn principal_id(&self) -> &str {
+        self.compatibility_request.principal_id()
+    }
+
+    #[must_use]
+    pub const fn profile(&self) -> &ProtectedRuntimeProfileV1 {
+        self.compatibility_request.profile()
+    }
+
+    #[must_use]
+    pub const fn executable(&self) -> &ExecutableIdentityV1 {
+        self.compatibility_request.executable()
+    }
+
+    #[must_use]
+    pub fn runtime_root(&self) -> &std::path::Path {
+        self.compatibility_request.runtime_root()
+    }
+
+    #[must_use]
+    pub const fn activation_disposition(&self) -> &ActivationDispositionV1 {
+        self.compatibility_request.activation_disposition()
+    }
+
+    #[must_use]
+    pub fn derive_keys(&self) -> ProtectedActivationKeys {
+        self.compatibility_request.derive_keys()
+    }
+
+    pub fn derive_keys_and_forget(&mut self) -> ProtectedActivationKeys {
+        self.compatibility_request.derive_keys_and_forget()
+    }
+}
+
+impl fmt::Debug for ProtectedLaunchRequestV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedLaunchRequestV2")
+            .field("protocol_schema_version", &self.protocol_schema_version)
+            .field("provider_binding", &self.provider_binding)
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+impl DeterministicCodec for ProtectedLaunchRequestV2 {
+    const MESSAGE_TYPE_ID: u32 = 21;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        encoder.write_map_header(4);
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        self.compatibility_request.encode(encoder)?;
+        write_key(encoder, 3);
+        encode_provider_binding(encoder, &self.provider_binding);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(4)? != 4 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 2)?;
+        let compatibility_request =
+            ProtectedLaunchRequestV1::decode(ProtectedLaunchRequestV1::MESSAGE_TYPE_ID, decoder)?;
+        expect_key(decoder, 3)?;
+        let provider_binding = decode_provider_binding(decoder)?;
+        Self::new(compatibility_request, provider_binding)
+            .map_err(|_| DecodeError::UnknownField { key: 3 })
+    }
+}
+
+/// Exact V2 launch tuple required by renewal and shutdown ownership proofs.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedOwnedLaunchV2 {
+    compatibility_owned_launch: ProtectedOwnedLaunchV1,
+    provider_binding: ProviderActivationBindingV1,
+}
+
+impl ProtectedOwnedLaunchV2 {
+    pub fn new(
+        compatibility_owned_launch: ProtectedOwnedLaunchV1,
+        provider_binding: ProviderActivationBindingV1,
+    ) -> Result<Self, LaunchAuthorityError> {
+        if compatibility_owned_launch.profile.transport_profile_id
+            != PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID
+        {
+            return Err(LaunchAuthorityError::DowngradedExternalProfile);
+        }
+        Ok(Self {
+            compatibility_owned_launch,
+            provider_binding,
+        })
+    }
+
+    #[must_use]
+    pub const fn compatibility_owned_launch(&self) -> &ProtectedOwnedLaunchV1 {
+        &self.compatibility_owned_launch
+    }
+
+    #[must_use]
+    pub const fn provider_binding(&self) -> &ProviderActivationBindingV1 {
+        &self.provider_binding
+    }
+
+    #[must_use]
+    pub const fn launch_authority_id(&self) -> &[u8; 16] {
+        self.compatibility_owned_launch.launch_authority_id()
+    }
+
+    #[must_use]
+    pub const fn desktop_host_instance_id(&self) -> &[u8; 16] {
+        self.compatibility_owned_launch.desktop_host_instance_id()
+    }
+
+    #[must_use]
+    pub const fn daemon_instance_id(&self) -> &[u8; 16] {
+        self.compatibility_owned_launch.daemon_instance_id()
+    }
+
+    #[must_use]
+    pub const fn launch_generation(&self) -> u64 {
+        self.compatibility_owned_launch.launch_generation()
+    }
+
+    #[must_use]
+    pub const fn session_id(&self) -> &[u8; 16] {
+        self.compatibility_owned_launch.session_id()
+    }
+
+    fn verify_exact(&self, expected: &Self) -> Result<(), LaunchAuthorityError> {
+        if self.compatibility_owned_launch != expected.compatibility_owned_launch {
+            return Err(LaunchAuthorityError::OwnershipMismatch);
+        }
+        self.provider_binding
+            .verify_exact(&expected.provider_binding)
+    }
+}
+
+impl fmt::Debug for ProtectedOwnedLaunchV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedOwnedLaunchV2")
+            .field("launch_generation", &self.launch_generation())
+            .field("provider_binding", &self.provider_binding)
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+/// Authenticated V2 readiness with exact provider mode/profile binding.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedReadyV2 {
+    protocol_schema_version: u32,
+    compatibility_ready: ProtectedReadyV1,
+    provider_binding: ProviderActivationBindingV1,
+    readiness_proof: [u8; 32],
+}
+
+impl ProtectedReadyV2 {
+    pub fn new(
+        compatibility_ready: ProtectedReadyV1,
+        provider_binding: ProviderActivationBindingV1,
+    ) -> Result<Self, LaunchAuthorityError> {
+        if compatibility_ready.profile.transport_profile_id
+            != PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID
+        {
+            return Err(LaunchAuthorityError::DowngradedExternalProfile);
+        }
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            compatibility_ready,
+            provider_binding,
+            readiness_proof: [0; 32],
+        })
+    }
+
+    pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
+        self.compatibility_ready.sign(keys);
+        self.readiness_proof = authenticated_mac_version(
+            keys.readiness_key(),
+            READINESS_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+    }
+
+    pub fn verify_exact(
+        &self,
+        request: &ProtectedLaunchRequestV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.provider_binding
+            .verify_exact(request.provider_binding())?;
+        self.compatibility_ready
+            .verify_exact(request.compatibility_request(), keys)?;
+        let expected = authenticated_mac_version(
+            keys.readiness_key(),
+            READINESS_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+        if !bool::from(expected.ct_eq(&self.readiness_proof)) {
+            return Err(LaunchAuthorityError::ReadinessProofMismatch);
+        }
+        Ok(())
+    }
+
+    pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_codec_frame(
+            self,
+            &FrameLimits {
+                max_frame_bytes: MAX_FRAME_BYTES,
+            },
+        )
+    }
+
+    pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> {
+        decode_codec_frame(frame, &decode_limits())
+    }
+
+    #[must_use]
+    pub const fn compatibility_ready(&self) -> &ProtectedReadyV1 {
+        &self.compatibility_ready
+    }
+
+    #[must_use]
+    pub const fn provider_binding(&self) -> &ProviderActivationBindingV1 {
+        &self.provider_binding
+    }
+
+    #[must_use]
+    pub const fn stable(&self) -> &StableRuntimeBindingV1 {
+        self.compatibility_ready.stable()
+    }
+
+    #[must_use]
+    pub const fn profile(&self) -> &ProtectedRuntimeProfileV1 {
+        self.compatibility_ready.profile()
+    }
+
+    #[must_use]
+    pub const fn executable(&self) -> &ExecutableIdentityV1 {
+        self.compatibility_ready.executable()
+    }
+
+    #[must_use]
+    pub const fn daemon_instance_id(&self) -> &[u8; 16] {
+        self.compatibility_ready.daemon_instance_id()
+    }
+
+    #[must_use]
+    pub const fn launch_generation(&self) -> u64 {
+        self.compatibility_ready.launch_generation()
+    }
+
+    #[must_use]
+    pub const fn session_id(&self) -> &[u8; 16] {
+        self.compatibility_ready.session_id()
+    }
+
+    #[must_use]
+    pub fn endpoint(&self) -> &str {
+        self.compatibility_ready.endpoint()
+    }
+
+    #[must_use]
+    pub const fn certificate_sha256(&self) -> &[u8; 32] {
+        self.compatibility_ready.certificate_sha256()
+    }
+
+    #[must_use]
+    pub fn certificate_der(&self) -> &[u8] {
+        self.compatibility_ready.certificate_der()
+    }
+
+    #[must_use]
+    pub fn capabilities(&self) -> &[String] {
+        self.compatibility_ready.capabilities()
+    }
+
+    #[must_use]
+    pub fn owned_launch(&self) -> ProtectedOwnedLaunchV2 {
+        ProtectedOwnedLaunchV2::new(
+            self.compatibility_ready.owned_launch(),
+            self.provider_binding.clone(),
+        )
+        .expect("validated V2 readiness has a valid owned-launch tuple")
+    }
+
+    fn unsigned_payload(&self) -> Vec<u8> {
+        let mut encoder = CborEncoder::new();
+        self.encode_fields(&mut encoder, false)
+            .expect("validated V2 readiness is encodable");
+        encoder.into_bytes()
+    }
+
+    fn encode_fields(
+        &self,
+        encoder: &mut CborEncoder,
+        include_proof: bool,
+    ) -> Result<(), EncodeError> {
+        encoder.write_map_header(if include_proof { 5 } else { 4 });
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        self.compatibility_ready.encode(encoder)?;
+        write_key(encoder, 3);
+        encode_provider_binding(encoder, &self.provider_binding);
+        if include_proof {
+            write_key(encoder, 4);
+            encoder.write_byte_string(&self.readiness_proof);
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for ProtectedReadyV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedReadyV2")
+            .field("launch_generation", &self.launch_generation())
+            .field("provider_binding", &self.provider_binding)
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+impl DeterministicCodec for ProtectedReadyV2 {
+    const MESSAGE_TYPE_ID: u32 = 22;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        self.encode_fields(encoder, true)
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(5)? != 5 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 2)?;
+        let compatibility_ready =
+            ProtectedReadyV1::decode(ProtectedReadyV1::MESSAGE_TYPE_ID, decoder)?;
+        expect_key(decoder, 3)?;
+        let provider_binding = decode_provider_binding(decoder)?;
+        expect_key(decoder, 4)?;
+        let readiness_proof = decode_fixed::<32>(decoder)?;
+        let mut value = Self::new(compatibility_ready, provider_binding)
+            .map_err(|_| DecodeError::UnknownField { key: 3 })?;
+        value.readiness_proof = readiness_proof;
+        Ok(value)
+    }
+}
+
+/// Monotonic V2 protected request for one replacement HTTP session authority.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedRenewRequestV2 {
+    protocol_schema_version: u32,
+    owned_launch: ProtectedOwnedLaunchV2,
+    sequence: u64,
+    nonce: [u8; 32],
+    proof: [u8; 32],
+}
+
+impl ProtectedRenewRequestV2 {
+    pub fn new(
+        owned_launch: ProtectedOwnedLaunchV2,
+        sequence: u64,
+        nonce: [u8; 32],
+    ) -> Result<Self, LaunchAuthorityError> {
+        if sequence == 0 || nonce == [0; 32] {
+            return Err(LaunchAuthorityError::RenewalReplay);
+        }
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch,
+            sequence,
+            nonce,
+            proof: [0; 32],
+        })
+    }
+
+    pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
+        self.proof = authenticated_mac_version(
+            keys.renewal_key_ref(),
+            RENEW_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+    }
+
+    pub fn verify_exact(
+        &self,
+        expected: &ProtectedOwnedLaunchV2,
+        last_sequence: u64,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.owned_launch.verify_exact(expected)?;
+        if self.sequence != last_sequence.saturating_add(1) || self.nonce == [0; 32] {
+            return Err(LaunchAuthorityError::RenewalReplay);
+        }
+        let expected_proof = authenticated_mac_version(
+            keys.renewal_key_ref(),
+            RENEW_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+        if !bool::from(expected_proof.ct_eq(&self.proof)) {
+            return Err(LaunchAuthorityError::ReadinessProofMismatch);
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn owned_launch(&self) -> &ProtectedOwnedLaunchV2 {
+        &self.owned_launch
+    }
+
+    #[must_use]
+    pub const fn sequence(&self) -> u64 {
+        self.sequence
+    }
+
+    #[must_use]
+    pub const fn nonce(&self) -> &[u8; 32] {
+        &self.nonce
+    }
+
+    pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_codec_frame(
+            self,
+            &FrameLimits {
+                max_frame_bytes: MAX_FRAME_BYTES,
+            },
+        )
+    }
+
+    pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> {
+        decode_codec_frame(frame, &decode_limits())
+    }
+
+    fn unsigned_payload(&self) -> Vec<u8> {
+        let mut encoder = CborEncoder::new();
+        self.encode_fields(&mut encoder, false);
+        encoder.into_bytes()
+    }
+
+    fn encode_fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
+        encoder.write_map_header(if include_proof { 6 } else { 5 });
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        encode_owned_launch_v2(encoder, &self.owned_launch);
+        write_key(encoder, 3);
+        encoder.write_unsigned(self.sequence);
+        write_key(encoder, 4);
+        encoder.write_byte_string(&self.nonce);
+        if include_proof {
+            write_key(encoder, 5);
+            encoder.write_byte_string(&self.proof);
+        }
+    }
+}
+
+impl fmt::Debug for ProtectedRenewRequestV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedRenewRequestV2")
+            .field("sequence", &self.sequence)
+            .field("provider_binding", self.owned_launch.provider_binding())
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+impl DeterministicCodec for ProtectedRenewRequestV2 {
+    const MESSAGE_TYPE_ID: u32 = 23;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        self.encode_fields(encoder, true);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(6)? != 6 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 2)?;
+        let owned_launch = decode_owned_launch_v2(decoder)?;
+        expect_key(decoder, 3)?;
+        let sequence = decoder.read_unsigned(u64::MAX)?;
+        expect_key(decoder, 4)?;
+        let nonce = decode_fixed::<32>(decoder)?;
+        expect_key(decoder, 5)?;
+        let proof = decode_fixed::<32>(decoder)?;
+        let mut value = Self::new(owned_launch, sequence, nonce)
+            .map_err(|_| DecodeError::UnknownField { key: 4 })?;
+        value.proof = proof;
+        Ok(value)
+    }
+}
+
+/// One-time V2 protected bootstrap ticket retaining the provider binding.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedRenewTicketV2 {
+    protocol_schema_version: u32,
+    owned_launch: ProtectedOwnedLaunchV2,
+    sequence: u64,
+    nonce: [u8; 32],
+    next_session_id: [u8; 16],
+    bootstrap_ticket: [u8; 32],
+    issued_at_monotonic_millis: u64,
+    expires_at_monotonic_millis: u64,
+    proof: [u8; 32],
+}
+
+impl ProtectedRenewTicketV2 {
+    pub fn new(
+        request: &ProtectedRenewRequestV2,
+        next_session_id: [u8; 16],
+        bootstrap_ticket: [u8; 32],
+        issued_at_monotonic_millis: u64,
+        expires_at_monotonic_millis: u64,
+    ) -> Result<Self, LaunchAuthorityError> {
+        if validate_uuid_v7_bytes(&next_session_id).is_err()
+            || next_session_id == *request.owned_launch.session_id()
+            || next_session_id == *request.owned_launch.daemon_instance_id()
+            || bootstrap_ticket == [0; 32]
+            || expires_at_monotonic_millis <= issued_at_monotonic_millis
+            || expires_at_monotonic_millis.saturating_sub(issued_at_monotonic_millis)
+                > MAX_LAUNCH_TTL_MILLIS
+        {
+            return Err(LaunchAuthorityError::RenewalUnavailable);
+        }
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch: request.owned_launch.clone(),
+            sequence: request.sequence,
+            nonce: request.nonce,
+            next_session_id,
+            bootstrap_ticket,
+            issued_at_monotonic_millis,
+            expires_at_monotonic_millis,
+            proof: [0; 32],
+        })
+    }
+
+    pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
+        self.proof = authenticated_mac_version(
+            keys.renewal_key_ref(),
+            RENEW_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+    }
+
+    pub fn verify_exact(
+        &self,
+        request: &ProtectedRenewRequestV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.owned_launch.verify_exact(&request.owned_launch)?;
+        if self.sequence != request.sequence || self.nonce != request.nonce {
+            return Err(LaunchAuthorityError::RenewalReplay);
+        }
+        if validate_uuid_v7_bytes(&self.next_session_id).is_err()
+            || self.next_session_id == *self.owned_launch.session_id()
+            || self.next_session_id == *self.owned_launch.daemon_instance_id()
+            || self.bootstrap_ticket == [0; 32]
+            || self.expires_at_monotonic_millis <= self.issued_at_monotonic_millis
+            || self
+                .expires_at_monotonic_millis
+                .saturating_sub(self.issued_at_monotonic_millis)
+                > MAX_LAUNCH_TTL_MILLIS
+        {
+            return Err(LaunchAuthorityError::RenewalUnavailable);
+        }
+        let expected = authenticated_mac_version(
+            keys.renewal_key_ref(),
+            RENEW_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+        if !bool::from(expected.ct_eq(&self.proof)) {
+            return Err(LaunchAuthorityError::ReadinessProofMismatch);
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn next_session_id(&self) -> &[u8; 16] {
+        &self.next_session_id
+    }
+
+    #[must_use]
+    pub fn bootstrap_ticket(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.bootstrap_ticket)
+    }
+
+    #[must_use]
+    pub const fn issued_at_monotonic_millis(&self) -> u64 {
+        self.issued_at_monotonic_millis
+    }
+
+    #[must_use]
+    pub const fn expires_at_monotonic_millis(&self) -> u64 {
+        self.expires_at_monotonic_millis
+    }
+
+    #[must_use]
+    pub fn next_owned_launch(&self) -> ProtectedOwnedLaunchV2 {
+        let base = &self.owned_launch.compatibility_owned_launch;
+        let next = ProtectedOwnedLaunchV1::new(
+            base.launch_authority_id,
+            base.desktop_host_instance_id,
+            base.executable.clone(),
+            base.profile.clone(),
+            base.stable.clone(),
+            base.daemon_instance_id,
+            base.launch_generation,
+            self.next_session_id,
+        )
+        .expect("validated V2 ticket has a valid next session");
+        ProtectedOwnedLaunchV2::new(next, self.owned_launch.provider_binding.clone())
+            .expect("validated V2 ticket retains a valid provider binding")
+    }
+
+    pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_codec_frame(
+            self,
+            &FrameLimits {
+                max_frame_bytes: MAX_FRAME_BYTES,
+            },
+        )
+    }
+
+    pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> {
+        decode_codec_frame(frame, &decode_limits())
+    }
+
+    fn unsigned_payload(&self) -> Vec<u8> {
+        let mut encoder = CborEncoder::new();
+        self.encode_fields(&mut encoder, false);
+        encoder.into_bytes()
+    }
+
+    fn encode_fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
+        encoder.write_map_header(if include_proof { 10 } else { 9 });
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        encode_owned_launch_v2(encoder, &self.owned_launch);
+        write_key(encoder, 3);
+        encoder.write_unsigned(self.sequence);
+        write_key(encoder, 4);
+        encoder.write_byte_string(&self.nonce);
+        write_key(encoder, 5);
+        encoder.write_byte_string(&self.next_session_id);
+        write_key(encoder, 6);
+        encoder.write_byte_string(&self.bootstrap_ticket);
+        write_key(encoder, 7);
+        encoder.write_unsigned(self.issued_at_monotonic_millis);
+        write_key(encoder, 8);
+        encoder.write_unsigned(self.expires_at_monotonic_millis);
+        if include_proof {
+            write_key(encoder, 9);
+            encoder.write_byte_string(&self.proof);
+        }
+    }
+}
+
+impl fmt::Debug for ProtectedRenewTicketV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedRenewTicketV2")
+            .field("sequence", &self.sequence)
+            .field(
+                "expires_at_monotonic_millis",
+                &self.expires_at_monotonic_millis,
+            )
+            .field("provider_binding", self.owned_launch.provider_binding())
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+impl Drop for ProtectedRenewTicketV2 {
+    fn drop(&mut self) {
+        self.bootstrap_ticket.zeroize();
+    }
+}
+
+impl DeterministicCodec for ProtectedRenewTicketV2 {
+    const MESSAGE_TYPE_ID: u32 = 24;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        self.encode_fields(encoder, true);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(10)? != 10 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 2)?;
+        let owned_launch = decode_owned_launch_v2(decoder)?;
+        expect_key(decoder, 3)?;
+        let sequence = decoder.read_unsigned(u64::MAX)?;
+        expect_key(decoder, 4)?;
+        let nonce = decode_fixed::<32>(decoder)?;
+        expect_key(decoder, 5)?;
+        let next_session_id = decode_fixed::<16>(decoder)?;
+        expect_key(decoder, 6)?;
+        let bootstrap_ticket = decode_fixed::<32>(decoder)?;
+        expect_key(decoder, 7)?;
+        let issued_at_monotonic_millis = decoder.read_unsigned(u64::MAX)?;
+        expect_key(decoder, 8)?;
+        let expires_at_monotonic_millis = decoder.read_unsigned(u64::MAX)?;
+        expect_key(decoder, 9)?;
+        let proof = decode_fixed::<32>(decoder)?;
+        let request = ProtectedRenewRequestV2 {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch,
+            sequence,
+            nonce,
+            proof: [1; 32],
+        };
+        let mut value = Self::new(
+            &request,
+            next_session_id,
+            bootstrap_ticket,
+            issued_at_monotonic_millis,
+            expires_at_monotonic_millis,
+        )
+        .map_err(|_| DecodeError::UnknownField { key: 7 })?;
+        value.proof = proof;
+        Ok(value)
+    }
+}
+
+/// HMAC-authenticated V2 shutdown request for an exact provider-bound launch.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedShutdownV2 {
+    protocol_schema_version: u32,
+    owned_launch: ProtectedOwnedLaunchV2,
+    proof: [u8; 32],
+}
+
+impl ProtectedShutdownV2 {
+    #[must_use]
+    pub const fn new(owned_launch: ProtectedOwnedLaunchV2) -> Self {
+        Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch,
+            proof: [0; 32],
+        }
+    }
+
+    pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
+        self.proof = authenticated_mac_version(
+            keys.shutdown_key_ref(),
+            SHUTDOWN_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+    }
+
+    pub fn verify_exact(
+        &self,
+        expected: &ProtectedOwnedLaunchV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.owned_launch.verify_exact(expected)?;
+        let proof = authenticated_mac_version(
+            keys.shutdown_key_ref(),
+            SHUTDOWN_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+        if !bool::from(proof.ct_eq(&self.proof)) {
+            return Err(LaunchAuthorityError::ReadinessProofMismatch);
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn owned_launch(&self) -> &ProtectedOwnedLaunchV2 {
+        &self.owned_launch
+    }
+
+    pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_codec_frame(
+            self,
+            &FrameLimits {
+                max_frame_bytes: MAX_FRAME_BYTES,
+            },
+        )
+    }
+
+    pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> {
+        decode_codec_frame(frame, &decode_limits())
+    }
+
+    fn unsigned_payload(&self) -> Vec<u8> {
+        let mut encoder = CborEncoder::new();
+        self.encode_fields(&mut encoder, false);
+        encoder.into_bytes()
+    }
+
+    fn encode_fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
+        encoder.write_map_header(if include_proof { 4 } else { 3 });
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        encode_owned_launch_v2(encoder, &self.owned_launch);
+        if include_proof {
+            write_key(encoder, 3);
+            encoder.write_byte_string(&self.proof);
+        }
+    }
+}
+
+impl fmt::Debug for ProtectedShutdownV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedShutdownV2")
+            .field("provider_binding", self.owned_launch.provider_binding())
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+impl DeterministicCodec for ProtectedShutdownV2 {
+    const MESSAGE_TYPE_ID: u32 = 25;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        self.encode_fields(encoder, true);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(4)? != 4 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 2)?;
+        let owned_launch = decode_owned_launch_v2(decoder)?;
+        expect_key(decoder, 3)?;
+        let proof = decode_fixed::<32>(decoder)?;
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch,
+            proof,
+        })
+    }
+}
+
+/// V2 acknowledgement that the exact provider-bound launch accepted shutdown.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedShutdownAckV2 {
+    protocol_schema_version: u32,
+    owned_launch: ProtectedOwnedLaunchV2,
+    graceful: bool,
+    proof: [u8; 32],
+}
+
+impl ProtectedShutdownAckV2 {
+    #[must_use]
+    pub const fn new(owned_launch: ProtectedOwnedLaunchV2, graceful: bool) -> Self {
+        Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch,
+            graceful,
+            proof: [0; 32],
+        }
+    }
+
+    pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
+        self.proof = authenticated_mac_version(
+            keys.shutdown_key_ref(),
+            SHUTDOWN_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+    }
+
+    pub fn verify_exact(
+        &self,
+        expected: &ProtectedOwnedLaunchV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.owned_launch.verify_exact(expected)?;
+        let proof = authenticated_mac_version(
+            keys.shutdown_key_ref(),
+            SHUTDOWN_DOMAIN_V2,
+            PROTOCOL_SCHEMA_VERSION_V2,
+            &self.unsigned_payload(),
+        );
+        if !bool::from(proof.ct_eq(&self.proof)) {
+            return Err(LaunchAuthorityError::ReadinessProofMismatch);
+        }
+        Ok(())
+    }
+
+    #[must_use]
+    pub const fn graceful(&self) -> bool {
+        self.graceful
+    }
+
+    pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
+        encode_codec_frame(
+            self,
+            &FrameLimits {
+                max_frame_bytes: MAX_FRAME_BYTES,
+            },
+        )
+    }
+
+    pub fn decode_frame(frame: &[u8]) -> Result<Self, DecodeError> {
+        decode_codec_frame(frame, &decode_limits())
+    }
+
+    fn unsigned_payload(&self) -> Vec<u8> {
+        let mut encoder = CborEncoder::new();
+        self.encode_fields(&mut encoder, false);
+        encoder.into_bytes()
+    }
+
+    fn encode_fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
+        encoder.write_map_header(if include_proof { 5 } else { 4 });
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        encode_owned_launch_v2(encoder, &self.owned_launch);
+        write_key(encoder, 3);
+        encoder.write_bool(self.graceful);
+        if include_proof {
+            write_key(encoder, 4);
+            encoder.write_byte_string(&self.proof);
+        }
+    }
+}
+
+impl fmt::Debug for ProtectedShutdownAckV2 {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedShutdownAckV2")
+            .field("graceful", &self.graceful)
+            .field("provider_binding", self.owned_launch.provider_binding())
+            .field("protected_fields", &"<redacted>")
+            .finish()
+    }
+}
+
+impl DeterministicCodec for ProtectedShutdownAckV2 {
+    const MESSAGE_TYPE_ID: u32 = 26;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        self.encode_fields(encoder, true);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(5)? != 5 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION_V2)?;
+        expect_key(decoder, 2)?;
+        let owned_launch = decode_owned_launch_v2(decoder)?;
+        expect_key(decoder, 3)?;
+        let graceful = decoder.read_bool()?;
+        expect_key(decoder, 4)?;
+        let proof = decode_fixed::<32>(decoder)?;
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
+            owned_launch,
+            graceful,
+            proof,
+        })
+    }
+}
+
+fn encode_provider_binding(encoder: &mut CborEncoder, binding: &ProviderActivationBindingV1) {
+    encoder.write_map_header(3);
+    write_key(encoder, 1);
+    encoder.write_unsigned(binding.mode.wire_code());
+    write_key(encoder, 2);
+    encoder.write_text_string(&binding.profile_id);
+    write_key(encoder, 3);
+    encoder.write_byte_string(&binding.profile_digest);
+}
+
+fn decode_provider_binding(
+    decoder: &mut CborDecoder<'_>,
+) -> Result<ProviderActivationBindingV1, DecodeError> {
+    if decoder.read_map_header(3)? != 3 {
+        return Err(DecodeError::UnknownField { key: 3 });
+    }
+    expect_key(decoder, 1)?;
+    let mode = ProviderActivationModeV1::from_wire_code(decoder.read_unsigned(2)?)?;
+    expect_key(decoder, 2)?;
+    let profile_id = decoder.read_text_string(MAX_PROFILE_ID_BYTES)?.to_owned();
+    expect_key(decoder, 3)?;
+    let profile_digest = decode_fixed::<32>(decoder)?;
+    ProviderActivationBindingV1::new(mode, profile_id, profile_digest)
+        .map_err(|_| DecodeError::UnknownField { key: 3 })
+}
+
+fn encode_owned_launch_v2(encoder: &mut CborEncoder, owned: &ProtectedOwnedLaunchV2) {
+    encoder.write_map_header(2);
+    write_key(encoder, 1);
+    encode_owned_launch(encoder, &owned.compatibility_owned_launch);
+    write_key(encoder, 2);
+    encode_provider_binding(encoder, &owned.provider_binding);
+}
+
+fn decode_owned_launch_v2(
+    decoder: &mut CborDecoder<'_>,
+) -> Result<ProtectedOwnedLaunchV2, DecodeError> {
+    if decoder.read_map_header(2)? != 2 {
+        return Err(DecodeError::UnknownField { key: 2 });
+    }
+    expect_key(decoder, 1)?;
+    let compatibility_owned_launch = decode_owned_launch(decoder)?;
+    expect_key(decoder, 2)?;
+    let provider_binding = decode_provider_binding(decoder)?;
+    ProtectedOwnedLaunchV2::new(compatibility_owned_launch, provider_binding)
+        .map_err(|_| DecodeError::UnknownField { key: 2 })
+}
+
 fn derive_key(secret: &[u8; 32], role: &[u8]) -> [u8; 32] {
     let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC accepts fixed keys");
     mac.update(KEY_DERIVATION_DOMAIN);
@@ -2151,10 +3427,19 @@ fn derive_key(secret: &[u8; 32], role: &[u8]) -> [u8; 32] {
 }
 
 fn authenticated_mac(key: &[u8; 32], domain: &[u8], payload: &[u8]) -> [u8; 32] {
+    authenticated_mac_version(key, domain, PROTOCOL_SCHEMA_VERSION, payload)
+}
+
+fn authenticated_mac_version(
+    key: &[u8; 32],
+    domain: &[u8],
+    schema_version: u32,
+    payload: &[u8],
+) -> [u8; 32] {
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts fixed keys");
     mac.update(domain);
     mac.update(&[0]);
-    mac.update(&PROTOCOL_SCHEMA_VERSION.to_be_bytes());
+    mac.update(&schema_version.to_be_bytes());
     mac.update(payload);
     mac.finalize().into_bytes().into()
 }
@@ -2190,8 +3475,12 @@ fn expect_message_type(decoder: &mut CborDecoder<'_>, expected: u32) -> Result<(
 }
 
 fn expect_schema(decoder: &mut CborDecoder<'_>) -> Result<(), DecodeError> {
+    expect_schema_version(decoder, PROTOCOL_SCHEMA_VERSION)
+}
+
+fn expect_schema_version(decoder: &mut CborDecoder<'_>, expected: u32) -> Result<(), DecodeError> {
     expect_key(decoder, 1)?;
-    if decoder.read_unsigned(u64::from(u32::MAX))? == u64::from(PROTOCOL_SCHEMA_VERSION) {
+    if decoder.read_unsigned(u64::from(u32::MAX))? == u64::from(expected) {
         Ok(())
     } else {
         Err(DecodeError::UnknownField { key: 1 })
