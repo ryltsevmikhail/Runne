@@ -149,7 +149,7 @@ impl AdapterState {
 
 enum DispatchStart {
     Existing(ProviderStreamId),
-    Ready(OpenAiTransportRequest),
+    Ready,
 }
 
 /// Adapter construction failure before an instance can dispatch.
@@ -240,22 +240,6 @@ where
                 ProviderPreEffectRejection::AdapterRejected,
             ));
         }
-        let credential = self
-            .credential
-            .materialize()
-            .map_err(map_credential_error)?;
-        if credential.is_empty() {
-            return Err(DispatchError::RejectedBeforeEffect(
-                ProviderPreEffectRejection::CredentialUnavailable,
-            ));
-        }
-        let transport_request = OpenAiTransportRequest::new(
-            &self.policy,
-            request.provider_idempotency_key().to_owned(),
-            request.prepared().rendered_bytes().to_vec(),
-            credential,
-        )
-        .map_err(map_pre_effect_transport_error)?;
         state.attempts.insert(
             request.attempt_id(),
             AttemptState::Dispatching {
@@ -263,7 +247,7 @@ where
             },
         );
         drop(state);
-        Ok(DispatchStart::Ready(transport_request))
+        Ok(DispatchStart::Ready)
     }
 
     async fn dispatch_inner(
@@ -272,9 +256,34 @@ where
     ) -> Result<ProviderStreamId, DispatchError> {
         let attempt_id = request.attempt_id();
         let prepared_ref = request.prepared().request_ref();
-        let transport_request = match self.start_dispatch(&request)? {
+        match self.start_dispatch(&request)? {
             DispatchStart::Existing(stream) => return Ok(stream),
-            DispatchStart::Ready(request) => request,
+            DispatchStart::Ready => {}
+        }
+        let credential = match self.credential.materialize().await {
+            Ok(credential) if !credential.is_empty() => credential,
+            Ok(_) => {
+                self.clear_pre_effect_attempt(attempt_id, prepared_ref);
+                return Err(DispatchError::RejectedBeforeEffect(
+                    ProviderPreEffectRejection::CredentialUnavailable,
+                ));
+            }
+            Err(error) => {
+                self.clear_pre_effect_attempt(attempt_id, prepared_ref);
+                return Err(map_credential_error(error));
+            }
+        };
+        let transport_request = match OpenAiTransportRequest::new(
+            &self.policy,
+            request.provider_idempotency_key().to_owned(),
+            request.prepared().rendered_bytes().to_vec(),
+            credential,
+        ) {
+            Ok(request) => request,
+            Err(error) => {
+                self.clear_pre_effect_attempt(attempt_id, prepared_ref);
+                return Err(map_pre_effect_transport_error(error));
+            }
         };
         let Ok(response) = self.transport.send(transport_request).await else {
             return Err(self.mark_dispatch_uncertain(attempt_id, prepared_ref));
@@ -336,6 +345,21 @@ where
             );
         }
         DispatchError::MaybeDispatched
+    }
+
+    fn clear_pre_effect_attempt(
+        &self,
+        attempt_id: DispatchAttemptId,
+        prepared_ref: PreparedRequestRef,
+    ) {
+        if let Ok(mut state) = self.state.lock()
+            && matches!(
+                state.attempts.get(&attempt_id),
+                Some(AttemptState::Dispatching { prepared }) if *prepared == prepared_ref
+            )
+        {
+            state.attempts.remove(&attempt_id);
+        }
     }
 }
 

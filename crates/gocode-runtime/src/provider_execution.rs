@@ -1,8 +1,17 @@
 //! Runtime-owned encrypted provider stream journal and terminal outbox.
 
 use core::fmt::{self, Write as _};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
+use gocode_application::commands::{
+    BeginConversationTextInput, ConversationTextCompletion, FinishConversationTextInput,
+};
+use gocode_application::conversation_text_service::{
+    ConversationTextCommandService, ConversationTextServiceError,
+};
+use gocode_application::ports::{
+    ApplicationCommandContext, TextGenerationPhase, TextGenerationReceipt,
+};
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
@@ -12,6 +21,7 @@ use gocode_application::provider::{
     ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
     ProviderTerminalPricingBinding,
 };
+use gocode_domain::message::MessageText;
 use gocode_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderFinishReason, ProviderPort,
     ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem,
@@ -21,7 +31,8 @@ pub use gocode_provider::{
     ProviderPricedUsage, ProviderTerminalPricing, ProviderTerminalPricingError,
 };
 use gocode_secure_store::{
-    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyring, SecureStoreError,
+    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
+    ProviderJournalKeyring, SecureStoreError,
 };
 use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
 use ring::rand::{SecureRandom, SystemRandom};
@@ -328,9 +339,143 @@ pub trait ProviderTerminalOutboxApplication: Send + Sync {
     ) -> Result<[u8; 32], ProviderTerminalApplicationError>;
 }
 
+/// Closed failures while reconstructing one original canonical command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum ProviderTerminalConversationResolveError {
+    /// Durable application state is temporarily unavailable.
+    #[error("terminal conversation state is unavailable")]
+    Unavailable,
+    /// Durable identities or command evidence conflict.
+    #[error("terminal conversation state conflicts")]
+    Conflict,
+}
+
+/// Exact original command evidence required for idempotent Conversation finish.
+#[derive(Debug, Clone)]
+pub struct RecoveredProviderConversationCommand {
+    /// Authenticated original command context.
+    pub context: ApplicationCommandContext,
+    /// Original user-message command.
+    pub original: BeginConversationTextInput,
+    /// Durable started (or exact already-terminal replay) receipt.
+    pub started: TextGenerationReceipt,
+}
+
+/// Durable resolver for the original canonical Conversation command.
+pub trait ProviderTerminalConversationResolver: Send + Sync {
+    /// Reconstructs exact command evidence from authoritative application state.
+    fn resolve_provider_terminal_conversation(
+        &self,
+        record: &ProviderTerminalOutboxRecord,
+    ) -> Result<RecoveredProviderConversationCommand, ProviderTerminalConversationResolveError>;
+}
+
+/// Production terminal application through the existing Conversation service.
+pub struct ConversationProviderTerminalApplication<R> {
+    resolver: R,
+    service: Arc<dyn ConversationTextCommandService>,
+}
+
+impl<R> ConversationProviderTerminalApplication<R> {
+    /// Binds authoritative resolution and the existing idempotent finish service.
+    pub fn new(resolver: R, service: Arc<dyn ConversationTextCommandService>) -> Self {
+        Self { resolver, service }
+    }
+}
+
+impl<R> ProviderTerminalOutboxApplication for ConversationProviderTerminalApplication<R>
+where
+    R: ProviderTerminalConversationResolver,
+{
+    fn complete_provider_terminal(
+        &self,
+        record: &ProviderTerminalOutboxRecord,
+        output: &[u8],
+    ) -> Result<[u8; 32], ProviderTerminalApplicationError> {
+        let recovered = self
+            .resolver
+            .resolve_provider_terminal_conversation(record)
+            .map_err(|error| match error {
+                ProviderTerminalConversationResolveError::Unavailable => {
+                    ProviderTerminalApplicationError::Unavailable
+                }
+                ProviderTerminalConversationResolveError::Conflict => {
+                    ProviderTerminalApplicationError::Conflict
+                }
+            })?;
+        if recovered.context.principal_id.0 != record.principal_id
+            || recovered.started.conversation_id != record.conversation_id
+            || recovered.started.taskrun_id != record.taskrun_id
+            || recovered.started.attempt_id != record.execution_attempt_id
+        {
+            return Err(ProviderTerminalApplicationError::Conflict);
+        }
+        let text = std::str::from_utf8(output)
+            .ok()
+            .and_then(|text| MessageText::new(text.to_owned()).ok())
+            .ok_or(ProviderTerminalApplicationError::Conflict)?;
+        let receipt = self
+            .service
+            .finish_text(
+                &recovered.context,
+                FinishConversationTextInput {
+                    original: recovered.original,
+                    started: recovered.started,
+                    completion: ConversationTextCompletion::AssistantText(text),
+                },
+            )
+            .map_err(map_conversation_terminal_error)?;
+        if receipt.phase != TextGenerationPhase::Completed
+            || receipt.conversation_id != record.conversation_id
+            || receipt.taskrun_id != record.taskrun_id
+            || receipt.attempt_id != record.execution_attempt_id
+        {
+            return Err(ProviderTerminalApplicationError::Conflict);
+        }
+        Ok(conversation_receipt_digest(record, &receipt))
+    }
+}
+
+fn map_conversation_terminal_error(
+    error: ConversationTextServiceError,
+) -> ProviderTerminalApplicationError {
+    match error {
+        ConversationTextServiceError::StoredDataUnavailable
+        | ConversationTextServiceError::Commit(_) => ProviderTerminalApplicationError::Unavailable,
+        ConversationTextServiceError::ProhibitedSecretMaterial
+        | ConversationTextServiceError::ConversationNotFound
+        | ConversationTextServiceError::Conflict
+        | ConversationTextServiceError::ConversationDomain(_)
+        | ConversationTextServiceError::TaskRunDomain
+        | ConversationTextServiceError::IdGeneration(_)
+        | ConversationTextServiceError::MaterializationFailed
+        | ConversationTextServiceError::ReceiptMismatch => {
+            ProviderTerminalApplicationError::Conflict
+        }
+    }
+}
+
+fn conversation_receipt_digest(
+    record: &ProviderTerminalOutboxRecord,
+    receipt: &TextGenerationReceipt,
+) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"GOCODE_PROVIDER_CONVERSATION_RECEIPT_V1\0");
+    hasher.update(record.outbox_id);
+    hasher.update(record.settlement_digest);
+    hasher.update(receipt.conversation_id.as_bytes());
+    hasher.update(receipt.taskrun_id.as_bytes());
+    hasher.update(receipt.attempt_id.as_bytes());
+    hasher.update(receipt.user_message_id.as_bytes());
+    hasher.update(receipt.assistant_message_id.as_bytes());
+    hasher.update(receipt.conversation_version.to_be_bytes());
+    hasher.update(receipt.taskrun_version.to_be_bytes());
+    hasher.finalize().into()
+}
+
 /// Runtime service that owns journal keys, AEAD, pinned terminal policy and
 /// commit-before-next-poll.
-pub struct RuntimeProviderExecution<'a, K, S, P> {
+pub struct RuntimeProviderExecution<'a, K: ?Sized, S, P> {
     keyring: &'a K,
     store: &'a S,
     pricing: &'a P,
@@ -341,7 +486,7 @@ pub struct RuntimeProviderExecution<'a, K, S, P> {
 
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
-    K: ProviderJournalKeyring,
+    K: ProviderJournalKeyring + ?Sized,
     S: ProviderExecutionStore + ProviderTerminalPersistence,
     P: ProviderTerminalPricing,
 {
@@ -415,6 +560,41 @@ where
         Ok(())
     }
 
+    /// Validates and activates the durable key binding using metadata only.
+    ///
+    /// Key bytes remain unavailable until admitted journal I/O or recovery.
+    pub fn preflight_existing_active_key(
+        &self,
+        runtime_authority_id: [u8; 16],
+        database_generation: u64,
+    ) -> Result<ProviderJournalKeyBinding, RuntimeProviderExecutionError> {
+        if !self.keyring.retains_multiple_provider_journal_keys() {
+            return Err(RuntimeProviderExecutionError::KeyRetentionUnsupported);
+        }
+        let binding = self
+            .store
+            .active_journal_key_binding()
+            .map_err(map_execution_error)?
+            .ok_or(RuntimeProviderExecutionError::JournalKeyUnavailable)?;
+        if binding.runtime_authority_id() != runtime_authority_id
+            || binding.database_generation() != database_generation
+        {
+            return Err(RuntimeProviderExecutionError::JournalKeyUnavailable);
+        }
+        let status = self
+            .keyring
+            .provider_journal_key_status(secure_ref_from_binding(binding)?)
+            .map_err(map_secure_store_error)?;
+        if status != ProviderJournalKeyStatus::Available {
+            return Err(RuntimeProviderExecutionError::JournalKeyUnavailable);
+        }
+        *self
+            .active_key
+            .lock()
+            .map_err(|_| RuntimeProviderExecutionError::PersistenceUnavailable)? = Some(binding);
+        Ok(binding)
+    }
+
     /// Encrypts and commits one normalized event.
     fn commit_polled_event(
         &self,
@@ -452,7 +632,7 @@ where
     ///
     /// If local commit cannot be proven after provider bytes arrive, the
     /// attempt is marked `Uncertain`; the caller receives no item to advance.
-    pub async fn next_and_commit<A: ProviderPort>(
+    pub async fn next_and_commit<A: ProviderPort + ?Sized>(
         &self,
         provider: &A,
         stream_id: &ProviderStreamId,
@@ -600,6 +780,39 @@ where
         Ok(applied)
     }
 
+    /// Applies only the exact foreground attempt outbox and acknowledges it.
+    pub fn apply_terminal_output_for_attempt<A: ProviderTerminalOutboxApplication>(
+        &self,
+        attempt_id: DispatchAttemptId,
+        application: &A,
+    ) -> Result<bool, RuntimeProviderExecutionError> {
+        let mut matching = self
+            .recover_pending_terminal_outputs()?
+            .into_iter()
+            .filter(|recovered| recovered.record().attempt_id == attempt_id);
+        let Some(recovered) = matching.next() else {
+            return Ok(false);
+        };
+        if matching.next().is_some() {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
+        let receipt_digest = application
+            .complete_provider_terminal(recovered.record(), recovered.output())
+            .map_err(|error| match error {
+                ProviderTerminalApplicationError::Unavailable => {
+                    RuntimeProviderExecutionError::ApplicationUnavailable
+                }
+                ProviderTerminalApplicationError::Conflict => {
+                    RuntimeProviderExecutionError::ApplicationConflict
+                }
+            })?;
+        if receipt_digest == [0; 32] {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
+        self.acknowledge_terminal_output(recovered.record().outbox_id, receipt_digest)?;
+        Ok(true)
+    }
+
     fn current_key(&self) -> Result<ProviderJournalKeyBinding, RuntimeProviderExecutionError> {
         self.active_key
             .lock()
@@ -641,7 +854,7 @@ where
 
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
-    K: ProviderJournalKeyring,
+    K: ProviderJournalKeyring + ?Sized,
     S: ProviderExecutionStore + ProviderTerminalPersistence,
     P: ProviderTerminalPricing,
 {

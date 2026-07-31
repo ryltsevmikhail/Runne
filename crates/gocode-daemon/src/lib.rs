@@ -5,6 +5,7 @@
 
 pub mod application;
 pub mod bootstrap;
+pub mod canonical_provider;
 mod client_profile;
 pub mod config;
 pub mod error;

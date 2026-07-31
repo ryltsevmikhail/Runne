@@ -1,6 +1,9 @@
-use gocode_secure_store::{ProviderJournalKeyMaterial, ProviderJournalKeyRef};
 #[cfg(not(target_os = "macos"))]
-use gocode_secure_store::{ProviderJournalKeyring, SecureStoreError, StubStore};
+use gocode_secure_store::StubStore;
+use gocode_secure_store::{
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
+};
 
 #[test]
 fn journal_key_requires_nonzero_identity_version_generation_and_authority() {
@@ -37,6 +40,48 @@ fn generated_journal_keys_are_nonzero_distinct_and_keep_exact_binding() {
     );
     assert_ne!(first.with_bytes(|bytes| *bytes), [0; 32]);
     assert_ne!(second.with_bytes(|bytes| *bytes), [0; 32]);
+}
+
+#[test]
+fn key_status_is_metadata_only_and_does_not_load_material() {
+    struct StatusOnly;
+    impl ProviderJournalKeyring for StatusOnly {
+        fn retains_multiple_provider_journal_keys(&self) -> bool {
+            true
+        }
+        fn provider_journal_key_status(
+            &self,
+            _key_ref: ProviderJournalKeyRef,
+        ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+            Ok(ProviderJournalKeyStatus::Available)
+        }
+        fn store_provider_journal_key(
+            &self,
+            _key: &ProviderJournalKeyMaterial,
+        ) -> Result<(), SecureStoreError> {
+            unreachable!("status must not store")
+        }
+        fn load_provider_journal_key(
+            &self,
+            _key_ref: ProviderJournalKeyRef,
+        ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
+            unreachable!("status must not load material")
+        }
+        fn delete_provider_journal_key(
+            &self,
+            _key_ref: ProviderJournalKeyRef,
+            _proof: ProviderJournalKeyDeletionProof,
+        ) -> Result<(), SecureStoreError> {
+            unreachable!("status must not delete")
+        }
+    }
+    let store = StatusOnly;
+    let key_ref = ProviderJournalKeyRef::new([1; 16], 2, [3; 16], 4).unwrap();
+
+    assert_eq!(
+        store.provider_journal_key_status(key_ref),
+        Ok(ProviderJournalKeyStatus::Available)
+    );
 }
 
 #[cfg(not(target_os = "macos"))]

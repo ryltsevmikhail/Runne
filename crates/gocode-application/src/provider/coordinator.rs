@@ -2,7 +2,6 @@ use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
     DispatchError, DispatchRequest, PreparedProviderRecord, ProviderCall, ProviderDispatchClaim,
     ProviderDispatchRepository, ProviderPort, ProviderPreEffectRejection, ProviderRepositoryState,
-    ProviderStreamId,
 };
 
 use crate::prohibited_content::{
@@ -10,7 +9,8 @@ use crate::prohibited_content::{
 };
 
 use super::{
-    ProviderAdmissionError, ProviderAuthorityIssueOutcome, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityIssueOutcome, ProviderExecutionBinding,
+    RuntimeProviderAuthorityIssuer,
 };
 
 /// Complete application input for one provider prepare/claim/admit/dispatch.
@@ -47,8 +47,8 @@ pub struct ProviderCoordinatorRequest {
 pub enum ProviderCoordinatorOutcome {
     /// New adapter stream was opened.
     Streaming {
-        /// Normalized stream identity.
-        stream_id: ProviderStreamId,
+        /// Opaque runtime-owned execution and normalized stream binding.
+        binding: ProviderExecutionBinding,
     },
     /// Exact replay observed an existing durable state.
     Existing {
@@ -65,7 +65,7 @@ pub enum ProviderCoordinatorOutcome {
 }
 
 /// Orders provider prepare, persistence, single-dispatch claim and admission.
-pub struct ProviderDispatchCoordinator<'a, R, I, P> {
+pub struct ProviderDispatchCoordinator<'a, R, I, P: ?Sized> {
     repository: &'a R,
     issuer: &'a I,
     provider: &'a P,
@@ -76,7 +76,7 @@ impl<'a, R, I, P> ProviderDispatchCoordinator<'a, R, I, P>
 where
     R: ProviderDispatchRepository,
     I: RuntimeProviderAuthorityIssuer,
-    P: ProviderPort,
+    P: ProviderPort + ?Sized,
 {
     /// Constructs a coordinator from inward-facing ports.
     pub const fn new(
@@ -140,6 +140,7 @@ where
             }
         };
         super::execution::validate_issued_claim(&request.call, &issue_request, admitted.claim())?;
+        let execution_admission = admitted.clone();
         let claim: ProviderDispatchClaim = (*admitted).into_claim();
         let attempt_id = claim.attempt_id;
         let fencing_token = claim.fencing_token;
@@ -163,7 +164,12 @@ where
                         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
                     return Ok(ProviderCoordinatorOutcome::Uncertain);
                 }
-                Ok(ProviderCoordinatorOutcome::Streaming { stream_id })
+                let binding = ProviderExecutionBinding::from_admitted(
+                    &execution_admission,
+                    prepared_record,
+                    stream_id,
+                )?;
+                Ok(ProviderCoordinatorOutcome::Streaming { binding })
             }
             Err(DispatchError::RejectedBeforeEffect(reason)) => {
                 self.repository

@@ -26,6 +26,9 @@ use gocode_domain::event::Actor;
 use gocode_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
 use sha2::{Digest, Sha256};
 
+use crate::canonical_provider_execution::{
+    CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
+};
 use crate::error::RuntimeError;
 use crate::handle::RuntimeHandle;
 
@@ -72,6 +75,7 @@ pub struct RuntimeCanonicalConversationHost<R, I, E, P> {
     create_service: Arc<ConversationService<R, I>>,
     event_store: E,
     provider: Arc<P>,
+    provider_execution: bool,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
 }
 
@@ -85,6 +89,7 @@ where
             create_service: Arc::clone(&self.create_service),
             event_store: self.event_store.clone(),
             provider: Arc::clone(&self.provider),
+            provider_execution: self.provider_execution,
             prohibited_content: Arc::clone(&self.prohibited_content),
         }
     }
@@ -104,6 +109,27 @@ impl<R, I, E, P> RuntimeCanonicalConversationHost<R, I, E, P> {
             create_service,
             event_store,
             provider: Arc::new(provider),
+            provider_execution: false,
+            prohibited_content,
+        }
+    }
+
+    /// Creates a host whose Started jobs must use the runtime-supervised provider service.
+    pub fn new_provider(
+        handle: RuntimeHandle,
+        create_service: Arc<ConversationService<R, I>>,
+        event_store: E,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+    ) -> Self
+    where
+        P: Default,
+    {
+        Self {
+            handle,
+            create_service,
+            event_store,
+            provider: Arc::new(P::default()),
+            provider_execution: true,
             prohibited_content,
         }
     }
@@ -196,18 +222,51 @@ where
                     }
                     return Err(ConversationHostError::ProhibitedSecretMaterial);
                 }
-                let assistant_text = self
-                    .provider
-                    .generate(&original.text)
-                    .map_err(|_| ConversationHostError::InvariantViolation)?;
-                if !matches!(
-                    self.prohibited_content.inspect(
-                        CanonicalContentBoundary::CanonicalMutation,
-                        assistant_text.as_str().as_bytes(),
-                    ),
-                    Ok(ContentDisposition::Allowed { .. })
-                ) {
-                    let rejected = self
+                if self.provider_execution {
+                    match self
+                        .handle
+                        .execute_canonical_provider(CanonicalProviderExecutionJob {
+                            context: application_context.clone(),
+                            original: original.clone(),
+                            started: started.clone(),
+                        })
+                        .await
+                    {
+                        Ok(receipt) => receipt,
+                        Err(error) => {
+                            let rejected = self
+                                .handle
+                                .finish_conversation_text(
+                                    application_context,
+                                    FinishConversationTextInput {
+                                        original,
+                                        started,
+                                        completion: ConversationTextCompletion::Rejected {
+                                            reason: gocode_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
+                                        },
+                                    },
+                                )
+                                .await
+                                .map_err(map_runtime_error)?;
+                            if rejected.phase != TextGenerationPhase::Rejected {
+                                return Err(ConversationHostError::InvariantViolation);
+                            }
+                            return Err(map_provider_execution_error(error));
+                        }
+                    }
+                } else {
+                    let assistant_text = self
+                        .provider
+                        .generate(&original.text)
+                        .map_err(|_| ConversationHostError::InvariantViolation)?;
+                    if !matches!(
+                        self.prohibited_content.inspect(
+                            CanonicalContentBoundary::CanonicalMutation,
+                            assistant_text.as_str().as_bytes(),
+                        ),
+                        Ok(ContentDisposition::Allowed { .. })
+                    ) {
+                        let rejected = self
                         .handle
                         .finish_conversation_text(
                             application_context,
@@ -221,22 +280,25 @@ where
                         )
                         .await
                         .map_err(map_runtime_error)?;
-                    if rejected.phase != TextGenerationPhase::Rejected {
-                        return Err(ConversationHostError::InvariantViolation);
+                        if rejected.phase != TextGenerationPhase::Rejected {
+                            return Err(ConversationHostError::InvariantViolation);
+                        }
+                        return Err(ConversationHostError::ProviderOutputRejected);
                     }
-                    return Err(ConversationHostError::ProviderOutputRejected);
+                    self.handle
+                        .finish_conversation_text(
+                            application_context,
+                            FinishConversationTextInput {
+                                original,
+                                started,
+                                completion: ConversationTextCompletion::AssistantText(
+                                    assistant_text,
+                                ),
+                            },
+                        )
+                        .await
+                        .map_err(map_runtime_error)?
                 }
-                self.handle
-                    .finish_conversation_text(
-                        application_context,
-                        FinishConversationTextInput {
-                            original,
-                            started,
-                            completion: ConversationTextCompletion::AssistantText(assistant_text),
-                        },
-                    )
-                    .await
-                    .map_err(map_runtime_error)?
             }
         };
         if completed.phase != TextGenerationPhase::Completed {
@@ -245,6 +307,22 @@ where
 
         let snapshot = self.list_messages(completed.conversation_id).await?;
         result_from_snapshot(completed, snapshot)
+    }
+}
+
+const fn map_provider_execution_error(
+    error: CanonicalProviderExecutionError,
+) -> ConversationHostError {
+    match error {
+        CanonicalProviderExecutionError::Unavailable => ConversationHostError::Unavailable,
+        CanonicalProviderExecutionError::Conflict => ConversationHostError::Conflict,
+        CanonicalProviderExecutionError::RejectedBeforeEffect
+        | CanonicalProviderExecutionError::RemoteFailed
+        | CanonicalProviderExecutionError::RemoteIncomplete
+        | CanonicalProviderExecutionError::Uncertain
+        | CanonicalProviderExecutionError::PolicyDenied => {
+            ConversationHostError::ProviderOutputRejected
+        }
     }
 }
 

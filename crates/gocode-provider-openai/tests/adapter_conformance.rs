@@ -53,9 +53,14 @@ struct FixtureCredential {
 }
 
 impl OpenAiCredentialMaterializer for FixtureCredential {
-    fn materialize(&self) -> Result<Zeroizing<Vec<u8>>, OpenAiCredentialError> {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        self.result.clone().map(Zeroizing::new)
+    fn materialize(&self) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
+        let result = self.result.clone();
+        let calls = Arc::clone(&self.calls);
+        Box::pin(async move {
+            tokio::task::yield_now().await;
+            calls.fetch_add(1, Ordering::SeqCst);
+            result.map(Zeroizing::new)
+        })
     }
 }
 

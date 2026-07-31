@@ -13,8 +13,8 @@ use crate::provider_credential::{ProviderCredentialMetadata, StoredProviderCrede
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
     ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
-    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyring, SecureStore,
-    SecureStoreError,
+    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
+    ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
 use zeroize::Zeroizing;
 
@@ -777,6 +777,23 @@ const fn map_keychain_error(error: security_framework::base::Error) -> SecureSto
 impl ProviderJournalKeyring for MacOsKeychainStore {
     fn retains_multiple_provider_journal_keys(&self) -> bool {
         true
+    }
+
+    fn provider_journal_key_status(
+        &self,
+        key_ref: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        let keychain = SecKeychain::default().map_err(|_| SecureStoreError::Unavailable)?;
+        let account = self.provider_journal_key_account(key_ref);
+        gocode_macos_keychain_acl::find_generic_password_metadata(&keychain, SERVICE_NAME, &account)
+            .map_err(|_| SecureStoreError::Unavailable)
+            .map(|metadata| {
+                if metadata.is_some() {
+                    ProviderJournalKeyStatus::Available
+                } else {
+                    ProviderJournalKeyStatus::Missing
+                }
+            })
     }
 
     fn store_provider_journal_key(

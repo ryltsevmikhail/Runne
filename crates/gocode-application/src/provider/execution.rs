@@ -369,6 +369,13 @@ pub enum ProviderExecutionError {
 
 /// Durable encrypted provider journal and terminal outbox port.
 pub trait ProviderExecutionStore: Send + Sync {
+    /// Returns the active non-secret journal-key binding without key bytes.
+    fn active_journal_key_binding(
+        &self,
+    ) -> Result<Option<ProviderJournalKeyBinding>, ProviderExecutionError> {
+        Err(ProviderExecutionError::StoreUnavailable)
+    }
+
     /// Activates a new key reference and retires the previous active reference.
     fn activate_journal_key(
         &self,

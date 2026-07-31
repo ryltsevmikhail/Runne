@@ -12,10 +12,15 @@ use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::canonical_provider_execution::{
+    CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
+    CanonicalProviderExecutionService,
+};
 use crate::config::RuntimeConfig;
 use crate::controller::{ControlCommand, ShutdownMode, ShutdownOutcome};
 use crate::error::{QueueKind, RuntimeError};
 use crate::gate::AdmissionGate;
+use crate::types::CanonicalProviderReply;
 use crate::types::{
     AdmittedPerRunRequest, AdmittedRequest, ConversationTextCall, ConversationTextReply,
     InFlightLease, PerRunRequest, Reply, RuntimeRequest,
@@ -43,6 +48,13 @@ enum RuntimeTaskExit {
         outcome: Result<gocode_application::ports::TextGenerationReceipt, RuntimeError>,
         reply: ConversationTextReply,
     },
+    CanonicalProvider {
+        outcome: Result<
+            gocode_application::ports::TextGenerationReceipt,
+            CanonicalProviderExecutionError,
+        >,
+        reply: CanonicalProviderReply,
+    },
 }
 
 // ── WorkerRegistry ──────────────────────────────────────────────────────────
@@ -60,6 +72,7 @@ where
     cancel: CancellationToken,
     service: Arc<TaskRunService<E, U, I>>,
     conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+    provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
 }
 
 impl<E, U, I> WorkerRegistry<E, U, I>
@@ -73,6 +86,7 @@ where
         cancel: CancellationToken,
         service: Arc<TaskRunService<E, U, I>>,
         conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+        provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
     ) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_max_concurrent_blocking));
         Self {
@@ -83,7 +97,23 @@ where
             cancel,
             service,
             conversation_service,
+            provider_service,
         }
+    }
+
+    fn spawn_canonical_provider_task(
+        &mut self,
+        job: CanonicalProviderExecutionJob,
+        reply: CanonicalProviderReply,
+    ) {
+        let Some(service) = self.provider_service.clone() else {
+            let _ = reply.send(Err(CanonicalProviderExecutionError::Unavailable));
+            return;
+        };
+        self.join_set.spawn(async move {
+            let outcome = service.execute(job).await;
+            RuntimeTaskExit::CanonicalProvider { outcome, reply }
+        });
     }
 
     fn get_or_spawn(&mut self, taskrun_id: TaskRunId) -> Result<WorkerHandle, RuntimeError> {
@@ -212,6 +242,9 @@ fn reject_request(request: RuntimeRequest) {
         RuntimeRequest::BeginConversationText { reply, .. }
         | RuntimeRequest::FinishConversationText { reply, .. } => {
             let _ = reply.send(Err(RuntimeError::RuntimeClosed));
+        }
+        RuntimeRequest::CanonicalProviderExecution { reply, .. } => {
+            let _ = reply.send(Err(CanonicalProviderExecutionError::Unavailable));
         }
     }
 }
@@ -385,6 +418,10 @@ fn dispatch_admitted<E, U, I>(
             );
             drop(lease);
         }
+        RuntimeRequest::CanonicalProviderExecution { job, reply } => {
+            registry.spawn_canonical_provider_task(job, reply);
+            drop(lease);
+        }
     }
 }
 
@@ -398,6 +435,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
     cancel: CancellationToken,
     service: Arc<TaskRunService<E, U, I>>,
     conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+    provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
     drain_complete_tx: oneshot::Sender<ShutdownOutcome>,
 ) where
     E: EventStore + Send + Sync + 'static,
@@ -409,6 +447,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
         cancel.clone(),
         service.clone(),
         conversation_service,
+        provider_service,
     );
     let mut draining = false;
     let mut ingress_open = true;
@@ -480,6 +519,9 @@ pub(crate) async fn run_supervisor<E, U, I>(
                         let _ = reply.send(outcome);
                     }
                     Some(Ok(RuntimeTaskExit::ConversationText { reply, outcome })) => {
+                        let _ = reply.send(outcome);
+                    }
+                    Some(Ok(RuntimeTaskExit::CanonicalProvider { reply, outcome })) => {
                         let _ = reply.send(outcome);
                     }
                     _ => {}
@@ -597,6 +639,7 @@ mod tests {
             config,
             cancel,
             service,
+            None,
             None,
             drain_complete_tx,
         ));

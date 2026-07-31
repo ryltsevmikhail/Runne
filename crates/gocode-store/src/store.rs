@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use gocode_application::commands::BeginConversationTextInput;
 use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
     AggregateScope, BeginTextGenerationCommit, Clock, ClockError, CommandCommit, CommitError,
@@ -18,13 +19,14 @@ use gocode_application::ports::{
     ConversationReceipt, ConversationReceiptLookup, ConversationRepository,
     ConversationTextRepository, EventStore as AppEventStore, EventStoreError,
     FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope, LoadedStream,
-    OperationTag, ReceiptLookup, RejectTextGenerationCommit, ReplayEvent, RuntimeAuthorityId,
-    StorageFailureKind, TextGenerationCommitResult, TextGenerationPhase, TextGenerationReceipt,
-    TextGenerationReceiptLookup, UnitOfWork,
+    OperationTag, PrincipalId, ReceiptLookup, RejectTextGenerationCommit, ReplayEvent,
+    RuntimeAuthorityId, StorageFailureKind, TextGenerationCommitResult, TextGenerationPhase,
+    TextGenerationReceipt, TextGenerationReceiptLookup, UnitOfWork,
 };
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
+use gocode_application::provider::ProviderTerminalOutboxRecord;
 use gocode_application::replay_service::{
     measured_conversation_replay_event_bytes, measured_taskrun_replay_event_bytes,
     validate_replay_writer_event_size,
@@ -37,6 +39,10 @@ use gocode_domain::id::{
 };
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
+use gocode_runtime::provider_execution::{
+    ProviderTerminalConversationResolveError, ProviderTerminalConversationResolver,
+    RecoveredProviderConversationCommand,
+};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 
 use crate::codec::{
@@ -128,6 +134,29 @@ fn now_micros() -> i64 {
 }
 
 impl StoreTransaction {
+    /// Loads one exact durable Conversation text receipt by original command identity.
+    pub fn load_text_generation_receipt_by_command(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &gocode_domain::id::IdempotencyKey,
+    ) -> Result<TextGenerationReceipt, CommitError> {
+        let bytes: Vec<u8> = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?
+            .query_row(
+                "SELECT command_outcome FROM command_receipts
+                 WHERE command_id = ?1 AND idempotency_key = ?2",
+                params![command_id.as_bytes(), idempotency_key.as_str().as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        TextGenerationReceiptCodec
+            .decode(&bytes)
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))
+    }
+
     /// Open a database at `db_path`, apply migrations, run startup gates.
     ///
     /// # Errors
@@ -1488,6 +1517,82 @@ impl ConversationTextRepository for StoreTransaction {
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
         Ok(TextGenerationCommitResult::Committed {
             result: payload.receipt,
+        })
+    }
+}
+
+impl ProviderTerminalConversationResolver for StoreTransaction {
+    fn resolve_provider_terminal_conversation(
+        &self,
+        record: &ProviderTerminalOutboxRecord,
+    ) -> Result<RecoveredProviderConversationCommand, ProviderTerminalConversationResolveError>
+    {
+        let stream = self
+            .load_conversation(record.conversation_id)
+            .map_err(|_| ProviderTerminalConversationResolveError::Unavailable)?;
+        let event = stream
+            .events
+            .iter()
+            .find(|event| {
+                matches!(
+                    event.payload(),
+                    ConversationEvent::UserMessageAppended {
+                        taskrun_id,
+                        attempt_id,
+                        ..
+                    } if *taskrun_id == record.taskrun_id
+                        && *attempt_id == record.execution_attempt_id
+                )
+            })
+            .ok_or(ProviderTerminalConversationResolveError::Conflict)?;
+        let ConversationEvent::UserMessageAppended { text, .. } = event.payload() else {
+            return Err(ProviderTerminalConversationResolveError::Conflict);
+        };
+        let expected_version = event
+            .sequence()
+            .checked_sub(1)
+            .ok_or(ProviderTerminalConversationResolveError::Conflict)?;
+        let command_id = *event.command_id();
+        let idempotency_key = event.idempotency_key().clone();
+        let actor = event.actor().clone();
+        let stored: Vec<u8> = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| ProviderTerminalConversationResolveError::Unavailable)?
+            .query_row(
+                "SELECT command_outcome FROM command_receipts
+                 WHERE command_id = ?1 AND idempotency_key = ?2",
+                params![command_id.as_bytes(), idempotency_key.as_str().as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ProviderTerminalConversationResolveError::Conflict)?;
+        let started = TextGenerationReceiptCodec
+            .decode(&stored)
+            .map_err(|_| ProviderTerminalConversationResolveError::Conflict)?;
+        if started.conversation_id != record.conversation_id
+            || started.taskrun_id != record.taskrun_id
+            || started.attempt_id != record.execution_attempt_id
+            || !matches!(
+                started.phase,
+                TextGenerationPhase::Started | TextGenerationPhase::Completed
+            )
+        {
+            return Err(ProviderTerminalConversationResolveError::Conflict);
+        }
+        Ok(RecoveredProviderConversationCommand {
+            context: gocode_application::ports::ApplicationCommandContext {
+                command_id,
+                idempotency_key,
+                principal_id: PrincipalId(record.principal_id.clone()),
+                actor,
+            },
+            original: BeginConversationTextInput {
+                conversation_id: record.conversation_id,
+                expected_version,
+                text: text.clone(),
+            },
+            started,
         })
     }
 }

@@ -35,11 +35,16 @@ pub use startup::{
 pub use task_run_host::RuntimeTaskRunHost;
 pub mod bundle;
 pub mod canonical_conversation_host;
+pub mod canonical_provider_execution;
 pub mod contract_generation;
 
 pub use canonical_conversation_host::{
     DeterministicTextProvider, LocalTextProvider, LocalTextProviderError,
     RuntimeCanonicalConversationHost,
+};
+pub use canonical_provider_execution::{
+    CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
+    CanonicalProviderExecutionService,
 };
 pub use mcp::{McpActivationError, McpActivationRequest, McpRuntimeActivation};
 pub use plugin_host::{
