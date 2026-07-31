@@ -270,44 +270,61 @@ fn execute_provider_credential(
     backend: &mut impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
 ) -> Result<String, CliError> {
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (command, stdin, stdin_is_terminal, backend, resolver);
-        return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
-    }
-    #[cfg(target_os = "macos")]
-    {
-        match command {
-            ProviderCredentialCommand::Set => {
-                let credential = read_credential_bytes(stdin, stdin_is_terminal)?;
-                let access = resolver.resolve()?;
-                match backend.store(&credential, &access) {
-                    Ok(()) => Ok(CredentialOutcome::Configured.stdout().to_owned()),
-                    Err(
-                        SecureStoreError::UnsupportedSecureStoreBackend
-                        | SecureStoreError::Unavailable,
-                    ) => Ok(CredentialOutcome::Unsupported.stdout().to_owned()),
-                    Err(error) => Err(map_credential_error(&error)),
-                }
+    execute_provider_credential_on_platform(
+        command,
+        stdin,
+        stdin_is_terminal,
+        backend,
+        resolver,
+        cfg!(target_os = "macos"),
+    )
+}
+
+fn execute_provider_credential_on_platform(
+    command: ProviderCredentialCommand,
+    stdin: &mut impl Read,
+    stdin_is_terminal: bool,
+    backend: &mut impl CredentialBackend,
+    resolver: &impl CredentialIdentityResolver,
+    native_backend_supported: bool,
+) -> Result<String, CliError> {
+    match command {
+        ProviderCredentialCommand::Set => {
+            let credential = read_credential_bytes(stdin, stdin_is_terminal)?;
+            if !native_backend_supported {
+                return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
             }
-            ProviderCredentialCommand::Status => {
-                let access = resolver.resolve()?;
-                backend
-                    .status(&access)
-                    .map(|outcome| outcome.stdout().to_owned())
-                    .map_err(|error| map_credential_error(&error))
+            let access = resolver.resolve()?;
+            match backend.store(&credential, &access) {
+                Ok(()) => Ok(CredentialOutcome::Configured.stdout().to_owned()),
+                Err(
+                    SecureStoreError::UnsupportedSecureStoreBackend | SecureStoreError::Unavailable,
+                ) => Ok(CredentialOutcome::Unsupported.stdout().to_owned()),
+                Err(error) => Err(map_credential_error(&error)),
             }
-            ProviderCredentialCommand::Delete => {
-                let access = resolver.resolve()?;
-                let _ = access;
-                match backend.delete() {
-                    Ok(()) => Ok(CredentialOutcome::Missing.stdout().to_owned()),
-                    Err(
-                        SecureStoreError::UnsupportedSecureStoreBackend
-                        | SecureStoreError::Unavailable,
-                    ) => Ok(CredentialOutcome::Unsupported.stdout().to_owned()),
-                    Err(error) => Err(map_credential_error(&error)),
-                }
+        }
+        ProviderCredentialCommand::Status => {
+            if !native_backend_supported {
+                return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
+            }
+            let access = resolver.resolve()?;
+            backend
+                .status(&access)
+                .map(|outcome| outcome.stdout().to_owned())
+                .map_err(|error| map_credential_error(&error))
+        }
+        ProviderCredentialCommand::Delete => {
+            if !native_backend_supported {
+                return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
+            }
+            let access = resolver.resolve()?;
+            let _ = access;
+            match backend.delete() {
+                Ok(()) => Ok(CredentialOutcome::Missing.stdout().to_owned()),
+                Err(
+                    SecureStoreError::UnsupportedSecureStoreBackend | SecureStoreError::Unavailable,
+                ) => Ok(CredentialOutcome::Unsupported.stdout().to_owned()),
+                Err(error) => Err(map_credential_error(&error)),
             }
         }
     }
@@ -612,6 +629,140 @@ mod provider_credential_tests {
             "unsupported"
         );
         assert!(!backend.configured);
+    }
+
+    #[test]
+    fn unsupported_platform_validates_set_input_before_returning_unsupported() {
+        let mut backend = FakeBackend::default();
+        let resolver = FakeResolver;
+
+        assert!(matches!(
+            execute_provider_credential_on_platform(
+                ProviderCredentialCommand::Set,
+                &mut b"invalid\ncredential".as_slice(),
+                false,
+                &mut backend,
+                &resolver,
+                false,
+            ),
+            Err(CliError::CredentialInput)
+        ));
+        assert!(matches!(
+            execute_provider_credential_on_platform(
+                ProviderCredentialCommand::Set,
+                &mut b"credential".as_slice(),
+                true,
+                &mut backend,
+                &resolver,
+                false,
+            ),
+            Err(CliError::CredentialInput)
+        ));
+        assert_eq!(
+            execute_provider_credential_on_platform(
+                ProviderCredentialCommand::Set,
+                &mut vec![b'x'; 4_096].as_slice(),
+                false,
+                &mut backend,
+                &resolver,
+                false,
+            )
+            .unwrap(),
+            "unsupported"
+        );
+        assert!(!backend.configured);
+    }
+
+    #[test]
+    fn credential_process_harness_exercises_happy_paths_and_redaction() {
+        for (scenario, input, expected_stdout, expected_status) in [
+            ("set", b"credential".as_slice(), "configured", true),
+            ("status", b"".as_slice(), "configured", true),
+            ("delete", b"".as_slice(), "missing", true),
+            ("exact4096", &vec![b'x'; 4_096], "configured", true),
+            ("tty", b"credential".as_slice(), "", false),
+            ("backend-error", b"".as_slice(), "", false),
+        ] {
+            let output = run_process_child(scenario, input);
+            assert_eq!(output.status.success(), expected_status, "{scenario}");
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!stdout.contains("process-secret-marker"), "{scenario}");
+            assert!(!stderr.contains("process-secret-marker"), "{scenario}");
+            assert!(!stderr.contains("backend-detail"), "{scenario}");
+            if expected_status {
+                assert!(stdout.contains(expected_stdout), "{scenario}: {stdout}");
+            } else {
+                assert!(
+                    stdout.is_empty() || !stdout.contains("configured"),
+                    "{scenario}"
+                );
+            }
+        }
+    }
+
+    fn run_process_child(scenario: &str, input: &[u8]) -> std::process::Output {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "provider_credential_tests::credential_process_child",
+                "--nocapture",
+            ])
+            .env("GOCODE_CLI_TEST_CHILD", scenario)
+            .env("OPENAI_API_KEY", "process-secret-marker")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("start child");
+        child
+            .stdin
+            .take()
+            .expect("child stdin")
+            .write_all(input)
+            .expect("write child stdin");
+        child.wait_with_output().expect("wait child")
+    }
+
+    #[test]
+    fn credential_process_child() {
+        let Ok(scenario) = std::env::var("GOCODE_CLI_TEST_CHILD") else {
+            return;
+        };
+        let (command, stdin_is_terminal, backend_failure) = match scenario.as_str() {
+            "set" | "exact4096" => (ProviderCredentialCommand::Set, false, false),
+            "status" => (ProviderCredentialCommand::Status, false, false),
+            "delete" => (ProviderCredentialCommand::Delete, false, false),
+            "tty" => (ProviderCredentialCommand::Set, true, false),
+            "backend-error" => (ProviderCredentialCommand::Status, false, true),
+            _ => std::process::exit(2),
+        };
+        let mut backend = FakeBackend {
+            configured: scenario == "status",
+            failure: backend_failure,
+            ..FakeBackend::default()
+        };
+        let result = execute_provider_credential_on_platform(
+            command,
+            &mut std::io::stdin(),
+            stdin_is_terminal,
+            &mut backend,
+            &FakeResolver,
+            true,
+        );
+        match result {
+            Ok(output) => {
+                println!("{output}");
+                std::process::exit(0);
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                std::process::exit(error.exit_code());
+            }
+        }
     }
 
     fn args(values: &[&str]) -> VecDeque<OsString> {
