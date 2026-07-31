@@ -7,9 +7,12 @@ use zeroize::Zeroizing;
 use crate::SecureStoreError;
 
 const PROVIDER_CREDENTIAL_MAGIC: &[u8; 8] = b"GCPCV1\0\0";
+const PROVIDER_CREDENTIAL_METADATA_MAGIC: &[u8; 8] = b"GCPMDV1\0";
 const EXECUTABLE_IDENTITY_BYTES: usize = 72;
 const PROVIDER_CREDENTIAL_HEADER_BYTES: usize =
     PROVIDER_CREDENTIAL_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32 + 4;
+const PROVIDER_CREDENTIAL_METADATA_BYTES: usize =
+    PROVIDER_CREDENTIAL_METADATA_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32;
 
 /// Fixed native secure-store service for provider credentials.
 pub const PROVIDER_CREDENTIAL_SERVICE: &str = "dev.gocode.provider-credential.v1";
@@ -167,6 +170,75 @@ pub struct StoredProviderCredential {
     material: ProviderCredentialMaterial,
 }
 
+/// Non-secret item metadata used for pre-readiness presence and ACL checks.
+pub struct ProviderCredentialMetadata {
+    writer_identity: ExecutableIdentityV1,
+    reader_identity: ExecutableIdentityV1,
+    acl_set_digest: [u8; 32],
+}
+
+impl ProviderCredentialMetadata {
+    pub fn from_access(access: &ProviderCredentialAccessPolicy, acl_set_digest: [u8; 32]) -> Self {
+        Self {
+            writer_identity: access.writer_identity().clone(),
+            reader_identity: access.reader_identity().clone(),
+            acl_set_digest,
+        }
+    }
+
+    pub fn decode(encoded: &[u8]) -> Result<Self, SecureStoreError> {
+        if encoded.len() != PROVIDER_CREDENTIAL_METADATA_BYTES
+            || &encoded[..PROVIDER_CREDENTIAL_METADATA_MAGIC.len()]
+                != PROVIDER_CREDENTIAL_METADATA_MAGIC
+        {
+            return Err(SecureStoreError::CorruptProviderCredential);
+        }
+        let mut offset = PROVIDER_CREDENTIAL_METADATA_MAGIC.len();
+        let writer_identity = decode_identity(encoded, &mut offset)?;
+        let reader_identity = decode_identity(encoded, &mut offset)?;
+        let acl_set_digest = take(encoded, &mut offset)?;
+        if acl_set_digest == [0; 32] {
+            return Err(SecureStoreError::CorruptProviderCredential);
+        }
+        Ok(Self {
+            writer_identity,
+            reader_identity,
+            acl_set_digest,
+        })
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut encoded = Vec::with_capacity(PROVIDER_CREDENTIAL_METADATA_BYTES);
+        encoded.extend_from_slice(PROVIDER_CREDENTIAL_METADATA_MAGIC);
+        encode_identity(&mut encoded, &self.writer_identity);
+        encode_identity(&mut encoded, &self.reader_identity);
+        encoded.extend_from_slice(&self.acl_set_digest);
+        encoded
+    }
+
+    pub fn validate_writer_current(&self) -> Result<(), SecureStoreError> {
+        validate_current_identity(&self.writer_identity)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)
+    }
+
+    pub fn validate_reader_current(&self) -> Result<(), SecureStoreError> {
+        validate_current_identity(&self.reader_identity)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)
+    }
+
+    pub fn validate_writer_or_reader_current(&self) -> Result<(), SecureStoreError> {
+        if self.validate_writer_current().is_ok() || self.validate_reader_current().is_ok() {
+            Ok(())
+        } else {
+            Err(SecureStoreError::CredentialAccessDenied)
+        }
+    }
+
+    pub const fn acl_set_digest(&self) -> [u8; 32] {
+        self.acl_set_digest
+    }
+}
+
 impl StoredProviderCredential {
     pub fn decode(encoded: &[u8]) -> Result<Self, SecureStoreError> {
         if encoded.len() < PROVIDER_CREDENTIAL_HEADER_BYTES
@@ -236,11 +308,13 @@ impl StoredProviderCredential {
             && self.reader_identity == *access.reader_identity()
     }
 
-    pub fn validate_writer_current(&self) -> Result<(), SecureStoreError> {
-        validate_current_identity(&self.writer_identity)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)
+    pub fn metadata_matches(&self, metadata: &ProviderCredentialMetadata) -> bool {
+        self.writer_identity == metadata.writer_identity
+            && self.reader_identity == metadata.reader_identity
+            && self.acl_set_digest == metadata.acl_set_digest
     }
 
+    #[cfg(test)]
     pub fn validate_reader_current(&self) -> Result<(), SecureStoreError> {
         validate_current_identity(&self.reader_identity)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)

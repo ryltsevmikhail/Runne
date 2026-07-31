@@ -1,11 +1,12 @@
-use std::fs::{File, OpenOptions};
 use std::sync::Mutex;
 
-use gocode_macos_keychain_acl::{ExactKeychainAccess, KeychainAclError};
+use gocode_macos_keychain_acl::{
+    ExactKeychainAccess, KeychainAclError, ProviderCredentialProcessLock,
+};
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 
-use crate::provider_credential::StoredProviderCredential;
+use crate::provider_credential::{ProviderCredentialMetadata, StoredProviderCredential};
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
     ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
@@ -25,30 +26,7 @@ const ERR_SEC_NO_ACCESS_FOR_ITEM: i32 = -25_243;
 const ERR_SEC_INVALID_OWNER_EDIT: i32 = -25_244;
 static PROVIDER_CREDENTIAL_KEYCHAIN_LOCK: Mutex<()> = Mutex::new(());
 type CredentialKeychainItem = Option<(Zeroizing<Vec<u8>>, SecKeychainItem)>;
-
-struct ProviderCredentialProcessLock {
-    _file: File,
-}
-
-impl ProviderCredentialProcessLock {
-    fn acquire() -> Result<Self, SecureStoreError> {
-        #[cfg(unix)]
-        use std::os::unix::fs::OpenOptionsExt as _;
-
-        let path = std::env::temp_dir().join("dev.gocode.provider-credential.v1.lock");
-        let file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .mode(0o600)
-            .open(path)
-            .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)?;
-        file.lock()
-            .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)?;
-        Ok(Self { _file: file })
-    }
-}
+type CredentialMetadataItem = Option<(ProviderCredentialMetadata, SecKeychainItem)>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum CredentialMigrationFailpoint {
@@ -153,14 +131,14 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         provider: ProviderCredentialId,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         self.validate_provider(provider)?;
-        Self::with_noninteractive(|keychain| {
-            let Some((encoded, item)) = self.find_item(keychain)? else {
-                return Ok(ProviderCredentialStatus::Missing);
-            };
-            let stored = StoredProviderCredential::decode(&encoded)?;
-            stored.validate_writer_current()?;
-            verify_item_acl(&item, stored.acl_set_digest())?;
-            Ok(ProviderCredentialStatus::Configured)
+        Self::with_noninteractive(|keychain| match self.find_metadata_pair(keychain)? {
+            (None, None) => Ok(ProviderCredentialStatus::Missing),
+            (Some((metadata, item)), None) => {
+                metadata.validate_writer_or_reader_current()?;
+                verify_item_acl(&item, metadata.acl_set_digest())?;
+                Ok(ProviderCredentialStatus::Configured)
+            }
+            _ => Err(SecureStoreError::CredentialMigrationIncomplete),
         })
     }
 
@@ -179,12 +157,21 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             let exact_access = ExactKeychainAccess::new(access.writer_path(), access.reader_path())
                 .map_err(map_acl_error)?;
             access.remeasure().map_err(map_identity_access_error)?;
+            let metadata =
+                ProviderCredentialMetadata::from_access(access, exact_access.digest()).encode();
             let encoded =
                 StoredProviderCredential::encode(credential, access, exact_access.digest())?;
-            match self.find_item(keychain)? {
-                Some((existing, mut item)) => {
+            match self.find_metadata_pair(keychain)? {
+                (Some((existing_metadata, metadata_item)), None) => {
+                    existing_metadata.validate_writer_current()?;
+                    verify_item_acl(&metadata_item, existing_metadata.acl_set_digest())?;
+                    let Some((existing, mut item)) = self.find_primary_item(keychain)? else {
+                        return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+                    };
                     let stored = StoredProviderCredential::decode(&existing)?;
-                    stored.validate_writer_current()?;
+                    if !stored.metadata_matches(&existing_metadata) {
+                        return Err(SecureStoreError::CorruptProviderCredential);
+                    }
                     if !stored.access_matches(access) {
                         return Err(SecureStoreError::CredentialAclMigrationRequired);
                     }
@@ -192,14 +179,16 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
                     item.set_password(&encoded).map_err(map_keychain_error)?;
                     verify_item_acl(&item, exact_access.digest())
                 }
-                None => create_populated_provider_item(
+                (None, None) => create_populated_provider_item(
                     keychain,
                     &self.service,
                     &self.account,
+                    &metadata,
                     &exact_access,
                     &encoded,
                 )
                 .map(|_| ()),
+                _ => Err(SecureStoreError::CredentialMigrationIncomplete),
             }
         })
     }
@@ -210,11 +199,20 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         self.validate_provider(provider)?;
         Self::with_noninteractive(|keychain| {
-            let Some((encoded, item)) = self.find_item(keychain)? else {
-                return Err(SecureStoreError::ProviderCredentialNotFound);
+            let (metadata, metadata_item) = match self.find_metadata_pair(keychain)? {
+                (Some(primary), None) => primary,
+                (None, None) => return Err(SecureStoreError::ProviderCredentialNotFound),
+                _ => return Err(SecureStoreError::CredentialMigrationIncomplete),
+            };
+            metadata.validate_reader_current()?;
+            verify_item_acl(&metadata_item, metadata.acl_set_digest())?;
+            let Some((encoded, item)) = self.find_primary_item(keychain)? else {
+                return Err(SecureStoreError::CredentialEnrollmentIncomplete);
             };
             let stored = StoredProviderCredential::decode(&encoded)?;
-            stored.validate_reader_current()?;
+            if !stored.metadata_matches(&metadata) {
+                return Err(SecureStoreError::CorruptProviderCredential);
+            }
             verify_item_acl(&item, stored.acl_set_digest())?;
             Ok(stored.into_material())
         })
@@ -226,13 +224,13 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
     ) -> Result<(), SecureStoreError> {
         self.validate_provider(provider)?;
         Self::with_noninteractive(|keychain| {
-            let Some((encoded, item)) = self.find_item(keychain)? else {
-                return Ok(());
-            };
-            let stored = StoredProviderCredential::decode(&encoded)?;
-            stored.validate_writer_current()?;
-            verify_item_acl(&item, stored.acl_set_digest())?;
-            gocode_macos_keychain_acl::delete_item(&item).map_err(map_acl_error)
+            let (primary, backup) = self.find_metadata_pair(keychain)?;
+            for (metadata, item) in [backup, primary].into_iter().flatten() {
+                metadata.validate_writer_current()?;
+                verify_item_acl(&item, metadata.acl_set_digest())?;
+                gocode_macos_keychain_acl::delete_item(&item).map_err(map_acl_error)?;
+            }
+            Ok(())
         })
     }
 
@@ -269,10 +267,19 @@ impl MacOsProviderCredentialStore {
                 return Err(SecureStoreError::ProviderCredentialNotFound);
             };
             let stored = StoredProviderCredential::decode(&encoded)?;
+            let Some((metadata, metadata_item)) =
+                self.find_named_metadata(keychain, &self.service)?
+            else {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            };
+            if !stored.metadata_matches(&metadata) {
+                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            }
             if !stored.access_matches(current) && !stored.access_matches(replacement) {
                 return Err(SecureStoreError::CredentialAclMigrationRequired);
             }
             verify_item_acl(&item, stored.acl_set_digest())?;
+            verify_item_acl(&metadata_item, metadata.acl_set_digest())?;
             let replacement_access =
                 ExactKeychainAccess::new(replacement.writer_path(), replacement.reader_path())
                     .map_err(map_acl_error)?;
@@ -288,6 +295,11 @@ impl MacOsProviderCredentialStore {
                 return Err(SecureStoreError::CredentialAccessDenied);
             }
             let material = stored.into_material();
+            let current_metadata =
+                ProviderCredentialMetadata::from_access(current, current_access.digest()).encode();
+            let replacement_metadata =
+                ProviderCredentialMetadata::from_access(replacement, replacement_access.digest())
+                    .encode();
             let replacement_encoded = StoredProviderCredential::encode(
                 &material,
                 replacement,
@@ -298,6 +310,7 @@ impl MacOsProviderCredentialStore {
                 keychain,
                 &migration_service,
                 &self.account,
+                &current_metadata,
                 &current_access,
                 &encoded,
             )?;
@@ -314,6 +327,7 @@ impl MacOsProviderCredentialStore {
                 keychain,
                 &self.service,
                 &self.account,
+                &replacement_metadata,
                 &replacement_access,
                 &replacement_encoded,
             ) else {
@@ -347,6 +361,14 @@ impl MacOsProviderCredentialStore {
             return Ok(());
         };
         let backup = StoredProviderCredential::decode(&backup_encoded)?;
+        let Some((backup_metadata, backup_metadata_item)) =
+            self.find_named_metadata(keychain, &self.migration_service())?
+        else {
+            return Err(SecureStoreError::CredentialMigrationIncomplete);
+        };
+        if !backup.metadata_matches(&backup_metadata) {
+            return Err(SecureStoreError::CredentialMigrationIncomplete);
+        }
         if !backup.access_matches(current) {
             return Err(SecureStoreError::CredentialMigrationIncomplete);
         }
@@ -356,6 +378,7 @@ impl MacOsProviderCredentialStore {
             return Err(SecureStoreError::CredentialMigrationIncomplete);
         }
         verify_item_acl(&backup_item, current_access.digest())?;
+        verify_item_acl(&backup_metadata_item, current_access.digest())?;
         match self.find_primary_item(keychain) {
             Ok(None) => {
                 gocode_macos_keychain_acl::rename_item_service(&backup_item, &self.service)
@@ -364,11 +387,20 @@ impl MacOsProviderCredentialStore {
             }
             Ok(Some((primary_encoded, primary_item))) => {
                 let primary = StoredProviderCredential::decode(&primary_encoded)?;
+                let Some((primary_metadata, primary_metadata_item)) =
+                    self.find_named_metadata(keychain, &self.service)?
+                else {
+                    return Err(SecureStoreError::CredentialMigrationIncomplete);
+                };
+                if !primary.metadata_matches(&primary_metadata) {
+                    return Err(SecureStoreError::CredentialMigrationIncomplete);
+                }
                 if primary.access_matches(current) {
                     if primary_encoded.as_slice() != backup_encoded.as_slice() {
                         return Err(SecureStoreError::CredentialMigrationIncomplete);
                     }
                     verify_item_acl(&primary_item, current_access.digest())?;
+                    verify_item_acl(&primary_metadata_item, current_access.digest())?;
                     gocode_macos_keychain_acl::delete_item(&backup_item)
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
                 } else if primary.access_matches(replacement) {
@@ -381,6 +413,7 @@ impl MacOsProviderCredentialStore {
                         return Err(SecureStoreError::CredentialMigrationIncomplete);
                     }
                     verify_item_acl(&primary_item, replacement_access.digest())?;
+                    verify_item_acl(&primary_metadata_item, replacement_access.digest())?;
                     gocode_macos_keychain_acl::delete_item(&backup_item)
                         .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)
                 } else {
@@ -408,32 +441,35 @@ impl MacOsProviderCredentialStore {
         let _operation_lock = PROVIDER_CREDENTIAL_KEYCHAIN_LOCK
             .lock()
             .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)?;
-        let _process_lock = ProviderCredentialProcessLock::acquire()?;
+        let _process_lock = ProviderCredentialProcessLock::acquire().map_err(map_acl_error)?;
         let _interaction_lock =
             SecKeychain::disable_user_interaction().map_err(map_keychain_error)?;
         let keychain = SecKeychain::default().map_err(map_keychain_error)?;
         operation(&keychain)
     }
 
-    fn find_item(
+    fn find_metadata_pair(
         &self,
         keychain: &SecKeychain,
-    ) -> Result<CredentialKeychainItem, SecureStoreError> {
-        if let Some(primary) = self.find_named_item(keychain, &self.service)? {
-            return Ok(Some(primary));
-        }
-        let Some((encoded, item)) = self.find_named_item(keychain, &self.migration_service())?
-        else {
-            return Ok(None);
-        };
-        let stored = StoredProviderCredential::decode(&encoded)?;
-        if stored.validate_writer_current().is_err() && stored.validate_reader_current().is_err() {
-            return Err(SecureStoreError::CredentialAccessDenied);
-        }
-        verify_item_acl(&item, stored.acl_set_digest())?;
-        gocode_macos_keychain_acl::rename_item_service(&item, &self.service)
-            .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
-        Ok(Some((encoded, item)))
+    ) -> Result<(CredentialMetadataItem, CredentialMetadataItem), SecureStoreError> {
+        Ok((
+            self.find_named_metadata(keychain, &self.service)?,
+            self.find_named_metadata(keychain, &self.migration_service())?,
+        ))
+    }
+
+    fn find_named_metadata(
+        &self,
+        keychain: &SecKeychain,
+        service: &str,
+    ) -> Result<CredentialMetadataItem, SecureStoreError> {
+        gocode_macos_keychain_acl::find_generic_password_metadata(keychain, service, &self.account)
+            .map_err(map_acl_error)?
+            .map(|metadata| {
+                ProviderCredentialMetadata::decode(&metadata.bytes)
+                    .map(|decoded| (decoded, metadata.item))
+            })
+            .transpose()
     }
 
     fn find_primary_item(
@@ -478,6 +514,7 @@ fn create_populated_provider_item(
     keychain: &SecKeychain,
     service: &str,
     account: &str,
+    metadata: &[u8],
     exact_access: &ExactKeychainAccess,
     encoded: &[u8],
 ) -> Result<SecKeychainItem, SecureStoreError> {
@@ -485,6 +522,7 @@ fn create_populated_provider_item(
         keychain,
         service,
         account,
+        metadata,
         exact_access,
     )
     .map_err(map_acl_error)?;
@@ -680,6 +718,7 @@ fn encode_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{BufReader, Write as _};
     use std::os::unix::fs::PermissionsExt as _;
     use std::path::{Path, PathBuf};
 
@@ -690,14 +729,29 @@ mod tests {
 
     impl Drop for ProviderCredentialCleanup {
         fn drop(&mut self) {
-            let _ = security_framework::passwords::delete_generic_password(
-                &self.service,
-                &self.account,
-            );
-            let _ = security_framework::passwords::delete_generic_password(
-                &format!("{}{PROVIDER_CREDENTIAL_MIGRATION_SUFFIX}", self.service),
-                &self.account,
-            );
+            let cleanup = [
+                format!("{}{PROVIDER_CREDENTIAL_MIGRATION_SUFFIX}", self.service),
+                self.service.clone(),
+            ]
+            .into_iter()
+            .try_for_each(|service| {
+                match security_framework::passwords::delete_generic_password(
+                    &service,
+                    &self.account,
+                ) {
+                    Ok(()) => {}
+                    Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => {}
+                    Err(error) => return Err(format!("delete {service}: {error}")),
+                }
+                match security_framework::passwords::get_generic_password(&service, &self.account) {
+                    Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
+                    Ok(_) => Err(format!("cleanup left {service}")),
+                    Err(error) => Err(format!("verify {service}: {error}")),
+                }
+            });
+            if !std::thread::panicking() {
+                cleanup.expect("provider credential test cleanup and postcondition");
+            }
         }
     }
 
@@ -725,6 +779,29 @@ mod tests {
             std::fs::copy(source, &self.0).expect("replace executable copy");
             std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o500))
                 .expect("restrict replaced executable copy");
+        }
+
+        fn resign_with_distinct_identity(&self) {
+            std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700))
+                .expect("make executable copy resignable");
+            let output = std::process::Command::new("/usr/bin/codesign")
+                .args([
+                    "--force",
+                    "--sign",
+                    "-",
+                    "--identifier",
+                    "dev.gocode.untrusted-keychain-test",
+                ])
+                .arg(&self.0)
+                .output()
+                .expect("launch ad-hoc codesign");
+            assert!(
+                output.status.success(),
+                "ad-hoc codesign failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o500))
+                .expect("restrict re-signed executable copy");
         }
     }
 
@@ -756,6 +833,21 @@ mod tests {
             MacOsProviderCredentialStore::with_test_item(service, account),
             cleanup,
         )
+    }
+
+    fn read_child_marker(reader: &mut impl std::io::BufRead, marker: &str) -> std::io::Result<()> {
+        loop {
+            let mut line = String::new();
+            if reader.read_line(&mut line)? == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    format!("child exited before {marker}"),
+                ));
+            }
+            if line.trim() == marker {
+                return Ok(());
+            }
+        }
     }
 
     #[test]
@@ -991,6 +1083,73 @@ mod tests {
     }
 
     #[test]
+    fn untrusted_process_cannot_read_raw_credential_without_ui() {
+        let (store, _cleanup) = unique_provider_store("raw-untrusted-reader");
+        let current = std::env::current_exe().expect("current test executable");
+        let untrusted = ExecutableCopy::new(&current, "raw-untrusted-reader");
+        untrusted.resign_with_distinct_identity();
+        let policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-raw-denial".to_vec()).unwrap();
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &policy)
+            .unwrap();
+
+        let mut child = std::process::Command::new(&untrusted.0)
+            .args([
+                "--exact",
+                "macos::tests::untrusted_process_raw_credential_child",
+                "--nocapture",
+            ])
+            .env("GOCODE_RAW_DENIAL_SERVICE", &store.service)
+            .env("GOCODE_RAW_DENIAL_ACCOUNT", &store.account)
+            .spawn()
+            .expect("launch untrusted raw reader");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let status = loop {
+            if let Some(status) = child.try_wait().expect("poll untrusted raw reader") {
+                break status;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.kill().expect("kill hung untrusted raw reader");
+                let _ = child.wait();
+                panic!("untrusted raw reader did not fail closed without UI");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        };
+        assert!(status.success(), "untrusted raw reader child failed");
+    }
+
+    #[test]
+    fn untrusted_process_raw_credential_child() {
+        let (Some(service), Some(account)) = (
+            std::env::var_os("GOCODE_RAW_DENIAL_SERVICE"),
+            std::env::var_os("GOCODE_RAW_DENIAL_ACCOUNT"),
+        ) else {
+            return;
+        };
+        let service = service.into_string().expect("UTF-8 service");
+        let account = account.into_string().expect("UTF-8 account");
+        let _interaction_lock =
+            SecKeychain::disable_user_interaction().expect("disable Keychain UI");
+        let keychain = SecKeychain::default().expect("default Keychain");
+        let error = keychain
+            .find_generic_password(&service, &account)
+            .expect_err("unenrolled process must not read raw credential");
+        assert!(
+            matches!(
+                error.code(),
+                ERR_SEC_AUTH_FAILED
+                    | ERR_SEC_INTERACTION_NOT_ALLOWED
+                    | ERR_SEC_NO_ACCESS_FOR_ITEM
+                    | ERR_SEC_INVALID_OWNER_EDIT
+            ),
+            "unexpected raw denial status: {}",
+            error.code()
+        );
+    }
+
+    #[test]
     fn provider_credential_acl_migration_is_explicit_and_preserves_material() {
         let (store, _cleanup) = unique_provider_store("migration");
         let current = std::env::current_exe().expect("current test executable");
@@ -1063,29 +1222,37 @@ mod tests {
                 Err(SecureStoreError::CredentialMigrationIncomplete)
             );
 
+            assert_eq!(
+                store.provider_credential_status(ProviderCredentialId::OpenAi),
+                Err(SecureStoreError::CredentialMigrationIncomplete)
+            );
+            assert_eq!(
+                store
+                    .load_provider_credential(ProviderCredentialId::OpenAi)
+                    .unwrap_err(),
+                SecureStoreError::CredentialMigrationIncomplete
+            );
+
+            let first_recovery = store.migrate_provider_credential_access(
+                ProviderCredentialId::OpenAi,
+                &current_policy,
+                &replacement_policy,
+            );
             if failpoint == CredentialMigrationFailpoint::PrimaryDeleted {
                 assert_eq!(
-                    store
-                        .provider_credential_status(ProviderCredentialId::OpenAi)
-                        .unwrap(),
-                    ProviderCredentialStatus::Configured
+                    first_recovery,
+                    Err(SecureStoreError::CredentialMigrationIncomplete)
                 );
-                assert_eq!(
-                    store
-                        .load_provider_credential(ProviderCredentialId::OpenAi)
-                        .unwrap()
-                        .with_bytes(<[u8]>::to_vec),
-                    b"native-test-crash-recovery"
-                );
+                store
+                    .migrate_provider_credential_access(
+                        ProviderCredentialId::OpenAi,
+                        &current_policy,
+                        &replacement_policy,
+                    )
+                    .unwrap();
+            } else {
+                first_recovery.unwrap();
             }
-
-            store
-                .migrate_provider_credential_access(
-                    ProviderCredentialId::OpenAi,
-                    &current_policy,
-                    &replacement_policy,
-                )
-                .unwrap();
             assert_eq!(
                 store
                     .provider_credential_status(ProviderCredentialId::OpenAi)
@@ -1096,6 +1263,112 @@ mod tests {
                 .delete_provider_credential(ProviderCredentialId::OpenAi)
                 .unwrap();
         }
+    }
+
+    #[test]
+    fn provider_credential_delete_is_monotonic_after_every_migration_failpoint() {
+        for failpoint in [
+            CredentialMigrationFailpoint::BackupWritten,
+            CredentialMigrationFailpoint::PrimaryDeleted,
+            CredentialMigrationFailpoint::ReplacementWritten,
+        ] {
+            let (store, _cleanup) = unique_provider_store(match failpoint {
+                CredentialMigrationFailpoint::BackupWritten => "delete-after-backup",
+                CredentialMigrationFailpoint::PrimaryDeleted => "delete-after-primary",
+                CredentialMigrationFailpoint::ReplacementWritten => "delete-after-replacement",
+            });
+            let current = std::env::current_exe().expect("current test executable");
+            let current_policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+            let replacement_policy =
+                ProviderCredentialAccessPolicy::new(&current, Path::new("/bin/echo")).unwrap();
+            let credential =
+                ProviderCredentialMaterial::new(b"native-test-monotonic-delete".to_vec()).unwrap();
+
+            store
+                .store_provider_credential(
+                    ProviderCredentialId::OpenAi,
+                    &credential,
+                    &current_policy,
+                )
+                .unwrap();
+            assert_eq!(
+                store.migrate_provider_credential_access_inner(
+                    ProviderCredentialId::OpenAi,
+                    &current_policy,
+                    &replacement_policy,
+                    Some(failpoint),
+                ),
+                Err(SecureStoreError::CredentialMigrationIncomplete)
+            );
+
+            store
+                .delete_provider_credential(ProviderCredentialId::OpenAi)
+                .unwrap();
+            assert_eq!(
+                store
+                    .provider_credential_status(ProviderCredentialId::OpenAi)
+                    .unwrap(),
+                ProviderCredentialStatus::Missing
+            );
+            assert_eq!(
+                store
+                    .load_provider_credential(ProviderCredentialId::OpenAi)
+                    .unwrap_err(),
+                SecureStoreError::ProviderCredentialNotFound
+            );
+            store
+                .delete_provider_credential(ProviderCredentialId::OpenAi)
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn enrolled_daemon_reader_can_query_status_without_loading_credential() {
+        let (store, _cleanup) = unique_provider_store("reader-status");
+        let current = std::env::current_exe().expect("current test executable");
+        let reader = ExecutableCopy::new(&current, "status-reader");
+        let policy = ProviderCredentialAccessPolicy::new(&current, &reader.0).unwrap();
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-reader-status".to_vec()).unwrap();
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &policy)
+            .unwrap();
+
+        let output = std::process::Command::new(&reader.0)
+            .args([
+                "--exact",
+                "macos::tests::provider_credential_reader_status_child",
+                "--nocapture",
+            ])
+            .env("GOCODE_PROVIDER_STATUS_SERVICE", &store.service)
+            .env("GOCODE_PROVIDER_STATUS_ACCOUNT", &store.account)
+            .output()
+            .expect("launch enrolled reader status child");
+        assert!(
+            output.status.success(),
+            "reader status child failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
+    fn provider_credential_reader_status_child() {
+        let (Some(service), Some(account)) = (
+            std::env::var_os("GOCODE_PROVIDER_STATUS_SERVICE"),
+            std::env::var_os("GOCODE_PROVIDER_STATUS_ACCOUNT"),
+        ) else {
+            return;
+        };
+        let store = MacOsProviderCredentialStore::with_test_item(
+            service.into_string().expect("UTF-8 service"),
+            account.into_string().expect("UTF-8 account"),
+        );
+        assert_eq!(
+            store
+                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .unwrap(),
+            ProviderCredentialStatus::Configured
+        );
     }
 
     #[test]
@@ -1119,14 +1392,23 @@ mod tests {
 
     #[test]
     fn provider_credential_process_lock_is_cross_process() {
+        let (store, _cleanup) = unique_provider_store("cross-process-lock");
+        let current = std::env::current_exe().expect("current test executable");
+        let policy = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let credential =
+            ProviderCredentialMaterial::new(b"native-test-lock-operation".to_vec()).unwrap();
+        store
+            .store_provider_credential(ProviderCredentialId::OpenAi, &credential, &policy)
+            .unwrap();
         let unique = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time")
             .as_nanos();
-        let marker = std::env::temp_dir().join(format!(
-            "gocode-provider-lock-marker-{}-{unique}",
+        let child_temp = std::env::temp_dir().join(format!(
+            "gocode-provider-lock-child-tmp-{}-{unique}",
             std::process::id()
         ));
+        std::fs::create_dir(&child_temp).unwrap();
         let process_lock = ProviderCredentialProcessLock::acquire().unwrap();
         let mut child = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
@@ -1134,25 +1416,57 @@ mod tests {
                 "macos::tests::provider_credential_process_lock_child",
                 "--nocapture",
             ])
-            .env("GOCODE_PROVIDER_LOCK_TEST_MARKER", &marker)
+            .env("GOCODE_PROVIDER_LOCK_TEST_CHILD", "1")
+            .env("GOCODE_PROVIDER_LOCK_SERVICE", &store.service)
+            .env("GOCODE_PROVIDER_LOCK_ACCOUNT", &store.account)
+            .env("TMPDIR", &child_temp)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
             .spawn()
             .expect("spawn lock contender");
-
-        std::thread::sleep(std::time::Duration::from_millis(250));
-        assert!(child.try_wait().unwrap().is_none());
-        assert!(!marker.exists());
+        let mut child_stdout = BufReader::new(child.stdout.take().unwrap());
+        read_child_marker(&mut child_stdout, "READY").unwrap();
+        child.stdin.as_mut().unwrap().write_all(b"GO\n").unwrap();
+        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = read_child_marker(&mut child_stdout, "CONFIGURED");
+            let _ = acquired_tx.send((result, child_stdout));
+        });
+        assert!(
+            acquired_rx
+                .recv_timeout(std::time::Duration::from_millis(500))
+                .is_err(),
+            "child with a different TMPDIR bypassed the process lock"
+        );
         drop(process_lock);
+        let (operation, _child_stdout) = acquired_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        operation.unwrap();
         assert!(child.wait().unwrap().success());
-        assert_eq!(std::fs::read(&marker).unwrap(), b"acquired");
-        std::fs::remove_file(marker).unwrap();
+        std::fs::remove_dir(child_temp).unwrap();
     }
 
     #[test]
     fn provider_credential_process_lock_child() {
-        let Some(marker) = std::env::var_os("GOCODE_PROVIDER_LOCK_TEST_MARKER") else {
+        if std::env::var_os("GOCODE_PROVIDER_LOCK_TEST_CHILD").is_none() {
             return;
-        };
-        let _process_lock = ProviderCredentialProcessLock::acquire().unwrap();
-        std::fs::write(marker, b"acquired").unwrap();
+        }
+        println!("READY");
+        std::io::stdout().flush().unwrap();
+        let mut go = String::new();
+        std::io::stdin().read_line(&mut go).unwrap();
+        assert_eq!(go, "GO\n");
+        let service = std::env::var("GOCODE_PROVIDER_LOCK_SERVICE").unwrap();
+        let account = std::env::var("GOCODE_PROVIDER_LOCK_ACCOUNT").unwrap();
+        let store = MacOsProviderCredentialStore::with_test_item(service, account);
+        assert_eq!(
+            store
+                .provider_credential_status(ProviderCredentialId::OpenAi)
+                .unwrap(),
+            ProviderCredentialStatus::Configured
+        );
+        println!("CONFIGURED");
+        std::io::stdout().flush().unwrap();
     }
 }
