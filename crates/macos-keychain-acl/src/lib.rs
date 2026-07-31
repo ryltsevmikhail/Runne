@@ -601,6 +601,41 @@ pub fn rename_item_service(item: &SecKeychainItem, service: &str) -> Result<(), 
     })
 }
 
+/// Atomically replaces only the non-secret generic metadata attribute.
+///
+/// Password bytes and ACL are left unchanged.
+///
+/// # Errors
+///
+/// Returns a closed failure for empty metadata or a native update failure.
+pub fn set_generic_password_metadata(
+    item: &SecKeychainItem,
+    metadata: &[u8],
+) -> Result<(), KeychainAclError> {
+    if metadata.is_empty() {
+        return Err(KeychainAclError::InvalidItemIdentity);
+    }
+    let mut attribute = SecKeychainAttribute {
+        tag: GENERIC_ITEM_ATTRIBUTE,
+        length: u32::try_from(metadata.len()).map_err(|_| KeychainAclError::InvalidItemIdentity)?,
+        data: metadata.as_ptr().cast_mut().cast(),
+    };
+    let attributes = SecKeychainAttributeList {
+        count: 1,
+        attr: &raw mut attribute,
+    };
+    // SAFETY: metadata and its attribute list remain live for the call. NULL
+    // password data preserves the existing password bytes.
+    status(unsafe {
+        SecKeychainItemModifyAttributesAndData(
+            item.as_concrete_TypeRef(),
+            &raw const attributes,
+            0,
+            ptr::null(),
+        )
+    })
+}
+
 fn trusted_application(path: &Path) -> Result<CFType, KeychainAclError> {
     let path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| KeychainAclError::InvalidExecutable)?;

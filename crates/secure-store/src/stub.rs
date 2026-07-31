@@ -63,6 +63,7 @@ impl ProviderCredentialStore for StubStore {
     fn provider_credential_status(
         &self,
         _provider: ProviderCredentialId,
+        _expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         Ok(ProviderCredentialStatus::Unsupported)
     }
@@ -79,6 +80,7 @@ impl ProviderCredentialStore for StubStore {
     fn load_provider_credential(
         &self,
         _provider: ProviderCredentialId,
+        _expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }

@@ -8,11 +8,18 @@ use crate::SecureStoreError;
 
 const PROVIDER_CREDENTIAL_MAGIC: &[u8; 8] = b"GCPCV1\0\0";
 const PROVIDER_CREDENTIAL_METADATA_MAGIC: &[u8; 8] = b"GCPMDV1\0";
+const PROVIDER_CREDENTIAL_INCOMPLETE_METADATA_MAGIC: &[u8; 8] = b"GCPMDI1\0";
 const EXECUTABLE_IDENTITY_BYTES: usize = 72;
 const PROVIDER_CREDENTIAL_HEADER_BYTES: usize =
     PROVIDER_CREDENTIAL_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32 + 4;
 const PROVIDER_CREDENTIAL_METADATA_BYTES: usize =
     PROVIDER_CREDENTIAL_METADATA_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32;
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum ProviderCredentialEnrollmentState {
+    Incomplete,
+    Complete,
+}
 
 /// Fixed native secure-store service for provider credentials.
 pub const PROVIDER_CREDENTIAL_SERVICE: &str = "dev.gocode.provider-credential.v1";
@@ -153,6 +160,18 @@ impl ProviderCredentialAccessPolicy {
         validate_current_identity(&self.writer_identity)
     }
 
+    pub(crate) fn validate_reader_current(&self) -> Result<(), SecureStoreError> {
+        validate_current_identity(&self.reader_identity)
+    }
+
+    pub(crate) fn validate_writer_or_reader_current(&self) -> Result<(), SecureStoreError> {
+        if self.validate_writer_current().is_ok() || self.validate_reader_current().is_ok() {
+            Ok(())
+        } else {
+            Err(SecureStoreError::CredentialAccessDenied)
+        }
+    }
+
     pub(crate) fn remeasure(&self) -> Result<(), SecureStoreError> {
         let (_, writer) = measure_executable(&self.writer_path)?;
         let (_, reader) = measure_executable(&self.reader_path)?;
@@ -172,6 +191,7 @@ pub struct StoredProviderCredential {
 
 /// Non-secret item metadata used for pre-readiness presence and ACL checks.
 pub struct ProviderCredentialMetadata {
+    enrollment_state: ProviderCredentialEnrollmentState,
     writer_identity: ExecutableIdentityV1,
     reader_identity: ExecutableIdentityV1,
     acl_set_digest: [u8; 32],
@@ -180,6 +200,7 @@ pub struct ProviderCredentialMetadata {
 impl ProviderCredentialMetadata {
     pub fn from_access(access: &ProviderCredentialAccessPolicy, acl_set_digest: [u8; 32]) -> Self {
         Self {
+            enrollment_state: ProviderCredentialEnrollmentState::Complete,
             writer_identity: access.writer_identity().clone(),
             reader_identity: access.reader_identity().clone(),
             acl_set_digest,
@@ -187,12 +208,17 @@ impl ProviderCredentialMetadata {
     }
 
     pub fn decode(encoded: &[u8]) -> Result<Self, SecureStoreError> {
-        if encoded.len() != PROVIDER_CREDENTIAL_METADATA_BYTES
-            || &encoded[..PROVIDER_CREDENTIAL_METADATA_MAGIC.len()]
-                != PROVIDER_CREDENTIAL_METADATA_MAGIC
-        {
+        if encoded.len() != PROVIDER_CREDENTIAL_METADATA_BYTES {
             return Err(SecureStoreError::CorruptProviderCredential);
         }
+        let magic = &encoded[..PROVIDER_CREDENTIAL_METADATA_MAGIC.len()];
+        let enrollment_state = if magic == PROVIDER_CREDENTIAL_METADATA_MAGIC {
+            ProviderCredentialEnrollmentState::Complete
+        } else if magic == PROVIDER_CREDENTIAL_INCOMPLETE_METADATA_MAGIC {
+            ProviderCredentialEnrollmentState::Incomplete
+        } else {
+            return Err(SecureStoreError::CorruptProviderCredential);
+        };
         let mut offset = PROVIDER_CREDENTIAL_METADATA_MAGIC.len();
         let writer_identity = decode_identity(encoded, &mut offset)?;
         let reader_identity = decode_identity(encoded, &mut offset)?;
@@ -201,6 +227,7 @@ impl ProviderCredentialMetadata {
             return Err(SecureStoreError::CorruptProviderCredential);
         }
         Ok(Self {
+            enrollment_state,
             writer_identity,
             reader_identity,
             acl_set_digest,
@@ -208,12 +235,29 @@ impl ProviderCredentialMetadata {
     }
 
     pub fn encode(&self) -> Vec<u8> {
+        self.encode_with_state(ProviderCredentialEnrollmentState::Complete)
+    }
+
+    pub fn encode_incomplete(&self) -> Vec<u8> {
+        self.encode_with_state(ProviderCredentialEnrollmentState::Incomplete)
+    }
+
+    fn encode_with_state(&self, state: ProviderCredentialEnrollmentState) -> Vec<u8> {
         let mut encoded = Vec::with_capacity(PROVIDER_CREDENTIAL_METADATA_BYTES);
-        encoded.extend_from_slice(PROVIDER_CREDENTIAL_METADATA_MAGIC);
+        encoded.extend_from_slice(match state {
+            ProviderCredentialEnrollmentState::Incomplete => {
+                PROVIDER_CREDENTIAL_INCOMPLETE_METADATA_MAGIC
+            }
+            ProviderCredentialEnrollmentState::Complete => PROVIDER_CREDENTIAL_METADATA_MAGIC,
+        });
         encode_identity(&mut encoded, &self.writer_identity);
         encode_identity(&mut encoded, &self.reader_identity);
         encoded.extend_from_slice(&self.acl_set_digest);
         encoded
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.enrollment_state == ProviderCredentialEnrollmentState::Complete
     }
 
     pub fn validate_writer_current(&self) -> Result<(), SecureStoreError> {
@@ -221,21 +265,13 @@ impl ProviderCredentialMetadata {
             .map_err(|_| SecureStoreError::CredentialAccessDenied)
     }
 
-    pub fn validate_reader_current(&self) -> Result<(), SecureStoreError> {
-        validate_current_identity(&self.reader_identity)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)
-    }
-
-    pub fn validate_writer_or_reader_current(&self) -> Result<(), SecureStoreError> {
-        if self.validate_writer_current().is_ok() || self.validate_reader_current().is_ok() {
-            Ok(())
-        } else {
-            Err(SecureStoreError::CredentialAccessDenied)
-        }
-    }
-
     pub const fn acl_set_digest(&self) -> [u8; 32] {
         self.acl_set_digest
+    }
+
+    pub fn access_matches(&self, access: &ProviderCredentialAccessPolicy) -> bool {
+        self.writer_identity == *access.writer_identity()
+            && self.reader_identity == *access.reader_identity()
     }
 }
 
@@ -406,7 +442,8 @@ fn measure_executable(path: &Path) -> Result<(PathBuf, ExecutableIdentityV1), Se
 
 /// Native provider credential lifecycle boundary.
 pub trait ProviderCredentialStore: Send + Sync {
-    /// Returns only a closed, non-secret availability state.
+    /// Returns only a closed, non-secret availability state under a freshly
+    /// measured caller-supplied expected writer/reader binding.
     ///
     /// # Errors
     ///
@@ -414,6 +451,7 @@ pub trait ProviderCredentialStore: Send + Sync {
     fn provider_credential_status(
         &self,
         provider: ProviderCredentialId,
+        expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError>;
 
     /// Persists one credential under an exact writer/reader ACL.
@@ -428,7 +466,8 @@ pub trait ProviderCredentialStore: Send + Sync {
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError>;
 
-    /// Materializes one credential only for its exact enrolled reader.
+    /// Materializes one credential only for its exact enrolled reader under a
+    /// freshly measured caller-supplied expected writer/reader binding.
     ///
     /// # Errors
     ///
@@ -436,6 +475,7 @@ pub trait ProviderCredentialStore: Send + Sync {
     fn load_provider_credential(
         &self,
         provider: ProviderCredentialId,
+        expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
 
     /// Idempotently deletes only the exact provider item as its writer.
@@ -505,5 +545,23 @@ mod tests {
                 .expect("restrict copied executable");
         }
         path
+    }
+
+    #[test]
+    fn complete_metadata_preserves_v1_upgrade_and_rollback_layout() {
+        let current = std::env::current_exe().unwrap();
+        let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+        let metadata = ProviderCredentialMetadata::from_access(&access, [7; 32]);
+
+        let encoded = metadata.encode();
+
+        assert_eq!(encoded.len(), 184);
+        assert_eq!(&encoded[..8], b"GCPMDV1\0");
+        assert!(
+            ProviderCredentialMetadata::decode(&encoded)
+                .unwrap()
+                .is_complete()
+        );
+        assert_ne!(&metadata.encode_incomplete()[..8], b"GCPMDV1\0");
     }
 }
