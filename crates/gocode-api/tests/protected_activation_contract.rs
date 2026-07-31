@@ -359,6 +359,10 @@ fn renewal_and_shutdown_are_bound_to_the_current_owned_launch() {
         LaunchAuthorityError::RenewalReplay
     );
     assert_eq!(
+        renewal.verify_exact(&owned, u64::MAX, &keys).unwrap_err(),
+        LaunchAuthorityError::RenewalReplay
+    );
+    assert_eq!(
         ProtectedRenewRequestV1::decode_frame(&renewal.encode_frame().unwrap()).unwrap(),
         renewal
     );
@@ -515,6 +519,10 @@ fn v2_readiness_renewal_and_shutdown_bind_provider_to_owned_session() {
     let mut renewal = ProtectedRenewRequestV2::new(owned.clone(), 1, [0x71; 32]).unwrap();
     renewal.sign(&keys);
     renewal.verify_exact(&owned, 0, &keys).unwrap();
+    assert_eq!(
+        renewal.verify_exact(&owned, u64::MAX, &keys).unwrap_err(),
+        LaunchAuthorityError::RenewalReplay
+    );
     assert_eq!(
         ProtectedRenewRequestV2::decode_frame(&renewal.encode_frame().unwrap()).unwrap(),
         renewal

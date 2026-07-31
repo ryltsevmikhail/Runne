@@ -1350,7 +1350,10 @@ impl ProtectedRenewRequestV1 {
         if &self.owned_launch != expected {
             return Err(LaunchAuthorityError::OwnershipMismatch);
         }
-        if self.sequence != last_sequence.saturating_add(1) || self.nonce == [0; 32] {
+        let next_sequence = last_sequence
+            .checked_add(1)
+            .ok_or(LaunchAuthorityError::RenewalReplay)?;
+        if self.sequence != next_sequence || self.nonce == [0; 32] {
             return Err(LaunchAuthorityError::RenewalReplay);
         }
         let expected_proof = authenticated_mac(
@@ -2769,7 +2772,10 @@ impl ProtectedRenewRequestV2 {
         keys: &ProtectedActivationKeys,
     ) -> Result<(), LaunchAuthorityError> {
         self.owned_launch.verify_exact(expected)?;
-        if self.sequence != last_sequence.saturating_add(1) || self.nonce == [0; 32] {
+        let next_sequence = last_sequence
+            .checked_add(1)
+            .ok_or(LaunchAuthorityError::RenewalReplay)?;
+        if self.sequence != next_sequence || self.nonce == [0; 32] {
             return Err(LaunchAuthorityError::RenewalReplay);
         }
         let expected_proof = authenticated_mac_version(
