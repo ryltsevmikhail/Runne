@@ -23,9 +23,56 @@ fn main() {
         false,
         "delete",
     );
-    assert_eq!(delete.output.as_deref(), Ok("missing"));
+    assert_eq!(delete.outcome.stdout, "missing\n");
+    assert_eq!(delete.outcome.stderr, "");
     assert_eq!(delete.delete_calls, 1);
     assert_eq!(delete.resolver_calls, 0);
+
+    let set = cli::credential_test_support::run(
+        [
+            "provider",
+            "credential",
+            "set",
+            "--provider",
+            "openai",
+            "--stdin",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect(),
+        &mut b"stdin-secret".as_slice(),
+        false,
+        "set",
+    );
+    assert_eq!(set.outcome.stdout, "configured\n");
+    assert_eq!(set.store_calls, 1);
+    assert!(set.store_received_stdin_secret);
+
+    for (scenario, expected_store_calls) in [("set-resolver-error", 0), ("set-backend-error", 1)] {
+        let failed_set = cli::credential_test_support::run(
+            [
+                "provider",
+                "credential",
+                "set",
+                "--provider",
+                "openai",
+                "--stdin",
+            ]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
+            &mut b"stdin-secret".as_slice(),
+            false,
+            scenario,
+        );
+        assert_eq!(failed_set.outcome.stdout, "");
+        assert_eq!(
+            failed_set.outcome.stderr,
+            "provider credential operation failed\n"
+        );
+        assert_eq!(failed_set.resolver_calls, 1);
+        assert_eq!(failed_set.store_calls, expected_store_calls);
+    }
 
     for (scenario, command, input, terminal, expected_stdout, expected_code) in [
         (
@@ -38,7 +85,7 @@ fn main() {
                 "openai",
                 "--stdin",
             ],
-            b"credential".as_slice(),
+            b"stdin-secret".as_slice(),
             false,
             "configured\n",
             0,
@@ -98,9 +145,31 @@ fn main() {
             1,
         ),
         (
-            "resolver-error",
-            vec!["provider", "credential", "status", "--provider", "openai"],
-            b"".as_slice(),
+            "set-resolver-error",
+            vec![
+                "provider",
+                "credential",
+                "set",
+                "--provider",
+                "openai",
+                "--stdin",
+            ],
+            b"stdin-secret".as_slice(),
+            false,
+            "",
+            1,
+        ),
+        (
+            "set-backend-error",
+            vec![
+                "provider",
+                "credential",
+                "set",
+                "--provider",
+                "openai",
+                "--stdin",
+            ],
+            b"stdin-secret".as_slice(),
             false,
             "",
             1,
@@ -124,9 +193,22 @@ fn main() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(!stderr.contains("process-secret-marker"), "{scenario}");
         assert!(!stderr.contains("backend-detail"), "{scenario}");
-        if expected_code != 0 {
-            assert!(!stderr.is_empty(), "{scenario}");
+        assert_eq!(
+            stderr,
+            expected_stderr(scenario, expected_code),
+            "{scenario}"
+        );
+    }
+}
+
+fn expected_stderr(scenario: &str, code: i32) -> &'static str {
+    match (scenario, code) {
+        (_, 0) => "",
+        ("tty", _) => "provider credential input is invalid\n",
+        ("missing-stdin", _) => {
+            "Usage:\n  gocode [--profile PATH] conversation create [--workspace-id UUID]\n  gocode [--profile PATH] conversation send --conversation-id UUID --expected-version N --text TEXT\n  gocode [--profile PATH] conversation messages --conversation-id UUID\n"
         }
+        _ => "provider credential operation failed\n",
     }
 }
 
@@ -160,14 +242,5 @@ fn run_child(mut arguments: Vec<OsString>) -> ! {
     let terminal = scenario == "tty";
     let result =
         cli::credential_test_support::run(arguments, &mut std::io::stdin(), terminal, &scenario);
-    match result.output {
-        Ok(output) => {
-            println!("{output}");
-            std::process::exit(result.exit_code);
-        }
-        Err(error) => {
-            eprintln!("{error}");
-            std::process::exit(result.exit_code);
-        }
-    }
+    cli::write_process_outcome(&result.outcome)
 }
