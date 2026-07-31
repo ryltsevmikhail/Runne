@@ -10,13 +10,15 @@ use thiserror::Error;
 pub const OPENAI_RESPONSES_PROFILE_ID: &str = "gocode-openai-responses-text/1";
 /// Exact provider request model snapshot.
 pub const OPENAI_REQUEST_MODEL: &str = "gpt-5.5-2026-04-23";
+/// Exact Standard processing tier requested and required in response evidence.
+pub const OPENAI_SERVICE_TIER: &str = "default";
 /// Provider-neutral model family bound into `ModelRef`.
 pub const OPENAI_MODEL_ID: &str = "gpt-5.5";
 /// Provider-neutral immutable model revision bound into `ModelRef`.
 pub const OPENAI_MODEL_REVISION: &str = "2026-04-23";
 
 const PROFILE_SCHEMA_VERSION: u64 = 1;
-const PROFILE_REVISION: u64 = 1;
+const PROFILE_REVISION: u64 = 2;
 const PROVIDER_ID: &str = "openai";
 const ORIGIN: &str = "https://api.openai.com";
 const PATH: &str = "/v1/responses";
@@ -35,8 +37,8 @@ const MAX_REQUEST_BYTES: usize = 524_288;
 const MAX_PROFILE_BYTES: usize = 16 * 1024;
 const PRICING_DIGEST_DOMAIN: &[u8] = b"GOCODE_OPENAI_RESPONSES_TEXT_PRICING_V1\0";
 const PROFILE_SOURCE_DIGEST: [u8; 32] = [
-    0x48, 0xdd, 0x02, 0x34, 0x57, 0x32, 0xd8, 0xb7, 0x34, 0x9d, 0x09, 0x67, 0xdf, 0xb0, 0xb2, 0xee,
-    0x61, 0x81, 0x6b, 0x6a, 0x27, 0xf2, 0xb1, 0x57, 0xde, 0x42, 0x3f, 0x53, 0xd6, 0x62, 0xe9, 0x64,
+    0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1, 0x73, 0x98,
+    0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d, 0xd0, 0xfb, 0xed, 0x80,
 ];
 
 /// Exact-profile validation or pricing failure.
@@ -95,6 +97,7 @@ struct PricingProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RequestProfile {
+    service_tier: String,
     reasoning_effort: String,
     tools: Vec<Value>,
     tool_choice: String,
@@ -176,6 +179,12 @@ impl OpenAiResponsesTextProfile {
     #[must_use]
     pub fn request_model(&self) -> &str {
         &self.raw.model.request_id
+    }
+
+    /// Returns the exact Standard processing tier.
+    #[must_use]
+    pub fn service_tier(&self) -> &str {
+        &self.raw.request.service_tier
     }
 
     /// Returns the provider-neutral model identity.
@@ -333,6 +342,7 @@ fn validate_exact(profile: &RawProfile) -> Result<(), OpenAiProfileError> {
         && !profile.pricing.long_context_enabled
         && profile.capabilities == ["streaming"]
         && profile.developer_prompt.is_null()
+        && profile.request.service_tier == OPENAI_SERVICE_TIER
         && profile.request.reasoning_effort == "none"
         && profile.request.tools.is_empty()
         && profile.request.tool_choice == "none"

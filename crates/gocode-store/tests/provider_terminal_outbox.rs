@@ -356,7 +356,12 @@ fn terminal_commit_atomically_settles_accounting_releases_reservations_and_creat
     let pending = fixture.execution.pending_terminal_outbox().unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].outbox_id, [30; 16]);
-    assert_eq!(pending[0].encrypted_output, *request.encrypted_output());
+    assert_eq!(
+        pending[0].encrypted_output,
+        *request
+            .encrypted_output()
+            .expect("completed terminal payload"),
+    );
 
     let connection = Connection::open(&fixture.path).unwrap();
     assert_eq!(

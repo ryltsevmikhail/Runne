@@ -224,23 +224,38 @@ pub enum ProviderJournalAppendOutcome {
 pub struct ProviderTerminalPricingBinding {
     pricing_revision_digest: [u8; 32],
     currency: String,
+    reserved_input_tokens: u64,
+    reserved_output_tokens: u64,
+    reserved_cost_micros: u64,
 }
 
 impl ProviderTerminalPricingBinding {
-    /// Constructs a binding loaded from authoritative admission state.
-    pub fn new(
+    /// Constructs the exact pricing and worst-case reservation binding loaded
+    /// from authoritative admission state.
+    pub fn with_reservation(
         pricing_revision_digest: [u8; 32],
         currency: String,
+        reserved_input_tokens: u64,
+        reserved_output_tokens: u64,
+        reserved_cost_micros: u64,
     ) -> Result<Self, ProviderExecutionError> {
         if pricing_revision_digest == [0; 32]
             || currency.len() != 3
             || !currency.bytes().all(|byte| byte.is_ascii_uppercase())
+            || reserved_output_tokens == 0
+            || reserved_cost_micros == 0
+            || reserved_input_tokens
+                .checked_add(reserved_output_tokens)
+                .is_none()
         {
             return Err(ProviderExecutionError::JournalCorrupt);
         }
         Ok(Self {
             pricing_revision_digest,
             currency,
+            reserved_input_tokens,
+            reserved_output_tokens,
+            reserved_cost_micros,
         })
     }
 
@@ -252,6 +267,21 @@ impl ProviderTerminalPricingBinding {
     /// Returns the reservation currency.
     pub fn currency(&self) -> &str {
         &self.currency
+    }
+
+    /// Returns the admitted worst-case input-token reservation.
+    pub const fn reserved_input_tokens(&self) -> u64 {
+        self.reserved_input_tokens
+    }
+
+    /// Returns the admitted worst-case output-token reservation.
+    pub const fn reserved_output_tokens(&self) -> u64 {
+        self.reserved_output_tokens
+    }
+
+    /// Returns the admitted worst-case cost reservation in micro-units.
+    pub const fn reserved_cost_micros(&self) -> u64 {
+        self.reserved_cost_micros
     }
 }
 

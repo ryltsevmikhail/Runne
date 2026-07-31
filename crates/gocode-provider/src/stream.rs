@@ -175,6 +175,10 @@ pub enum ProviderStreamEventKind {
         /// Provider-neutral usage evidence.
         usage: ProviderUsage,
     },
+    /// Provider reached a closed remote terminal without billable usage
+    /// evidence. Runtime settlement must conservatively consume the admitted
+    /// maximum reservation and must not infer zero usage.
+    UsageUnavailable,
     /// Provider requested one exact tool invocation.
     ToolCallRequested {
         /// Provider-scoped call identity.
@@ -205,6 +209,7 @@ impl fmt::Debug for ProviderStreamEventKind {
                 .debug_struct("Usage")
                 .field("usage", usage)
                 .finish(),
+            Self::UsageUnavailable => formatter.write_str("UsageUnavailable"),
             Self::ToolCallRequested {
                 call_id,
                 tool_name,
@@ -233,6 +238,7 @@ enum RawProviderStreamEventTag {
     Started,
     TextDelta,
     Usage,
+    UsageUnavailable,
     ToolCallRequested,
     Finished,
 }
@@ -278,6 +284,11 @@ impl<'de> Deserialize<'de> for ProviderStreamEventKind {
                 Self::Usage {
                     usage: raw.usage.expect("guarded usage"),
                 }
+            }
+            RawProviderStreamEventTag::UsageUnavailable
+                if no_text && no_usage && no_tool && no_terminal =>
+            {
+                Self::UsageUnavailable
             }
             RawProviderStreamEventTag::ToolCallRequested
                 if no_text
@@ -424,10 +435,14 @@ impl ProviderStreamValidator {
             }
             ProviderStreamEventKind::Started => self.started = true,
             _ if !self.started => return Err(StreamError::EventBeforeStarted),
-            ProviderStreamEventKind::Usage { .. } if self.usage_seen => {
+            ProviderStreamEventKind::Usage { .. } | ProviderStreamEventKind::UsageUnavailable
+                if self.usage_seen =>
+            {
                 return Err(StreamError::DuplicateUsage);
             }
-            ProviderStreamEventKind::Usage { .. } => self.usage_seen = true,
+            ProviderStreamEventKind::Usage { .. } | ProviderStreamEventKind::UsageUnavailable => {
+                self.usage_seen = true;
+            }
             ProviderStreamEventKind::Finished { .. } => self.terminal = true,
             ProviderStreamEventKind::TextDelta { .. }
             | ProviderStreamEventKind::ToolCallRequested { .. } => {}
@@ -531,6 +546,7 @@ fn validate_event_kind(kind: &ProviderStreamEventKind) -> Result<(), StreamError
         }
         ProviderStreamEventKind::Started
         | ProviderStreamEventKind::Usage { .. }
+        | ProviderStreamEventKind::UsageUnavailable
         | ProviderStreamEventKind::Finished { .. } => Ok(()),
     }
 }

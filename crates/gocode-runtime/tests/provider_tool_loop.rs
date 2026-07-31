@@ -23,6 +23,7 @@ struct Journal {
     cursor: u64,
     text: String,
     usage: Option<ProviderUsage>,
+    usage_unavailable: bool,
     events: Mutex<Vec<(ProviderStreamId, ProviderStreamEvent)>>,
     transitions: Mutex<Vec<ProviderToolTransition>>,
 }
@@ -32,10 +33,12 @@ impl ProviderToolJournal for Journal {
         &self,
         _stream_id: gocode_provider::ProviderStreamId,
     ) -> Result<ProviderToolRecoveryState, ProviderToolLoopError> {
-        Ok(ProviderToolRecoveryState::new(
+        Ok(ProviderToolRecoveryState::from_parts(
             self.cursor,
             self.text.clone(),
             self.usage,
+            self.usage_unavailable,
+            ProviderToolRecoveryStatus::Active,
         ))
     }
 
@@ -83,6 +86,7 @@ impl ProviderToolJournal for CrashAfterDurableDeltaJournal {
             ProviderStreamEventKind::TextDelta { text } => recovery.1.push_str(text),
             ProviderStreamEventKind::Usage { usage } => recovery.2 = Some(*usage),
             ProviderStreamEventKind::Started
+            | ProviderStreamEventKind::UsageUnavailable
             | ProviderStreamEventKind::ToolCallRequested { .. }
             | ProviderStreamEventKind::Finished { .. } => {}
         }
@@ -113,6 +117,7 @@ struct DurableRecovery {
     cursor: u64,
     text: String,
     usage: Option<ProviderUsage>,
+    usage_unavailable: bool,
     status: ProviderToolRecoveryStatus,
 }
 
@@ -129,6 +134,7 @@ impl CrashRecoveryJournal {
                 cursor: 0,
                 text: String::new(),
                 usage: None,
+                usage_unavailable: false,
                 status: ProviderToolRecoveryStatus::Active,
             }),
             crash_point,
@@ -155,6 +161,7 @@ impl ProviderToolJournal for CrashRecoveryJournal {
             state.cursor,
             state.text.clone(),
             state.usage,
+            state.usage_unavailable,
             state.status.clone(),
         ))
     }
@@ -177,6 +184,10 @@ impl ProviderToolJournal for CrashRecoveryJournal {
             }
             ProviderStreamEventKind::Usage { usage } => {
                 state.usage = Some(*usage);
+                None
+            }
+            ProviderStreamEventKind::UsageUnavailable => {
+                state.usage_unavailable = true;
                 None
             }
             ProviderStreamEventKind::ToolCallRequested {
@@ -623,6 +634,57 @@ async fn crash_after_terminal_event_commit_recovers_terminal_without_provider_re
             usage: None,
         }
     );
+}
+
+#[tokio::test]
+async fn usage_unavailable_remote_terminal_survives_loop_crash_without_freeze_or_repoll() {
+    const PARTIAL: &str = "remote-partial-recovery-marker";
+    let provider = provider(vec![
+        event(0, ProviderStreamEventKind::Started),
+        event(
+            1,
+            ProviderStreamEventKind::TextDelta {
+                text: PARTIAL.into(),
+            },
+        ),
+        event(2, ProviderStreamEventKind::UsageUnavailable),
+        event(
+            3,
+            ProviderStreamEventKind::Finished {
+                disposition: ProviderTerminalDisposition::RemoteFailed,
+                reason: ProviderFinishReason::Error,
+            },
+        ),
+    ]);
+    let stream = dispatch(&provider).await;
+    let loop_ = ProviderToolLoop::new(
+        CrashRecoveryJournal::new(CrashPoint::TerminalEvent),
+        handoff(ToolHandoffDisposition::Uncertain),
+        64,
+    )
+    .unwrap();
+
+    assert_eq!(
+        loop_
+            .run(&provider, stream, &CancellationToken::new())
+            .await,
+        Err(ProviderToolLoopError::JournalUnavailable)
+    );
+    let recovered = loop_
+        .run(&provider, stream, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(
+        recovered,
+        ProviderToolLoopOutcome::RemoteTerminal {
+            disposition: ProviderTerminalDisposition::RemoteFailed,
+            reason: ProviderFinishReason::Error,
+            text: PARTIAL.into(),
+            usage: None,
+            usage_unavailable: true,
+        }
+    );
+    assert!(!format!("{recovered:?}").contains(PARTIAL));
 }
 
 #[tokio::test]

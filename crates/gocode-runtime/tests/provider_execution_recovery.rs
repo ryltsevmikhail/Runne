@@ -106,6 +106,10 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
+    fixture_with_input_tokens(512)
+}
+
+fn fixture_with_input_tokens(requested_input_tokens: u64) -> Fixture {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.keep().join("provider-runtime-recovery.sqlite");
     let call = ProviderCall::new(
@@ -169,7 +173,7 @@ fn fixture() -> Fixture {
                 profile_digest: prepared_record.profile_digest,
             },
             pricing_revision_digest: [3; 32],
-            requested_input_tokens: 512,
+            requested_input_tokens,
             requested_output_tokens: 1_024,
             max_cost_micros: 50_000,
             currency: "USD".to_owned(),
@@ -297,7 +301,24 @@ impl ProviderTerminalPricing for FixedPricing {
     }
 }
 
+struct ZeroInputPricing;
+
+impl ProviderTerminalPricing for ZeroInputPricing {
+    fn price_terminal_usage(
+        &self,
+        pricing_revision_digest: &[u8; 32],
+        profile_digest: &[u8; 32],
+        usage: ProviderUsage,
+    ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
+        assert_eq!(pricing_revision_digest, &[3; 32]);
+        assert_eq!(profile_digest, &[2; 32]);
+        assert_eq!(usage, ProviderUsage::new(0, 900, 0, 0).unwrap());
+        ProviderPricedUsage::new(30_000, "USD".to_owned())
+    }
+}
+
 static FIXED_PRICING: FixedPricing = FixedPricing;
+static ZERO_INPUT_PRICING: ZeroInputPricing = ZeroInputPricing;
 static ALLOWING_GUARD: AllowingGuard = AllowingGuard;
 static DENYING_GUARD: DenyingGuard = DenyingGuard;
 
@@ -394,9 +415,14 @@ async fn terminal_output_is_encrypted_recoverable_and_settled_only_after_receipt
     )
     .await;
 
-    runtime
-        .finalize_terminal_output(&context(&fixture))
-        .unwrap();
+    assert_eq!(
+        runtime.finalize_terminal_output(&context(&fixture)),
+        Ok(ProviderTerminalCommitOutcome::Committed)
+    );
+    assert_eq!(
+        runtime.finalize_terminal_output(&context(&fixture)),
+        Ok(ProviderTerminalCommitOutcome::Replayed)
+    );
     let pending = runtime.recover_pending_terminal_outputs().unwrap();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].output(), OUTPUT);
@@ -410,6 +436,194 @@ async fn terminal_output_is_encrypted_recoverable_and_settled_only_after_receipt
             .recover_pending_terminal_outputs()
             .unwrap()
             .is_empty()
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn zero_input_reservation_admits_streams_and_settles_completed_usage() {
+    let fixture = fixture_with_input_tokens(0);
+    let keyring = MemoryKeyring::default();
+    let runtime = RuntimeProviderExecution::new(
+        &keyring,
+        fixture.execution.as_ref(),
+        &ZERO_INPUT_PRICING,
+        &ALLOWING_GUARD,
+    );
+    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    let events = vec![
+        ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
+        ProviderStreamEvent::new(
+            1,
+            ProviderStreamEventKind::TextDelta {
+                text: "zero-input-output".to_owned(),
+            },
+        )
+        .unwrap(),
+        ProviderStreamEvent::new(
+            2,
+            ProviderStreamEventKind::Usage {
+                usage: ProviderUsage::new(0, 900, 0, 0).unwrap(),
+            },
+        )
+        .unwrap(),
+        ProviderStreamEvent::new(
+            3,
+            ProviderStreamEventKind::Finished {
+                disposition: ProviderTerminalDisposition::Completed,
+                reason: ProviderFinishReason::Stop,
+            },
+        )
+        .unwrap(),
+    ];
+    poll_events(&runtime, &fixture, events).await;
+
+    assert_eq!(
+        runtime.finalize_terminal_output(&context(&fixture)),
+        Ok(ProviderTerminalCommitOutcome::Committed)
+    );
+    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT input_tokens, output_tokens, charge_micros
+                 FROM provider_accounting_settlements",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .unwrap(),
+        (0, 900, 30_000)
+    );
+    let reservations = connection
+        .prepare(
+            "SELECT dimension, settled_amount
+             FROM provider_budget_reservations ORDER BY dimension",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(reservations, vec![(1, 900), (2, 30_000)]);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn remote_failure_without_usage_consumes_full_reservation_without_conversation_outbox() {
+    const PARTIAL: &str = "remote-failed-partial-must-not-be-applied-83";
+    let fixture = fixture();
+    let keyring = MemoryKeyring::default();
+    let runtime = RuntimeProviderExecution::new(
+        &keyring,
+        fixture.execution.as_ref(),
+        &FIXED_PRICING,
+        &DENYING_GUARD,
+    );
+    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    let events = vec![
+        ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
+        ProviderStreamEvent::new(
+            1,
+            ProviderStreamEventKind::TextDelta {
+                text: PARTIAL.to_owned(),
+            },
+        )
+        .unwrap(),
+        ProviderStreamEvent::new(2, ProviderStreamEventKind::UsageUnavailable).unwrap(),
+        ProviderStreamEvent::new(
+            3,
+            ProviderStreamEventKind::Finished {
+                disposition: ProviderTerminalDisposition::RemoteFailed,
+                reason: ProviderFinishReason::Error,
+            },
+        )
+        .unwrap(),
+    ];
+    poll_events(&runtime, &fixture, events).await;
+
+    assert_eq!(
+        runtime.finalize_terminal_output(&context(&fixture)),
+        Ok(ProviderTerminalCommitOutcome::Committed)
+    );
+    assert_eq!(
+        runtime.finalize_terminal_output(&context(&fixture)),
+        Ok(ProviderTerminalCommitOutcome::Replayed)
+    );
+    assert!(
+        runtime
+            .recover_pending_terminal_outputs()
+            .unwrap()
+            .is_empty()
+    );
+    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT input_tokens, output_tokens, cached_input_tokens,
+                        reasoning_output_tokens, charge_micros
+                 FROM provider_accounting_settlements",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, i64>(4)?,
+                    ))
+                },
+            )
+            .unwrap(),
+        (512, 1_024, 0, 0, 50_000)
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM provider_terminal_outbox", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT COUNT(*) FROM provider_encryption_nonces WHERE purpose = 2",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT state FROM provider_dispatch_attempts WHERE attempt_id = ?1",
+                [fixture.attempt_id.as_bytes().as_slice()],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+        5
+    );
+    let reservations = connection
+        .prepare(
+            "SELECT dimension, settled_amount
+             FROM provider_budget_reservations ORDER BY dimension",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(reservations, vec![(1, 1_536), (2, 50_000)]);
+    let database = std::fs::read(&fixture.path).unwrap();
+    assert!(
+        !database
+            .windows(PARTIAL.len())
+            .any(|window| window == PARTIAL.as_bytes())
     );
 }
 

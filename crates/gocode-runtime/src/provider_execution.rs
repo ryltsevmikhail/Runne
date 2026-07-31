@@ -13,9 +13,9 @@ use gocode_application::provider::{
     ProviderTerminalPricingBinding,
 };
 use gocode_provider::{
-    DispatchAttemptId, ProviderCallDigestVersion, ProviderPort, ProviderStreamEvent,
-    ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem, ProviderStreamValidator,
-    ProviderUsage, StreamCursor,
+    DispatchAttemptId, ProviderCallDigestVersion, ProviderFinishReason, ProviderPort,
+    ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem,
+    ProviderStreamValidator, ProviderTerminalDisposition, ProviderUsage, StreamCursor,
 };
 pub use gocode_provider::{
     ProviderPricedUsage, ProviderTerminalPricing, ProviderTerminalPricingError,
@@ -32,7 +32,7 @@ use zeroize::Zeroizing;
 const PROVIDER_JOURNAL_AAD_V1: &[u8] = b"GOCODE_PROVIDER_JOURNAL_AAD_V1\0";
 const PROVIDER_OUTBOX_AAD_V1: &[u8] = b"GOCODE_PROVIDER_OUTBOX_AAD_V1\0";
 const PROVIDER_OUTBOX_ID_V1: &[u8] = b"GOCODE_PROVIDER_OUTBOX_ID_V1\0";
-const PROVIDER_SETTLEMENT_V1: &[u8] = b"GOCODE_PROVIDER_SETTLEMENT_V1\0";
+const PROVIDER_SETTLEMENT_V2: &[u8] = b"GOCODE_PROVIDER_SETTLEMENT_V2\0";
 const MAX_PROVIDER_ASSEMBLED_OUTPUT_BYTES: usize = 4_194_288;
 
 /// Exact non-secret binding for one normalized provider stream.
@@ -72,10 +72,12 @@ pub struct ProviderTerminalCommitRequest {
     terminal_sequence: u64,
     call_digest_version: ProviderCallDigestVersion,
     key: ProviderJournalKeyBinding,
-    encrypted_output: ProviderEncryptedPayload,
+    encrypted_output: Option<ProviderEncryptedPayload>,
     runtime_generation: u64,
     profile_digest: [u8; 32],
     usage: ProviderUsage,
+    usage_unavailable: bool,
+    disposition: ProviderTerminalDisposition,
     charge_micros: u64,
     currency: String,
     settlement_digest: [u8; 32],
@@ -112,10 +114,12 @@ impl ProviderTerminalCommitRequest {
             terminal_sequence,
             call_digest_version,
             key,
-            encrypted_output,
+            encrypted_output: Some(encrypted_output),
             runtime_generation,
             profile_digest,
             usage,
+            usage_unavailable: false,
+            disposition: ProviderTerminalDisposition::Completed,
             charge_micros,
             currency,
             settlement_digest,
@@ -161,8 +165,8 @@ impl ProviderTerminalCommitRequest {
 
     /// Returns the encrypted recoverable terminal output.
     #[must_use]
-    pub const fn encrypted_output(&self) -> &ProviderEncryptedPayload {
-        &self.encrypted_output
+    pub const fn encrypted_output(&self) -> Option<&ProviderEncryptedPayload> {
+        self.encrypted_output.as_ref()
     }
 
     /// Returns the exact runtime generation.
@@ -181,6 +185,19 @@ impl ProviderTerminalCommitRequest {
     #[must_use]
     pub const fn usage(&self) -> ProviderUsage {
         self.usage
+    }
+
+    /// Returns whether exact remote usage was unavailable and the stored
+    /// values therefore represent the full admitted reservation.
+    #[must_use]
+    pub const fn usage_unavailable(&self) -> bool {
+        self.usage_unavailable
+    }
+
+    /// Returns the authenticated remote terminal disposition.
+    #[must_use]
+    pub const fn disposition(&self) -> ProviderTerminalDisposition {
+        self.disposition
     }
 
     /// Returns the exact fixed-point charge.
@@ -641,26 +658,53 @@ where
             .map_err(map_execution_error)?;
         let events = self.recover_events(context.attempt_id)?;
         let assembled = assemble_terminal_stream(&events)?;
-        match self.prohibited_content.inspect(
-            CanonicalContentBoundary::CanonicalMutation,
-            &assembled.output,
-        ) {
-            Ok(ContentDisposition::Allowed { .. }) => {}
-            Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
-                return Err(RuntimeProviderExecutionError::PolicyDenied);
+        if assembled.disposition == ProviderTerminalDisposition::Completed {
+            match self.prohibited_content.inspect(
+                CanonicalContentBoundary::CanonicalMutation,
+                &assembled.output,
+            ) {
+                Ok(ContentDisposition::Allowed { .. }) => {}
+                Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
+                    return Err(RuntimeProviderExecutionError::PolicyDenied);
+                }
             }
         }
-        let priced = self
-            .pricing
-            .price_terminal_usage(
-                pricing_binding.pricing_revision_digest(),
-                &context.profile_digest,
-                assembled.usage,
-            )
-            .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
-        if priced.currency() != pricing_binding.currency() {
-            return Err(RuntimeProviderExecutionError::PricingUnavailable);
-        }
+        let (usage, usage_unavailable, charge_micros, currency) = match assembled.usage {
+            TerminalUsageEvidence::Exact(usage) => {
+                let priced = self
+                    .pricing
+                    .price_terminal_usage(
+                        pricing_binding.pricing_revision_digest(),
+                        &context.profile_digest,
+                        usage,
+                    )
+                    .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
+                if priced.currency() != pricing_binding.currency() {
+                    return Err(RuntimeProviderExecutionError::PricingUnavailable);
+                }
+                (
+                    usage,
+                    false,
+                    priced.charge_micros(),
+                    priced.currency().to_owned(),
+                )
+            }
+            TerminalUsageEvidence::Unavailable => {
+                let usage = ProviderUsage::new(
+                    pricing_binding.reserved_input_tokens(),
+                    pricing_binding.reserved_output_tokens(),
+                    0,
+                    0,
+                )
+                .map_err(|_| RuntimeProviderExecutionError::PricingUnavailable)?;
+                (
+                    usage,
+                    true,
+                    pricing_binding.reserved_cost_micros(),
+                    pricing_binding.currency().to_owned(),
+                )
+            }
+        };
         let terminal = self
             .store
             .load_encrypted_events(context.attempt_id)
@@ -680,19 +724,25 @@ where
             &pricing_binding,
             assembled.terminal_sequence,
             &assembled.output,
-            assembled.usage,
-            priced.charge_micros(),
-            priced.currency(),
+            usage,
+            usage_unavailable,
+            assembled.disposition,
+            charge_micros,
+            &currency,
         );
         let application_idempotency_key = terminal_application_key(context.attempt_id);
-        let material = self.load_key(terminal.key)?;
-        let aad = outbox_aad(
-            context,
-            terminal.key,
-            assembled.terminal_sequence,
-            outbox_id,
-        );
-        let encrypted_output = self.seal(&material, &aad, &assembled.output)?;
+        let encrypted_output = if assembled.disposition == ProviderTerminalDisposition::Completed {
+            let material = self.load_key(terminal.key)?;
+            let aad = outbox_aad(
+                context,
+                terminal.key,
+                assembled.terminal_sequence,
+                outbox_id,
+            );
+            Some(self.seal(&material, &aad, &assembled.output)?)
+        } else {
+            None
+        };
         self.store
             .commit_terminal(&ProviderTerminalCommitRequest {
                 outbox_id,
@@ -704,9 +754,11 @@ where
                 encrypted_output,
                 runtime_generation: context.runtime_generation,
                 profile_digest: context.profile_digest,
-                usage: assembled.usage,
-                charge_micros: priced.charge_micros(),
-                currency: priced.currency().to_owned(),
+                usage,
+                usage_unavailable,
+                disposition: assembled.disposition,
+                charge_micros,
+                currency,
                 settlement_digest,
                 application_idempotency_key,
             })
@@ -716,8 +768,15 @@ where
 
 struct AssembledTerminal {
     output: Zeroizing<Vec<u8>>,
-    usage: ProviderUsage,
+    usage: TerminalUsageEvidence,
+    disposition: ProviderTerminalDisposition,
     terminal_sequence: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalUsageEvidence {
+    Exact(ProviderUsage),
+    Unavailable,
 }
 
 fn assemble_terminal_stream(
@@ -726,7 +785,7 @@ fn assemble_terminal_stream(
     let mut validator = ProviderStreamValidator::default();
     let mut output = Zeroizing::new(Vec::new());
     let mut usage = None;
-    let mut terminal_sequence = None;
+    let mut terminal = None;
     for event in events {
         validator
             .accept(event)
@@ -742,21 +801,54 @@ fn assemble_terminal_stream(
                 output.reserve(next_len - current_len);
                 output.extend_from_slice(text.as_bytes());
             }
-            ProviderStreamEventKind::Usage { usage: exact_usage } => usage = Some(*exact_usage),
+            ProviderStreamEventKind::Usage { usage: exact_usage } => {
+                usage = Some(TerminalUsageEvidence::Exact(*exact_usage));
+            }
+            ProviderStreamEventKind::UsageUnavailable => {
+                usage = Some(TerminalUsageEvidence::Unavailable);
+            }
             ProviderStreamEventKind::ToolCallRequested { .. } => {
                 return Err(RuntimeProviderExecutionError::TerminalRejected);
             }
-            ProviderStreamEventKind::Finished { .. } => terminal_sequence = Some(event.sequence()),
+            ProviderStreamEventKind::Finished {
+                disposition,
+                reason,
+            } => terminal = Some((event.sequence(), *disposition, reason.clone())),
         }
     }
-    let terminal_sequence =
-        terminal_sequence.ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
+    let (terminal_sequence, disposition, reason) =
+        terminal.ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
     if events.last().map(ProviderStreamEvent::sequence) != Some(terminal_sequence) {
+        return Err(RuntimeProviderExecutionError::TerminalRejected);
+    }
+    let usage = usage.ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
+    let valid_terminal = match (disposition, &reason, usage) {
+        (
+            ProviderTerminalDisposition::Completed,
+            ProviderFinishReason::Stop,
+            TerminalUsageEvidence::Exact(_),
+        ) => !output.is_empty(),
+        (
+            ProviderTerminalDisposition::RemoteFailed,
+            ProviderFinishReason::Error,
+            TerminalUsageEvidence::Exact(_) | TerminalUsageEvidence::Unavailable,
+        ) => true,
+        (
+            ProviderTerminalDisposition::RemoteIncomplete,
+            ProviderFinishReason::Length
+            | ProviderFinishReason::ContentFilter
+            | ProviderFinishReason::Error,
+            TerminalUsageEvidence::Exact(_) | TerminalUsageEvidence::Unavailable,
+        ) => true,
+        _ => false,
+    };
+    if !valid_terminal {
         return Err(RuntimeProviderExecutionError::TerminalRejected);
     }
     Ok(AssembledTerminal {
         output,
-        usage: usage.ok_or(RuntimeProviderExecutionError::TerminalRejected)?,
+        usage,
+        disposition,
         terminal_sequence,
     })
 }
@@ -793,11 +885,13 @@ fn settlement_digest(
     terminal_sequence: u64,
     output: &[u8],
     usage: ProviderUsage,
+    usage_unavailable: bool,
+    disposition: ProviderTerminalDisposition,
     charge_micros: u64,
     currency: &str,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(PROVIDER_SETTLEMENT_V1);
+    hasher.update(PROVIDER_SETTLEMENT_V2);
     hasher.update(context.attempt_id.as_bytes());
     hasher.update(context.fencing_token.to_be_bytes());
     hasher.update(context.runtime_generation.to_be_bytes());
@@ -809,9 +903,20 @@ fn settlement_digest(
     hasher.update(usage.output_tokens().to_be_bytes());
     hasher.update(usage.cached_input_tokens().to_be_bytes());
     hasher.update(usage.reasoning_output_tokens().to_be_bytes());
+    hasher.update([u8::from(usage_unavailable)]);
+    hasher.update([terminal_disposition_code(disposition)]);
     hasher.update(charge_micros.to_be_bytes());
     hasher.update(currency.as_bytes());
     hasher.finalize().into()
+}
+
+const fn terminal_disposition_code(disposition: ProviderTerminalDisposition) -> u8 {
+    match disposition {
+        ProviderTerminalDisposition::Completed => 1,
+        ProviderTerminalDisposition::RemoteFailed => 2,
+        ProviderTerminalDisposition::RemoteIncomplete => 3,
+        ProviderTerminalDisposition::CancelledUncertain => 4,
+    }
 }
 
 fn seal_payload_with_nonce(
@@ -927,6 +1032,7 @@ fn event_kind_code(kind: &ProviderStreamEventKind) -> u8 {
         ProviderStreamEventKind::Usage { .. } => 3,
         ProviderStreamEventKind::ToolCallRequested { .. } => 4,
         ProviderStreamEventKind::Finished { .. } => 5,
+        ProviderStreamEventKind::UsageUnavailable => 6,
     }
 }
 
