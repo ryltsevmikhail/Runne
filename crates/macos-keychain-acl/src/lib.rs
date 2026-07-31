@@ -17,7 +17,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicIsize, Ordering};
 
 use core_foundation::array::{CFArray, CFArrayRef};
-use core_foundation::base::{CFType, CFTypeRef, OSStatus, TCFType as _};
+use core_foundation::base::{CFRelease, CFType, CFTypeRef, OSStatus, TCFType as _};
 use core_foundation::data::{CFData, CFDataRef};
 use core_foundation::string::{CFString, CFStringRef};
 use security_framework::os::macos::access::SecAccess;
@@ -117,6 +117,75 @@ pub enum KeychainAclError {
     AccessDenied,
     /// Security.framework returned another closed operation failure.
     OperationFailed,
+}
+
+/// Owns a non-null retained CoreFoundation-compatible out-parameter until its
+/// concrete safe wrapper takes over that +1 reference.
+struct RetainedCfOutput(CFTypeRef);
+
+impl RetainedCfOutput {
+    const fn new<T>(output: *const T) -> Self {
+        Self(output.cast())
+    }
+
+    fn disarm(mut self) {
+        self.0 = ptr::null();
+    }
+}
+
+impl Drop for RetainedCfOutput {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: the guard is created only for a +1 Create/Copy output and
+            // is disarmed when ownership moves into a concrete safe wrapper.
+            unsafe { CFRelease(self.0) };
+        }
+    }
+}
+
+struct KeychainContentCleanup<F>
+where
+    F: FnOnce(*mut SecKeychainAttributeList) -> OSStatus,
+{
+    attributes: *mut SecKeychainAttributeList,
+    free_content: Option<F>,
+    armed: bool,
+}
+
+impl<F> KeychainContentCleanup<F>
+where
+    F: FnOnce(*mut SecKeychainAttributeList) -> OSStatus,
+{
+    const fn new(attributes: *mut SecKeychainAttributeList, free_content: F, armed: bool) -> Self {
+        Self {
+            attributes,
+            free_content: Some(free_content),
+            armed,
+        }
+    }
+
+    fn free_once(&mut self) -> Option<OSStatus> {
+        if !self.armed {
+            return None;
+        }
+        self.armed = false;
+        self.free_content
+            .take()
+            .map(|free_content| free_content(self.attributes))
+    }
+
+    fn finish(mut self) -> Result<(), KeychainAclError> {
+        self.free_once().map_or(Ok(()), status)
+    }
+}
+
+impl<F> Drop for KeychainContentCleanup<F>
+where
+    F: FnOnce(*mut SecKeychainAttributeList) -> OSStatus,
+{
+    fn drop(&mut self) {
+        let _ = self.free_once();
+    }
 }
 
 /// Kernel-held lock for all provider credential Keychain operations.
@@ -320,7 +389,7 @@ pub fn create_empty_generic_password(
     // SAFETY: attribute buffers and all Security.framework objects remain live
     // for the call. Data is deliberately NULL/zero-length, and `item` is a
     // valid writable out-pointer consumed under the create rule below.
-    status(unsafe {
+    let create_status = unsafe {
         SecKeychainItemCreateFromContent(
             GENERIC_PASSWORD_ITEM_CLASS,
             &raw mut attribute_list,
@@ -330,10 +399,13 @@ pub fn create_empty_generic_password(
             exact.access.as_concrete_TypeRef(),
             &raw mut item,
         )
-    })?;
+    };
+    let item_owner = RetainedCfOutput::new(item);
+    status(create_status)?;
     if item.is_null() {
         return Err(KeychainAclError::OperationFailed);
     }
+    item_owner.disarm();
     // SAFETY: the create function returned a non-null retained item reference.
     Ok(unsafe { SecKeychainItem::wrap_under_create_rule(item) })
 }
@@ -344,6 +416,46 @@ pub struct GenericPasswordMetadata {
     pub bytes: Vec<u8>,
     /// Exact native item reference used for ACL verification and lifecycle work.
     pub item: SecKeychainItem,
+}
+
+fn copy_nonsecret_metadata_with<C, F>(
+    copy_content: C,
+    free_content: F,
+) -> Result<Vec<u8>, KeychainAclError>
+where
+    C: FnOnce(*mut SecKeychainAttributeList) -> OSStatus,
+    F: FnOnce(*mut SecKeychainAttributeList) -> OSStatus,
+{
+    let mut metadata_attribute = SecKeychainAttribute {
+        tag: GENERIC_ITEM_ATTRIBUTE,
+        length: 0,
+        data: ptr::null_mut(),
+    };
+    let mut metadata_list = SecKeychainAttributeList {
+        count: 1,
+        attr: &raw mut metadata_attribute,
+    };
+    let copy_status = copy_content(&raw mut metadata_list);
+    let should_free = copy_status == errSecSuccess
+        || metadata_attribute.length != 0
+        || !metadata_attribute.data.is_null();
+    let cleanup = KeychainContentCleanup::new(&raw mut metadata_list, free_content, should_free);
+    status(copy_status)?;
+    let bytes = if metadata_attribute.length == 0 || metadata_attribute.data.is_null() {
+        Vec::new()
+    } else {
+        // SAFETY: the caller populated a buffer of the reported length and it
+        // stays live until `free_content` below.
+        unsafe {
+            std::slice::from_raw_parts(
+                metadata_attribute.data.cast::<u8>(),
+                metadata_attribute.length as usize,
+            )
+            .to_vec()
+        }
+    };
+    cleanup.finish()?;
+    Ok(bytes)
 }
 
 /// Finds one generic-password item and returns only its non-secret metadata.
@@ -388,22 +500,26 @@ pub fn find_generic_password_metadata(
     let mut search = ptr::null();
     // SAFETY: query buffers and keychain stay live, and `search` is a valid
     // retained CF out-pointer consumed below.
-    status(unsafe {
+    let search_status = unsafe {
         SecKeychainSearchCreateFromAttributes(
             keychain.as_concrete_TypeRef().cast(),
             GENERIC_PASSWORD_ITEM_CLASS,
             &raw const query,
             &raw mut search,
         )
-    })?;
+    };
+    let search_owner = RetainedCfOutput::new(search);
+    status(search_status)?;
     if search.is_null() {
         return Err(KeychainAclError::OperationFailed);
     }
+    search_owner.disarm();
     // SAFETY: the create call returned a non-null retained CF object.
     let search = unsafe { CFType::wrap_under_create_rule(search) };
     let mut item = ptr::null_mut();
     // SAFETY: search is live and item is a valid retained out-pointer.
     let item_status = unsafe { SecKeychainSearchCopyNext(search.as_CFTypeRef(), &raw mut item) };
+    let item_owner = RetainedCfOutput::new(item);
     if item_status == ERR_SEC_ITEM_NOT_FOUND {
         return Ok(None);
     }
@@ -411,48 +527,77 @@ pub fn find_generic_password_metadata(
     if item.is_null() {
         return Err(KeychainAclError::OperationFailed);
     }
+    item_owner.disarm();
     // SAFETY: the copy call returned a non-null retained item reference.
     let item = unsafe { SecKeychainItem::wrap_under_create_rule(item) };
-    let mut metadata_attribute = SecKeychainAttribute {
-        tag: GENERIC_ITEM_ATTRIBUTE,
-        length: 0,
-        data: ptr::null_mut(),
-    };
-    let mut metadata_list = SecKeychainAttributeList {
-        count: 1,
-        attr: &raw mut metadata_attribute,
-    };
     // SAFETY: item and metadata list are live. Password length/data outputs are
     // NULL, so only the requested non-secret generic attribute is materialized.
-    status(unsafe {
-        SecKeychainItemCopyContent(
-            item.as_concrete_TypeRef(),
-            ptr::null_mut(),
-            &raw mut metadata_list,
-            ptr::null_mut(),
-            ptr::null_mut(),
-        )
-    })?;
-    let bytes = if metadata_attribute.length == 0 || metadata_attribute.data.is_null() {
-        Vec::new()
-    } else {
-        // SAFETY: CopyContent returned a buffer of the reported length, kept
-        // alive until SecKeychainItemFreeContent below.
-        unsafe {
-            std::slice::from_raw_parts(
-                metadata_attribute.data.cast::<u8>(),
-                metadata_attribute.length as usize,
+    let bytes = copy_nonsecret_metadata_with(
+        |metadata_list| unsafe {
+            SecKeychainItemCopyContent(
+                item.as_concrete_TypeRef(),
+                ptr::null_mut(),
+                metadata_list,
+                ptr::null_mut(),
+                ptr::null_mut(),
             )
-            .to_vec()
-        }
-    };
-    // SAFETY: metadata_list was populated by SecKeychainItemCopyContent and is
-    // released exactly once; no password data buffer was requested.
-    status(unsafe { SecKeychainItemFreeContent(&raw mut metadata_list, ptr::null_mut()) })?;
+        },
+        |metadata_list| unsafe { SecKeychainItemFreeContent(metadata_list, ptr::null_mut()) },
+    )?;
     if bytes.is_empty() {
         return Err(KeychainAclError::AccessDenied);
     }
     Ok(Some(GenericPasswordMetadata { bytes, item }))
+}
+
+fn copy_acl_contents_with<C>(copy_contents: C) -> Result<(CFArray<CFType>, u16), KeychainAclError>
+where
+    C: FnOnce(*mut CFArrayRef, *mut CFStringRef, *mut u16) -> OSStatus,
+{
+    let mut applications = ptr::null();
+    let mut description = ptr::null();
+    let mut prompt_selector = 0;
+    let copy_status = copy_contents(
+        &raw mut applications,
+        &raw mut description,
+        &raw mut prompt_selector,
+    );
+    let applications_owner = RetainedCfOutput::new(applications);
+    let description_owner = RetainedCfOutput::new(description);
+    status(copy_status)?;
+    #[cfg(test)]
+    if !applications.is_null() {
+        LIVE_COPIED_APPLICATION_LISTS.fetch_add(1, Ordering::Relaxed);
+    }
+    if !description.is_null() {
+        description_owner.disarm();
+        // SAFETY: the copy call returned a retained non-null string.
+        let _description = unsafe { CFString::wrap_under_create_rule(description) };
+    }
+    if applications.is_null() {
+        return Err(KeychainAclError::AccessDenied);
+    }
+    applications_owner.disarm();
+    // SAFETY: the copy call returned a retained non-null array.
+    let applications = unsafe { CFArray::<CFType>::wrap_under_create_rule(applications) };
+    #[cfg(test)]
+    LIVE_COPIED_APPLICATION_LISTS.fetch_sub(1, Ordering::Relaxed);
+    Ok((applications, prompt_selector))
+}
+
+fn copy_acl_contents(acl: &CFType) -> Result<(CFArray<CFType>, u16), KeychainAclError> {
+    copy_acl_contents_with(|applications, description, prompt_selector| {
+        // SAFETY: `acl` is retained by its containing list and all outputs are
+        // valid writable pointers consumed under the Copy Rule by the helper.
+        unsafe {
+            SecACLCopyContents(
+                acl.as_CFTypeRef(),
+                applications,
+                description,
+                prompt_selector,
+            )
+        }
+    })
 }
 
 /// Exact trusted-application decrypt access plus its canonical set digest.
@@ -477,16 +622,19 @@ impl ExactKeychainAccess {
         let mut access = ptr::null_mut();
         // SAFETY: every Core Foundation input is alive for the call and
         // `access` is a valid writable out-pointer consumed under create rule.
-        status(unsafe {
+        let access_status = unsafe {
             SecAccessCreate(
                 descriptor.as_concrete_TypeRef(),
                 trusted_list.as_concrete_TypeRef(),
                 &raw mut access,
             )
-        })?;
+        };
+        let access_owner = RetainedCfOutput::new(access);
+        status(access_status)?;
         if access.is_null() {
             return Err(KeychainAclError::AccessDenied);
         }
+        access_owner.disarm();
         Ok(Self {
             // SAFETY: `SecAccessCreate` returned a non-null retained reference.
             access: unsafe { SecAccess::wrap_under_create_rule(access) },
@@ -512,10 +660,14 @@ pub fn verify_item_access(
 ) -> Result<(), KeychainAclError> {
     let mut access = ptr::null_mut();
     // SAFETY: `item` is live and `access` is a valid writable out-pointer.
-    status(unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) })?;
+    let access_status =
+        unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) };
+    let access_owner = RetainedCfOutput::new(access);
+    status(access_status)?;
     if access.is_null() {
         return Err(KeychainAclError::AccessDenied);
     }
+    access_owner.disarm();
     // SAFETY: `SecKeychainItemCopyAccess` returned a non-null retained reference.
     let access = unsafe { SecAccess::wrap_under_create_rule(access) };
     // SAFETY: the access reference and static authorization tag are valid.
@@ -534,34 +686,7 @@ pub fn verify_item_access(
         return Err(KeychainAclError::AccessDenied);
     }
     for acl in acl_list.iter() {
-        let mut applications = ptr::null();
-        let mut description = ptr::null();
-        let mut prompt_selector = 0;
-        // SAFETY: `acl` is retained by `acl_list`; all outputs are valid writable
-        // pointers and are handled under the documented create/copy rules below.
-        status(unsafe {
-            SecACLCopyContents(
-                acl.as_CFTypeRef(),
-                &raw mut applications,
-                &raw mut description,
-                &raw mut prompt_selector,
-            )
-        })?;
-        #[cfg(test)]
-        if !applications.is_null() {
-            LIVE_COPIED_APPLICATION_LISTS.fetch_add(1, Ordering::Relaxed);
-        }
-        if !description.is_null() {
-            // SAFETY: `SecACLCopyContents` returned a retained non-null string.
-            let _description = unsafe { CFString::wrap_under_create_rule(description) };
-        }
-        if applications.is_null() {
-            return Err(KeychainAclError::AccessDenied);
-        }
-        // SAFETY: `SecACLCopyContents` returned a retained non-null array.
-        let applications = unsafe { CFArray::<CFType>::wrap_under_create_rule(applications) };
-        #[cfg(test)]
-        LIVE_COPIED_APPLICATION_LISTS.fetch_sub(1, Ordering::Relaxed);
+        let (applications, prompt_selector) = copy_acl_contents(&acl)?;
         if !prompt_selector_is_unconditional(prompt_selector) {
             return Err(KeychainAclError::AccessDenied);
         }
@@ -662,10 +787,14 @@ fn trusted_application(path: &Path) -> Result<CFType, KeychainAclError> {
     let mut application = ptr::null();
     // SAFETY: `path` is NUL-terminated and alive, and `application` is a valid
     // writable out-pointer handled under the create rule below.
-    status(unsafe { SecTrustedApplicationCreateFromPath(path.as_ptr(), &raw mut application) })?;
+    let create_status =
+        unsafe { SecTrustedApplicationCreateFromPath(path.as_ptr(), &raw mut application) };
+    let application_owner = RetainedCfOutput::new(application);
+    status(create_status)?;
     if application.is_null() {
         return Err(KeychainAclError::InvalidExecutable);
     }
+    application_owner.disarm();
     // SAFETY: the create function returned a non-null retained CF object.
     Ok(unsafe { CFType::wrap_under_create_rule(application) })
 }
@@ -682,10 +811,13 @@ fn trusted_application_digest(application: CFTypeRef) -> Result<[u8; 32], Keycha
     let mut data = ptr::null();
     // SAFETY: `application` is a live trusted-application CF object and `data`
     // is a valid writable out-pointer handled under the copy rule below.
-    status(unsafe { SecTrustedApplicationCopyData(application, &raw mut data) })?;
+    let copy_status = unsafe { SecTrustedApplicationCopyData(application, &raw mut data) };
+    let data_owner = RetainedCfOutput::new(data);
+    status(copy_status)?;
     if data.is_null() {
         return Err(KeychainAclError::AccessDenied);
     }
+    data_owner.disarm();
     // SAFETY: the Copy function returned a non-null retained CFData.
     let data = unsafe { CFData::wrap_under_create_rule(data) };
     if data.bytes().is_empty() {
@@ -748,9 +880,12 @@ mod tests {
     fn item_access(item: &SecKeychainItem) -> SecAccess {
         let mut access = ptr::null_mut();
         // SAFETY: item is live and access is a valid retained out-pointer.
-        status(unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) })
-            .unwrap();
+        let access_status =
+            unsafe { SecKeychainItemCopyAccess(item.as_concrete_TypeRef(), &raw mut access) };
+        let access_owner = RetainedCfOutput::new(access);
+        status(access_status).unwrap();
         assert!(!access.is_null());
+        access_owner.disarm();
         // SAFETY: the copy call returned a retained access reference.
         unsafe { SecAccess::wrap_under_create_rule(access) }
     }
@@ -769,26 +904,19 @@ mod tests {
     }
 
     fn copy_acl_applications(acl: &CFType) -> CFArray<CFType> {
-        let mut applications = ptr::null();
-        let mut description = ptr::null();
-        let mut prompt_selector = 0;
-        // SAFETY: acl and all retained out-pointers are valid.
-        status(unsafe {
-            SecACLCopyContents(
-                acl.as_CFTypeRef(),
-                &raw mut applications,
-                &raw mut description,
-                &raw mut prompt_selector,
-            )
+        copy_acl_contents_with(|applications, description, prompt_selector| {
+            // SAFETY: acl and all retained out-pointers are valid.
+            unsafe {
+                SecACLCopyContents(
+                    acl.as_CFTypeRef(),
+                    applications,
+                    description,
+                    prompt_selector,
+                )
+            }
         })
-        .unwrap();
-        assert!(!applications.is_null());
-        if !description.is_null() {
-            // SAFETY: the copy call returned a retained description.
-            let _description = unsafe { CFString::wrap_under_create_rule(description) };
-        }
-        // SAFETY: the copy call returned a retained applications array.
-        unsafe { CFArray::wrap_under_create_rule(applications) }
+        .unwrap()
+        .0
     }
 
     fn set_item_prompt_selector(item: &SecKeychainItem, prompt_selector: u16) {
@@ -799,17 +927,21 @@ mod tests {
             let mut description = ptr::null();
             let mut existing_prompt_selector = 0;
             // SAFETY: acl and retained output pointers are valid.
-            status(unsafe {
+            let copy_status = unsafe {
                 SecACLCopyContents(
                     acl.as_CFTypeRef(),
                     &raw mut applications,
                     &raw mut description,
                     &raw mut existing_prompt_selector,
                 )
-            })
-            .unwrap();
+            };
+            let applications_owner = RetainedCfOutput::new(applications);
+            let description_owner = RetainedCfOutput::new(description);
+            status(copy_status).unwrap();
             assert!(!applications.is_null());
             assert!(!description.is_null());
+            applications_owner.disarm();
+            description_owner.disarm();
             // SAFETY: both copy outputs are retained and wrapped immediately.
             let applications = unsafe { CFArray::<CFType>::wrap_under_create_rule(applications) };
             let description = unsafe { CFString::wrap_under_create_rule(description) };
@@ -837,6 +969,99 @@ mod tests {
         for prompt_selector in [1, 2, 4, 8, u16::MAX] {
             assert!(!prompt_selector_is_unconditional(prompt_selector));
         }
+    }
+
+    #[test]
+    fn acl_copy_error_releases_both_retained_outputs() {
+        let element = CFString::new("retained application fixture");
+        let applications = CFArray::from_CFTypes(&[element]);
+        let description =
+            CFString::new("retained description fixture long enough to avoid tagged storage");
+        let applications_before = applications.retain_count();
+        let description_before = description.retain_count();
+
+        for _ in 0..64 {
+            let result = copy_acl_contents_with(|applications_out, description_out, prompt| {
+                // SAFETY: each fake Copy output receives its own +1 retain and
+                // all output pointers are valid for this call.
+                unsafe {
+                    *applications_out =
+                        core_foundation::base::CFRetain(applications.as_CFTypeRef()).cast();
+                    *description_out =
+                        core_foundation::base::CFRetain(description.as_CFTypeRef()).cast();
+                    *prompt = 0;
+                }
+                -50
+            });
+            assert_eq!(result.err(), Some(KeychainAclError::OperationFailed));
+        }
+
+        let applications_after = applications.retain_count();
+        let description_after = description.retain_count();
+        for _ in applications_before..applications_after {
+            // SAFETY: the RED implementation leaked one fake +1 retain per
+            // iteration; release it so a failing regression does not leak.
+            unsafe { core_foundation::base::CFRelease(applications.as_CFTypeRef()) };
+        }
+        for _ in description_before..description_after {
+            // SAFETY: same cleanup for the fake retained description output.
+            unsafe { core_foundation::base::CFRelease(description.as_CFTypeRef()) };
+        }
+        assert_eq!(applications_after, applications_before);
+        assert_eq!(description_after, description_before);
+    }
+
+    #[test]
+    fn metadata_copy_error_frees_populated_content_exactly_once() {
+        let free_calls = std::cell::Cell::new(0);
+
+        for _ in 0..64 {
+            let allocation = std::cell::Cell::new(ptr::null_mut::<u8>());
+            let result = copy_nonsecret_metadata_with(
+                |metadata_list| {
+                    let mut bytes = b"metadata".to_vec().into_boxed_slice();
+                    let data = bytes.as_mut_ptr();
+                    std::mem::forget(bytes);
+                    allocation.set(data);
+                    // SAFETY: the list points to the helper's live attribute.
+                    unsafe {
+                        let attribute = &mut *(*metadata_list).attr;
+                        attribute.length = 8;
+                        attribute.data = data.cast();
+                    }
+                    -50
+                },
+                |metadata_list| {
+                    free_calls.set(free_calls.get() + 1);
+                    // SAFETY: the fake Copy call allocated exactly the recorded
+                    // eight-byte boxed slice and populated this attribute.
+                    unsafe {
+                        let attribute = &mut *(*metadata_list).attr;
+                        drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
+                            attribute.data.cast::<u8>(),
+                            attribute.length as usize,
+                        )));
+                        attribute.data = ptr::null_mut();
+                        attribute.length = 0;
+                    }
+                    allocation.set(ptr::null_mut());
+                    errSecSuccess
+                },
+            );
+            if !allocation.get().is_null() {
+                // SAFETY: RED cleanup for the fake allocation when the missing
+                // guard failed to invoke `free_content`.
+                unsafe {
+                    drop(Box::from_raw(ptr::slice_from_raw_parts_mut(
+                        allocation.get(),
+                        8,
+                    )));
+                }
+            }
+            assert_eq!(result, Err(KeychainAclError::OperationFailed));
+        }
+
+        assert_eq!(free_calls.get(), 64);
     }
 
     #[test]
