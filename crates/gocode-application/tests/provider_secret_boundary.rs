@@ -56,6 +56,15 @@ impl ProviderPort for RecordingProvider {
         PreparedRequest::from_call(call)
     }
 
+    fn prepare_for_digest_version(
+        &self,
+        call: &ProviderCall,
+        digest_version: gocode_provider::ProviderCallDigestVersion,
+    ) -> Result<PreparedRequest, PrepareError> {
+        *self.prepare_count.lock().unwrap() += 1;
+        PreparedRequest::from_call_for_digest_version(call, digest_version)
+    }
+
     fn dispatch(
         &self,
         _request: DispatchRequest,
@@ -93,6 +102,13 @@ struct RecordingRepository {
 }
 
 impl ProviderDispatchRepository for RecordingRepository {
+    fn load_prepared(
+        &self,
+        _call_id: gocode_provider::ProviderCallId,
+    ) -> Result<Option<PreparedProviderRecord>, ProviderRepositoryError> {
+        unreachable!("policy-denied calls must not load prepared state")
+    }
+
     fn persist_prepared(
         &self,
         _record: &PreparedProviderRecord,
@@ -115,6 +131,33 @@ impl ProviderDispatchRepository for RecordingRepository {
         _stream_id: ProviderStreamId,
     ) -> Result<(), ProviderRepositoryError> {
         unreachable!("policy-denied calls must not mark streaming")
+    }
+
+    fn mark_rejected_before_effect(
+        &self,
+        _attempt_id: DispatchAttemptId,
+        _fencing_token: u64,
+        _rejection: gocode_provider::ProviderPreEffectRejection,
+    ) -> Result<(), ProviderRepositoryError> {
+        unreachable!("policy-denied calls must not mark rejected")
+    }
+
+    fn mark_terminal_pending(
+        &self,
+        _attempt_id: DispatchAttemptId,
+        _fencing_token: u64,
+        _settlement_digest: [u8; 32],
+    ) -> Result<(), ProviderRepositoryError> {
+        unreachable!("policy-denied calls must not mark terminal")
+    }
+
+    fn settle(
+        &self,
+        _attempt_id: DispatchAttemptId,
+        _fencing_token: u64,
+        _settlement_digest: [u8; 32],
+    ) -> Result<(), ProviderRepositoryError> {
+        unreachable!("policy-denied calls must not settle")
     }
 
     fn mark_uncertain(
@@ -150,7 +193,6 @@ fn request() -> ProviderCoordinatorRequest {
         )
         .unwrap(),
         authority_ref: ProviderEffectAuthorityRef::new([3; 16], 1).unwrap(),
-        render_digest: [4; 32],
         profile_digest: [5; 32],
         attempt_id: DispatchAttemptId::from_bytes([6; 16]),
         permit_id: [7; 16],

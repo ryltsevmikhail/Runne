@@ -415,13 +415,13 @@ fn preflight_rejects_explicit_candidate_remnant_catalog_entries() {
 fn preflight_rejects_v11_authority_table_with_same_columns_and_missing_constraints() {
     let path = current_database("v11-authority-constraints");
     let connection = Connection::open(&path).unwrap();
+    apply_migrations(&connection).unwrap();
     connection
         .execute_batch(
             "CREATE TABLE candidate_data (value TEXT NOT NULL);
              INSERT INTO candidate_data VALUES ('unchanged');",
         )
         .unwrap();
-    apply_migrations(&connection).unwrap();
     connection
         .execute_batch(
             "DROP TABLE provider_effect_authorities;

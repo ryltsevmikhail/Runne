@@ -13,6 +13,7 @@ pub struct ModelRef {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawModelRef {
     provider_id: String,
     model_id: String,
@@ -91,11 +92,109 @@ pub enum ProviderCallError {
         /// Actual capability entry count.
         actual: usize,
     },
+    /// A normalized text input must contain at least one byte.
+    #[error("provider text input must not be empty")]
+    EmptyTextInput,
+    /// One normalized text input exceeded its byte bound.
+    #[error("provider text input exceeds {max} bytes (actual {actual})")]
+    TextInputTooLarge {
+        /// Maximum accepted UTF-8 bytes for one input.
+        max: usize,
+        /// Actual UTF-8 byte length.
+        actual: usize,
+    },
+    /// A call exceeded the bounded number of normalized text inputs.
+    #[error("provider call exceeds {max} text inputs (actual {actual})")]
+    TooManyTextInputs {
+        /// Maximum accepted input entries.
+        max: usize,
+        /// Actual input entry count.
+        actual: usize,
+    },
+    /// Aggregate normalized text input bytes exceeded the call bound.
+    #[error("provider call text inputs exceed {max} bytes (actual {actual})")]
+    TextInputsTooLarge {
+        /// Maximum accepted aggregate UTF-8 bytes.
+        max: usize,
+        /// Actual aggregate UTF-8 byte length.
+        actual: usize,
+    },
 }
 
 const MAX_EXTENSION_BYTES: usize = 16 * 1024;
 const MAX_EXTENSION_DEPTH: usize = 16;
 const MAX_REQUIRED_CAPABILITIES: usize = 32;
+/// Maximum UTF-8 bytes accepted for one normalized provider input.
+pub const MAX_PROVIDER_TEXT_INPUT_BYTES: usize = 64 * 1024;
+/// Maximum normalized text input entries accepted for one provider call.
+pub const MAX_PROVIDER_TEXT_INPUTS: usize = 64;
+/// Maximum aggregate UTF-8 input bytes accepted for one provider call.
+pub const MAX_PROVIDER_TEXT_INPUT_TOTAL_BYTES: usize = 256 * 1024;
+/// Provider-neutral role of one canonical text input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderInputRole {
+    /// Runtime-owned instruction text.
+    Developer,
+    /// User-authored canonical input.
+    User,
+    /// Previously committed assistant text.
+    Assistant,
+}
+
+/// One bounded provider-neutral text input with no credential material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProviderTextInput {
+    role: ProviderInputRole,
+    text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawProviderTextInput {
+    role: ProviderInputRole,
+    text: String,
+}
+
+impl<'de> Deserialize<'de> for ProviderTextInput {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawProviderTextInput::deserialize(deserializer)?;
+        Self::new(raw.role, raw.text).map_err(<D::Error as serde::de::Error>::custom)
+    }
+}
+
+impl ProviderTextInput {
+    /// Constructs one bounded canonical text input.
+    pub fn new(
+        role: ProviderInputRole,
+        text: impl Into<String>,
+    ) -> Result<Self, ProviderCallError> {
+        let text = text.into();
+        if text.is_empty() {
+            return Err(ProviderCallError::EmptyTextInput);
+        }
+        if text.len() > MAX_PROVIDER_TEXT_INPUT_BYTES {
+            return Err(ProviderCallError::TextInputTooLarge {
+                max: MAX_PROVIDER_TEXT_INPUT_BYTES,
+                actual: text.len(),
+            });
+        }
+        Ok(Self { role, text })
+    }
+
+    /// Returns the normalized input role.
+    pub const fn role(&self) -> ProviderInputRole {
+        self.role
+    }
+
+    /// Returns the exact input text.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
 
 /// Normalized capability required by a provider call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -120,16 +219,20 @@ pub struct ProviderCall {
     model_ref: ModelRef,
     manifest_digest: [u8; 32],
     max_output_tokens: u32,
+    inputs: Vec<ProviderTextInput>,
     extension: Value,
     required_capabilities: Vec<ProviderCapability>,
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawProviderCall {
     call_id: ProviderCallId,
     model_ref: ModelRef,
     manifest_digest: [u8; 32],
     max_output_tokens: u32,
+    #[serde(default)]
+    inputs: Vec<ProviderTextInput>,
     extension: Value,
     required_capabilities: Vec<ProviderCapability>,
 }
@@ -150,6 +253,7 @@ impl<'de> Deserialize<'de> for ProviderCall {
             raw.max_output_tokens,
             raw.extension,
         )
+        .and_then(|call| call.with_text_inputs(raw.inputs))
         .map(|call| call.with_required_capabilities(required_capabilities))
         .map_err(<D::Error as serde::de::Error>::custom)
     }
@@ -173,6 +277,7 @@ impl ProviderCall {
             model_ref,
             manifest_digest,
             max_output_tokens,
+            inputs: Vec::new(),
             extension,
             required_capabilities: Vec::new(),
         })
@@ -187,6 +292,31 @@ impl ProviderCall {
         required_capabilities.dedup();
         self.required_capabilities = required_capabilities;
         self
+    }
+
+    /// Replaces normalized text inputs after enforcing count and aggregate bounds.
+    pub fn with_text_inputs(
+        mut self,
+        inputs: Vec<ProviderTextInput>,
+    ) -> Result<Self, ProviderCallError> {
+        if inputs.len() > MAX_PROVIDER_TEXT_INPUTS {
+            return Err(ProviderCallError::TooManyTextInputs {
+                max: MAX_PROVIDER_TEXT_INPUTS,
+                actual: inputs.len(),
+            });
+        }
+        let actual = inputs
+            .iter()
+            .try_fold(0usize, |total, input| total.checked_add(input.text.len()))
+            .unwrap_or(usize::MAX);
+        if actual > MAX_PROVIDER_TEXT_INPUT_TOTAL_BYTES {
+            return Err(ProviderCallError::TextInputsTooLarge {
+                max: MAX_PROVIDER_TEXT_INPUT_TOTAL_BYTES,
+                actual,
+            });
+        }
+        self.inputs = inputs;
+        Ok(self)
     }
 
     /// Returns the durable call identity.
@@ -207,6 +337,11 @@ impl ProviderCall {
     /// Returns the exact output-token bound.
     pub const fn max_output_tokens(&self) -> u32 {
         self.max_output_tokens
+    }
+
+    /// Returns normalized text inputs in canonical provider order.
+    pub fn text_inputs(&self) -> &[ProviderTextInput] {
+        &self.inputs
     }
 
     /// Returns provider-specific normalized extension data.

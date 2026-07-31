@@ -5,7 +5,7 @@ use gocode_application::provider::{
     ProviderAdmissionError, ProviderEffectAdmission, ProviderEffectAuthorityRecord,
     ProviderEffectAuthorityRef, ProviderEffectRequest,
 };
-use gocode_provider::{DispatchAttemptId, ProviderCallId};
+use gocode_provider::{DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId};
 use gocode_store::provider::{
     PreparedProviderRecord, ProviderDispatchClaim, SqliteProviderDispatchStore,
     SqliteProviderEffectAdmission,
@@ -49,6 +49,7 @@ fn setup(name: &str) -> (PathBuf, ProviderEffectRequest) {
     let store = SqliteProviderDispatchStore::open(&path).unwrap();
     let prepared = PreparedProviderRecord {
         call_id: ProviderCallId::from_bytes([1; 16]),
+        call_digest_version: ProviderCallDigestVersion::V2,
         prepared_digest: [2; 32],
         render_digest: [3; 32],
         profile_digest: [4; 32],
