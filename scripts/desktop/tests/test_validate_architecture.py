@@ -296,6 +296,5 @@ class RendererConversationBoundaryTest(unittest.TestCase):
             violations,
         )
 
-
 if __name__ == "__main__":
     unittest.main()
