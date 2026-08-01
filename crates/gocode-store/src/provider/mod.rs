@@ -8,4 +8,7 @@ pub use dispatch_store::{
     ProviderDispatchClaim, ProviderDispatchRecord, ProviderDispatchState, ProviderStoreError,
     SettleProviderDispatch, SqliteProviderDispatchStore,
 };
-pub use execution_store::{ProviderRuntimeAuthorityConfig, SqliteProviderExecutionStore};
+pub use execution_store::{
+    DurableProviderAdmission, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
+    SqliteProviderExecutionStore,
+};

@@ -1,18 +1,17 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
-use gocode_application::provider::{
-    ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest, RuntimeProviderAuthorityIssuer,
-};
+use gocode_application::provider::ProviderAuthorityIssueRequest;
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderDispatchRepository,
     ProviderPreEffectRejection, ProviderStreamId,
 };
 use gocode_store::provider::{
-    MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderDispatchClaim,
-    ProviderDispatchState, ProviderRuntimeAuthorityConfig, ProviderStoreError,
-    SettleProviderDispatch, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord,
+    ProviderAuthorityIssueOutcome, ProviderDispatchClaim, ProviderDispatchState,
+    ProviderRuntimeAuthorityConfig, ProviderStoreError, SettleProviderDispatch,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
 fn database_path(name: &str) -> PathBuf {

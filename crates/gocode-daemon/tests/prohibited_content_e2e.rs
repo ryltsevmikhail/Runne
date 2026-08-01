@@ -22,8 +22,9 @@ use gocode_application::ports::{
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderAuthorityIssuerDecision,
-    ProviderCoordinatorRequest, ProviderDispatchCoordinator, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
+    ProviderAuthorityIssueRequest, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
+    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
 };
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
@@ -305,11 +306,21 @@ impl ProviderDispatchRepository for UnreachableRepository {
 struct UnreachableIssuer;
 
 impl RuntimeProviderAuthorityIssuer for UnreachableIssuer {
-    fn issue_decision(
+    fn issue_locator(
         &self,
         _request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError> {
+    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError> {
         unreachable!("denied provider call must not reach admission")
+    }
+}
+
+impl RuntimeProviderAuthorityEvidenceVerifier for UnreachableIssuer {
+    fn verify_durable_admission(
+        &self,
+        _request: &ProviderAuthorityIssueRequest,
+        _attempt_id: DispatchAttemptId,
+    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError> {
+        unreachable!("denied provider call must not verify admission")
     }
 }
 
@@ -561,8 +572,13 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     let recording_provider = RecordingProvider::default();
     let repository = UnreachableRepository;
     let issuer = UnreachableIssuer;
-    let coordinator =
-        ProviderDispatchCoordinator::new(&repository, &issuer, &recording_provider, guard.as_ref());
+    let coordinator = ProviderDispatchCoordinator::new(
+        &repository,
+        &issuer,
+        &issuer,
+        &recording_provider,
+        guard.as_ref(),
+    );
     assert_eq!(
         coordinator.dispatch(provider_request()).await,
         Err(ProviderAdmissionError::PolicyDenied)

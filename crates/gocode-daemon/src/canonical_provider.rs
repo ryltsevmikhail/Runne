@@ -413,6 +413,7 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
             let coordinator = ProviderDispatchCoordinator::new(
                 self.dispatch_store.as_ref(),
                 self.execution_store.as_ref(),
+                self.execution_store.as_ref(),
                 self.adapter.as_ref(),
                 self.prohibited_content.as_ref(),
             );
@@ -441,9 +442,7 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                     ProviderCoordinatorOutcome::RejectedBeforeEffect { .. } => {
                         CanonicalProviderExecutionError::RejectedBeforeEffect
                     }
-                    ProviderCoordinatorOutcome::Existing { .. } => {
-                        CanonicalProviderExecutionError::Conflict
-                    }
+                    ProviderCoordinatorOutcome::Existing { state } => map_existing_state(state),
                     ProviderCoordinatorOutcome::Streaming { .. } => unreachable!(),
                 });
             };
@@ -481,7 +480,7 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                 }
                 cursor = cursor
                     .checked_add(1)
-                    .ok_or(CanonicalProviderExecutionError::Conflict)?;
+                    .ok_or(CanonicalProviderExecutionError::Uncertain)?;
             }
             execution
                 .finalize_terminal_output(&context)
@@ -520,10 +519,10 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                 execution.apply_terminal_output_for_attempt(attempt_id, &application)
             })
             .await
-            .map_err(|_| CanonicalProviderExecutionError::Unavailable)?
+            .map_err(|_| CanonicalProviderExecutionError::Uncertain)?
             .map_err(map_execution_error)?;
             if !applied {
-                return Err(CanonicalProviderExecutionError::RemoteFailed);
+                return Err(CanonicalProviderExecutionError::Uncertain);
             }
             let completed = self
                 .conversation_store
@@ -531,13 +530,13 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                     job.context.command_id,
                     &job.context.idempotency_key,
                 )
-                .map_err(|_| CanonicalProviderExecutionError::Unavailable)?;
+                .map_err(|_| CanonicalProviderExecutionError::Uncertain)?;
             if completed.phase != gocode_application::ports::TextGenerationPhase::Completed
                 || completed.conversation_id != job.started.conversation_id
                 || completed.taskrun_id != job.started.taskrun_id
                 || completed.attempt_id != job.started.attempt_id
             {
-                return Err(CanonicalProviderExecutionError::Conflict);
+                return Err(CanonicalProviderExecutionError::Uncertain);
             }
             Ok(completed)
         })
@@ -676,29 +675,42 @@ fn map_credential_error(error: SecureStoreError) -> OpenAiCredentialError {
     }
 }
 
+const fn map_existing_state(
+    state: gocode_provider::ProviderRepositoryState,
+) -> CanonicalProviderExecutionError {
+    match state {
+        gocode_provider::ProviderRepositoryState::RejectedBeforeEffect => {
+            CanonicalProviderExecutionError::RejectedBeforeEffect
+        }
+        gocode_provider::ProviderRepositoryState::Dispatching
+        | gocode_provider::ProviderRepositoryState::Streaming
+        | gocode_provider::ProviderRepositoryState::TerminalPendingCommit
+        | gocode_provider::ProviderRepositoryState::Uncertain => {
+            CanonicalProviderExecutionError::Uncertain
+        }
+        gocode_provider::ProviderRepositoryState::Settled => {
+            CanonicalProviderExecutionError::Conflict
+        }
+    }
+}
+
 const fn map_execution_error(
     error: RuntimeProviderExecutionError,
 ) -> CanonicalProviderExecutionError {
     match error {
         RuntimeProviderExecutionError::JournalCommitLost
-        | RuntimeProviderExecutionError::RecoveryFrozen => {
-            CanonicalProviderExecutionError::Uncertain
-        }
-        RuntimeProviderExecutionError::PolicyDenied => {
-            CanonicalProviderExecutionError::PolicyDenied
-        }
-        RuntimeProviderExecutionError::ApplicationConflict
-        | RuntimeProviderExecutionError::TerminalRejected
-        | RuntimeProviderExecutionError::JournalCorrupt => {
-            CanonicalProviderExecutionError::Conflict
-        }
-        RuntimeProviderExecutionError::KeyRetentionUnsupported
+        | RuntimeProviderExecutionError::RecoveryFrozen
         | RuntimeProviderExecutionError::JournalKeyUnavailable
+        | RuntimeProviderExecutionError::KeyRetentionUnsupported
+        | RuntimeProviderExecutionError::JournalCorrupt
         | RuntimeProviderExecutionError::PersistenceUnavailable
         | RuntimeProviderExecutionError::AdapterStreamUnavailable
+        | RuntimeProviderExecutionError::TerminalRejected
+        | RuntimeProviderExecutionError::PolicyDenied
         | RuntimeProviderExecutionError::PricingUnavailable
-        | RuntimeProviderExecutionError::ApplicationUnavailable => {
-            CanonicalProviderExecutionError::Unavailable
+        | RuntimeProviderExecutionError::ApplicationUnavailable
+        | RuntimeProviderExecutionError::ApplicationConflict => {
+            CanonicalProviderExecutionError::Uncertain
         }
     }
 }
@@ -746,5 +758,32 @@ mod tests {
             map_admission_error(ProviderAdmissionError::RepositoryFailure),
             CanonicalProviderExecutionError::Unavailable
         );
+    }
+
+    #[test]
+    fn adapter_stream_and_terminal_application_failures_are_post_effect_uncertain() {
+        assert_eq!(
+            map_execution_error(RuntimeProviderExecutionError::AdapterStreamUnavailable),
+            CanonicalProviderExecutionError::Uncertain
+        );
+        assert_eq!(
+            map_execution_error(RuntimeProviderExecutionError::ApplicationUnavailable),
+            CanonicalProviderExecutionError::Uncertain
+        );
+    }
+
+    #[test]
+    fn duplicate_nonterminal_states_require_uncertain_reconciliation() {
+        for state in [
+            gocode_provider::ProviderRepositoryState::Dispatching,
+            gocode_provider::ProviderRepositoryState::Streaming,
+            gocode_provider::ProviderRepositoryState::TerminalPendingCommit,
+            gocode_provider::ProviderRepositoryState::Uncertain,
+        ] {
+            assert_eq!(
+                map_existing_state(state),
+                CanonicalProviderExecutionError::Uncertain
+            );
+        }
     }
 }

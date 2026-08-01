@@ -7,8 +7,9 @@ mod execution;
 
 pub use admission::{ProviderAdmissionError, ProviderEffectAuthorityRef};
 pub use authority::{
-    AdmittedProviderDispatch, ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest,
-    ProviderAuthorityIssuerDecision, ProviderExecutionBinding, RuntimeProviderAuthorityIssuer,
+    AdmittedProviderDispatch, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
+    ProviderAuthorityIssueRequest, ProviderExecutionBinding,
+    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
 };
 pub use coordinator::{
     ProviderCoordinatorOutcome, ProviderCoordinatorRequest, ProviderDispatchCoordinator,

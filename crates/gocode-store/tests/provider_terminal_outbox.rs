@@ -1,8 +1,8 @@
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest,
-    ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
-    ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderTerminalCommitOutcome, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderEncryptedPayload,
+    ProviderExecutionError, ProviderExecutionStore, ProviderJournalAppendOutcome,
+    ProviderJournalAppendRequest, ProviderJournalKeyBinding, ProviderPollRequest,
+    ProviderTerminalCommitOutcome,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -10,8 +10,8 @@ use gocode_provider::{
     ProviderCall, ProviderCallId, ProviderId, ProviderStreamId, ProviderUsage,
 };
 use gocode_store::provider::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderRuntimeAuthorityConfig,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
+    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
 

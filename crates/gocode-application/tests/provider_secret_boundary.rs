@@ -5,8 +5,9 @@ use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderAuthorityIssuerDecision,
-    ProviderCoordinatorRequest, ProviderDispatchCoordinator, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
+    ProviderAuthorityIssueRequest, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
+    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -173,11 +174,21 @@ impl ProviderDispatchRepository for RecordingRepository {
 struct RecordingIssuer;
 
 impl RuntimeProviderAuthorityIssuer for RecordingIssuer {
-    fn issue_decision(
+    fn issue_locator(
         &self,
         _request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError> {
+    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError> {
         unreachable!("policy-denied calls must not reach admission")
+    }
+}
+
+impl RuntimeProviderAuthorityEvidenceVerifier for RecordingIssuer {
+    fn verify_durable_admission(
+        &self,
+        _request: &ProviderAuthorityIssueRequest,
+        _attempt_id: DispatchAttemptId,
+    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError> {
+        unreachable!("policy-denied calls must not verify admission")
     }
 }
 
@@ -215,7 +226,8 @@ fn assert_denied_before_prepare(mode: GuardMode) {
     let issuer = RecordingIssuer;
     let provider = RecordingProvider::default();
     let guard = BoundaryGuard(mode);
-    let coordinator = ProviderDispatchCoordinator::new(&repository, &issuer, &provider, &guard);
+    let coordinator =
+        ProviderDispatchCoordinator::new(&repository, &issuer, &issuer, &provider, &guard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())),
