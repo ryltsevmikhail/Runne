@@ -198,27 +198,67 @@ impl ProviderExecutionBinding {
     }
 }
 
-/// Raw issuer decision converted to dispatch authority inside application code.
+/// Opaque issuer decision converted to dispatch authority inside application code.
 ///
-/// This type is an implementation boundary for trusted issuer ports; only the
-/// default [`RuntimeProviderAuthorityIssuer::issue`] method can construct
-/// [`AdmittedProviderDispatch`].
+/// Safe downstream code cannot construct raw winner fields or bypass exact
+/// request binding. Persistence adapters can return a validated durable commit
+/// through [`Self::from_durable_commit`].
+///
+/// ```compile_fail
+/// use gocode_application::provider::ProviderAuthorityIssuerDecision;
+///
+/// let forged = ProviderAuthorityIssuerDecision::Winner {
+///     authority_ref: todo!(),
+///     runtime_generation: 1,
+///     claim: todo!(),
+/// };
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProviderAuthorityIssuerDecision {
-    /// Issuer atomically committed a new authority and claim.
-    Winner {
-        /// Durable runtime-issued authority.
+pub struct ProviderAuthorityIssuerDecision(ProviderAuthorityIssuerDecisionKind);
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProviderAuthorityIssuerDecisionKind {
+    Committed {
         authority_ref: ProviderEffectAuthorityRef,
-        /// Runtime generation read by the issuer inside the admission transaction.
         runtime_generation: u64,
-        /// Exact winner-only claim.
         claim: Box<ProviderDispatchClaim>,
     },
-    /// Exact replay observed an existing durable state.
     Existing {
-        /// Existing provider attempt state.
         state: ProviderRepositoryState,
     },
+}
+
+impl ProviderAuthorityIssuerDecision {
+    /// Wraps one durable atomic commit after validating its exact semantic
+    /// request binding. This cannot manufacture a mismatched winner.
+    #[doc(hidden)]
+    pub fn from_durable_commit(
+        request: &ProviderAuthorityIssueRequest,
+        authority_ref: ProviderEffectAuthorityRef,
+        runtime_generation: u64,
+        claim: ProviderDispatchClaim,
+    ) -> Result<Self, ProviderAdmissionError> {
+        let admitted = AdmittedProviderDispatch::new(authority_ref, runtime_generation, claim)?;
+        if admitted.claim.call_id != request.prepared.call_id
+            || admitted.claim.prepared_digest != request.prepared.prepared_digest
+            || admitted.claim.render_digest != request.prepared.render_digest
+            || admitted.claim.profile_digest != request.prepared.profile_digest
+            || admitted.claim.provider_idempotency_key != request.provider_idempotency_key
+        {
+            return Err(ProviderAdmissionError::AuthorityConflict);
+        }
+        Ok(Self(ProviderAuthorityIssuerDecisionKind::Committed {
+            authority_ref: admitted.authority_ref,
+            runtime_generation: admitted.runtime_generation,
+            claim: Box::new(admitted.claim),
+        }))
+    }
+
+    /// Wraps an exact durable replay without granting a dispatch permit.
+    #[doc(hidden)]
+    pub const fn existing(state: ProviderRepositoryState) -> Self {
+        Self(ProviderAuthorityIssuerDecisionKind::Existing { state })
+    }
 }
 
 /// Atomic runtime authority issuance outcome.
@@ -251,15 +291,15 @@ pub trait RuntimeProviderAuthorityIssuer: Send + Sync {
         &self,
         request: &ProviderAuthorityIssueRequest,
     ) -> Result<ProviderAuthorityIssueOutcome, ProviderAdmissionError> {
-        match self.issue_decision(request)? {
-            ProviderAuthorityIssuerDecision::Winner {
+        match self.issue_decision(request)?.0 {
+            ProviderAuthorityIssuerDecisionKind::Committed {
                 authority_ref,
                 runtime_generation,
                 claim,
             } => Ok(ProviderAuthorityIssueOutcome::Winner(Box::new(
                 AdmittedProviderDispatch::new(authority_ref, runtime_generation, *claim)?,
             ))),
-            ProviderAuthorityIssuerDecision::Existing { state } => {
+            ProviderAuthorityIssuerDecisionKind::Existing { state } => {
                 Ok(ProviderAuthorityIssueOutcome::Existing { state })
             }
         }

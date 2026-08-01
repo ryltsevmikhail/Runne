@@ -1,6 +1,6 @@
 mod support;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use gocode_provider::{
@@ -13,6 +13,7 @@ use gocode_provider_openai::{
     OpenAiProviderAdapter, OpenAiTransport, OpenAiTransportError, OpenAiTransportRequest,
     OpenAiTransportResponse,
 };
+use tokio::sync::Notify;
 use zeroize::Zeroizing;
 
 type Observation = (String, String, String, usize, usize);
@@ -50,6 +51,47 @@ impl OpenAiTransport for FixtureTransport {
 struct FixtureCredential {
     result: Result<Vec<u8>, OpenAiCredentialError>,
     calls: Arc<AtomicUsize>,
+}
+
+struct ControlledCredential {
+    blocked: Arc<AtomicBool>,
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl OpenAiCredentialMaterializer for ControlledCredential {
+    fn materialize(&self) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
+        let blocked = Arc::clone(&self.blocked);
+        let entered = Arc::clone(&self.entered);
+        let release = Arc::clone(&self.release);
+        Box::pin(async move {
+            entered.notify_one();
+            if blocked.load(Ordering::SeqCst) {
+                release.notified().await;
+            }
+            Ok(Zeroizing::new(b"fixture-key".to_vec()))
+        })
+    }
+}
+
+struct ControlledTransport {
+    entered: Arc<Notify>,
+    release: Arc<Notify>,
+}
+
+impl OpenAiTransport for ControlledTransport {
+    fn send(
+        &self,
+        _request: OpenAiTransportRequest,
+    ) -> ProviderFuture<'_, Result<OpenAiTransportResponse, OpenAiTransportError>> {
+        let entered = Arc::clone(&self.entered);
+        let release = Arc::clone(&self.release);
+        Box::pin(async move {
+            entered.notify_one();
+            release.notified().await;
+            Ok(sse(support::successful_sse()))
+        })
+    }
 }
 
 impl OpenAiCredentialMaterializer for FixtureCredential {
@@ -408,5 +450,123 @@ async fn cancel_is_local_idempotent_and_does_not_claim_remote_settlement() {
             .await
             .expect("reconcile"),
         ReconciliationDisposition::Uncertain
+    );
+}
+
+#[tokio::test]
+async fn credential_materialization_cancellation_clears_attempt_and_capacity() {
+    let blocked = Arc::new(AtomicBool::new(true));
+    let entered = Arc::new(Notify::new());
+    let adapter = Arc::new(
+        OpenAiProviderAdapter::new(
+            support::profile(),
+            FixtureTransport {
+                response: Ok(sse(support::successful_sse())),
+                observations: Arc::new(Mutex::new(Vec::new())),
+            },
+            ControlledCredential {
+                blocked: Arc::clone(&blocked),
+                entered: Arc::clone(&entered),
+                release: Arc::new(Notify::new()),
+            },
+        )
+        .unwrap(),
+    );
+    let profile = support::profile();
+
+    for seed in 60_u8..68 {
+        let prepared = adapter.prepare(&support::call(&profile)).unwrap();
+        let request = support::dispatch_request(
+            prepared,
+            DispatchAttemptId::from_bytes([seed; 16]),
+            &format!("gocode-cancel-before-effect-{seed}"),
+            &profile,
+        );
+        let task_adapter = Arc::clone(&adapter);
+        let task = tokio::spawn(async move { task_adapter.dispatch(request).await });
+        entered.notified().await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+    }
+
+    blocked.store(false, Ordering::SeqCst);
+    let attempt = DispatchAttemptId::from_bytes([60; 16]);
+    let prepared = adapter.prepare(&support::call(&profile)).unwrap();
+    assert!(
+        adapter
+            .dispatch(support::dispatch_request(
+                prepared,
+                attempt,
+                "gocode-cancel-before-effect-60",
+                &profile,
+            ))
+            .await
+            .is_ok()
+    );
+}
+
+#[tokio::test]
+async fn transport_cancellation_leaves_attempt_uncertain_and_never_retries_effect() {
+    let entered = Arc::new(Notify::new());
+    let adapter = Arc::new(
+        OpenAiProviderAdapter::new(
+            support::profile(),
+            ControlledTransport {
+                entered: Arc::clone(&entered),
+                release: Arc::new(Notify::new()),
+            },
+            FixtureCredential {
+                result: Ok(b"fixture-key".to_vec()),
+                calls: Arc::new(AtomicUsize::new(0)),
+            },
+        )
+        .unwrap(),
+    );
+    let profile = support::profile();
+    for seed in 70_u8..78 {
+        let prepared = adapter.prepare(&support::call(&profile)).unwrap();
+        let request = support::dispatch_request(
+            prepared,
+            DispatchAttemptId::from_bytes([seed; 16]),
+            &format!("gocode-cancel-after-effect-{seed}"),
+            &profile,
+        );
+        let task_adapter = Arc::clone(&adapter);
+        let task = tokio::spawn(async move { task_adapter.dispatch(request).await });
+        entered.notified().await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+    }
+
+    let ninth_prepared = adapter.prepare(&support::call(&profile)).unwrap();
+    let ninth_request = support::dispatch_request(
+        ninth_prepared,
+        DispatchAttemptId::from_bytes([79; 16]),
+        "gocode-cancel-after-eight-effects",
+        &profile,
+    );
+    let ninth_adapter = Arc::clone(&adapter);
+    let ninth = tokio::spawn(async move { ninth_adapter.dispatch(ninth_request).await });
+    entered.notified().await;
+    ninth.abort();
+    assert!(ninth.await.unwrap_err().is_cancelled());
+
+    let attempt = DispatchAttemptId::from_bytes([70; 16]);
+    let retry_prepared = adapter.prepare(&support::call(&profile)).unwrap();
+
+    assert_eq!(
+        adapter
+            .dispatch(support::dispatch_request(
+                retry_prepared,
+                attempt,
+                "gocode-cancel-after-effect-70",
+                &profile,
+            ))
+            .await,
+        Err(DispatchError::MaybeDispatched)
+    );
+    assert_eq!(
+        adapter.reconcile(ReconcileRequest::new(attempt)).await,
+        Ok(ReconciliationDisposition::Uncertain)
     );
 }

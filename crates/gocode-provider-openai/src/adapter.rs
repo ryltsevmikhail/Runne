@@ -45,6 +45,78 @@ struct AdapterState {
     cursors: BTreeMap<ProviderStreamId, u64>,
 }
 
+struct DispatchAttemptGuard<'a> {
+    state: &'a Mutex<AdapterState>,
+    attempt_id: DispatchAttemptId,
+    prepared: PreparedRequestRef,
+    effect_started: bool,
+    armed: bool,
+}
+
+impl<'a> DispatchAttemptGuard<'a> {
+    const fn new(
+        state: &'a Mutex<AdapterState>,
+        attempt_id: DispatchAttemptId,
+        prepared: PreparedRequestRef,
+    ) -> Self {
+        Self {
+            state,
+            attempt_id,
+            prepared,
+            effect_started: false,
+            armed: true,
+        }
+    }
+
+    const fn mark_effect_started(&mut self) {
+        self.effect_started = true;
+    }
+
+    const fn disarm(&mut self) {
+        self.armed = false;
+    }
+
+    fn clear_pre_effect(&mut self) {
+        if let Ok(mut state) = self.state.lock()
+            && matches!(
+                state.attempts.get(&self.attempt_id),
+                Some(AttemptState::Dispatching { prepared }) if *prepared == self.prepared
+            )
+        {
+            state.attempts.remove(&self.attempt_id);
+        }
+        self.disarm();
+    }
+}
+
+impl Drop for DispatchAttemptGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Ok(mut state) = self.state.lock() else {
+            return;
+        };
+        if !matches!(
+            state.attempts.get(&self.attempt_id),
+            Some(AttemptState::Dispatching { prepared }) if *prepared == self.prepared
+        ) {
+            return;
+        }
+        if self.effect_started {
+            state.attempts.insert(
+                self.attempt_id,
+                AttemptState::Uncertain {
+                    prepared: self.prepared,
+                    stream: ProviderStreamId::from_bytes(*self.attempt_id.as_bytes()),
+                },
+            );
+        } else {
+            state.attempts.remove(&self.attempt_id);
+        }
+    }
+}
+
 impl AdapterState {
     fn can_start_new_attempt(&self) -> bool {
         self.attempts.len() < OPENAI_MAX_RETAINED_ATTEMPTS
@@ -260,16 +332,17 @@ where
             DispatchStart::Existing(stream) => return Ok(stream),
             DispatchStart::Ready => {}
         }
+        let mut attempt_guard = DispatchAttemptGuard::new(&self.state, attempt_id, prepared_ref);
         let credential = match self.credential.materialize().await {
             Ok(credential) if !credential.is_empty() => credential,
             Ok(_) => {
-                self.clear_pre_effect_attempt(attempt_id, prepared_ref);
+                attempt_guard.clear_pre_effect();
                 return Err(DispatchError::RejectedBeforeEffect(
                     ProviderPreEffectRejection::CredentialUnavailable,
                 ));
             }
             Err(error) => {
-                self.clear_pre_effect_attempt(attempt_id, prepared_ref);
+                attempt_guard.clear_pre_effect();
                 return Err(map_credential_error(error));
             }
         };
@@ -281,15 +354,16 @@ where
         ) {
             Ok(request) => request,
             Err(error) => {
-                self.clear_pre_effect_attempt(attempt_id, prepared_ref);
+                attempt_guard.clear_pre_effect();
                 return Err(map_pre_effect_transport_error(error));
             }
         };
+        attempt_guard.mark_effect_started();
         let Ok(response) = self.transport.send(transport_request).await else {
-            return Err(self.mark_dispatch_uncertain(attempt_id, prepared_ref));
+            return Err(DispatchError::MaybeDispatched);
         };
         let Ok(events) = decode_transport_response(&response) else {
-            return Err(self.mark_dispatch_uncertain(attempt_id, prepared_ref));
+            return Err(DispatchError::MaybeDispatched);
         };
         let stream = ProviderStreamId::from_bytes(*attempt_id.as_bytes());
         let mut state = self
@@ -322,44 +396,8 @@ where
         state.cursors.insert(stream, 0);
         state.streams.insert(stream, events.into());
         drop(state);
+        attempt_guard.disarm();
         Ok(stream)
-    }
-
-    fn mark_dispatch_uncertain(
-        &self,
-        attempt_id: DispatchAttemptId,
-        prepared_ref: PreparedRequestRef,
-    ) -> DispatchError {
-        if let Ok(mut state) = self.state.lock()
-            && matches!(
-                state.attempts.get(&attempt_id),
-                Some(AttemptState::Dispatching { prepared }) if *prepared == prepared_ref
-            )
-        {
-            state.attempts.insert(
-                attempt_id,
-                AttemptState::Uncertain {
-                    prepared: prepared_ref,
-                    stream: ProviderStreamId::from_bytes(*attempt_id.as_bytes()),
-                },
-            );
-        }
-        DispatchError::MaybeDispatched
-    }
-
-    fn clear_pre_effect_attempt(
-        &self,
-        attempt_id: DispatchAttemptId,
-        prepared_ref: PreparedRequestRef,
-    ) {
-        if let Ok(mut state) = self.state.lock()
-            && matches!(
-                state.attempts.get(&attempt_id),
-                Some(AttemptState::Dispatching { prepared }) if *prepared == prepared_ref
-            )
-        {
-            state.attempts.remove(&attempt_id);
-        }
     }
 }
 

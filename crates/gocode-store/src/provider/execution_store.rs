@@ -133,25 +133,28 @@ impl SqliteProviderExecutionStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        match load_runtime_authority(&transaction)? {
-            None => insert_runtime_authority(&transaction, config, 1)?,
-            Some(existing) if existing.matches_config(config) => return Ok(()),
-            Some(existing) => {
-                if existing.runtime_authority_id != config.runtime_authority_id
-                    || existing.database_generation != config.database_generation
-                    || config.token_budget_limit
-                        < existing.token_budget_settled + existing.token_budget_reserved
-                    || config.cost_budget_limit_micros
-                        < existing.cost_budget_settled_micros + existing.cost_budget_reserved_micros
-                    || config.generation < existing.expected_generation
-                    || (config.generation == existing.expected_generation
-                        && config.fencing_token != existing.expected_fencing_token)
-                {
-                    return Err(ProviderAdmissionError::AuthorityConflict);
-                }
-                replace_runtime_authority(&transaction, config, existing.state_revision + 1)?;
-            }
-        }
+        install_runtime_authority_in_transaction(&transaction, config)?;
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)
+    }
+
+    /// Installs runtime authority, freezes attempts owned by an older worker
+    /// lease, and advances the lease in one crash-safe transaction.
+    pub fn install_runtime_authority_and_advance_worker_lease(
+        &self,
+        config: &ProviderRuntimeAuthorityConfig,
+    ) -> Result<(), ProviderAdmissionError> {
+        config.validate()?;
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        install_runtime_authority_in_transaction(&transaction, config)?;
+        advance_worker_lease_in_transaction(&transaction, config.generation, config.fencing_token)?;
         transaction
             .commit()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)
@@ -168,8 +171,6 @@ impl SqliteProviderExecutionStore {
         if generation == 0 || fencing_token == 0 {
             return Err(ProviderAdmissionError::StaleFencingToken);
         }
-        let generation = as_i64(generation)?;
-        let fencing_token = as_i64(fencing_token)?;
         let mut connection = self
             .connection
             .lock()
@@ -177,42 +178,7 @@ impl SqliteProviderExecutionStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let existing = load_runtime_authority(&transaction)?
-            .ok_or(ProviderAdmissionError::StaleFencingToken)?;
-        let changed = transaction
-            .execute(
-                "UPDATE provider_runtime_authority_state
-                 SET lease_generation = ?1, lease_fencing_token = ?2
-                 WHERE id = 1 AND active = 1 AND (
-                    ?1 > lease_generation OR
-                    (?1 = lease_generation AND ?2 = lease_fencing_token)
-                 )",
-                params![generation, fencing_token],
-            )
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        if changed != 1 {
-            return Err(ProviderAdmissionError::StaleFencingToken);
-        }
-        if existing.lease_generation != u64::try_from(generation).unwrap_or_default()
-            || existing.lease_fencing_token != u64::try_from(fencing_token).unwrap_or_default()
-        {
-            transaction
-                .execute(
-                    "UPDATE provider_dispatch_attempts
-                     SET state = 6
-                     WHERE state IN (1, 3) AND EXISTS (
-                        SELECT 1 FROM provider_execution_admissions admission
-                        WHERE admission.dispatch_attempt_id =
-                              provider_dispatch_attempts.attempt_id
-                          AND (
-                            admission.generation != ?1 OR
-                            admission.fencing_token != ?2
-                          )
-                     )",
-                    params![generation, fencing_token],
-                )
-                .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        }
+        advance_worker_lease_in_transaction(&transaction, generation, fencing_token)?;
         transaction
             .commit()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)
@@ -254,9 +220,7 @@ impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
             load_existing_admission(&transaction, &request.provider_idempotency_key)?
         {
             return if existing.semantic_digest == semantic_digest {
-                Ok(ProviderAuthorityIssuerDecision::Existing {
-                    state: existing.state,
-                })
+                Ok(ProviderAuthorityIssuerDecision::existing(existing.state))
             } else {
                 Err(ProviderAdmissionError::AuthorityConflict)
             };
@@ -326,11 +290,12 @@ impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
         transaction
             .commit()
             .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
-        Ok(ProviderAuthorityIssuerDecision::Winner {
+        ProviderAuthorityIssuerDecision::from_durable_commit(
+            request,
             authority_ref,
-            runtime_generation: state.expected_generation,
-            claim: Box::new(claim),
-        })
+            state.expected_generation,
+            claim,
+        )
     }
 }
 
@@ -1864,6 +1829,74 @@ impl RuntimeAuthorityState {
     }
 }
 
+fn install_runtime_authority_in_transaction(
+    transaction: &Transaction<'_>,
+    config: &ProviderRuntimeAuthorityConfig,
+) -> Result<(), ProviderAdmissionError> {
+    match load_runtime_authority(transaction)? {
+        None => insert_runtime_authority(transaction, config, 1),
+        Some(existing) if existing.matches_config(config) => Ok(()),
+        Some(existing) => {
+            if existing.runtime_authority_id != config.runtime_authority_id
+                || existing.database_generation != config.database_generation
+                || config.token_budget_limit
+                    < existing.token_budget_settled + existing.token_budget_reserved
+                || config.cost_budget_limit_micros
+                    < existing.cost_budget_settled_micros + existing.cost_budget_reserved_micros
+                || config.generation < existing.expected_generation
+                || (config.generation == existing.expected_generation
+                    && config.fencing_token != existing.expected_fencing_token)
+            {
+                return Err(ProviderAdmissionError::AuthorityConflict);
+            }
+            replace_runtime_authority(transaction, config, existing.state_revision + 1)
+        }
+    }
+}
+
+fn advance_worker_lease_in_transaction(
+    transaction: &Transaction<'_>,
+    generation: u64,
+    fencing_token: u64,
+) -> Result<(), ProviderAdmissionError> {
+    let generation_i64 = as_i64(generation)?;
+    let fencing_token_i64 = as_i64(fencing_token)?;
+    let existing =
+        load_runtime_authority(transaction)?.ok_or(ProviderAdmissionError::StaleFencingToken)?;
+    let changed = transaction
+        .execute(
+            "UPDATE provider_runtime_authority_state
+             SET lease_generation = ?1, lease_fencing_token = ?2
+             WHERE id = 1 AND active = 1 AND (
+                    ?1 > lease_generation OR
+                    (?1 = lease_generation AND ?2 = lease_fencing_token)
+               )",
+            params![generation_i64, fencing_token_i64],
+        )
+        .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+    if changed != 1 {
+        return Err(ProviderAdmissionError::StaleFencingToken);
+    }
+    if existing.lease_generation != generation || existing.lease_fencing_token != fencing_token {
+        transaction
+            .execute(
+                "UPDATE provider_dispatch_attempts
+                 SET state = 6
+                 WHERE state IN (1, 3) AND EXISTS (
+                    SELECT 1 FROM provider_execution_admissions admission
+                    WHERE admission.dispatch_attempt_id = provider_dispatch_attempts.attempt_id
+                      AND (
+                        admission.generation != ?1 OR
+                        admission.fencing_token != ?2
+                      )
+                 )",
+                params![generation_i64, fencing_token_i64],
+            )
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+    }
+    Ok(())
+}
+
 fn load_runtime_authority(
     transaction: &Transaction<'_>,
 ) -> Result<Option<RuntimeAuthorityState>, ProviderAdmissionError> {
@@ -1971,8 +2004,8 @@ fn replace_runtime_authority(
         .execute(
             "UPDATE provider_runtime_authority_state SET
                 principal_id = ?1, owner_id = ?2, scope = ?3,
-                expected_generation = ?4, lease_generation = ?4,
-                expected_fencing_token = ?5, lease_fencing_token = ?5,
+                expected_generation = ?4,
+                expected_fencing_token = ?5,
                 capability_grant_id = ?6, capability_revision = ?7,
                 capability_allowed = ?8, approval_id = ?9, approval_revision = ?10,
                 approval_allowed = ?11, approval_expires_at = ?12,

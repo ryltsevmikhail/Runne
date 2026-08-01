@@ -66,6 +66,29 @@ fn admitted_claim() -> ProviderDispatchClaim {
     }
 }
 
+fn issue_request_for(claim: &ProviderDispatchClaim) -> ProviderAuthorityIssueRequest {
+    let request = request();
+    ProviderAuthorityIssueRequest {
+        principal_id: request.principal_id,
+        conversation_id: request.conversation_id,
+        taskrun_id: request.taskrun_id,
+        execution_attempt_id: request.execution_attempt_id,
+        prepared: PreparedProviderRecord {
+            call_id: claim.call_id,
+            call_digest_version: gocode_provider::ProviderCallDigestVersion::V2,
+            prepared_digest: claim.prepared_digest,
+            render_digest: claim.render_digest,
+            profile_digest: claim.profile_digest,
+        },
+        pricing_revision_digest: request.pricing_revision_digest,
+        requested_input_tokens: request.requested_input_tokens,
+        requested_output_tokens: u64::from(request.requested_output_tokens),
+        max_cost_micros: request.max_cost_micros,
+        currency: request.currency,
+        provider_idempotency_key: request.provider_idempotency_key,
+    }
+}
+
 struct AllowingGuard;
 
 impl ProhibitedContentPort for AllowingGuard {
@@ -83,6 +106,7 @@ struct RecordingRepository {
     persisted: Mutex<Vec<PreparedProviderRecord>>,
     claim_count: Mutex<usize>,
     streaming: Mutex<Vec<(DispatchAttemptId, u64, ProviderStreamId)>>,
+    fail_after_dispatch: bool,
 }
 
 impl ProviderDispatchRepository for RecordingRepository {
@@ -115,6 +139,9 @@ impl ProviderDispatchRepository for RecordingRepository {
         fencing_token: u64,
         stream_id: ProviderStreamId,
     ) -> Result<(), ProviderRepositoryError> {
+        if self.fail_after_dispatch {
+            return Err(ProviderRepositoryError::Unavailable);
+        }
         self.streaming
             .lock()
             .unwrap()
@@ -154,7 +181,11 @@ impl ProviderDispatchRepository for RecordingRepository {
         _attempt_id: DispatchAttemptId,
         _fencing_token: u64,
     ) -> Result<(), ProviderRepositoryError> {
-        Ok(())
+        if self.fail_after_dispatch {
+            Err(ProviderRepositoryError::Unavailable)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -238,11 +269,12 @@ fn issuer_winner_is_the_only_claim_dispatched_and_fences_state_updates() {
     let expected_attempt_id = claim.attempt_id;
     let expected_fencing_token = claim.fencing_token;
     let issuer = RecordingIssuer {
-        outcome: Ok(ProviderAuthorityIssuerDecision::Winner {
-            authority_ref: ProviderEffectAuthorityRef::new([8; 16], 1).unwrap(),
-            runtime_generation: 17,
-            claim: Box::new(claim),
-        }),
+        outcome: ProviderAuthorityIssuerDecision::from_durable_commit(
+            &issue_request_for(&claim),
+            ProviderEffectAuthorityRef::new([8; 16], 1).unwrap(),
+            17,
+            claim,
+        ),
         requests: Mutex::new(Vec::new()),
     };
     let coordinator =
@@ -275,12 +307,44 @@ fn issuer_winner_is_the_only_claim_dispatched_and_fences_state_updates() {
 }
 
 #[test]
+fn storage_ambiguity_after_adapter_dispatch_returns_uncertain_not_ordinary_error() {
+    let repository = RecordingRepository {
+        fail_after_dispatch: true,
+        ..RecordingRepository::default()
+    };
+    let provider = adapter();
+    let prepared = provider.prepare(&request().call).unwrap();
+    let claim = ProviderDispatchClaim {
+        prepared_digest: *prepared.request_ref().as_bytes(),
+        render_digest: *prepared.render_digest(),
+        ..admitted_claim()
+    };
+    let issuer = RecordingIssuer {
+        outcome: ProviderAuthorityIssuerDecision::from_durable_commit(
+            &issue_request_for(&claim),
+            ProviderEffectAuthorityRef::new([8; 16], 1).unwrap(),
+            17,
+            claim,
+        ),
+        requests: Mutex::new(Vec::new()),
+    };
+    let coordinator =
+        ProviderDispatchCoordinator::new(&repository, &issuer, &provider, &AllowingGuard);
+
+    assert_eq!(
+        block_on(coordinator.dispatch(request())),
+        Ok(ProviderCoordinatorOutcome::Uncertain)
+    );
+    assert_eq!(provider.dispatch_count(), 1);
+}
+
+#[test]
 fn exact_issuance_replay_never_reenters_adapter() {
     let repository = RecordingRepository::default();
     let issuer = RecordingIssuer {
-        outcome: Ok(ProviderAuthorityIssuerDecision::Existing {
-            state: ProviderRepositoryState::Streaming,
-        }),
+        outcome: Ok(ProviderAuthorityIssuerDecision::existing(
+            ProviderRepositoryState::Streaming,
+        )),
         requests: Mutex::new(Vec::new()),
     };
     let provider = adapter();
@@ -302,9 +366,9 @@ fn oversized_token_reservations_are_rejected_before_authority_or_dispatch() {
     for oversized_output in [false, true] {
         let repository = RecordingRepository::default();
         let issuer = RecordingIssuer {
-            outcome: Ok(ProviderAuthorityIssuerDecision::Existing {
-                state: ProviderRepositoryState::Streaming,
-            }),
+            outcome: Ok(ProviderAuthorityIssuerDecision::existing(
+                ProviderRepositoryState::Streaming,
+            )),
             requests: Mutex::new(Vec::new()),
         };
         let provider = adapter();

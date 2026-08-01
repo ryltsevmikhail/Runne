@@ -159,3 +159,65 @@ async fn runtime_owns_provider_job_after_local_waiter_is_cancelled_and_drains_on
     assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
     assert_eq!(provider.completed.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn global_in_flight_limit_is_held_until_provider_job_replies() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join("canonical-provider-limit.sqlite");
+    let authority = RuntimeAuthorityId("canonical-provider-limit-test".into());
+    let store = StoreTransaction::open(
+        database.to_str().unwrap(),
+        authority.clone(),
+        available_guard(),
+    )
+    .unwrap();
+    let task_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
+        store.clone(),
+        store.clone(),
+        store,
+        authority,
+    ));
+    let provider = Arc::new(ControlledProviderService {
+        started: Notify::new(),
+        release: Notify::new(),
+        calls: AtomicUsize::new(0),
+        completed: AtomicUsize::new(0),
+    });
+    let config = RuntimeConfig {
+        max_in_flight_requests: 1,
+        ..RuntimeConfig::default()
+    };
+    let (handle, mut controller) = Runtime::start_borrowed_with_provider_conversations(
+        TokioRuntimeContext::new_for_test(),
+        task_service,
+        Arc::new(UnusedConversationService),
+        provider.clone(),
+        config,
+    )
+    .unwrap();
+
+    let first_handle = handle.clone();
+    let first = tokio::spawn(async move { first_handle.execute_canonical_provider(job(21)).await });
+    provider.started.notified().await;
+    let second_handle = handle.clone();
+    let second =
+        tokio::spawn(async move { second_handle.execute_canonical_provider(job(22)).await });
+    tokio::task::yield_now().await;
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+
+    provider.release.notify_one();
+    first.await.unwrap().unwrap();
+    provider.started.notified().await;
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+    provider.release.notify_one();
+    second.await.unwrap().unwrap();
+
+    assert_eq!(
+        controller
+            .shutdown(ShutdownMode::Graceful {
+                timeout: Duration::from_secs(5),
+            })
+            .await,
+        ShutdownOutcome::Quiesced
+    );
+}

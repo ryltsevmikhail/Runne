@@ -54,6 +54,7 @@ enum RuntimeTaskExit {
             CanonicalProviderExecutionError,
         >,
         reply: CanonicalProviderReply,
+        lease: InFlightLease,
     },
 }
 
@@ -105,6 +106,7 @@ where
         &mut self,
         job: CanonicalProviderExecutionJob,
         reply: CanonicalProviderReply,
+        lease: InFlightLease,
     ) {
         let Some(service) = self.provider_service.clone() else {
             let _ = reply.send(Err(CanonicalProviderExecutionError::Unavailable));
@@ -112,7 +114,11 @@ where
         };
         self.join_set.spawn(async move {
             let outcome = service.execute(job).await;
-            RuntimeTaskExit::CanonicalProvider { outcome, reply }
+            RuntimeTaskExit::CanonicalProvider {
+                outcome,
+                reply,
+                lease,
+            }
         });
     }
 
@@ -419,8 +425,7 @@ fn dispatch_admitted<E, U, I>(
             drop(lease);
         }
         RuntimeRequest::CanonicalProviderExecution { job, reply } => {
-            registry.spawn_canonical_provider_task(job, reply);
-            drop(lease);
+            registry.spawn_canonical_provider_task(job, reply, lease);
         }
     }
 }
@@ -521,8 +526,9 @@ pub(crate) async fn run_supervisor<E, U, I>(
                     Some(Ok(RuntimeTaskExit::ConversationText { reply, outcome })) => {
                         let _ = reply.send(outcome);
                     }
-                    Some(Ok(RuntimeTaskExit::CanonicalProvider { reply, outcome })) => {
+                    Some(Ok(RuntimeTaskExit::CanonicalProvider { reply, outcome, lease })) => {
                         let _ = reply.send(outcome);
+                        drop(lease);
                     }
                     _ => {}
                 }

@@ -227,15 +227,14 @@ impl RuntimeProviderAuthorityIssuer for RecordingIssuer {
                     fencing_token: 12,
                     provider_idempotency_key: request.provider_idempotency_key.clone(),
                 };
-                Ok(ProviderAuthorityIssuerDecision::Winner {
-                    authority_ref: ProviderEffectAuthorityRef::new([13; 16], 1).unwrap(),
-                    runtime_generation: 12,
-                    claim: Box::new(claim),
-                })
+                ProviderAuthorityIssuerDecision::from_durable_commit(
+                    request,
+                    ProviderEffectAuthorityRef::new([13; 16], 1).unwrap(),
+                    12,
+                    claim,
+                )
             }
-            IssuerMode::Existing(state) => {
-                Ok(ProviderAuthorityIssuerDecision::Existing { state: *state })
-            }
+            IssuerMode::Existing(state) => Ok(ProviderAuthorityIssuerDecision::existing(*state)),
             IssuerMode::Reject(error) => Err(error.clone()),
         }
     }

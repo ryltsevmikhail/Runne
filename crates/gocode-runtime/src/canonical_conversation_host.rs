@@ -233,6 +233,9 @@ where
                         .await
                     {
                         Ok(receipt) => receipt,
+                        Err(CanonicalProviderExecutionError::Uncertain) => {
+                            return Err(ConversationHostError::ProviderOutputRejected);
+                        }
                         Err(error) => {
                             let rejected = self
                                 .handle
