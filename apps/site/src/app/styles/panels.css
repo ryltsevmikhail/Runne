@@ -1,0 +1,129 @@
+.signal-panel {
+  align-self: center;
+  min-height: 230px;
+}
+.signal-panel.green {
+  border-color: var(--green);
+}
+.signal-panel.violet {
+  border-color: var(--violet);
+}
+.signal-panel h3 {
+  font-size: 1.02rem;
+}
+.signal-panel p {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.status-dot {
+  color: var(--green);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.status-dot.violet {
+  color: var(--violet);
+}
+.status-dot.coral {
+  color: var(--coral);
+}
+.outline-panel {
+  background: transparent;
+}
+.outline-panel.orange {
+  border-color: var(--orange);
+}
+.outline-panel.green {
+  border-color: var(--green);
+}
+.outline-panel.violet {
+  border-color: var(--violet);
+}
+
+.status-columns {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr 1fr;
+}
+.status-columns .outline-panel {
+  min-height: 310px;
+  padding: 23px;
+}
+.status-columns h3 {
+  font-size: 1.1rem;
+}
+.status-columns li {
+  color: var(--muted);
+  font-size: 0.85rem;
+  list-style: "◌  ";
+  margin: 15px 0;
+  padding-left: 6px;
+}
+.status-columns .verified-list li::marker {
+  color: var(--green);
+}
+.status-columns .target-list li::marker {
+  color: var(--violet);
+}
+
+.platforms {
+  margin: 0;
+  padding: 0;
+}
+.platforms li {
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  font-weight: 700;
+  justify-content: space-between;
+  list-style: none;
+  padding: 17px 0;
+}
+.platforms span {
+  color: var(--green);
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.62rem;
+}
+.platforms span.violet {
+  color: var(--violet);
+}
+
+.waitlist {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 40px;
+  grid-template-columns: 1fr auto;
+  margin-top: 0;
+  padding: 48px 30px;
+}
+.waitlist h2 {
+  font-size: clamp(1.8rem, 3vw, 2.7rem);
+  line-height: 1;
+  margin-bottom: 11px;
+}
+.waitlist p:not(.eyebrow) {
+  color: var(--muted);
+  margin-bottom: 0;
+}
+.site-footer {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 22px;
+  grid-template-columns: 1fr auto auto;
+  padding: 28px 0 40px;
+}
+.site-footer p,
+.site-footer small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin: 0;
+}
+.site-footer nav {
+  display: flex;
+  gap: 16px;
+}

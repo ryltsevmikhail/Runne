@@ -14,7 +14,7 @@ run_runtime() {
     python3 scripts/verify_secure_replay_evidence.py \
         --manifest docs/evidence/secure-replay-desktop-resume-v1.json \
         --base d4dbabff \
-        --head HEAD
+        --head 6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca
     cargo test -p gocode-daemon --test desktop_replay_resume_e2e --locked
 }
 

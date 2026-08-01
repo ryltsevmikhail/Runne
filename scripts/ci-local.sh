@@ -46,9 +46,17 @@ fi
 
 echo "=== Local structural gates ==="
 python3 scripts/check-source-file-length.py --max-lines 300 --report
-python3 -m unittest scripts.tests.test_release_scripts -v
 python3 -m unittest \
-    scripts.tests.test_release_scripts.VerifyReleaseTests.test_fixture_only_structural_candidate_preserves_source_and_candidate_bytes \
+    scripts.tests.test_package_release \
+    scripts.tests.test_verify_release_integrity \
+    scripts.tests.test_verify_release_review \
+    -v
+python3 -m unittest \
+    scripts.tests.test_verify_release_review.VerifyReleaseReviewTests.test_fixture_only_structural_candidate_preserves_source_and_candidate_bytes \
+    -v
+python3 -m unittest \
+    scripts.tests.test_verify_secure_replay_evidence \
+    scripts.tests.test_verify_secure_replay_desktop \
     -v
 python3 -m unittest scripts.tests.test_verify_test_inventory -v
 
