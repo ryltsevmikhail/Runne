@@ -27,11 +27,13 @@ use gocode_domain::conversation::Conversation;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
 use gocode_domain::message::MessageText;
 use gocode_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
+use gocode_provider::ProviderFuture;
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome};
 use gocode_runtime::{
-    LocalTextProvider, LocalTextProviderError, Runtime, RuntimeCanonicalConversationHost,
-    RuntimeTaskRunHost,
+    CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
+    CanonicalProviderExecutionService, DeterministicTextProvider, LocalTextProvider,
+    LocalTextProviderError, Runtime, RuntimeCanonicalConversationHost, RuntimeTaskRunHost,
 };
 use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
@@ -416,6 +418,17 @@ struct MarkerProvider {
     calls: Arc<AtomicUsize>,
 }
 
+struct UncertainProviderService;
+
+impl CanonicalProviderExecutionService for UncertainProviderService {
+    fn execute(
+        &self,
+        _job: CanonicalProviderExecutionJob,
+    ) -> ProviderFuture<'_, Result<TextGenerationReceipt, CanonicalProviderExecutionError>> {
+        Box::pin(async { Err(CanonicalProviderExecutionError::Uncertain) })
+    }
+}
+
 impl LocalTextProvider for MarkerProvider {
     fn generate(&self, _input: &MessageText) -> Result<MessageText, LocalTextProviderError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
@@ -529,6 +542,98 @@ async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_mes
         TaskRun::replay(&taskrun_stream.events).unwrap().state(),
         TaskRunState::Failed
     );
+
+    assert_eq!(
+        controller
+            .shutdown(ShutdownMode::Graceful {
+                timeout: Duration::from_secs(5),
+            })
+            .await,
+        ShutdownOutcome::Quiesced
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn uncertain_provider_effect_preserves_started_generation_for_reconciliation() {
+    let directory = tempfile::tempdir().unwrap();
+    let database_path = directory
+        .path()
+        .join("provider-uncertain.sqlite")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let authority = RuntimeAuthorityId("provider-uncertain-test".into());
+    let store =
+        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
+    let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
+        store.clone(),
+        store.clone(),
+        store.clone(),
+        authority.clone(),
+    ));
+    let guard = available_guard();
+    let text_service: Arc<dyn ConversationTextCommandService> =
+        Arc::new(ConversationTextService::new(
+            store.clone(),
+            store.clone(),
+            authority.clone(),
+            Arc::clone(&guard),
+        ));
+    let (handle, mut controller) = Runtime::start_borrowed_with_provider_conversations(
+        gocode_runtime::TokioRuntimeContext::new_for_test(),
+        taskrun_service,
+        text_service,
+        Arc::new(UncertainProviderService),
+        RuntimeConfig::default(),
+    )
+    .unwrap();
+    let host = RuntimeCanonicalConversationHost::<_, _, _, DeterministicTextProvider>::new_provider(
+        handle,
+        Arc::new(ConversationService::new(
+            store.clone(),
+            store.clone(),
+            authority,
+        )),
+        store.clone(),
+        guard,
+    );
+    let conversation_id: ConversationId = CONVERSATION_ID.parse().unwrap();
+    host.create_conversation(
+        conversation_context(20, "create-provider-uncertain"),
+        CreateCanonicalConversationCommand {
+            conversation_id,
+            workspace_id: WORKSPACE_ID.parse().unwrap(),
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        host.generate_text(
+            conversation_context(21, "generate-provider-uncertain"),
+            GenerateConversationTextCommand {
+                conversation_id,
+                expected_version: 1,
+                text: CanonicalMessageText::new("maybe dispatched").unwrap(),
+            },
+        )
+        .await,
+        Err(ConversationHostError::ProviderOutputRejected)
+    );
+    let snapshot = host.list_messages(conversation_id).await.unwrap();
+    assert_eq!(snapshot.stream_version, 2);
+    assert_eq!(snapshot.messages.len(), 1);
+    let conversation =
+        Conversation::replay(&store.load_conversation(conversation_id).unwrap().events).unwrap();
+    assert!(conversation.active_generation().is_some());
+    let taskrun = TaskRun::replay(
+        &store
+            .load_task_run(snapshot.messages[0].taskrun_id)
+            .unwrap()
+            .events,
+    )
+    .unwrap();
+    assert_eq!(taskrun.state(), TaskRunState::Running);
 
     assert_eq!(
         controller

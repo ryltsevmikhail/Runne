@@ -144,47 +144,55 @@ where
         let claim: ProviderDispatchClaim = (*admitted).into_claim();
         let attempt_id = claim.attempt_id;
         let fencing_token = claim.fencing_token;
+        let dispatch_request = match DispatchRequest::new(prepared, claim) {
+            Ok(dispatch_request) => dispatch_request,
+            Err(_) => {
+                let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
+                return Ok(ProviderCoordinatorOutcome::Uncertain);
+            }
+        };
 
-        match self
-            .provider
-            .dispatch(
-                DispatchRequest::new(prepared, claim)
-                    .map_err(|_| ProviderAdmissionError::PolicyDenied)?,
-            )
-            .await
-        {
+        match self.provider.dispatch(dispatch_request).await {
             Ok(stream_id) => {
                 if self
                     .repository
                     .mark_streaming(attempt_id, fencing_token, stream_id)
                     .is_err()
                 {
-                    self.repository
-                        .mark_uncertain(attempt_id, fencing_token)
-                        .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+                    let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
                     return Ok(ProviderCoordinatorOutcome::Uncertain);
                 }
-                let binding = ProviderExecutionBinding::from_admitted(
+                let binding = match ProviderExecutionBinding::from_admitted(
                     &execution_admission,
                     prepared_record,
                     stream_id,
-                )?;
+                ) {
+                    Ok(binding) => binding,
+                    Err(_) => {
+                        let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
+                        return Ok(ProviderCoordinatorOutcome::Uncertain);
+                    }
+                };
                 Ok(ProviderCoordinatorOutcome::Streaming { binding })
             }
             Err(DispatchError::RejectedBeforeEffect(reason)) => {
-                self.repository
+                if self
+                    .repository
                     .mark_rejected_before_effect(attempt_id, fencing_token, reason)
-                    .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-                Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
+                    .is_err()
+                {
+                    let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
+                    Ok(ProviderCoordinatorOutcome::Uncertain)
+                } else {
+                    Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
+                }
             }
             Err(
                 DispatchError::MaybeDispatched
                 | DispatchError::AttemptConflict
                 | DispatchError::StreamNotFound,
             ) => {
-                self.repository
-                    .mark_uncertain(attempt_id, fencing_token)
-                    .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+                let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
                 Ok(ProviderCoordinatorOutcome::Uncertain)
             }
         }

@@ -8,8 +8,8 @@ use gocode_application::conversation_text_service::ConversationTextCommandServic
 use gocode_application::ports::ConversationRepository;
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::provider::{
-    ProviderCoordinatorOutcome, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-    ProviderExecutionStore, ProviderJournalKeyBinding,
+    ProviderAdmissionError, ProviderCoordinatorOutcome, ProviderCoordinatorRequest,
+    ProviderDispatchCoordinator, ProviderExecutionStore, ProviderJournalKeyBinding,
 };
 use gocode_domain::conversation::ConversationEvent;
 use gocode_provider::{
@@ -252,7 +252,7 @@ impl DaemonCanonicalOpenAiService {
         let fencing_token = runtime_generation;
         let policy_binding = policy_binding_digest(activation_identity, profile.as_ref());
         execution_store
-            .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+            .install_runtime_authority_and_advance_worker_lease(&ProviderRuntimeAuthorityConfig {
                 runtime_authority_id,
                 database_generation: 1,
                 principal_id: "local-owner".to_owned(),
@@ -274,9 +274,6 @@ impl DaemonCanonicalOpenAiService {
                 authority_ttl_seconds: PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS,
             })
             .map_err(|_| DaemonError::Bootstrap("provider authority unavailable".into()))?;
-        execution_store
-            .advance_worker_lease(runtime_generation, fencing_token)
-            .map_err(|_| DaemonError::Bootstrap("provider generation unavailable".into()))?;
         let keyring = native_journal_keyring(runtime_authority_id);
         let execution = RuntimeProviderExecution::new(
             keyring.as_ref(),
@@ -435,7 +432,7 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                     provider_idempotency_key: provider_idempotency_key(&job),
                 })
                 .await
-                .map_err(|_| CanonicalProviderExecutionError::RejectedBeforeEffect)?;
+                .map_err(map_admission_error)?;
             let ProviderCoordinatorOutcome::Streaming { binding } = outcome else {
                 return Err(match outcome {
                     ProviderCoordinatorOutcome::Uncertain => {
@@ -703,5 +700,51 @@ const fn map_execution_error(
         | RuntimeProviderExecutionError::ApplicationUnavailable => {
             CanonicalProviderExecutionError::Unavailable
         }
+    }
+}
+
+const fn map_admission_error(error: ProviderAdmissionError) -> CanonicalProviderExecutionError {
+    match error {
+        ProviderAdmissionError::PostClaimUncertain => CanonicalProviderExecutionError::Uncertain,
+        ProviderAdmissionError::AuthorityConflict => CanonicalProviderExecutionError::Conflict,
+        ProviderAdmissionError::RepositoryFailure => CanonicalProviderExecutionError::Unavailable,
+        ProviderAdmissionError::PolicyDenied
+        | ProviderAdmissionError::CapabilityDenied
+        | ProviderAdmissionError::ApprovalDenied
+        | ProviderAdmissionError::ApprovalExpired
+        | ProviderAdmissionError::TokenBudgetDenied
+        | ProviderAdmissionError::CostBudgetDenied
+        | ProviderAdmissionError::PricingRevisionMismatch
+        | ProviderAdmissionError::AuthorityDenied
+        | ProviderAdmissionError::InvalidSemanticContext
+        | ProviderAdmissionError::TokenReservationMismatch
+        | ProviderAdmissionError::CostReservationMismatch
+        | ProviderAdmissionError::RenderDigestMismatch
+        | ProviderAdmissionError::PermitMismatch
+        | ProviderAdmissionError::StaleFencingToken
+        | ProviderAdmissionError::PrepareRejected => {
+            CanonicalProviderExecutionError::RejectedBeforeEffect
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admission_errors_preserve_pre_effect_and_post_claim_stages() {
+        assert_eq!(
+            map_admission_error(ProviderAdmissionError::ApprovalDenied),
+            CanonicalProviderExecutionError::RejectedBeforeEffect
+        );
+        assert_eq!(
+            map_admission_error(ProviderAdmissionError::PostClaimUncertain),
+            CanonicalProviderExecutionError::Uncertain
+        );
+        assert_eq!(
+            map_admission_error(ProviderAdmissionError::RepositoryFailure),
+            CanonicalProviderExecutionError::Unavailable
+        );
     }
 }

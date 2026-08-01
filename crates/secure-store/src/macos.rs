@@ -785,10 +785,10 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
     ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
         let keychain = SecKeychain::default().map_err(|_| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
-        gocode_macos_keychain_acl::find_generic_password_metadata(&keychain, SERVICE_NAME, &account)
+        gocode_macos_keychain_acl::generic_password_exists(&keychain, SERVICE_NAME, &account)
             .map_err(|_| SecureStoreError::Unavailable)
-            .map(|metadata| {
-                if metadata.is_some() {
+            .map(|exists| {
+                if exists {
                     ProviderJournalKeyStatus::Available
                 } else {
                     ProviderJournalKeyStatus::Missing
@@ -1159,9 +1159,22 @@ mod tests {
         let profile = format!("provider-journal-test-{}-{unique}", std::process::id());
         let store = MacOsKeychainStore::new(&profile);
         let key_ref = ProviderJournalKeyRef::new([11; 16], 1, [12; 16], 13).unwrap();
+        let wrong_ref = ProviderJournalKeyRef::new([11; 16], 1, [12; 16], 14).unwrap();
         let key = ProviderJournalKeyMaterial::new(key_ref, [14; 32]).unwrap();
 
+        assert_eq!(
+            store.provider_journal_key_status(key_ref).unwrap(),
+            ProviderJournalKeyStatus::Missing
+        );
         store.store_provider_journal_key(&key).unwrap();
+        assert_eq!(
+            store.provider_journal_key_status(key_ref).unwrap(),
+            ProviderJournalKeyStatus::Available
+        );
+        assert_eq!(
+            store.provider_journal_key_status(wrong_ref).unwrap(),
+            ProviderJournalKeyStatus::Missing
+        );
         let loaded = store.load_provider_journal_key(key_ref).unwrap();
         assert_eq!(loaded.with_bytes(|bytes| *bytes), [14; 32]);
         let conflict = ProviderJournalKeyMaterial::new(key_ref, [15; 32]).unwrap();
@@ -1183,6 +1196,10 @@ mod tests {
                 ProviderJournalKeyDeletionProof::for_verified_catalog(0, 0, [16; 32]).unwrap(),
             )
             .unwrap();
+        assert_eq!(
+            store.provider_journal_key_status(key_ref).unwrap(),
+            ProviderJournalKeyStatus::Missing
+        );
         assert_eq!(
             store.load_provider_journal_key(key_ref).unwrap_err(),
             SecureStoreError::ProviderJournalKeyNotFound

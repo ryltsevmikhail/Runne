@@ -418,6 +418,82 @@ pub struct GenericPasswordMetadata {
     pub item: SecKeychainItem,
 }
 
+/// Checks whether one exact generic-password item exists without requesting
+/// password data or any optional item metadata.
+///
+/// # Errors
+///
+/// Returns a closed failure for malformed identities or Security.framework
+/// failures other than an absent item.
+pub fn generic_password_exists(
+    keychain: &SecKeychain,
+    service: &str,
+    account: &str,
+) -> Result<bool, KeychainAclError> {
+    if service.is_empty()
+        || account.is_empty()
+        || service.as_bytes().contains(&0)
+        || account.as_bytes().contains(&0)
+    {
+        return Err(KeychainAclError::InvalidItemIdentity);
+    }
+    let mut query_attributes = [
+        SecKeychainAttribute {
+            tag: SERVICE_ITEM_ATTRIBUTE,
+            length: u32::try_from(service.len())
+                .map_err(|_| KeychainAclError::InvalidItemIdentity)?,
+            data: service.as_ptr().cast_mut().cast(),
+        },
+        SecKeychainAttribute {
+            tag: ACCOUNT_ITEM_ATTRIBUTE,
+            length: u32::try_from(account.len())
+                .map_err(|_| KeychainAclError::InvalidItemIdentity)?,
+            data: account.as_ptr().cast_mut().cast(),
+        },
+    ];
+    let query = SecKeychainAttributeList {
+        count: u32::try_from(query_attributes.len())
+            .map_err(|_| KeychainAclError::InvalidItemIdentity)?,
+        attr: query_attributes.as_mut_ptr(),
+    };
+    let mut search = ptr::null();
+    // SAFETY: query buffers and keychain stay live, and `search` is a valid
+    // retained CF out-pointer consumed below.
+    let search_status = unsafe {
+        SecKeychainSearchCreateFromAttributes(
+            keychain.as_concrete_TypeRef().cast(),
+            GENERIC_PASSWORD_ITEM_CLASS,
+            &raw const query,
+            &raw mut search,
+        )
+    };
+    let search_owner = RetainedCfOutput::new(search);
+    status(search_status)?;
+    if search.is_null() {
+        return Err(KeychainAclError::OperationFailed);
+    }
+    search_owner.disarm();
+    // SAFETY: the create call returned a non-null retained CF object.
+    let search = unsafe { CFType::wrap_under_create_rule(search) };
+    let mut item = ptr::null_mut();
+    // SAFETY: search is live and item is a valid retained out-pointer. This
+    // existence-only call has no password length/data output parameters.
+    let item_status = unsafe { SecKeychainSearchCopyNext(search.as_CFTypeRef(), &raw mut item) };
+    let item_owner = RetainedCfOutput::new(item);
+    if item_status == ERR_SEC_ITEM_NOT_FOUND {
+        return Ok(false);
+    }
+    status(item_status)?;
+    if item.is_null() {
+        return Err(KeychainAclError::OperationFailed);
+    }
+    item_owner.disarm();
+    // SAFETY: the copy call returned a non-null retained item reference; the
+    // wrapper releases it without reading any attributes or secret bytes.
+    drop(unsafe { SecKeychainItem::wrap_under_create_rule(item) });
+    Ok(true)
+}
+
 fn copy_nonsecret_metadata_with<C, F>(
     copy_content: C,
     free_content: F,
