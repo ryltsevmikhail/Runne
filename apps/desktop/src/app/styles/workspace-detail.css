@@ -1,0 +1,142 @@
+.workspace-page {
+  display: grid;
+  min-height: calc(100vh - 86px);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 22px;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.workspace-kicker {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.workspace-header h1 {
+  margin: 5px 0 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -.02em;
+}
+
+.workspace-header p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.workspace-status {
+  padding: 6px 9px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: var(--surface-hover);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.workspace-panels {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: minmax(160px, 220px) minmax(320px, 1fr) minmax(180px, 260px);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.workspace-panel {
+  min-width: 0;
+  padding: 16px;
+  background: var(--surface);
+}
+
+.workspace-panel + .workspace-panel {
+  border-left: 1px solid var(--border);
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.workspace-panel--tree > p {
+  margin: 18px 0 0;
+  color: var(--text);
+  font-size: 11px;
+}
+
+.workspace-panel--main {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+}
+
+.workspace-panel--chat {
+  display: block;
+  padding: 0;
+  text-align: left;
+}
+
+.workspace-panel--main > svg {
+  color: var(--primary);
+}
+
+.workspace-panel--main h2 {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.workspace-panel--main p {
+  max-width: 360px;
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.workspace-panel dl {
+  margin: 18px 0 0;
+}
+
+.workspace-panel dt {
+  margin-top: 14px;
+  color: var(--text-subtle);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.workspace-panel dd {
+  overflow: hidden;
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+}
+
+.icon-button:focus-visible,
+.nav-item:focus-visible,
+.brand:focus-visible {
+  outline: 2px solid var(--gocode-warm-white);
+  outline-offset: 2px;
+}
+
+.primary-button:focus-visible,
+.project-card:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}

@@ -1,0 +1,82 @@
+.sidebar--collapsed .brand-lockup,
+.sidebar--collapsed .collapse-button,
+.sidebar--collapsed .nav-label,
+.sidebar--collapsed .nav-item span,
+.sidebar--collapsed .status-copy {
+  display: none;
+}
+
+.sidebar--collapsed .brand-icon {
+  display: block;
+}
+
+.sidebar--collapsed .sidebar-header,
+.sidebar--collapsed .nav-item,
+.sidebar--collapsed .runtime-status {
+  justify-content: center;
+}
+
+.sidebar--collapsed .brand {
+  padding-left: 0;
+}
+
+.sidebar--collapsed .runtime-status {
+  padding-inline: 0;
+  background: transparent;
+}
+
+.sidebar--collapsed .sidebar-actions {
+  display: grid;
+  justify-content: center;
+}
+
+@media (max-width: 1023px) {
+  .app-shell {
+    grid-template-columns: 48px minmax(0, 1fr);
+  }
+
+  .sidebar {
+    padding-inline: 4px;
+  }
+
+  .brand-lockup,
+  .collapse-button,
+  .nav-label,
+  .nav-item span,
+  .status-copy {
+    display: none;
+  }
+
+  .brand-icon {
+    display: block;
+  }
+
+  .sidebar-header,
+  .nav-item,
+  .runtime-status {
+    justify-content: center;
+  }
+
+  .workspace {
+    padding: 26px;
+  }
+
+  .workspace-panels {
+    grid-template-columns: 180px minmax(320px, 1fr);
+  }
+
+  .workspace-panel--details {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: .01ms !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

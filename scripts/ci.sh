@@ -60,6 +60,9 @@ if [ "$MODE" = "pinned" ]; then
     echo "--- fmt ---"
     cargo fmt --all --check
 
+    echo "--- source file length (report) ---"
+    "$PYTHON_BIN" scripts/check-source-file-length.py --max-lines 300 --report
+
     echo "--- check ---"
     cargo check --workspace --all-targets --all-features --locked
 

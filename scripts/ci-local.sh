@@ -45,6 +45,7 @@ if ! command -v pnpm >/dev/null 2>&1; then
 fi
 
 echo "=== Local structural gates ==="
+python3 scripts/check-source-file-length.py --max-lines 300 --report
 python3 -m unittest scripts.tests.test_release_scripts -v
 python3 -m unittest \
     scripts.tests.test_release_scripts.VerifyReleaseTests.test_fixture_only_structural_candidate_preserves_source_and_candidate_bytes \

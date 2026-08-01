@@ -1,0 +1,280 @@
+/// Exact child handle, control channel, and authenticated ownership tuple for
+/// one desktop-spawned bundled daemon.
+pub struct ProtectedBundledRuntimeProcess {
+    #[cfg(unix)]
+    child: Child,
+    #[cfg(unix)]
+    channel: UnixStream,
+    #[cfg(unix)]
+    keys: ProtectedActivationKeys,
+    #[cfg(unix)]
+    request: ProtectedLaunchRequestV1,
+    #[cfg(unix)]
+    ready: ProtectedReadyV1,
+    #[cfg(unix)]
+    owned_launch: ProtectedOwnedLaunchV1,
+    runtime_profile: Option<ProtectedBundledRuntimeProfile>,
+    renewal_sequence: u64,
+    graceful_requested: bool,
+    #[cfg(feature = "test-support")]
+    captured_stdout: Option<std::process::ChildStdout>,
+    #[cfg(feature = "test-support")]
+    captured_stderr: Option<std::process::ChildStderr>,
+}
+
+impl fmt::Debug for ProtectedBundledRuntimeProcess {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedBundledRuntimeProcess")
+            .field("owned_child", &true)
+            .field("renewal_sequence", &self.renewal_sequence)
+            .field("protected_fields", &"<redacted>")
+            .finish_non_exhaustive()
+    }
+}
+
+impl ProtectedBundledRuntimeProcess {
+    /// Moves the path-free, one-time bootstrap profile to the native caller.
+    pub const fn take_runtime_profile(&mut self) -> Option<ProtectedBundledRuntimeProfile> {
+        self.runtime_profile.take()
+    }
+
+    /// Copies role-separated activation keys only for test-support leak audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_activation_key_material(
+        &self,
+    ) -> gocode_api::ProtectedActivationKeyMaterialForTest {
+        self.keys.test_material()
+    }
+
+    /// Drains captured child output after the audited child has exited.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn take_captured_output_for_test(
+        &mut self,
+    ) -> Result<(Vec<u8>, Vec<u8>), ProtectedBundledRuntimeError> {
+        if self.status()? != BundledRuntimeProcessStatus::Exited {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        if let Some(mut handle) = self.captured_stdout.take() {
+            handle
+                .read_to_end(&mut stdout)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        }
+        if let Some(mut handle) = self.captured_stderr.take() {
+            handle
+                .read_to_end(&mut stderr)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        }
+        Ok((stdout, stderr))
+    }
+
+    /// Confirms that a connected client represents the exact current owned
+    /// launch and protected transport.
+    #[must_use]
+    pub fn matches_client(&self, client: &AuthenticatedRuntimeClient) -> bool {
+        #[cfg(not(unix))]
+        {
+            let _ = client;
+            false
+        }
+        #[cfg(unix)]
+        {
+            if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
+                return false;
+            }
+            let session = client.session_info();
+            session.profile_id == self.owned_launch.profile().profile_id()
+                && session.schema_hash == hex::encode(self.owned_launch.profile().profile_hash())
+                && session.authority_id == hex::encode(self.owned_launch.stable().authority_id())
+                && session.principal_id == self.owned_launch.stable().principal_id()
+                && session.event_log_lineage_id
+                    == uuid::Uuid::from_bytes(*self.owned_launch.stable().lineage_id()).to_string()
+                && session.daemon_instance_id
+                    == uuid::Uuid::from_bytes(*self.owned_launch.daemon_instance_id()).to_string()
+                && session.launch_generation == self.owned_launch.launch_generation()
+                && session.session_id == hex::encode(self.owned_launch.session_id())
+                && session.capability_digest
+                    == hex::encode(self.owned_launch.profile().capability_digest())
+                && session.certificate_sha256 == hex::encode(self.ready.certificate_sha256())
+                && session
+                    .capabilities
+                    .iter()
+                    .map(String::as_str)
+                    .eq(REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
+        }
+    }
+
+    /// Rotates the protected HTTP session without reusing launch authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed failure for stale ownership, replay, channel, or ticket
+    /// proof failures.
+    pub fn renew_profile(
+        &mut self,
+    ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            if self.graceful_requested {
+                return Err(ProtectedBundledRuntimeError::InvalidState);
+            }
+            let sequence = self
+                .renewal_sequence
+                .checked_add(1)
+                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+            let mut nonce = [0_u8; 32];
+            OsRng.fill_bytes(&mut nonce);
+            if nonce == [0; 32] {
+                return Err(ProtectedBundledRuntimeError::LaunchAuthority(
+                    LaunchAuthorityError::RenewalUnavailable,
+                ));
+            }
+            let mut renewal =
+                ProtectedRenewRequestV1::new(self.owned_launch.clone(), sequence, nonce)?;
+            nonce.fill(0);
+            renewal.sign(&self.keys);
+            let renewal_frame = Zeroizing::new(
+                renewal
+                    .encode_frame()
+                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+            );
+            write_frame(&mut self.channel, &renewal_frame)?;
+            let ticket_frame = read_frame(&mut self.channel)?;
+            let ticket = ProtectedRenewTicketV1::decode_frame(&ticket_frame)
+                .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            ticket.verify_exact(&renewal, &self.keys)?;
+            let profile = ProtectedBundledRuntimeProfile::from_renewal(
+                &self.ready,
+                &self.request,
+                &renewal,
+                &ticket,
+                &self.keys,
+            )?;
+            self.owned_launch = ticket.next_owned_launch();
+            self.renewal_sequence = sequence;
+            Ok(profile)
+        }
+    }
+
+    /// Polls only the child handle returned by the direct spawn.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed ownership or platform error if the handle cannot be
+    /// observed.
+    pub fn status(&mut self) -> Result<BundledRuntimeProcessStatus, ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            self.child
+                .try_wait()
+                .map(|status| {
+                    if status.is_some() {
+                        BundledRuntimeProcessStatus::Exited
+                    } else {
+                        BundledRuntimeProcessStatus::Running
+                    }
+                })
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)
+        }
+    }
+
+    /// Requests orderly shutdown for the exact current owned launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed channel, proof, ownership, or shutdown failure.
+    pub fn request_graceful_stop(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            if self.graceful_requested {
+                return Ok(());
+            }
+            let mut shutdown = ProtectedShutdownV1::new(self.owned_launch.clone());
+            shutdown.sign(&self.keys);
+            let frame = Zeroizing::new(
+                shutdown
+                    .encode_frame()
+                    .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+            );
+            write_frame(&mut self.channel, &frame)?;
+            let acknowledgement_frame = read_frame(&mut self.channel)?;
+            let acknowledgement = ProtectedShutdownAckV1::decode_frame(&acknowledgement_frame)
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            acknowledgement.verify_exact(&self.owned_launch, &self.keys)?;
+            if !acknowledgement.graceful() {
+                return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+            }
+            self.graceful_requested = true;
+            Ok(())
+        }
+    }
+
+    /// Waits only for the exact owned child handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed ownership or platform error if status cannot be read.
+    pub fn wait_for_exit(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<BundledRuntimeProcessStatus, ProtectedBundledRuntimeError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let status = self.status()?;
+            if status == BundledRuntimeProcessStatus::Exited || Instant::now() >= deadline {
+                return Ok(status);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Forces only the process represented by the already-owned child handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed ownership or incomplete-shutdown failure.
+    pub fn terminate(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            if self.status()? == BundledRuntimeProcessStatus::Exited {
+                return Ok(());
+            }
+            self.child
+                .kill()
+                .map_err(|_| ProtectedBundledRuntimeError::ShutdownIncomplete)
+        }
+    }
+}
+
+impl Drop for ProtectedBundledRuntimeProcess {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            if self.child.try_wait().ok().flatten().is_none() {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+            }
+        }
+    }
+}
