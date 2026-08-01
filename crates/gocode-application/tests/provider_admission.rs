@@ -5,9 +5,10 @@ use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderAuthorityIssuerDecision,
-    ProviderCoordinatorOutcome, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-    ProviderEffectAuthorityRef, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
+    ProviderAuthorityIssueRequest, ProviderCoordinatorOutcome, ProviderCoordinatorRequest,
+    ProviderDispatchCoordinator, ProviderEffectAuthorityRef,
+    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -208,35 +209,45 @@ impl RecordingIssuer {
 }
 
 impl RuntimeProviderAuthorityIssuer for RecordingIssuer {
-    fn issue_decision(
+    fn issue_locator(
         &self,
-        request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError> {
+        _request: &ProviderAuthorityIssueRequest,
+    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError> {
         *self.count.lock().unwrap() += 1;
         match &self.mode {
-            IssuerMode::Winner => {
-                let claim = ProviderDispatchClaim {
-                    call_id: request.prepared.call_id,
-                    attempt_id: DispatchAttemptId::from_bytes([8; 16]),
-                    permit_id: [9; 16],
-                    prepared_digest: request.prepared.prepared_digest,
-                    render_digest: request.prepared.render_digest,
-                    profile_digest: request.prepared.profile_digest,
-                    token_reservation_id: [10; 16],
-                    cost_reservation_id: [11; 16],
-                    fencing_token: 12,
-                    provider_idempotency_key: request.provider_idempotency_key.clone(),
-                };
-                ProviderAuthorityIssuerDecision::from_durable_commit(
-                    request,
-                    ProviderEffectAuthorityRef::new([13; 16], 1).unwrap(),
-                    12,
-                    claim,
-                )
+            IssuerMode::Winner => Ok(ProviderAuthorityIssueLocator::Committed {
+                attempt_id: DispatchAttemptId::from_bytes([8; 16]),
+            }),
+            IssuerMode::Existing(state) => {
+                Ok(ProviderAuthorityIssueLocator::Existing { state: *state })
             }
-            IssuerMode::Existing(state) => Ok(ProviderAuthorityIssuerDecision::existing(*state)),
             IssuerMode::Reject(error) => Err(error.clone()),
         }
+    }
+}
+
+impl RuntimeProviderAuthorityEvidenceVerifier for RecordingIssuer {
+    fn verify_durable_admission(
+        &self,
+        request: &ProviderAuthorityIssueRequest,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError> {
+        Ok(ProviderAuthorityEvidence {
+            authority_ref: ProviderEffectAuthorityRef::new([13; 16], 1).unwrap(),
+            runtime_generation: 12,
+            claim: ProviderDispatchClaim {
+                call_id: request.prepared.call_id,
+                attempt_id,
+                permit_id: [9; 16],
+                prepared_digest: request.prepared.prepared_digest,
+                render_digest: request.prepared.render_digest,
+                profile_digest: request.prepared.profile_digest,
+                token_reservation_id: [10; 16],
+                cost_reservation_id: [11; 16],
+                fencing_token: 12,
+                provider_idempotency_key: request.provider_idempotency_key.clone(),
+            },
+        })
     }
 }
 
@@ -264,8 +275,13 @@ fn authority_rejections_prevent_adapter_dispatch_without_partial_claim() {
         let repository = RecordingRepository::default();
         let issuer = RecordingIssuer::rejecting(failure.clone());
         let adapter = adapter();
-        let coordinator =
-            ProviderDispatchCoordinator::new(&repository, &issuer, &adapter, &AvailableGuard);
+        let coordinator = ProviderDispatchCoordinator::new(
+            &repository,
+            &issuer,
+            &issuer,
+            &adapter,
+            &AvailableGuard,
+        );
 
         assert_eq!(block_on(coordinator.dispatch(request())), Err(failure));
         assert_eq!(adapter.dispatch_count(), 0);
@@ -281,7 +297,7 @@ fn exact_issuance_replay_returns_state_without_adapter_dispatch() {
     let issuer = RecordingIssuer::existing(ProviderRepositoryState::Dispatching);
     let adapter = adapter();
     let coordinator =
-        ProviderDispatchCoordinator::new(&repository, &issuer, &adapter, &AvailableGuard);
+        ProviderDispatchCoordinator::new(&repository, &issuer, &issuer, &adapter, &AvailableGuard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())).unwrap(),
@@ -299,7 +315,7 @@ fn released_v1_replay_uses_stored_digest_domain() {
     let issuer = RecordingIssuer::existing(ProviderRepositoryState::Dispatching);
     let adapter = adapter();
     let coordinator =
-        ProviderDispatchCoordinator::new(&repository, &issuer, &adapter, &AvailableGuard);
+        ProviderDispatchCoordinator::new(&repository, &issuer, &issuer, &adapter, &AvailableGuard);
 
     assert!(matches!(
         block_on(coordinator.dispatch(request())).unwrap(),
@@ -318,7 +334,7 @@ fn issuer_winner_dispatches_once() {
     let issuer = RecordingIssuer::winner();
     let adapter = adapter();
     let coordinator =
-        ProviderDispatchCoordinator::new(&repository, &issuer, &adapter, &AvailableGuard);
+        ProviderDispatchCoordinator::new(&repository, &issuer, &issuer, &adapter, &AvailableGuard);
 
     assert!(matches!(
         block_on(coordinator.dispatch(request())).unwrap(),
@@ -389,7 +405,7 @@ fn adapter_pre_effect_rejection_is_terminal_without_uncertain_effect() {
         ),
     };
     let coordinator =
-        ProviderDispatchCoordinator::new(&repository, &issuer, &adapter, &AvailableGuard);
+        ProviderDispatchCoordinator::new(&repository, &issuer, &issuer, &adapter, &AvailableGuard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())).unwrap(),
@@ -412,7 +428,7 @@ fn maybe_dispatched_adapter_failure_is_persisted_as_uncertain() {
         error: DispatchError::MaybeDispatched,
     };
     let coordinator =
-        ProviderDispatchCoordinator::new(&repository, &issuer, &adapter, &AvailableGuard);
+        ProviderDispatchCoordinator::new(&repository, &issuer, &issuer, &adapter, &AvailableGuard);
 
     assert_eq!(
         block_on(coordinator.dispatch(request())).unwrap(),

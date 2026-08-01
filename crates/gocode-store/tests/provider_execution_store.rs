@@ -1,8 +1,8 @@
 use std::sync::{Arc, Barrier};
 
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest,
-    ProviderExecutionStore, ProviderJournalKeyBinding, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderExecutionStore,
+    ProviderJournalKeyBinding, RuntimeProviderAuthorityEvidenceVerifier,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -10,8 +10,8 @@ use gocode_provider::{
     ProviderCall, ProviderCallId, ProviderId,
 };
 use gocode_store::provider::{
-    PreparedProviderRecord, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore,
-    SqliteProviderExecutionStore,
+    PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
 
@@ -143,6 +143,23 @@ fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_per
             .unwrap();
         assert_eq!(count, expected, "unexpected atomic row count for {table}");
     }
+}
+
+#[test]
+fn durable_evidence_verifier_rejects_caller_mismatched_semantics() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("provider-evidence.sqlite");
+    let (store, request) = initialize(&path);
+    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
+        panic!("first exact issue must win")
+    };
+    let mut mismatched = request;
+    mismatched.principal_id = "different-principal".to_owned();
+
+    assert_eq!(
+        store.verify_durable_admission(&mismatched, admitted.claim().attempt_id),
+        Err(ProviderAdmissionError::AuthorityDenied)
+    );
 }
 
 #[test]

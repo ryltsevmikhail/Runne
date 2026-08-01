@@ -3,11 +3,12 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderAuthorityIssuerDecision,
-    ProviderEffectAuthorityRef, ProviderEncryptedPayload, ProviderExecutionError,
-    ProviderExecutionStore, ProviderJournalAppendOutcome, ProviderJournalAppendRequest,
-    ProviderJournalKeyBinding, ProviderPollRequest, ProviderTerminalCommitOutcome,
-    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
+    ProviderAuthorityIssueRequest, ProviderEffectAuthorityRef, ProviderEncryptedPayload,
+    ProviderExecutionError, ProviderExecutionStore, ProviderJournalAppendOutcome,
+    ProviderJournalAppendRequest, ProviderJournalKeyBinding, ProviderPollRequest,
+    ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -101,6 +102,38 @@ pub struct SqliteProviderExecutionStore {
     connection: Mutex<Connection>,
 }
 
+/// Concrete store-owned admission returned only after durable read-back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DurableProviderAdmission {
+    evidence: ProviderAuthorityEvidence,
+}
+
+impl DurableProviderAdmission {
+    /// Durable authority reference.
+    pub const fn authority_ref(&self) -> ProviderEffectAuthorityRef {
+        self.evidence.authority_ref
+    }
+
+    /// Exact durable claim.
+    pub const fn claim(&self) -> &ProviderDispatchClaim {
+        &self.evidence.claim
+    }
+
+    /// Consumes the store-owned admission into its exact claim.
+    pub fn into_claim(self) -> ProviderDispatchClaim {
+        self.evidence.claim
+    }
+}
+
+/// Concrete SQLite issuance result; winner values are store-owned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderAuthorityIssueOutcome {
+    /// Newly committed admission loaded back from the authoritative database.
+    Winner(Box<DurableProviderAdmission>),
+    /// Exact replay with no new dispatch authority.
+    Existing { state: ProviderRepositoryState },
+}
+
 impl SqliteProviderExecutionStore {
     /// Opens the authoritative runtime database and validates schema V13.
     pub fn open(path: &Path) -> Result<Self, ProviderAdmissionError> {
@@ -115,6 +148,26 @@ impl SqliteProviderExecutionStore {
         Ok(Self {
             connection: Mutex::new(connection),
         })
+    }
+
+    /// Commits authority state and returns only a non-authoritative locator.
+    pub fn issue(
+        &self,
+        request: &ProviderAuthorityIssueRequest,
+    ) -> Result<ProviderAuthorityIssueOutcome, ProviderAdmissionError> {
+        match RuntimeProviderAuthorityIssuer::issue_locator(self, request)? {
+            ProviderAuthorityIssueLocator::Committed { attempt_id } => {
+                let evidence = RuntimeProviderAuthorityEvidenceVerifier::verify_durable_admission(
+                    self, request, attempt_id,
+                )?;
+                Ok(ProviderAuthorityIssueOutcome::Winner(Box::new(
+                    DurableProviderAdmission { evidence },
+                )))
+            }
+            ProviderAuthorityIssueLocator::Existing { state } => {
+                Ok(ProviderAuthorityIssueOutcome::Existing { state })
+            }
+        }
     }
 
     /// Installs or advances runtime-owned authority state.
@@ -202,10 +255,10 @@ impl SqliteProviderExecutionStore {
 }
 
 impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
-    fn issue_decision(
+    fn issue_locator(
         &self,
         request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError> {
+    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError> {
         request.validate()?;
         let semantic_digest = execution_semantic_digest(request);
         let mut connection = self
@@ -220,7 +273,9 @@ impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
             load_existing_admission(&transaction, &request.provider_idempotency_key)?
         {
             return if existing.semantic_digest == semantic_digest {
-                Ok(ProviderAuthorityIssuerDecision::existing(existing.state))
+                Ok(ProviderAuthorityIssueLocator::Existing {
+                    state: existing.state,
+                })
             } else {
                 Err(ProviderAdmissionError::AuthorityConflict)
             };
@@ -290,12 +345,85 @@ impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
         transaction
             .commit()
             .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
-        ProviderAuthorityIssuerDecision::from_durable_commit(
-            request,
+        Ok(ProviderAuthorityIssueLocator::Committed {
+            attempt_id: claim.attempt_id,
+        })
+    }
+}
+
+impl RuntimeProviderAuthorityEvidenceVerifier for SqliteProviderExecutionStore {
+    fn verify_durable_admission(
+        &self,
+        request: &ProviderAuthorityIssueRequest,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError> {
+        let connection = self
+            .connection
+            .lock()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let evidence = connection
+            .query_row(
+                "SELECT authority_id, authority_revision, generation, permit_id,
+                        token_reservation_id, cost_reservation_id, fencing_token
+                   FROM provider_execution_admissions
+                  WHERE provider_idempotency_key = ?1 AND dispatch_attempt_id = ?2
+                    AND semantic_digest = ?3 AND principal_id = ?4
+                    AND conversation_id = ?5 AND taskrun_id = ?6
+                    AND execution_attempt_id = ?7 AND call_id = ?8
+                    AND prepared_digest = ?9 AND render_digest = ?10
+                    AND profile_digest = ?11 AND pricing_revision_digest = ?12
+                    AND requested_input_tokens = ?13 AND requested_output_tokens = ?14
+                    AND max_cost_micros = ?15 AND currency = ?16",
+                params![
+                    request.provider_idempotency_key,
+                    attempt_id.as_bytes().as_slice(),
+                    execution_semantic_digest(request).as_slice(),
+                    request.principal_id,
+                    request.conversation_id.as_bytes().as_slice(),
+                    request.taskrun_id.as_bytes().as_slice(),
+                    request.execution_attempt_id.as_bytes().as_slice(),
+                    request.prepared.call_id.as_bytes().as_slice(),
+                    request.prepared.prepared_digest.as_slice(),
+                    request.prepared.render_digest.as_slice(),
+                    request.prepared.profile_digest.as_slice(),
+                    request.pricing_revision_digest.as_slice(),
+                    as_i64(request.requested_input_tokens)?,
+                    as_i64(request.requested_output_tokens)?,
+                    as_i64(request.max_cost_micros)?,
+                    request.currency,
+                ],
+                |row| {
+                    Ok((
+                        fixed_bytes::<16>(row.get(0)?)?,
+                        positive_u64(row.get(1)?)?,
+                        positive_u64(row.get(2)?)?,
+                        fixed_bytes::<16>(row.get(3)?)?,
+                        fixed_bytes::<16>(row.get(4)?)?,
+                        fixed_bytes::<16>(row.get(5)?)?,
+                        positive_u64(row.get(6)?)?,
+                    ))
+                },
+            )
+            .optional()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?
+            .ok_or(ProviderAdmissionError::AuthorityDenied)?;
+        let authority_ref = ProviderEffectAuthorityRef::new(evidence.0, evidence.1)?;
+        Ok(ProviderAuthorityEvidence {
             authority_ref,
-            state.expected_generation,
-            claim,
-        )
+            runtime_generation: evidence.2,
+            claim: ProviderDispatchClaim {
+                call_id: request.prepared.call_id,
+                attempt_id,
+                permit_id: evidence.3,
+                prepared_digest: request.prepared.prepared_digest,
+                render_digest: request.prepared.render_digest,
+                profile_digest: request.prepared.profile_digest,
+                token_reservation_id: evidence.4,
+                cost_reservation_id: evidence.5,
+                fencing_token: evidence.6,
+                provider_idempotency_key: request.provider_idempotency_key.clone(),
+            },
+        })
     }
 }
 

@@ -8,9 +8,10 @@ use crate::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
 
+use super::authority::{ProviderExecutionBindingSeed, verify_issued_authority};
 use super::{
-    ProviderAdmissionError, ProviderAuthorityIssueOutcome, ProviderExecutionBinding,
-    RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityIssueLocator, ProviderExecutionBinding,
+    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
 };
 
 /// Complete application input for one provider prepare/claim/admit/dispatch.
@@ -65,29 +66,33 @@ pub enum ProviderCoordinatorOutcome {
 }
 
 /// Orders provider prepare, persistence, single-dispatch claim and admission.
-pub struct ProviderDispatchCoordinator<'a, R, I, P: ?Sized> {
+pub struct ProviderDispatchCoordinator<'a, R, I, V, P: ?Sized> {
     repository: &'a R,
     issuer: &'a I,
+    verifier: &'a V,
     provider: &'a P,
     prohibited_content: &'a dyn ProhibitedContentPort,
 }
 
-impl<'a, R, I, P> ProviderDispatchCoordinator<'a, R, I, P>
+impl<'a, R, I, V, P> ProviderDispatchCoordinator<'a, R, I, V, P>
 where
     R: ProviderDispatchRepository,
     I: RuntimeProviderAuthorityIssuer,
+    V: RuntimeProviderAuthorityEvidenceVerifier,
     P: ProviderPort + ?Sized,
 {
     /// Constructs a coordinator from inward-facing ports.
     pub const fn new(
         repository: &'a R,
         issuer: &'a I,
+        verifier: &'a V,
         provider: &'a P,
         prohibited_content: &'a dyn ProhibitedContentPort,
     ) -> Self {
         Self {
             repository,
             issuer,
+            verifier,
             provider,
             prohibited_content,
         }
@@ -133,17 +138,32 @@ where
             .persist_prepared(&prepared_record)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         let issue_request = request.authority_request(prepared_record)?;
-        let admitted = match self.issuer.issue(&issue_request)? {
-            ProviderAuthorityIssueOutcome::Winner(admitted) => admitted,
-            ProviderAuthorityIssueOutcome::Existing { state } => {
+        let admitted = match self.issuer.issue_locator(&issue_request)? {
+            ProviderAuthorityIssueLocator::Committed { attempt_id } => Box::new(
+                verify_issued_authority(self.verifier, &issue_request, attempt_id)
+                    .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?,
+            ),
+            ProviderAuthorityIssueLocator::Existing { state } => {
                 return Ok(ProviderCoordinatorOutcome::Existing { state });
             }
         };
-        super::execution::validate_issued_claim(&request.call, &issue_request, admitted.claim())?;
-        let execution_admission = admitted.clone();
+        let attempt_id = admitted.claim().attempt_id;
+        let fencing_token = admitted.claim().fencing_token;
+        if super::execution::validate_issued_claim(&request.call, &issue_request, admitted.claim())
+            .is_err()
+        {
+            let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
+            return Ok(ProviderCoordinatorOutcome::Uncertain);
+        }
+        let binding_seed =
+            match ProviderExecutionBindingSeed::from_admitted(&admitted, prepared_record) {
+                Ok(binding_seed) => binding_seed,
+                Err(_) => {
+                    let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
+                    return Ok(ProviderCoordinatorOutcome::Uncertain);
+                }
+            };
         let claim: ProviderDispatchClaim = (*admitted).into_claim();
-        let attempt_id = claim.attempt_id;
-        let fencing_token = claim.fencing_token;
         let dispatch_request = match DispatchRequest::new(prepared, claim) {
             Ok(dispatch_request) => dispatch_request,
             Err(_) => {
@@ -162,17 +182,7 @@ where
                     let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
                     return Ok(ProviderCoordinatorOutcome::Uncertain);
                 }
-                let binding = match ProviderExecutionBinding::from_admitted(
-                    &execution_admission,
-                    prepared_record,
-                    stream_id,
-                ) {
-                    Ok(binding) => binding,
-                    Err(_) => {
-                        let _ = self.repository.mark_uncertain(attempt_id, fencing_token);
-                        return Ok(ProviderCoordinatorOutcome::Uncertain);
-                    }
-                };
+                let binding = binding_seed.bind_stream(stream_id);
                 Ok(ProviderCoordinatorOutcome::Streaming { binding })
             }
             Err(DispatchError::RejectedBeforeEffect(reason)) => {

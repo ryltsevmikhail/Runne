@@ -233,10 +233,7 @@ where
                         .await
                     {
                         Ok(receipt) => receipt,
-                        Err(CanonicalProviderExecutionError::Uncertain) => {
-                            return Err(ConversationHostError::ProviderOutputRejected);
-                        }
-                        Err(error) => {
+                        Err(error) if provider_error_is_proven_pre_effect(error) => {
                             let rejected = self
                                 .handle
                                 .finish_conversation_text(
@@ -254,6 +251,9 @@ where
                             if rejected.phase != TextGenerationPhase::Rejected {
                                 return Err(ConversationHostError::InvariantViolation);
                             }
+                            return Err(ConversationHostError::ProviderOutputRejected);
+                        }
+                        Err(error) => {
                             return Err(map_provider_execution_error(error));
                         }
                     }
@@ -327,6 +327,10 @@ const fn map_provider_execution_error(
             ConversationHostError::ProviderOutputRejected
         }
     }
+}
+
+const fn provider_error_is_proven_pre_effect(error: CanonicalProviderExecutionError) -> bool {
+    matches!(error, CanonicalProviderExecutionError::RejectedBeforeEffect)
 }
 
 impl<R, I, E, P> ConversationQueryHostPort for RuntimeCanonicalConversationHost<R, I, E, P>
@@ -553,5 +557,22 @@ mod tests {
         assert_eq!(first, second);
         assert!(first.as_str().len() <= MAX_MESSAGE_TEXT_BYTES);
         assert!(first.as_str().starts_with(LOCAL_RESPONSE_PREFIX));
+    }
+
+    #[test]
+    fn only_proven_pre_effect_provider_failure_may_reject_started_generation() {
+        assert!(provider_error_is_proven_pre_effect(
+            CanonicalProviderExecutionError::RejectedBeforeEffect
+        ));
+        for error in [
+            CanonicalProviderExecutionError::RemoteFailed,
+            CanonicalProviderExecutionError::RemoteIncomplete,
+            CanonicalProviderExecutionError::Uncertain,
+            CanonicalProviderExecutionError::PolicyDenied,
+            CanonicalProviderExecutionError::Unavailable,
+            CanonicalProviderExecutionError::Conflict,
+        ] {
+            assert!(!provider_error_is_proven_pre_effect(error));
+        }
     }
 }

@@ -138,11 +138,20 @@ pub struct ProviderExecutionBinding {
     stream_id: ProviderStreamId,
 }
 
-impl ProviderExecutionBinding {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProviderExecutionBindingSeed {
+    attempt_id: DispatchAttemptId,
+    fencing_token: u64,
+    runtime_generation: u64,
+    call_digest_version: ProviderCallDigestVersion,
+    prepared_digest: [u8; 32],
+    profile_digest: [u8; 32],
+}
+
+impl ProviderExecutionBindingSeed {
     pub(crate) fn from_admitted(
         admitted: &AdmittedProviderDispatch,
         prepared: PreparedProviderRecord,
-        stream_id: ProviderStreamId,
     ) -> Result<Self, ProviderAdmissionError> {
         if prepared.prepared_digest == [0; 32]
             || prepared.profile_digest == [0; 32]
@@ -158,10 +167,23 @@ impl ProviderExecutionBinding {
             call_digest_version: prepared.call_digest_version,
             prepared_digest: prepared.prepared_digest,
             profile_digest: prepared.profile_digest,
-            stream_id,
         })
     }
 
+    pub(crate) const fn bind_stream(self, stream_id: ProviderStreamId) -> ProviderExecutionBinding {
+        ProviderExecutionBinding {
+            attempt_id: self.attempt_id,
+            fencing_token: self.fencing_token,
+            runtime_generation: self.runtime_generation,
+            call_digest_version: self.call_digest_version,
+            prepared_digest: self.prepared_digest,
+            profile_digest: self.profile_digest,
+            stream_id,
+        }
+    }
+}
+
+impl ProviderExecutionBinding {
     /// Returns the durable provider attempt identity.
     pub const fn attempt_id(&self) -> DispatchAttemptId {
         self.attempt_id
@@ -198,74 +220,14 @@ impl ProviderExecutionBinding {
     }
 }
 
-/// Opaque issuer decision converted to dispatch authority inside application code.
-///
-/// Safe downstream code cannot construct raw winner fields or bypass exact
-/// request binding. Persistence adapters can return a validated durable commit
-/// through [`Self::from_durable_commit`].
-///
-/// ```compile_fail
-/// use gocode_application::provider::ProviderAuthorityIssuerDecision;
-///
-/// let forged = ProviderAuthorityIssuerDecision::Winner {
-///     authority_ref: todo!(),
-///     runtime_generation: 1,
-///     claim: todo!(),
-/// };
-/// ```
+/// Atomic issuance locator. It deliberately contains no dispatch authority.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderAuthorityIssuerDecision(ProviderAuthorityIssuerDecisionKind);
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ProviderAuthorityIssuerDecisionKind {
+pub enum ProviderAuthorityIssueLocator {
+    /// A new admission was committed and must be independently reloaded.
     Committed {
-        authority_ref: ProviderEffectAuthorityRef,
-        runtime_generation: u64,
-        claim: Box<ProviderDispatchClaim>,
+        /// Exact durable provider attempt identity.
+        attempt_id: DispatchAttemptId,
     },
-    Existing {
-        state: ProviderRepositoryState,
-    },
-}
-
-impl ProviderAuthorityIssuerDecision {
-    /// Wraps one durable atomic commit after validating its exact semantic
-    /// request binding. This cannot manufacture a mismatched winner.
-    #[doc(hidden)]
-    pub fn from_durable_commit(
-        request: &ProviderAuthorityIssueRequest,
-        authority_ref: ProviderEffectAuthorityRef,
-        runtime_generation: u64,
-        claim: ProviderDispatchClaim,
-    ) -> Result<Self, ProviderAdmissionError> {
-        let admitted = AdmittedProviderDispatch::new(authority_ref, runtime_generation, claim)?;
-        if admitted.claim.call_id != request.prepared.call_id
-            || admitted.claim.prepared_digest != request.prepared.prepared_digest
-            || admitted.claim.render_digest != request.prepared.render_digest
-            || admitted.claim.profile_digest != request.prepared.profile_digest
-            || admitted.claim.provider_idempotency_key != request.provider_idempotency_key
-        {
-            return Err(ProviderAdmissionError::AuthorityConflict);
-        }
-        Ok(Self(ProviderAuthorityIssuerDecisionKind::Committed {
-            authority_ref: admitted.authority_ref,
-            runtime_generation: admitted.runtime_generation,
-            claim: Box::new(admitted.claim),
-        }))
-    }
-
-    /// Wraps an exact durable replay without granting a dispatch permit.
-    #[doc(hidden)]
-    pub const fn existing(state: ProviderRepositoryState) -> Self {
-        Self(ProviderAuthorityIssuerDecisionKind::Existing { state })
-    }
-}
-
-/// Atomic runtime authority issuance outcome.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ProviderAuthorityIssueOutcome {
-    /// This caller won one durable admission and may cross the adapter boundary.
-    Winner(Box<AdmittedProviderDispatch>),
     /// Exact semantic replay observed an existing durable state and receives no
     /// permit.
     Existing {
@@ -274,34 +236,62 @@ pub enum ProviderAuthorityIssueOutcome {
     },
 }
 
+/// Raw non-secret fields independently reloaded from durable admission storage.
+///
+/// This is evidence, not dispatch authority. Only application validation can
+/// convert it into an [`AdmittedProviderDispatch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderAuthorityEvidence {
+    /// Durable authority reference.
+    pub authority_ref: ProviderEffectAuthorityRef,
+    /// Runtime generation recorded by the authority transaction.
+    pub runtime_generation: u64,
+    /// Exact durable provider claim.
+    pub claim: ProviderDispatchClaim,
+}
+
 /// Runtime-only authority, reservation and claim issuer.
 ///
 /// Implementations derive owner/scope, read the current generation/fence,
 /// evaluate capability/approval/pricing and commit every pre-effect record in
 /// one durable transaction.
 pub trait RuntimeProviderAuthorityIssuer: Send + Sync {
-    /// Resolves the trusted issuer implementation decision.
-    fn issue_decision(
+    /// Atomically commits admission or returns an existing durable state.
+    fn issue_locator(
         &self,
         request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssuerDecision, ProviderAdmissionError>;
+    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError>;
+}
 
-    /// Atomically admits one exact provider effect or returns a typed denial.
-    fn issue(
+/// Independent durable evidence boundary used after issuance and before effect.
+pub trait RuntimeProviderAuthorityEvidenceVerifier: Send + Sync {
+    /// Reloads the committed row and supplies its exact fields to the sink.
+    fn verify_durable_admission(
         &self,
         request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssueOutcome, ProviderAdmissionError> {
-        match self.issue_decision(request)?.0 {
-            ProviderAuthorityIssuerDecisionKind::Committed {
-                authority_ref,
-                runtime_generation,
-                claim,
-            } => Ok(ProviderAuthorityIssueOutcome::Winner(Box::new(
-                AdmittedProviderDispatch::new(authority_ref, runtime_generation, *claim)?,
-            ))),
-            ProviderAuthorityIssuerDecisionKind::Existing { state } => {
-                Ok(ProviderAuthorityIssueOutcome::Existing { state })
-            }
-        }
+        attempt_id: DispatchAttemptId,
+    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError>;
+}
+
+pub(crate) fn verify_issued_authority<V: RuntimeProviderAuthorityEvidenceVerifier>(
+    verifier: &V,
+    request: &ProviderAuthorityIssueRequest,
+    attempt_id: DispatchAttemptId,
+) -> Result<AdmittedProviderDispatch, ProviderAdmissionError> {
+    let evidence = verifier.verify_durable_admission(request, attempt_id)?;
+    let admitted = AdmittedProviderDispatch::new(
+        evidence.authority_ref,
+        evidence.runtime_generation,
+        evidence.claim,
+    )?;
+    if admitted.claim.attempt_id != attempt_id
+        || admitted.claim.call_id != request.prepared.call_id
+        || admitted.claim.prepared_digest != request.prepared.prepared_digest
+        || admitted.claim.render_digest != request.prepared.render_digest
+        || admitted.claim.profile_digest != request.prepared.profile_digest
+        || admitted.claim.provider_idempotency_key != request.provider_idempotency_key
+    {
+        return Err(ProviderAdmissionError::AuthorityConflict);
     }
+    Ok(admitted)
 }

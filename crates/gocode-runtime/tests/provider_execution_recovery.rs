@@ -5,12 +5,11 @@ use std::sync::{Arc, Mutex};
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
-use gocode_application::provider::RuntimeProviderAuthorityIssuer;
 use gocode_application::provider::{
-    ProviderAuthorityIssueOutcome, ProviderAuthorityIssueRequest, ProviderExecutionError,
-    ProviderExecutionStore, ProviderJournalAppendOutcome, ProviderJournalAppendRequest,
-    ProviderJournalKeyBinding, ProviderPollRequest, ProviderTerminalCommitOutcome,
-    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    ProviderAuthorityIssueRequest, ProviderExecutionError, ProviderExecutionStore,
+    ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
+    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
+    ProviderTerminalPricingBinding,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -33,8 +32,8 @@ use gocode_secure_store::{
     ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
 };
 use gocode_store::provider::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderRuntimeAuthorityConfig,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
+    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
 #[derive(Default)]
