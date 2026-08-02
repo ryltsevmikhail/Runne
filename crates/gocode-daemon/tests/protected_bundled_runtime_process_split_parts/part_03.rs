@@ -124,6 +124,7 @@ async fn proven_owned_crash_recovers_the_exact_stable_hot_wal_binding() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn first_activation_recovers_across_crash_and_durable_write_fault_matrix() {
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
     for fault in [
         FirstActivationFaultPoint::BeforePreparePersistence,
