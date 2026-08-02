@@ -5,9 +5,14 @@
 // for Linux contract testing. Unsupported native backends fail closed.
 
 use std::fmt;
+#[cfg(unix)]
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+#[cfg(any(unix, feature = "test-support"))]
+use std::io::Read;
+#[cfg(unix)]
+use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(unix)]
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -19,19 +24,26 @@ use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 
 use gocode_api::{
-    ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError, LaunchSecret,
-    PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, PendingFirstActivationV1, ProtectedActivationKeys,
+    ExecutableIdentityV1, LaunchAuthorityError, PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
+    PendingFirstActivationV1, ProtectedRuntimeProfileV1, ProviderActivationBindingV1,
+    StableRuntimeBindingV1,
+};
+#[cfg(unix)]
+use gocode_api::{
+    ActivationDispositionV1, LaunchSecret, ProtectedActivationKeys,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
     ProtectedLaunchRequestV2, ProtectedOwnedLaunchV1, ProtectedOwnedLaunchV2, ProtectedReadyV1,
     ProtectedReadyV2, ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
-    ProtectedRenewTicketV2, ProtectedRuntimeProfileV1, ProtectedShutdownAckV1,
-    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1,
-    StableRuntimeBindingV1,
+    ProtectedRenewTicketV2, ProtectedShutdownAckV1, ProtectedShutdownAckV2, ProtectedShutdownV1,
+    ProtectedShutdownV2,
 };
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, ProtectedBundledRuntimeProfile,
-    REQUIRED_RUNTIME_CAPABILITIES, RuntimeTransportKind,
+    REQUIRED_RUNTIME_CAPABILITIES,
 };
+#[cfg(unix)]
+use gocode_runtime_client::RuntimeTransportKind;
+#[cfg(unix)]
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
