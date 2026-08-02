@@ -73,10 +73,44 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
     assert_eq!(CURRENT_SCHEMA_VERSION, 15);
+    assert_eq!(version, 15);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));
     assert!(!table_exists(&conn, "consumption_intents_v11"));
+    for table in [
+        "schema_upgrade_fence",
+        "schema_upgrade_write_latch",
+        "provider_runtime_authority_state",
+        "provider_execution_admissions",
+        "provider_budget_reservations",
+        "provider_journal_key_refs",
+        "provider_terminal_outbox",
+        "provider_effect_starts",
+    ] {
+        assert!(table_exists(&conn, table), "missing released table {table}");
+    }
+    for (table, column) in [
+        (
+            "provider_runtime_authority_state",
+            "activation_binding_kind",
+        ),
+        (
+            "provider_runtime_authority_state",
+            "activation_binding_digest",
+        ),
+        ("provider_execution_admissions", "activation_binding_kind"),
+        ("provider_execution_admissions", "activation_binding_digest"),
+    ] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info(?1) WHERE name = ?2)",
+                [table, column],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(exists, "missing V14 column {table}.{column}");
+    }
 
     let digest = [0xA5_u8; 32];
     for (sql, identity) in [

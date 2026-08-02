@@ -4,5 +4,47 @@
   "message_type_id": 1,
   "frame_length": 483,
   "frame_sha256": "6cd04cec80c796f685c2940f4ef85d5107ed8d5af5c9bc5f1bf58e0a46d541e3",
+  "lifecycle_messages": {
+    "launch": {
+      "message_type_id": 1,
+      "frame_length": 483,
+      "frame_sha256": "6cd04cec80c796f685c2940f4ef85d5107ed8d5af5c9bc5f1bf58e0a46d541e3"
+    },
+    "ready": {
+      "message_type_id": 2,
+      "frame_length": 547,
+      "frame_sha256": "dbecf3810c57db8bc76248608a3f8b888ee911d7e7f21313daeb982c5da1fe06"
+    },
+    "renew_request": {
+      "message_type_id": 3,
+      "frame_length": 495,
+      "frame_sha256": "8e2f4ef04c82832feab761905cf3313925ebb3afb48f44e4bf700b9730aaa449"
+    },
+    "renew_ticket": {
+      "message_type_id": 4,
+      "frame_length": 556,
+      "frame_sha256": "62379b0d93df037823d69c725362fa914edb9405a6bbf3e9ce5fb744b36c4138"
+    },
+    "shutdown": {
+      "message_type_id": 5,
+      "frame_length": 458,
+      "frame_sha256": "369b1f889b601817d7dc6f55f28631d57eba967dddda661bbb6446f41fd007d1"
+    },
+    "shutdown_ack": {
+      "message_type_id": 6,
+      "frame_length": 460,
+      "frame_sha256": "3cfb0aeaba563c64be46de21dc59a1c4e70f6b6551e5abd35d40ad3e79120be1"
+    },
+    "first_activation_prepared": {
+      "message_type_id": 7,
+      "frame_length": 473,
+      "frame_sha256": "9126aeb6a6f6eeb069b4def302c58ced919b37c88544b993368782020c0d9d76"
+    },
+    "first_activation_commit": {
+      "message_type_id": 8,
+      "frame_length": 473,
+      "frame_sha256": "8856b67e5f18047a1f6d86bcef230b0fda2f1d4bc1ff65e4496dc2fe849284f0"
+    }
+  },
   "content_policy": "digest-only; launch secrets are never stored in golden fixtures"
 }

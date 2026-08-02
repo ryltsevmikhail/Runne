@@ -1,0 +1,110 @@
+use super::*;
+
+pub struct ProcessResult {
+    pub outcome: ProcessOutcome,
+    pub delete_calls: usize,
+    pub resolver_calls: usize,
+    pub store_calls: usize,
+    pub store_received_stdin_secret: bool,
+}
+
+pub fn run(
+    arguments: Vec<OsString>,
+    stdin: &mut impl Read,
+    stdin_is_terminal: bool,
+    scenario: &str,
+) -> ProcessResult {
+    let mut backend = Backend {
+        configured: scenario == "status",
+        failure: scenario == "backend-error" || scenario == "set-backend-error",
+        delete_calls: 0,
+        store_calls: 0,
+        store_received_stdin_secret: false,
+    };
+    let resolver = Resolver {
+        fail: scenario == "resolver-error"
+            || scenario == "set-resolver-error"
+            || scenario == "delete",
+        calls: std::cell::Cell::new(0),
+    };
+    let result = run_provider_credential_with(
+        VecDeque::from(arguments),
+        stdin,
+        stdin_is_terminal,
+        &mut backend,
+        &resolver,
+        true,
+    );
+    ProcessResult {
+        outcome: process_outcome(result),
+        delete_calls: backend.delete_calls,
+        resolver_calls: resolver.calls.get(),
+        store_calls: backend.store_calls,
+        store_received_stdin_secret: backend.store_received_stdin_secret,
+    }
+}
+
+struct Resolver {
+    fail: bool,
+    calls: std::cell::Cell<usize>,
+}
+
+impl CredentialIdentityResolver for Resolver {
+    fn resolve(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
+        self.calls.set(self.calls.get() + 1);
+        if self.fail {
+            return Err(CliError::CredentialOperation);
+        }
+        let current = std::env::current_exe().map_err(|_| CliError::CredentialOperation)?;
+        ProviderCredentialAccessPolicy::new(&current, &current)
+            .map_err(|_| CliError::CredentialOperation)
+    }
+}
+
+struct Backend {
+    configured: bool,
+    failure: bool,
+    delete_calls: usize,
+    store_calls: usize,
+    store_received_stdin_secret: bool,
+}
+
+impl CredentialBackend for Backend {
+    fn status(
+        &self,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<CredentialOutcome, SecureStoreError> {
+        if self.failure {
+            return Err(SecureStoreError::OperationFailed(
+                "backend-detail".to_owned(),
+            ));
+        }
+        Ok(if self.configured {
+            CredentialOutcome::Configured
+        } else {
+            CredentialOutcome::Missing
+        })
+    }
+
+    fn store(
+        &mut self,
+        credential: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        self.store_calls += 1;
+        self.store_received_stdin_secret = credential.with_bytes(|bytes| bytes == b"stdin-secret");
+        if self.failure {
+            return Err(SecureStoreError::OperationFailed(
+                "backend-detail".to_owned(),
+            ));
+        }
+        self.configured = true;
+        Ok(())
+    }
+
+    fn delete(&mut self) -> Result<(), SecureStoreError> {
+        self.delete_calls += 1;
+        self.configured = false;
+        Ok(())
+    }
+}

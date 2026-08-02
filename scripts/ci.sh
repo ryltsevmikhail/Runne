@@ -60,6 +60,17 @@ if [ "$MODE" = "pinned" ]; then
     echo "--- fmt ---"
     cargo fmt --all --check
 
+    echo "--- source file length ---"
+    "$PYTHON_BIN" scripts/check-source-file-length.py --max-lines 300
+
+    echo "--- Task 6C release exclusion ---"
+    "$PYTHON_BIN" scripts/verify-task-6c-release-exclusion.py
+
+    "$PYTHON_BIN" -m unittest \
+        scripts.tests.test_check_source_file_length \
+        scripts.tests.test_verify_task_6c_release_exclusion \
+        -v
+
     echo "--- check ---"
     cargo check --workspace --all-targets --all-features --locked
 

@@ -1,0 +1,210 @@
+#[cfg(unix)]
+fn validate_owner_private_file(file: &File) -> Result<(), ProtectedBundledRuntimeError> {
+    let metadata = file
+        .metadata()
+        .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
+    if !metadata.is_file()
+        || metadata.uid() != rustix::process::geteuid().as_raw()
+        || metadata.permissions().mode() & 0o077 != 0
+    {
+        return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn sync_directory(path: &Path) -> Result<(), ProtectedBundledRuntimeError> {
+    File::open(path)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    fn executable(path: &Path, mode: u32) {
+        std::fs::write(path, b"#!/bin/sh\nexit 0\n").expect("write executable fixture");
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+            .expect("set executable permissions");
+    }
+
+    fn stable() -> StableRuntimeBindingV1 {
+        let profile = expected_profile().expect("expected profile");
+        StableRuntimeBindingV1::new(
+            *uuid::Uuid::now_v7().as_bytes(),
+            LOCAL_PRINCIPAL,
+            *uuid::Uuid::now_v7().as_bytes(),
+            profile.profile_id(),
+            *profile.profile_hash(),
+            *profile.capability_digest(),
+        )
+        .expect("stable binding")
+    }
+
+    #[test]
+    fn launch_spec_rejects_relative_symlink_and_writable_executables() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let runtime_root = temporary.path().join("runtime");
+        assert_eq!(
+            ProtectedBundledRuntimeLaunchSpec::new(Path::new("relative-gocoded"), &runtime_root,),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+
+        let writable = temporary.path().join("writable-gocoded");
+        executable(&writable, 0o777);
+        assert_eq!(
+            ProtectedBundledRuntimeLaunchSpec::new(&writable, &runtime_root),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+
+        let target = temporary.path().join("target-gocoded");
+        executable(&target, 0o755);
+        let link = temporary.path().join("linked-gocoded");
+        std::os::unix::fs::symlink(&target, &link).expect("create executable symlink");
+        assert_eq!(
+            ProtectedBundledRuntimeLaunchSpec::new(&link, &runtime_root),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+
+        let writable_parent = temporary.path().join("writable-parent");
+        std::fs::create_dir(&writable_parent).expect("create writable parent");
+        std::fs::set_permissions(&writable_parent, std::fs::Permissions::from_mode(0o777))
+            .expect("weaken parent permissions");
+        let unsafe_daemon = writable_parent.join("gocoded");
+        executable(&unsafe_daemon, 0o755);
+        assert_eq!(
+            ProtectedBundledRuntimeLaunchSpec::new(&unsafe_daemon, &runtime_root),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+    }
+
+    #[test]
+    fn launch_rejects_source_replacement_after_identity_is_pinned() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let daemon = temporary.path().join("gocode-daemon");
+        executable(&daemon, 0o755);
+        let spec =
+            ProtectedBundledRuntimeLaunchSpec::new(&daemon, &temporary.path().join("runtime"))
+                .expect("trusted launch spec");
+        std::fs::write(&daemon, b"#!/bin/sh\nexit 7\n").expect("replace source bytes");
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o755))
+            .expect("restore executable permissions");
+
+        assert_eq!(
+            DevelopmentBundledRuntimeLauncher::new()
+                .launch(&spec)
+                .expect_err("replacement must fail before protected admission"),
+            ProtectedBundledRuntimeError::ExecutableIdentityMismatch
+        );
+    }
+
+    #[test]
+    fn discovery_uses_only_the_exact_colocated_packaged_daemon_name() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let desktop = temporary.path().join("gocode-desktop");
+        let daemon = temporary.path().join("gocode-daemon");
+        executable(&desktop, 0o755);
+        executable(&daemon, 0o755);
+
+        assert_eq!(
+            discover_bundled_runtime(&desktop).expect("discover protected daemon"),
+            std::fs::canonicalize(&daemon).expect("canonical daemon")
+        );
+
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o775))
+            .expect("weaken daemon permissions");
+        assert_eq!(
+            discover_bundled_runtime(&desktop),
+            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+        );
+    }
+
+    #[test]
+    fn activation_records_are_exact_owner_private_and_non_secret() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("protect runtime root");
+        let store = ActivationStateStore::open(temporary.path()).expect("state store");
+        let expected_stable = stable();
+        store
+            .persist_stable_exact(&expected_stable, &mut LaunchTestControls::production())
+            .expect("persist stable");
+        assert_eq!(
+            store.load_stable().expect("load stable"),
+            Some(expected_stable)
+        );
+
+        let path = store.directory.join(STABLE_RECORD_FILE);
+        let bytes = std::fs::read(&path).expect("read stable record");
+        let text = String::from_utf8(bytes).expect("stable JSON");
+        assert!(!text.contains("launch_secret"));
+        assert!(!text.contains("bootstrap"));
+        assert!(!text.contains("credential"));
+        assert_eq!(
+            std::fs::metadata(path)
+                .expect("stable metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(&store.directory)
+                .expect("directory metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+
+        let different = stable();
+        assert_eq!(
+            store.persist_stable_exact(&different, &mut LaunchTestControls::production()),
+            Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
+        );
+    }
+
+    #[test]
+    fn activation_record_with_weakened_acl_is_rejected() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("protect runtime root");
+        let store = ActivationStateStore::open(temporary.path()).expect("state store");
+        store
+            .persist_stable_exact(&stable(), &mut LaunchTestControls::production())
+            .expect("persist stable");
+        let path = store.directory.join(STABLE_RECORD_FILE);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
+            .expect("weaken stable permissions");
+        assert_eq!(
+            store.load_stable(),
+            Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
+        );
+    }
+
+    #[test]
+    fn concrete_supervisor_exhausts_the_bounded_restart_budget() {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        let daemon = temporary.path().join("gocoded");
+        executable(&daemon, 0o755);
+        let spec =
+            ProtectedBundledRuntimeLaunchSpec::new(&daemon, &temporary.path().join("runtime"))
+                .expect("launch spec");
+        let mut supervisor =
+            ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
+        let now = Instant::now();
+
+        for _ in 0..5 {
+            supervisor
+                .schedule_restart(now)
+                .expect("restart remains available");
+            assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Backoff);
+        }
+        assert_eq!(
+            supervisor.schedule_restart(now),
+            Err(ProtectedBundledRuntimeError::RestartExhausted)
+        );
+        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Exhausted);
+    }
+}

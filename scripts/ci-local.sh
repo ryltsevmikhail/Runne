@@ -45,9 +45,23 @@ if ! command -v pnpm >/dev/null 2>&1; then
 fi
 
 echo "=== Local structural gates ==="
-python3 -m unittest scripts.tests.test_release_scripts -v
+python3 scripts/check-source-file-length.py --max-lines 300
+python3 scripts/verify-task-6c-release-exclusion.py
 python3 -m unittest \
-    scripts.tests.test_release_scripts.VerifyReleaseTests.test_fixture_only_structural_candidate_preserves_source_and_candidate_bytes \
+    scripts.tests.test_check_source_file_length \
+    scripts.tests.test_verify_task_6c_release_exclusion \
+    -v
+python3 -m unittest \
+    scripts.tests.test_package_release \
+    scripts.tests.test_verify_release_integrity \
+    scripts.tests.test_verify_release_review \
+    -v
+python3 -m unittest \
+    scripts.tests.test_verify_release_review.VerifyReleaseReviewTests.test_fixture_only_structural_candidate_preserves_source_and_candidate_bytes \
+    -v
+python3 -m unittest \
+    scripts.tests.test_verify_secure_replay_evidence \
+    scripts.tests.test_verify_secure_replay_desktop \
     -v
 python3 -m unittest scripts.tests.test_verify_test_inventory -v
 

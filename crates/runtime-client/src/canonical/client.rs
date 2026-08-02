@@ -1,0 +1,181 @@
+/// Authenticated runtime client. Construction is possible only after the
+/// exact profile handshake succeeds.
+#[derive(Clone)]
+pub struct AuthenticatedRuntimeClient {
+    client: reqwest::Client,
+    origin: String,
+    authority: RuntimeSessionAuthority,
+    session: RuntimeSessionInfo,
+    transport_kind: RuntimeTransportKind,
+}
+
+impl AuthenticatedRuntimeClient {
+    /// Returns the accepted exact runtime profile.
+    #[must_use]
+    pub const fn session_info(&self) -> &RuntimeSessionInfo {
+        &self.session
+    }
+
+    /// Returns the native-only transport class accepted during authentication.
+    #[must_use]
+    pub const fn transport_kind(&self) -> RuntimeTransportKind {
+        self.transport_kind
+    }
+
+    /// Copies the in-memory session authority only for test-support leak audits.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_session_authority(&self) -> Zeroizing<[u8; 32]> {
+        self.authority.test_material()
+    }
+
+    pub(crate) const fn from_local_session(
+        client: reqwest::Client,
+        origin: String,
+        authority: RuntimeSessionAuthority,
+        session: RuntimeSessionInfo,
+    ) -> Self {
+        Self {
+            client,
+            origin,
+            authority,
+            session,
+            transport_kind: RuntimeTransportKind::ExternalLocal,
+        }
+    }
+
+    pub(crate) const fn from_protected_bundled_session(
+        client: reqwest::Client,
+        origin: String,
+        authority: RuntimeSessionAuthority,
+        session: RuntimeSessionInfo,
+    ) -> Self {
+        Self {
+            client,
+            origin,
+            authority,
+            session,
+            transport_kind: RuntimeTransportKind::ProtectedBundled,
+        }
+    }
+
+    /// Creates one durable Conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed, redacted transport/API failure.
+    pub async fn create_conversation(
+        &self,
+        request: CreateConversationRequest,
+    ) -> Result<ConversationCreated, RuntimeApiError> {
+        let expected_conversation_id = request.conversation_id;
+        let expected_workspace_id = request.workspace_id;
+        let url = self.url("/v1/conversations");
+        let body = serde_json::to_vec(&CreateConversationWire {
+            conversation_id: request.conversation_id,
+            workspace_id: request.workspace_id,
+        })
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        let response = self
+            .command_request(self.client.post(url), &request.identity)?
+            .header(CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(map_transport)?;
+        let wire: ConversationCreatedWire = read_success_json(response, &[202]).await?;
+        let created = ConversationCreated::from(wire);
+        if created.conversation_id != expected_conversation_id
+            || created.workspace_id != expected_workspace_id
+        {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
+        }
+        Ok(created)
+    }
+
+    /// Appends user text and returns the completed durable local generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed, redacted transport/API failure.
+    pub async fn generate_text(
+        &self,
+        request: GenerateTextRequest,
+    ) -> Result<ConversationTextResult, RuntimeApiError> {
+        let expected_conversation_id = request.conversation_id;
+        let url = self.url(&format!(
+            "/v1/conversations/{}/messages",
+            request.conversation_id
+        ));
+        let body = serde_json::to_vec(&GenerateTextWire {
+            expected_version: request.expected_version,
+            text: &request.text,
+        })
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        let response = self
+            .command_request(self.client.post(url), &request.identity)?
+            .header(CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .await
+            .map_err(map_transport)?;
+        let wire: ConversationTextResultWire = read_success_json(response, &[200]).await?;
+        let result = ConversationTextResult::try_from(wire)?;
+        if result.conversation_id != expected_conversation_id {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
+        }
+        Ok(result)
+    }
+
+    /// Reads the authoritative committed Conversation timeline.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed, redacted transport/API failure.
+    pub async fn list_messages(
+        &self,
+        conversation_id: CanonicalId,
+    ) -> Result<ConversationMessages, RuntimeApiError> {
+        let url = self.url(&format!("/v1/conversations/{conversation_id}/messages"));
+        let response = self
+            .authenticated_request(self.client.get(url))?
+            .send()
+            .await
+            .map_err(map_transport)?;
+        let wire: ConversationMessagesWire = read_success_json(response, &[200]).await?;
+        let snapshot = ConversationMessages::try_from(wire)?;
+        if snapshot.conversation_id != conversation_id {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
+        }
+        Ok(snapshot)
+    }
+
+    pub(crate) fn url(&self, path: &str) -> String {
+        format!("{}{path}", self.origin)
+    }
+
+    pub(crate) fn authenticated_request(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, RuntimeApiError> {
+        Ok(request
+            .header(ACCEPT, "application/json")
+            .header(AUTHORIZATION, self.authority.authorization_header()?))
+    }
+
+    pub(crate) const fn http_client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
+    fn command_request(
+        &self,
+        request: reqwest::RequestBuilder,
+        identity: &CommandIdentity,
+    ) -> Result<reqwest::RequestBuilder, RuntimeApiError> {
+        Ok(self
+            .authenticated_request(request)?
+            .header("x-command-id", identity.command_id.to_string())
+            .header("idempotency-key", identity.idempotency_key.as_str()))
+    }
+}
