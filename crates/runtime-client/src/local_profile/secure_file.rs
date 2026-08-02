@@ -70,6 +70,6 @@ fn ensure_owner_only(metadata: &std::fs::Metadata) -> Result<(), LocalProfileErr
 }
 
 #[cfg(not(unix))]
-fn ensure_owner_only(_: &std::fs::Metadata) -> Result<(), LocalProfileError> {
+const fn ensure_owner_only(_: &std::fs::Metadata) -> Result<(), LocalProfileError> {
     Err(LocalProfileError::InsecurePermissions)
 }
