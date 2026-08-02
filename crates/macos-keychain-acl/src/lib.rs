@@ -856,8 +856,8 @@ pub fn set_generic_password_metadata(
         )
     })
 }
-
 fn trusted_application(path: &Path) -> Result<CFType, KeychainAclError> {
+    let path = std::fs::canonicalize(path).map_err(|_| KeychainAclError::InvalidExecutable)?;
     let path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| KeychainAclError::InvalidExecutable)?;
     let mut application = ptr::null();

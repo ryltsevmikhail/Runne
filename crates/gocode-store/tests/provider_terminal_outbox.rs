@@ -9,16 +9,14 @@ use gocode_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallId, ProviderId, ProviderStreamId, ProviderUsage,
 };
+use gocode_runtime::provider_execution::{
+    ProviderTerminalCommitRequest, ProviderTerminalPersistence,
+};
 use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
-
-use gocode_runtime::provider_execution::{
-    ProviderTerminalCommitRequest, ProviderTerminalPersistence,
-};
-
 struct Fixture {
     execution: SqliteProviderExecutionStore,
     dispatch: SqliteProviderDispatchStore,
@@ -27,7 +25,6 @@ struct Fixture {
     key: ProviderJournalKeyBinding,
     path: std::path::PathBuf,
 }
-
 fn fixture() -> Fixture {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.keep().join("provider-terminal.sqlite");
@@ -67,15 +64,20 @@ fn fixture() -> Fixture {
             capability_grant_id: "grant-provider-network-1".to_owned(),
             capability_revision: 2,
             capability_allowed: true,
+            capability_revocation_epoch: 1,
             approval_id: "approval-provider-network-1".to_owned(),
             approval_revision: 3,
             approval_allowed: true,
-            approval_expires_at: i64::MAX,
+            approval_revocation_epoch: 1,
             profile_digest: [2; 32],
             pricing_revision_digest: [3; 32],
+            activation_binding_kind:
+                gocode_application::provider::ProviderLeaseBindingKind::ProtectedV2,
+            activation_binding_digest: [4; 32],
             token_budget_limit: 2_000,
             cost_budget_limit_micros: 1_000_000,
             authority_ttl_seconds: 120,
+            lease_ttl_seconds: 600,
         })
         .unwrap();
     let ProviderAuthorityIssueOutcome::Winner(admitted) = execution
@@ -120,7 +122,6 @@ fn fixture() -> Fixture {
         path,
     }
 }
-
 fn encrypted(nonce_byte: u8, plaintext_byte: u8) -> ProviderEncryptedPayload {
     ProviderEncryptedPayload::new(
         [nonce_byte; 12],
@@ -130,7 +131,6 @@ fn encrypted(nonce_byte: u8, plaintext_byte: u8) -> ProviderEncryptedPayload {
     )
     .unwrap()
 }
-
 fn event(
     fixture: &Fixture,
     sequence: u64,

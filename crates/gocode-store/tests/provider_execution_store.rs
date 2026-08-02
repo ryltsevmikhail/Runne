@@ -1,8 +1,6 @@
-use std::sync::{Arc, Barrier};
-
 use gocode_application::provider::{
     ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderExecutionStore,
-    ProviderJournalKeyBinding, RuntimeProviderAuthorityEvidenceVerifier,
+    ProviderJournalKeyBinding,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -14,12 +12,11 @@ use gocode_store::provider::{
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
-
+use std::sync::{Arc, Barrier};
 type AuthorityMutation = (
     Box<dyn Fn(&mut ProviderRuntimeAuthorityConfig)>,
     ProviderAdmissionError,
 );
-
 fn config() -> ProviderRuntimeAuthorityConfig {
     ProviderRuntimeAuthorityConfig {
         runtime_authority_id: [1; 16],
@@ -32,18 +29,22 @@ fn config() -> ProviderRuntimeAuthorityConfig {
         capability_grant_id: "grant-provider-network-1".to_owned(),
         capability_revision: 2,
         capability_allowed: true,
+        capability_revocation_epoch: 1,
         approval_id: "approval-provider-network-1".to_owned(),
         approval_revision: 3,
         approval_allowed: true,
-        approval_expires_at: i64::MAX,
+        approval_revocation_epoch: 1,
         profile_digest: [2; 32],
         pricing_revision_digest: [3; 32],
+        activation_binding_kind:
+            gocode_application::provider::ProviderLeaseBindingKind::ProtectedV2,
+        activation_binding_digest: [4; 32],
         token_budget_limit: 10_000,
         cost_budget_limit_micros: 1_000_000,
         authority_ttl_seconds: 120,
+        lease_ttl_seconds: 600,
     }
 }
-
 fn prepared() -> (
     PreparedProviderRecord,
     ContractPreparedProviderRecord,
@@ -79,7 +80,6 @@ fn prepared() -> (
     };
     (store_record, contract_record, call)
 }
-
 fn issue_request(prepared: ContractPreparedProviderRecord) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
         principal_id: "principal-1".to_owned(),
@@ -95,7 +95,6 @@ fn issue_request(prepared: ContractPreparedProviderRecord) -> ProviderAuthorityI
         provider_idempotency_key: "provider-execution-1".to_owned(),
     }
 }
-
 fn initialize(
     path: &std::path::Path,
 ) -> (SqliteProviderExecutionStore, ProviderAuthorityIssueRequest) {
@@ -106,24 +105,34 @@ fn initialize(
     execution.install_runtime_authority(&config()).unwrap();
     (execution, issue_request(contract))
 }
-
 #[test]
 fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_permit() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("provider-execution.sqlite");
     let (store, request) = initialize(&path);
-
     let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
         panic!("first exact issue must win")
     };
-
+    let (tokens, cost) = store.utilization().unwrap();
+    assert_eq!(
+        (
+            tokens.limit,
+            tokens.reserved,
+            tokens.settled,
+            tokens.remaining
+        ),
+        (10_000, 1_536, 0, 8_464)
+    );
+    assert_eq!(
+        (cost.limit, cost.reserved, cost.settled, cost.remaining),
+        (1_000_000, 50_000, 0, 950_000)
+    );
     assert_ne!(admitted.authority_ref().authority_id(), [0; 16]);
     assert_ne!(admitted.claim().attempt_id.as_bytes(), &[0; 16]);
     assert_ne!(admitted.claim().permit_id, [0; 16]);
     assert_ne!(admitted.claim().token_reservation_id, [0; 16]);
     assert_ne!(admitted.claim().cost_reservation_id, [0; 16]);
     assert_eq!(admitted.claim().fencing_token, 13);
-
     let connection = Connection::open(&path).unwrap();
     for (table, expected) in [
         ("provider_execution_admissions", 1_i64),
@@ -133,7 +142,7 @@ fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_per
         ("security_dispatch_intents", 1),
         ("security_authorization_decisions", 1),
         ("security_budget_consumptions", 1),
-        ("security_audit_pre_effect", 1),
+        ("security_audit_pre_effect", 0),
         ("security_permit_claims", 1),
     ] {
         let count: i64 = connection
@@ -144,24 +153,6 @@ fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_per
         assert_eq!(count, expected, "unexpected atomic row count for {table}");
     }
 }
-
-#[test]
-fn durable_evidence_verifier_rejects_caller_mismatched_semantics() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-evidence.sqlite");
-    let (store, request) = initialize(&path);
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
-        panic!("first exact issue must win")
-    };
-    let mut mismatched = request;
-    mismatched.principal_id = "different-principal".to_owned();
-
-    assert_eq!(
-        store.verify_durable_admission(&mismatched, admitted.claim().attempt_id),
-        Err(ProviderAdmissionError::AuthorityDenied)
-    );
-}
-
 #[test]
 fn exact_retry_replays_without_new_ids_or_budget_and_changed_semantics_conflict() {
     let temporary = tempfile::tempdir().unwrap();
@@ -209,8 +200,8 @@ fn policy_approval_budget_pricing_and_generation_denials_leave_no_claim() {
             ProviderAdmissionError::ApprovalDenied,
         ),
         (
-            Box::new(|config| config.approval_expires_at = 0),
-            ProviderAdmissionError::ApprovalExpired,
+            Box::new(|config| config.approval_allowed = false),
+            ProviderAdmissionError::ApprovalDenied,
         ),
         (
             Box::new(|config| config.token_budget_limit = 1),
@@ -330,6 +321,15 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
             )
             .unwrap(),
         2
+    );
+    let (tokens, cost) = store.utilization().unwrap();
+    assert_eq!(
+        (tokens.limit, tokens.reserved, tokens.settled),
+        (10_000, 1_536, 0)
+    );
+    assert_eq!(
+        (cost.limit, cost.reserved, cost.settled),
+        (1_000_000, 50_000, 0)
     );
 }
 

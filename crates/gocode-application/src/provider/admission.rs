@@ -7,6 +7,50 @@ pub struct ProviderEffectAuthorityRef {
     revision: u64,
 }
 
+/// Closed activation identity required for a runtime-owned provider lease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderLeaseBindingKind {
+    /// Protected protocol V2 session.
+    ProtectedV2,
+    /// Fixed owner-private external configuration.
+    ExternalOwnerPrivate,
+}
+
+impl ProviderLeaseBindingKind {
+    /// Durable closed code.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ProtectedV2 => "protected_v2",
+            Self::ExternalOwnerPrivate => "external_owner_private",
+        }
+    }
+}
+
+/// Non-secret aggregate budget state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderBudgetUtilization {
+    pub limit: u64,
+    pub reserved: u64,
+    pub settled: u64,
+    pub remaining: u64,
+}
+
+impl ProviderBudgetUtilization {
+    /// Validates and derives remaining capacity.
+    pub fn new(limit: u64, reserved: u64, settled: u64) -> Result<Self, ProviderAdmissionError> {
+        let remaining = limit
+            .checked_sub(reserved)
+            .and_then(|value| value.checked_sub(settled))
+            .ok_or(ProviderAdmissionError::RepositoryFailure)?;
+        Ok(Self {
+            limit,
+            reserved,
+            settled,
+            remaining,
+        })
+    }
+}
+
 impl ProviderEffectAuthorityRef {
     /// Creates a non-zero, positive-revision authority reference.
     pub fn new(authority_id: [u8; 16], revision: u64) -> Result<Self, ProviderAdmissionError> {
@@ -45,12 +89,21 @@ pub enum ProviderAdmissionError {
     /// Capability or approval authority is absent.
     #[error("provider capability was denied")]
     CapabilityDenied,
+    /// Required capability lease expired.
+    #[error("provider capability expired")]
+    CapabilityExpired,
     /// Required human or policy approval is absent.
     #[error("provider approval was denied")]
     ApprovalDenied,
     /// Required approval existed but expired before atomic admission.
     #[error("provider approval expired")]
     ApprovalExpired,
+    /// Required capability is invalidated by a revocation epoch.
+    #[error("provider capability was revoked")]
+    CapabilityRevoked,
+    /// Required approval is invalidated by a revocation epoch.
+    #[error("provider approval was revoked")]
+    ApprovalRevoked,
     /// Requested token reservation exceeds the current durable budget.
     #[error("provider token budget was denied")]
     TokenBudgetDenied,

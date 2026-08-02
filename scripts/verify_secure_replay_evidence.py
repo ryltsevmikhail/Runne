@@ -1,28 +1,20 @@
 #!/usr/bin/env python3
-"""Verify the exhaustive Secure Replay exact-snapshot changed-file manifest."""
+"""Verify an immutable Secure Replay evidence snapshot from Git objects."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
 from typing import Any
 
 
-IMPLEMENTATION_ROOTS = ("apps", "contracts", "crates", "docs", "scripts", "tests")
-
-
-def git(repository: pathlib.Path, *arguments: str) -> list[str]:
-    result = subprocess.run(
-        ["git", "-C", str(repository), *arguments],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return [line for line in result.stdout.splitlines() if line]
+ALGORITHM = "git-tree-diff-sha256-v1"
+REGULAR_BLOB_MODES = {"100644", "100755"}
 
 
 def fail(message: str) -> None:
@@ -30,165 +22,178 @@ def fail(message: str) -> None:
     raise SystemExit(1)
 
 
-def safe_relative_path(value: Any) -> pathlib.PurePosixPath:
+def git(repository: pathlib.Path, *arguments: str) -> bytes:
+    result = subprocess.run(
+        ["git", "-C", str(repository), *arguments],
+        capture_output=True,
+        env=os.environ | {"GIT_NO_REPLACE_OBJECTS": "1"},
+    )
+    if result.returncode != 0:
+        fail("required immutable Git object is unavailable")
+    return result.stdout
+
+
+def full_sha(reference: str) -> bool:
+    return len(reference) == 40 and all(char in "0123456789abcdef" for char in reference)
+
+
+def safe_relative_path(value: Any) -> str:
     if not isinstance(value, str):
         fail("manifest path is not a string")
     path = pathlib.PurePosixPath(value)
-    if path.is_absolute() or value != path.as_posix() or ".." in path.parts:
+    if not path.parts or path.is_absolute() or value != path.as_posix() or ".." in path.parts:
         fail("manifest path is not a safe repository-relative path")
-    return path
+    return path.as_posix()
 
 
-def sha256(path: pathlib.Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def resolve_commit(repository: pathlib.Path, reference: str) -> str:
+def repository_for(evidence_path: pathlib.Path) -> pathlib.Path:
+    if evidence_path.is_symlink() or not evidence_path.is_file():
+        fail("manifest path is not a current regular non-symlink file")
     result = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repository),
-            "rev-parse",
-            "--verify",
-            f"{reference}^{{commit}}",
-        ],
+        ["git", "-C", str(evidence_path.parent), "rev-parse", "--show-toplevel"],
         capture_output=True,
-        text=True,
+        env=os.environ | {"GIT_NO_REPLACE_OBJECTS": "1"},
     )
     if result.returncode != 0:
-        fail(f"invalid Git commit reference: {reference}")
-    return result.stdout.strip()
+        fail("manifest path is not inside a Git repository")
+    return pathlib.Path(result.stdout.decode().strip()).resolve()
 
 
-def changed_paths(repository: pathlib.Path, base_commit: str) -> dict[str, str]:
-    tracked: dict[str, str] = {}
-    for line in git(
-        repository,
-        "diff",
-        "--name-status",
-        "--no-renames",
-        "--diff-filter=ACMRDTUXB",
-        base_commit,
-        "--",
-    ):
-        status, path = line.split("\t", 1)
-        tracked[path] = status
-    untracked = git(
-        repository,
-        "ls-files",
-        "--others",
-        "--exclude-standard",
-        "--",
-        *IMPLEMENTATION_ROOTS,
-    )
-    return tracked | dict.fromkeys(untracked, "?")
+def resolve_commit(repository: pathlib.Path, reference: str, label: str) -> str:
+    if not full_sha(reference):
+        fail(f"{label} must be a full lowercase SHA-1")
+    commit = git(repository, "rev-parse", "--verify", f"{reference}^{{commit}}").decode().strip()
+    if commit != reference:
+        fail(f"{label} does not identify its immutable commit")
+    return commit
 
 
-def verify(
-    evidence_path: pathlib.Path,
-    base_reference: str,
-    head_reference: str,
-) -> None:
-    repository = pathlib.Path(
-        subprocess.run(
-            ["git", "-C", str(evidence_path.parent), "rev-parse", "--show-toplevel"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    ).resolve()
-    try:
-        relative_evidence = evidence_path.resolve().relative_to(repository).as_posix()
-    except ValueError:
-        fail("evidence path is outside the repository")
-    base_commit = resolve_commit(repository, base_reference)
-    head_commit = resolve_commit(repository, head_reference)
-    current_head = resolve_commit(repository, "HEAD")
-    if head_commit != current_head:
-        fail("head must resolve to the current checkout HEAD")
-    record = json.loads(evidence_path.read_text(encoding="utf-8"))
+def parse_diff(data: bytes) -> dict[str, str]:
+    fields = data.split(b"\0")
+    if fields[-1:] != [b""] or (len(fields) - 1) % 2:
+        fail("immutable name-status output is malformed")
+    changed: dict[str, str] = {}
+    for index in range(0, len(fields) - 1, 2):
+        try:
+            status, path = fields[index].decode(), fields[index + 1].decode()
+        except UnicodeDecodeError:
+            fail("immutable changed path is not UTF-8")
+        if status not in {"A", "M", "D"} or path in changed:
+            fail("immutable name-status output has an unsafe disposition")
+        changed[path] = status
+    return changed
+
+
+def parse_tree(data: bytes) -> dict[str, tuple[str, str, str]]:
+    entries: dict[str, tuple[str, str, str]] = {}
+    for item in data.split(b"\0"):
+        if not item:
+            continue
+        try:
+            metadata, raw_path = item.split(b"\t", 1)
+            mode, kind, oid = metadata.decode().split()
+            path = raw_path.decode()
+        except (UnicodeDecodeError, ValueError):
+            fail("immutable tree output is malformed")
+        if path in entries:
+            fail("immutable tree has duplicate paths")
+        entries[path] = (mode, kind, oid)
+    return entries
+
+
+def sha256_blob(repository: pathlib.Path, oid: str) -> str:
+    return hashlib.sha256(git(repository, "cat-file", "blob", oid)).hexdigest()
+
+
+def manifest_entries(record: dict[str, Any]) -> dict[str, tuple[str, str | None]]:
     subject = record.get("subject")
     if not isinstance(subject, dict):
         fail("subject is missing")
-    manifest_base_commit = subject.get("sourceBaseCommit")
-    if manifest_base_commit != base_commit:
-        fail("manifest source base commit does not match --base")
-    if subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repository),
-            "merge-base",
-            "--is-ancestor",
-            base_commit,
-            head_commit,
-        ],
-        capture_output=True,
-    ).returncode != 0:
-        fail("source base commit is not an ancestor of --head")
-    if subject.get("manifestSelfExcludedPath") != relative_evidence:
-        fail("self-excluded evidence path does not identify this record")
     manifest = subject.get("changedFileManifest")
     if not isinstance(manifest, list):
         fail("changed-file manifest is missing")
-
     expected: dict[str, tuple[str, str | None]] = {}
     for entry in manifest:
         if not isinstance(entry, dict):
             fail("manifest entry is not an object")
-        path = safe_relative_path(entry.get("path")).as_posix()
-        status = entry.get("status")
-        digest = entry.get("sha256")
+        path, status, digest = safe_relative_path(entry.get("path")), entry.get("status"), entry.get("sha256")
         if path in expected:
             fail(f"duplicate manifest path: {path}")
-        if status == "present":
-            if (
-                not isinstance(digest, str)
-                or len(digest) != 64
-                or any(character not in "0123456789abcdef" for character in digest)
-            ):
-                fail(f"invalid SHA-256 for: {path}")
+        if status == "present" and isinstance(digest, str) and len(digest) == 64 and all(
+            char in "0123456789abcdef" for char in digest
+        ):
             expected[path] = (status, digest)
         elif status == "deleted" and digest is None:
             expected[path] = (status, None)
         else:
             fail(f"invalid manifest disposition for: {path}")
+    return expected
 
-    actual = changed_paths(repository, base_commit)
-    actual.pop(relative_evidence, None)
-    actual_paths = set(actual)
-    if set(expected) != actual_paths:
-        missing = sorted(actual_paths - set(expected))
-        stale = sorted(set(expected) - actual_paths)
+
+def verify(evidence_path: pathlib.Path, base_reference: str, head_reference: str) -> None:
+    evidence_path = evidence_path.absolute()
+    repository = repository_for(evidence_path)
+    try:
+        relative_evidence = evidence_path.resolve().relative_to(repository).as_posix()
+    except ValueError:
+        fail("manifest path is outside the repository")
+    base_commit = resolve_commit(repository, base_reference, "base")
+    head_commit = resolve_commit(repository, head_reference, "head")
+    if subprocess.run(
+        ["git", "-C", str(repository), "merge-base", "--is-ancestor", base_commit, head_commit],
+        env=os.environ | {"GIT_NO_REPLACE_OBJECTS": "1"},
+    ).returncode != 0:
+        fail("source base commit is not an ancestor of source head commit")
+    try:
+        record = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        fail("manifest is not readable JSON")
+    subject = record.get("subject")
+    if not isinstance(subject, dict):
+        fail("subject is missing")
+    if subject.get("sourceBaseCommit") != base_commit:
+        fail("manifest source base commit does not match --base")
+    if subject.get("sourceHeadCommit") != head_commit:
+        fail("manifest source head commit does not match --head")
+    if subject.get("manifestAlgorithm") != ALGORITHM:
+        fail("manifest algorithm is not immutable snapshot v1")
+    if subject.get("manifestSelfExcludedPath") != relative_evidence:
+        fail("self-excluded evidence path does not identify this record")
+    expected = manifest_entries(record)
+    if relative_evidence in expected:
+        fail("manifest self-exclusion is not exact")
+    actual = parse_diff(git(
+        repository, "diff", "--name-status", "-z", "--no-renames", base_commit, head_commit, "--"
+    ))
+    if relative_evidence not in actual:
+        fail("manifest self-excluded path is not changed in the historical snapshot")
+    actual.pop(relative_evidence)
+    if set(expected) != set(actual):
         details = []
+        missing, stale = sorted(set(actual) - set(expected)), sorted(set(expected) - set(actual))
         if missing:
             details.append(f"unlisted changed paths: {', '.join(missing)}")
         if stale:
             details.append(f"stale manifest paths: {', '.join(stale)}")
         fail("; ".join(details))
-
-    for relative_path, (status, expected_digest) in expected.items():
-        path = repository / relative_path
+    tree = parse_tree(git(repository, "ls-tree", "-r", "-z", head_commit))
+    evidence_entry = tree.get(relative_evidence)
+    if evidence_entry is None or evidence_entry[0] not in REGULAR_BLOB_MODES or evidence_entry[1] != "blob":
+        fail("historical manifest path is not a regular blob")
+    for path, (status, digest) in expected.items():
+        actual_status, tree_entry = actual[path], tree.get(path)
         if status == "deleted":
-            if actual[relative_path] != "D":
-                fail(
-                    "expected deleted path has Git status "
-                    f"{actual[relative_path]}: {relative_path}"
-                )
-            if path.exists() or path.is_symlink():
-                fail(f"expected deleted path exists: {relative_path}")
+            if actual_status != "D":
+                fail(f"expected deleted path has Git status {actual_status}: {path}")
+            if tree_entry is not None:
+                fail(f"expected deleted path is present in source head: {path}")
             continue
-        if actual[relative_path] == "D":
-            fail(f"expected present path is deleted: {relative_path}")
-        if not path.is_file() or path.is_symlink():
-            fail(f"manifest path is not a regular file: {relative_path}")
-        if sha256(path) != expected_digest:
-            fail(f"SHA-256 mismatch for: {relative_path}")
+        if actual_status == "D":
+            fail(f"expected present path is deleted: {path}")
+        if tree_entry is None or tree_entry[0] not in REGULAR_BLOB_MODES or tree_entry[1] != "blob":
+            fail(f"historical manifest path is not a regular blob: {path}")
+        if sha256_blob(repository, tree_entry[2]) != digest:
+            fail(f"SHA-256 mismatch for: {path}")
 
 
 def main() -> None:

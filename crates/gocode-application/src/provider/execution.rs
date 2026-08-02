@@ -1,55 +1,8 @@
 use core::fmt;
 
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
-use gocode_provider::{
-    DispatchAttemptId, PreparedProviderRecord, ProviderCall, ProviderCallDigestVersion,
-};
+use gocode_provider::{DispatchAttemptId, ProviderCallDigestVersion};
 use thiserror::Error;
-
-use super::{ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderCoordinatorRequest};
-
-impl ProviderCoordinatorRequest {
-    pub(crate) fn authority_request(
-        &self,
-        prepared: PreparedProviderRecord,
-    ) -> Result<ProviderAuthorityIssueRequest, ProviderAdmissionError> {
-        let requested_output_tokens = u64::from(self.requested_output_tokens);
-        if self.requested_output_tokens != self.call.max_output_tokens() {
-            return Err(ProviderAdmissionError::InvalidSemanticContext);
-        }
-        let request = ProviderAuthorityIssueRequest {
-            principal_id: self.principal_id.clone(),
-            conversation_id: self.conversation_id,
-            taskrun_id: self.taskrun_id,
-            execution_attempt_id: self.execution_attempt_id,
-            prepared,
-            pricing_revision_digest: self.pricing_revision_digest,
-            requested_input_tokens: self.requested_input_tokens,
-            requested_output_tokens,
-            max_cost_micros: self.max_cost_micros,
-            currency: self.currency.clone(),
-            provider_idempotency_key: self.provider_idempotency_key.clone(),
-        };
-        request.validate()?;
-        Ok(request)
-    }
-}
-
-pub(crate) fn validate_issued_claim(
-    call: &ProviderCall,
-    issue: &ProviderAuthorityIssueRequest,
-    claim: &gocode_provider::ProviderDispatchClaim,
-) -> Result<(), ProviderAdmissionError> {
-    if claim.call_id != call.call_id()
-        || claim.prepared_digest != issue.prepared.prepared_digest
-        || claim.render_digest != issue.prepared.render_digest
-        || claim.profile_digest != issue.prepared.profile_digest
-        || claim.provider_idempotency_key != issue.provider_idempotency_key
-    {
-        return Err(ProviderAdmissionError::AuthorityConflict);
-    }
-    Ok(())
-}
 
 /// Non-secret secure-store binding for one provider journal key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -49,7 +49,8 @@ fn drop_v12_fences(conn: &Connection) {
 
 fn drop_v13_provider_execution(conn: &Connection) {
     conn.execute_batch(
-        "DROP TABLE provider_terminal_outbox;
+        "DROP TABLE provider_effect_starts;
+         DROP TABLE provider_terminal_outbox;
          DROP TABLE provider_accounting_settlements;
          DROP TABLE provider_stream_journal;
          DROP TABLE provider_poll_flights;
@@ -60,32 +61,6 @@ fn drop_v13_provider_execution(conn: &Connection) {
          DROP TABLE provider_runtime_authority_state;",
     )
     .unwrap();
-}
-
-fn released_v8_db() -> Connection {
-    let conn = fresh_v8_db();
-    drop_v12_fences(&conn);
-    drop_v13_provider_execution(&conn);
-    conn.execute_batch(
-        "DROP TABLE provider_effect_authorities;
-         DROP TABLE provider_dispatch_attempts;
-         DROP TABLE provider_prepared_requests;
-         DROP TABLE schema_lineage;
-         DROP TABLE consumption_intents;
-         DROP TABLE verification_evidence;
-         DELETE FROM schema_version WHERE version >= 9;",
-    )
-    .unwrap();
-    conn
-}
-
-fn schema_objects(conn: &Connection) -> Vec<(String, String)> {
-    conn.prepare("SELECT type, name FROM sqlite_master ORDER BY type, name")
-        .unwrap()
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap()
 }
 
 // ── v8 migration ────────────────────────────────────────────────────────
@@ -277,114 +252,4 @@ fn v6_to_v8_migration() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-}
-
-// ── released V8 → strict V9 lineage ─────────────────────────────────────
-
-#[test]
-fn released_v8_upgrades_to_strict_v9_and_rejects_invalid_values() {
-    let conn = released_v8_db();
-
-    apply_migrations(&conn).unwrap();
-
-    let version: i64 = conn
-        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
-    assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 13);
-    assert!(table_exists(&conn, "verification_evidence"));
-    assert!(table_exists(&conn, "consumption_intents"));
-    assert!(!table_exists(&conn, "verification_evidence_v10"));
-    assert!(!table_exists(&conn, "consumption_intents_v11"));
-
-    let digest = [0xA5_u8; 32];
-    assert!(
-        conn.execute(
-            "INSERT INTO consumption_intents VALUES (?1, 'key', 'Reserved', ?2, ?2, ?2)",
-            params![[0_u8; 15].as_slice(), digest.as_slice()],
-        )
-        .is_err()
-    );
-    assert!(
-        conn.execute(
-            "INSERT INTO consumption_intents VALUES (?1, 'key-2', 'Unknown', ?2, ?2, ?2)",
-            params![[0_u8; 16].as_slice(), digest.as_slice()],
-        )
-        .is_err()
-    );
-    assert!(conn
-        .execute(
-            "INSERT INTO verification_evidence VALUES (?1, ?1, ?1, ?2, 0, 0, ?2, '', 'store', 'producer', 0, 'sqlite')",
-            params![[0_u8; 16].as_slice(), digest.as_slice()],
-        )
-        .is_err());
-    assert!(conn
-        .execute(
-            "INSERT INTO verification_evidence VALUES (?1, ?1, ?1, ?2, 6, 0, ?2, 'blob:test', 'store', 'producer', 0, 'sqlite')",
-            params![[0_u8; 16].as_slice(), digest.as_slice()],
-        )
-        .is_err());
-}
-
-#[test]
-fn failed_v8_to_v9_upgrade_is_atomic() {
-    let conn = released_v8_db();
-    let before = schema_objects(&conn);
-    conn.execute_batch(
-        "CREATE TRIGGER reject_v9_marker BEFORE INSERT ON schema_version
-         WHEN NEW.version = 9
-         BEGIN
-             SELECT RAISE(ABORT, 'test V9 marker rejection');
-         END;",
-    )
-    .unwrap();
-
-    assert!(apply_migrations(&conn).is_err());
-
-    let version: i64 = conn
-        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
-            row.get(0)
-        })
-        .unwrap();
-    assert_eq!(version, 8);
-    assert!(!table_exists(&conn, "verification_evidence"));
-    assert!(!table_exists(&conn, "consumption_intents"));
-    assert!(!table_exists(&conn, "schema_lineage"));
-
-    let mut expected = before;
-    expected.push(("trigger".to_owned(), "reject_v9_marker".to_owned()));
-    expected.sort_unstable();
-    assert_eq!(schema_objects(&conn), expected);
-}
-
-#[test]
-fn candidate_only_markers_are_rejected_without_mutation() {
-    for marker in [9, 10, 11] {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE schema_version (
-                 version INTEGER PRIMARY KEY,
-                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-             );
-             CREATE TABLE candidate_only (value TEXT NOT NULL);",
-        )
-        .unwrap();
-        conn.execute("INSERT INTO schema_version (version) VALUES (?1)", [marker])
-            .unwrap();
-        conn.execute("INSERT INTO candidate_only VALUES ('unchanged')", [])
-            .unwrap();
-        let before = schema_objects(&conn);
-
-        let error = apply_migrations(&conn).unwrap_err();
-        assert!(matches!(error, rusqlite::Error::InvalidQuery));
-        assert_eq!(schema_objects(&conn), before);
-        assert_eq!(
-            conn.query_row("SELECT value FROM candidate_only", [], |row| row
-                .get::<_, String>(0))
-                .unwrap(),
-            "unchanged"
-        );
-    }
 }

@@ -11,7 +11,9 @@ use gocode_security::SecretBroker;
 use gocode_store::provider::{
     PersistPreparedOutcome, PreparedProviderRecord, SqliteProviderDispatchStore,
 };
-use gocode_store::schema::{SchemaRollbackError, rollback_pre_v12_snapshot};
+use gocode_store::schema::{
+    CURRENT_SCHEMA_VERSION, SchemaRollbackError, rollback_pre_v12_snapshot,
+};
 use gocode_store::store::StoreTransaction;
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
@@ -41,7 +43,7 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
 
     assert_eq!(
         rollback_pre_v12_snapshot(&path),
-        Err(SchemaRollbackError::AuthoritySwitchUnavailable)
+        Err(SchemaRollbackError::UnsupportedSchema)
     );
 
     assert_eq!(
@@ -85,7 +87,7 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
                 row.get::<_, i64>(0)
             })
             .unwrap(),
-        13
+        CURRENT_SCHEMA_VERSION
     );
     assert_eq!(
         verification

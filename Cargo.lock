@@ -1692,6 +1692,7 @@ dependencies = [
  "async-trait",
  "axum",
  "base64 0.22.1",
+ "bytes",
  "chrono",
  "crc32fast",
  "dirs",
@@ -1699,6 +1700,7 @@ dependencies = [
  "gocode-api",
  "gocode-app-core",
  "gocode-application",
+ "gocode-daemon-openai-effect",
  "gocode-domain",
  "gocode-http",
  "gocode-observability",
@@ -1736,6 +1738,52 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
+name = "gocode-daemon-loopback-fixture"
+version = "0.1.0"
+dependencies = [
+ "gocode-api",
+ "gocode-application",
+ "gocode-daemon",
+ "gocode-daemon-openai-effect",
+ "gocode-platform-desktop",
+ "gocode-provider",
+ "gocode-provider-openai",
+ "gocode-runtime",
+ "gocode-runtime-client",
+ "gocode-secure-store",
+ "gocode-store",
+ "rand 0.8.7",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "rustix",
+ "rustls",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-rustls",
+ "uuid",
+]
+
+[[package]]
+name = "gocode-daemon-openai-effect"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "gocode-domain",
+ "gocode-provider",
+ "gocode-provider-openai",
+ "gocode-secure-store",
+ "gocode-store",
+ "reqwest 0.12.28",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
  "zeroize",
 ]
 
@@ -2081,6 +2129,7 @@ name = "gocode-store"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures",
  "gocode-api",
  "gocode-application",
  "gocode-domain",

@@ -6,9 +6,7 @@ import tempfile
 import unittest
 
 
-SCRIPT_PATH = (
-    pathlib.Path(__file__).parents[1] / "verify_secure_replay_evidence.py"
-)
+SCRIPT_PATH = pathlib.Path(__file__).parents[1] / "verify_secure_replay_evidence.py"
 
 
 class VerifySecureReplayEvidenceTests(unittest.TestCase):
@@ -16,144 +14,162 @@ class VerifySecureReplayEvidenceTests(unittest.TestCase):
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary_directory.cleanup)
         self.root = pathlib.Path(self.temporary_directory.name)
-        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
-        subprocess.run(
-            ["git", "-C", str(self.root), "config", "user.email", "test@example.invalid"],
-            check=True,
-        )
-        subprocess.run(
-            ["git", "-C", str(self.root), "config", "user.name", "Evidence Test"],
-            check=True,
-        )
+        self.git("init", "-q")
+        self.git("config", "user.email", "test@example.invalid")
+        self.git("config", "user.name", "Evidence Test")
         source = self.root / "crates" / "demo.rs"
         source.parent.mkdir()
         source.write_text("base\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.root), "add", "crates/demo.rs"], check=True)
-        subprocess.run(
-            ["git", "-C", str(self.root), "commit", "-qm", "base"],
-            check=True,
-        )
-        self.base_commit = subprocess.run(
-            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+        self.git("add", "crates/demo.rs")
+        self.git("commit", "-qm", "base")
+        self.base_commit = self.output("rev-parse", "HEAD")
+        source.write_text("historical\n", encoding="utf-8")
+        self.evidence = self.root / "docs" / "evidence" / "record.json"
+        self.evidence.parent.mkdir(parents=True)
+        self.evidence.write_text("{}", encoding="utf-8")
+        self.git("add", "crates/demo.rs", "docs/evidence/record.json")
+        self.git("commit", "-qm", "historical snapshot")
+        self.head_commit = self.output("rev-parse", "HEAD")
+        self.write_evidence()
+
+    def git(self, *arguments: str) -> None:
+        subprocess.run(["git", "-C", str(self.root), *arguments], check=True)
+
+    def output(self, *arguments: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(self.root), *arguments],
             check=True,
             capture_output=True,
             text=True,
         ).stdout.strip()
-        source.write_text("changed\n", encoding="utf-8")
-        self.evidence = self.root / "docs" / "evidence" / "record.json"
-        self.evidence.parent.mkdir(parents=True)
-        self.write_evidence(source)
 
-    def write_evidence(self, source: pathlib.Path) -> None:
-        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    def changed_paths(self) -> list[tuple[str, str]]:
+        output = subprocess.run(
+            [
+                "git", "-C", str(self.root), "diff", "--name-status", "-z",
+                "--no-renames", self.base_commit, self.head_commit, "--",
+            ],
+            check=True,
+            capture_output=True,
+        ).stdout.split(b"\0")
+        return list(zip(
+            (value.decode() for value in output[0::2] if value),
+            (value.decode() for value in output[1::2] if value),
+        ))
+
+    def write_evidence(self) -> None:
+        entries = []
+        for status, path in self.changed_paths():
+            if path == "docs/evidence/record.json":
+                continue
+            entry = {"path": path, "status": "deleted", "sha256": None}
+            if status != "D":
+                blob = subprocess.run(
+                    ["git", "-C", str(self.root), "show", f"{self.head_commit}:{path}"],
+                    check=True,
+                    capture_output=True,
+                ).stdout
+                entry = {
+                    "path": path,
+                    "status": "present",
+                    "sha256": hashlib.sha256(blob).hexdigest(),
+                }
+            entries.append(entry)
         self.evidence.write_text(
             json.dumps(
-                {
-                    "subject": {
-                        "sourceBaseCommit": self.base_commit,
-                        "manifestSelfExcludedPath": "docs/evidence/record.json",
-                        "changedFileManifest": [
-                            {
-                                "path": "crates/demo.rs",
-                                "status": "present",
-                                "sha256": digest,
-                            }
-                        ],
-                    }
-                }
+                {"subject": {
+                    "sourceBaseCommit": self.base_commit,
+                    "sourceHeadCommit": self.head_commit,
+                    "manifestAlgorithm": "git-tree-diff-sha256-v1",
+                    "manifestSelfExcludedPath": "docs/evidence/record.json",
+                    "changedFileManifest": entries,
+                }},
             ),
             encoding="utf-8",
         )
 
-    def run_verifier(self) -> subprocess.CompletedProcess[str]:
+    def record(self) -> dict:
+        return json.loads(self.evidence.read_text(encoding="utf-8"))
+
+    def save_record(self, record: dict) -> None:
+        self.evidence.write_text(json.dumps(record), encoding="utf-8")
+
+    def run_verifier(self, base: str | None = None, head: str | None = None):
         return subprocess.run(
-            [
-                "python3",
-                str(SCRIPT_PATH),
-                "--manifest",
-                str(self.evidence),
-                "--base",
-                self.base_commit[:8],
-                "--head",
-                "HEAD",
-            ],
+            ["python3", str(SCRIPT_PATH), "--manifest", str(self.evidence),
+             "--base", base or self.base_commit, "--head", head or self.head_commit],
             cwd=self.root,
             capture_output=True,
             text=True,
         )
 
-    def declare_source_deleted(self) -> None:
-        record = json.loads(self.evidence.read_text(encoding="utf-8"))
-        record["subject"]["changedFileManifest"] = [
-            {
-                "path": "crates/demo.rs",
-                "status": "deleted",
-                "sha256": None,
-            }
-        ]
-        self.evidence.write_text(json.dumps(record), encoding="utf-8")
+    def test_accepts_historical_snapshot_after_later_commit_and_dirty_worktree(self) -> None:
+        later = self.root / "later.txt"
+        later.write_text("later\n", encoding="utf-8")
+        self.git("add", "later.txt")
+        self.git("commit", "-qm", "later unrelated commit")
+        (self.root / "crates" / "demo.rs").write_text("dirty\n", encoding="utf-8")
 
-    def test_accepts_the_exact_exhaustive_changed_file_manifest(self) -> None:
         result = self.run_verifier()
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("evidence manifest verified", result.stdout)
 
-    def test_accepts_explicit_manifest_base_and_head_snapshot(self) -> None:
-        result = self.run_verifier()
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("evidence manifest verified", result.stdout)
-
-    def test_rejects_an_unlisted_untracked_implementation_file(self) -> None:
-        extra = self.root / "apps" / "extra.ts"
-        extra.parent.mkdir()
-        extra.write_text("export {}\n", encoding="utf-8")
-
-        result = self.run_verifier()
-
+    def test_rejects_wrong_head_hash_disposition_or_unlisted_path(self) -> None:
+        (self.root / "later.txt").write_text("later\n", encoding="utf-8")
+        self.git("add", "later.txt")
+        self.git("commit", "-qm", "later unrelated commit")
+        wrong_head = self.output("rev-parse", "HEAD")
+        result = self.run_verifier(head=wrong_head)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unlisted changed paths: apps/extra.ts", result.stderr)
+        self.assertIn("source head", result.stderr)
 
-    def test_rejects_an_unlisted_tracked_change(self) -> None:
-        extra = self.root / "scripts" / "extra.sh"
-        extra.parent.mkdir()
-        extra.write_text("#!/bin/sh\n", encoding="utf-8")
-        subprocess.run(["git", "-C", str(self.root), "add", "scripts/extra.sh"], check=True)
-
+        record = self.record()
+        record["subject"]["changedFileManifest"][0]["sha256"] = "0" * 64
+        self.save_record(record)
         result = self.run_verifier()
-
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unlisted changed paths: scripts/extra.sh", result.stderr)
+        self.assertIn("SHA-256 mismatch", result.stderr)
 
-    def test_rejects_changed_bytes_at_a_listed_path(self) -> None:
-        source = self.root / "crates" / "demo.rs"
-        source.write_text("changed again\n", encoding="utf-8")
-
+        self.write_evidence()
+        record = self.record()
+        record["subject"]["changedFileManifest"][0]["status"] = "deleted"
+        record["subject"]["changedFileManifest"][0]["sha256"] = None
+        self.save_record(record)
         result = self.run_verifier()
-
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("SHA-256 mismatch for: crates/demo.rs", result.stderr)
+        self.assertIn("expected deleted", result.stderr)
 
-    def test_accepts_a_tracked_file_declared_and_actually_deleted(self) -> None:
-        source = self.root / "crates" / "demo.rs"
-        source.unlink()
-        self.declare_source_deleted()
-
+        self.write_evidence()
+        record = self.record()
+        record["subject"]["changedFileManifest"].pop()
+        self.save_record(record)
         result = self.run_verifier()
-
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_rejects_a_dangling_symlink_declared_as_deleted(self) -> None:
-        source = self.root / "crates" / "demo.rs"
-        source.unlink()
-        source.symlink_to("missing.rs")
-        self.declare_source_deleted()
-
-        result = self.run_verifier()
-
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("expected deleted path", result.stderr)
+        self.assertIn("unlisted changed paths", result.stderr)
+
+    def test_rejects_symlink_unsafe_and_nonimmutable_references(self) -> None:
+        self.evidence.unlink()
+        self.evidence.symlink_to("missing.json")
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("regular non-symlink", result.stderr)
+        self.evidence.unlink()
+        self.write_evidence()
+
+        record = self.record()
+        record["subject"]["changedFileManifest"][0]["path"] = "../unsafe"
+        self.save_record(record)
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("safe repository-relative", result.stderr)
+
+        self.write_evidence()
+        for base, head in (("HEAD", self.head_commit), (self.base_commit[:8], self.head_commit),
+                           (self.base_commit, "HEAD"), (self.base_commit, self.head_commit[:8])):
+            result = self.run_verifier(base, head)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("full lowercase SHA-1", result.stderr)
 
 
 if __name__ == "__main__":

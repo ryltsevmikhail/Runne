@@ -35,19 +35,16 @@ use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
-
 #[derive(Default)]
 struct MemoryKeyring {
     keys: Mutex<HashMap<ProviderJournalKeyRef, [u8; 32]>>,
     loads: AtomicUsize,
 }
-
 impl MemoryKeyring {
     fn remove_without_proof(&self, key_ref: ProviderJournalKeyRef) {
         self.keys.lock().unwrap().remove(&key_ref);
     }
 }
-
 impl ProviderJournalKeyring for MemoryKeyring {
     fn retains_multiple_provider_journal_keys(&self) -> bool {
         true
@@ -109,7 +106,6 @@ impl ProviderJournalKeyring for MemoryKeyring {
             .ok_or(SecureStoreError::ProviderJournalKeyNotFound)
     }
 }
-
 #[test]
 fn existing_key_preflight_validates_metadata_without_loading_key_bytes() {
     let fixture = fixture();
@@ -122,7 +118,6 @@ fn existing_key_preflight_validates_metadata_without_loading_key_bytes() {
     assert_eq!(restarted.preflight_existing_active_key([1; 16], 7), Ok(key));
     assert_eq!(keyring.loads.load(Ordering::SeqCst), 0);
 }
-
 struct Fixture {
     execution: Arc<SqliteProviderExecutionStore>,
     attempt_id: gocode_provider::DispatchAttemptId,
@@ -173,15 +168,20 @@ fn fixture_with_input_tokens(requested_input_tokens: u64) -> Fixture {
             capability_grant_id: "grant-provider-network-1".to_owned(),
             capability_revision: 2,
             capability_allowed: true,
+            capability_revocation_epoch: 1,
             approval_id: "approval-provider-network-1".to_owned(),
             approval_revision: 3,
             approval_allowed: true,
-            approval_expires_at: i64::MAX,
+            approval_revocation_epoch: 1,
             profile_digest: [2; 32],
             pricing_revision_digest: [3; 32],
+            activation_binding_kind:
+                gocode_application::provider::ProviderLeaseBindingKind::ProtectedV2,
+            activation_binding_digest: [4; 32],
             token_budget_limit: 10_000,
             cost_budget_limit_micros: 1_000_000,
             authority_ttl_seconds: 120,
+            lease_ttl_seconds: 600,
         })
         .unwrap();
     let ProviderAuthorityIssueOutcome::Winner(admitted) = execution

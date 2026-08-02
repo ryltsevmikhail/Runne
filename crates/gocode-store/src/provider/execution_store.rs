@@ -1,14 +1,15 @@
 use std::fmt::Write as _;
 use std::path::Path;
-use std::sync::Mutex;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
-    ProviderAuthorityIssueRequest, ProviderEffectAuthorityRef, ProviderEncryptedPayload,
-    ProviderExecutionError, ProviderExecutionStore, ProviderJournalAppendOutcome,
-    ProviderJournalAppendRequest, ProviderJournalKeyBinding, ProviderPollRequest,
-    ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
-    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
+    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderBudgetUtilization,
+    ProviderEffectAuthorityRef, ProviderEncryptedPayload, ProviderExecutionError,
+    ProviderExecutionStore, ProviderJournalAppendOutcome, ProviderJournalAppendRequest,
+    ProviderJournalKeyBinding, ProviderPollRequest, ProviderTerminalCommitOutcome,
+    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -22,106 +23,60 @@ use rand::rngs::OsRng;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
+use super::authority_config::ProviderRuntimeAuthorityConfig;
+use super::authority_state::{RuntimeAuthorityState, binding_kind, load_utilization};
+use super::effect_start::{ProviderEffectStartReceipt, start_effect};
 use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
 
 const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"GOCODE_PROVIDER_EXECUTION_SEMANTIC_V1\0";
 
-/// Runtime-owned provider authority and budget state installed at startup.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderRuntimeAuthorityConfig {
-    /// Stable runtime authority identity.
-    pub runtime_authority_id: [u8; 16],
-    /// Current authoritative database generation.
-    pub database_generation: u64,
-    /// Authenticated principal accepted for this local runtime.
-    pub principal_id: String,
-    /// Runtime-derived effect owner.
-    pub owner_id: String,
-    /// Runtime-derived provider effect scope.
-    pub scope: String,
-    /// Expected worker generation.
-    pub generation: u64,
-    /// Expected worker fencing token.
-    pub fencing_token: u64,
-    /// Durable capability grant identity.
-    pub capability_grant_id: String,
-    /// Exact capability revision.
-    pub capability_revision: u64,
-    /// Current capability decision.
-    pub capability_allowed: bool,
-    /// Durable approval identity.
-    pub approval_id: String,
-    /// Exact approval revision.
-    pub approval_revision: u64,
-    /// Current approval decision.
-    pub approval_allowed: bool,
-    /// Inclusive Unix expiry for the approval.
-    pub approval_expires_at: i64,
-    /// Exact immutable provider profile.
-    pub profile_digest: [u8; 32],
-    /// Exact immutable pricing revision.
-    pub pricing_revision_digest: [u8; 32],
-    /// Durable aggregate token budget.
-    pub token_budget_limit: u64,
-    /// Durable aggregate worst-case cost budget.
-    pub cost_budget_limit_micros: u64,
-    /// Maximum issued authority lifetime.
-    pub authority_ttl_seconds: u64,
-}
-
-impl ProviderRuntimeAuthorityConfig {
-    fn validate(&self) -> Result<(), ProviderAdmissionError> {
-        if self.runtime_authority_id == [0; 16]
-            || self.database_generation == 0
-            || self.generation == 0
-            || self.fencing_token == 0
-            || self.capability_revision == 0
-            || self.approval_revision == 0
-            || !(1..=300).contains(&self.authority_ttl_seconds)
-            || !bounded_text(&self.principal_id)
-            || !bounded_text(&self.owner_id)
-            || !bounded_text(&self.scope)
-            || !bounded_text(&self.capability_grant_id)
-            || !bounded_text(&self.approval_id)
-            || as_i64(self.database_generation).is_err()
-            || as_i64(self.generation).is_err()
-            || as_i64(self.fencing_token).is_err()
-            || as_i64(self.capability_revision).is_err()
-            || as_i64(self.approval_revision).is_err()
-            || as_i64(self.token_budget_limit).is_err()
-            || as_i64(self.cost_budget_limit_micros).is_err()
-        {
-            return Err(ProviderAdmissionError::InvalidSemanticContext);
-        }
-        Ok(())
-    }
-}
+#[cfg(test)]
+mod dispatch_effect_tests;
+mod durable_readback;
+#[cfg(test)]
+mod effect_start_tests;
 
 /// SQLite runtime-owned atomic provider authority issuer.
 pub struct SqliteProviderExecutionStore {
     connection: Mutex<Connection>,
+    now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    #[cfg(test)]
+    fail_effect_readback: AtomicBool,
 }
 
 /// Concrete store-owned admission returned only after durable read-back.
+///
+/// ```compile_fail
+/// use gocode_store::provider::DurableProviderAdmission;
+///
+/// let _ = DurableProviderAdmission {};
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DurableProviderAdmission {
-    evidence: ProviderAuthorityEvidence,
+    authority_ref: ProviderEffectAuthorityRef,
+    runtime_generation: u64,
+    claim: ProviderDispatchClaim,
 }
 
 impl DurableProviderAdmission {
     /// Durable authority reference.
     pub const fn authority_ref(&self) -> ProviderEffectAuthorityRef {
-        self.evidence.authority_ref
+        self.authority_ref
+    }
+
+    /// Runtime generation read from the committed admission.
+    pub const fn runtime_generation(&self) -> u64 {
+        self.runtime_generation
     }
 
     /// Exact durable claim.
     pub const fn claim(&self) -> &ProviderDispatchClaim {
-        &self.evidence.claim
+        &self.claim
     }
 
     /// Consumes the store-owned admission into its exact claim.
     pub fn into_claim(self) -> ProviderDispatchClaim {
-        self.evidence.claim
+        self.claim
     }
 }
 
@@ -137,6 +92,13 @@ pub enum ProviderAuthorityIssueOutcome {
 impl SqliteProviderExecutionStore {
     /// Opens the authoritative runtime database and validates schema V13.
     pub fn open(path: &Path) -> Result<Self, ProviderAdmissionError> {
+        Self::open_with_now(path, Arc::new(unix_timestamp))
+    }
+
+    fn open_with_now(
+        path: &Path,
+        now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Result<Self, ProviderAdmissionError> {
         let path = path
             .to_str()
             .ok_or(ProviderAdmissionError::RepositoryFailure)?;
@@ -147,27 +109,134 @@ impl SqliteProviderExecutionStore {
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         Ok(Self {
             connection: Mutex::new(connection),
+            now,
+            #[cfg(test)]
+            fail_effect_readback: AtomicBool::new(false),
         })
     }
 
-    /// Commits authority state and returns only a non-authoritative locator.
+    /// Atomically commits authority state and returns exact durable read-back.
     pub fn issue(
         &self,
         request: &ProviderAuthorityIssueRequest,
     ) -> Result<ProviderAuthorityIssueOutcome, ProviderAdmissionError> {
-        match RuntimeProviderAuthorityIssuer::issue_locator(self, request)? {
-            ProviderAuthorityIssueLocator::Committed { attempt_id } => {
-                let evidence = RuntimeProviderAuthorityEvidenceVerifier::verify_durable_admission(
-                    self, request, attempt_id,
-                )?;
-                Ok(ProviderAuthorityIssueOutcome::Winner(Box::new(
-                    DurableProviderAdmission { evidence },
-                )))
-            }
-            ProviderAuthorityIssueLocator::Existing { state } => {
-                Ok(ProviderAuthorityIssueOutcome::Existing { state })
-            }
+        request.validate()?;
+        let semantic_digest = execution_semantic_digest(request);
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+
+        if let Some(existing) =
+            load_existing_admission(&transaction, &request.provider_idempotency_key)?
+        {
+            return if existing.semantic_digest == semantic_digest {
+                Ok(ProviderAuthorityIssueOutcome::Existing {
+                    state: existing.state,
+                })
+            } else {
+                Err(ProviderAdmissionError::AuthorityConflict)
+            };
         }
+
+        let state =
+            load_runtime_authority(&transaction)?.ok_or(ProviderAdmissionError::AuthorityDenied)?;
+        verify_runtime_authority(&state, request, self.now())?;
+        verify_prepared(&transaction, request)?;
+        ensure_call_is_unclaimed(&transaction, request.prepared.call_id)?;
+
+        let requested_tokens = request
+            .requested_input_tokens
+            .checked_add(request.requested_output_tokens)
+            .ok_or(ProviderAdmissionError::TokenBudgetDenied)?;
+        let available_tokens = state
+            .token_budget_limit
+            .checked_sub(state.token_budget_reserved)
+            .and_then(|available| available.checked_sub(state.token_budget_settled))
+            .ok_or(ProviderAdmissionError::TokenBudgetDenied)?;
+        if requested_tokens > available_tokens {
+            return Err(ProviderAdmissionError::TokenBudgetDenied);
+        }
+        let available_cost = state
+            .cost_budget_limit_micros
+            .checked_sub(state.cost_budget_reserved_micros)
+            .and_then(|available| available.checked_sub(state.cost_budget_settled_micros))
+            .ok_or(ProviderAdmissionError::CostBudgetDenied)?;
+        if request.max_cost_micros > available_cost {
+            return Err(ProviderAdmissionError::CostBudgetDenied);
+        }
+
+        let ids = IssuedIds::random();
+        let now = self.now();
+        let expires_at = state.capability_expires_at.min(state.approval_expires_at);
+        if expires_at <= now {
+            return Err(ProviderAdmissionError::AuthorityDenied);
+        }
+        let claim = ProviderDispatchClaim {
+            call_id: request.prepared.call_id,
+            attempt_id: DispatchAttemptId::from_bytes(ids.dispatch_attempt_id),
+            permit_id: ids.permit_id,
+            prepared_digest: request.prepared.prepared_digest,
+            render_digest: request.prepared.render_digest,
+            profile_digest: request.prepared.profile_digest,
+            token_reservation_id: ids.token_reservation_id,
+            cost_reservation_id: ids.cost_reservation_id,
+            fencing_token: state.expected_fencing_token,
+            provider_idempotency_key: request.provider_idempotency_key.clone(),
+        };
+        let authority_ref =
+            ProviderEffectAuthorityRef::new(ids.authority_id, state.state_revision)?;
+        commit_issuance(
+            &transaction,
+            request,
+            &state,
+            &claim,
+            authority_ref,
+            semantic_digest,
+            requested_tokens,
+            now,
+            expires_at,
+        )?;
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+        durable_readback::load_durable_authority_record(
+            &connection,
+            request,
+            &state,
+            claim.attempt_id,
+        )
+        .map(|admission| ProviderAuthorityIssueOutcome::Winner(Box::new(admission)))
+        .map_err(|_| ProviderAdmissionError::PostClaimUncertain)
+    }
+
+    /// Revalidates the exact admitted authority and commits the 120-second effect CAS.
+    pub fn start_effect(
+        &self,
+        claim: &ProviderDispatchClaim,
+    ) -> Result<ProviderEffectStartReceipt, ProviderAdmissionError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        start_effect(&mut connection, claim, self.now(), || self.now(), {
+            #[cfg(test)]
+            {
+                self.fail_effect_readback.swap(false, Ordering::SeqCst)
+            }
+            #[cfg(not(test))]
+            {
+                false
+            }
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_effect_readback(&self) {
+        self.fail_effect_readback.store(true, Ordering::SeqCst);
     }
 
     /// Installs or advances runtime-owned authority state.
@@ -186,7 +255,7 @@ impl SqliteProviderExecutionStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        install_runtime_authority_in_transaction(&transaction, config)?;
+        install_runtime_authority_in_transaction(&transaction, config, self.now(), false)?;
         transaction
             .commit()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)
@@ -206,7 +275,7 @@ impl SqliteProviderExecutionStore {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        install_runtime_authority_in_transaction(&transaction, config)?;
+        install_runtime_authority_in_transaction(&transaction, config, self.now(), true)?;
         advance_worker_lease_in_transaction(&transaction, config.generation, config.fencing_token)?;
         transaction
             .commit()
@@ -252,178 +321,21 @@ impl SqliteProviderExecutionStore {
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         u64::try_from(count).map_err(|_| ProviderAdmissionError::RepositoryFailure)
     }
-}
 
-impl RuntimeProviderAuthorityIssuer for SqliteProviderExecutionStore {
-    fn issue_locator(
+    /// Reads the non-secret token and cost utilization in one SQLite snapshot.
+    pub fn utilization(
         &self,
-        request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError> {
-        request.validate()?;
-        let semantic_digest = execution_semantic_digest(request);
-        let mut connection = self
-            .connection
-            .lock()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-
-        if let Some(existing) =
-            load_existing_admission(&transaction, &request.provider_idempotency_key)?
-        {
-            return if existing.semantic_digest == semantic_digest {
-                Ok(ProviderAuthorityIssueLocator::Existing {
-                    state: existing.state,
-                })
-            } else {
-                Err(ProviderAdmissionError::AuthorityConflict)
-            };
-        }
-
-        let state =
-            load_runtime_authority(&transaction)?.ok_or(ProviderAdmissionError::AuthorityDenied)?;
-        verify_runtime_authority(&state, request)?;
-        verify_prepared(&transaction, request)?;
-        ensure_call_is_unclaimed(&transaction, request.prepared.call_id)?;
-
-        let requested_tokens = request
-            .requested_input_tokens
-            .checked_add(request.requested_output_tokens)
-            .ok_or(ProviderAdmissionError::TokenBudgetDenied)?;
-        let available_tokens = state
-            .token_budget_limit
-            .checked_sub(state.token_budget_reserved)
-            .and_then(|available| available.checked_sub(state.token_budget_settled))
-            .ok_or(ProviderAdmissionError::TokenBudgetDenied)?;
-        if requested_tokens > available_tokens {
-            return Err(ProviderAdmissionError::TokenBudgetDenied);
-        }
-        let available_cost = state
-            .cost_budget_limit_micros
-            .checked_sub(state.cost_budget_reserved_micros)
-            .and_then(|available| available.checked_sub(state.cost_budget_settled_micros))
-            .ok_or(ProviderAdmissionError::CostBudgetDenied)?;
-        if request.max_cost_micros > available_cost {
-            return Err(ProviderAdmissionError::CostBudgetDenied);
-        }
-
-        let ids = IssuedIds::random();
-        let now = unix_timestamp();
-        let ttl = i64::try_from(state.authority_ttl_seconds)
-            .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
-        let expires_at = now
-            .checked_add(ttl)
-            .map(|expiry| expiry.min(state.approval_expires_at))
-            .filter(|expiry| *expiry > now)
-            .ok_or(ProviderAdmissionError::ApprovalExpired)?;
-        let claim = ProviderDispatchClaim {
-            call_id: request.prepared.call_id,
-            attempt_id: DispatchAttemptId::from_bytes(ids.dispatch_attempt_id),
-            permit_id: ids.permit_id,
-            prepared_digest: request.prepared.prepared_digest,
-            render_digest: request.prepared.render_digest,
-            profile_digest: request.prepared.profile_digest,
-            token_reservation_id: ids.token_reservation_id,
-            cost_reservation_id: ids.cost_reservation_id,
-            fencing_token: state.expected_fencing_token,
-            provider_idempotency_key: request.provider_idempotency_key.clone(),
-        };
-        let authority_ref =
-            ProviderEffectAuthorityRef::new(ids.authority_id, state.state_revision)?;
-        commit_issuance(
-            &transaction,
-            request,
-            &state,
-            &claim,
-            authority_ref,
-            semantic_digest,
-            requested_tokens,
-            now,
-            expires_at,
-        )?;
-        transaction
-            .commit()
-            .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
-        Ok(ProviderAuthorityIssueLocator::Committed {
-            attempt_id: claim.attempt_id,
-        })
-    }
-}
-
-impl RuntimeProviderAuthorityEvidenceVerifier for SqliteProviderExecutionStore {
-    fn verify_durable_admission(
-        &self,
-        request: &ProviderAuthorityIssueRequest,
-        attempt_id: DispatchAttemptId,
-    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError> {
+    ) -> Result<(ProviderBudgetUtilization, ProviderBudgetUtilization), ProviderAdmissionError>
+    {
         let connection = self
             .connection
             .lock()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        let evidence = connection
-            .query_row(
-                "SELECT authority_id, authority_revision, generation, permit_id,
-                        token_reservation_id, cost_reservation_id, fencing_token
-                   FROM provider_execution_admissions
-                  WHERE provider_idempotency_key = ?1 AND dispatch_attempt_id = ?2
-                    AND semantic_digest = ?3 AND principal_id = ?4
-                    AND conversation_id = ?5 AND taskrun_id = ?6
-                    AND execution_attempt_id = ?7 AND call_id = ?8
-                    AND prepared_digest = ?9 AND render_digest = ?10
-                    AND profile_digest = ?11 AND pricing_revision_digest = ?12
-                    AND requested_input_tokens = ?13 AND requested_output_tokens = ?14
-                    AND max_cost_micros = ?15 AND currency = ?16",
-                params![
-                    request.provider_idempotency_key,
-                    attempt_id.as_bytes().as_slice(),
-                    execution_semantic_digest(request).as_slice(),
-                    request.principal_id,
-                    request.conversation_id.as_bytes().as_slice(),
-                    request.taskrun_id.as_bytes().as_slice(),
-                    request.execution_attempt_id.as_bytes().as_slice(),
-                    request.prepared.call_id.as_bytes().as_slice(),
-                    request.prepared.prepared_digest.as_slice(),
-                    request.prepared.render_digest.as_slice(),
-                    request.prepared.profile_digest.as_slice(),
-                    request.pricing_revision_digest.as_slice(),
-                    as_i64(request.requested_input_tokens)?,
-                    as_i64(request.requested_output_tokens)?,
-                    as_i64(request.max_cost_micros)?,
-                    request.currency,
-                ],
-                |row| {
-                    Ok((
-                        fixed_bytes::<16>(row.get(0)?)?,
-                        positive_u64(row.get(1)?)?,
-                        positive_u64(row.get(2)?)?,
-                        fixed_bytes::<16>(row.get(3)?)?,
-                        fixed_bytes::<16>(row.get(4)?)?,
-                        fixed_bytes::<16>(row.get(5)?)?,
-                        positive_u64(row.get(6)?)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?
-            .ok_or(ProviderAdmissionError::AuthorityDenied)?;
-        let authority_ref = ProviderEffectAuthorityRef::new(evidence.0, evidence.1)?;
-        Ok(ProviderAuthorityEvidence {
-            authority_ref,
-            runtime_generation: evidence.2,
-            claim: ProviderDispatchClaim {
-                call_id: request.prepared.call_id,
-                attempt_id,
-                permit_id: evidence.3,
-                prepared_digest: request.prepared.prepared_digest,
-                render_digest: request.prepared.render_digest,
-                profile_digest: request.prepared.profile_digest,
-                token_reservation_id: evidence.4,
-                cost_reservation_id: evidence.5,
-                fencing_token: evidence.6,
-                provider_idempotency_key: request.provider_idempotency_key.clone(),
-            },
-        })
+        load_utilization(&connection)
+    }
+
+    fn now(&self) -> i64 {
+        (self.now)()
     }
 }
 
@@ -1899,85 +1811,17 @@ fn decode_call_digest_version(value: i64) -> rusqlite::Result<ProviderCallDigest
     }
 }
 
-#[derive(Debug)]
-struct RuntimeAuthorityState {
-    runtime_authority_id: [u8; 16],
-    database_generation: u64,
-    principal_id: String,
-    owner_id: String,
-    scope: String,
-    expected_generation: u64,
-    lease_generation: u64,
-    expected_fencing_token: u64,
-    lease_fencing_token: u64,
-    capability_grant_id: String,
-    capability_revision: u64,
-    capability_allowed: bool,
-    approval_id: String,
-    approval_revision: u64,
-    approval_allowed: bool,
-    approval_expires_at: i64,
-    profile_digest: [u8; 32],
-    pricing_revision_digest: [u8; 32],
-    token_budget_limit: u64,
-    token_budget_reserved: u64,
-    token_budget_settled: u64,
-    cost_budget_limit_micros: u64,
-    cost_budget_reserved_micros: u64,
-    cost_budget_settled_micros: u64,
-    authority_ttl_seconds: u64,
-    state_revision: u64,
-    active: bool,
-}
-
-impl RuntimeAuthorityState {
-    fn matches_config(&self, config: &ProviderRuntimeAuthorityConfig) -> bool {
-        self.runtime_authority_id == config.runtime_authority_id
-            && self.database_generation == config.database_generation
-            && self.principal_id == config.principal_id
-            && self.owner_id == config.owner_id
-            && self.scope == config.scope
-            && self.expected_generation == config.generation
-            && self.lease_generation == config.generation
-            && self.expected_fencing_token == config.fencing_token
-            && self.lease_fencing_token == config.fencing_token
-            && self.capability_grant_id == config.capability_grant_id
-            && self.capability_revision == config.capability_revision
-            && self.capability_allowed == config.capability_allowed
-            && self.approval_id == config.approval_id
-            && self.approval_revision == config.approval_revision
-            && self.approval_allowed == config.approval_allowed
-            && self.approval_expires_at == config.approval_expires_at
-            && self.profile_digest == config.profile_digest
-            && self.pricing_revision_digest == config.pricing_revision_digest
-            && self.token_budget_limit == config.token_budget_limit
-            && self.cost_budget_limit_micros == config.cost_budget_limit_micros
-            && self.authority_ttl_seconds == config.authority_ttl_seconds
-            && self.active
-    }
-}
-
 fn install_runtime_authority_in_transaction(
     transaction: &Transaction<'_>,
     config: &ProviderRuntimeAuthorityConfig,
+    now: i64,
+    allow_generation_advance: bool,
 ) -> Result<(), ProviderAdmissionError> {
     match load_runtime_authority(transaction)? {
-        None => insert_runtime_authority(transaction, config, 1),
-        Some(existing) if existing.matches_config(config) => Ok(()),
+        None => insert_runtime_authority(transaction, config, 1, now),
         Some(existing) => {
-            if existing.runtime_authority_id != config.runtime_authority_id
-                || existing.database_generation != config.database_generation
-                || config.token_budget_limit
-                    < existing.token_budget_settled + existing.token_budget_reserved
-                || config.cost_budget_limit_micros
-                    < existing.cost_budget_settled_micros + existing.cost_budget_reserved_micros
-                || config.generation < existing.expected_generation
-                || (config.generation == existing.expected_generation
-                    && config.fencing_token != existing.expected_fencing_token)
-            {
-                return Err(ProviderAdmissionError::AuthorityConflict);
-            }
-            replace_runtime_authority(transaction, config, existing.state_revision + 1)
+            existing.validate_renewal(config, allow_generation_advance)?;
+            replace_runtime_authority(transaction, config, &existing, now)
         }
     }
 }
@@ -2033,8 +1877,12 @@ fn load_runtime_authority(
             "SELECT runtime_authority_id, database_generation, principal_id, owner_id, scope,
                     expected_generation, lease_generation, expected_fencing_token,
                     lease_fencing_token, capability_grant_id, capability_revision,
-                    capability_allowed, approval_id, approval_revision, approval_allowed,
-                    approval_expires_at, profile_digest, pricing_revision_digest,
+                    capability_allowed, capability_expires_at, capability_revocation_epoch,
+                    capability_revocation_observed,
+                    approval_id, approval_revision, approval_allowed, approval_expires_at,
+                    approval_revocation_epoch, approval_revocation_observed, profile_digest,
+                    pricing_revision_digest,
+                    activation_binding_kind, activation_binding_digest,
                     token_budget_limit, token_budget_reserved, token_budget_settled,
                     cost_budget_limit_micros, cost_budget_reserved_micros,
                     cost_budget_settled_micros, authority_ttl_seconds, state_revision, active
@@ -2054,21 +1902,28 @@ fn load_runtime_authority(
                     capability_grant_id: row.get(9)?,
                     capability_revision: positive_u64(row.get(10)?)?,
                     capability_allowed: decode_bool(row.get(11)?)?,
-                    approval_id: row.get(12)?,
-                    approval_revision: positive_u64(row.get(13)?)?,
-                    approval_allowed: decode_bool(row.get(14)?)?,
-                    approval_expires_at: row.get(15)?,
-                    profile_digest: fixed_bytes(row.get(16)?)?,
-                    pricing_revision_digest: fixed_bytes(row.get(17)?)?,
-                    token_budget_limit: nonnegative_u64(row.get(18)?)?,
-                    token_budget_reserved: nonnegative_u64(row.get(19)?)?,
-                    token_budget_settled: nonnegative_u64(row.get(20)?)?,
-                    cost_budget_limit_micros: nonnegative_u64(row.get(21)?)?,
-                    cost_budget_reserved_micros: nonnegative_u64(row.get(22)?)?,
-                    cost_budget_settled_micros: nonnegative_u64(row.get(23)?)?,
-                    authority_ttl_seconds: positive_u64(row.get(24)?)?,
-                    state_revision: positive_u64(row.get(25)?)?,
-                    active: decode_bool(row.get(26)?)?,
+                    capability_expires_at: row.get(12)?,
+                    capability_revocation_epoch: nonnegative_u64(row.get(13)?)?,
+                    capability_revocation_observed: decode_bool(row.get(14)?)?,
+                    approval_id: row.get(15)?,
+                    approval_revision: positive_u64(row.get(16)?)?,
+                    approval_allowed: decode_bool(row.get(17)?)?,
+                    approval_expires_at: row.get(18)?,
+                    approval_revocation_epoch: nonnegative_u64(row.get(19)?)?,
+                    approval_revocation_observed: decode_bool(row.get(20)?)?,
+                    profile_digest: fixed_bytes(row.get(21)?)?,
+                    pricing_revision_digest: fixed_bytes(row.get(22)?)?,
+                    activation_binding_kind: binding_kind(row.get::<_, String>(23)?.as_str())?,
+                    activation_binding_digest: fixed_bytes(row.get(24)?)?,
+                    token_budget_limit: nonnegative_u64(row.get(25)?)?,
+                    token_budget_reserved: nonnegative_u64(row.get(26)?)?,
+                    token_budget_settled: nonnegative_u64(row.get(27)?)?,
+                    cost_budget_limit_micros: nonnegative_u64(row.get(28)?)?,
+                    cost_budget_reserved_micros: nonnegative_u64(row.get(29)?)?,
+                    cost_budget_settled_micros: nonnegative_u64(row.get(30)?)?,
+                    authority_ttl_seconds: positive_u64(row.get(31)?)?,
+                    state_revision: positive_u64(row.get(32)?)?,
+                    active: decode_bool(row.get(33)?)?,
                 })
             },
         )
@@ -2080,21 +1935,32 @@ fn insert_runtime_authority(
     transaction: &Transaction<'_>,
     config: &ProviderRuntimeAuthorityConfig,
     state_revision: u64,
+    now: i64,
 ) -> Result<(), ProviderAdmissionError> {
+    let expires_at = now
+        .checked_add(
+            i64::try_from(config.lease_ttl_seconds)
+                .map_err(|_| ProviderAdmissionError::RepositoryFailure)?,
+        )
+        .ok_or(ProviderAdmissionError::RepositoryFailure)?;
     transaction
         .execute(
             "INSERT INTO provider_runtime_authority_state (
                 id, runtime_authority_id, database_generation, principal_id, owner_id, scope,
                 expected_generation, lease_generation, expected_fencing_token,
                 lease_fencing_token, capability_grant_id, capability_revision,
-                capability_allowed, approval_id, approval_revision, approval_allowed,
-                approval_expires_at, profile_digest, pricing_revision_digest,
+                capability_allowed, capability_expires_at, capability_revocation_epoch,
+                capability_revocation_observed,
+                approval_id, approval_revision, approval_allowed, approval_expires_at,
+                approval_revocation_epoch, approval_revocation_observed, profile_digest,
+                pricing_revision_digest,
+                activation_binding_kind, activation_binding_digest,
                 token_budget_limit, token_budget_reserved, token_budget_settled,
                 cost_budget_limit_micros, cost_budget_reserved_micros,
                 cost_budget_settled_micros, authority_ttl_seconds, state_revision, active
              ) VALUES (
-                1, ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
-                ?14, ?15, ?16, ?17, 0, 0, ?18, 0, 0, ?19, ?20, 1
+                1, ?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?7, ?8, ?9, ?10, ?11, ?12, 0, ?13,
+                ?14, ?15, ?16, ?17, 0, ?18, ?19, ?20, ?21, ?22, 0, 0, ?23, 0, 0, ?24, ?25, 1
              )",
             params![
                 config.runtime_authority_id.as_slice(),
@@ -2107,12 +1973,17 @@ fn insert_runtime_authority(
                 config.capability_grant_id,
                 as_i64(config.capability_revision)?,
                 i64::from(config.capability_allowed),
+                expires_at,
+                as_i64(config.capability_revocation_epoch)?,
                 config.approval_id,
                 as_i64(config.approval_revision)?,
                 i64::from(config.approval_allowed),
-                config.approval_expires_at,
+                expires_at,
+                as_i64(config.approval_revocation_epoch)?,
                 config.profile_digest.as_slice(),
                 config.pricing_revision_digest.as_slice(),
+                config.activation_binding_kind.code(),
+                config.activation_binding_digest.as_slice(),
                 as_i64(config.token_budget_limit)?,
                 as_i64(config.cost_budget_limit_micros)?,
                 as_i64(config.authority_ttl_seconds)?,
@@ -2126,23 +1997,32 @@ fn insert_runtime_authority(
 fn replace_runtime_authority(
     transaction: &Transaction<'_>,
     config: &ProviderRuntimeAuthorityConfig,
-    state_revision: u64,
+    existing: &RuntimeAuthorityState,
+    now: i64,
 ) -> Result<(), ProviderAdmissionError> {
+    let expires_at = now
+        .checked_add(
+            i64::try_from(config.lease_ttl_seconds)
+                .map_err(|_| ProviderAdmissionError::RepositoryFailure)?,
+        )
+        .ok_or(ProviderAdmissionError::RepositoryFailure)?;
     let changed = transaction
         .execute(
             "UPDATE provider_runtime_authority_state SET
                 principal_id = ?1, owner_id = ?2, scope = ?3,
                 expected_generation = ?4,
                 expected_fencing_token = ?5,
-                capability_grant_id = ?6, capability_revision = ?7,
-                capability_allowed = ?8, approval_id = ?9, approval_revision = ?10,
-                approval_allowed = ?11, approval_expires_at = ?12,
-                profile_digest = ?13, pricing_revision_digest = ?14,
-                token_budget_limit = ?15, cost_budget_limit_micros = ?16,
-                authority_ttl_seconds = ?17, state_revision = ?18, active = 1
-             WHERE id = 1 AND runtime_authority_id = ?19 AND database_generation = ?20
-               AND token_budget_reserved + token_budget_settled <= ?15
-               AND cost_budget_reserved_micros + cost_budget_settled_micros <= ?16",
+                capability_grant_id = ?6, capability_revision = ?7, capability_allowed = ?8,
+                capability_expires_at = ?9, capability_revocation_epoch = ?10,
+                capability_revocation_observed = ?11, approval_id = ?12,
+                approval_revision = ?13, approval_allowed = ?14, approval_expires_at = ?15,
+                approval_revocation_epoch = ?16, approval_revocation_observed = ?17,
+                profile_digest = ?18, pricing_revision_digest = ?19,
+                activation_binding_kind = ?20, activation_binding_digest = ?21,
+                token_budget_limit = ?22, cost_budget_limit_micros = ?23,
+                authority_ttl_seconds = ?24, state_revision = ?25, active = 1
+             WHERE id = 1 AND runtime_authority_id = ?26 AND database_generation = ?27
+               AND token_budget_limit = ?22 AND cost_budget_limit_micros = ?23",
             params![
                 config.principal_id,
                 config.owner_id,
@@ -2152,16 +2032,28 @@ fn replace_runtime_authority(
                 config.capability_grant_id,
                 as_i64(config.capability_revision)?,
                 i64::from(config.capability_allowed),
+                expires_at,
+                as_i64(config.capability_revocation_epoch)?,
+                i64::from(existing.capability_revocation_observed_on_renewal(config)),
                 config.approval_id,
                 as_i64(config.approval_revision)?,
                 i64::from(config.approval_allowed),
-                config.approval_expires_at,
+                expires_at,
+                as_i64(config.approval_revocation_epoch)?,
+                i64::from(existing.approval_revocation_observed_on_renewal(config)),
                 config.profile_digest.as_slice(),
                 config.pricing_revision_digest.as_slice(),
+                config.activation_binding_kind.code(),
+                config.activation_binding_digest.as_slice(),
                 as_i64(config.token_budget_limit)?,
                 as_i64(config.cost_budget_limit_micros)?,
                 as_i64(config.authority_ttl_seconds)?,
-                as_i64(state_revision)?,
+                as_i64(
+                    existing
+                        .state_revision
+                        .checked_add(1)
+                        .ok_or(ProviderAdmissionError::RepositoryFailure,)?
+                )?,
                 config.runtime_authority_id.as_slice(),
                 as_i64(config.database_generation)?,
             ],
@@ -2176,6 +2068,7 @@ fn replace_runtime_authority(
 fn verify_runtime_authority(
     state: &RuntimeAuthorityState,
     request: &ProviderAuthorityIssueRequest,
+    now: i64,
 ) -> Result<(), ProviderAdmissionError> {
     if !state.active || state.principal_id != request.principal_id {
         return Err(ProviderAdmissionError::AuthorityDenied);
@@ -2186,13 +2079,27 @@ fn verify_runtime_authority(
         return Err(ProviderAdmissionError::StaleFencingToken);
     }
     if !state.capability_allowed {
-        return Err(ProviderAdmissionError::CapabilityDenied);
+        return Err(if state.capability_revocation_observed {
+            ProviderAdmissionError::CapabilityRevoked
+        } else {
+            ProviderAdmissionError::CapabilityDenied
+        });
+    }
+    if state.capability_expires_at <= now {
+        return Err(ProviderAdmissionError::CapabilityExpired);
     }
     if !state.approval_allowed {
-        return Err(ProviderAdmissionError::ApprovalDenied);
+        return Err(if state.approval_revocation_observed {
+            ProviderAdmissionError::ApprovalRevoked
+        } else {
+            ProviderAdmissionError::ApprovalDenied
+        });
     }
-    if state.approval_expires_at <= unix_timestamp() {
+    if state.approval_expires_at <= now {
         return Err(ProviderAdmissionError::ApprovalExpired);
+    }
+    if state.activation_binding_kind.is_none() || state.activation_binding_digest == [0; 32] {
+        return Err(ProviderAdmissionError::AuthorityDenied);
     }
     if state.profile_digest != request.prepared.profile_digest {
         return Err(ProviderAdmissionError::AuthorityConflict);
@@ -2389,10 +2296,17 @@ fn commit_issuance(
                 runtime_authority_id, database_generation, generation, fencing_token,
                 prepared_digest, render_digest, profile_digest, pricing_revision_digest,
                 requested_input_tokens, requested_output_tokens, max_cost_micros, currency,
-                issued_at, expires_at
+                issued_at, expires_at, owner_id, scope, capability_grant_id,
+                capability_revision, capability_expires_at, capability_revocation_epoch,
+                capability_revocation_observed,
+                approval_id, approval_revision, approval_expires_at, approval_revocation_epoch,
+                approval_revocation_observed,
+                activation_binding_kind, activation_binding_digest
              ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27
+                ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28,
+                ?29, ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39
+                , ?40, ?41
              )",
             params![
                 request.provider_idempotency_key,
@@ -2422,6 +2336,23 @@ fn commit_issuance(
                 request.currency,
                 issued_at,
                 expires_at,
+                state.owner_id,
+                state.scope,
+                state.capability_grant_id,
+                as_i64(state.capability_revision)?,
+                state.capability_expires_at,
+                as_i64(state.capability_revocation_epoch)?,
+                i64::from(state.capability_revocation_observed),
+                state.approval_id,
+                as_i64(state.approval_revision)?,
+                state.approval_expires_at,
+                as_i64(state.approval_revocation_epoch)?,
+                i64::from(state.approval_revocation_observed),
+                state
+                    .activation_binding_kind
+                    .ok_or(ProviderAdmissionError::AuthorityDenied)?
+                    .code(),
+                state.activation_binding_digest.as_slice(),
             ],
         )
         .map_err(|_| ProviderAdmissionError::AuthorityConflict)?;
@@ -2463,13 +2394,6 @@ fn commit_issuance(
                 "INSERT INTO security_budget_consumptions
                  (intent_id, reservation_id, amount) VALUES (?1, ?2, ?3)",
                 params![intent_id, budget_binding, requested_tokens_i64],
-            )
-        })
-        .and_then(|_| {
-            transaction.execute(
-                "INSERT INTO security_audit_pre_effect (intent_id, side_effect_started)
-                 VALUES (?1, 1)",
-                [&intent_id],
             )
         })
         .and_then(|_| {
@@ -2542,10 +2466,6 @@ fn hash_text(hasher: &mut Sha256, text: &str) {
     hasher.update(text.as_bytes());
 }
 
-fn bounded_text(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 256 && !value.bytes().any(|byte| byte.is_ascii_control())
-}
-
 fn as_i64(value: u64) -> Result<i64, ProviderAdmissionError> {
     i64::try_from(value).map_err(|_| ProviderAdmissionError::InvalidSemanticContext)
 }
@@ -2588,6 +2508,13 @@ fn unix_timestamp() -> i64 {
         .map(|duration| i64::try_from(duration.as_secs()).unwrap_or(i64::MAX))
         .unwrap_or(i64::MAX)
 }
+
+#[cfg(test)]
+mod authority_admission_tests;
+#[cfg(test)]
+mod authority_lease_tests;
+#[cfg(test)]
+mod authority_test_support;
 
 fn encode_hex(bytes: &[u8]) -> String {
     let mut encoded = String::with_capacity(bytes.len() * 2);

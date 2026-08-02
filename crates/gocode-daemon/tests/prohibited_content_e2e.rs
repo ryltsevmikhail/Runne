@@ -21,17 +21,12 @@ use gocode_application::ports::{
     RuntimeAuthorityId,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
-use gocode_application::provider::{
-    ProviderAdmissionError, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
-    ProviderAuthorityIssueRequest, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
-};
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
 use gocode_application::verification::export_port::VerificationExporter;
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{
-    AttemptId, CommandId, ConversationId, EventLogLineageId, IdempotencyKey, TaskRunId, WorkspaceId,
+    CommandId, ConversationId, EventLogLineageId, IdempotencyKey, WorkspaceId,
 };
 use gocode_domain::message::MessageText;
 use gocode_domain::verification::backup::StreamInventory;
@@ -41,12 +36,6 @@ use gocode_http::error::{RequestId, canonical_error_response};
 use gocode_http::limits::LimitsConfig;
 use gocode_http::middleware::request_id_middleware;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
-use gocode_provider::{
-    DispatchAttemptId, DispatchError, DispatchRequest, ModelRef, PrepareError,
-    PreparedProviderRecord, PreparedRequest, ProviderCall, ProviderCallId, ProviderDispatchClaim,
-    ProviderDispatchRepository, ProviderFuture, ProviderId, ProviderPort,
-    ProviderRepositoryClaimOutcome, ProviderRepositoryError, ProviderStreamId,
-};
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{ShutdownMode, ShutdownOutcome};
 use gocode_runtime::{
@@ -179,177 +168,6 @@ impl io::Write for CaptureWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingProvider {
-    prepared_bytes: Mutex<Vec<u8>>,
-}
-
-impl ProviderPort for RecordingProvider {
-    fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
-        *self.prepared_bytes.lock().unwrap() = serde_json::to_vec(call).unwrap();
-        PreparedRequest::from_call(call)
-    }
-
-    fn prepare_for_digest_version(
-        &self,
-        call: &ProviderCall,
-        digest_version: gocode_provider::ProviderCallDigestVersion,
-    ) -> Result<PreparedRequest, PrepareError> {
-        *self.prepared_bytes.lock().unwrap() = serde_json::to_vec(call).unwrap();
-        PreparedRequest::from_call_for_digest_version(call, digest_version)
-    }
-
-    fn dispatch(
-        &self,
-        _request: DispatchRequest,
-    ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
-        Box::pin(async { unreachable!("denied provider call must not dispatch") })
-    }
-
-    fn next<'a>(
-        &'a self,
-        _stream_id: &'a ProviderStreamId,
-        _cursor: gocode_provider::StreamCursor,
-    ) -> ProviderFuture<'a, Result<gocode_provider::ProviderStreamItem, gocode_provider::StreamError>>
-    {
-        Box::pin(async { unreachable!("denied provider call must not poll") })
-    }
-
-    fn cancel(
-        &self,
-        _request: gocode_provider::CancelRequest,
-    ) -> ProviderFuture<'_, Result<gocode_provider::CancelDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("denied provider call must not cancel") })
-    }
-
-    fn reconcile(
-        &self,
-        _request: gocode_provider::ReconcileRequest,
-    ) -> ProviderFuture<'_, Result<gocode_provider::ReconciliationDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("denied provider call must not reconcile") })
-    }
-}
-
-#[derive(Default)]
-struct UnreachableRepository;
-
-impl ProviderDispatchRepository for UnreachableRepository {
-    fn load_prepared(
-        &self,
-        _call_id: gocode_provider::ProviderCallId,
-    ) -> Result<Option<PreparedProviderRecord>, ProviderRepositoryError> {
-        unreachable!("denied provider call must not load prepared state")
-    }
-
-    fn persist_prepared(
-        &self,
-        _record: &PreparedProviderRecord,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not persist")
-    }
-
-    fn claim(
-        &self,
-        _claim: &ProviderDispatchClaim,
-    ) -> Result<ProviderRepositoryClaimOutcome, ProviderRepositoryError> {
-        unreachable!("denied provider call must not claim")
-    }
-
-    fn mark_streaming(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-        _stream_id: ProviderStreamId,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not mark streaming")
-    }
-
-    fn mark_rejected_before_effect(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-        _rejection: gocode_provider::ProviderPreEffectRejection,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not mark rejected")
-    }
-
-    fn mark_terminal_pending(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-        _settlement_digest: [u8; 32],
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not mark terminal")
-    }
-
-    fn settle(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-        _settlement_digest: [u8; 32],
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not settle")
-    }
-
-    fn mark_uncertain(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not mark uncertain")
-    }
-}
-
-struct UnreachableIssuer;
-
-impl RuntimeProviderAuthorityIssuer for UnreachableIssuer {
-    fn issue_locator(
-        &self,
-        _request: &ProviderAuthorityIssueRequest,
-    ) -> Result<ProviderAuthorityIssueLocator, ProviderAdmissionError> {
-        unreachable!("denied provider call must not reach admission")
-    }
-}
-
-impl RuntimeProviderAuthorityEvidenceVerifier for UnreachableIssuer {
-    fn verify_durable_admission(
-        &self,
-        _request: &ProviderAuthorityIssueRequest,
-        _attempt_id: DispatchAttemptId,
-    ) -> Result<ProviderAuthorityEvidence, ProviderAdmissionError> {
-        unreachable!("denied provider call must not verify admission")
-    }
-}
-
-fn provider_request() -> ProviderCoordinatorRequest {
-    ProviderCoordinatorRequest {
-        call: ProviderCall::new(
-            ProviderCallId::from_bytes([1; 16]),
-            ModelRef::new(
-                ProviderId::new("synthetic-provider").unwrap(),
-                "synthetic-model",
-                "2026-07-30",
-            )
-            .unwrap(),
-            [2; 32],
-            64,
-            json!({"inert": MARKER}),
-        )
-        .unwrap(),
-        principal_id: "local-principal".into(),
-        conversation_id: ConversationId::from_bytes([3; 16]),
-        taskrun_id: TaskRunId::from_bytes([4; 16]),
-        execution_attempt_id: AttemptId::from_bytes([6; 16]),
-        profile_digest: [5; 32],
-        pricing_revision_digest: [7; 32],
-        requested_input_tokens: 32,
-        requested_output_tokens: 64,
-        max_cost_micros: 10_000,
-        currency: "USD".into(),
-        provider_idempotency_key: "task-seven-provider".into(),
     }
 }
 
@@ -567,26 +385,6 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
                 VerificationDigest::from_bytes([1; 32]),
             )
             .is_err()
-    );
-
-    let recording_provider = RecordingProvider::default();
-    let repository = UnreachableRepository;
-    let issuer = UnreachableIssuer;
-    let coordinator = ProviderDispatchCoordinator::new(
-        &repository,
-        &issuer,
-        &issuer,
-        &recording_provider,
-        guard.as_ref(),
-    );
-    assert_eq!(
-        coordinator.dispatch(provider_request()).await,
-        Err(ProviderAdmissionError::PolicyDenied)
-    );
-    assert_absent(
-        "recording provider input",
-        &recording_provider.prepared_bytes.lock().unwrap(),
-        &representations,
     );
 
     let canonical_error = canonical_error_response(

@@ -118,7 +118,7 @@ PY
 CANDIDATE_NAME="gocode-runtime-$VERSION-$TARGET"
 CANDIDATE_DIRECTORY="$OUTPUT/$CANDIDATE_NAME"
 
-"$CARGO_BIN" build --locked --release --bin gocode-daemon --target "$TARGET"
+"$CARGO_BIN" build --locked --release -p gocode-daemon --bin gocode-daemon --target "$TARGET"
 BINARY_NAME='gocode-daemon'
 if [ "$PLATFORM" = 'windows' ]; then
     BINARY_NAME='gocode-daemon.exe'
