@@ -47,7 +47,8 @@ def write_fake_cargo(path: pathlib.Path, include_forbidden: bool) -> None:
         else ""
     )
     path.write_text(
-        "#!/usr/bin/env bash\nset -eu\nprintf '%s\\0' \"$@\" > \"$CARGO_ARGV\"\n"
+        "#!/usr/bin/env bash\nset -eu\nprintf 'build\\0' > \"$CARGO_ARGV\"\n"
+        "printf '%s\\0' \"$@\" >> \"$CARGO_ARGV\"\n"
         "mkdir -p target/aarch64-apple-darwin/release\n"
         "printf daemon > target/aarch64-apple-darwin/release/gocode-daemon\n" + forbidden,
         encoding="utf-8",
@@ -91,7 +92,16 @@ def append_bound_forbidden_artifacts(candidate: pathlib.Path) -> None:
 def package(root: pathlib.Path, env: dict[str, str], name: str) -> pathlib.Path:
     output = root / name
     run(
-        ["bash", "scripts/package-release.sh", "--version", "1.0.0", "--target", TARGET, "--output", str(output)],
+        [
+            "bash",
+            "scripts/package-release.sh",
+            "--version",
+            "1.0.0",
+            "--target",
+            TARGET,
+            "--output",
+            output.as_posix(),
+        ],
         root,
         env,
     )
@@ -107,6 +117,25 @@ def copy_release_modules(root: pathlib.Path) -> None:
         shutil.copytree(ROOT / "scripts" / package, scripts / package)
 
 
+def initialize_fixture_repository(root: pathlib.Path, env: dict[str, str]) -> None:
+    run(["git", "init"], root, env)
+    run(["git", "add", "."], root, env)
+    run(
+        [
+            "git",
+            "-c",
+            "user.name=GOCODE Fixture",
+            "-c",
+            "user.email=fixture@gocode.invalid",
+            "commit",
+            "-m",
+            "fixture",
+        ],
+        root,
+        env,
+    )
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = pathlib.Path(temporary) / "fixture"
@@ -119,26 +148,15 @@ def main() -> None:
         profile.write_text('{"profile_id":"fixture","profile_revision":1}\n', encoding="utf-8")
         digest = hashlib.sha256(profile.read_bytes()).hexdigest()
         profile.with_suffix(".digest").write_text(f"sha256:{digest}\n", encoding="utf-8")
-        bin_dir = root / "bin"
-        bin_dir.mkdir()
-        fake_cargo = bin_dir / "cargo"
-        fake_git = bin_dir / "git"
-        fake_git.write_text(
-            "#!/usr/bin/env bash\nset -eu\nargs=(\"$@\")\n"
-            "if [ \"${args[0]:-}\" = \"-C\" ]; then args=(\"${args[@]:2}\"); fi\n"
-            "case \"${args[*]}\" in\n"
-            "  'rev-parse --show-toplevel') pwd ;;\n"
-            "  'rev-parse --verify HEAD^{commit}') printf '%040d\\n' 0 ;;\n"
-            "  'diff --quiet'|'diff --cached --quiet') exit 0 ;;\n"
-            "  *) exit 1 ;;\nesac\n",
-            encoding="utf-8",
-        )
-        fake_git.chmod(0o755)
+        initialize_fixture_repository(root, os.environ.copy())
+        fake_cargo = root / "build"
         argv_path = root / "cargo-argv"
+        bash = shutil.which("bash")
+        if bash is None:
+            raise SystemExit("Task 6C fixture requires bash")
         env = os.environ | {
-            "CARGO": str(fake_cargo),
-            "CARGO_ARGV": str(argv_path),
-            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "CARGO": bash,
+            "CARGO_ARGV": argv_path.as_posix(),
             "SOURCE_DATE_EPOCH": "1",
         }
         write_fake_cargo(fake_cargo, include_forbidden=True)
@@ -151,7 +169,13 @@ def main() -> None:
         write_fake_cargo(fake_cargo, include_forbidden=False)
         baseline = package(root, env, "output-daemon-only")
         require_allowlist(baseline)
-        verify = ["bash", "scripts/verify-release.sh", "--fixture-only", "--candidate", str(candidate)]
+        verify = [
+            "bash",
+            "scripts/verify-release.sh",
+            "--fixture-only",
+            "--candidate",
+            candidate.as_posix(),
+        ]
         baseline_report = json.loads(run(verify, root, env).stdout)
         if baseline_report["status"] != "blocked" or "manifest" in baseline_report["blocked_gate_ids"]:
             raise SystemExit("baseline verifier did not block only independent evidence")
