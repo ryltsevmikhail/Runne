@@ -22,6 +22,8 @@ use gocode_security::SecretBroker;
 use gocode_store::verification::backup_store::InMemoryBackupStore;
 use rand::{RngCore as _, rngs::OsRng};
 
+static PROCESS_FAULT_AUDIT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn random_secret() -> [u8; 32] {
     let mut value = [0_u8; 32];
     while value == [0; 32] {
