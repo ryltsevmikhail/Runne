@@ -117,7 +117,7 @@ def main() -> None:
         (root / "Cargo.lock").write_text("version = 4\n", encoding="utf-8")
         profile = root / "docs/profiles/example.json"
         profile.write_text('{"profile_id":"fixture","profile_revision":1}\n', encoding="utf-8")
-        digest = subprocess.check_output(["shasum", "-a", "256", str(profile)], text=True).split()[0]
+        digest = hashlib.sha256(profile.read_bytes()).hexdigest()
         profile.with_suffix(".digest").write_text(f"sha256:{digest}\n", encoding="utf-8")
         bin_dir = root / "bin"
         bin_dir.mkdir()
