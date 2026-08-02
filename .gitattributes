@@ -1,4 +1,5 @@
 docs/golden/*.json text eol=lf
+docs/evidence/secure-replay-desktop-resume-v1.json text eol=lf
 docs/profiles/*.json text eol=lf
 docs/profiles/*.digest text eol=lf
 docs/schemas/opencode-baseline-inventory-*.schema.json text eol=lf
