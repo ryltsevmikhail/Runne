@@ -203,7 +203,7 @@ impl ProtectedBundledRuntimeLaunchSpec {
         #[cfg(not(unix))]
         {
             let _ = (executable, runtime_root);
-            return Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend);
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
         }
         #[cfg(unix)]
         {
