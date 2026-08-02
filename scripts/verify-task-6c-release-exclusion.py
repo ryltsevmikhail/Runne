@@ -8,6 +8,7 @@ import os
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -26,7 +27,16 @@ FORBIDDEN_ARTIFACTS = ("activation_process", "recovery_process")
 
 
 def run(command: list[str], cwd: pathlib.Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, cwd=cwd, env=env, check=True, text=True, capture_output=True)
+    try:
+        return subprocess.run(
+            command, cwd=cwd, env=env, check=True, text=True, capture_output=True
+        )
+    except subprocess.CalledProcessError as error:
+        if error.stdout:
+            print(error.stdout, file=sys.stderr, end="")
+        if error.stderr:
+            print(error.stderr, file=sys.stderr, end="")
+        raise
 
 
 def files(candidate: pathlib.Path) -> set[str]:
@@ -46,13 +56,13 @@ def write_fake_cargo(path: pathlib.Path, include_forbidden: bool) -> None:
         if include_forbidden
         else ""
     )
-    path.write_text(
+    source = (
         "#!/usr/bin/env bash\nset -eu\nprintf 'build\\0' > \"$CARGO_ARGV\"\n"
         "printf '%s\\0' \"$@\" >> \"$CARGO_ARGV\"\n"
         "mkdir -p target/aarch64-apple-darwin/release\n"
-        "printf daemon > target/aarch64-apple-darwin/release/gocode-daemon\n" + forbidden,
-        encoding="utf-8",
+        "printf daemon > target/aarch64-apple-darwin/release/gocode-daemon\n" + forbidden
     )
+    path.write_bytes(source.encode("utf-8"))
     path.chmod(0o755)
 
 
