@@ -1,12 +1,19 @@
+#[cfg(target_os = "macos")]
 const PROVIDER_CREDENTIAL_MAGIC: &[u8; 8] = b"GCPCV1\0\0";
+#[cfg(target_os = "macos")]
 const PROVIDER_CREDENTIAL_METADATA_MAGIC: &[u8; 8] = b"GCPMDV1\0";
+#[cfg(target_os = "macos")]
 const PROVIDER_CREDENTIAL_INCOMPLETE_METADATA_MAGIC: &[u8; 8] = b"GCPMDI1\0";
+#[cfg(target_os = "macos")]
 const EXECUTABLE_IDENTITY_BYTES: usize = 72;
+#[cfg(target_os = "macos")]
 const PROVIDER_CREDENTIAL_HEADER_BYTES: usize =
     PROVIDER_CREDENTIAL_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32 + 4;
+#[cfg(target_os = "macos")]
 const PROVIDER_CREDENTIAL_METADATA_BYTES: usize =
     PROVIDER_CREDENTIAL_METADATA_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32;
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ProviderCredentialEnrollmentState {
     Incomplete,
@@ -127,13 +134,19 @@ impl ProviderCredentialAccessPolicy {
     pub const fn writer_identity(&self) -> &ExecutableIdentityV1 { &self.writer_identity }
     #[must_use]
     pub const fn reader_identity(&self) -> &ExecutableIdentityV1 { &self.reader_identity }
+    #[cfg(target_os = "macos")]
     pub(crate) fn writer_path(&self) -> &Path { &self.writer_path }
+    #[cfg(target_os = "macos")]
     pub(crate) fn reader_path(&self) -> &Path { &self.reader_path }
+    #[cfg(target_os = "macos")]
     pub(crate) fn validate_writer_current(&self) -> Result<(), SecureStoreError> { validate_current_identity(&self.writer_identity) }
+    #[cfg(target_os = "macos")]
     pub(crate) fn validate_reader_current(&self) -> Result<(), SecureStoreError> { validate_current_identity(&self.reader_identity) }
+    #[cfg(target_os = "macos")]
     pub(crate) fn validate_writer_or_reader_current(&self) -> Result<(), SecureStoreError> {
         if self.validate_writer_current().is_ok() || self.validate_reader_current().is_ok() { Ok(()) } else { Err(SecureStoreError::CredentialAccessDenied) }
     }
+    #[cfg(target_os = "macos")]
     pub(crate) fn remeasure(&self) -> Result<(), SecureStoreError> {
         let (_, writer) = measure_executable(&self.writer_path)?;
         let (_, reader) = measure_executable(&self.reader_path)?;
@@ -148,6 +161,7 @@ impl fmt::Debug for ProviderCredentialAccessPolicy {
     }
 }
 
+#[cfg(target_os = "macos")]
 fn validate_current_identity(expected: &ExecutableIdentityV1) -> Result<(), SecureStoreError> {
     let current = std::env::current_exe().map_err(|_| SecureStoreError::CredentialIdentityMismatch)?;
     let (_, measured) = measure_executable(&current)?;
