@@ -46,7 +46,15 @@ describe('bootstrap IPC adapter', () => {
   })
 
   it('accepts only the closed lifecycle and safe failure vocabularies', async () => {
-    const lifecycle = ['starting', 'ready', 'restarting', 'degraded', 'failed', 'external'] as const
+    const lifecycle = [
+      'configuration_required',
+      'starting',
+      'ready',
+      'restarting',
+      'degraded',
+      'failed',
+      'external',
+    ] as const
     for (const runtimeLifecycle of lifecycle) {
       await expect(loadBootstrap(async () => ({
         theme: 'dark',
@@ -76,6 +84,17 @@ describe('bootstrap IPC adapter', () => {
         runtimeFailure,
       }))).resolves.toMatchObject({ runtimeFailure })
     }
+
+    await expect(loadBootstrap(async () => ({
+      theme: 'dark',
+      runtimeMode: 'bundled',
+      runtime: 'unconfigured',
+      runtimeLifecycle: 'configuration_required',
+      runtimeFailure: 'configuration_required',
+    }))).resolves.toMatchObject({
+      runtimeLifecycle: 'configuration_required',
+      runtimeFailure: 'configuration_required',
+    })
 
     await expect(loadBootstrap(async () => ({
       theme: 'dark',

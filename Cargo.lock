@@ -1746,9 +1746,11 @@ name = "gocode-daemon-loopback-fixture"
 version = "0.1.0"
 dependencies = [
  "gocode-api",
+ "gocode-app-core",
  "gocode-application",
  "gocode-daemon",
  "gocode-daemon-openai-effect",
+ "gocode-desktop",
  "gocode-platform-desktop",
  "gocode-provider",
  "gocode-provider-openai",
@@ -1775,15 +1777,22 @@ name = "gocode-daemon-openai-effect"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "gocode-application",
  "gocode-domain",
  "gocode-provider",
  "gocode-provider-openai",
  "gocode-secure-store",
  "gocode-store",
+ "h2",
+ "http",
+ "rcgen",
  "reqwest 0.12.28",
+ "rustls",
  "subtle",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-rustls",
  "zeroize",
 ]
 

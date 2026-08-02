@@ -24,6 +24,8 @@ mod response;
 
 #[doc(hidden)]
 pub use client::FixtureRequestAuthenticator;
+#[doc(hidden)]
+pub use client::loopback_fixture_client;
 
 use bounds::{
     ResponseContract, accepted_response_contract, append_bounded, bearer_header, record_chunk,

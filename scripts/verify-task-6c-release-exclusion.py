@@ -22,6 +22,7 @@ ALLOWLIST = {
     "release-manifest.v1.json",
     "sbom.cdx.json",
 }
+FORBIDDEN_ARTIFACTS = ("activation_process", "recovery_process")
 
 
 def run(command: list[str], cwd: pathlib.Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -59,7 +60,7 @@ def append_bound_forbidden_artifacts(candidate: pathlib.Path) -> None:
         (candidate / name).write_bytes(content)
     manifest_path = candidate / "release-manifest.v1.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for name in ("activation_process", "recovery_process"):
+    for name in FORBIDDEN_ARTIFACTS:
         manifest["artifacts"].append(
             {
                 "kind": "forbidden-fixture",
@@ -97,13 +98,21 @@ def package(root: pathlib.Path, env: dict[str, str], name: str) -> pathlib.Path:
     return next(output.iterdir())
 
 
+def copy_release_modules(root: pathlib.Path) -> None:
+    """Copy the wrapper dependencies needed by the standalone fixture."""
+    scripts = root / "scripts"
+    for script in ("package-release.sh", "verify-release.sh", "verify_release.py"):
+        shutil.copy2(ROOT / "scripts" / script, scripts / script)
+    for package in ("release_package", "release_verify"):
+        shutil.copytree(ROOT / "scripts" / package, scripts / package)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = pathlib.Path(temporary) / "fixture"
         (root / "scripts").mkdir(parents=True)
         (root / "docs/profiles").mkdir(parents=True)
-        for script in ("package-release.sh", "verify-release.sh"):
-            shutil.copy2(ROOT / "scripts" / script, root / "scripts" / script)
+        copy_release_modules(root)
         (root / "LICENSE").write_text("fixture\n", encoding="utf-8")
         (root / "Cargo.lock").write_text("version = 4\n", encoding="utf-8")
         profile = root / "docs/profiles/example.json"

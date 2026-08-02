@@ -90,7 +90,7 @@ pub(super) fn v15_matches(
 pub(super) fn v15_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
     let mut tables = super::RELEASED_V13_TABLES.to_vec();
     tables.push("provider_effect_starts");
-    super::released_catalog_matches(conn, &tables, super::RELEASED_V12_EXPLICIT_INDEXES)
+    super::released_catalog_matches(conn, &tables)
 }
 
 pub(super) fn v14_columns_match(
@@ -150,11 +150,8 @@ fn released_v14_table_sql(table: &str) -> Option<String> {
         .collect::<Vec<_>>();
     let additions = additions.join(", ");
     if table == "provider_execution_admissions" {
-        let (columns, constraint) = v13_table.split_once("\n    FOREIGN KEY(")?;
-        Some(format!(
-            "{}, {additions},\n    FOREIGN KEY({constraint})",
-            columns.strip_suffix(',')?
-        ))
+        let (columns, constraint) = v13_table.split_once(", FOREIGN KEY(")?;
+        Some(format!("{columns}, {additions}, FOREIGN KEY({constraint})"))
     } else {
         (!additions.is_empty()).then(|| format!("{v13_table}, {additions})"))
     }

@@ -7,19 +7,42 @@ use gocode_secure_store::{
     ProviderCredentialStore, SecureStoreError,
 };
 use reqwest::redirect::Policy;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use subtle::ConstantTimeEq as _;
 use zeroize::Zeroizing;
 
 pub(super) fn production_client(policy: &OpenAiTransportPolicy) -> Result<reqwest::Client, ()> {
+    client_builder(policy).build().map_err(|_| ())
+}
+
+/// Builds a fixture-only loopback route using the production client settings.
+#[doc(hidden)]
+pub fn loopback_fixture_client(
+    policy: &OpenAiTransportPolicy,
+    address: SocketAddr,
+    certificate_der: &[u8],
+) -> Result<reqwest::Client, crate::OpenAiEffectError> {
+    if !address.ip().is_loopback() || address.port() == 0 {
+        return Err(crate::OpenAiEffectError);
+    }
+    let certificate =
+        reqwest::Certificate::from_der(certificate_der).map_err(|_| crate::OpenAiEffectError)?;
+    client_builder(policy)
+        .resolve("api.openai.com", address)
+        .add_root_certificate(certificate)
+        .build()
+        .map_err(|_| crate::OpenAiEffectError)
+}
+
+fn client_builder(policy: &OpenAiTransportPolicy) -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .use_rustls_tls()
         .https_only(true)
         .no_proxy()
         .redirect(Policy::none())
+        .retry(reqwest::retry::never())
         .connect_timeout(policy.connect_timeout())
-        .build()
-        .map_err(|_| ())
 }
 
 pub(super) struct NativeCredential {
