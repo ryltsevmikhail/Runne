@@ -5,15 +5,12 @@ mod authority;
 mod coordinator;
 mod execution;
 
-pub use admission::{ProviderAdmissionError, ProviderEffectAuthorityRef};
-pub use authority::{
-    AdmittedProviderDispatch, ProviderAuthorityEvidence, ProviderAuthorityIssueLocator,
-    ProviderAuthorityIssueRequest, ProviderExecutionBinding,
-    RuntimeProviderAuthorityEvidenceVerifier, RuntimeProviderAuthorityIssuer,
+pub use admission::{
+    ProviderAdmissionError, ProviderBudgetUtilization, ProviderEffectAuthorityRef,
+    ProviderLeaseBindingKind,
 };
-pub use coordinator::{
-    ProviderCoordinatorOutcome, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-};
+pub use authority::ProviderAuthorityIssueRequest;
+pub use coordinator::ProviderCoordinatorRequest;
 pub use execution::{
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,

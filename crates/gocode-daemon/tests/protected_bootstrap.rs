@@ -5,8 +5,9 @@ use gocode_api::{
     ExecutableIdentityV1, PendingFirstActivationV1, ProtectedRuntimeProfileV1,
     StableRuntimeBindingV1,
 };
-use gocode_daemon::bootstrap::bootstrap_protected;
+use gocode_daemon::bootstrap::{bootstrap, bootstrap_protected};
 use gocode_daemon::config::{BuiltInDefaults, ConfigurationSnapshot};
+use gocode_daemon::lock::LockSet;
 use rusqlite::OptionalExtension as _;
 use sha2::{Digest, Sha256};
 
@@ -187,4 +188,42 @@ fn freshness_failure_after_sidecar_work_does_not_consume_or_advance_launch() {
         })
         .expect("unconsumed exact preparation remains recoverable");
     assert_eq!(recovered.launch_generation, 1);
+}
+
+#[test]
+fn migrated_database_keeps_different_local_session_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
+    drop(bootstrap(&config).expect("create pre-migration database"));
+
+    let legacy_authority = [0x42; 16];
+    let connection = gocode_store::schema::open_with_pragmas(&config.db_path).unwrap();
+    connection
+        .execute(
+            "UPDATE _authority SET authority_id = ?1 WHERE id = 1",
+            rusqlite::params![legacy_authority.as_slice()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "DELETE FROM _daemon_info WHERE key = 'local_session_sidecars_v1'",
+            [],
+        )
+        .unwrap();
+    drop(connection);
+
+    let database_path = std::path::PathBuf::from(&config.db_path);
+    let runtime_directory = database_path
+        .parent()
+        .and_then(Path::parent)
+        .expect("runtime directory");
+    let locks = LockSet::acquire_path(&database_path, runtime_directory).unwrap();
+    locks.write_metadata(&legacy_authority).unwrap();
+    drop(locks);
+    std::fs::remove_file(&config.replay_integrity_key_path).unwrap();
+    std::fs::remove_file(database_path.with_file_name("local-session-authority-id")).unwrap();
+
+    let migrated = bootstrap(&config).expect("migrate local session sidecars");
+    assert_eq!(migrated.authority_id, legacy_authority);
+    assert_ne!(migrated.local_session_authority_id, legacy_authority);
 }

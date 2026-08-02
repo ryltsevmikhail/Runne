@@ -2,8 +2,7 @@
 
 #[cfg(unix)]
 use gocode_api::LaunchAuthorityError;
-use gocode_daemon::application::DaemonApplication;
-use gocode_daemon::config::load_external_config;
+use gocode_daemon::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
 #[cfg(unix)]
 use gocode_daemon::error::DaemonError;
 #[cfg(unix)]
@@ -34,14 +33,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn run_external() -> Result<(), Box<dyn std::error::Error>> {
-    let config = load_external_config().map_err(|error| {
-        eprintln!("fatal: config error: {error}");
-        std::process::exit(1);
-    })?;
-
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
-        let application = DaemonApplication::start(&config).await.map_err(|error| {
+        let application = workspace_internal::start_external_from_fixed_source(
+            ProtectedProviderDependencyCapsule::production(),
+        )
+        .await
+        .map_err(|error| {
             eprintln!("fatal: bootstrap error: {error}");
             std::process::exit(2);
         })?;
@@ -69,16 +67,17 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
         unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
     })
     .map_err(|_| ())?;
-    let bootstrap = launch
-        .bootstrap(|| unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority))
-        .map_err(|_| ())?;
     let runtime = tokio::runtime::Runtime::new().map_err(|_| ())?;
     runtime
         .block_on(async move {
-            let application = DaemonApplication::start_protected(
-                launch.config(),
-                bootstrap,
-                launch.provider_activation().clone(),
+            let start = launch
+                .bootstrap_application_start(|| {
+                    unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
+                })
+                .map_err(|_| ())?;
+            let application = workspace_internal::start_from_verified_protected_launch(
+                start,
+                ProtectedProviderDependencyCapsule::production(),
             )
             .await
             .map_err(|_| ())?;

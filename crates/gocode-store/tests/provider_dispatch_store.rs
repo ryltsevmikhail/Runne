@@ -13,7 +13,6 @@ use gocode_store::provider::{
     ProviderRuntimeAuthorityConfig, ProviderStoreError, SettleProviderDispatch,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
-
 fn database_path(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "gocode-provider-dispatch-{name}-{}-{:?}.sqlite",
@@ -21,14 +20,12 @@ fn database_path(name: &str) -> PathBuf {
         std::thread::current().id()
     ))
 }
-
 fn fresh_store(name: &str) -> (PathBuf, SqliteProviderDispatchStore) {
     let path = database_path(name);
     let _ = std::fs::remove_file(&path);
     let store = SqliteProviderDispatchStore::open(&path).unwrap();
     (path, store)
 }
-
 fn prepared(call_byte: u8) -> PreparedProviderRecord {
     PreparedProviderRecord {
         call_id: ProviderCallId::from_bytes([call_byte; 16]),
@@ -38,7 +35,6 @@ fn prepared(call_byte: u8) -> PreparedProviderRecord {
         profile_digest: [4; 32],
     }
 }
-
 fn legacy_claim(call_byte: u8) -> ProviderDispatchClaim {
     ProviderDispatchClaim {
         call_id: ProviderCallId::from_bytes([call_byte; 16]),
@@ -53,7 +49,6 @@ fn legacy_claim(call_byte: u8) -> ProviderDispatchClaim {
         provider_idempotency_key: "provider-attempt-5".to_owned(),
     }
 }
-
 fn issue_dispatch(path: &std::path::Path, call_byte: u8) -> gocode_provider::ProviderDispatchClaim {
     let record = prepared(call_byte);
     let execution = SqliteProviderExecutionStore::open(path).unwrap();
@@ -69,15 +64,20 @@ fn issue_dispatch(path: &std::path::Path, call_byte: u8) -> gocode_provider::Pro
             capability_grant_id: "provider-dispatch-test-grant".to_owned(),
             capability_revision: 1,
             capability_allowed: true,
+            capability_revocation_epoch: 1,
             approval_id: "provider-dispatch-test-approval".to_owned(),
             approval_revision: 1,
             approval_allowed: true,
-            approval_expires_at: i64::MAX,
+            approval_revocation_epoch: 1,
             profile_digest: record.profile_digest,
             pricing_revision_digest: [22; 32],
+            activation_binding_kind:
+                gocode_application::provider::ProviderLeaseBindingKind::ProtectedV2,
+            activation_binding_digest: [23; 32],
             token_budget_limit: 10_000,
             cost_budget_limit_micros: 1_000_000,
             authority_ttl_seconds: 120,
+            lease_ttl_seconds: 600,
         })
         .unwrap();
     let ProviderAuthorityIssueOutcome::Winner(admitted) = execution

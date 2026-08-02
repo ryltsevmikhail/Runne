@@ -10,6 +10,10 @@
 use gocode_domain::id::{EventLogLineageId, validate_uuid_v7_bytes};
 use rand::RngCore;
 use rand::rngs::OsRng;
+use rusqlite::{
+    Connection, DatabaseName, OpenFlags, OptionalExtension, Result as SqliteResult, Transaction,
+    TransactionBehavior,
+};
 use sha2::{Digest, Sha256};
 use std::{
     fmt, fs,
@@ -18,14 +22,10 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use rusqlite::{
-    Connection, DatabaseName, OpenFlags, OptionalExtension, Result as SqliteResult, Transaction,
-    TransactionBehavior,
-};
+pub(crate) mod provider_schema;
+use provider_schema::{apply_v14_migration, apply_v15_migration, v14_columns_match, v15_matches};
 
-/// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 13;
-
+pub const CURRENT_SCHEMA_VERSION: i64 = 15;
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchemaOpenDiagnostic {
@@ -176,13 +176,11 @@ fn admit_identity(path: &Path) -> Result<(), SchemaOpenDiagnostic> {
         Ok(())
     }
 }
-
 fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
     let mut sidecar = path.as_os_str().to_os_string();
     sidecar.push(suffix);
     PathBuf::from(sidecar)
 }
-
 fn path_is_safe(path: &Path) -> bool {
     !path.to_string_lossy().contains(['?', '#', '%'])
 }
@@ -340,13 +338,11 @@ fn validate_owner_private_recovery_files(db_path: &Path) -> Result<(), SchemaOpe
     }
     Ok(())
 }
-
 fn existing_sidecar_present(db_path: &Path) -> bool {
     ["-wal", "-shm"]
         .into_iter()
         .any(|suffix| sidecar_path(db_path, suffix).exists())
 }
-
 fn immutable_read_only_uri(path: &Path) -> Result<String, SchemaOpenDiagnostic> {
     let text = path
         .as_os_str()
@@ -366,7 +362,6 @@ fn immutable_read_only_uri(path: &Path) -> Result<String, SchemaOpenDiagnostic> 
     uri.push_str("?immutable=1");
     Ok(uri)
 }
-
 /// Classify an existing database before any pragma or statement that can
 /// mutate the main database or its sidecars.
 fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
@@ -374,7 +369,6 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
     if user_version > CURRENT_SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
     }
-
     let has_version_table: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
         [],
@@ -383,7 +377,6 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
     if !has_version_table {
         return Err(rusqlite::Error::InvalidQuery);
     }
-
     let schema_version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version",
         [],
@@ -398,6 +391,8 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
         11 => is_released_provider_v11(conn, schema_version)?,
         12 => is_released_provider_v12(conn, schema_version)?,
         13 => is_released_provider_v13(conn, schema_version)?,
+        14 => is_released_provider_v14(conn, schema_version)?,
+        15 => is_released_provider_v15(conn, schema_version)?,
         _ => false,
     };
     if compatible {
@@ -405,7 +400,6 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
     }
     Err(rusqlite::Error::InvalidQuery)
 }
-
 fn is_released_v8(conn: &Connection) -> SqliteResult<bool> {
     let version_count: i64 =
         conn.query_row("SELECT COUNT(*) FROM schema_version", [], |row| row.get(0))?;
@@ -694,7 +688,8 @@ fn authoritative_v12_tables(conn: &Connection) -> SqliteResult<Vec<String>> {
            AND name NOT IN (
                'schema_version',
                'schema_upgrade_fence',
-               'schema_upgrade_write_latch'
+               'schema_upgrade_write_latch',
+               'provider_effect_starts'
            )
          ORDER BY name",
     )?;
@@ -876,7 +871,6 @@ fn apply_migrations_with_maintenance_hook(
 ) -> SqliteResult<()> {
     apply_migrations_through(conn, CURRENT_SCHEMA_VERSION, maintenance_hook)
 }
-
 fn apply_migrations_through(
     conn: &Connection,
     target_version: i64,
@@ -903,6 +897,8 @@ fn apply_migrations_through(
             11 => is_released_provider_v11(conn, existing_version)?,
             12 => is_released_provider_v12(conn, existing_version)?,
             13 => is_released_provider_v13(conn, existing_version)?,
+            14 => is_released_provider_v14(conn, existing_version)?,
+            15 => is_released_provider_v15(conn, existing_version)?,
             _ => false,
         };
         if !compatible {
@@ -1045,7 +1041,6 @@ fn apply_migrations_through(
         tx.execute("INSERT INTO schema_version (version) VALUES (12)", [])?;
         tx.commit()?;
     }
-
     if current_version < 13 && target_version >= 13 {
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
         tx.execute_batch(MIGRATION_V13)?;
@@ -1053,14 +1048,18 @@ fn apply_migrations_through(
         tx.execute("INSERT INTO schema_version (version) VALUES (13)", [])?;
         tx.commit()?;
     }
-
+    if current_version < 14 && target_version >= 14 {
+        apply_v14_migration(conn, |tx| install_missing_v12_fence_triggers(tx))?;
+    }
+    if current_version < 15 && target_version >= 15 {
+        apply_v15_migration(conn)?;
+    }
     if current_version < target_version {
         // Preflight classifies the immutable main database without consulting
         // a hot WAL. Publish completed schema migrations before another
         // process or connection attempts admission.
         conn.execute_batch("PRAGMA wal_checkpoint(FULL);")?;
     }
-
     Ok(())
 }
 
@@ -1438,12 +1437,15 @@ fn is_released_provider_v13(conn: &Connection, version: i64) -> SqliteResult<boo
             &PROVIDER_EXECUTION_ADMISSION_COLUMNS,
         )?
         && table_sql_matches_migration(conn, "provider_execution_admissions", MIGRATION_V13)?
-        && table_shape_matches(
-            conn,
-            "provider_budget_reservations",
-            &PROVIDER_BUDGET_RESERVATION_COLUMNS,
-        )?
-        && table_sql_matches_migration(conn, "provider_budget_reservations", MIGRATION_V13)?
+        && released_v13_unchanged_provider_matches(conn)?
+        && released_v13_catalog_matches(conn)?)
+}
+fn released_v13_unchanged_provider_matches(conn: &Connection) -> SqliteResult<bool> {
+    Ok(table_shape_matches(
+        conn,
+        "provider_budget_reservations",
+        &PROVIDER_BUDGET_RESERVATION_COLUMNS,
+    )? && table_sql_matches_migration(conn, "provider_budget_reservations", MIGRATION_V13)?
         && table_shape_matches(
             conn,
             "provider_journal_key_refs",
@@ -1476,12 +1478,26 @@ fn is_released_provider_v13(conn: &Connection, version: i64) -> SqliteResult<boo
             &PROVIDER_TERMINAL_OUTBOX_COLUMNS,
         )?
         && table_sql_matches_migration(conn, "provider_terminal_outbox", MIGRATION_V13)?
-        && v12_fence_triggers_match(conn)?
-        && released_v13_catalog_matches(conn)?)
+        && v12_fence_triggers_match(conn)?)
 }
-
+fn is_released_provider_v14(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    let v12 = provider_v12_core_matches(conn)?;
+    let unchanged = released_v13_unchanged_provider_matches(conn)?;
+    let current: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+        [],
+        |row| row.get(0),
+    )?;
+    let columns = v14_columns_match(conn, version, v12, unchanged)?;
+    Ok(columns && (current != 14 || released_v13_catalog_matches(conn)?))
+}
+fn is_released_provider_v15(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    let v12 = provider_v12_core_matches(conn)?;
+    let unchanged = released_v13_unchanged_provider_matches(conn)?;
+    let v14 = provider_schema::v14_base_matches(conn, v12, unchanged)?;
+    Ok(v15_matches(conn, version, v14)? && provider_schema::v15_catalog_matches(conn)?)
+}
 type ColumnShape = (&'static str, &'static str, bool, i64);
-
 const VERIFICATION_EVIDENCE_COLUMNS: [ColumnShape; 12] = [
     ("evidence_id", "BLOB", false, 1),
     ("run_id", "BLOB", true, 0),
@@ -1807,7 +1823,7 @@ const RELEASED_V12_TABLES: &[&str] = &[
     "verification_evidence",
 ];
 
-const RELEASED_V12_EXPLICIT_INDEXES: &[&str] = &[
+pub(super) const RELEASED_V12_EXPLICIT_INDEXES: &[&str] = &[
     "idx_evidence_run",
     "idx_events_aggregate_sequence",
     "idx_migration_evidence_plan",
@@ -1820,7 +1836,7 @@ fn released_v12_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
     released_catalog_matches(conn, RELEASED_V12_TABLES, RELEASED_V12_EXPLICIT_INDEXES)
 }
 
-const RELEASED_V13_TABLES: &[&str] = &[
+pub(super) const RELEASED_V13_TABLES: &[&str] = &[
     "_authority",
     "_daemon_info",
     "_replay_subscriptions",
@@ -1869,8 +1885,7 @@ const RELEASED_V13_TABLES: &[&str] = &[
 fn released_v13_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
     released_catalog_matches(conn, RELEASED_V13_TABLES, RELEASED_V12_EXPLICIT_INDEXES)
 }
-
-fn released_catalog_matches(
+pub(super) fn released_catalog_matches(
     conn: &Connection,
     released_tables: &[&str],
     released_indexes: &[&str],
@@ -1893,7 +1908,6 @@ fn released_catalog_matches(
     {
         return Ok(false);
     }
-
     let mut explicit_indexes = conn
         .prepare(
             "SELECT name FROM sqlite_master
@@ -1912,7 +1926,6 @@ fn released_catalog_matches(
     {
         return Ok(false);
     }
-
     let invalid_internal_index: bool = conn.query_row(
         "SELECT EXISTS(
             SELECT 1 FROM sqlite_master
@@ -1936,7 +1949,6 @@ fn released_catalog_matches(
     )?;
     Ok(!invalid_internal_index && view_count == 0)
 }
-
 fn table_shape_matches(
     conn: &Connection,
     table: &str,
@@ -1966,7 +1978,6 @@ fn table_shape_matches(
             },
         ))
 }
-
 fn table_sql_matches(conn: &Connection, table: &str, expected: &str) -> SqliteResult<bool> {
     let actual: Option<String> = conn.query_row(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?1",
@@ -1975,7 +1986,6 @@ fn table_sql_matches(conn: &Connection, table: &str, expected: &str) -> SqliteRe
     )?;
     Ok(actual.is_some_and(|sql| normalize_sql(&sql) == normalize_sql(expected)))
 }
-
 fn table_sql_matches_migration(
     conn: &Connection,
     table: &str,
@@ -1997,7 +2007,6 @@ fn table_sql_matches_migration(
         .find(|statement| statement.starts_with(&format!("CREATE TABLE {table} ")));
     Ok(expected.is_some_and(|expected| normalize_ddl(&ddl) == normalize_ddl(expected)))
 }
-
 fn normalize_ddl(ddl: &str) -> String {
     let mut normalized = String::with_capacity(ddl.len());
     let mut characters = ddl.chars().peekable();
@@ -2030,7 +2039,6 @@ fn normalize_ddl(ddl: &str) -> String {
     }
     normalized
 }
-
 fn index_matches(
     conn: &Connection,
     index: &str,
@@ -2093,7 +2101,6 @@ fn index_matches(
             },
         ))
 }
-
 fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
     let schema_version: i64 = conn.query_row(
         "SELECT COALESCE(MAX(version), 0) FROM schema_version",
@@ -2164,14 +2171,12 @@ pub fn run_startup_gates(conn: &Connection, _db_path: &str) -> SqliteResult<()> 
     if schema_version != CURRENT_SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
     }
-
     // PRAGMA profile verification
     verify_pragma(conn, "journal_mode", "wal")?;
     verify_pragma(conn, "synchronous", "2")?; // FULL = 2
     verify_pragma(conn, "foreign_keys", "1")?;
     #[cfg(target_os = "macos")]
     verify_pragma(conn, "fullfsync", "1")?;
-
     // Set file permissions on Unix
     #[cfg(unix)]
     {
@@ -2186,10 +2191,8 @@ pub fn run_startup_gates(conn: &Connection, _db_path: &str) -> SqliteResult<()> 
             }
         }
     }
-
     Ok(())
 }
-
 /// Verify a PRAGMA value matches the expected value.
 fn verify_pragma(conn: &Connection, pragma: &str, expected: &str) -> SqliteResult<()> {
     let sql = format!("PRAGMA {};", pragma);
@@ -2211,7 +2214,6 @@ fn verify_pragma(conn: &Connection, pragma: &str, expected: &str) -> SqliteResul
     }
     Ok(())
 }
-
 // ── Migration V1: initial schema ─────────────────────────────────────────
 
 const MIGRATION_V1: &str = r#"
@@ -2265,7 +2267,6 @@ CREATE TABLE command_receipts (
 CREATE INDEX idx_receipts_scope_key
     ON command_receipts(idempotency_scope_bytes, idempotency_key);
 "#;
-
 // ── Migration V2: correlation_id + aggregate_streams ─────────────────────
 
 const MIGRATION_V2: &str = r#"
@@ -2275,7 +2276,6 @@ ALTER TABLE events ADD COLUMN integrity_profile INTEGER NOT NULL DEFAULT 1;
 
 ALTER TABLE task_run_streams RENAME TO aggregate_streams;
 "#;
-
 // ── Migration V3: typed aggregate stream identity ───────────────────────
 
 const MIGRATION_V3: &str = r#"
@@ -3776,7 +3776,7 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         apply_migrations(&conn).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 15);
         for table in [
             "migration_plans",
             "migration_transitions",
@@ -4425,7 +4425,7 @@ mod tests {
     #[test]
     fn released_v13_requires_the_exact_catalog_and_table_shapes() {
         let connection = Connection::open_in_memory().unwrap();
-        apply_migrations(&connection).unwrap();
+        apply_migrations_through(&connection, 13, None).unwrap();
         assert!(is_released_provider_v13(&connection, 13).unwrap());
 
         connection
@@ -4453,7 +4453,7 @@ mod tests {
 
         apply_migrations_through(&conn, 12, None).unwrap();
 
-        assert_eq!(CURRENT_SCHEMA_VERSION, 13);
+        assert_eq!(CURRENT_SCHEMA_VERSION, 15);
         assert_eq!(
             conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))

@@ -1,0 +1,35 @@
+[package]
+name = "gocode-daemon-loopback-fixture"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+gocode-application = { path = "../gocode-application" }
+gocode-api = { path = "../gocode-api" }
+gocode-daemon = { path = "../gocode-daemon" }
+gocode-daemon-openai-effect = { path = "../gocode-daemon-openai-effect" }
+gocode-platform-desktop = { path = "../platform-desktop" }
+gocode-provider = { path = "../gocode-provider" }
+gocode-runtime = { path = "../gocode-runtime" }
+gocode-runtime-client = { path = "../runtime-client" }
+gocode-store = { path = "../gocode-store" }
+gocode-secure-store = { path = "../secure-store" }
+rand = "0.8"
+rcgen = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rustls = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+uuid = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+gocode-provider-openai = { path = "../gocode-provider-openai" }
+rusqlite = { workspace = true }
+tempfile = "3"

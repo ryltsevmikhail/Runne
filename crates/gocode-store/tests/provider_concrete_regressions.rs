@@ -1,0 +1,300 @@
+use std::sync::Mutex;
+
+use futures::executor::block_on;
+use gocode_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
+};
+use gocode_application::provider::{ProviderAdmissionError, ProviderCoordinatorRequest};
+use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
+use gocode_provider::{
+    DispatchError, DispatchRequest, ModelRef, PrepareError, PreparedRequest, ProviderCall,
+    ProviderCallDigestVersion, ProviderCallId, ProviderFuture, ProviderId, ProviderPort,
+    ProviderStreamId,
+};
+use gocode_store::provider::{
+    PreparedProviderRecord, ProviderCoordinatorOutcome, ProviderEffectPort,
+    ProviderEffectStartReceipt, ProviderReadyEffect, ProviderRuntimeAuthorityConfig,
+    SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+};
+
+const MARKER: &str = "serialized-provider-marker";
+struct Ready(DispatchRequest);
+impl ProviderReadyEffect for Ready {
+    fn into_any(self: Box<Self>) -> Box<dyn core::any::Any + Send> {
+        self
+    }
+}
+
+#[derive(Clone, Copy)]
+enum Response {
+    Stream,
+    MaybeDispatched,
+}
+
+struct Provider {
+    response: Response,
+    prepared: Mutex<Vec<ProviderCallDigestVersion>>,
+    dispatched: Mutex<usize>,
+}
+
+impl Provider {
+    fn new(response: Response) -> Self {
+        Self {
+            response,
+            prepared: Mutex::new(Vec::new()),
+            dispatched: Mutex::new(0),
+        }
+    }
+}
+
+impl ProviderPort for Provider {
+    fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
+        self.prepared
+            .lock()
+            .unwrap()
+            .push(ProviderCallDigestVersion::V2);
+        PreparedRequest::from_call(call)
+    }
+    fn prepare_for_digest_version(
+        &self,
+        call: &ProviderCall,
+        version: ProviderCallDigestVersion,
+    ) -> Result<PreparedRequest, PrepareError> {
+        self.prepared.lock().unwrap().push(version);
+        PreparedRequest::from_call_for_digest_version(call, version)
+    }
+    fn dispatch(
+        &self,
+        _request: DispatchRequest,
+    ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
+        *self.dispatched.lock().unwrap() += 1;
+        let result = match self.response {
+            Response::Stream => Ok(ProviderStreamId::from_bytes([9; 16])),
+            Response::MaybeDispatched => Err(DispatchError::MaybeDispatched),
+        };
+        Box::pin(async move { result })
+    }
+    fn next<'a>(
+        &'a self,
+        _: &'a ProviderStreamId,
+        _: gocode_provider::StreamCursor,
+    ) -> ProviderFuture<'a, Result<gocode_provider::ProviderStreamItem, gocode_provider::StreamError>>
+    {
+        Box::pin(async { unreachable!("dispatch tests do not poll") })
+    }
+    fn cancel(
+        &self,
+        _: gocode_provider::CancelRequest,
+    ) -> ProviderFuture<'_, Result<gocode_provider::CancelDisposition, DispatchError>> {
+        Box::pin(async { unreachable!("dispatch tests do not cancel") })
+    }
+    fn reconcile(
+        &self,
+        _: gocode_provider::ReconcileRequest,
+    ) -> ProviderFuture<'_, Result<gocode_provider::ReconciliationDisposition, DispatchError>> {
+        Box::pin(async { unreachable!("dispatch tests do not reconcile") })
+    }
+}
+
+impl ProviderEffectPort for Provider {
+    fn stage_effect(
+        &self,
+        request: DispatchRequest,
+    ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
+        Box::pin(async move { Ok(Box::new(Ready(request)) as Box<dyn ProviderReadyEffect>) })
+    }
+    fn dispatch_effect(
+        &self,
+        ready: Box<dyn ProviderReadyEffect>,
+        _: ProviderEffectStartReceipt,
+    ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
+        let ready = ready.into_any().downcast::<Ready>().unwrap();
+        self.dispatch(ready.0)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum GuardMode {
+    Allowed,
+    Prohibited,
+    Unavailable,
+}
+
+struct Guard {
+    mode: GuardMode,
+    saw_marker: Mutex<bool>,
+}
+
+impl ProhibitedContentPort for Guard {
+    fn inspect(
+        &self,
+        boundary: CanonicalContentBoundary,
+        bytes: &[u8],
+    ) -> Result<ContentDisposition, ContentGuardError> {
+        assert_eq!(boundary, CanonicalContentBoundary::OutboundDelivery);
+        *self.saw_marker.lock().unwrap() = bytes
+            .windows(MARKER.len())
+            .any(|part| part == MARKER.as_bytes());
+        match self.mode {
+            GuardMode::Allowed => Ok(ContentDisposition::Allowed { policy_epoch: 1 }),
+            GuardMode::Prohibited => Ok(ContentDisposition::Prohibited { policy_epoch: 1 }),
+            GuardMode::Unavailable => Err(ContentGuardError::Unavailable),
+        }
+    }
+}
+
+fn fixture() -> (
+    tempfile::TempDir,
+    SqliteProviderDispatchStore,
+    SqliteProviderExecutionStore,
+    ProviderCoordinatorRequest,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("provider.sqlite");
+    let dispatch = SqliteProviderDispatchStore::open(&path).unwrap();
+    let execution = SqliteProviderExecutionStore::open(&path).unwrap();
+    execution
+        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+            runtime_authority_id: [1; 16],
+            database_generation: 1,
+            principal_id: "principal".into(),
+            owner_id: "owner".into(),
+            scope: "provider.dispatch".into(),
+            generation: 1,
+            fencing_token: 1,
+            capability_grant_id: "grant".into(),
+            capability_revision: 1,
+            capability_allowed: true,
+            capability_revocation_epoch: 1,
+            approval_id: "approval".into(),
+            approval_revision: 1,
+            approval_allowed: true,
+            approval_revocation_epoch: 1,
+            profile_digest: [2; 32],
+            pricing_revision_digest: [3; 32],
+            activation_binding_kind:
+                gocode_application::provider::ProviderLeaseBindingKind::ProtectedV2,
+            activation_binding_digest: [4; 32],
+            token_budget_limit: 10_000,
+            cost_budget_limit_micros: 1_000_000,
+            authority_ttl_seconds: 120,
+            lease_ttl_seconds: 600,
+        })
+        .unwrap();
+    let call = ProviderCall::new(
+        ProviderCallId::from_bytes([4; 16]),
+        ModelRef::new(ProviderId::new("fixture").unwrap(), "model", "2026-08-01").unwrap(),
+        [5; 32],
+        64,
+        serde_json::json!({"marker": MARKER}),
+    )
+    .unwrap();
+    (
+        directory,
+        dispatch,
+        execution,
+        ProviderCoordinatorRequest {
+            call,
+            principal_id: "principal".into(),
+            conversation_id: ConversationId::from_bytes([6; 16]),
+            taskrun_id: TaskRunId::from_bytes([7; 16]),
+            execution_attempt_id: AttemptId::from_bytes([8; 16]),
+            profile_digest: [2; 32],
+            pricing_revision_digest: [3; 32],
+            requested_input_tokens: 32,
+            requested_output_tokens: 64,
+            max_cost_micros: 10_000,
+            currency: "USD".into(),
+            provider_idempotency_key: "concrete-regression".into(),
+        },
+    )
+}
+
+#[test]
+fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
+    let (_directory, dispatch, execution, request) = fixture();
+    let v1 =
+        PreparedRequest::from_call_for_digest_version(&request.call, ProviderCallDigestVersion::V1)
+            .unwrap();
+    dispatch
+        .persist_prepared(&PreparedProviderRecord {
+            call_id: request.call.call_id(),
+            call_digest_version: ProviderCallDigestVersion::V1,
+            prepared_digest: *v1.request_ref().as_bytes(),
+            render_digest: *v1.render_digest(),
+            profile_digest: [2; 32],
+        })
+        .unwrap();
+    let provider = Provider::new(Response::Stream);
+    let guard = Guard {
+        mode: GuardMode::Allowed,
+        saw_marker: Mutex::new(false),
+    };
+    let coordinator =
+        SqliteProviderDispatchCoordinator::new(&dispatch, &execution, &provider, &provider, &guard);
+    assert!(matches!(
+        block_on(coordinator.dispatch(request.clone())),
+        Ok(ProviderCoordinatorOutcome::Streaming { .. })
+    ));
+    assert!(matches!(
+        block_on(coordinator.dispatch(request)),
+        Ok(ProviderCoordinatorOutcome::Existing { .. })
+    ));
+    assert_eq!(
+        *provider.prepared.lock().unwrap(),
+        vec![ProviderCallDigestVersion::V1, ProviderCallDigestVersion::V1]
+    );
+    assert_eq!(*provider.dispatched.lock().unwrap(), 1);
+}
+
+#[test]
+fn maybe_dispatched_is_durable_uncertain_and_never_retries() {
+    let (_directory, dispatch, execution, request) = fixture();
+    let provider = Provider::new(Response::MaybeDispatched);
+    let guard = Guard {
+        mode: GuardMode::Allowed,
+        saw_marker: Mutex::new(false),
+    };
+    let coordinator =
+        SqliteProviderDispatchCoordinator::new(&dispatch, &execution, &provider, &provider, &guard);
+    assert_eq!(
+        block_on(coordinator.dispatch(request.clone())).unwrap(),
+        ProviderCoordinatorOutcome::Uncertain
+    );
+    assert!(matches!(
+        block_on(coordinator.dispatch(request)),
+        Ok(ProviderCoordinatorOutcome::Existing {
+            state: gocode_provider::ProviderRepositoryState::Uncertain
+        })
+    ));
+    assert_eq!(*provider.dispatched.lock().unwrap(), 1);
+}
+
+#[test]
+fn oversized_reservations_are_rejected_before_admission_or_dispatch() {
+    for oversized_output in [false, true] {
+        let (_directory, dispatch, execution, mut request) = fixture();
+        if oversized_output {
+            request.requested_output_tokens =
+                u32::try_from(gocode_provider::MAX_PROVIDER_USAGE_TOKENS + 1).unwrap();
+        } else {
+            request.requested_input_tokens = gocode_provider::MAX_PROVIDER_USAGE_TOKENS + 1;
+        }
+        let provider = Provider::new(Response::Stream);
+        let guard = Guard {
+            mode: GuardMode::Allowed,
+            saw_marker: Mutex::new(false),
+        };
+        let coordinator = SqliteProviderDispatchCoordinator::new(
+            &dispatch, &execution, &provider, &provider, &guard,
+        );
+        assert_eq!(
+            block_on(coordinator.dispatch(request)),
+            Err(ProviderAdmissionError::InvalidSemanticContext)
+        );
+        assert_eq!(*provider.dispatched.lock().unwrap(), 0);
+        assert_eq!(execution.admitted_count().unwrap(), 0);
+    }
+}
+#[path = "support/provider_concrete_regressions_policy_tests.rs"]
+mod provider_concrete_regressions_policy_tests;

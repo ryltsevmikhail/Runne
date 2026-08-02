@@ -34,10 +34,7 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
 
 RENDERER_ROOT = Path("apps/desktop/src")
 CONVERSATION_ENTITY_API = Path("apps/desktop/src/entities/conversation/api")
-PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
-    Path("crates/gocode-runtime/src/provider_execution.rs"),
-    Path("crates/gocode-store/src/provider/execution_store.rs"),
-}
+PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {Path("crates/gocode-runtime/src/provider_execution.rs"), Path("crates/gocode-store/src/provider/execution_store.rs"), Path("crates/gocode-daemon/src/canonical_provider/runtime_store.rs"), Path("crates/gocode-daemon-loopback-fixture/src/ack_failure_store.rs")}
 PROVIDER_TERMINAL_TEST_FEATURE = "provider-terminal-test-support"
 RAW_PROVIDER_TERMINAL_TYPE = re.compile(r"\bProviderTerminalCommitRequest\b")
 IMPORT_SOURCE_PATTERN = re.compile(
