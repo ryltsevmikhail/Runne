@@ -14,6 +14,14 @@ SPEC.loader.exec_module(verifier)
 
 
 class VerifyTask6CReleaseExclusionTests(unittest.TestCase):
+    def test_fake_cargo_uses_lf_only(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            cargo = pathlib.Path(temporary_directory) / "build"
+
+            verifier.write_fake_cargo(cargo, include_forbidden=True)
+
+            self.assertNotIn(b"\r", cargo.read_bytes())
+
     def test_allowlist_accepts_the_daemon_only_candidate(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             candidate = pathlib.Path(temporary_directory)
