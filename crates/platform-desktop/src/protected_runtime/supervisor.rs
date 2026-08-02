@@ -42,7 +42,7 @@ impl DevelopmentBundledRuntimeLauncher {
         #[cfg(not(unix))]
         {
             let _ = (spec, launch_secret, capture_output, fail_at);
-            return Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend);
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
         }
         #[cfg(unix)]
         let mut controls = LaunchTestControls {
