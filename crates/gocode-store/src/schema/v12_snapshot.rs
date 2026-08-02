@@ -56,7 +56,7 @@ fn create_private_database_backup(
     source: &Path,
 ) -> SqliteResult<PrivateDatabaseBackup> {
     let source = fs::canonicalize(source).map_err(io_error)?;
-    if !path_is_safe(&source) {
+    if !canonical_backup_source_is_safe(&source) {
         return Err(diagnostic_error(SchemaOpenDiagnostic::UnsafePath));
     }
     let filename = format!(
@@ -107,6 +107,21 @@ fn create_private_database_backup(
     })
 }
 
+fn canonical_backup_source_is_safe(source: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let rendered = source.to_string_lossy();
+        rendered
+            .strip_prefix(r"\\?\")
+            .is_some_and(|canonical| !canonical.contains(['?', '#', '%']))
+            || path_is_safe(source)
+    }
+    #[cfg(not(windows))]
+    {
+        path_is_safe(source)
+    }
+}
+
 fn load_v12_upgrade_fence(conn: &Connection) -> SqliteResult<Option<V12UpgradeFenceRow>> {
     conn.query_row("SELECT snapshot_filename, snapshot_digest, baseline_event_next_position, baseline_provider_prepared_count, baseline_provider_attempt_count FROM schema_upgrade_fence WHERE id = 1", [], |row| Ok(V12UpgradeFenceRow { snapshot_filename: row.get(0)?, snapshot_digest: row.get(1)?, baseline_event_next_position: row.get(2)?, baseline_provider_prepared_count: row.get(3)?, baseline_provider_attempt_count: row.get(4)? })).optional()
 }
@@ -137,4 +152,19 @@ fn safe_snapshot_filename(filename: &str) -> bool {
             .file_name()
             .and_then(|name| name.to_str())
             == Some(filename)
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_backup_path_accepts_only_the_native_verbatim_prefix() {
+        assert!(canonical_backup_source_is_safe(Path::new(
+            r"\\?\C:\safe\event-log.db"
+        )));
+        assert!(!canonical_backup_source_is_safe(Path::new(
+            r"\\?\C:\unsafe?\event-log.db"
+        )));
+    }
 }
