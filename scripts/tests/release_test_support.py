@@ -105,8 +105,8 @@ class ReleaseTestCase(unittest.TestCase):
 
         self.bin_directory = pathlib.Path(self.temporary_directory.name) / "bin"
         self.bin_directory.mkdir()
-        self.cargo_marker = pathlib.Path(self.temporary_directory.name) / "cargo-invoked"
-        cargo = self.bin_directory / "cargo"
+        self.cargo_marker = self.root / "cargo-invoked"
+        cargo = self.root / "build"
         cargo.write_bytes(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
@@ -133,8 +133,8 @@ class ReleaseTestCase(unittest.TestCase):
         environment = os.environ.copy()
         environment["PATH"] = f"{self.bin_directory}{os.pathsep}{environment['PATH']}"
         environment["SOURCE_DATE_EPOCH"] = "1700000000"
-        environment["CARGO_INVOCATION_MARKER"] = str(self.cargo_marker)
-        environment["CARGO"] = bash_native_path(self.bin_directory / "cargo")
+        environment["CARGO_INVOCATION_MARKER"] = self.cargo_marker.name
+        environment["CARGO"] = bash_executable()
         return run_bash(
             SCRIPT_PATH,
             [
