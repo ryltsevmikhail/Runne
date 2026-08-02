@@ -19,7 +19,7 @@ impl ProtectedBundledRuntimeProcess {
     }
 
     /// Copies role-separated activation keys only for test-support leak audits.
-    #[cfg(feature = "test-support")]
+    #[cfg(all(feature = "test-support", unix))]
     #[doc(hidden)]
     #[must_use]
     pub fn test_activation_key_material(
