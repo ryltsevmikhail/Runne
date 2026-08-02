@@ -156,7 +156,11 @@ def main() -> None:
             raise SystemExit("Task 6C fixture requires bash")
         env = os.environ | {
             "CARGO": bash,
-            "CARGO_ARGV": argv_path.as_posix(),
+            # Keep the recorder path relative to the fixture root. Git Bash does
+            # not interpret a Windows ``C:/...`` path as absolute inside shell
+            # redirections, while the release packager always builds from the
+            # resolved repository root.
+            "CARGO_ARGV": argv_path.name,
             "SOURCE_DATE_EPOCH": "1",
         }
         write_fake_cargo(fake_cargo, include_forbidden=True)
