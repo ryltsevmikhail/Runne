@@ -26,6 +26,26 @@ ALLOWLIST = {
 FORBIDDEN_ARTIFACTS = ("activation_process", "recovery_process")
 
 
+def bash_executable() -> str:
+    """Resolve Git Bash instead of the WSL launcher on native Windows."""
+    if os.name != "nt":
+        executable = shutil.which("bash")
+        if executable:
+            return executable
+        raise SystemExit("Task 6C fixture requires bash")
+    git_executable = shutil.which("git")
+    candidates = []
+    if git_executable:
+        candidates.append(pathlib.Path(git_executable).resolve().parent.parent / "bin/bash.exe")
+    program_files = os.environ.get("ProgramFiles")
+    if program_files:
+        candidates.append(pathlib.Path(program_files) / "Git/bin/bash.exe")
+    for candidate in candidates:
+        if candidate.is_file():
+            return str(candidate)
+    raise SystemExit("Task 6C fixture requires Git Bash on Windows")
+
+
 def run(command: list[str], cwd: pathlib.Path, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -103,7 +123,7 @@ def package(root: pathlib.Path, env: dict[str, str], name: str) -> pathlib.Path:
     output = root / name
     run(
         [
-            "bash",
+            env["CARGO"],
             "scripts/package-release.sh",
             "--version",
             "1.0.0",
@@ -161,9 +181,7 @@ def main() -> None:
         initialize_fixture_repository(root, os.environ.copy())
         fake_cargo = root / "build"
         argv_path = root / "cargo-argv"
-        bash = shutil.which("bash")
-        if bash is None:
-            raise SystemExit("Task 6C fixture requires bash")
+        bash = bash_executable()
         env = os.environ | {
             "CARGO": bash,
             # Keep the recorder path relative to the fixture root. Git Bash does
@@ -184,7 +202,7 @@ def main() -> None:
         baseline = package(root, env, "output-daemon-only")
         require_allowlist(baseline)
         verify = [
-            "bash",
+            bash,
             "scripts/verify-release.sh",
             "--fixture-only",
             "--candidate",
