@@ -1,6 +1,7 @@
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generated_protected_material_is_absent_from_every_forbidden_local_sink() {
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = tempfile::tempdir().expect("temporary audit root");
     let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
     let spec =
