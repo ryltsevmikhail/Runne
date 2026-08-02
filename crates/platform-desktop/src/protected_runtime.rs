@@ -1,3 +1,7 @@
+// Non-Unix builds expose only fail-closed public stubs; Unix implementation
+// details are intentionally dormant there.
+#![cfg_attr(not(unix), allow(dead_code, clippy::missing_const_for_fn))]
+
 include!("protected_runtime/state_records.rs");
 include!("protected_runtime/state_store.rs");
 include!("protected_runtime/launcher.rs");
