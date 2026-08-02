@@ -74,7 +74,7 @@ where
     #[cfg(not(unix))]
     {
         let _ = (db_path, validate);
-        return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
+        Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
     #[cfg(unix)]
     {
