@@ -17,6 +17,21 @@ use super::{
 
 pub(super) struct TestClock(AtomicI64);
 
+pub(super) fn configured_connection(path: &Path) -> Connection {
+    let connection = Connection::open(path).unwrap();
+    connection
+        .execute_batch(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = FULL;
+             PRAGMA foreign_keys = ON;
+             PRAGMA busy_timeout = 5000;",
+        )
+        .unwrap();
+    #[cfg(target_os = "macos")]
+    connection.execute_batch("PRAGMA fullfsync = ON;").unwrap();
+    connection
+}
+
 impl TestClock {
     pub(super) fn set(&self, now: i64) {
         self.0.store(now, Ordering::SeqCst);
@@ -117,7 +132,8 @@ pub(super) fn prepare_request(path: &Path, discriminator: u8) -> ProviderAuthori
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    SqliteProviderDispatchStore::open(path)
+    let path_text = path.to_str().unwrap();
+    SqliteProviderDispatchStore::open_with_connection(path_text, configured_connection(path))
         .unwrap()
         .persist_prepared(&record)
         .unwrap();
