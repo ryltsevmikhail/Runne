@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use gocode_daemon_loopback_fixture::prepare_runtime_root;
 
 #[test]
