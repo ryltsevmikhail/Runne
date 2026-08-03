@@ -50,6 +50,8 @@ pub struct DaemonCanonicalOpenAiService {
 
 pub(crate) struct DaemonCanonicalOpenAiComposition {
     pub(crate) db_path: String,
+    pub(crate) dispatch_connection: rusqlite::Connection,
+    pub(crate) execution_connection: rusqlite::Connection,
     pub(crate) runtime_authority_id: [u8; 16],
     pub(crate) runtime_generation: u64,
     pub(crate) activation_provenance: DaemonActivationProvenance,
@@ -67,6 +69,8 @@ impl DaemonCanonicalOpenAiService {
     ) -> Result<Arc<Self>, DaemonError> {
         let DaemonCanonicalOpenAiComposition {
             db_path,
+            dispatch_connection,
+            execution_connection,
             runtime_authority_id,
             runtime_generation,
             activation_provenance,
@@ -111,14 +115,16 @@ impl DaemonCanonicalOpenAiService {
             ));
         }
         let dispatch_store = Arc::new(
-            SqliteProviderDispatchStore::open(std::path::Path::new(&db_path)).map_err(|_| {
-                DaemonError::Bootstrap("provider dispatch store unavailable".into())
-            })?,
+            SqliteProviderDispatchStore::open_with_connection(&db_path, dispatch_connection)
+                .map_err(|_| {
+                    DaemonError::Bootstrap("provider dispatch store unavailable".into())
+                })?,
         );
         let execution_store = Arc::new(
-            SqliteProviderExecutionStore::open(std::path::Path::new(&db_path)).map_err(|_| {
-                DaemonError::Bootstrap("provider execution store unavailable".into())
-            })?,
+            SqliteProviderExecutionStore::open_with_connection(&db_path, execution_connection)
+                .map_err(|_| {
+                    DaemonError::Bootstrap("provider execution store unavailable".into())
+                })?,
         );
         let fencing_token = runtime_generation;
         let policy_binding =
