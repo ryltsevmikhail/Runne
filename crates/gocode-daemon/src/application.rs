@@ -53,7 +53,7 @@ use gocode_runtime::{
 };
 use gocode_security::SecretBroker;
 use gocode_store::replay_store::ReplayStore;
-use gocode_store::schema::{ensure_event_log_lineage_id, open_with_pragmas};
+use gocode_store::schema::ensure_event_log_lineage_id;
 use gocode_store::store::StoreTransaction;
 
 type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
@@ -63,6 +63,7 @@ mod http_startup;
 mod provider_startup;
 mod readiness;
 mod replay_authorization;
+mod runtime_connection;
 mod shutdown;
 mod startup;
 #[cfg(test)]
@@ -70,5 +71,6 @@ mod tests;
 #[doc(hidden)]
 pub mod workspace_internal;
 
+use runtime_connection::open_runtime_connection;
 pub use startup::DaemonApplication;
 pub(crate) use startup::VerifiedOwnerPrivateConfig;
