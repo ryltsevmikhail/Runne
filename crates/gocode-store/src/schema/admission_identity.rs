@@ -19,7 +19,8 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::MetadataExt as _;
+
         let metadata =
             fs::metadata(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
         Ok(FileIdentity {
@@ -36,64 +37,66 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
 }
 
 #[cfg(unix)]
-fn admitted_files() -> &'static Mutex<Vec<FileIdentity>> {
-    static FILES: OnceLock<Mutex<Vec<FileIdentity>>> = OnceLock::new();
-    FILES.get_or_init(|| Mutex::new(Vec::new()))
+#[derive(Debug, PartialEq, Eq)]
+struct RecoveryFileSet {
+    database: FileIdentity,
+    wal: Option<FileIdentity>,
+    shm: Option<FileIdentity>,
 }
 
-#[cfg(windows)]
-fn admitted_paths() -> &'static Mutex<Vec<PathBuf>> {
-    static PATHS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
-    PATHS.get_or_init(|| Mutex::new(Vec::new()))
+#[cfg(unix)]
+fn owner_private_recovery_file_set(
+    db_path: &Path,
+) -> Result<RecoveryFileSet, SchemaOpenDiagnostic> {
+    validate_owner_private_recovery_files(db_path)?;
+    Ok(RecoveryFileSet {
+        database: file_identity(db_path)?,
+        wal: optional_file_identity(&sidecar_path(db_path, "-wal"))?,
+        shm: optional_file_identity(&sidecar_path(db_path, "-shm"))?,
+    })
 }
 
-fn identity_is_admitted(path: &Path) -> Result<bool, SchemaOpenDiagnostic> {
-    #[cfg(unix)]
-    {
-        let identity = file_identity(path)?;
-        admitted_files()
-            .lock()
-            .map(|files| files.contains(&identity))
-            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
-    }
-    #[cfg(windows)]
-    {
-        admitted_paths()
-            .lock()
-            .map(|paths| {
-                paths
-                    .iter()
-                    .any(|admitted| same_file::is_same_file(admitted, path).unwrap_or(false))
-            })
-            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+#[cfg(unix)]
+fn recovery_file_set_unchanged(
+    db_path: &Path,
+    expected: &RecoveryFileSet,
+) -> Result<bool, SchemaOpenDiagnostic> {
+    validate_owner_private_recovery_files(db_path)?;
+    let current = RecoveryFileSet {
+        database: file_identity(db_path)?,
+        wal: optional_file_identity(&sidecar_path(db_path, "-wal"))?,
+        shm: optional_file_identity(&sidecar_path(db_path, "-shm"))?,
+    };
+    // SQLite may create WAL/SHM while opening a WAL-mode database READ_WRITE,
+    // before it accepts `query_only`, or remove stale crash sidecars after it
+    // has consumed them. The private directory remains the owner boundary;
+    // sidecars that remain present must still retain their identities.
+    Ok(current.database == expected.database
+        && optional_identity_matches(&expected.wal, &current.wal)
+        && optional_identity_matches(&expected.shm, &current.shm))
+}
+
+#[cfg(unix)]
+fn optional_file_identity(path: &Path) -> Result<Option<FileIdentity>, SchemaOpenDiagnostic> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => match file_identity(path) {
+            Ok(identity) => Ok(Some(identity)),
+            Err(SchemaOpenDiagnostic::FileIdentityUncertain) if !path.exists() => Ok(None),
+            Err(error) => Err(error),
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(_) => Err(SchemaOpenDiagnostic::FileIdentityUncertain),
     }
 }
 
-fn admit_identity(path: &Path) -> Result<(), SchemaOpenDiagnostic> {
-    #[cfg(unix)]
-    {
-        let identity = file_identity(path)?;
-        fs::canonicalize(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-        let mut files = admitted_files()
-            .lock()
-            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-        if !files.contains(&identity) {
-            files.push(identity);
-        }
-        Ok(())
-    }
-    #[cfg(windows)]
-    {
-        file_identity(path)?;
-        let canonical =
-            fs::canonicalize(path).map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-        let mut paths = admitted_paths()
-            .lock()
-            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
-        if !paths.iter().any(|admitted| admitted == &canonical) {
-            paths.push(canonical);
-        }
-        Ok(())
+#[cfg(unix)]
+fn optional_identity_matches(
+    expected: &Option<FileIdentity>,
+    actual: &Option<FileIdentity>,
+) -> bool {
+    match (expected, actual) {
+        (Some(expected), Some(actual)) => expected == actual,
+        (Some(_), None) | (None, _) => true,
     }
 }
 
