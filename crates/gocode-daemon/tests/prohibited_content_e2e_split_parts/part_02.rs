@@ -12,7 +12,22 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
 
     let representations = representations();
     let directory = tempfile::tempdir().unwrap();
-    let db_path = directory.path().join("prohibited-content.sqlite");
+    let runtime_root = directory.path().join("runtime");
+    let daemon_dir = runtime_root.join("gocode-daemon");
+    std::fs::create_dir_all(&daemon_dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(&runtime_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let db_path = daemon_dir.join("prohibited-content.sqlite");
+    let setup_connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
+    apply_migrations(&setup_connection).unwrap();
+    ensure_authority_id(&setup_connection, &AUTHORITY).unwrap();
+    let lineage = ensure_event_log_lineage_id(&setup_connection).unwrap();
+    drop(setup_connection);
     let authority = RuntimeAuthorityId("task-seven-e2e".into());
     let mut broker = SecretBroker::new();
     broker
@@ -101,7 +116,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     );
     assert_eq!(provider_calls.load(Ordering::SeqCst), 1);
 
-    let connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
+    let connection = open_admitted_fixture_connection(&db_path, lineage);
     let mut statement = connection
         .prepare(
             "SELECT idempotency_key, command_outcome
@@ -122,12 +137,9 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     assert_absent("receipt query", &receipt_bytes, &representations);
     drop(statement);
 
-    let lineage = ensure_event_log_lineage_id(&connection).unwrap();
     let authenticated = authenticated_runtime_session(lineage);
-    drop(connection);
-    let replay_connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
     let replay_service = ReplayService::new(
-        Arc::new(ReplayStore::new(replay_connection)),
+        Arc::new(ReplayStore::new(connection)),
         [0x77; 32],
         lineage,
         Arc::new(AvailableReplayAuthorization),
