@@ -2,7 +2,7 @@
 fn validate_owner_private_recovery_files(db_path: &Path) -> Result<(), SchemaOpenDiagnostic> {
     use std::os::unix::fs::MetadataExt as _;
 
-    if !db_path.is_absolute() || !path_is_safe(db_path) || !existing_sidecar_present(db_path) {
+    if !db_path.is_absolute() || !path_is_safe(db_path) {
         return Err(SchemaOpenDiagnostic::SidecarPresent);
     }
     let daemon_dir = db_path
@@ -15,7 +15,7 @@ fn validate_owner_private_recovery_files(db_path: &Path) -> Result<(), SchemaOpe
         .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
     if root_metadata.file_type().is_symlink()
         || !root_metadata.is_dir()
-        || root_metadata.mode() & 0o077 != 0
+        || root_metadata.mode() & 0o022 != 0
     {
         return Err(SchemaOpenDiagnostic::FileIdentityUncertain);
     }

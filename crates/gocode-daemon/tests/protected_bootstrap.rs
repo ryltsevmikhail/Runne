@@ -11,6 +11,16 @@ use gocode_daemon::lock::LockSet;
 use rusqlite::OptionalExtension as _;
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
+fn secure_runtime_root(path: &Path) {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+}
+
+#[cfg(not(unix))]
+fn secure_runtime_root(_: &Path) {}
+
 const STABLE_AUTHORITY: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 1,
 ];
@@ -70,6 +80,13 @@ fn assert_secret_absent_from_runtime_artifacts(root: &Path, secret: &[u8; 32]) {
 }
 
 fn pending() -> PendingFirstActivationV1 {
+    let profile_hash: [u8; 32] = hex::decode(gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH)
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let capability_digest = gocode_http::runtime_profile::ordered_capability_digest(
+        gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+    );
     PendingFirstActivationV1::new(
         PREPARATION,
         [0x10; 32],
@@ -77,33 +94,39 @@ fn pending() -> PendingFirstActivationV1 {
             STABLE_AUTHORITY,
             "local-owner",
             LINEAGE,
-            "gocode-ui-client/1",
-            [0x20; 32],
-            [0x30; 32],
+            gocode_runtime::bundle::BUNDLE_ID,
+            profile_hash,
+            capability_digest,
         )
         .unwrap(),
         ExecutableIdentityV1::new([0x40; 32], [0x50; 32], 4_096).unwrap(),
         ProtectedRuntimeProfileV1::new(
             "gocode-bundled-runtime/1",
             1,
-            "gocode-ui-client/1",
-            [0x20; 32],
-            [0x30; 32],
+            gocode_runtime::bundle::BUNDLE_ID,
+            profile_hash,
+            capability_digest,
         )
         .unwrap(),
     )
     .unwrap()
 }
 
+fn stable() -> StableRuntimeBindingV1 {
+    pending().stable().clone()
+}
+
 #[test]
 fn protected_bootstrap_commits_prepared_identity_and_consumes_authority_first() {
     let directory = tempfile::tempdir().unwrap();
+    secure_runtime_root(directory.path());
     let config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
     let first_secret = [0x61; 32];
     let first = bootstrap_protected(
         &config,
         FIRST_LAUNCH,
         first_secret,
+        &stable(),
         Some(&pending()),
         || Ok(()),
     )
@@ -131,9 +154,14 @@ fn protected_bootstrap_commits_prepared_identity_and_consumes_authority_first() 
     drop(first);
     assert_secret_absent_from_runtime_artifacts(directory.path(), &first_secret);
 
-    let reused = bootstrap_protected(&config, FIRST_LAUNCH, [0x62; 32], Some(&pending()), || {
-        Ok(())
-    })
+    let reused = bootstrap_protected(
+        &config,
+        FIRST_LAUNCH,
+        [0x62; 32],
+        &stable(),
+        Some(&pending()),
+        || Ok(()),
+    )
     .unwrap_err();
     assert!(reused.to_string().contains("already consumed"));
     let connection = rusqlite::Connection::open(&config.db_path).unwrap();
@@ -147,7 +175,10 @@ fn protected_bootstrap_commits_prepared_identity_and_consumes_authority_first() 
     assert_eq!(generation, "1");
     drop(connection);
 
-    let second = bootstrap_protected(&config, SECOND_LAUNCH, [0x63; 32], None, || Ok(())).unwrap();
+    let second = bootstrap_protected(&config, SECOND_LAUNCH, [0x63; 32], &stable(), None, || {
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(second.authority_id, STABLE_AUTHORITY);
     assert_eq!(second.launch_generation, 2);
 }
@@ -155,12 +186,20 @@ fn protected_bootstrap_commits_prepared_identity_and_consumes_authority_first() 
 #[test]
 fn freshness_failure_after_sidecar_work_does_not_consume_or_advance_launch() {
     let directory = tempfile::tempdir().unwrap();
+    secure_runtime_root(directory.path());
     let config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
-    let expired = bootstrap_protected(&config, FIRST_LAUNCH, [0x61; 32], Some(&pending()), || {
-        Err(gocode_daemon::error::DaemonError::Bootstrap(
-            "protected launch authority expired".into(),
-        ))
-    })
+    let expired = bootstrap_protected(
+        &config,
+        FIRST_LAUNCH,
+        [0x61; 32],
+        &stable(),
+        Some(&pending()),
+        || {
+            Err(gocode_daemon::error::DaemonError::Bootstrap(
+                "protected launch authority expired".into(),
+            ))
+        },
+    )
     .unwrap_err();
     assert!(expired.to_string().contains("expired"));
 
@@ -185,17 +224,22 @@ fn freshness_failure_after_sidecar_work_does_not_consume_or_advance_launch() {
     assert_eq!(consumed, 0);
     drop(connection);
 
-    let recovered =
-        bootstrap_protected(&config, FIRST_LAUNCH, [0x62; 32], Some(&pending()), || {
-            Ok(())
-        })
-        .expect("unconsumed exact preparation remains recoverable");
+    let recovered = bootstrap_protected(
+        &config,
+        FIRST_LAUNCH,
+        [0x62; 32],
+        &stable(),
+        Some(&pending()),
+        || Ok(()),
+    )
+    .expect("unconsumed exact preparation remains recoverable");
     assert_eq!(recovered.launch_generation, 1);
 }
 
 #[test]
 fn migrated_database_keeps_different_local_session_authority() {
     let directory = tempfile::tempdir().unwrap();
+    secure_runtime_root(directory.path());
     let config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
     drop(bootstrap(&config).expect("create pre-migration database"));
 

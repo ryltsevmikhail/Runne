@@ -70,6 +70,21 @@ pub use first_activation::random_control_secret;
 #[cfg(unix)]
 pub use launch::{ProtectedDaemonLaunch, VerifiedProtectedApplicationStart};
 
+#[cfg(unix)]
+pub(crate) fn validate_protected_bootstrap_connection(
+    config: &ConfigurationSnapshot,
+    connection: &rusqlite::Connection,
+    expected: &StableRuntimeBindingV1,
+    pending: Option<&PendingFirstActivationV1>,
+) -> Result<(), LaunchAuthorityError> {
+    match pending {
+        Some(pending) => first_activation::validate_resume_first_activation_connection(
+            config, connection, pending,
+        ),
+        None => first_activation::validate_existing_connection(config, connection, expected, None),
+    }
+}
+
 #[cfg(not(unix))]
 pub struct ProtectedActivationChannel;
 

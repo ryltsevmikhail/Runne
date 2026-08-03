@@ -43,6 +43,7 @@
         assert_eq!(state, crate::recovery::RecoveryState::RecoveryBlocked);
     }
 
+    #[cfg(unix)]
     #[test]
     fn prepared_first_activation_preflight_accepts_each_safe_sidecar_crash_window() {
         use gocode_api::{
@@ -85,11 +86,18 @@
         let launch = [
             0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 4,
         ];
-        bootstrap_protected(&config, launch, [0x61; 32], Some(&pending), || {
+        bootstrap_protected(
+            &config,
+            launch,
+            [0x61; 32],
+            pending.stable(),
+            Some(&pending),
+            || {
             Err(DaemonError::Bootstrap(
                 "protected launch authority expired".into(),
             ))
-        })
+            },
+        )
         .expect_err("injected failure before consumption");
 
         let replay_key_path = Path::new(&config.replay_integrity_key_path);
@@ -97,7 +105,23 @@
         preflight_recoverable_first_activation_sidecars(&config, &authority)
             .expect("complete unconsumed sidecars");
 
-        let connection = schema::open_with_pragmas(&config.db_path).unwrap();
+        let expected_lineage = uuid::Uuid::from_bytes(*pending.stable().lineage_id())
+            .to_string()
+            .parse()
+            .unwrap();
+        let connection = schema::open_existing_with_pragmas_validated(
+            Path::new(&config.db_path),
+            |connection| {
+                schema::preflight_first_activation_resume(
+                    connection,
+                    pending.stable().authority_id(),
+                    expected_lineage,
+                    pending.preparation_id(),
+                )?;
+                Ok(())
+            },
+        )
+        .unwrap();
         connection
             .execute(
                 "DELETE FROM _daemon_info WHERE key = ?1",

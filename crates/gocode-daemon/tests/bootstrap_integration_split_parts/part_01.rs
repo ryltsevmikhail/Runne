@@ -5,6 +5,7 @@ use gocode_daemon::recovery::{RecoveryState, enumerate_recovery_tasks};
 use gocode_store::schema;
 use rusqlite::Connection;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 

@@ -43,7 +43,12 @@ use gocode_runtime::{
 };
 use gocode_security::SecretBroker;
 use gocode_store::replay_store::ReplayStore;
-use gocode_store::schema::{ensure_event_log_lineage_id, open_with_pragmas};
+use gocode_store::schema::{
+    apply_migrations, ensure_authority_id, ensure_event_log_lineage_id,
+    open_with_pragmas, read_authority_id, read_event_log_lineage_id,
+};
+#[cfg(unix)]
+use gocode_store::schema::open_existing_with_pragmas_validated;
 use gocode_store::store::StoreTransaction;
 use gocode_store::verification::backup_store::InMemoryBackupStore;
 use serde_json::json;
@@ -122,6 +127,56 @@ fn authenticated_runtime_session(lineage: EventLogLineageId) -> AuthenticatedRun
         )
         .unwrap(),
         expires_at_monotonic: Duration::from_secs(600),
+    }
+}
+
+fn open_admitted_fixture_connection(
+    path: &std::path::Path,
+    lineage: EventLogLineageId,
+) -> rusqlite::Connection {
+    #[cfg(unix)]
+    {
+        open_existing_with_pragmas_validated(path, |connection| {
+            validate_fixture_identity(connection, lineage)
+        })
+        .unwrap()
+    }
+    #[cfg(not(unix))]
+    {
+        use rusqlite::OpenFlags;
+
+        let path_text = path.to_str().unwrap();
+        let connection = rusqlite::Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .unwrap();
+        connection.execute_batch("PRAGMA query_only = ON;").unwrap();
+        validate_fixture_identity(&connection, lineage).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA query_only = OFF;
+                 PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = FULL;
+                 PRAGMA foreign_keys = ON;
+                 PRAGMA busy_timeout = 5000;",
+            )
+            .unwrap();
+        gocode_store::schema::run_startup_gates(&connection, path_text).unwrap();
+        connection
+    }
+}
+
+fn validate_fixture_identity(
+    connection: &rusqlite::Connection,
+    lineage: EventLogLineageId,
+) -> rusqlite::Result<()> {
+    if read_authority_id(connection)? == Some(AUTHORITY)
+        && read_event_log_lineage_id(connection)? == Some(lineage)
+    {
+        Ok(())
+    } else {
+        Err(rusqlite::Error::InvalidQuery)
     }
 }
 
