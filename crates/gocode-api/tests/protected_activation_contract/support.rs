@@ -55,6 +55,17 @@ fn stable() -> StableRuntimeBindingV1 {
     .expect("stable binding")
 }
 
+fn protected_runtime_root() -> PathBuf {
+    #[cfg(unix)]
+    {
+        PathBuf::from("/private/tmp/gocode-protected-runtime")
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(r"C:\gocode-protected-runtime")
+    }
+}
+
 fn launch(secret: LaunchSecret) -> ProtectedLaunchRequestV1 {
     launch_with_disposition(
         secret,
@@ -75,7 +86,7 @@ fn launch_with_disposition(
         "local-owner",
         profile(),
         executable(),
-        PathBuf::from("/private/tmp/gocode-protected-runtime"),
+        protected_runtime_root(),
         disposition,
     )
     .expect("launch request")
