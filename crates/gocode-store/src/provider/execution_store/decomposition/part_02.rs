@@ -13,6 +13,22 @@ impl SqliteProviderExecutionStore {
             .ok_or(ProviderAdmissionError::RepositoryFailure)?;
         let connection =
             open_with_pragmas(path).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        Self::open_with_connection_and_now(path, connection, now)
+    }
+
+    /// Adopts a validated writable connection without reopening its path.
+    pub fn open_with_connection(
+        path: &str,
+        connection: Connection,
+    ) -> Result<Self, ProviderAdmissionError> {
+        Self::open_with_connection_and_now(path, connection, Arc::new(unix_timestamp))
+    }
+
+    fn open_with_connection_and_now(
+        path: &str,
+        connection: Connection,
+        now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Result<Self, ProviderAdmissionError> {
         apply_migrations(&connection).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         run_startup_gates(&connection, path)
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
@@ -258,5 +274,4 @@ impl SqliteProviderExecutionStore {
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
         load_active_journal_key(&connection).map(|record| record.map(|record| record.binding))
     }
-
 }
