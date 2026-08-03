@@ -56,13 +56,30 @@ fn stable() -> StableRuntimeBindingV1 {
 }
 
 fn protected_runtime_root() -> PathBuf {
-    #[cfg(unix)]
+    #[cfg(not(windows))]
     {
         PathBuf::from("/private/tmp/gocode-protected-runtime")
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
         PathBuf::from(r"C:\gocode-protected-runtime")
+    }
+}
+
+fn platform_launch_golden(golden: &serde_json::Value) -> &serde_json::Value {
+    let canonical_unix = &golden["platform_launch_frames"]["unix"];
+    assert_eq!(golden["canonical_launch_platform"], "unix");
+    assert_eq!(golden["message_type_id"], canonical_unix["message_type_id"]);
+    assert_eq!(golden["frame_length"], canonical_unix["frame_length"]);
+    assert_eq!(golden["frame_sha256"], canonical_unix["frame_sha256"]);
+    assert_eq!(golden["lifecycle_messages"]["launch"], *canonical_unix);
+    #[cfg(not(windows))]
+    {
+        canonical_unix
+    }
+    #[cfg(windows)]
+    {
+        &golden["platform_launch_frames"]["windows"]
     }
 }
 

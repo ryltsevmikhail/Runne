@@ -163,10 +163,12 @@ fn protected_activation_v1_and_v2_digest_goldens_are_stable_and_cross_rejected()
 
     let v1_digest = hex_digest(Sha256::digest(&v1));
     let v2_digest = hex_digest(Sha256::digest(&v2));
-    assert_eq!(golden["frame_length"], v1.len());
-    assert_eq!(golden["frame_sha256"], v1_digest);
-    assert_eq!(golden_v2["frame_length"], v2.len());
-    assert_eq!(golden_v2["frame_sha256"], v2_digest);
+    let expected_v1 = platform_launch_golden(&golden);
+    let expected_v2 = platform_launch_golden(&golden_v2);
+    assert_eq!(expected_v1["frame_length"], v1.len());
+    assert_eq!(expected_v1["frame_sha256"], v1_digest);
+    assert_eq!(expected_v2["frame_length"], v2.len());
+    assert_eq!(expected_v2["frame_sha256"], v2_digest);
     assert!(ProtectedLaunchRequestV1::decode_frame(&v2).is_err());
     assert!(ProtectedLaunchRequestV2::decode_frame(&v1).is_err());
 }
