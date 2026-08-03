@@ -4,6 +4,19 @@
   "message_type_id": 1,
   "frame_length": 483,
   "frame_sha256": "6cd04cec80c796f685c2940f4ef85d5107ed8d5af5c9bc5f1bf58e0a46d541e3",
+  "canonical_launch_platform": "unix",
+  "platform_launch_frames": {
+    "unix": {
+      "message_type_id": 1,
+      "frame_length": 483,
+      "frame_sha256": "6cd04cec80c796f685c2940f4ef85d5107ed8d5af5c9bc5f1bf58e0a46d541e3"
+    },
+    "windows": {
+      "message_type_id": 1,
+      "frame_length": 473,
+      "frame_sha256": "8c75890d59056765428ab3e57b8deb136d99de28f5e358ee146c3b556cf7a66f"
+    }
+  },
   "lifecycle_messages": {
     "launch": {
       "message_type_id": 1,
