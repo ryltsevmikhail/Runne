@@ -29,7 +29,7 @@ impl StoreTransaction {
             )
         })?;
 
-        // The admitted writer owns lifecycle classification. A read-only
+        // The opened writer owns lifecycle classification. A read-only
         // connection cannot mutate WAL state and deliberately avoids a second
         // preflight/classification pass.
         let reader = if db_path == ":memory:" {
@@ -41,7 +41,49 @@ impl StoreTransaction {
             CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
         })?;
 
-        Ok(Self {
+        Ok(Self::from_connections(
+            writer,
+            reader,
+            runtime_authority_id,
+            prohibited_content,
+        ))
+    }
+
+    /// Adopts validated writer and reader connections without reopening their paths.
+    ///
+    /// The caller owns path admission. Migrations and startup gates still run on
+    /// the supplied writer before the store becomes available.
+    pub fn open_with_connections(
+        db_path: &str,
+        writer: Connection,
+        reader: Connection,
+        runtime_authority_id: RuntimeAuthorityId,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+    ) -> Result<Self, CommitError> {
+        apply_migrations(&writer).map_err(|_| {
+            CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::CorruptData)
+        })?;
+        run_startup_gates(&writer, db_path).map_err(|_| {
+            CommitError::StorageFailure(
+                gocode_application::ports::StorageFailureKind::IntegrityViolation,
+            )
+        })?;
+
+        Ok(Self::from_connections(
+            writer,
+            reader,
+            runtime_authority_id,
+            prohibited_content,
+        ))
+    }
+
+    fn from_connections(
+        writer: Connection,
+        reader: Connection,
+        runtime_authority_id: RuntimeAuthorityId,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+    ) -> Self {
+        Self {
             inner: Arc::new(StoreInner {
                 writer: Mutex::new(writer),
                 reader: Mutex::new(reader),
@@ -54,7 +96,7 @@ impl StoreTransaction {
             }),
             runtime_authority_id,
             prohibited_content,
-        })
+        }
     }
 
     /// Return the runtime authority ID.
