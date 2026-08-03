@@ -44,6 +44,7 @@ pub(super) async fn start_http_and_runtime(
         )
     }
     .map_err(|error| DaemonError::Bootstrap(format!("start runtime: {error}")))?;
+    let runtime_liveness = handle.clone();
 
     let task_run_host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
     let conversation_host = if provider_activation.requires_openai_execution() {
@@ -217,6 +218,7 @@ pub(super) async fn start_http_and_runtime(
         session_clock,
         protected_activation,
         provider_activation,
+        runtime_liveness,
         runtime_controller,
         _secret_broker: secret_broker,
         task_supervisor: RuntimeTaskSupervisor::new(),

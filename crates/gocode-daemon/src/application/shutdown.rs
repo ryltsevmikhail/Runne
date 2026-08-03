@@ -17,6 +17,7 @@ impl DaemonApplication {
             session_clock,
             protected_activation,
             provider_activation,
+            runtime_liveness,
             mut runtime_controller,
             _secret_broker,
             task_supervisor,
@@ -28,6 +29,7 @@ impl DaemonApplication {
             graceful_shutdown(&task_supervisor, duration_millis(shutdown_timeout)).await;
         let http_result = combine_shutdown_results(http_result, drain_result);
         let runtime_result = shutdown_runtime(&mut runtime_controller, shutdown_timeout).await;
+        drop(runtime_liveness);
 
         drop(client_profile);
         drop(binding);
