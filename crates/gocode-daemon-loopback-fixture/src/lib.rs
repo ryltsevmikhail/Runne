@@ -3,14 +3,23 @@
 mod ack_failure_store;
 mod bootstrap;
 mod fixed_response;
+#[cfg(unix)]
 mod protected_process;
 mod request_validation;
 mod tls_sse_server;
 
 pub use ack_failure_store::AckFailureStore;
 pub use bootstrap::{FixtureJournalKey, RetainedFixtureKeyring, prepare_runtime_root};
+#[cfg(unix)]
 pub use protected_process::run_protected_fixture;
 pub use tls_sse_server::{TlsSseServer, loopback_client, request_count};
+
+/// Rejects the Unix inherited-channel fixture on unsupported platforms.
+#[cfg(not(unix))]
+#[allow(clippy::result_unit_err)]
+pub fn run_protected_fixture() -> Result<(), ()> {
+    Err(())
+}
 
 #[doc(hidden)]
 pub fn loopback_request_authenticator() -> gocode_daemon_openai_effect::FixtureRequestAuthenticator
