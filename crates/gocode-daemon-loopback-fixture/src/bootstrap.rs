@@ -46,6 +46,7 @@ pub fn prepare_runtime_root(_: &Path) -> std::io::Result<FixtureJournalKey> {
 
 /// Fixture-only retained keyring backed by an authenticated directory handle.
 pub struct RetainedFixtureKeyring {
+    #[cfg(unix)]
     root: PathBuf,
     #[cfg(unix)]
     directory: std::fs::File,
@@ -73,14 +74,6 @@ impl RetainedFixtureKeyring {
     #[cfg(unix)]
     fn key(&self) -> std::io::Result<FixtureJournalKey> {
         unix::load_key(&self.directory, &self.root)
-    }
-
-    #[cfg(not(unix))]
-    fn key(&self) -> std::io::Result<FixtureJournalKey> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Unsupported,
-            "fixture key unavailable",
-        ))
     }
 }
 
@@ -161,6 +154,7 @@ impl ProviderJournalKeyring for RetainedFixtureKeyring {
     }
 }
 
+#[cfg(unix)]
 pub(super) fn encode_key_ref(key_ref: ProviderJournalKeyRef) -> [u8; 48] {
     let mut bytes = [0; 48];
     bytes[..16].copy_from_slice(&key_ref.key_id());
@@ -170,6 +164,7 @@ pub(super) fn encode_key_ref(key_ref: ProviderJournalKeyRef) -> [u8; 48] {
     bytes
 }
 
+#[cfg(unix)]
 pub(super) fn decode_key_ref(bytes: &[u8]) -> std::io::Result<ProviderJournalKeyRef> {
     let mut key_id = [0; 16];
     let mut authority = [0; 16];
