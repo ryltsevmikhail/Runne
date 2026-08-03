@@ -158,10 +158,20 @@ impl ProtectedDaemonLaunch {
     {
         self.request.validate_freshness(now_unix_millis()?)?;
         let bootstrap_key = self.keys.bootstrap_key();
+        let expected_stable = match self.request.compatibility().activation_disposition() {
+            ActivationDispositionV1::FirstActivation => self
+                .pending_first_activation
+                .as_ref()
+                .map(PendingFirstActivationV1::stable)
+                .ok_or(LaunchAuthorityError::FirstActivationPreparationMismatch)?,
+            ActivationDispositionV1::Existing(expected) => expected,
+            ActivationDispositionV1::ResumeFirstActivation(pending) => pending.stable(),
+        };
         let result = bootstrap_protected(
             &self.config,
             self.request.compatibility().launch_authority_id(),
             *bootstrap_key,
+            expected_stable,
             self.pending_first_activation.as_ref(),
             || {
                 let now = now_unix_millis().map_err(|_| {
