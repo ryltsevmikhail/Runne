@@ -46,6 +46,7 @@ use gocode_http::secure_local_host::LocalRuntimeTlsHost;
 use gocode_http::task_runs::TaskRunHttpState;
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome};
+use gocode_runtime::handle::RuntimeHandle;
 use gocode_runtime::{
     DeterministicTextProvider, Runtime, RuntimeCanonicalConversationHost, RuntimeGenerationId,
     RuntimeTaskRunHost, TokioRuntimeContext,

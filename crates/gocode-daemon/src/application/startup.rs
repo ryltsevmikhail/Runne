@@ -72,6 +72,7 @@ pub struct DaemonApplication {
     pub(super) session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     pub(super) protected_activation: bool,
     pub(super) provider_activation: ProviderActivation,
+    pub(super) runtime_liveness: RuntimeHandle,
     pub(super) runtime_controller: RuntimeController,
     pub(super) _secret_broker: Arc<Mutex<SecretBroker>>,
     pub(super) task_supervisor: Arc<RuntimeTaskSupervisor>,
