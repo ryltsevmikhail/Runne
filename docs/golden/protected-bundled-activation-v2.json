@@ -7,6 +7,19 @@
   "provider_profile_digest": "d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80",
   "frame_length": 561,
   "frame_sha256": "4aeccf959e099b443391a9aafb9dd2483e33f47ba94b2f89938216054014e086",
+  "canonical_launch_platform": "unix",
+  "platform_launch_frames": {
+    "unix": {
+      "message_type_id": 21,
+      "frame_length": 561,
+      "frame_sha256": "4aeccf959e099b443391a9aafb9dd2483e33f47ba94b2f89938216054014e086"
+    },
+    "windows": {
+      "message_type_id": 21,
+      "frame_length": 551,
+      "frame_sha256": "f19b3ccff25b00695f6a8cc65273408d0d72a463e3a93aec8a81400acba7f562"
+    }
+  },
   "lifecycle_messages": {
     "launch": {
       "message_type_id": 21,
