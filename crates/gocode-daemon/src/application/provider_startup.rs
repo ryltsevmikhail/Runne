@@ -84,8 +84,12 @@ impl DaemonApplication {
         let replay_lineage = ensure_event_log_lineage_id(&bootstrap.db_conn).map_err(|error| {
             DaemonError::Bootstrap(format!("initialize replay lineage: {error}"))
         })?;
-        let replay_connection = open_with_pragmas(&config.db_path)
-            .map_err(|error| DaemonError::Bootstrap(format!("open replay store: {error}")))?;
+        let replay_connection = open_runtime_connection(
+            &config.db_path,
+            bootstrap.authority_id,
+            replay_lineage,
+            "replay store",
+        )?;
         let authority = RuntimeAuthorityId(hex::encode(bootstrap.authority_id));
         let secret_broker = Arc::new(Mutex::new(SecretBroker::new()));
         let prohibited_content: Arc<dyn ProhibitedContentPort> = Arc::new(
@@ -96,8 +100,25 @@ impl DaemonApplication {
                 })?
                 .prohibited_content_guard(),
         );
-        let store = StoreTransaction::open(
+        let store_writer = open_runtime_connection(
             &config.db_path,
+            bootstrap.authority_id,
+            replay_lineage,
+            "runtime writer",
+        )?;
+        let store_reader = open_runtime_connection(
+            &config.db_path,
+            bootstrap.authority_id,
+            replay_lineage,
+            "runtime reader",
+        )?;
+        store_reader
+            .execute_batch("PRAGMA query_only = ON;")
+            .map_err(|error| DaemonError::Bootstrap(format!("restrict runtime reader: {error}")))?;
+        let store = StoreTransaction::open_with_connections(
+            &config.db_path,
+            store_writer,
+            store_reader,
             authority.clone(),
             Arc::clone(&prohibited_content),
         )
@@ -130,15 +151,32 @@ impl DaemonApplication {
         let provider_service = match activation_provenance {
             Some(activation_provenance) => {
                 compose_selected_provider(&provider_activation, || {
+                    let db_path = config.db_path.clone();
+                    let dispatch_connection = open_runtime_connection(
+                        &db_path,
+                        bootstrap.authority_id,
+                        replay_lineage,
+                        "provider dispatch store",
+                    );
+                    let execution_connection = open_runtime_connection(
+                        &db_path,
+                        bootstrap.authority_id,
+                        replay_lineage,
+                        "provider execution store",
+                    );
                     let conversation_store = store.clone();
                     let conversation_service = Arc::clone(&conversation_text_service);
                     let prohibited_content = Arc::clone(&prohibited_content);
                     async move {
+                        let dispatch_connection = dispatch_connection?;
+                        let execution_connection = execution_connection?;
                         let dependencies = dependencies.ok_or_else(|| {
                             DaemonError::Bootstrap("provider dependencies unavailable".into())
                         })?;
                         DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
-                            db_path: config.db_path.clone(),
+                            db_path,
+                            dispatch_connection,
+                            execution_connection,
                             runtime_authority_id: bootstrap.authority_id,
                             runtime_generation: bootstrap.launch_generation,
                             activation_provenance,

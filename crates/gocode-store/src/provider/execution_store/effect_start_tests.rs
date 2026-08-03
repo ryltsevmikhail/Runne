@@ -1,7 +1,7 @@
 use rusqlite::Connection;
 
 use super::ProviderAuthorityIssueOutcome;
-use super::authority_test_support::Fixture;
+use super::authority_test_support::{Fixture, configured_connection};
 use gocode_application::provider::ProviderAdmissionError;
 
 #[test]
@@ -134,7 +134,11 @@ fn reopening_a_started_effect_cannot_reconstruct_its_receipt() {
         ProviderAuthorityIssueOutcome::Existing { .. } => panic!("new admission"),
     };
     let receipt = fixture.store.start_effect(admission.claim()).unwrap();
-    let reopened = super::SqliteProviderExecutionStore::open(&fixture.path).unwrap();
+    let reopened = super::SqliteProviderExecutionStore::open_with_connection(
+        fixture.path.to_str().unwrap(),
+        configured_connection(&fixture.path),
+    )
+    .unwrap();
     assert!(reopened.start_effect(admission.claim()).is_err());
     assert!(receipt.matches_claim(admission.claim()));
 }

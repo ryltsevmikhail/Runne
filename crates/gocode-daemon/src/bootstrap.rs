@@ -22,12 +22,15 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use gocode_api::PendingFirstActivationV1;
+use gocode_api::{PendingFirstActivationV1, StableRuntimeBindingV1};
 use gocode_domain::id::validate_uuid_v7_bytes;
 use gocode_store::schema;
 use gocode_store::schema::LaunchAuthorityConsumptionError;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
+
+#[cfg(unix)]
+use crate::protected_activation::validate_protected_bootstrap_connection;
 
 const SIDECAR_MIGRATION_MARKER_KEY: &str = "local_session_sidecars_v1";
 
