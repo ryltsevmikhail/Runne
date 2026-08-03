@@ -12,6 +12,7 @@ use gocode_api::{ProviderActivationBindingV1, ProviderActivationModeV1};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
+#[cfg(unix)]
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 
@@ -32,6 +33,7 @@ fn resolve_runtime_dir() -> PathBuf {
         })
 }
 
+#[cfg(unix)]
 const MAX_EXTERNAL_CONFIG_BYTES: u64 = 16 * 1024;
 
 /// Fixed native owner-scoped source for external daemon selection.
