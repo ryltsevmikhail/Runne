@@ -201,9 +201,19 @@
         }
     }
 
+    #[cfg(not(windows))]
+    fn absolute_test_executable() -> PathBuf {
+        PathBuf::from("/opt/gocode/gocoded")
+    }
+
+    #[cfg(windows)]
+    fn absolute_test_executable() -> PathBuf {
+        PathBuf::from(r"C:\gocode\gocoded.exe")
+    }
+
     fn launch_spec() -> BundledRuntimeLaunchSpec {
         BundledRuntimeLaunchSpec::new(
-            PathBuf::from("/opt/gocode/gocoded"),
+            absolute_test_executable(),
             BundledRuntimeLaunchMode::Direct,
             None,
         )
