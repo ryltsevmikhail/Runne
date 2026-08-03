@@ -1,3 +1,8 @@
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
+#[path = "support/validated_reopen_store.rs"]
+mod validated_reopen_store;
+
 include!("l2_sqlite_split_parts/part_01.rs");
 include!("l2_sqlite_split_parts/part_02.rs");
 include!("l2_sqlite_split_parts/part_03.rs");

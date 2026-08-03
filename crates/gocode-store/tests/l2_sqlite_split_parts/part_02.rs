@@ -1,7 +1,8 @@
 
 #[test]
 fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
-    let db_path = temp_db_path("conversation-create");
+    let database = validated_reopen::ValidatedTestDatabase::new("conversation-create");
+    let db_path = database.path().to_owned();
     cleanup_db(&db_path);
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000c1".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000c2".parse().unwrap();
@@ -14,7 +15,7 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
     };
 
     let first = {
-        let store = StoreTransaction::open(
+        let (store, identity) = validated_reopen::initialize_store(
             &db_path,
             RuntimeAuthorityId("test-host".into()),
             available_guard(),
@@ -39,11 +40,12 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
         assert_eq!(aggregate.id, conversation_id);
         assert_eq!(aggregate.workspace_id, workspace_id);
         assert_eq!(aggregate.state, ConversationState::Active);
-        first
+        (first, identity)
     };
 
-    let reopened = StoreTransaction::open(
+    let reopened = validated_reopen::reopen_store(
         &db_path,
+        first.1,
         RuntimeAuthorityId("test-host".into()),
         available_guard(),
     )
@@ -56,7 +58,7 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
     let duplicate = reopened_service
         .create(&api_context(), input.clone())
         .unwrap();
-    assert_eq!(duplicate.committed_at, first.committed_at);
+    assert_eq!(duplicate.committed_at, first.0.committed_at);
     assert_eq!(
         reopened
             .load_conversation(conversation_id)
@@ -66,7 +68,7 @@ fn conversation_create_is_durable_idempotent_and_replayable_after_reopen() {
         1
     );
 
-    let conn = gocode_store::schema::open_with_pragmas(&db_path).unwrap();
+    let conn = validated_reopen_store::open_validated_reader(&db_path, first.1).unwrap();
     let counts: (i64, i64, i64) = conn
         .query_row(
             "SELECT

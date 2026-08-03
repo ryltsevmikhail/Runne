@@ -1,10 +1,22 @@
 
 #[test]
 fn taskrun_crash_mid_lifecycle_preserves_all_committed_events() {
-    let db_path = temp_db_path("taskrun-crash-mid-lifecycle");
+    let database = validated_reopen::ValidatedTestDatabase::new("taskrun-crash-mid-lifecycle");
+    let db_path = database.path().to_owned();
     cleanup_db(&db_path);
 
-    let (store, svc) = open_service(&db_path);
+    let (store, identity) = validated_reopen::initialize_store(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let svc = TaskRunService::new(
+        store.clone(),
+        store.clone(),
+        store.clone(),
+        store.runtime_authority_id().clone(),
+    );
     let taskrun_id = match svc
         .create_task_run(
             &make_context(1),
@@ -46,7 +58,19 @@ fn taskrun_crash_mid_lifecycle_preserves_all_committed_events() {
     std::mem::forget(svc);
     std::mem::forget(store);
 
-    let (reopened_store, reopened_service) = open_service(&db_path);
+    let reopened_store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let reopened_service = TaskRunService::new(
+        reopened_store.clone(),
+        reopened_store.clone(),
+        reopened_store.clone(),
+        reopened_store.runtime_authority_id().clone(),
+    );
     let stream = reopened_store.load_task_run(taskrun_id).unwrap();
     assert_eq!(stream.current_version, 4);
     assert_eq!(stream.events.len(), 4);
@@ -84,10 +108,22 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
-    let db_path = temp_db_path("start-complete-race");
+    let database = validated_reopen::ValidatedTestDatabase::new("start-complete-race");
+    let db_path = Arc::new(database.path().to_owned());
     cleanup_db(&db_path);
-    let taskrun_id = {
-        let (_store, svc) = open_service(&db_path);
+    let (taskrun_id, identity) = {
+        let (store, identity) = validated_reopen::initialize_store(
+            db_path.as_str(),
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
+        let svc = TaskRunService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            store.runtime_authority_id().clone(),
+        );
         let taskrun_id = match svc
             .create_task_run(
                 &make_context(1),
@@ -117,8 +153,9 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
             },
         )
         .unwrap();
-        taskrun_id
+        (taskrun_id, identity)
     };
+    let identity = Arc::new(identity);
 
     type RaceOperation = fn(
         &TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>,
@@ -130,9 +167,22 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
         let mut handles = Vec::new();
         for offset in 0..2 {
             let barrier = Arc::clone(&barrier);
-            let path = db_path.clone();
+            let path = Arc::clone(&db_path);
+            let identity = Arc::clone(&identity);
             handles.push(thread::spawn(move || {
-                let (store, service) = open_service(&path);
+                let store = validated_reopen::reopen_store(
+                    path.as_str(),
+                    *identity,
+                    RuntimeAuthorityId("test-host".into()),
+                    available_guard(),
+                )
+                .unwrap();
+                let service = TaskRunService::new(
+                    store.clone(),
+                    store.clone(),
+                    store.clone(),
+                    store.runtime_authority_id().clone(),
+                );
                 barrier.wait();
                 let result = operation(&service, &make_context(counter + offset), taskrun_id);
                 drop(store);
@@ -204,8 +254,13 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
         "unexpected completion race outcomes: {complete:?}"
     );
     assert_eq!(
-        open_service(&db_path)
-            .0
+        validated_reopen::reopen_store(
+            db_path.as_str(),
+            *identity,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap()
             .load_task_run(taskrun_id)
             .unwrap()
             .current_version,

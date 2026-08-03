@@ -23,6 +23,7 @@ gocode-domain = { path = "../gocode-domain" }
 h2 = "0.4"
 http = "1"
 rcgen = { workspace = true }
+rusqlite = { workspace = true }
 rustls = { workspace = true }
 tempfile = "3"
 tokio-rustls = { workspace = true }

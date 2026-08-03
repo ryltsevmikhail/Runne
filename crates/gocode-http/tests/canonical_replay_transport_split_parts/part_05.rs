@@ -57,8 +57,7 @@ async fn live_sse_delivers_event_committed_after_catch_up() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["content-type"], "text/event-stream");
 
-    let database_path = directory.path().join("replay.sqlite");
-    let writer = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
+    let writer = directory.open_writer();
     let row = taskrun_row(2, 2, "replay-live-test".to_owned());
     writer
         .execute(
@@ -160,8 +159,7 @@ async fn slow_live_consumer_closes_session_without_advancing_ack() {
         .unwrap();
     assert_eq!(unconsumed_stream.status(), StatusCode::OK);
 
-    let database_path = directory.path().join("replay.sqlite");
-    let writer = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
+    let writer = directory.open_writer();
     for position in 2_i64..=80 {
         let row = taskrun_row(
             position,
@@ -200,7 +198,7 @@ async fn slow_live_consumer_closes_session_without_advancing_ack() {
     let session_bytes = hex::decode(&session_id).unwrap();
     let last_acked = tokio::time::timeout(std::time::Duration::from_secs(2), async {
         loop {
-            let connection = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
+            let connection = directory.open_reader();
             let (state, last_acked): (String, Option<i64>) = connection
                 .query_row(
                     "SELECT state, last_acked_position

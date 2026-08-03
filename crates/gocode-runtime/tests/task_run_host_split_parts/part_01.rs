@@ -37,7 +37,6 @@ use gocode_runtime::{
 };
 use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
-use tempfile::TempDir;
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-00000000000a";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-00000000000b";
@@ -50,9 +49,10 @@ fn available_guard() -> Arc<dyn ProhibitedContentPort> {
 }
 
 struct TestRuntime {
-    _directory: TempDir,
+    _database: validated_reopen::ValidatedTestDatabase,
     database_path: String,
     authority: RuntimeAuthorityId,
+    identity: validated_reopen::MainDatabaseIdentity,
     store: StoreTransaction,
     host: RuntimeTaskRunHost<StoreTransaction>,
     controller: RuntimeController,
@@ -60,19 +60,21 @@ struct TestRuntime {
 
 impl TestRuntime {
     fn start() -> Self {
-        let directory = tempfile::tempdir().unwrap();
-        let database_path = directory
-            .path()
-            .join("runtime.sqlite")
-            .to_str()
-            .unwrap()
-            .to_owned();
+        let database = validated_reopen::ValidatedTestDatabase::new("task-run-host");
+        let database_path = database.path().to_owned();
         let authority = RuntimeAuthorityId("canonical-taskrun-test".to_owned());
-        let (store, host, controller) = start_runtime(&database_path, authority.clone());
+        let (store, identity) = validated_reopen::initialize_store(
+            &database_path,
+            authority.clone(),
+            available_guard(),
+        )
+        .unwrap();
+        let (host, controller) = start_runtime(store.clone(), authority.clone());
         Self {
-            _directory: directory,
+            _database: database,
             database_path,
             authority,
+            identity,
             store,
             host,
             controller,
@@ -85,21 +87,22 @@ impl TestRuntime {
             .shutdown(ShutdownMode::Graceful {
                 timeout: Duration::from_secs(5),
             })
-            .await;
+        .await;
         assert_eq!(outcome, ShutdownOutcome::Quiesced);
+        assert_eq!(
+            self.controller.wait_terminated().await,
+            ShutdownOutcome::Quiesced
+        );
     }
 }
 
 fn start_runtime(
-    database_path: &str,
+    store: StoreTransaction,
     authority: RuntimeAuthorityId,
 ) -> (
-    StoreTransaction,
     RuntimeTaskRunHost<StoreTransaction>,
     RuntimeController,
 ) {
-    let store =
-        StoreTransaction::open(database_path, authority.clone(), available_guard()).unwrap();
     let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -113,7 +116,7 @@ fn start_runtime(
     )
     .unwrap();
     let host = RuntimeTaskRunHost::new(handle, store.clone());
-    (store, host, controller)
+    (host, controller)
 }
 
 fn command_context(sequence: u8, key: impl Into<String>) -> TaskRunCommandContext {

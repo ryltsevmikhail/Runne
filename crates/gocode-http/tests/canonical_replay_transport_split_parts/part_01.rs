@@ -25,10 +25,10 @@ use gocode_http::middleware::request_id_middleware;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
 use gocode_store::codec::{StoreCodec, TaskRunEventCodec};
 use gocode_store::integrity::compute_integrity_digest_with_global_position;
-use gocode_store::replay_store::ReplayStore;
-use gocode_store::schema::{apply_migrations, open_with_pragmas};
+use gocode_store::schema::{
+    apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id, open_with_pragmas,
+};
 use serde_json::{Value, json};
-use tempfile::TempDir;
 use tower::ServiceExt;
 
 const TOKEN: [u8; 32] = [0xAB; 32];
@@ -243,13 +243,13 @@ fn taskrun_row_with_schema(
     }
 }
 
-fn setup() -> (axum::Router, TempDir) {
+fn setup() -> (axum::Router, ReplayTestDatabase) {
     setup_with("replay-test", Arc::new(AvailableGuard))
 }
 
 fn setup_with(
     idempotency_key: &str,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
-) -> (axum::Router, TempDir) {
+) -> (axum::Router, ReplayTestDatabase) {
     setup_with_events(vec![idempotency_key.to_owned()], prohibited_content)
 }

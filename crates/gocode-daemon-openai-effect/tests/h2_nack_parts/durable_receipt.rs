@@ -1,5 +1,7 @@
+use std::path::Path;
+
 use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
-use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
+use gocode_domain::id::{AttemptId, ConversationId, EventLogLineageId, TaskRunId};
 use gocode_provider::{
     DispatchRequest, ModelRef, PreparedRequest, ProviderCall, ProviderCallId, ProviderCapability,
     ProviderId, ProviderInputRole, ProviderTextInput,
@@ -9,15 +11,52 @@ use gocode_store::provider::{
     DurableProviderAdmission, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
+use gocode_store::schema::{
+    apply_migrations, ensure_authority_id, ensure_event_log_lineage_id, generate_authority_id,
+    open_existing_with_pragmas_validated, open_with_pragmas, read_authority_id,
+    read_event_log_lineage_id, run_startup_gates,
+};
+use rusqlite::{Connection, Error as SqliteError, OpenFlags};
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct MainDatabaseIdentity {
+    authority_id: [u8; 16],
+    lineage_id: EventLogLineageId,
+}
 
 fn durable_dispatch(
     profile: &OpenAiResponsesTextProfile,
     effect: &dyn gocode_daemon_openai_effect::OpenAiEffect,
-) -> (DispatchRequest, gocode_store::provider::ProviderEffectStartReceipt) {
-    let directory = tempfile::tempdir().expect("temporary authoritative store");
-    let path = directory.path().join("provider.sqlite");
-    let prepared = effect.prepare(&openai_call(profile)).expect("prepared OpenAI request");
-    let dispatch_store = SqliteProviderDispatchStore::open(&path).expect("dispatch store");
+) -> (
+    DispatchRequest,
+    gocode_store::provider::ProviderEffectStartReceipt,
+) {
+    let runtime_root = tempfile::tempdir().expect("temporary runtime root");
+    let daemon_directory = runtime_root.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon_directory).expect("daemon runtime directory");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(runtime_root.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("runtime root permissions");
+        std::fs::set_permissions(&daemon_directory, std::fs::Permissions::from_mode(0o700))
+            .expect("daemon runtime directory permissions");
+    }
+    let path = daemon_directory.join("provider.sqlite");
+    let path_str = path.to_str().expect("database path");
+    let prepared = effect
+        .prepare(&openai_call(profile))
+        .expect("prepared OpenAI request");
+    let dispatch_connection = open_with_pragmas(path_str).expect("dispatch connection");
+    apply_migrations(&dispatch_connection).expect("dispatch migrations");
+    ensure_authority_id(&dispatch_connection, &generate_authority_id()).expect("authority ID");
+    ensure_event_log_lineage_id(&dispatch_connection).expect("event-log lineage ID");
+    run_startup_gates(&dispatch_connection, path_str).expect("dispatch startup gates");
+    let identity = capture_main_database_identity(&dispatch_connection).expect("main DB identity");
+    let dispatch_store =
+        SqliteProviderDispatchStore::open_with_connection(path_str, dispatch_connection)
+            .expect("dispatch store");
     dispatch_store
         .persist_prepared(&PreparedProviderRecord {
             call_id: prepared.call().call_id(),
@@ -27,7 +66,23 @@ fn durable_dispatch(
             profile_digest: profile.profile_digest(),
         })
         .expect("durable prepared request");
-    let execution_store = SqliteProviderExecutionStore::open(&path).expect("execution store");
+    let hot_wal_guard = Connection::open_with_flags(
+        &path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .expect("hot WAL guard");
+    hot_wal_guard
+        .execute_batch("PRAGMA query_only = ON; BEGIN; SELECT authority_id FROM _authority;")
+        .expect("hold hot WAL");
+    let execution_connection =
+        open_validated_connection(&path, identity).expect("validated execution connection");
+    let reader = open_validated_connection(&path, identity).expect("validated reader connection");
+    reader
+        .execute_batch("PRAGMA query_only = ON;")
+        .expect("restrict reader");
+    let execution_store =
+        SqliteProviderExecutionStore::open_with_connection(path_str, execution_connection)
+            .expect("execution store");
     execution_store
         .install_runtime_authority(&runtime_authority(profile))
         .expect("runtime authority");
@@ -41,11 +96,36 @@ fn durable_dispatch(
     receipt_from_admission(execution_store, prepared, admission)
 }
 
+fn capture_main_database_identity(
+    connection: &Connection,
+) -> Result<MainDatabaseIdentity, SqliteError> {
+    Ok(MainDatabaseIdentity {
+        authority_id: read_authority_id(connection)?.ok_or(SqliteError::InvalidQuery)?,
+        lineage_id: read_event_log_lineage_id(connection)?.ok_or(SqliteError::InvalidQuery)?,
+    })
+}
+
+fn open_validated_connection(
+    path: &Path,
+    identity: MainDatabaseIdentity,
+) -> Result<Connection, SqliteError> {
+    open_existing_with_pragmas_validated(path, |connection| {
+        if capture_main_database_identity(connection)? == identity {
+            Ok(())
+        } else {
+            Err(SqliteError::InvalidQuery)
+        }
+    })
+}
+
 fn receipt_from_admission(
     execution_store: SqliteProviderExecutionStore,
     prepared: PreparedRequest,
     admission: Box<DurableProviderAdmission>,
-) -> (DispatchRequest, gocode_store::provider::ProviderEffectStartReceipt) {
+) -> (
+    DispatchRequest,
+    gocode_store::provider::ProviderEffectStartReceipt,
+) {
     let claim = admission.into_claim();
     let request = DispatchRequest::new(prepared, claim.clone()).expect("dispatch claim binding");
     let receipt = execution_store
@@ -68,9 +148,11 @@ fn openai_call(profile: &OpenAiResponsesTextProfile) -> ProviderCall {
         profile.binding_extension(),
     )
     .expect("provider call")
-    .with_text_inputs(vec![
-        ProviderTextInput::new(ProviderInputRole::User, "hello").expect("input"),
-    ])
+    .with_text_inputs(vec![ProviderTextInput::new(
+        ProviderInputRole::User,
+        "hello",
+    )
+    .expect("input")])
     .expect("text inputs")
     .with_required_capabilities(vec![ProviderCapability::Streaming])
 }
