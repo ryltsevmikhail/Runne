@@ -10,6 +10,7 @@ pub fn bootstrap(config: &ConfigurationSnapshot) -> Result<BootstrapOutcome, Dae
 struct ProtectedBootstrap<'a> {
     launch_authority_id: [u8; 16],
     bootstrap_secret: [u8; 32],
+    expected_stable: &'a StableRuntimeBindingV1,
     pending_first_activation: Option<&'a PendingFirstActivationV1>,
     freshness_check: &'a mut dyn FnMut() -> Result<(), DaemonError>,
 }
@@ -19,6 +20,7 @@ pub fn bootstrap_protected<F>(
     config: &ConfigurationSnapshot,
     launch_authority_id: [u8; 16],
     bootstrap_secret: [u8; 32],
+    expected_stable: &StableRuntimeBindingV1,
     pending_first_activation: Option<&PendingFirstActivationV1>,
     mut freshness_check: F,
 ) -> Result<BootstrapOutcome, DaemonError>
@@ -35,6 +37,7 @@ where
         Some(ProtectedBootstrap {
             launch_authority_id,
             bootstrap_secret,
+            expected_stable,
             pending_first_activation,
             freshness_check: &mut freshness_check,
         }),
@@ -89,6 +92,10 @@ fn bootstrap_inner(
         (MetadataSnapshot::Empty, false) => StartupMode::FirstStart,
         _ => StartupMode::Restart,
     };
+    let prepared_authority = protected
+        .as_ref()
+        .and_then(|value| value.pending_first_activation)
+        .map(|pending| *pending.stable().authority_id());
 
     // ── Step 9: DB verify / create ──────────────────────────────────
     if db_existed {
@@ -99,17 +106,34 @@ fn bootstrap_inner(
             .map_err(|e| DaemonError::Bootstrap(format!("file lock: {e}")))?;
     }
     // ── Step 10: open SQLite writable ───────────────────────────────
-    let db_conn = schema::open_with_pragmas(&config.db_path)
-        .map_err(|e| DaemonError::Bootstrap(format!("open DB: {e}")))?;
+    let db_conn = if db_existed {
+        open_existing_bootstrap_database(
+            config,
+            protected.as_ref(),
+            &metadata_snapshot,
+            &mut locks,
+            &runtime_dir,
+        )
+    } else {
+        schema::open_with_pragmas(&config.db_path)
+    }
+    .map_err(|e| DaemonError::Bootstrap(format!("open DB: {e}")))?;
+
+    if db_existed
+        && locks.authority_lock.is_none()
+        && let Some(authority_id) =
+            acquire_existing_authority_lock(&db_conn, &mut locks, &runtime_dir)?
+        && prepared_authority.is_some_and(|prepared| prepared != authority_id)
+    {
+        return Err(DaemonError::Bootstrap(
+            "prepared authority does not match Event Log".into(),
+        ));
+    }
 
     // ── Step 11: schema migration ───────────────────────────────────
     schema::apply_migrations(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("schema migration: {e}")))?;
     // ── Step 12: authority ID ───────────────────────────────────────
-    let prepared_authority = protected
-        .as_ref()
-        .and_then(|value| value.pending_first_activation)
-        .map(|pending| *pending.stable().authority_id());
     let (authority_id, db_authority_after) = acquire_authority(
         db_existed,
         &db_conn,
@@ -199,4 +223,64 @@ fn bootstrap_inner(
         launch_generation,
         replay_integrity_key,
     })
+}
+
+fn open_existing_bootstrap_database(
+    config: &ConfigurationSnapshot,
+    protected: Option<&ProtectedBootstrap<'_>>,
+    metadata: &MetadataSnapshot,
+    locks: &mut LockSet,
+    runtime_dir: &Path,
+) -> rusqlite::Result<rusqlite::Connection> {
+    let path = Path::new(&config.db_path);
+    #[cfg(unix)]
+    {
+        schema::open_existing_with_pragmas_validated(path, |connection| {
+            if let Some(protected) = protected {
+                validate_protected_bootstrap_connection(
+                    config,
+                    connection,
+                    protected.expected_stable,
+                    protected.pending_first_activation,
+                )
+                .map_err(|_| rusqlite::Error::InvalidQuery)?;
+            }
+            let authority_id = schema::read_authority_id(connection)?
+                .or_else(|| {
+                    protected
+                        .and_then(|value| value.pending_first_activation)
+                        .map(|pending| *pending.stable().authority_id())
+                })
+                .ok_or(rusqlite::Error::InvalidQuery)?;
+            if let MetadataSnapshot::Valid {
+                authority_id: expected,
+            } = metadata
+                && expected != &authority_id
+            {
+                return Err(rusqlite::Error::InvalidQuery);
+            }
+            locks
+                .acquire_authority_lock(&authority_id, runtime_dir)
+                .map_err(|_| rusqlite::Error::InvalidQuery)
+        })
+    }
+
+    #[cfg(not(unix))]
+    let _ = (protected, locks, runtime_dir);
+    #[cfg(not(unix))]
+    match schema::open_with_pragmas(&config.db_path) {
+        Ok(connection) => Ok(connection),
+        Err(default_error) => match metadata {
+            MetadataSnapshot::Valid { authority_id } => {
+                schema::open_existing_with_pragmas_validated(path, |connection| {
+                    if schema::read_authority_id(connection)? == Some(*authority_id) {
+                        Ok(())
+                    } else {
+                        Err(rusqlite::Error::InvalidQuery)
+                    }
+                })
+            }
+            MetadataSnapshot::Empty | MetadataSnapshot::Malformed => Err(default_error),
+        },
+    }
 }
