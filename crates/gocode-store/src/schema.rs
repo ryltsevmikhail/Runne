@@ -13,7 +13,6 @@ use rand::rngs::OsRng;
 use std::{
     fmt, fs,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
 };
 
 use rusqlite::{
