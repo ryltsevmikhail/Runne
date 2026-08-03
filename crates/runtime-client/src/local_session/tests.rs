@@ -223,7 +223,7 @@ mod tests {
             "local-owner",
             runtime_profile.clone(),
             executable.clone(),
-            PathBuf::from("/private/tmp/gocode-protected-runtime"),
+            protected_runtime_root(),
             ActivationDispositionV1::FirstActivation,
         )
         .expect("launch");
@@ -252,5 +252,16 @@ mod tests {
         [
             0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, last,
         ]
+    }
+
+    fn protected_runtime_root() -> PathBuf {
+        #[cfg(unix)]
+        {
+            PathBuf::from("/private/tmp/gocode-protected-runtime")
+        }
+        #[cfg(not(unix))]
+        {
+            PathBuf::from(r"C:\gocode-protected-runtime")
+        }
     }
 }
