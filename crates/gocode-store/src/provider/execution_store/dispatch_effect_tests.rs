@@ -19,6 +19,7 @@ use super::super::{
     SqliteProviderDispatchStore,
 };
 use super::SqliteProviderExecutionStore;
+use super::authority_test_support::configured_connection;
 
 struct Ready;
 impl ProviderReadyEffect for Ready {
@@ -104,8 +105,13 @@ impl ProhibitedContentPort for Guard {
 fn lost_effect_readback_freezes_before_stage2_send() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("provider.sqlite");
-    let dispatch = SqliteProviderDispatchStore::open(&path).unwrap();
-    let execution = SqliteProviderExecutionStore::open(&path).unwrap();
+    let path_text = path.to_str().unwrap();
+    let dispatch =
+        SqliteProviderDispatchStore::open_with_connection(path_text, configured_connection(&path))
+            .unwrap();
+    let execution =
+        SqliteProviderExecutionStore::open_with_connection(path_text, configured_connection(&path))
+            .unwrap();
     execution
         .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
