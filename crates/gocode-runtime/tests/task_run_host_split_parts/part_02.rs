@@ -194,8 +194,15 @@ async fn maps_missing_queries_and_reconstructs_after_store_reopen() {
     drop(runtime.host);
     drop(runtime.store);
 
-    let (reopened_store, reopened_host, mut reopened_controller) =
-        start_runtime(&runtime.database_path, runtime.authority.clone());
+    let reopened_store = validated_reopen::reopen_store(
+        &runtime.database_path,
+        runtime.identity,
+        runtime.authority.clone(),
+        available_guard(),
+    )
+    .unwrap();
+    let (reopened_host, mut reopened_controller) =
+        start_runtime(reopened_store.clone(), runtime.authority.clone());
     let snapshot = reopened_host.get_task_run(taskrun_id).await.unwrap();
     assert_eq!(snapshot.state, CanonicalTaskRunState::Queued);
     assert_eq!(snapshot.stream_version, 2);
@@ -206,8 +213,9 @@ async fn maps_missing_queries_and_reconstructs_after_store_reopen() {
         .shutdown(ShutdownMode::Graceful {
             timeout: Duration::from_secs(5),
         })
-        .await;
+    .await;
     assert_eq!(outcome, ShutdownOutcome::Quiesced);
+    assert_eq!(reopened_controller.wait_terminated().await, ShutdownOutcome::Quiesced);
     drop(reopened_host);
     drop(reopened_store);
 }

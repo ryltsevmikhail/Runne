@@ -105,7 +105,8 @@ async fn terminal_errors_from_every_control_endpoint_release_session_quota() {
         ));
     }
 
-    replay_connection(&directory)
+    directory
+        .open_writer()
         .execute(
             "UPDATE _replay_subscriptions SET session_generation = ?1",
             [GENERATION + 1],
@@ -152,7 +153,8 @@ async fn terminal_errors_from_every_control_endpoint_release_session_quota() {
 async fn unknown_public_event_schema_stops_before_session_commit() {
     let (app, directory) = setup();
     let row = taskrun_row_with_schema(1, 1, "replay-test".to_owned(), 2);
-    replay_connection(&directory)
+    directory
+        .open_writer()
         .execute(
             "UPDATE events
              SET schema_version = 2, integrity_digest = ?1

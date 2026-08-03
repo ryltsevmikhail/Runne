@@ -1787,6 +1787,7 @@ dependencies = [
  "http",
  "rcgen",
  "reqwest 0.12.28",
+ "rusqlite",
  "rustls",
  "subtle",
  "tempfile",

@@ -97,11 +97,23 @@ fn test_full_lifecycle() {
 
 #[test]
 fn test_replay_after_reopen() {
-    let db_path = temp_db_path("replay-reopen");
+    let database = validated_reopen::ValidatedTestDatabase::new("replay-reopen");
+    let db_path = database.path().to_owned();
     cleanup_db(&db_path);
 
-    let tr_id: TaskRunId = {
-        let (_store, svc) = open_service(&db_path);
+    let (tr_id, identity): (TaskRunId, validated_reopen::MainDatabaseIdentity) = {
+        let (store, identity) = validated_reopen::initialize_store(
+            &db_path,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
+        let svc = TaskRunService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            store.runtime_authority_id().clone(),
+        );
 
         let outcome = svc
             .create_task_run(
@@ -144,11 +156,17 @@ fn test_replay_after_reopen() {
         )
         .unwrap();
 
-        tr_id
+        (tr_id, identity)
     }; // store dropped — connections closed
 
     // Reopen
-    let (store, _svc) = open_service(&db_path);
+    let store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
 
     // Load stream
     let stream: LoadedStream = store.load_task_run(tr_id).unwrap();
