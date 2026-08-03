@@ -132,7 +132,11 @@ fn v2_lifecycle_frames() -> Vec<(&'static str, u32, Vec<u8>)> {
 
 macro_rules! assert_wire_golden {
     ($golden:expr, $name:expr, $type_id:expr, $frame:expr, $decoder:ty) => {{
-        let expected = &$golden["lifecycle_messages"][$name];
+        let expected = if $name == "launch" {
+            platform_launch_golden(&$golden)
+        } else {
+            &$golden["lifecycle_messages"][$name]
+        };
         assert_eq!(expected["message_type_id"], $type_id, "{} type", $name);
         assert_eq!(expected["frame_length"], $frame.len(), "{} length", $name);
         assert_eq!(
