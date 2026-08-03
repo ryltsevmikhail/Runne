@@ -20,11 +20,15 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
         .await
         .expect("start daemon");
     let (stop, stopped) = oneshot::channel();
-    let daemon = tokio::spawn(application.run(async move {
-        stopped
+    let daemon = tokio::spawn(async move {
+        application
+            .run(async move {
+                stopped
+                    .await
+                    .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".to_owned()))
+            })
             .await
-            .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".to_owned()))
-    }));
+    });
     let profile =
         PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
 
