@@ -125,8 +125,11 @@ fn protected_bootstrap_commits_prepared_identity_and_consumes_authority_first() 
                 .any(|window| window == representation)
         );
     }
-    assert_secret_absent_from_runtime_artifacts(directory.path(), &first_secret);
+    // Windows enforces the `LockSet` byte-range locks, unlike Unix advisory
+    // locks. Release the live bootstrap resources before auditing every
+    // durable artifact, including the lock metadata files themselves.
     drop(first);
+    assert_secret_absent_from_runtime_artifacts(directory.path(), &first_secret);
 
     let reused = bootstrap_protected(&config, FIRST_LAUNCH, [0x62; 32], Some(&pending()), || {
         Ok(())
