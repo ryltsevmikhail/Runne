@@ -3,6 +3,11 @@
 /// File-backed verification stores call this before enabling WAL or applying
 /// migrations, so an unsupported future or candidate schema remains untouched.
 pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
+    drop(open_classified_immutable_read_only(db_path)?);
+    Ok(())
+}
+
+fn open_classified_immutable_read_only(db_path: &Path) -> SqliteResult<Connection> {
     if !path_is_safe(db_path) {
         return Err(diagnostic_error(SchemaOpenDiagnostic::UnsafePath));
     }
@@ -12,12 +17,8 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
     if metadata.len() == 0 {
         return Err(diagnostic_error(SchemaOpenDiagnostic::ZeroByteDatabase));
     }
-    let sidecar_present = existing_sidecar_present(db_path);
-    if sidecar_present && !identity_is_admitted(db_path).map_err(diagnostic_error)? {
+    if existing_sidecar_present(db_path) {
         return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
-    }
-    if sidecar_present {
-        return Ok(());
     }
 
     let immutable_uri = immutable_read_only_uri(db_path).map_err(diagnostic_error)?;
@@ -28,42 +29,63 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     classify_existing_connection(&conn)?;
-    drop(conn);
     if file_identity(db_path).map_err(diagnostic_error)? != identity {
         return Err(diagnostic_error(
             SchemaOpenDiagnostic::FileIdentityUncertain,
         ));
     }
-    Ok(())
+    Ok(conn)
 }
 
-/// Opens one already-classified database read-only without creating WAL
-/// sidecars when the main file is self-contained.
-///
-/// An already-admitted hot WAL in the current process uses SQLite's normal
-/// read-only view so committed WAL data is not ignored.
+/// Opens one already-classified self-contained database read-only without
+/// creating WAL sidecars.
 pub fn open_existing_read_only(db_path: &Path) -> SqliteResult<Connection> {
-    preflight_existing_file(db_path)?;
-    if existing_sidecar_present(db_path) {
-        return Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY);
-    }
-    let immutable_uri = immutable_read_only_uri(db_path).map_err(diagnostic_error)?;
-    Connection::open_with_flags(
-        immutable_uri,
-        OpenFlags::SQLITE_OPEN_READ_ONLY
-            | OpenFlags::SQLITE_OPEN_URI
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
+    open_classified_immutable_read_only(db_path)
 }
 
-/// Validates an owner-private hot-WAL file set, runs an exact read-only
-/// protected-runtime check, and admits only that unchanged file identity for
-/// the next writable open in this process.
+/// Opens a validated owner-private existing database for writing.
 ///
-/// This is deliberately separate from [`open_existing_read_only`]: arbitrary
-/// databases with WAL sidecars remain rejected. The caller must validate its
-/// signed stable runtime binding in `validate`; a rejected validation never
-/// admits the file for a writable open.
+/// On Unix, the validator receives the same connection that is later returned.
+/// It runs with `query_only` enabled, after schema classification and before
+/// any writable PRAGMA is applied. The owner-private main/WAL/SHM file set is
+/// checked again before writes are enabled. Default openers never inherit this
+/// authorization.
+/// Windows intentionally fails closed until it has an equivalent protected
+/// handle-based implementation.
+pub fn open_existing_with_pragmas_validated<F>(
+    db_path: &Path,
+    validate: F,
+) -> SqliteResult<Connection>
+where
+    F: FnOnce(&Connection) -> SqliteResult<()>,
+{
+    #[cfg(not(unix))]
+    {
+        let _ = (db_path, validate);
+        Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
+    }
+    #[cfg(unix)]
+    {
+        let file_set = owner_private_recovery_file_set(db_path).map_err(diagnostic_error)?;
+        let connection = Connection::open_with_flags(
+            db_path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.execute_batch("PRAGMA query_only = ON;")?;
+        classify_existing_connection(&connection)?;
+        validate(&connection)?;
+        if !recovery_file_set_unchanged(db_path, &file_set).map_err(diagnostic_error)? {
+            return Err(diagnostic_error(
+                SchemaOpenDiagnostic::FileIdentityUncertain,
+            ));
+        }
+        connection.execute_batch("PRAGMA query_only = OFF;")?;
+        configure_writable_pragmas(&connection)?;
+        Ok(connection)
+    }
+}
+
+/// Compatibility protected read-only preflight that retains no authorization.
 pub fn with_protected_recovery_read_only_admission<F>(
     db_path: &Path,
     validate: F,
@@ -78,20 +100,18 @@ where
     }
     #[cfg(unix)]
     {
-        validate_owner_private_recovery_files(db_path).map_err(diagnostic_error)?;
-        let identity = file_identity(db_path).map_err(diagnostic_error)?;
+        let file_set = owner_private_recovery_file_set(db_path).map_err(diagnostic_error)?;
         let connection = Connection::open_with_flags(
             db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         classify_existing_connection(&connection)?;
         validate(&connection)?;
-        if file_identity(db_path).map_err(diagnostic_error)? != identity {
+        if !recovery_file_set_unchanged(db_path, &file_set).map_err(diagnostic_error)? {
             return Err(diagnostic_error(
                 SchemaOpenDiagnostic::FileIdentityUncertain,
             ));
         }
-        validate_owner_private_recovery_files(db_path).map_err(diagnostic_error)?;
-        admit_identity(db_path).map_err(diagnostic_error)
+        Ok(())
     }
 }
