@@ -8,13 +8,13 @@ use gocode_domain::event::Actor;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 use gocode_provider::{ProviderCallDigestVersion, ProviderCallId};
 use gocode_security::SecretBroker;
-use gocode_store::provider::{
-    PersistPreparedOutcome, PreparedProviderRecord, SqliteProviderDispatchStore,
-};
+use gocode_store::provider::{PersistPreparedOutcome, PreparedProviderRecord};
 use gocode_store::schema::{
     CURRENT_SCHEMA_VERSION, SchemaRollbackError, rollback_pre_v12_snapshot,
 };
-use gocode_store::store::StoreTransaction;
+
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
@@ -33,17 +33,18 @@ fn command_context() -> ApplicationCommandContext {
 
 #[test]
 fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("authoritative.sqlite");
+    let database = validated_reopen::ValidatedTestDatabase::new("schema-v12-rollback");
+    let path = database.as_path();
     let authority = RuntimeAuthorityId("test-runtime-authority".to_owned());
-    let application_store =
-        StoreTransaction::open(path.to_str().unwrap(), authority.clone(), available_guard())
+    let (application_store, identity) =
+        validated_reopen::initialize_store(database.path(), authority.clone(), available_guard())
             .unwrap();
-    let provider_store = SqliteProviderDispatchStore::open(&path).unwrap();
+    let provider_store =
+        validated_reopen::open_provider_dispatch(database.path(), identity).unwrap();
 
     assert_eq!(
-        rollback_pre_v12_snapshot(&path),
-        Err(SchemaRollbackError::UnsupportedSchema)
+        rollback_pre_v12_snapshot(path),
+        Err(SchemaRollbackError::StoreUnavailable)
     );
 
     assert_eq!(
@@ -80,7 +81,11 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
         .unwrap();
     assert!(matches!(outcome, CommandOutcome::TaskRunCreated { .. }));
 
-    let verification = rusqlite::Connection::open(&path).unwrap();
+    let verification =
+        validated_reopen::open_validated_connection(database.path(), identity).unwrap();
+    verification
+        .execute_batch("PRAGMA query_only = ON;")
+        .unwrap();
     assert_eq!(
         verification
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| {

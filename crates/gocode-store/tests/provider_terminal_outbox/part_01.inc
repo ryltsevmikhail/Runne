@@ -23,11 +23,10 @@ struct Fixture {
     attempt_id: gocode_provider::DispatchAttemptId,
     fencing_token: u64,
     key: ProviderJournalKeyBinding,
-    path: std::path::PathBuf,
+    database: validated_reopen::ProviderTestDatabase,
 }
 fn fixture() -> Fixture {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.keep().join("provider-terminal.sqlite");
+    let database = validated_reopen::ProviderTestDatabase::new("provider-terminal");
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
         ModelRef::new(
@@ -49,9 +48,9 @@ fn fixture() -> Fixture {
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    let dispatch = SqliteProviderDispatchStore::open(&path).unwrap();
+    let dispatch = database.dispatch();
     dispatch.persist_prepared(&prepared_record).unwrap();
-    let execution = SqliteProviderExecutionStore::open(&path).unwrap();
+    let execution = database.execution();
     execution
         .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
@@ -119,7 +118,7 @@ fn fixture() -> Fixture {
         attempt_id: admitted.claim().attempt_id,
         fencing_token: admitted.claim().fencing_token,
         key,
-        path,
+        database,
     }
 }
 fn encrypted(nonce_byte: u8, plaintext_byte: u8) -> ProviderEncryptedPayload {
@@ -194,8 +193,7 @@ struct TerminalStateSnapshot {
     settlement_digest: Option<Vec<u8>>,
 }
 
-fn terminal_state_snapshot(fixture: &Fixture) -> TerminalStateSnapshot {
-    let connection = Connection::open(&fixture.path).unwrap();
+fn terminal_state_snapshot(connection: &Connection, fixture: &Fixture) -> TerminalStateSnapshot {
     let (reserved_tokens, settled_tokens, reserved_cost_micros, settled_cost_micros) = connection
         .query_row(
             "SELECT token_budget_reserved, token_budget_settled,

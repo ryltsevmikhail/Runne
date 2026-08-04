@@ -15,7 +15,8 @@ async fn activation_process_uses_the_protected_v2_channel_and_canonical_conversa
     std::fs::set_permissions(&runtime_root, std::fs::Permissions::from_mode(0o700))
         .expect("make fixture root owner-private");
     let key_before = prepare_runtime_root(&runtime_root).expect("create retained fixture key");
-    let mut process = support::launch(&support::executable("activation_process"), &runtime_root);
+    let executable = support::executable("activation_process", temporary.path());
+    let mut process = support::launch(&executable, &runtime_root);
     let client = support::protected_client(&mut process).await;
     let conversation = support::send_canonical_conversation(&client).await;
     let execution = support::execution_stage(&runtime_root);

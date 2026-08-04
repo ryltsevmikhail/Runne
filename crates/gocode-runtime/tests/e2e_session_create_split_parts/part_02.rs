@@ -60,28 +60,18 @@ async fn pending_binding_recovers_after_host_commit_before_binding_commit() {
 #[test]
 fn concurrent_retries_commit_one_binding_conversation_event_and_receipt() {
     let (runtime_fixture, runtime_store) = RuntimeFixture::new("session-create-concurrent");
-    drop(runtime_store);
     let binding_directory = tempfile::tempdir().unwrap();
     let binding_path = binding_directory.path().join("binding.sqlite");
+    let first_binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
+    let second_binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
     let barrier = Arc::new(Barrier::new(2));
-    let database_path = runtime_fixture.database_path.clone();
-    let identity = runtime_fixture.identity;
-    let first_database_path = database_path.clone();
-    let first_binding_path = binding_path.clone();
-    let second_binding_path = binding_path.clone();
+    let first_store = runtime_store.clone();
     let first_barrier = barrier.clone();
     let first = std::thread::spawn(move || {
-        let store = validated_reopen::reopen_store(
-            &first_database_path,
-            identity,
-            runtime_authority(),
-            available_guard(),
-        )
-        .unwrap();
         let service_one = OpenCodeSessionCreateService::new(
-            SqliteSessionBindingStore::open(&first_binding_path).unwrap(),
+            first_binding,
             BarrierHost {
-                inner: open_host(store),
+                inner: open_host(first_store),
                 barrier: first_barrier,
             },
             profile(),
@@ -94,17 +84,10 @@ fn concurrent_retries_commit_one_binding_conversation_event_and_receipt() {
             .block_on(service_one.create_session(key(), &request(), wire_input()))
     });
     let second = std::thread::spawn(move || {
-        let store = validated_reopen::reopen_store(
-            &database_path,
-            identity,
-            runtime_authority(),
-            available_guard(),
-        )
-        .unwrap();
         let service_two = OpenCodeSessionCreateService::new(
-            SqliteSessionBindingStore::open(&second_binding_path).unwrap(),
+            second_binding,
             BarrierHost {
-                inner: open_host(store),
+                inner: open_host(runtime_store),
                 barrier,
             },
             profile(),

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::sync::Arc;
 
@@ -10,6 +12,10 @@ use gocode_store::schema::{
     read_event_log_lineage_id,
 };
 use gocode_store::store::StoreTransaction;
+use gocode_store::{
+    migration_store::SqliteMigrationControlStore,
+    provider::{SqliteProviderDispatchStore, SqliteProviderExecutionStore},
+};
 use rusqlite::{Connection, Error as SqliteError, OpenFlags};
 use tempfile::TempDir;
 
@@ -43,12 +49,24 @@ impl ValidatedTestDatabase {
     pub fn path(&self) -> &str {
         &self.path
     }
+
+    pub fn as_path(&self) -> &Path {
+        Path::new(&self.path)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct MainDatabaseIdentity {
     authority_id: [u8; 16],
     lineage_id: EventLogLineageId,
+}
+
+pub fn initialize_database_identity(db_path: &str) -> Result<MainDatabaseIdentity, SqliteError> {
+    let connection = open_with_pragmas(db_path)?;
+    apply_migrations(&connection)?;
+    ensure_authority_id(&connection, &generate_authority_id())?;
+    let _ = ensure_event_log_lineage_id(&connection)?;
+    read_main_database_identity(&connection)
 }
 
 pub fn initialize_store(
@@ -87,6 +105,81 @@ pub fn reopen_store(
         runtime_authority_id,
         prohibited_content,
     )
+}
+
+pub fn open_provider_dispatch(
+    db_path: &str,
+    identity: MainDatabaseIdentity,
+) -> Result<SqliteProviderDispatchStore, gocode_store::provider::ProviderStoreError> {
+    let connection = open_validated_connection(db_path, identity)
+        .map_err(|_| gocode_store::provider::ProviderStoreError::Unavailable)?;
+    SqliteProviderDispatchStore::open_with_connection(db_path, connection)
+}
+
+pub fn open_provider_execution(
+    db_path: &str,
+    identity: MainDatabaseIdentity,
+) -> Result<SqliteProviderExecutionStore, gocode_application::provider::ProviderAdmissionError> {
+    let connection = open_validated_connection(db_path, identity)
+        .map_err(|_| gocode_application::provider::ProviderAdmissionError::RepositoryFailure)?;
+    SqliteProviderExecutionStore::open_with_connection(db_path, connection)
+}
+
+pub struct ProviderTestDatabase {
+    database: ValidatedTestDatabase,
+    identity: MainDatabaseIdentity,
+}
+
+impl ProviderTestDatabase {
+    pub fn new(name: &str) -> Self {
+        let database = ValidatedTestDatabase::new(name);
+        let identity = initialize_database_identity(database.path()).unwrap();
+        Self { database, identity }
+    }
+
+    pub fn path(&self) -> &str {
+        self.database.path()
+    }
+
+    pub fn as_path(&self) -> &Path {
+        self.database.as_path()
+    }
+
+    pub fn dispatch(&self) -> SqliteProviderDispatchStore {
+        open_provider_dispatch(self.path(), self.identity).unwrap()
+    }
+
+    pub fn execution(&self) -> SqliteProviderExecutionStore {
+        open_provider_execution(self.path(), self.identity).unwrap()
+    }
+
+    pub fn connection(&self) -> Connection {
+        open_validated_connection(self.path(), self.identity).unwrap()
+    }
+
+    pub fn query_connection(&self) -> Connection {
+        let connection = self.connection();
+        connection.execute_batch("PRAGMA query_only = ON;").unwrap();
+        connection
+    }
+}
+
+pub struct MigrationTestDatabase {
+    database: ValidatedTestDatabase,
+    identity: MainDatabaseIdentity,
+}
+
+impl MigrationTestDatabase {
+    pub fn new(name: &str) -> Self {
+        let database = ValidatedTestDatabase::new(name);
+        let identity = initialize_database_identity(database.path()).unwrap();
+        Self { database, identity }
+    }
+
+    pub fn open(&self) -> SqliteMigrationControlStore {
+        let connection = open_validated_connection(self.database.path(), self.identity).unwrap();
+        SqliteMigrationControlStore::open_with_connection(self.database.path(), connection).unwrap()
+    }
 }
 
 fn open_validated_reader(

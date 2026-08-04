@@ -19,33 +19,36 @@ fn row_count(connection: &Connection, table: &str) -> i64 {
 }
 
 struct TempDb {
-    path: PathBuf,
+    database: validated_reopen::ValidatedTestDatabase,
+    identity: validated_reopen::MainDatabaseIdentity,
 }
 
 impl TempDb {
     fn new(name: &str) -> Self {
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        Self {
-            path: std::env::temp_dir().join(format!(
-                "gocode-migration-{name}-{}-{nonce}.sqlite",
-                std::process::id()
-            )),
-        }
+        let database = validated_reopen::ValidatedTestDatabase::new(name);
+        let identity = validated_reopen::initialize_database_identity(database.path()).unwrap();
+        Self { database, identity }
     }
 
     fn path(&self) -> &Path {
-        &self.path
+        Path::new(self.database.path())
     }
-}
 
-impl Drop for TempDb {
-    fn drop(&mut self) {
-        for suffix in ["", "-wal", "-shm"] {
-            let _ = std::fs::remove_file(format!("{}{suffix}", self.path.display()));
-        }
+    fn adopt(&self) -> SqliteMigrationControlStore {
+        let connection = validated_reopen::open_validated_connection(self.database.path(), self.identity)
+            .unwrap();
+        SqliteMigrationControlStore::open_with_connection(self.database.path(), connection).unwrap()
+    }
+
+    fn reader(&self) -> Connection {
+        let connection = validated_reopen::open_validated_connection(self.database.path(), self.identity)
+            .unwrap();
+        connection.execute_batch("PRAGMA query_only = ON;").unwrap();
+        connection
+    }
+
+    fn writer(&self) -> Connection {
+        validated_reopen::open_validated_connection(self.database.path(), self.identity).unwrap()
     }
 }
 

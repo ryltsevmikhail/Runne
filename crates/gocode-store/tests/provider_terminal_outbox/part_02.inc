@@ -18,7 +18,7 @@ fn nonce_reuse_keeps_poll_marker_and_recovery_freezes_before_repoll() {
         arm_poll(&fixture, 1),
         Err(ProviderExecutionError::AttemptUncertain)
     );
-    let connection = Connection::open(&fixture.path).unwrap();
+    let connection = fixture.database.connection();
     assert_eq!(
         connection
             .query_row(
@@ -79,7 +79,7 @@ fn terminal_commit_atomically_settles_accounting_releases_reservations_and_creat
             .expect("completed terminal payload"),
     );
 
-    let connection = Connection::open(&fixture.path).unwrap();
+    let connection = fixture.database.connection();
     assert_eq!(
         connection
             .query_row(
@@ -174,7 +174,7 @@ fn terminal_settlement_over_reservation_rolls_back_every_edge() {
         fixture.execution.commit_terminal(&request),
         Err(ProviderExecutionError::ReservationMismatch)
     );
-    let connection = Connection::open(&fixture.path).unwrap();
+    let connection = fixture.database.connection();
     for table in [
         "provider_accounting_settlements",
         "provider_terminal_outbox",
@@ -286,7 +286,7 @@ fn stale_runtime_lease_cannot_append_settle_or_mutate_attempt_state() {
         Err(ProviderExecutionError::StaleGeneration)
     );
 
-    let connection = Connection::open(&fixture.path).unwrap();
+    let connection = fixture.database.connection();
     assert_eq!(
         connection
             .query_row(

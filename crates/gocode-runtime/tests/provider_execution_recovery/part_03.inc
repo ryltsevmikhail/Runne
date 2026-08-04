@@ -46,7 +46,7 @@ async fn remote_failure_without_usage_consumes_full_reservation_without_conversa
             .unwrap()
             .is_empty()
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     assert_eq!(
         connection
             .query_row(
@@ -132,7 +132,7 @@ async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
         runtime.finalize_terminal_output(&context(&fixture)),
         Err(RuntimeProviderExecutionError::PolicyDenied)
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     for table in [
         "provider_accounting_settlements",
         "provider_terminal_outbox",
@@ -175,7 +175,7 @@ async fn mismatched_exact_profile_pricing_creates_no_accounting_or_outbox() {
         runtime.finalize_terminal_output(&context(&fixture)),
         Err(RuntimeProviderExecutionError::PricingUnavailable)
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     for table in [
         "provider_accounting_settlements",
         "provider_terminal_outbox",

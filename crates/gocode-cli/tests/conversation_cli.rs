@@ -1,5 +1,6 @@
 #![cfg(unix)]
 
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
@@ -13,6 +14,8 @@ use tokio::sync::oneshot;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
     let directory = tempfile::tempdir().expect("temp directory");
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
+        .expect("secure temp directory");
     let mut defaults = BuiltInDefaults::new(directory.path());
     defaults.http_bind = "127.0.0.1:0".to_owned();
     let config = ConfigurationSnapshot::from_defaults(&defaults);
@@ -110,8 +113,6 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
 
 #[tokio::test]
 async fn cli_rejects_profile_v1_without_http_fallback_or_secret_disclosure() {
-    use std::os::unix::fs::PermissionsExt;
-
     let directory = tempfile::tempdir().expect("temp directory");
     let profile = directory.path().join("legacy-profile.json");
     let marker = "legacy-secret-marker";

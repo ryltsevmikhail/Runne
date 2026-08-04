@@ -1,7 +1,7 @@
 #[test]
 fn evidence_rollback_recovery_e2e() {
     let db = Tdb::new("rollback");
-    let store = SqliteMigrationControlStore::open(db.p()).unwrap();
+    let store = db.open();
     let svc = service::MigrationService::new(store, PS);
     let pi = pid("p1");
     let mut c = 0;
@@ -65,7 +65,7 @@ fn evidence_rollback_recovery_e2e() {
     assert_eq!(svc.load_plan(&pi).unwrap().unwrap(), parent_before);
     drop(svc);
 
-    let reopened = SqliteMigrationControlStore::open(db.p()).unwrap();
+    let reopened = db.open();
     assert_eq!(
         reopened
             .load_plan(&rollback.plan.plan_id)

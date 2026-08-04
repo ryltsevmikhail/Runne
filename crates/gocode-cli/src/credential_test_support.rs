@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 
 pub struct ProcessResult {
     pub outcome: ProcessOutcome,
@@ -21,12 +23,9 @@ pub fn run(
         store_calls: 0,
         store_received_stdin_secret: false,
     };
-    let resolver = Resolver {
-        fail: scenario == "resolver-error"
-            || scenario == "set-resolver-error"
-            || scenario == "delete",
-        calls: std::cell::Cell::new(0),
-    };
+    let resolver = Resolver::new(
+        scenario == "resolver-error" || scenario == "set-resolver-error" || scenario == "delete",
+    );
     let result = run_provider_credential_with(
         VecDeque::from(arguments),
         stdin,
@@ -47,6 +46,29 @@ pub fn run(
 struct Resolver {
     fail: bool,
     calls: std::cell::Cell<usize>,
+    _temporary: tempfile::TempDir,
+    executable: std::path::PathBuf,
+}
+
+impl Resolver {
+    fn new(fail: bool) -> Self {
+        let temporary = tempfile::tempdir().expect("temporary executable directory");
+        #[cfg(unix)]
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("restrict temporary executable directory");
+        let executable = temporary.path().join("gocode-test-executable");
+        let current = std::env::current_exe().expect("current CLI test executable");
+        std::fs::copy(current, &executable).expect("copy test executable");
+        #[cfg(unix)]
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("restrict test executable");
+        Self {
+            fail,
+            calls: std::cell::Cell::new(0),
+            _temporary: temporary,
+            executable,
+        }
+    }
 }
 
 impl CredentialIdentityResolver for Resolver {
@@ -55,8 +77,7 @@ impl CredentialIdentityResolver for Resolver {
         if self.fail {
             return Err(CliError::CredentialOperation);
         }
-        let current = std::env::current_exe().map_err(|_| CliError::CredentialOperation)?;
-        ProviderCredentialAccessPolicy::new(&current, &current)
+        ProviderCredentialAccessPolicy::new(&self.executable, &self.executable)
             .map_err(|_| CliError::CredentialOperation)
     }
 }

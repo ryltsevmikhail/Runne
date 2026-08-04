@@ -9,9 +9,8 @@ use gocode_provider::{
 };
 use gocode_store::provider::{
     PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    SqliteProviderExecutionStore,
 };
-use rusqlite::Connection;
 use std::sync::{Arc, Barrier};
 type AuthorityMutation = (
     Box<dyn Fn(&mut ProviderRuntimeAuthorityConfig)>,
@@ -96,20 +95,19 @@ fn issue_request(prepared: ContractPreparedProviderRecord) -> ProviderAuthorityI
     }
 }
 fn initialize(
-    path: &std::path::Path,
+    database: &validated_reopen::ProviderTestDatabase,
 ) -> (SqliteProviderExecutionStore, ProviderAuthorityIssueRequest) {
     let (prepared, contract, _) = prepared();
-    let dispatch = SqliteProviderDispatchStore::open(path).unwrap();
+    let dispatch = database.dispatch();
     dispatch.persist_prepared(&prepared).unwrap();
-    let execution = SqliteProviderExecutionStore::open(path).unwrap();
+    let execution = database.execution();
     execution.install_runtime_authority(&config()).unwrap();
     (execution, issue_request(contract))
 }
 #[test]
 fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_permit() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-execution.sqlite");
-    let (store, request) = initialize(&path);
+    let database = validated_reopen::ProviderTestDatabase::new("provider-execution");
+    let (store, request) = initialize(&database);
     let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
         panic!("first exact issue must win")
     };
@@ -133,7 +131,7 @@ fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_per
     assert_ne!(admitted.claim().token_reservation_id, [0; 16]);
     assert_ne!(admitted.claim().cost_reservation_id, [0; 16]);
     assert_eq!(admitted.claim().fencing_token, 13);
-    let connection = Connection::open(&path).unwrap();
+    let connection = database.connection();
     for (table, expected) in [
         ("provider_execution_admissions", 1_i64),
         ("provider_dispatch_attempts", 1),
@@ -155,9 +153,8 @@ fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_per
 }
 #[test]
 fn exact_retry_replays_without_new_ids_or_budget_and_changed_semantics_conflict() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-retry.sqlite");
-    let (store, request) = initialize(&path);
+    let database = validated_reopen::ProviderTestDatabase::new("provider-retry");
+    let (store, request) = initialize(&database);
 
     assert!(matches!(
         store.issue(&request).unwrap(),
@@ -177,7 +174,7 @@ fn exact_retry_replays_without_new_ids_or_budget_and_changed_semantics_conflict(
         Err(ProviderAdmissionError::AuthorityConflict)
     );
 
-    let connection = Connection::open(&path).unwrap();
+    let connection = database.connection();
     let reservation_count: i64 = connection
         .query_row(
             "SELECT COUNT(*) FROM provider_budget_reservations",
@@ -214,16 +211,13 @@ fn policy_approval_budget_pricing_and_generation_denials_leave_no_claim() {
     ];
 
     for (index, (mutate, expected)) in mutations.into_iter().enumerate() {
-        let temporary = tempfile::tempdir().unwrap();
-        let path = temporary
-            .path()
-            .join(format!("provider-denial-{index}.sqlite"));
+        let database = validated_reopen::ProviderTestDatabase::new(&format!("provider-denial-{index}"));
         let (prepared, contract, _) = prepared();
-        SqliteProviderDispatchStore::open(&path)
-            .unwrap()
+        database
+            .dispatch()
             .persist_prepared(&prepared)
             .unwrap();
-        let store = SqliteProviderExecutionStore::open(&path).unwrap();
+        let store = database.execution();
         let mut runtime = config();
         mutate(&mut runtime);
         store.install_runtime_authority(&runtime).unwrap();
@@ -232,9 +226,8 @@ fn policy_approval_budget_pricing_and_generation_denials_leave_no_claim() {
         assert_eq!(store.admitted_count().unwrap(), 0);
     }
 
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-pricing.sqlite");
-    let (store, mut request) = initialize(&path);
+    let database = validated_reopen::ProviderTestDatabase::new("provider-pricing");
+    let (store, mut request) = initialize(&database);
     request.pricing_revision_digest = [99; 32];
     assert_eq!(
         store.issue(&request),

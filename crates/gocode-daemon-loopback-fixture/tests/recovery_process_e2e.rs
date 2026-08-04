@@ -17,7 +17,7 @@ async fn recovery_process_replays_the_pending_terminal_outbox_without_a_second_e
         .expect("make fixture root owner-private");
     let placeholder_key =
         prepare_runtime_root(&runtime_root).expect("create fixture key placeholder");
-    let executable = support::executable("recovery_process");
+    let executable = support::executable("recovery_process", temporary.path());
 
     let mut first = support::launch(&executable, &runtime_root);
     let first_client = support::protected_client(&mut first).await;
