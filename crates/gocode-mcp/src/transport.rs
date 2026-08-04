@@ -1,3 +1,6 @@
+use gocode_tools::{
+    EffectAdmission, ToolDispatchRequest, ToolExecutionHandle, ToolProtocolCloseRequest,
+};
 use serde_json::Value;
 
 use crate::{McpNormalizedMessage, McpRequestId};
@@ -71,6 +74,22 @@ pub trait McpClientPort {
     fn dispatch(&mut self, message: &McpNormalizedMessage) -> Result<(), McpTransportError>;
     /// Receives one normalized message.
     fn receive(&mut self) -> Result<McpNormalizedMessage, McpTransportError>;
+}
+
+/// Client-owned confirmation boundary for correlated protocol completion.
+pub trait McpProtocolCompletionPort {
+    /// Reserves one exact admission before client dispatch reaches its effect boundary.
+    fn reserve_protocol_completion(
+        &mut self,
+        request: &ToolDispatchRequest,
+        admission: &EffectAdmission,
+        handle: &ToolExecutionHandle,
+    ) -> Result<(), McpTransportError>;
+    /// Confirms a privately recorded terminal claim and settles it once.
+    fn confirm_protocol_completion(
+        &mut self,
+        request: &ToolProtocolCloseRequest,
+    ) -> Result<(), McpTransportError>;
 }
 
 /// Pre-decode bounded MCP transport admission.

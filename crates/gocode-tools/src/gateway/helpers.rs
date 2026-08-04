@@ -1,4 +1,3 @@
-
 fn exact_invocation_mut<'a>(
     state: &'a mut BTreeMap<String, InvocationState>,
     invocation_id: &str,

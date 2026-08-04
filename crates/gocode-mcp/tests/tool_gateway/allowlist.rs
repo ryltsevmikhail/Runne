@@ -18,6 +18,56 @@ fn discovery_allowlist_publishes_only_selected_exact_tools() {
 }
 
 #[test]
+fn local_and_remote_publications_bind_kind_to_digest_class_and_capability() {
+    let descriptor = McpToolDescriptor::new("read", "1.0.0", json!({"type":"object"})).unwrap();
+    let server_id = McpServerId::new("kind-server").unwrap();
+    let local = publish_mcp_tools(server_id.clone(), McpServerKind::Local, vec![descriptor.clone()], &["read"]).unwrap();
+    let equivalent_local = publish_mcp_tools(server_id.clone(), McpServerKind::Local, vec![descriptor.clone()], &["read"]).unwrap();
+    let remote = publish_mcp_tools(server_id.clone(), McpServerKind::Remote, vec![descriptor], &["read"]).unwrap();
+    let local_ref = local.snapshot().tool_refs()[0].clone();
+    let remote_ref = remote.snapshot().tool_refs()[0].clone();
+    assert_ne!(local.discovery_digest(), remote.discovery_digest());
+    assert_eq!(local.discovery_digest(), equivalent_local.discovery_digest());
+    assert_eq!(local.resolve(&local_ref).unwrap().class(), ToolClass::McpLocal);
+    assert_eq!(local.resolve(&local_ref).unwrap().sandbox_profile(), SandboxProfile::McpLocal);
+    assert_eq!(remote.resolve(&remote_ref).unwrap().class(), ToolClass::McpRemote);
+    assert_eq!(remote.resolve(&remote_ref).unwrap().sandbox_profile(), SandboxProfile::NetworkRestricted);
+    let binding = |digest| McpDispatchBinding::new(
+        server_id.clone(),
+        McpRuntimeInstanceId::new("runtime-1").unwrap(),
+        McpConnectionId::new("connection-1").unwrap(),
+        McpSessionId::new("session-1").unwrap(),
+        1,
+        digest,
+    ).unwrap();
+    let local_binding = binding(*local.discovery_digest());
+    let remote_binding = binding(*remote.discovery_digest());
+    assert!(matches!(
+        local.issue_dispatch(&remote_binding, &local_ref, McpInvocationId::new("wrong-kind").unwrap(), json!({})),
+        Err(McpDispatchCapabilityError::InvalidBinding)
+    ));
+    let local_capability = local.issue_dispatch(
+        &local_binding,
+        &local_ref,
+        McpInvocationId::new("local-kind").unwrap(),
+        json!({}),
+    ).unwrap();
+    let rejected = McpToolGateway::new(
+        Admission { calls: Arc::new(Mutex::new(Vec::new())), reject: None },
+        Client {
+            sends: Arc::new(Mutex::new(0)),
+            messages: Arc::new(Mutex::new(Vec::new())),
+            fail_after_send: false,
+            generation_cutover: None,
+            reservations: reservations(),
+        },
+        Arc::new(McpGenerationAuthority::new(&remote_binding)),
+        ToolOutputBounds::new(1024, 16, 16).unwrap(),
+    );
+    assert_eq!(rejected.dispatch(local_capability), Err(McpToolGatewayError::StaleGeneration));
+}
+
+#[test]
 fn denied_stale_replay_and_post_send_uncertainty_are_mediated_by_gateway() {
     let published = published();
     let discovery_digest = *published.discovery_digest();
@@ -37,6 +87,7 @@ fn denied_stale_replay_and_post_send_uncertainty_are_mediated_by_gateway() {
             messages: Arc::clone(&messages),
             fail_after_send: false,
             generation_cutover: None,
+            reservations: reservations(),
         },
         Arc::clone(&generation),
         ToolOutputBounds::new(1024, 16, 16).unwrap(),
@@ -94,6 +145,7 @@ fn denied_stale_replay_and_post_send_uncertainty_are_mediated_by_gateway() {
             messages: stale_messages,
             fail_after_send: false,
             generation_cutover: None,
+            reservations: reservations(),
         },
         Arc::new(McpGenerationAuthority::new(&binding(2, discovery_digest))),
         ToolOutputBounds::new(1024, 16, 16).unwrap(),
@@ -127,6 +179,7 @@ fn denied_stale_replay_and_post_send_uncertainty_are_mediated_by_gateway() {
             messages: Arc::clone(&uncertain_messages),
             fail_after_send: true,
             generation_cutover: Some((Arc::clone(&guarded_generation), next_binding.clone())),
+            reservations: reservations(),
         },
         Arc::clone(&guarded_generation),
         ToolOutputBounds::new(1024, 16, 16).unwrap(),
