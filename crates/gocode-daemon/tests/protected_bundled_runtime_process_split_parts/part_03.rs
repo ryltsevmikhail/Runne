@@ -1,14 +1,77 @@
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn proven_owned_crash_recovers_the_exact_stable_hot_wal_binding() {
-    let temporary = tempfile::tempdir().expect("temporary crash root");
-    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+async fn provider_bound_v2_bundled_process_renews_and_stops_without_v1_downgrade() {
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
+    let temporary = owner_private::tempdir();
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
     let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
+            .expect("protected launch spec")
+            .with_provider_activation(ProviderActivationBindingV1::deterministic_v1());
+    let mut process = DevelopmentBundledRuntimeLauncher::new()
+        .launch(&spec)
+        .expect("provider-bound V2 launch");
+    assert_eq!(
+        process.provider_activation(),
+        Some(&ProviderActivationBindingV1::deterministic_v1())
+    );
+
+    let initial = process
+        .take_runtime_profile()
+        .expect("initial V2 profile")
+        .connect(Duration::from_secs(10))
+        .await
+        .expect("initial V2 session");
+    assert!(process.matches_client(&initial));
+    let initial_session = initial.session_info().clone();
+
+    let renewed = process
+        .renew_profile()
+        .expect("V2 renewal")
+        .connect(Duration::from_secs(10))
+        .await
+        .expect("renewed V2 session");
+    assert!(process.matches_client(&renewed));
+    assert_eq!(
+        renewed.session_info().authority_id,
+        initial_session.authority_id
+    );
+    assert_eq!(
+        renewed.session_info().event_log_lineage_id,
+        initial_session.event_log_lineage_id
+    );
+    assert_ne!(
+        renewed.session_info().session_id,
+        initial_session.session_id
+    );
+
+    process
+        .request_graceful_stop()
+        .expect("V2 authenticated shutdown");
+    assert_eq!(
+        process
+            .wait_for_exit(Duration::from_secs(5))
+            .expect("V2 daemon exit"),
+        BundledRuntimeProcessStatus::Exited
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn proven_owned_crash_recovers_the_exact_stable_hot_wal_binding() {
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
+    let temporary = owner_private::tempdir();
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let spec =
+        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("protected launch spec");
 
     let mut crashed = DevelopmentBundledRuntimeLauncher::new()
         .launch(&spec)
         .expect("initial protected runtime");
+    assert_eq!(
+        crashed.provider_activation(),
+        None,
+        "the no-provider compatibility path must remain V1 deterministic"
+    );
     let initial_client = crashed
         .take_runtime_profile()
         .expect("initial protected profile")
@@ -63,7 +126,8 @@ async fn proven_owned_crash_recovers_the_exact_stable_hot_wal_binding() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn first_activation_recovers_across_crash_and_durable_write_fault_matrix() {
-    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
     for fault in [
         FirstActivationFaultPoint::BeforePreparePersistence,
         FirstActivationFaultPoint::AfterPrepareFileSync,
@@ -75,9 +139,9 @@ async fn first_activation_recovers_across_crash_and_durable_write_fault_matrix()
         FirstActivationFaultPoint::AfterFinalPinFileSync,
         FirstActivationFaultPoint::AfterFinalPin,
     ] {
-        let temporary = tempfile::tempdir().expect("temporary fault root");
+        let temporary = owner_private::tempdir();
         let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+            ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
                 .expect("protected launch spec");
         let activation = spec.runtime_root().join(".desktop-protected-activation");
         let pending_path = activation.join("pending-first-activation-v1.json");

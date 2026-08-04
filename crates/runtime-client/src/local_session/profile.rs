@@ -1,3 +1,5 @@
+// Pinned-TLS bootstrap proof and short-lived local session construction.
+
 use std::fmt;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -5,7 +7,9 @@ use std::time::Duration;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use gocode_api::{
     LaunchAuthorityError, PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, ProtectedActivationKeys,
-    ProtectedLaunchRequestV1, ProtectedReadyV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1,
+    ProtectedLaunchRequestV1, ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2,
+    ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
+    ProtectedRenewTicketV2,
 };
 use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
@@ -88,6 +92,29 @@ impl ProtectedBundledRuntimeProfile {
         })
     }
 
+    /// Verifies provider-bound protocol V2 readiness and constructs a path-free bootstrap.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed launch-authority error when either the outer provider
+    /// binding or the nested runtime/session readiness tuple differs.
+    pub fn from_ready_v2(
+        ready: &ProtectedReadyV2,
+        request: &ProtectedLaunchRequestV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<Self, LaunchAuthorityError> {
+        ready.verify_exact(request, keys)?;
+        let peer = session_peer_from_ready(
+            ready.compatibility_ready(),
+            request.compatibility_request(),
+            keys,
+        )?;
+        Ok(Self {
+            peer,
+            bootstrap_key: keys.bootstrap_key(),
+        })
+    }
+
     /// Constructs the next path-free bootstrap from an authenticated renewal.
     ///
     /// # Errors
@@ -103,6 +130,33 @@ impl ProtectedBundledRuntimeProfile {
     ) -> Result<Self, LaunchAuthorityError> {
         ticket.verify_exact(renewal_request, keys)?;
         let mut peer = session_peer_from_ready(ready, launch_request, keys)?;
+        peer.expected_session_id = Some(*ticket.next_session_id());
+        Ok(Self {
+            peer,
+            bootstrap_key: ticket.bootstrap_ticket(),
+        })
+    }
+
+    /// Constructs the next path-free bootstrap from provider-bound V2 control messages.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed launch-authority error for a stale, changed, replayed,
+    /// or unauthenticated provider/session renewal tuple.
+    pub fn from_renewal_v2(
+        ready: &ProtectedReadyV2,
+        launch_request: &ProtectedLaunchRequestV2,
+        renewal_request: &ProtectedRenewRequestV2,
+        ticket: &ProtectedRenewTicketV2,
+        keys: &ProtectedActivationKeys,
+    ) -> Result<Self, LaunchAuthorityError> {
+        ticket.verify_exact(renewal_request, keys)?;
+        ready.verify_exact(launch_request, keys)?;
+        let mut peer = session_peer_from_ready(
+            ready.compatibility_ready(),
+            launch_request.compatibility_request(),
+            keys,
+        )?;
         peer.expected_session_id = Some(*ticket.next_session_id());
         Ok(Self {
             peer,
@@ -142,58 +196,4 @@ impl ProtectedBundledRuntimeProfile {
         )
         .await
     }
-}
-
-fn session_peer_from_ready(
-    ready: &ProtectedReadyV1,
-    request: &ProtectedLaunchRequestV1,
-    keys: &ProtectedActivationKeys,
-) -> Result<SessionPeer, LaunchAuthorityError> {
-    ready.verify_exact(request, keys)?;
-    let expected_schema_hash: [u8; 32] = hex::decode(GOLDEN_BUNDLE_HASH)
-        .ok()
-        .and_then(|bytes| bytes.try_into().ok())
-        .ok_or(LaunchAuthorityError::ProfileHashMismatch)?;
-    let profile = ready.profile();
-    let stable = ready.stable();
-    if profile.transport_profile_id() != PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID {
-        return Err(LaunchAuthorityError::DowngradedExternalProfile);
-    }
-    if profile.runtime_profile_schema_version() != PROTECTED_RUNTIME_PROFILE_SCHEMA_VERSION
-        || profile.profile_id() != crate::EXPECTED_BUNDLE_ID
-        || profile.profile_hash() != &expected_schema_hash
-        || stable.principal_id() != request.principal_id()
-        || stable.profile_id() != profile.profile_id()
-        || stable.profile_hash() != profile.profile_hash()
-        || stable.capability_digest() != profile.capability_digest()
-        || !ready
-            .capabilities()
-            .iter()
-            .map(String::as_str)
-            .eq(crate::REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
-        || ordered_capability_digest(ready.capabilities()) != *profile.capability_digest()
-    {
-        return Err(LaunchAuthorityError::ProfileHashMismatch);
-    }
-    let certificate_digest: [u8; 32] = Sha256::digest(ready.certificate_der()).into();
-    if &certificate_digest != ready.certificate_sha256() {
-        return Err(LaunchAuthorityError::ReadinessProofMismatch);
-    }
-    let (endpoint, origin) =
-        parse_endpoint(ready.endpoint()).map_err(|_| LaunchAuthorityError::InvalidContract)?;
-    Ok(SessionPeer {
-        endpoint,
-        origin,
-        certificate_der: ready.certificate_der().to_vec(),
-        certificate_sha256: *ready.certificate_sha256(),
-        authority_id: *stable.authority_id(),
-        principal_id: stable.principal_id().to_owned(),
-        event_log_lineage_id: uuid::Uuid::from_bytes(*stable.lineage_id()),
-        daemon_instance_id: uuid::Uuid::from_bytes(*ready.daemon_instance_id()),
-        launch_generation: ready.launch_generation(),
-        expected_session_id: Some(*ready.session_id()),
-        schema_hash: *profile.profile_hash(),
-        capabilities: ready.capabilities().to_vec(),
-        capability_digest: *profile.capability_digest(),
-    })
 }

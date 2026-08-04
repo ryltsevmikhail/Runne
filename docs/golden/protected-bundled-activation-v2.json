@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "protocol_schema_version": 2,
+  "message_type_id": 21,
+  "provider_mode": "openai_responses_text_v1",
+  "provider_profile_id": "gocode-openai-responses-text/1",
+  "provider_profile_digest": "d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80",
+  "frame_length": 561,
+  "frame_sha256": "4aeccf959e099b443391a9aafb9dd2483e33f47ba94b2f89938216054014e086",
+  "canonical_launch_platform": "unix",
+  "platform_launch_frames": {
+    "unix": {
+      "message_type_id": 21,
+      "frame_length": 561,
+      "frame_sha256": "4aeccf959e099b443391a9aafb9dd2483e33f47ba94b2f89938216054014e086"
+    },
+    "windows": {
+      "message_type_id": 21,
+      "frame_length": 551,
+      "frame_sha256": "f19b3ccff25b00695f6a8cc65273408d0d72a463e3a93aec8a81400acba7f562"
+    }
+  },
+  "lifecycle_messages": {
+    "launch": {
+      "message_type_id": 21,
+      "frame_length": 561,
+      "frame_sha256": "4aeccf959e099b443391a9aafb9dd2483e33f47ba94b2f89938216054014e086"
+    },
+    "ready": {
+      "message_type_id": 22,
+      "frame_length": 660,
+      "frame_sha256": "59b6b15a1f403f1577780a6d81aaae0fef8d53eb0374022511fe7c88688236f6"
+    },
+    "renew_request": {
+      "message_type_id": 23,
+      "frame_length": 569,
+      "frame_sha256": "ef8c60b6cecacf5a17a531d89fde367e87dbd671dabfe57201f8150ea4a00b26"
+    },
+    "renew_ticket": {
+      "message_type_id": 24,
+      "frame_length": 631,
+      "frame_sha256": "31351c271559283b49b45593f15173f93bb13aba2f854138d644f3f131f786f8"
+    },
+    "shutdown": {
+      "message_type_id": 25,
+      "frame_length": 533,
+      "frame_sha256": "b78b60704370653d9f198c7f0f34c13e0a87e275be40a3ea5335b2bd2843ada5"
+    },
+    "shutdown_ack": {
+      "message_type_id": 26,
+      "frame_length": 535,
+      "frame_sha256": "d1b66d12c7d9bbd5e0f87d227c9e2519b198d890393416a7c2c3b7ff007df914"
+    }
+  },
+  "content_policy": "digest-only; launch secrets are never stored in golden fixtures"
+}

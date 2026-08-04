@@ -1,0 +1,26 @@
+[package]
+name = "gocode-provider-openai"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gocode-provider = { path = "../gocode-provider" }
+hex.workspace = true
+reqwest = { workspace = true, features = ["rustls-tls", "stream"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
+rcgen.workspace = true
+rustls.workspace = true
+tokio.workspace = true
+tokio-rustls.workspace = true
+
+[lints]
+workspace = true

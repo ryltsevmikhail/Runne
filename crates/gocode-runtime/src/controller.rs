@@ -4,6 +4,17 @@ use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 
+pub(crate) fn trace_shutdown_phase(details: std::fmt::Arguments<'_>) {
+    if std::env::var_os("GOCODE_SHUTDOWN_TRACE").as_deref() == Some(std::ffi::OsStr::new("1")) {
+        use std::io::Write as _;
+
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "gocode_runtime_shutdown {details}"
+        );
+    }
+}
+
 /// How the runtime should shut down.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShutdownMode {
@@ -67,11 +78,25 @@ impl RuntimeController {
         let (ack_tx, ack_rx) = oneshot::channel();
         let cmd = ControlCommand::Shutdown { mode, ack: ack_tx };
 
+        trace_shutdown_phase(format_args!("phase=command_send_started mode={mode:?}"));
         if self.control_tx.send(cmd).await.is_err() {
+            trace_shutdown_phase(format_args!(
+                "phase=command_send_channel_closed outcome=quiesced"
+            ));
             return ShutdownOutcome::Quiesced;
         }
+        trace_shutdown_phase(format_args!("phase=command_send_completed"));
 
-        ack_rx.await.unwrap_or(ShutdownOutcome::Quiesced)
+        match ack_rx.await {
+            Ok(outcome) => {
+                trace_shutdown_phase(format_args!("phase=ack_received outcome={outcome:?}"));
+                outcome
+            }
+            Err(_) => {
+                trace_shutdown_phase(format_args!("phase=ack_channel_closed outcome=quiesced"));
+                ShutdownOutcome::Quiesced
+            }
+        }
     }
 
     /// Wait for the runtime to fully terminate.

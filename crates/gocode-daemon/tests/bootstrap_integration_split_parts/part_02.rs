@@ -146,6 +146,31 @@ fn invalid_existing_local_session_authority_fails_closed_without_rewrite() {
 }
 
 #[test]
+fn malformed_lock_metadata_is_repaired_from_the_locked_existing_database() {
+    let temp = TempDir::new().unwrap();
+    let config = test_config(&temp);
+    let initial = bootstrap(&config).unwrap();
+    let authority_id = initial.authority_id;
+    drop(initial);
+
+    let database_path = db_path(&config);
+    let locks =
+        LockSet::acquire_path(&database_path, runtime_dir(daemon_dir(&database_path))).unwrap();
+    let mut metadata = locks.path_lock.file();
+    metadata.set_len(0).unwrap();
+    metadata.write_all(b"torn-metadata").unwrap();
+    metadata.sync_all().unwrap();
+    drop(locks);
+
+    let repaired = bootstrap(&config).unwrap();
+    assert_eq!(repaired.authority_id, authority_id);
+    assert_eq!(
+        repaired.locks.read_metadata_snapshot().unwrap(),
+        gocode_daemon::lock::MetadataSnapshot::Valid { authority_id }
+    );
+}
+
+#[test]
 fn bootstrap_rejects_candidate_schema_before_wal_or_main_db_mutation() {
     for version in [9, 10, 11] {
         let temp = TempDir::new().unwrap();
@@ -175,4 +200,29 @@ fn bootstrap_rejects_candidate_schema_before_wal_or_main_db_mutation() {
         assert!(!PathBuf::from(format!("{}-wal", db.display())).exists());
         assert!(!PathBuf::from(format!("{}-shm", db.display())).exists());
     }
+}
+
+#[cfg(unix)]
+#[test]
+fn authority_lock_conflict_rejects_a_clone_before_writable_bootstrap_changes() {
+    let temp = TempDir::new().unwrap();
+    let config = test_config(&temp);
+    let initial = bootstrap(&config).unwrap();
+    drop(initial);
+
+    let original = db_path(&config);
+    let clone = daemon_dir(&original).join("event-log-clone.db");
+    fs::copy(&original, &clone).unwrap();
+    let before = fs::read(&clone).unwrap();
+    let mut clone_defaults = BuiltInDefaults::new(temp.path());
+    clone_defaults.db_path = clone.display().to_string();
+    let clone_config = ConfigurationSnapshot::from_defaults(&clone_defaults);
+
+    let holder = bootstrap(&config).unwrap();
+    let rejected = bootstrap(&clone_config).unwrap_err();
+    assert!(rejected.to_string().contains("open DB"));
+    assert_eq!(fs::read(&clone).unwrap(), before);
+    assert!(!PathBuf::from(format!("{}-wal", clone.display())).exists());
+    assert!(!PathBuf::from(format!("{}-shm", clone.display())).exists());
+    drop(holder);
 }

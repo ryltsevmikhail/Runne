@@ -1,13 +1,3 @@
-// ── extract_reply ───────────────────────────────────────────────────────────
-
-fn extract_reply(request: PerRunRequest) -> Reply {
-    match request {
-        PerRunRequest::Queue { reply, .. }
-        | PerRunRequest::Admit { reply, .. }
-        | PerRunRequest::StartAttempt { reply, .. }
-        | PerRunRequest::Complete { reply, .. } => reply,
-    }
-}
 
 // ── reject_request ──────────────────────────────────────────────────────────
 
@@ -23,6 +13,9 @@ fn reject_request(request: RuntimeRequest) {
         RuntimeRequest::BeginConversationText { reply, .. }
         | RuntimeRequest::FinishConversationText { reply, .. } => {
             let _ = reply.send(Err(RuntimeError::RuntimeClosed));
+        }
+        RuntimeRequest::CanonicalProviderExecution { reply, .. } => {
+            let _ = reply.send(Err(CanonicalProviderExecutionError::Unavailable));
         }
     }
 }
@@ -195,6 +188,9 @@ fn dispatch_admitted<E, U, I>(
                 reply,
             );
             drop(lease);
+        }
+        RuntimeRequest::CanonicalProviderExecution { job, reply } => {
+            registry.spawn_canonical_provider_task(job, reply, lease);
         }
     }
 }

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::{Arc, Barrier};
 
 use gocode_application::security::atomic_transaction::{
@@ -7,19 +6,36 @@ use gocode_application::security::atomic_transaction::{
 };
 use gocode_store::atomic_pre_effect::SqliteAtomicPreEffectStore;
 
-fn database_path(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "gocode-atomic-pre-effect-{name}-{}-{:?}.sqlite",
-        std::process::id(),
-        std::thread::current().id()
-    ))
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
+
+struct TestDatabase {
+    database: validated_reopen::ValidatedTestDatabase,
+    identity: validated_reopen::MainDatabaseIdentity,
 }
 
-fn fresh_store(name: &str) -> (PathBuf, SqliteAtomicPreEffectStore) {
-    let path = database_path(name);
-    let _ = std::fs::remove_file(&path);
-    let store = SqliteAtomicPreEffectStore::open(&path).unwrap();
-    (path, store)
+impl TestDatabase {
+    fn new(name: &str) -> Self {
+        let database = validated_reopen::ValidatedTestDatabase::new(name);
+        let identity = validated_reopen::initialize_database_identity(database.path()).unwrap();
+        Self { database, identity }
+    }
+
+    fn path(&self) -> &str {
+        self.database.path()
+    }
+
+    fn adopt(&self) -> SqliteAtomicPreEffectStore {
+        let connection =
+            validated_reopen::open_validated_connection(self.path(), self.identity).unwrap();
+        SqliteAtomicPreEffectStore::open_with_connection(self.path(), connection).unwrap()
+    }
+}
+
+fn fresh_store(name: &str) -> (TestDatabase, SqliteAtomicPreEffectStore) {
+    let database = TestDatabase::new(name);
+    let store = SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).unwrap();
+    (database, store)
 }
 
 fn valid_tx(intent_id: &str, permit_id: &str) -> AtomicPreEffectTransaction {
@@ -39,7 +55,7 @@ fn valid_tx(intent_id: &str, permit_id: &str) -> AtomicPreEffectTransaction {
 
 #[test]
 fn committed_pre_effect_survives_reopen_as_uncertain() {
-    let (path, store) = fresh_store("reopen");
+    let (database, store) = fresh_store("reopen");
     let outcome = store
         .commit_pre_effect(&valid_tx("intent-1", "permit-1"))
         .unwrap();
@@ -49,7 +65,7 @@ fn committed_pre_effect_survives_reopen_as_uncertain() {
     ));
     drop(store);
 
-    let reopened = SqliteAtomicPreEffectStore::open(&path).unwrap();
+    let reopened = SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).unwrap();
     let recovered = reopened.get_dispatch_intent("intent-1").unwrap().unwrap();
 
     assert_eq!(recovered.status, IntentStatus::Uncertain);
@@ -131,8 +147,8 @@ fn changed_exact_replay_is_rejected_without_mutation() {
 
 #[test]
 fn audit_write_failure_rolls_back_every_pre_effect_row() {
-    let (path, store) = fresh_store("audit-rollback");
-    rusqlite::Connection::open(&path)
+    let (database, store) = fresh_store("audit-rollback");
+    validated_reopen::open_validated_connection(database.path(), database.identity)
         .unwrap()
         .execute_batch(
             "CREATE TRIGGER fail_security_audit_insert
@@ -156,8 +172,9 @@ fn audit_write_failure_rolls_back_every_pre_effect_row() {
 
 #[test]
 fn concurrent_connections_claim_one_permit_for_exactly_one_intent() {
-    let (path, first_store) = fresh_store("concurrent-permit");
-    let second_store = SqliteAtomicPreEffectStore::open(&path).unwrap();
+    let (database, first_store) = fresh_store("concurrent-permit");
+    assert!(SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).is_err());
+    let second_store = database.adopt();
     let barrier = Arc::new(Barrier::new(2));
     let first_barrier = barrier.clone();
     let first = std::thread::spawn(move || {
@@ -180,18 +197,19 @@ fn concurrent_connections_claim_one_permit_for_exactly_one_intent() {
             .count(),
         1
     );
-    let reopened = SqliteAtomicPreEffectStore::open(&path).unwrap();
+    let reopened = SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).unwrap();
     assert_eq!(reopened.committed_count().unwrap(), 1);
 }
 
 #[test]
 fn incomplete_durable_pre_effect_fails_closed_on_recovery() {
-    let (path, store) = fresh_store("corrupt-recovery");
+    let (database, store) = fresh_store("corrupt-recovery");
     store
         .commit_pre_effect(&valid_tx("intent-7", "permit-7"))
         .unwrap();
     drop(store);
-    let raw = rusqlite::Connection::open(&path).unwrap();
+    let raw =
+        validated_reopen::open_validated_connection(database.path(), database.identity).unwrap();
     raw.execute(
         "DELETE FROM security_authorization_decisions WHERE intent_id = 'intent-7'",
         [],
@@ -199,7 +217,7 @@ fn incomplete_durable_pre_effect_fails_closed_on_recovery() {
     .unwrap();
     drop(raw);
 
-    let reopened = SqliteAtomicPreEffectStore::open(&path).unwrap();
+    let reopened = SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).unwrap();
 
     assert!(matches!(
         reopened.get_dispatch_intent("intent-7"),

@@ -1,8 +1,11 @@
     use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
 
-    use super::{ProtectedSessionRenewalSchedule, RuntimeOperationFence, map_protected_failure};
-    use gocode_app_core::RuntimeFailureCode;
+    use super::{
+        BundledRuntimeController, ProtectedSessionRenewalSchedule, RuntimeOperationFence,
+        map_protected_failure,
+    };
+    use gocode_app_core::{AppCore, RuntimeFailureCode, RuntimeMode};
     use gocode_platform_desktop::ProtectedBundledRuntimeError;
 
     #[test]
@@ -22,6 +25,41 @@
         assert_eq!(
             map_protected_failure(ProtectedBundledRuntimeError::UnsupportedPlatformBackend),
             RuntimeFailureCode::UnsupportedPlatformBackend
+        );
+    }
+
+    #[tokio::test]
+    async fn default_bundled_discovery_marks_configuration_required() {
+        let temporary = tempfile::tempdir().expect("temporary profile");
+        let core = Arc::new(
+            AppCore::open_with_runtime_mode(
+                &temporary.path().join("profile.sqlite3"),
+                RuntimeMode::Bundled,
+            )
+            .expect("open bundled core"),
+        );
+
+        let Err(failure) = BundledRuntimeController::discover(
+            Arc::clone(&core),
+            temporary.path().join("gocode-desktop").as_path(),
+            temporary.path().join("bundled-runtime").as_path(),
+        ) else {
+            panic!("default bundled discovery must require configuration");
+        };
+        assert_eq!(failure, RuntimeFailureCode::ConfigurationRequired);
+        core.mark_bundled_runtime_failed(failure)
+            .await
+            .expect("mark configuration required");
+
+        let bootstrap = core.bootstrap().expect("configuration bootstrap");
+        assert_eq!(bootstrap.runtime, gocode_app_core::RuntimeAvailability::Unconfigured);
+        assert_eq!(
+            bootstrap.runtime_lifecycle,
+            gocode_app_core::RuntimeLifecycleStatus::ConfigurationRequired
+        );
+        assert_eq!(
+            bootstrap.runtime_failure,
+            Some(RuntimeFailureCode::ConfigurationRequired)
         );
     }
 

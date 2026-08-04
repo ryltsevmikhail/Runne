@@ -138,6 +138,7 @@ mod events;
 mod ids;
 mod parse_helpers;
 mod position_helpers;
+mod provider_terminal;
 mod text;
 mod text_receipt_helpers;
 mod text_validation_helpers;

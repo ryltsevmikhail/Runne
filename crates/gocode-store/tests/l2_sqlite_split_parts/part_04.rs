@@ -1,3 +1,103 @@
+
+#[test]
+fn test_correlation_metadata_is_persisted_and_corruption_fails_closed() {
+    let database = validated_reopen::ValidatedTestDatabase::new("correlation-metadata");
+    let db_path = database.path().to_owned();
+    cleanup_db(&db_path);
+
+    let (store, identity) = validated_reopen::initialize_store(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let svc = TaskRunService::new(
+        store.clone(),
+        store.clone(),
+        store.clone(),
+        store.runtime_authority_id().clone(),
+    );
+    let outcome = svc
+        .create_task_run(
+            &make_context(1),
+            CreateTaskRunInput {
+                conversation_id: make_conv_id(),
+                workspace_id: make_ws_id(),
+            },
+        )
+        .unwrap();
+    let taskrun_id = match outcome {
+        CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
+        other => panic!("expected TaskRunCreated, got {:?}", other),
+    };
+
+    let conn = validated_reopen_store::open_validated_writer(&db_path, identity).unwrap();
+    let (correlation_id, correlation_type, integrity_profile): (Vec<u8>, i64, i64) = conn
+        .query_row(
+            "SELECT correlation_id, correlation_type, integrity_profile
+             FROM events WHERE aggregate_type = 1 AND aggregate_id = ?1",
+            rusqlite::params![taskrun_id.as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(correlation_id, taskrun_id.as_bytes());
+    assert_eq!(correlation_type, 1);
+    assert_eq!(integrity_profile, 1);
+
+    conn.execute(
+        "UPDATE events SET correlation_type = 2
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load_task_run(taskrun_id),
+        Err(EventStoreError::CorruptData)
+    ));
+
+    conn.execute(
+        "UPDATE events SET correlation_type = 1, integrity_profile = 2
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load_task_run(taskrun_id),
+        Err(EventStoreError::CorruptData)
+    ));
+
+    conn.execute(
+        "UPDATE events SET integrity_profile = 1
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(
+        conn.execute(
+            "UPDATE events SET correlation_id = x'00'
+             WHERE aggregate_type = 1 AND aggregate_id = ?1",
+            rusqlite::params![taskrun_id.as_bytes()],
+        )
+        .is_err()
+    );
+    assert!(store.load_task_run(taskrun_id).is_ok());
+
+    conn.execute(
+        "UPDATE events SET correlation_id = zeroblob(16)
+         WHERE aggregate_type = 1 AND aggregate_id = ?1",
+        rusqlite::params![taskrun_id.as_bytes()],
+    )
+    .unwrap();
+    assert!(matches!(
+        store.load_task_run(taskrun_id),
+        Err(EventStoreError::CorruptData)
+    ));
+
+    cleanup_db(&db_path);
+}
+
+// ── Test 4: Dedup — repeat command returns original result ────────────────
+
 #[test]
 fn test_dedup_repeat_command() {
     let db_path = temp_db_path("dedup");
@@ -143,69 +243,3 @@ fn test_version_conflict() {
 
     cleanup_db(&db_path);
 }
-
-// ── Test 6: IdempotencyConflict — same scope+key, different fingerprint ──
-
-#[test]
-fn test_idempotency_conflict_different_fingerprint() {
-    let db_path = temp_db_path("idem-conflict");
-    cleanup_db(&db_path);
-
-    let (_store, svc) = open_service(&db_path);
-
-    // Create
-    let outcome = svc
-        .create_task_run(
-            &make_context(1),
-            CreateTaskRunInput {
-                conversation_id: make_conv_id(),
-                workspace_id: make_ws_id(),
-            },
-        )
-        .unwrap();
-    let tr_id = match outcome {
-        CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
-        other => panic!("expected TaskRunCreated, got {:?}", other),
-    };
-
-    // Queue at version 1 with idempotency key from context(2)
-    svc.queue_task_run(
-        &make_context(2),
-        QueueTaskRunInput {
-            taskrun_id: tr_id,
-            expected_version: 1,
-        },
-    )
-    .unwrap();
-
-    // Same idempotency_key ("test-key-2"), different CommandId and expected_version
-    // → different fingerprint. Scope+key matches → IdempotencyConflict.
-    let conflict_ctx = ApplicationCommandContext {
-        command_id: CommandId::from_bytes([
-            0x02, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x99,
-        ]),
-        idempotency_key: IdempotencyKey::new("test-key-2").unwrap(),
-        principal_id: PrincipalId("test-principal".into()),
-        actor: Actor::new("test-actor-99").unwrap(),
-    };
-    let err = svc
-        .queue_task_run(
-            &conflict_ctx,
-            QueueTaskRunInput {
-                taskrun_id: tr_id,
-                expected_version: 3,
-            },
-        )
-        .unwrap_err();
-
-    assert!(
-        matches!(err, ApplicationError::IdempotencyConflict { .. }),
-        "expected IdempotencyConflict, got {:?}",
-        err,
-    );
-
-    cleanup_db(&db_path);
-}
-
-// ── Test 7: ClockRegression — reject timestamps going backwards ──────────

@@ -35,6 +35,7 @@ impl RuntimeMode {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeLifecycleStatus {
+    ConfigurationRequired,
     Starting,
     Ready,
     Restarting,
@@ -44,7 +45,8 @@ pub enum RuntimeLifecycleStatus {
 }
 
 impl RuntimeLifecycleStatus {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
+        Self::ConfigurationRequired,
         Self::Starting,
         Self::Ready,
         Self::Restarting,
@@ -58,6 +60,7 @@ impl RuntimeLifecycleStatus {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeFailureCode {
+    ConfigurationRequired,
     ProtectedActivationUnavailable,
     BundledExecutableUnavailable,
     BundledExecutableIdentityMismatch,
@@ -69,7 +72,8 @@ pub enum RuntimeFailureCode {
 }
 
 impl RuntimeFailureCode {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
+        Self::ConfigurationRequired,
         Self::ProtectedActivationUnavailable,
         Self::BundledExecutableUnavailable,
         Self::BundledExecutableIdentityMismatch,

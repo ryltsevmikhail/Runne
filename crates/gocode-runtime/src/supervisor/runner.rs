@@ -1,3 +1,4 @@
+
 // ── run_supervisor ──────────────────────────────────────────────────────────
 
 pub(crate) async fn run_supervisor<E, U, I>(
@@ -8,6 +9,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
     cancel: CancellationToken,
     service: Arc<TaskRunService<E, U, I>>,
     conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+    provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
     drain_complete_tx: oneshot::Sender<ShutdownOutcome>,
 ) where
     E: EventStore + Send + Sync + 'static,
@@ -19,6 +21,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
         cancel.clone(),
         service.clone(),
         conversation_service,
+        provider_service,
     );
     let mut draining = false;
     let mut ingress_open = true;
@@ -26,6 +29,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
     let mut shutdown_ack: Option<oneshot::Sender<ShutdownOutcome>> = None;
     let mut rejected_commands: usize = 0;
 
+    crate::controller::trace_shutdown_phase(format_args!("phase=supervisor_select_started"));
     loop {
         tokio::select! {
             biased;
@@ -33,7 +37,20 @@ pub(crate) async fn run_supervisor<E, U, I>(
             cmd = control_rx.recv(), if control_open => {
                 match cmd {
                     Some(ControlCommand::Shutdown { mode, ack }) => {
+                        crate::controller::trace_shutdown_phase(format_args!(
+                            "phase=command_received mode={mode:?} active_workers={} join_tasks={}",
+                            registry.worker_count(),
+                            registry.join_set.len(),
+                        ));
+                        crate::controller::trace_shutdown_phase(format_args!(
+                            "phase=gate_drain_started"
+                        ));
                         gate.drain().await;
+                        crate::controller::trace_shutdown_phase(format_args!(
+                            "phase=gate_drained active_workers={} join_tasks={}",
+                            registry.worker_count(),
+                            registry.join_set.len(),
+                        ));
                         gate.close();
                         draining = true;
                         shutdown_ack = Some(ack);
@@ -58,6 +75,11 @@ pub(crate) async fn run_supervisor<E, U, I>(
                             }
                         }
                         ingress_open = false;
+                        crate::controller::trace_shutdown_phase(format_args!(
+                            "phase=registry_wait_started active_workers={} join_tasks={} rejected_commands={rejected_commands}",
+                            registry.worker_count(),
+                            registry.join_set.len(),
+                        ));
                     }
                     None => {
                         control_open = false;
@@ -92,7 +114,18 @@ pub(crate) async fn run_supervisor<E, U, I>(
                     Some(Ok(RuntimeTaskExit::ConversationText { reply, outcome })) => {
                         let _ = reply.send(outcome);
                     }
+                    Some(Ok(RuntimeTaskExit::CanonicalProvider { reply, outcome, lease })) => {
+                        let _ = reply.send(outcome);
+                        drop(lease);
+                    }
                     _ => {}
+                }
+                if draining {
+                    crate::controller::trace_shutdown_phase(format_args!(
+                        "phase=registry_join_completed active_workers={} join_tasks={} rejected_commands={rejected_commands}",
+                        registry.worker_count(),
+                        registry.join_set.len(),
+                    ));
                 }
             }
 
@@ -102,7 +135,13 @@ pub(crate) async fn run_supervisor<E, U, I>(
         if draining && registry.worker_count() == 0 && registry.join_set.is_empty() {
             let outcome = ShutdownOutcome::Quiesced;
             if let Some(ack) = shutdown_ack.take() {
-                let _ = ack.send(outcome.clone());
+                let ack_sent = ack.send(outcome.clone()).is_ok();
+                crate::controller::trace_shutdown_phase(format_args!(
+                    "phase=ack_sent outcome={} active_workers={} join_tasks={} rejected_commands={rejected_commands}",
+                    if ack_sent { "sent" } else { "receiver_closed" },
+                    registry.worker_count(),
+                    registry.join_set.len(),
+                ));
             }
             let _ = drain_complete_tx.send(outcome);
             return;
@@ -115,7 +154,13 @@ pub(crate) async fn run_supervisor<E, U, I>(
         rejected_commands,
     };
     if let Some(ack) = shutdown_ack.take() {
-        let _ = ack.send(outcome.clone());
+        let ack_sent = ack.send(outcome.clone()).is_ok();
+        crate::controller::trace_shutdown_phase(format_args!(
+            "phase=incomplete_ack_sent outcome={} active_workers={} join_tasks={} rejected_commands={rejected_commands}",
+            if ack_sent { "sent" } else { "receiver_closed" },
+            registry.worker_count(),
+            registry.join_set.len(),
+        ));
     }
     let _ = drain_complete_tx.send(outcome);
 }

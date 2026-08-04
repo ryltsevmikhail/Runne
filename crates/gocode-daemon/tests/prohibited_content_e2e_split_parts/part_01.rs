@@ -21,10 +21,6 @@ use gocode_application::ports::{
     RuntimeAuthorityId,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
-use gocode_application::provider::{
-    ProviderAdmissionError, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
-    ProviderEffectAdmission, ProviderEffectAuthorityRef, ProviderEffectRequest,
-};
 use gocode_application::replay_service::ReplayService;
 use gocode_application::service::TaskRunService;
 use gocode_application::verification::export_port::VerificationExporter;
@@ -40,12 +36,6 @@ use gocode_http::error::{RequestId, canonical_error_response};
 use gocode_http::limits::LimitsConfig;
 use gocode_http::middleware::request_id_middleware;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
-use gocode_provider::{
-    DispatchAttemptId, DispatchError, DispatchRequest, ModelRef, PrepareError,
-    PreparedProviderRecord, PreparedRequest, ProviderCall, ProviderCallId, ProviderDispatchClaim,
-    ProviderDispatchRepository, ProviderFuture, ProviderId, ProviderPort,
-    ProviderRepositoryClaimOutcome, ProviderRepositoryError, ProviderStreamId,
-};
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{ShutdownMode, ShutdownOutcome};
 use gocode_runtime::{
@@ -53,7 +43,12 @@ use gocode_runtime::{
 };
 use gocode_security::SecretBroker;
 use gocode_store::replay_store::ReplayStore;
-use gocode_store::schema::{ensure_event_log_lineage_id, open_with_pragmas};
+use gocode_store::schema::{
+    apply_migrations, ensure_authority_id, ensure_event_log_lineage_id,
+    open_with_pragmas, read_authority_id, read_event_log_lineage_id,
+};
+#[cfg(unix)]
+use gocode_store::schema::open_existing_with_pragmas_validated;
 use gocode_store::store::StoreTransaction;
 use gocode_store::verification::backup_store::InMemoryBackupStore;
 use serde_json::json;
@@ -135,6 +130,56 @@ fn authenticated_runtime_session(lineage: EventLogLineageId) -> AuthenticatedRun
     }
 }
 
+fn open_admitted_fixture_connection(
+    path: &std::path::Path,
+    lineage: EventLogLineageId,
+) -> rusqlite::Connection {
+    #[cfg(unix)]
+    {
+        open_existing_with_pragmas_validated(path, |connection| {
+            validate_fixture_identity(connection, lineage)
+        })
+        .unwrap()
+    }
+    #[cfg(not(unix))]
+    {
+        use rusqlite::OpenFlags;
+
+        let path_text = path.to_str().unwrap();
+        let connection = rusqlite::Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .unwrap();
+        connection.execute_batch("PRAGMA query_only = ON;").unwrap();
+        validate_fixture_identity(&connection, lineage).unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA query_only = OFF;
+                 PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = FULL;
+                 PRAGMA foreign_keys = ON;
+                 PRAGMA busy_timeout = 5000;",
+            )
+            .unwrap();
+        gocode_store::schema::run_startup_gates(&connection, path_text).unwrap();
+        connection
+    }
+}
+
+fn validate_fixture_identity(
+    connection: &rusqlite::Connection,
+    lineage: EventLogLineageId,
+) -> rusqlite::Result<()> {
+    if read_authority_id(connection)? == Some(AUTHORITY)
+        && read_event_log_lineage_id(connection)? == Some(lineage)
+    {
+        Ok(())
+    } else {
+        Err(rusqlite::Error::InvalidQuery)
+    }
+}
+
 fn representations() -> Vec<(&'static str, Vec<u8>)> {
     let raw = MARKER.as_bytes();
     let standard = base64::engine::general_purpose::STANDARD.encode(raw);
@@ -178,91 +223,5 @@ impl io::Write for CaptureWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingProvider {
-    prepared_bytes: Mutex<Vec<u8>>,
-}
-
-impl ProviderPort for RecordingProvider {
-    fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
-        *self.prepared_bytes.lock().unwrap() = serde_json::to_vec(call).unwrap();
-        PreparedRequest::from_call(call)
-    }
-
-    fn dispatch(
-        &self,
-        _request: DispatchRequest,
-    ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
-        Box::pin(async { unreachable!("denied provider call must not dispatch") })
-    }
-
-    fn next<'a>(
-        &'a self,
-        _stream_id: &'a ProviderStreamId,
-        _cursor: gocode_provider::StreamCursor,
-    ) -> ProviderFuture<'a, Result<gocode_provider::ProviderStreamItem, gocode_provider::StreamError>>
-    {
-        Box::pin(async { unreachable!("denied provider call must not poll") })
-    }
-
-    fn cancel(
-        &self,
-        _request: gocode_provider::CancelRequest,
-    ) -> ProviderFuture<'_, Result<gocode_provider::CancelDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("denied provider call must not cancel") })
-    }
-
-    fn reconcile(
-        &self,
-        _request: gocode_provider::ReconcileRequest,
-    ) -> ProviderFuture<'_, Result<gocode_provider::ReconciliationDisposition, DispatchError>> {
-        Box::pin(async { unreachable!("denied provider call must not reconcile") })
-    }
-}
-
-#[derive(Default)]
-struct UnreachableRepository;
-
-impl ProviderDispatchRepository for UnreachableRepository {
-    fn persist_prepared(
-        &self,
-        _record: &PreparedProviderRecord,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not persist")
-    }
-
-    fn claim(
-        &self,
-        _claim: &ProviderDispatchClaim,
-    ) -> Result<ProviderRepositoryClaimOutcome, ProviderRepositoryError> {
-        unreachable!("denied provider call must not claim")
-    }
-
-    fn mark_streaming(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-        _stream_id: ProviderStreamId,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not mark streaming")
-    }
-
-    fn mark_uncertain(
-        &self,
-        _attempt_id: DispatchAttemptId,
-        _fencing_token: u64,
-    ) -> Result<(), ProviderRepositoryError> {
-        unreachable!("denied provider call must not mark uncertain")
-    }
-}
-
-struct UnreachableAdmission;
-
-impl ProviderEffectAdmission for UnreachableAdmission {
-    fn admit(&self, _request: &ProviderEffectRequest) -> Result<(), ProviderAdmissionError> {
-        unreachable!("denied provider call must not reach admission")
     }
 }

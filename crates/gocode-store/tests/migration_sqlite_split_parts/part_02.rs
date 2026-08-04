@@ -69,7 +69,7 @@ fn duplicate_stage_and_evidence_commands_replay_original_outcomes() {
         .unwrap();
     assert_eq!(evidence, evidence_retry);
 
-    let connection = Connection::open(db.path()).unwrap();
+    let connection = db.reader();
     assert_eq!(row_count(&connection, "migration_transitions"), 1);
     assert_eq!(row_count(&connection, "migration_evidence"), 1);
     assert_eq!(row_count(&connection, "migration_receipts"), 2);
@@ -121,7 +121,7 @@ fn stale_plan_version_changes_no_durable_rows() {
     let store = SqliteMigrationControlStore::open(db.path()).unwrap();
     let service = MigrationService::new(store, PureShadow);
     service.stage_plan(stage_context(), stage_input()).unwrap();
-    let connection = Connection::open(db.path()).unwrap();
+    let connection = db.reader();
     let before = migration_durable_counts(&connection);
 
     assert!(

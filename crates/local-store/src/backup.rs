@@ -49,6 +49,7 @@ fn sync_parent_directory(path: &Path) -> Result<(), StoreOpenError> {
 }
 
 #[cfg(not(unix))]
-fn sync_parent_directory(_: &Path) -> Result<(), StoreOpenError> {
+#[allow(clippy::unnecessary_wraps)]
+const fn sync_parent_directory(_: &Path) -> Result<(), StoreOpenError> {
     Ok(())
 }

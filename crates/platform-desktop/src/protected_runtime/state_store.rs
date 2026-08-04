@@ -1,294 +1,175 @@
+/// Resolves the colocated bundled daemon without consulting `PATH` or a shell.
+///
+/// Release-style layouts require the exact packaged `gocode-daemon` binary.
+///
+/// # Errors
+///
+/// Returns a closed failure when no absolute, regular, non-writable executable
+/// can be measured or the platform backend is unsupported.
+pub fn discover_bundled_runtime(
+    desktop_executable: &Path,
+) -> Result<PathBuf, ProtectedBundledRuntimeError> {
+    #[cfg(not(unix))]
+    {
+        let _ = desktop_executable;
+        Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+    }
+    #[cfg(unix)]
+    {
+        let desktop = std::fs::canonicalize(desktop_executable)
+            .map_err(|_| ProtectedBundledRuntimeError::ExecutableUnavailable)?;
+        let directory = desktop
+            .parent()
+            .ok_or(ProtectedBundledRuntimeError::ExecutableUnavailable)?;
+        let daemon = directory.join("gocode-daemon");
+        if daemon.exists() {
+            return validate_executable_path(&daemon);
+        }
+        Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredExecutableV1 {
+    executable_sha256: [u8; 32],
+    canonical_path_sha256: [u8; 32],
+    byte_length: u64,
+}
+
+impl StoredExecutableV1 {
+    const fn from_contract(value: &ExecutableIdentityV1) -> Self {
+        Self {
+            executable_sha256: *value.executable_sha256(),
+            canonical_path_sha256: *value.canonical_path_sha256(),
+            byte_length: value.byte_length(),
+        }
+    }
+
+    fn into_contract(self) -> Result<ExecutableIdentityV1, ProtectedBundledRuntimeError> {
+        ExecutableIdentityV1::new(
+            self.executable_sha256,
+            self.canonical_path_sha256,
+            self.byte_length,
+        )
+        .map_err(Into::into)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredProfileV1 {
+    transport_profile_id: String,
+    runtime_profile_schema_version: u32,
+    profile_id: String,
+    profile_hash: [u8; 32],
+    capability_digest: [u8; 32],
+}
+
+impl StoredProfileV1 {
+    fn from_contract(value: &ProtectedRuntimeProfileV1) -> Self {
+        Self {
+            transport_profile_id: value.transport_profile_id().to_owned(),
+            runtime_profile_schema_version: value.runtime_profile_schema_version(),
+            profile_id: value.profile_id().to_owned(),
+            profile_hash: *value.profile_hash(),
+            capability_digest: *value.capability_digest(),
+        }
+    }
+
+    fn into_contract(self) -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRuntimeError> {
+        ProtectedRuntimeProfileV1::new(
+            self.transport_profile_id,
+            self.runtime_profile_schema_version,
+            self.profile_id,
+            self.profile_hash,
+            self.capability_digest,
+        )
+        .map_err(Into::into)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredStableV1 {
+    schema_version: u32,
+    authority_id: [u8; 16],
+    principal_id: String,
+    lineage_id: [u8; 16],
+    profile_id: String,
+    profile_hash: [u8; 32],
+    capability_digest: [u8; 32],
+}
+
+impl StoredStableV1 {
+    fn from_contract(value: &StableRuntimeBindingV1) -> Self {
+        Self {
+            schema_version: STATE_SCHEMA_VERSION,
+            authority_id: *value.authority_id(),
+            principal_id: value.principal_id().to_owned(),
+            lineage_id: *value.lineage_id(),
+            profile_id: value.profile_id().to_owned(),
+            profile_hash: *value.profile_hash(),
+            capability_digest: *value.capability_digest(),
+        }
+    }
+
+    fn into_contract(self) -> Result<StableRuntimeBindingV1, ProtectedBundledRuntimeError> {
+        if self.schema_version != STATE_SCHEMA_VERSION {
+            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
+        }
+        StableRuntimeBindingV1::new(
+            self.authority_id,
+            self.principal_id,
+            self.lineage_id,
+            self.profile_id,
+            self.profile_hash,
+            self.capability_digest,
+        )
+        .map_err(Into::into)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredPendingV1 {
+    schema_version: u32,
+    preparation_id: [u8; 16],
+    runtime_root_identity: [u8; 32],
+    stable: StoredStableV1,
+    executable: StoredExecutableV1,
+    profile: StoredProfileV1,
+}
+
+impl StoredPendingV1 {
+    fn from_contract(value: &PendingFirstActivationV1) -> Self {
+        Self {
+            schema_version: STATE_SCHEMA_VERSION,
+            preparation_id: *value.preparation_id(),
+            runtime_root_identity: *value.runtime_root_identity(),
+            stable: StoredStableV1::from_contract(value.stable()),
+            executable: StoredExecutableV1::from_contract(value.executable()),
+            profile: StoredProfileV1::from_contract(value.profile()),
+        }
+    }
+
+    fn into_contract(self) -> Result<PendingFirstActivationV1, ProtectedBundledRuntimeError> {
+        if self.schema_version != STATE_SCHEMA_VERSION {
+            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
+        }
+        PendingFirstActivationV1::new(
+            self.preparation_id,
+            self.runtime_root_identity,
+            self.stable.into_contract()?,
+            self.executable.into_contract()?,
+            self.profile.into_contract()?,
+        )
+        .map_err(Into::into)
+    }
+}
+
 #[cfg(unix)]
 #[derive(Debug)]
 struct ActivationStateStore {
     directory: PathBuf,
-}
-
-#[cfg(unix)]
-impl ActivationStateStore {
-    fn open(runtime_root: &Path) -> Result<Self, ProtectedBundledRuntimeError> {
-        let directory = runtime_root.join(ACTIVATION_STATE_DIRECTORY);
-        match std::fs::symlink_metadata(&directory) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                    return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&directory)
-                    .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-                std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700))
-                    .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-            }
-            Err(_) => return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable),
-        }
-        validate_owner_private_directory(&directory)?;
-        Ok(Self { directory })
-    }
-
-    fn load_stable(&self) -> Result<Option<StableRuntimeBindingV1>, ProtectedBundledRuntimeError> {
-        self.read_record::<StoredStableV1>(STABLE_RECORD_FILE)?
-            .map(StoredStableV1::into_contract)
-            .transpose()
-    }
-
-    fn load_pending(
-        &self,
-    ) -> Result<Option<PendingFirstActivationV1>, ProtectedBundledRuntimeError> {
-        self.read_record::<StoredPendingV1>(PENDING_RECORD_FILE)?
-            .map(StoredPendingV1::into_contract)
-            .transpose()
-    }
-
-    fn persist_stable_exact(
-        &self,
-        stable: &StableRuntimeBindingV1,
-        controls: &mut LaunchTestControls,
-    ) -> Result<(), ProtectedBundledRuntimeError> {
-        self.persist_record_exact(
-            STABLE_RECORD_FILE,
-            &StoredStableV1::from_contract(stable),
-            ActivationCheckpoint::AfterFinalPinFileSync,
-            controls,
-        )
-    }
-
-    fn persist_pending_exact(
-        &self,
-        pending: &PendingFirstActivationV1,
-        controls: &mut LaunchTestControls,
-    ) -> Result<(), ProtectedBundledRuntimeError> {
-        self.persist_record_exact(
-            PENDING_RECORD_FILE,
-            &StoredPendingV1::from_contract(pending),
-            ActivationCheckpoint::AfterPrepareFileSync,
-            controls,
-        )
-    }
-
-    fn remove_pending(&self) -> Result<(), ProtectedBundledRuntimeError> {
-        let path = self.directory.join(PENDING_RECORD_FILE);
-        match std::fs::remove_file(path) {
-            Ok(()) => sync_directory(&self.directory),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(ProtectedBundledRuntimeError::ActivationStateUnavailable),
-        }
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn stage_trusted_executable(
-        &self,
-        source_path: &Path,
-        trusted_source: &ExecutableIdentityV1,
-    ) -> Result<(PathBuf, ExecutableIdentityV1), ProtectedBundledRuntimeError> {
-        let staging_directory = self.directory.join(STAGED_EXECUTABLE_DIRECTORY);
-        match std::fs::symlink_metadata(&staging_directory) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                    return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
-                }
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                std::fs::create_dir(&staging_directory)
-                    .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-                std::fs::set_permissions(
-                    &staging_directory,
-                    std::fs::Permissions::from_mode(0o700),
-                )
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            }
-            Err(_) => return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch),
-        }
-        validate_owner_private_directory(&staging_directory)
-            .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-
-        let final_name = format!(
-            "{}-{}.gocoded",
-            hex::encode(trusted_source.executable_sha256()),
-            trusted_source.byte_length()
-        );
-        let final_path = staging_directory.join(final_name);
-        if final_path.exists() {
-            validate_staged_executable(&final_path, trusted_source)?;
-            let identity = ExecutableIdentityV1::measure(&final_path)
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            return Ok((final_path, identity));
-        }
-
-        let temporary_path = staging_directory.join(format!(".{}.tmp", uuid::Uuid::now_v7()));
-        let result = (|| {
-            let mut source = OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(source_path)
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            validate_trusted_source_file(&source)?;
-            let source_metadata = source
-                .metadata()
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            if source_metadata.len() != trusted_source.byte_length() {
-                return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
-            }
-
-            let mut staged = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .mode(0o600)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(&temporary_path)
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            let mut digest = Sha256::new();
-            let mut length = 0_u64;
-            let mut buffer = vec![0_u8; 64 * 1024];
-            loop {
-                let read = source
-                    .read(&mut buffer)
-                    .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-                if read == 0 {
-                    break;
-                }
-                digest.update(&buffer[..read]);
-                length =
-                    length
-                        .checked_add(u64::try_from(read).map_err(|_| {
-                            ProtectedBundledRuntimeError::ExecutableIdentityMismatch
-                        })?)
-                        .ok_or(ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-                staged
-                    .write_all(&buffer[..read])
-                    .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            }
-            let measured_digest: [u8; 32] = digest.finalize().into();
-            if length != trusted_source.byte_length()
-                || &measured_digest != trusted_source.executable_sha256()
-            {
-                return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
-            }
-            staged
-                .sync_all()
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            std::fs::set_permissions(&temporary_path, std::fs::Permissions::from_mode(0o500))
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            drop(staged);
-            match std::fs::hard_link(&temporary_path, &final_path) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(_) => return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch),
-            }
-            std::fs::remove_file(&temporary_path)
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            sync_directory(&staging_directory)
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            validate_staged_executable(&final_path, trusted_source)?;
-            let identity = ExecutableIdentityV1::measure(&final_path)
-                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
-            Ok((final_path.clone(), identity))
-        })();
-        if temporary_path.exists() {
-            let _ = std::fs::remove_file(&temporary_path);
-        }
-        result
-    }
-
-    fn read_record<T>(&self, name: &str) -> Result<Option<T>, ProtectedBundledRuntimeError>
-    where
-        T: for<'de> Deserialize<'de>,
-    {
-        let path = self.directory.join(name);
-        let file = match OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-            .open(path)
-        {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable),
-        };
-        validate_owner_private_file(&file)?;
-        let length = file
-            .metadata()
-            .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?
-            .len();
-        if length == 0 || length > MAX_STATE_BYTES {
-            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
-        }
-        let capacity = usize::try_from(length)
-            .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-        let mut bytes = Vec::with_capacity(capacity);
-        file.take(MAX_STATE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-        if bytes.len() as u64 != length {
-            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
-        }
-        serde_json::from_slice(&bytes)
-            .map(Some)
-            .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)
-    }
-
-    fn persist_record_exact<T>(
-        &self,
-        name: &str,
-        expected: &T,
-        after_file_sync: ActivationCheckpoint,
-        controls: &mut LaunchTestControls,
-    ) -> Result<(), ProtectedBundledRuntimeError>
-    where
-        T: for<'de> Deserialize<'de> + Eq + Serialize,
-    {
-        if let Some(existing) = self.read_record::<T>(name)? {
-            return if &existing == expected {
-                Ok(())
-            } else {
-                Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
-            };
-        }
-
-        let encoded = serde_json::to_vec(expected)
-            .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-        if encoded.is_empty() || encoded.len() as u64 > MAX_STATE_BYTES {
-            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
-        }
-        let temporary_name = format!(".{name}.{}.tmp", uuid::Uuid::now_v7());
-        let temporary_path = self.directory.join(temporary_name);
-        let final_path = self.directory.join(name);
-        let result = (|| {
-            let mut file = OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .mode(0o600)
-                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
-                .open(&temporary_path)
-                .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-            file.write_all(&encoded)
-                .and_then(|()| file.sync_all())
-                .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-            controls.checkpoint(after_file_sync)?;
-            drop(file);
-            match std::fs::hard_link(&temporary_path, &final_path) {
-                Ok(()) => {
-                    std::fs::remove_file(&temporary_path)
-                        .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-                    sync_directory(&self.directory)
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    std::fs::remove_file(&temporary_path)
-                        .map_err(|_| ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-                    let existing = self
-                        .read_record::<T>(name)?
-                        .ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-                    if &existing == expected {
-                        Ok(())
-                    } else {
-                        Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
-                    }
-                }
-                Err(_) => Err(ProtectedBundledRuntimeError::ActivationStateUnavailable),
-            }
-        })();
-        if temporary_path.exists() {
-            let _ = std::fs::remove_file(&temporary_path);
-        }
-        result
-    }
 }

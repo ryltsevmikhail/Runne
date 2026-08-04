@@ -23,6 +23,14 @@ pub(crate) type Reply = oneshot::Sender<Result<CommandOutcome, RuntimeError>>;
 pub(crate) type ConversationTextReply =
     oneshot::Sender<Result<TextGenerationReceipt, RuntimeError>>;
 
+/// Reply channel for one runtime-supervised canonical provider job.
+pub(crate) type CanonicalProviderReply = oneshot::Sender<
+    Result<
+        TextGenerationReceipt,
+        crate::canonical_provider_execution::CanonicalProviderExecutionError,
+    >,
+>;
+
 // ── InFlightLease ───────────────────────────────────────────────────────────
 
 /// Owns one global in-flight permit. Released on drop — after reply is sent.
@@ -83,6 +91,10 @@ pub(crate) enum RuntimeRequest {
         input: FinishConversationTextInput,
         reply: ConversationTextReply,
     },
+    CanonicalProviderExecution {
+        job: crate::canonical_provider_execution::CanonicalProviderExecutionJob,
+        reply: CanonicalProviderReply,
+    },
 }
 
 impl RuntimeRequest {
@@ -97,6 +109,7 @@ impl RuntimeRequest {
             Self::Complete { input, .. } => Some(input.taskrun_id),
             Self::BeginConversationText { .. } => None,
             Self::FinishConversationText { input, .. } => Some(input.started.taskrun_id),
+            Self::CanonicalProviderExecution { job, .. } => Some(job.started.taskrun_id),
         }
     }
 }

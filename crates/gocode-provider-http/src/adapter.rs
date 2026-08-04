@@ -5,7 +5,8 @@ use gocode_provider::{
     CancelDisposition, CancelRequest, DispatchAttemptId, DispatchError, DispatchRequest,
     PrepareError, PreparedRequest, PreparedRequestRef, ProviderFinishReason, ProviderFuture,
     ProviderPort, ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId,
-    ProviderStreamItem, ReconcileRequest, ReconciliationDisposition, StreamCursor, StreamError,
+    ProviderStreamItem, ProviderTerminalDisposition, ReconcileRequest, ReconciliationDisposition,
+    StreamCursor, StreamError,
 };
 use serde::Deserialize;
 
@@ -15,20 +16,26 @@ use crate::{
 };
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FixtureBody {
     events: Vec<FixtureEvent>,
 }
 
 #[derive(Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 enum FixtureEvent {
     Started,
     TextDelta { text: String },
     Finished { reason: String },
 }
 
+enum AttemptState {
+    Dispatching(PreparedRequestRef),
+    Streaming(PreparedRequestRef, ProviderStreamId),
+}
+
 struct State {
-    attempts: BTreeMap<DispatchAttemptId, (PreparedRequestRef, ProviderStreamId)>,
+    attempts: BTreeMap<DispatchAttemptId, AttemptState>,
     streams: BTreeMap<ProviderStreamId, Vec<ProviderStreamEvent>>,
     cursors: BTreeMap<ProviderStreamId, u64>,
     cancelled: BTreeSet<ProviderStreamId>,
@@ -68,42 +75,68 @@ where
     }
 
     fn dispatch_inner(&self, request: DispatchRequest) -> Result<ProviderStreamId, DispatchError> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| DispatchError::AttemptConflict)?;
-        if let Some((prepared_ref, stream)) = state.attempts.get(&request.attempt_id()) {
-            if *prepared_ref != request.prepared().request_ref() {
-                return Err(DispatchError::AttemptConflict);
-            }
-            return Ok(*stream);
+        let mut state = self.state.lock().map_err(|_| {
+            DispatchError::RejectedBeforeEffect(
+                gocode_provider::ProviderPreEffectRejection::AdapterRejected,
+            )
+        })?;
+        if let Some(attempt) = state.attempts.get(&request.attempt_id()) {
+            return match attempt {
+                AttemptState::Dispatching(prepared_ref)
+                    if *prepared_ref == request.prepared().request_ref() =>
+                {
+                    Err(DispatchError::MaybeDispatched)
+                }
+                AttemptState::Streaming(prepared_ref, stream)
+                    if *prepared_ref == request.prepared().request_ref() =>
+                {
+                    Ok(*stream)
+                }
+                AttemptState::Dispatching(_) | AttemptState::Streaming(_, _) => {
+                    Err(DispatchError::AttemptConflict)
+                }
+            };
         }
-        let body = serde_json::to_vec(request.prepared().call())
-            .map_err(|_| DispatchError::AttemptConflict)?;
+        let body = request.prepared().rendered_bytes().to_vec();
         if body.len() > self.profile.max_body_bytes {
-            return Err(DispatchError::AttemptConflict);
+            return Err(DispatchError::RejectedBeforeEffect(
+                gocode_provider::ProviderPreEffectRejection::AdapterRejected,
+            ));
         }
-        let authorization = self
-            .secrets
-            .materialize()
-            .map_err(|_| DispatchError::AttemptConflict)?;
-        let response = self
-            .transport
-            .send(HttpTransportRequest {
-                origin: self.profile.origin.clone(),
-                path: self.profile.path.clone(),
-                body,
-                authorization,
-                follow_redirects: false,
-                use_ambient_proxy: false,
-            })
-            .map_err(|_| DispatchError::AttemptConflict)?;
-        let events = normalize_response(&self.profile, response)
-            .map_err(|_| DispatchError::AttemptConflict)?;
+        if request.claim().profile_digest != self.profile.profile_digest {
+            return Err(DispatchError::RejectedBeforeEffect(
+                gocode_provider::ProviderPreEffectRejection::ProfileRejected,
+            ));
+        }
+        let authorization = self.secrets.materialize().map_err(|_| {
+            DispatchError::RejectedBeforeEffect(
+                gocode_provider::ProviderPreEffectRejection::CredentialAccessDenied,
+            )
+        })?;
+        state.attempts.insert(
+            request.attempt_id(),
+            AttemptState::Dispatching(request.prepared().request_ref()),
+        );
+        let response = match self.transport.send(HttpTransportRequest {
+            origin: self.profile.origin.clone(),
+            path: self.profile.path.clone(),
+            body,
+            provider_idempotency_key: request.provider_idempotency_key().to_owned(),
+            authorization,
+            follow_redirects: false,
+            use_ambient_proxy: false,
+        }) {
+            Ok(response) => response,
+            Err(_) => return Err(DispatchError::MaybeDispatched),
+        };
+        let events = match normalize_response(&self.profile, response) {
+            Ok(events) => events,
+            Err(_) => return Err(DispatchError::MaybeDispatched),
+        };
         let stream = ProviderStreamId::from_bytes(*request.attempt_id().as_bytes());
         state.attempts.insert(
             request.attempt_id(),
-            (request.prepared().request_ref(), stream),
+            AttemptState::Streaming(request.prepared().request_ref(), stream),
         );
         state.streams.insert(stream, events);
         state.cursors.insert(stream, 0);
@@ -124,6 +157,17 @@ where
             .validate_call(call)
             .map_err(|error| PrepareError::Render(error.to_string()))?;
         PreparedRequest::from_call(call)
+    }
+
+    fn prepare_for_digest_version(
+        &self,
+        call: &gocode_provider::ProviderCall,
+        digest_version: gocode_provider::ProviderCallDigestVersion,
+    ) -> Result<PreparedRequest, PrepareError> {
+        self.profile
+            .validate_call(call)
+            .map_err(|error| PrepareError::Render(error.to_string()))?;
+        PreparedRequest::from_call_for_digest_version(call, digest_version)
     }
 
     fn dispatch(
@@ -180,19 +224,9 @@ where
 
     fn reconcile(
         &self,
-        request: ReconcileRequest,
+        _request: ReconcileRequest,
     ) -> ProviderFuture<'_, Result<ReconciliationDisposition, DispatchError>> {
-        Box::pin(async move {
-            let state = self
-                .state
-                .lock()
-                .map_err(|_| DispatchError::AttemptConflict)?;
-            Ok(if state.attempts.contains_key(&request.attempt_id()) {
-                ReconciliationDisposition::Uncertain
-            } else {
-                ReconciliationDisposition::Absent
-            })
-        })
+        Box::pin(async { Ok(ReconciliationDisposition::Uncertain) })
     }
 }
 
@@ -220,17 +254,39 @@ fn normalize_response(
                     }
                     ProviderStreamEventKind::TextDelta { text }
                 }
-                FixtureEvent::Finished { reason } => ProviderStreamEventKind::Finished {
-                    reason: match reason.as_str() {
-                        "stop" => ProviderFinishReason::Stop,
-                        "tool_calls" => ProviderFinishReason::ToolCalls,
-                        "length" => ProviderFinishReason::Length,
-                        "content_filter" => ProviderFinishReason::ContentFilter,
-                        "error" => ProviderFinishReason::Error,
-                        "cancelled" => ProviderFinishReason::Cancelled,
+                FixtureEvent::Finished { reason } => {
+                    let (reason, disposition) = match reason.as_str() {
+                        "stop" => (
+                            ProviderFinishReason::Stop,
+                            ProviderTerminalDisposition::Completed,
+                        ),
+                        "tool_calls" => (
+                            ProviderFinishReason::ToolCalls,
+                            ProviderTerminalDisposition::RemoteIncomplete,
+                        ),
+                        "length" => (
+                            ProviderFinishReason::Length,
+                            ProviderTerminalDisposition::RemoteIncomplete,
+                        ),
+                        "content_filter" => (
+                            ProviderFinishReason::ContentFilter,
+                            ProviderTerminalDisposition::RemoteIncomplete,
+                        ),
+                        "error" => (
+                            ProviderFinishReason::Error,
+                            ProviderTerminalDisposition::RemoteFailed,
+                        ),
+                        "cancelled" => (
+                            ProviderFinishReason::Cancelled,
+                            ProviderTerminalDisposition::CancelledUncertain,
+                        ),
                         _ => return Err(TransportError::InvalidResponse),
-                    },
-                },
+                    };
+                    ProviderStreamEventKind::Finished {
+                        disposition,
+                        reason,
+                    }
+                }
             };
             ProviderStreamEvent::new(sequence as u64, kind)
                 .map_err(|_| TransportError::InvalidResponse)

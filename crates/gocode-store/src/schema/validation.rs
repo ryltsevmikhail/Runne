@@ -229,7 +229,7 @@ fn index_matches(
         ))
 }
 
-fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
+fn has_candidate_remnant(conn: &Connection, allows_v12_fence_triggers: bool) -> SqliteResult<bool> {
     let mut statement = conn.prepare(
         "SELECT type, name, tbl_name FROM sqlite_master WHERE type IN ('table', 'index', 'trigger', 'view')",
     )?;
@@ -251,8 +251,11 @@ fn has_candidate_remnant(conn: &Connection) -> SqliteResult<bool> {
             table.as_str(),
             "verification_evidence" | "consumption_intents" | "schema_lineage"
         );
+        let approved_v12_fence_trigger =
+            allows_v12_fence_triggers && kind == "trigger" && name.starts_with("schema_v12_fence_");
         is_candidate_named
             || (targets_owned_table
+                && !approved_v12_fence_trigger
                 && !matches!(
                     (kind.as_str(), name.as_str()),
                     ("table", "verification_evidence")

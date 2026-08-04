@@ -1,10 +1,3 @@
-/// Exact digest identity of the executable which is about to run.
-#[derive(Clone, Eq, PartialEq)]
-pub struct ExecutableIdentityV1 {
-    executable_sha256: [u8; 32],
-    canonical_path_sha256: [u8; 32],
-    byte_length: u64,
-}
 
 impl ExecutableIdentityV1 {
     /// Creates a non-empty executable identity.
@@ -163,4 +156,59 @@ impl ProtectedRuntimeProfileV1 {
     pub const fn capability_digest(&self) -> &[u8; 32] {
         &self.capability_digest
     }
+}
+
+/// Exact daemon provider activation mode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderActivationModeV1 {
+    /// Credential-free deterministic compatibility provider.
+    DeterministicV1,
+    /// Exact bounded OpenAI Responses text provider.
+    OpenAiResponsesTextV1,
+}
+
+impl ProviderActivationModeV1 {
+    /// Returns the stable public mode identifier.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DeterministicV1 => "deterministic_v1",
+            Self::OpenAiResponsesTextV1 => "openai_responses_text_v1",
+        }
+    }
+
+    const fn wire_code(self) -> u64 {
+        match self {
+            Self::DeterministicV1 => 1,
+            Self::OpenAiResponsesTextV1 => 2,
+        }
+    }
+
+    fn from_wire_code(code: u64) -> Result<Self, DecodeError> {
+        match code {
+            1 => Ok(Self::DeterministicV1),
+            2 => Ok(Self::OpenAiResponsesTextV1),
+            key => Err(DecodeError::UnknownField { key }),
+        }
+    }
+}
+
+impl TryFrom<&str> for ProviderActivationModeV1 {
+    type Error = LaunchAuthorityError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "deterministic_v1" => Ok(Self::DeterministicV1),
+            "openai_responses_text_v1" => Ok(Self::OpenAiResponsesTextV1),
+            _ => Err(LaunchAuthorityError::ProviderModeMismatch),
+        }
+    }
+}
+
+/// Exact non-secret provider mode/profile tuple authenticated by protocol V2.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProviderActivationBindingV1 {
+    mode: ProviderActivationModeV1,
+    profile_id: String,
+    profile_digest: [u8; 32],
 }

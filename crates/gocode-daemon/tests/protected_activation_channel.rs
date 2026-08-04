@@ -10,7 +10,7 @@ use gocode_api::{
     ProtectedReadyV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1, ProtectedRuntimeProfileV1,
     ProtectedShutdownAckV1, ProtectedShutdownV1,
 };
-use gocode_daemon::application::DaemonApplication;
+use gocode_daemon::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
 use gocode_daemon::error::DaemonError;
 use gocode_daemon::protected_activation::{
     ProtectedActivationChannel, ProtectedDaemonLaunch, run_control_loop,
@@ -150,18 +150,19 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
         let mut channel = ProtectedActivationChannel::new(server).unwrap();
         let mut launch =
             ProtectedDaemonLaunch::accept(&mut channel, &server_path, || Ok(1_001)).unwrap();
-        let bootstrap = launch.bootstrap(|| Ok(1_001)).unwrap();
-        let generation = bootstrap.launch_generation;
-        let authority = bootstrap.local_session_authority_id;
+        let start = launch.bootstrap_application_start(|| Ok(1_001)).unwrap();
         let profile_directory = std::path::Path::new(&launch.config().replay_integrity_key_path)
             .parent()
             .unwrap()
             .to_path_buf();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            let application = DaemonApplication::start_protected(launch.config(), bootstrap)
-                .await
-                .unwrap();
+            let application = workspace_internal::start_from_verified_protected_launch(
+                start,
+                ProtectedProviderDependencyCapsule::production(),
+            )
+            .await
+            .unwrap();
             let ready = application
                 .protected_ready(launch.request(), launch.keys())
                 .unwrap();
@@ -197,7 +198,7 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
                 .current_binding()
                 .ephemeral()
                 .session_id();
-            (generation, authority, profile_directory, rotated_session_id)
+            (profile_directory, rotated_session_id)
         })
     });
 
@@ -243,10 +244,7 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
         .expect("exact protected shutdown acknowledgement");
     assert!(acknowledgement.graceful());
 
-    let (generation, authority, profile_directory, daemon_session_id) =
-        server_thread.join().unwrap();
-    assert_eq!(generation, 1);
-    assert_eq!(authority, *prepared.pending().stable().authority_id());
+    let (profile_directory, daemon_session_id) = server_thread.join().unwrap();
     assert_eq!(daemon_session_id, rotated_session_id);
     assert!(!profile_directory.join("client-profile.json").exists());
     assert!(

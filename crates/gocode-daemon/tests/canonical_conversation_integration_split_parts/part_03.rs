@@ -123,6 +123,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
     )
     .await;
     assert_eq!(created.status(), StatusCode::ACCEPTED);
+    drop(created);
 
     let opened = client
         .post(url(daemon.address, "/v1/replay/open-session"))
@@ -150,6 +151,8 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         .await
         .unwrap();
     assert_eq!(acknowledged.status(), StatusCode::OK);
+    drop(acknowledged);
+    drop(client);
     daemon.stop().await;
 
     let restarted = start(&config).await;
@@ -205,5 +208,7 @@ async fn acknowledged_replay_cursor_reopens_inclusively_after_daemon_restart() {
         .await
         .unwrap();
     assert_eq!(reacknowledged.status(), StatusCode::OK);
+    drop(reacknowledged);
+    drop(restarted_client);
     restarted.stop().await;
 }

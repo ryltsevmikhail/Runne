@@ -18,6 +18,10 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
             9 => is_released_strict_v9(conn, existing_version)?,
             10 => is_released_provider_v10(conn, existing_version)?,
             11 => is_released_provider_v11(conn, existing_version)?,
+            12 => is_released_provider_v12(conn, existing_version)?,
+            13 => is_released_provider_v13(conn, existing_version)?,
+            14 => is_released_provider_v14(conn, existing_version)?,
+            15 => is_released_provider_v15(conn, existing_version)?,
             _ => false,
         };
         if !compatible {
@@ -125,6 +129,51 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         tx.commit()?;
     }
 
+    if current_version < 12 {
+        if conn.path().is_some_and(|path| !path.is_empty()) {
+            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")?;
+        }
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
+        let snapshot = create_v11_upgrade_snapshot(&tx)?;
+        tx.execute_batch(MIGRATION_V12)?;
+        tx.execute(
+            "INSERT INTO schema_upgrade_fence (
+                id, source_version, target_version, snapshot_filename, snapshot_digest,
+                baseline_event_next_position, baseline_provider_prepared_count,
+                baseline_provider_attempt_count
+             ) VALUES (1, 11, 12, ?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                snapshot.backup.as_ref().map(|backup| &backup.filename),
+                snapshot
+                    .backup
+                    .as_ref()
+                    .map(|backup| backup.digest.as_slice()),
+                snapshot.baseline_event_next_position,
+                snapshot.baseline_provider_prepared_count,
+                snapshot.baseline_provider_attempt_count,
+            ],
+        )?;
+        install_v12_fence_triggers(&tx)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (12)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 13 {
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
+        tx.execute_batch(MIGRATION_V13)?;
+        install_missing_v12_fence_triggers(&tx)?;
+        tx.execute("INSERT INTO schema_version (version) VALUES (13)", [])?;
+        tx.commit()?;
+    }
+
+    if current_version < 14 {
+        provider_schema::apply_v14_migration(conn, |tx| install_missing_v12_fence_triggers(tx))?;
+    }
+
+    if current_version < 15 {
+        provider_schema::apply_v15_migration(conn)?;
+    }
+
     if current_version < CURRENT_SCHEMA_VERSION {
         // Preflight classifies the immutable main database without consulting
         // a hot WAL. Publish completed schema migrations before another
@@ -139,6 +188,17 @@ fn is_released_strict_v9(conn: &Connection, version: i64) -> SqliteResult<bool> 
     if version != 9 {
         return Ok(false);
     }
+    is_released_strict_v9_contents(conn, false)
+}
+
+fn is_released_strict_v9_with_v12_fence(conn: &Connection) -> SqliteResult<bool> {
+    is_released_strict_v9_contents(conn, true)
+}
+
+fn is_released_strict_v9_contents(
+    conn: &Connection,
+    allows_v12_fence_triggers: bool,
+) -> SqliteResult<bool> {
     if !table_shape_matches(
         conn,
         "verification_evidence",
@@ -173,7 +233,10 @@ fn is_released_strict_v9(conn: &Connection, version: i64) -> SqliteResult<bool> 
         [],
         |row| row.get(0),
     )?;
-    if marker_count != 1 || !marker_matches || has_candidate_remnant(conn)? {
+    if marker_count != 1
+        || !marker_matches
+        || has_candidate_remnant(conn, allows_v12_fence_triggers)?
+    {
         return Ok(false);
     }
     Ok(true)
@@ -197,7 +260,7 @@ fn is_released_provider_v10(conn: &Connection, version: i64) -> SqliteResult<boo
 }
 
 fn is_released_provider_v11(conn: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != CURRENT_SCHEMA_VERSION || !is_released_provider_v10(conn, 10)? {
+    if version != 11 || !is_released_provider_v10(conn, 10)? {
         return Ok(false);
     }
     Ok(table_shape_matches(

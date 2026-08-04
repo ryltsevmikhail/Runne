@@ -1,12 +1,19 @@
 //! Provider effect admission and application coordination.
 
 mod admission;
+mod authority;
 mod coordinator;
+mod execution;
 
 pub use admission::{
-    ProviderAdmissionError, ProviderEffectAdmission, ProviderEffectAuthorityRecord,
-    ProviderEffectAuthorityRef, ProviderEffectRequest,
+    ProviderAdmissionError, ProviderBudgetUtilization, ProviderEffectAuthorityRef,
+    ProviderLeaseBindingKind,
 };
-pub use coordinator::{
-    ProviderCoordinatorOutcome, ProviderCoordinatorRequest, ProviderDispatchCoordinator,
+pub use authority::ProviderAuthorityIssueRequest;
+pub use coordinator::ProviderCoordinatorRequest;
+pub use execution::{
+    ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
+    ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
+    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
+    ProviderTerminalPricingBinding,
 };

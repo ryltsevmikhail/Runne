@@ -1,12 +1,23 @@
 fn setup_with_events(
     idempotency_keys: Vec<String>,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
-) -> (axum::Router, TempDir) {
+) -> (axum::Router, ReplayTestDatabase) {
     assert!(!idempotency_keys.is_empty());
     let directory = tempfile::tempdir().unwrap();
-    let database_path = directory.path().join("replay.sqlite");
+    let daemon_dir = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon_dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let database_path = daemon_dir.join("replay.sqlite");
     let connection = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
     apply_migrations(&connection).unwrap();
+    ensure_authority_id(&connection, &AUTHORITY).unwrap();
+    ensure_exact_event_log_lineage_id(&connection, EventLogLineageId::from_bytes(LINEAGE)).unwrap();
     let event_count = i64::try_from(idempotency_keys.len()).unwrap();
     connection
         .execute(
@@ -43,8 +54,9 @@ fn setup_with_events(
             .unwrap();
     }
 
+    let database = ReplayTestDatabase::capture(directory, database_path, &connection);
     let service = ReplayService::new(
-        Arc::new(ReplayStore::new(connection)),
+        Arc::new(ReplayTestDatabase::replay_store(connection)),
         [0xDD; 32],
         EventLogLineageId::from_bytes(LINEAGE),
         Arc::new(AvailableReplayAuthorization),
@@ -59,16 +71,15 @@ fn setup_with_events(
         .layer(axum::Extension(authenticated_runtime_session()))
         .layer(AuthLayer::new(TOKEN))
         .layer(axum::middleware::from_fn(request_id_middleware));
-    (router, directory)
+    (router, database)
 }
 
-fn replay_connection(directory: &TempDir) -> rusqlite::Connection {
-    let database_path = directory.path().join("replay.sqlite");
-    open_with_pragmas(database_path.to_str().unwrap()).unwrap()
+fn replay_connection(database: &ReplayTestDatabase) -> rusqlite::Connection {
+    open_with_pragmas(database.path().to_str().unwrap()).unwrap()
 }
 
-fn subscription_count(directory: &TempDir) -> i64 {
-    replay_connection(directory)
+fn subscription_count(database: &ReplayTestDatabase) -> i64 {
+    replay_connection(database)
         .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |row| {
             row.get(0)
         })
@@ -76,10 +87,11 @@ fn subscription_count(directory: &TempDir) -> i64 {
 }
 
 fn replay_progress(
-    directory: &TempDir,
+    database: &ReplayTestDatabase,
     session_id: &str,
 ) -> (String, Option<i64>, Option<i64>, Option<i64>) {
-    replay_connection(directory)
+    database
+        .open_reader()
         .query_row(
             "SELECT state, next_page_position, last_delivered_position, last_acked_position
              FROM _replay_subscriptions
@@ -215,8 +227,8 @@ async fn open_and_continue_live(app: &axum::Router) -> String {
     session_id
 }
 
-fn append_taskrun_event(directory: &TempDir, position: i64, idempotency_key: &str) {
-    let writer = replay_connection(directory);
+fn append_taskrun_event(database: &ReplayTestDatabase, position: i64, idempotency_key: &str) {
+    let writer = database.open_writer();
     let row = taskrun_row(position, position, idempotency_key.to_owned());
     writer
         .execute(
