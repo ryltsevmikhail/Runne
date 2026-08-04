@@ -4,7 +4,10 @@ use gocode_security::broker::process::{
 };
 use thiserror::Error;
 
-use crate::{RawToolOutput, ToolCloseEvidence};
+use crate::{
+    EffectAdmission, ProcessToolExecutorPort, RawToolOutput, ToolCloseEvidence,
+    ToolDispatchRequest, ToolExecutionHandle, ToolExecutorError, ToolExecutorPort,
+};
 
 /// Selected process operation supported by Phase 7A.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,3 +137,21 @@ impl ProcessToolExecutor {
         })
     }
 }
+
+impl ToolExecutorPort for ProcessToolExecutor {
+    type CompletionMode = crate::ProcessCompletion;
+
+    fn start(
+        &self,
+        _: &ToolDispatchRequest,
+        _: &EffectAdmission,
+    ) -> Result<ToolExecutionHandle, ToolExecutorError> {
+        Err(ToolExecutorError::Rejected)
+    }
+
+    fn signal_cancel(&self, _: &ToolExecutionHandle) -> Result<(), ToolExecutorError> {
+        Err(ToolExecutorError::Rejected)
+    }
+}
+
+impl ProcessToolExecutorPort for ProcessToolExecutor {}

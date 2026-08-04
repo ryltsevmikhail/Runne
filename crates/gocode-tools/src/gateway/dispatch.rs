@@ -91,8 +91,8 @@ where
                 digest: request.request_digest,
                 binding: request.binding,
                 handle: Some(handle.clone()),
-                cancel_signalled: false,
-                terminal: None,
+            cancel_signalled: false,
+            terminal: None,
             },
         );
         Ok(handle)
@@ -119,7 +119,36 @@ where
         Ok(ToolCancelDisposition::Signalled)
     }
 
-    /// Produces the only terminal transition.
+    /// Records a durable, idempotent uncertain terminal result for one handle.
+    pub fn mark_uncertain(
+        &self,
+        invocation_id: &str,
+        request_digest: [u8; 32],
+        handle: &ToolExecutionHandle,
+    ) -> Result<ToolTerminalDisposition, ToolGatewayError> {
+        let mut state = self.lock_state()?;
+        let invocation = exact_invocation_mut(&mut state, invocation_id, request_digest)?;
+        ensure_handle(invocation, handle)?;
+        let terminal = invocation
+            .terminal
+            .get_or_insert(ToolTerminalDisposition::Uncertain);
+        Ok(terminal.clone())
+    }
+
+    fn lock_state(
+        &self,
+    ) -> Result<MutexGuard<'_, BTreeMap<String, InvocationState>>, ToolGatewayError> {
+        self.state.lock().map_err(|_| ToolGatewayError::Unavailable)
+    }
+
+}
+
+impl<A, E> ToolGateway<A, E>
+where
+    A: ToolAdmissionPort,
+    E: ToolExecutorPort<CompletionMode = ProcessCompletion>,
+{
+    /// Produces the only terminal transition for a process executor.
     pub fn close(
         &self,
         request: ToolCloseRequest,
@@ -134,18 +163,39 @@ where
         let terminal = if !request.evidence.is_complete() {
             ToolTerminalDisposition::Uncertain
         } else {
-            match ToolOutput::bound(request.output, self.bounds) {
-                Ok(output) => ToolTerminalDisposition::Completed(output),
-                Err(()) => ToolTerminalDisposition::Uncertain,
-            }
+            ToolOutput::bound(request.output, self.bounds)
+                .map(ToolTerminalDisposition::Completed)
+                .unwrap_or(ToolTerminalDisposition::Uncertain)
         };
         invocation.terminal = Some(terminal.clone());
         Ok(terminal)
     }
+}
 
-    fn lock_state(
+impl<A, E> ToolGateway<A, E>
+where
+    A: ToolAdmissionPort,
+    E: ProtocolToolExecutorPort<CompletionMode = ProtocolCompletion>,
+{
+    /// Closes a protocol effect only after its executor confirms a private claim.
+    pub fn close_protocol(
         &self,
-    ) -> Result<MutexGuard<'_, BTreeMap<String, InvocationState>>, ToolGatewayError> {
-        self.state.lock().map_err(|_| ToolGatewayError::Unavailable)
+        request: ToolProtocolCloseRequest,
+    ) -> Result<ToolTerminalDisposition, ToolGatewayError> {
+        let mut state = self.lock_state()?;
+        let invocation =
+            exact_invocation_mut(&mut state, &request.invocation_id, request.request_digest)?;
+        ensure_handle(invocation, &request.handle)?;
+        if let Some(terminal) = &invocation.terminal {
+            return Ok(terminal.clone());
+        }
+        self.executor
+            .confirm_protocol_completion(&request)
+            .map_err(|_| ToolGatewayError::ProtocolClosureConflict)?;
+        let output = ToolOutput::bound(RawToolOutput::default(), self.bounds)
+            .map_err(|_| ToolGatewayError::ProtocolClosureConflict)?;
+        let terminal = ToolTerminalDisposition::Completed(output);
+        invocation.terminal = Some(terminal.clone());
+        Ok(terminal)
     }
 }
