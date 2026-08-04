@@ -1,9 +1,9 @@
 
 #[test]
 fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
-    let (path, store) = fresh_store("settlement");
+    let (database, store) = fresh_store("settlement");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&path, 1);
+    let dispatch_claim = issue_dispatch(&database, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -75,9 +75,9 @@ fn settlement_is_idempotent_and_conflicting_settlement_preserves_original() {
 
 #[test]
 fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
-    let (path, first) = fresh_store("terminal-race");
+    let (database, first) = fresh_store("terminal-race");
     first.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&path, 1);
+    let dispatch_claim = issue_dispatch(&database, 1);
     first
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -92,7 +92,7 @@ fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
     };
     first.mark_terminal_pending(&settlement).unwrap();
 
-    let second = SqliteProviderDispatchStore::open(&path).unwrap();
+    let second = database.dispatch();
     let attempt_id = dispatch_claim.attempt_id;
     let fencing_token = dispatch_claim.fencing_token;
     let barrier = Arc::new(Barrier::new(2));
@@ -113,8 +113,8 @@ fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
     ];
     assert_eq!(outcomes.iter().filter(|outcome| outcome.is_ok()).count(), 1);
 
-    let final_record = SqliteProviderDispatchStore::open(&path)
-        .unwrap()
+    let final_record = database
+        .dispatch()
         .get_dispatch(attempt_id)
         .unwrap()
         .unwrap();
@@ -128,9 +128,9 @@ fn terminal_settlement_and_uncertainty_race_has_one_authoritative_winner() {
 
 #[test]
 fn repository_port_commits_terminal_settlement_after_stream_binding() {
-    let (path, store) = fresh_store("settlement-port");
+    let (database, store) = fresh_store("settlement-port");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&path, 1);
+    let dispatch_claim = issue_dispatch(&database, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -164,9 +164,9 @@ fn repository_port_commits_terminal_settlement_after_stream_binding() {
 
 #[test]
 fn settlement_before_stream_binding_fails_without_terminal_mutation() {
-    let (path, store) = fresh_store("settlement-before-stream");
+    let (database, store) = fresh_store("settlement-before-stream");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&path, 1);
+    let dispatch_claim = issue_dispatch(&database, 1);
     let settlement = SettleProviderDispatch {
         attempt_id: dispatch_claim.attempt_id,
         fencing_token: dispatch_claim.fencing_token,
@@ -184,9 +184,9 @@ fn settlement_before_stream_binding_fails_without_terminal_mutation() {
 
 #[test]
 fn settlement_before_terminal_evidence_preserves_streaming_state() {
-    let (path, store) = fresh_store("settlement-before-terminal");
+    let (database, store) = fresh_store("settlement-before-terminal");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&path, 1);
+    let dispatch_claim = issue_dispatch(&database, 1);
     store
         .mark_streaming(&MarkProviderStreaming {
             attempt_id: dispatch_claim.attempt_id,
@@ -214,9 +214,9 @@ fn settlement_before_terminal_evidence_preserves_streaming_state() {
 
 #[test]
 fn pre_effect_rejection_is_terminal_exact_and_never_becomes_streaming() {
-    let (path, store) = fresh_store("pre-effect-rejection");
+    let (database, store) = fresh_store("pre-effect-rejection");
     store.persist_prepared(&prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&path, 1);
+    let dispatch_claim = issue_dispatch(&database, 1);
 
     ProviderDispatchRepository::mark_rejected_before_effect(
         &store,

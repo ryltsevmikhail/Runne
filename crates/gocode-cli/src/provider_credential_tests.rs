@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 
 #[test]
 fn credential_commands_accept_only_the_exact_openai_forms() {
@@ -80,7 +82,7 @@ fn credential_input_rejects_secret_shaped_invalid_bytes_and_bounds_reads() {
 
 #[test]
 fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
-    let resolver = FakeResolver;
+    let resolver = FakeResolver::new();
     let mut backend = FakeBackend::default();
     assert_eq!(
         execute_provider_credential_on_platform(
@@ -137,13 +139,14 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
 #[test]
 fn unsupported_backend_never_reports_persistence() {
     let mut backend = FakeBackend::unsupported();
+    let resolver = FakeResolver::new();
     assert_eq!(
         execute_provider_credential_on_platform(
             ProviderCredentialCommand::Set,
             &mut b"secret".as_slice(),
             false,
             &mut backend,
-            &FakeResolver,
+            &resolver,
             true
         )
         .unwrap(),
@@ -155,7 +158,7 @@ fn unsupported_backend_never_reports_persistence() {
 #[test]
 fn unsupported_platform_validates_set_input_before_returning_unsupported() {
     let mut backend = FakeBackend::default();
-    let resolver = FakeResolver;
+    let resolver = FakeResolver::new();
     assert!(matches!(
         execute_provider_credential_on_platform(
             ProviderCredentialCommand::Set,
@@ -197,14 +200,35 @@ fn args(values: &[&str]) -> VecDeque<OsString> {
     values.iter().map(OsString::from).collect()
 }
 
-struct FakeResolver;
+struct FakeResolver {
+    _temporary: tempfile::TempDir,
+    executable: std::path::PathBuf,
+}
+
+impl FakeResolver {
+    fn new() -> Self {
+        let temporary = tempfile::tempdir().expect("temporary executable directory");
+        #[cfg(unix)]
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("restrict temporary executable directory");
+        let executable = temporary.path().join("gocode-test-executable");
+        let current = std::env::current_exe().expect("current CLI test executable");
+        std::fs::copy(current, &executable).expect("copy test executable");
+        #[cfg(unix)]
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+            .expect("restrict test executable");
+        Self {
+            _temporary: temporary,
+            executable,
+        }
+    }
+}
 
 include!("provider_credential_path_tests.rs");
 
 impl CredentialIdentityResolver for FakeResolver {
     fn resolve(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
-        let current = std::env::current_exe().map_err(|_| CliError::CredentialOperation)?;
-        ProviderCredentialAccessPolicy::new(&current, &current)
+        ProviderCredentialAccessPolicy::new(&self.executable, &self.executable)
             .map_err(|_| CliError::CredentialOperation)
     }
 }

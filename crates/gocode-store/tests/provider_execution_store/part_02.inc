@@ -1,15 +1,14 @@
 
 #[test]
 fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usable() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-generation-restart.sqlite");
-    let (store, request) = initialize(&path);
+    let database = validated_reopen::ProviderTestDatabase::new("provider-generation-restart");
+    let (store, request) = initialize(&database);
     let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
         panic!("first generation must admit one attempt")
     };
     let attempt_id = admitted.claim().attempt_id;
-    SqliteProviderDispatchStore::open(&path)
-        .unwrap()
+    database
+        .dispatch()
         .mark_streaming(&gocode_store::provider::MarkProviderStreaming {
             attempt_id,
             fencing_token: admitted.claim().fencing_token,
@@ -24,8 +23,8 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
         .install_runtime_authority_and_advance_worker_lease(&restarted)
         .unwrap();
 
-    let reopened = SqliteProviderDispatchStore::open(&path)
-        .unwrap()
+    let reopened = database
+        .dispatch()
         .get_dispatch(attempt_id)
         .unwrap()
         .unwrap();
@@ -34,8 +33,8 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
         gocode_store::provider::ProviderDispatchState::Uncertain
     );
     assert!(
-        SqliteProviderDispatchStore::open(&path)
-            .unwrap()
+        database
+            .dispatch()
             .mark_streaming(&gocode_store::provider::MarkProviderStreaming {
                 attempt_id,
                 fencing_token: admitted.claim().fencing_token,
@@ -50,7 +49,7 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
         })
     );
 
-    let connection = Connection::open(&path).unwrap();
+    let connection = database.connection();
     assert_eq!(
         connection
             .query_row(
@@ -74,11 +73,10 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
 
 #[test]
 fn begin_immediate_allows_one_winner_across_two_store_handles() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-two-writer.sqlite");
-    let (_store, request) = initialize(&path);
-    let first = SqliteProviderExecutionStore::open(&path).unwrap();
-    let second = SqliteProviderExecutionStore::open(&path).unwrap();
+    let database = validated_reopen::ProviderTestDatabase::new("provider-two-writer");
+    let (_store, request) = initialize(&database);
+    let first = database.execution();
+    let second = database.execution();
     let barrier = Arc::new(Barrier::new(3));
 
     let first_barrier = Arc::clone(&barrier);
@@ -113,9 +111,8 @@ fn begin_immediate_allows_one_winner_across_two_store_handles() {
 
 #[test]
 fn active_journal_key_preflight_returns_only_the_exact_non_secret_binding() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("provider-key-preflight.sqlite");
-    let (store, _) = initialize(&path);
+    let database = validated_reopen::ProviderTestDatabase::new("provider-key-preflight");
+    let (store, _) = initialize(&database);
     let key = ProviderJournalKeyBinding::new([21; 16], 1, [1; 16], 7).unwrap();
 
     assert_eq!(store.active_journal_key_binding().unwrap(), None);

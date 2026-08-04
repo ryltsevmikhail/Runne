@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::Mutex;
 
 use futures::executor::block_on;
@@ -16,7 +18,8 @@ use gocode_store::provider::{
     ProviderReadyEffect, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
-use rusqlite::Connection;
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 const MARKER: &str = "provider-boundary-marker";
 
@@ -142,15 +145,14 @@ impl ProhibitedContentPort for Guard {
 }
 
 fn fixture() -> (
-    tempfile::TempDir,
+    validated_reopen::ProviderTestDatabase,
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
     ProviderCoordinatorRequest,
 ) {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("provider.sqlite");
-    let dispatch = SqliteProviderDispatchStore::open(&path).unwrap();
-    let execution = SqliteProviderExecutionStore::open(&path).unwrap();
+    let database = validated_reopen::ProviderTestDatabase::new("provider-dispatch-coordinator");
+    let dispatch = database.dispatch();
+    let execution = database.execution();
     execution
         .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
@@ -188,7 +190,7 @@ fn fixture() -> (
     )
     .unwrap();
     (
-        directory,
+        database,
         dispatch,
         execution,
         ProviderCoordinatorRequest {

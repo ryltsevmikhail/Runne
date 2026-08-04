@@ -1,10 +1,11 @@
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
-    let temporary = tempfile::tempdir().expect("temporary runtime root");
-    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
+    let temporary = owner_private::tempdir();
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
     let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("protected launch spec");
     let runtime_root = spec.runtime_root().to_path_buf();
     let mut supervisor =

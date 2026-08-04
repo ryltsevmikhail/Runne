@@ -2109,6 +2109,7 @@ dependencies = [
  "hex",
  "rand 0.8.7",
  "security-framework",
+ "tempfile",
  "thiserror 2.0.18",
  "zeroize",
 ]
@@ -2124,6 +2125,7 @@ dependencies = [
  "gocode-platform",
  "gocode-store",
  "hex",
+ "rusqlite",
  "rustix",
  "serde",
  "sha2",

@@ -9,11 +9,13 @@ use gocode_daemon::config::{BuiltInDefaults, ConfigurationSnapshot};
 use gocode_daemon::error::DaemonError;
 use tokio::sync::oneshot;
 
+#[path = "support/owner_private.rs"]
+mod owner_private;
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn desktop_host_restores_the_same_authoritative_conversation_after_restart() {
-    let directory = tempfile::tempdir().expect("temp directory");
-    let runtime_directory = directory.path().join("runtime");
-    let mut defaults = BuiltInDefaults::new(&runtime_directory);
+    let directory = owner_private::tempdir();
+    let mut defaults = BuiltInDefaults::new(directory.path());
     defaults.http_bind = "127.0.0.1:0".to_owned();
     let config = ConfigurationSnapshot::from_defaults(&defaults);
     let application = DaemonApplication::start(&config)

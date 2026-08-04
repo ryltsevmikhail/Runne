@@ -3,6 +3,34 @@ use gocode_secure_store::{
     ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
     SecureStoreError,
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
+
+struct ControlledExecutable {
+    _temporary: tempfile::TempDir,
+    access: ProviderCredentialAccessPolicy,
+}
+
+fn controlled_executable() -> ControlledExecutable {
+    let temporary = tempfile::tempdir().expect("temporary executable directory");
+    #[cfg(unix)]
+    std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+        .expect("restrict temporary executable directory");
+
+    let executable = temporary.path().join("gocode-test-executable");
+    let current = std::env::current_exe().expect("current test executable");
+    std::fs::copy(current, &executable).expect("copy test executable");
+    #[cfg(unix)]
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
+        .expect("restrict test executable");
+
+    let access = ProviderCredentialAccessPolicy::new(&executable, &executable)
+        .expect("controlled executable access policy");
+    ControlledExecutable {
+        _temporary: temporary,
+        access,
+    }
+}
 
 struct StatusOnlyStore(ProviderCredentialStatus);
 
@@ -94,11 +122,10 @@ fn provider_identity_and_status_vocabulary_are_exact() {
     );
 
     let store = StatusOnlyStore(ProviderCredentialStatus::Configured);
-    let current = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+    let executable = controlled_executable();
     assert_eq!(
         store
-            .provider_credential_status(ProviderCredentialId::OpenAi, &access)
+            .provider_credential_status(ProviderCredentialId::OpenAi, &executable.access)
             .unwrap(),
         ProviderCredentialStatus::Configured
     );
@@ -132,11 +159,10 @@ fn unsupported_platform_has_no_plaintext_fallback() {
     use gocode_secure_store::{NativeProviderCredentialStore, StubStore};
 
     let store = NativeProviderCredentialStore::new();
-    let current = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+    let executable = controlled_executable();
     assert_eq!(
         store
-            .provider_credential_status(ProviderCredentialId::OpenAi, &access)
+            .provider_credential_status(ProviderCredentialId::OpenAi, &executable.access)
             .unwrap(),
         ProviderCredentialStatus::Unsupported
     );

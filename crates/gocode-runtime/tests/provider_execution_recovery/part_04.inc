@@ -21,7 +21,7 @@ async fn provider_bytes_without_local_commit_freeze_attempt_as_uncertain() {
             .await,
         Err(RuntimeProviderExecutionError::JournalCommitLost)
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     assert_eq!(
         connection
             .query_row(
@@ -149,7 +149,7 @@ async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
             .await,
         Err(RuntimeProviderExecutionError::JournalCommitLost)
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     assert_eq!(
         connection
             .query_row("SELECT COUNT(*) FROM provider_poll_flights", [], |row| {
@@ -182,7 +182,7 @@ async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
             .await,
         Err(RuntimeProviderExecutionError::RecoveryFrozen)
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     assert_eq!(
         connection
             .query_row(

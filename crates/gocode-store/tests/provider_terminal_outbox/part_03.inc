@@ -36,11 +36,11 @@ fn every_terminal_transaction_write_edge_rolls_back_to_the_streaming_snapshot() 
             .execution
             .append_encrypted_event(&event(&fixture, 0, 20, true))
             .unwrap();
-        let before = terminal_state_snapshot(&fixture);
+        let connection = fixture.database.connection();
+        let before = terminal_state_snapshot(&connection, &fixture);
         assert_eq!(before.attempt_state, 3);
         assert_eq!(before.live_reservations, 2);
 
-        let connection = Connection::open(&fixture.path).unwrap();
         connection
             .execute_batch(&format!(
                 "CREATE TRIGGER fail_{name}
@@ -48,8 +48,6 @@ fn every_terminal_transaction_write_edge_rolls_back_to_the_streaming_snapshot() 
                  BEGIN SELECT RAISE(ABORT, 'injected terminal failure'); END;"
             ))
             .unwrap();
-        drop(connection);
-
         assert!(
             fixture
                 .execution
@@ -58,7 +56,7 @@ fn every_terminal_transaction_write_edge_rolls_back_to_the_streaming_snapshot() 
             "{name} failure must fail closed"
         );
         assert_eq!(
-            terminal_state_snapshot(&fixture),
+            terminal_state_snapshot(&connection, &fixture),
             before,
             "{name} failure left a partial terminal transaction"
         );

@@ -23,6 +23,13 @@ fn sync_directory(path: &Path) -> Result<(), ProtectedBundledRuntimeError> {
 mod tests {
     use super::*;
 
+    fn owner_private_tempdir() -> tempfile::TempDir {
+        let temporary = tempfile::tempdir().expect("temporary directory");
+        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("protect temporary directory");
+        temporary
+    }
+
     fn executable(path: &Path, mode: u32) {
         std::fs::write(path, b"#!/bin/sh\nexit 0\n").expect("write executable fixture");
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
@@ -44,7 +51,7 @@ mod tests {
 
     #[test]
     fn launch_spec_rejects_relative_symlink_and_writable_executables() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
+        let temporary = owner_private_tempdir();
         let runtime_root = temporary.path().join("runtime");
         assert_eq!(
             ProtectedBundledRuntimeLaunchSpec::new(Path::new("relative-gocoded"), &runtime_root,),
@@ -81,7 +88,7 @@ mod tests {
 
     #[test]
     fn launch_rejects_source_replacement_after_identity_is_pinned() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
+        let temporary = owner_private_tempdir();
         let daemon = temporary.path().join("gocode-daemon");
         executable(&daemon, 0o755);
         let spec =
@@ -101,7 +108,7 @@ mod tests {
 
     #[test]
     fn discovery_uses_only_the_exact_colocated_packaged_daemon_name() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
+        let temporary = owner_private_tempdir();
         let desktop = temporary.path().join("gocode-desktop");
         let daemon = temporary.path().join("gocode-daemon");
         executable(&desktop, 0o755);
@@ -122,9 +129,7 @@ mod tests {
 
     #[test]
     fn activation_records_are_exact_owner_private_and_non_secret() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-            .expect("protect runtime root");
+        let temporary = owner_private_tempdir();
         let store = ActivationStateStore::open(temporary.path()).expect("state store");
         let expected_stable = stable();
         store
@@ -167,9 +172,7 @@ mod tests {
 
     #[test]
     fn activation_record_with_weakened_acl_is_rejected() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-            .expect("protect runtime root");
+        let temporary = owner_private_tempdir();
         let store = ActivationStateStore::open(temporary.path()).expect("state store");
         store
             .persist_stable_exact(&stable(), &mut LaunchTestControls::production())
@@ -185,7 +188,7 @@ mod tests {
 
     #[test]
     fn concrete_supervisor_exhausts_the_bounded_restart_budget() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
+        let temporary = owner_private_tempdir();
         let daemon = temporary.path().join("gocoded");
         executable(&daemon, 0o755);
         let spec =

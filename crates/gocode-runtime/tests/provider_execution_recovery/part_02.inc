@@ -207,7 +207,7 @@ async fn zero_input_reservation_admits_streams_and_settles_completed_usage() {
         runtime.finalize_terminal_output(&context(&fixture)),
         Ok(ProviderTerminalCommitOutcome::Committed)
     );
-    let connection = rusqlite::Connection::open(&fixture.path).unwrap();
+    let connection = validated_connection(&fixture);
     assert_eq!(
         connection
             .query_row(

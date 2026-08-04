@@ -13,6 +13,7 @@ use tempfile::TempDir;
 
 /// Build a `ConfigurationSnapshot` rooted at a temp dir.
 fn test_config(temp: &TempDir) -> ConfigurationSnapshot {
+    owner_private::secure_directory(temp.path());
     let defaults = BuiltInDefaults::new(temp.path());
     ConfigurationSnapshot::from_defaults(&defaults)
 }

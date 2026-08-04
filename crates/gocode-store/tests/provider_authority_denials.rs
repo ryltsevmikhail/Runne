@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::sync::Mutex;
 
 use futures::executor::block_on;
@@ -15,6 +17,9 @@ use gocode_store::provider::{
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
 };
+
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 struct Ready;
 impl ProviderReadyEffect for Ready {
@@ -133,15 +138,14 @@ impl ProhibitedContentPort for Allowed {
 fn fixture(
     denial: Denial,
 ) -> (
-    tempfile::TempDir,
+    validated_reopen::ProviderTestDatabase,
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
     ProviderCoordinatorRequest,
 ) {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("provider.sqlite");
-    let dispatch = SqliteProviderDispatchStore::open(&path).unwrap();
-    let execution = SqliteProviderExecutionStore::open(&path).unwrap();
+    let database = validated_reopen::ProviderTestDatabase::new("provider-authority-denials");
+    let dispatch = database.dispatch();
+    let execution = database.execution();
     let mut config = ProviderRuntimeAuthorityConfig {
         runtime_authority_id: [1; 16],
         database_generation: 1,
@@ -205,7 +209,7 @@ fn fixture(
     if matches!(denial, Denial::Pricing) {
         request.pricing_revision_digest = [4; 32];
     }
-    (directory, dispatch, execution, request)
+    (database, dispatch, execution, request)
 }
 
 #[test]

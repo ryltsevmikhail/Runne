@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use gocode_application::provider::{ProviderAdmissionError, ProviderAuthorityIssueRequest};
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -8,6 +10,9 @@ use gocode_store::provider::{
     PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
+
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 const ATTEMPTS: u8 = 10;
 const TOKENS_PER_ATTEMPT: u32 = 100_000;
@@ -83,10 +88,10 @@ fn request(index: u8, dispatch: &SqliteProviderDispatchStore) -> ProviderAuthori
 
 #[test]
 fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("budget-stress.sqlite");
-    let dispatch = SqliteProviderDispatchStore::open(&path).unwrap();
-    let execution = SqliteProviderExecutionStore::open(&path).unwrap();
+    let database = validated_reopen::ProviderTestDatabase::new("budget-stress");
+    let dispatch = database.dispatch();
+    assert!(SqliteProviderExecutionStore::open(database.as_path()).is_err());
+    let execution = database.execution();
     execution.install_runtime_authority(&authority()).unwrap();
 
     for index in 1..=ATTEMPTS {
@@ -110,7 +115,7 @@ fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
         (10_000_000, 10_000_000, 0, 0)
     );
 
-    let reopened = SqliteProviderExecutionStore::open(&path).unwrap();
+    let reopened = database.execution();
     assert_eq!(reopened.utilization().unwrap(), (tokens, cost));
     reopened.install_runtime_authority(&authority()).unwrap();
     assert_eq!(reopened.utilization().unwrap(), (tokens, cost));

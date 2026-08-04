@@ -17,6 +17,7 @@ security-framework = "=3.7.0"
 
 [dev-dependencies]
 hex.workspace = true
+tempfile = "=3.27.0"
 
 [lints]
 workspace = true

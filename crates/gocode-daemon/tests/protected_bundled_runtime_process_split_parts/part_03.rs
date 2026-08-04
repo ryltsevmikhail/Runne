@@ -1,9 +1,10 @@
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn provider_bound_v2_bundled_process_renews_and_stops_without_v1_downgrade() {
-    let temporary = tempfile::tempdir().expect("temporary V2 runtime root");
-    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
+    let temporary = owner_private::tempdir();
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
     let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("protected launch spec")
             .with_provider_activation(ProviderActivationBindingV1::deterministic_v1());
     let mut process = DevelopmentBundledRuntimeLauncher::new()
@@ -56,10 +57,11 @@ async fn provider_bound_v2_bundled_process_renews_and_stops_without_v1_downgrade
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proven_owned_crash_recovers_the_exact_stable_hot_wal_binding() {
-    let temporary = tempfile::tempdir().expect("temporary crash root");
-    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
+    let temporary = owner_private::tempdir();
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
     let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("protected launch spec");
 
     let mut crashed = DevelopmentBundledRuntimeLauncher::new()
@@ -125,7 +127,7 @@ async fn proven_owned_crash_recovers_the_exact_stable_hot_wal_binding() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn first_activation_recovers_across_crash_and_durable_write_fault_matrix() {
     let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
-    let executable = PathBuf::from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
     for fault in [
         FirstActivationFaultPoint::BeforePreparePersistence,
         FirstActivationFaultPoint::AfterPrepareFileSync,
@@ -137,9 +139,9 @@ async fn first_activation_recovers_across_crash_and_durable_write_fault_matrix()
         FirstActivationFaultPoint::AfterFinalPinFileSync,
         FirstActivationFaultPoint::AfterFinalPin,
     ] {
-        let temporary = tempfile::tempdir().expect("temporary fault root");
+        let temporary = owner_private::tempdir();
         let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+            ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
                 .expect("protected launch spec");
         let activation = spec.runtime_root().join(".desktop-protected-activation");
         let pending_path = activation.join("pending-first-activation-v1.json");
