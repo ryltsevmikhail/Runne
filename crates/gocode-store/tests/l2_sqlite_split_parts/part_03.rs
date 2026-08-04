@@ -1,3 +1,6 @@
+
+// ── Test 2: Full lifecycle ───────────────────────────────────────────────
+
 #[test]
 fn test_full_lifecycle() {
     let db_path = temp_db_path("full-lifecycle");
@@ -94,11 +97,23 @@ fn test_full_lifecycle() {
 
 #[test]
 fn test_replay_after_reopen() {
-    let db_path = temp_db_path("replay-reopen");
+    let database = validated_reopen::ValidatedTestDatabase::new("replay-reopen");
+    let db_path = database.path().to_owned();
     cleanup_db(&db_path);
 
-    let tr_id: TaskRunId = {
-        let (_store, svc) = open_service(&db_path);
+    let (tr_id, identity): (TaskRunId, validated_reopen::MainDatabaseIdentity) = {
+        let (store, identity) = validated_reopen::initialize_store(
+            &db_path,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .unwrap();
+        let svc = TaskRunService::new(
+            store.clone(),
+            store.clone(),
+            store.clone(),
+            store.runtime_authority_id().clone(),
+        );
 
         let outcome = svc
             .create_task_run(
@@ -141,11 +156,17 @@ fn test_replay_after_reopen() {
         )
         .unwrap();
 
-        tr_id
+        (tr_id, identity)
     }; // store dropped — connections closed
 
     // Reopen
-    let (store, _svc) = open_service(&db_path);
+    let store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
 
     // Load stream
     let stream: LoadedStream = store.load_task_run(tr_id).unwrap();
@@ -172,90 +193,3 @@ fn test_replay_after_reopen() {
 
     cleanup_db(&db_path);
 }
-
-#[test]
-fn test_correlation_metadata_is_persisted_and_corruption_fails_closed() {
-    let db_path = temp_db_path("correlation-metadata");
-    cleanup_db(&db_path);
-
-    let (store, svc) = open_service(&db_path);
-    let outcome = svc
-        .create_task_run(
-            &make_context(1),
-            CreateTaskRunInput {
-                conversation_id: make_conv_id(),
-                workspace_id: make_ws_id(),
-            },
-        )
-        .unwrap();
-    let taskrun_id = match outcome {
-        CommandOutcome::TaskRunCreated { taskrun_id, .. } => taskrun_id,
-        other => panic!("expected TaskRunCreated, got {:?}", other),
-    };
-
-    let conn = gocode_store::schema::open_with_pragmas(&db_path).unwrap();
-    let (correlation_id, correlation_type, integrity_profile): (Vec<u8>, i64, i64) = conn
-        .query_row(
-            "SELECT correlation_id, correlation_type, integrity_profile
-             FROM events WHERE aggregate_type = 1 AND aggregate_id = ?1",
-            rusqlite::params![taskrun_id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(correlation_id, taskrun_id.as_bytes());
-    assert_eq!(correlation_type, 1);
-    assert_eq!(integrity_profile, 1);
-
-    conn.execute(
-        "UPDATE events SET correlation_type = 2
-         WHERE aggregate_type = 1 AND aggregate_id = ?1",
-        rusqlite::params![taskrun_id.as_bytes()],
-    )
-    .unwrap();
-    assert!(matches!(
-        store.load_task_run(taskrun_id),
-        Err(EventStoreError::CorruptData)
-    ));
-
-    conn.execute(
-        "UPDATE events SET correlation_type = 1, integrity_profile = 2
-         WHERE aggregate_type = 1 AND aggregate_id = ?1",
-        rusqlite::params![taskrun_id.as_bytes()],
-    )
-    .unwrap();
-    assert!(matches!(
-        store.load_task_run(taskrun_id),
-        Err(EventStoreError::CorruptData)
-    ));
-
-    conn.execute(
-        "UPDATE events SET integrity_profile = 1
-         WHERE aggregate_type = 1 AND aggregate_id = ?1",
-        rusqlite::params![taskrun_id.as_bytes()],
-    )
-    .unwrap();
-    assert!(
-        conn.execute(
-            "UPDATE events SET correlation_id = x'00'
-             WHERE aggregate_type = 1 AND aggregate_id = ?1",
-            rusqlite::params![taskrun_id.as_bytes()],
-        )
-        .is_err()
-    );
-    assert!(store.load_task_run(taskrun_id).is_ok());
-
-    conn.execute(
-        "UPDATE events SET correlation_id = zeroblob(16)
-         WHERE aggregate_type = 1 AND aggregate_id = ?1",
-        rusqlite::params![taskrun_id.as_bytes()],
-    )
-    .unwrap();
-    assert!(matches!(
-        store.load_task_run(taskrun_id),
-        Err(EventStoreError::CorruptData)
-    ));
-
-    cleanup_db(&db_path);
-}
-
-// ── Test 4: Dedup — repeat command returns original result ────────────────

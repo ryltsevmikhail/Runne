@@ -1,186 +1,300 @@
-    use super::*;
 
-    fn executable(path: &Path, mode: u32) {
-        std::fs::write(path, b"#!/bin/sh\nexit 0\n").expect("write executable fixture");
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
-            .expect("set executable permissions");
+impl ProtectedBundledRuntimeProcess {
+    /// Moves the path-free, one-time bootstrap profile to the native caller.
+    pub const fn take_runtime_profile(&mut self) -> Option<ProtectedBundledRuntimeProfile> {
+        self.runtime_profile.take()
     }
 
-    fn stable() -> StableRuntimeBindingV1 {
-        let profile = expected_profile().expect("expected profile");
-        StableRuntimeBindingV1::new(
-            *uuid::Uuid::now_v7().as_bytes(),
-            LOCAL_PRINCIPAL,
-            *uuid::Uuid::now_v7().as_bytes(),
-            profile.profile_id(),
-            *profile.profile_hash(),
-            *profile.capability_digest(),
-        )
-        .expect("stable binding")
-    }
-
-    #[test]
-    fn launch_spec_rejects_relative_symlink_and_writable_executables() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let runtime_root = temporary.path().join("runtime");
-        assert_eq!(
-            ProtectedBundledRuntimeLaunchSpec::new(Path::new("relative-gocoded"), &runtime_root,),
-            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
-        );
-
-        let writable = temporary.path().join("writable-gocoded");
-        executable(&writable, 0o777);
-        assert_eq!(
-            ProtectedBundledRuntimeLaunchSpec::new(&writable, &runtime_root),
-            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
-        );
-
-        let target = temporary.path().join("target-gocoded");
-        executable(&target, 0o755);
-        let link = temporary.path().join("linked-gocoded");
-        std::os::unix::fs::symlink(&target, &link).expect("create executable symlink");
-        assert_eq!(
-            ProtectedBundledRuntimeLaunchSpec::new(&link, &runtime_root),
-            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
-        );
-
-        let writable_parent = temporary.path().join("writable-parent");
-        std::fs::create_dir(&writable_parent).expect("create writable parent");
-        std::fs::set_permissions(&writable_parent, std::fs::Permissions::from_mode(0o777))
-            .expect("weaken parent permissions");
-        let unsafe_daemon = writable_parent.join("gocoded");
-        executable(&unsafe_daemon, 0o755);
-        assert_eq!(
-            ProtectedBundledRuntimeLaunchSpec::new(&unsafe_daemon, &runtime_root),
-            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
-        );
-    }
-
-    #[test]
-    fn launch_rejects_source_replacement_after_identity_is_pinned() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let daemon = temporary.path().join("gocoded");
-        executable(&daemon, 0o755);
-        let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(&daemon, &temporary.path().join("runtime"))
-                .expect("trusted launch spec");
-        std::fs::write(&daemon, b"#!/bin/sh\nexit 7\n").expect("replace source bytes");
-        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o755))
-            .expect("restore executable permissions");
-
-        assert_eq!(
-            DevelopmentBundledRuntimeLauncher::new()
-                .launch(&spec)
-                .expect_err("replacement must fail before protected admission"),
-            ProtectedBundledRuntimeError::ExecutableIdentityMismatch
-        );
-    }
-
-    #[test]
-    fn discovery_uses_only_colocated_absolute_executable() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let desktop = temporary.path().join("gocode-desktop");
-        let daemon = temporary.path().join("gocoded");
-        executable(&desktop, 0o755);
-        executable(&daemon, 0o755);
-
-        assert_eq!(
-            discover_bundled_runtime(&desktop).expect("discover protected daemon"),
-            std::fs::canonicalize(&daemon).expect("canonical daemon")
-        );
-
-        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o775))
-            .expect("weaken daemon permissions");
-        assert_eq!(
-            discover_bundled_runtime(&desktop),
-            Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
-        );
-    }
-
-    #[test]
-    fn activation_records_are_exact_owner_private_and_non_secret() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-            .expect("protect runtime root");
-        let store = ActivationStateStore::open(temporary.path()).expect("state store");
-        let expected_stable = stable();
-        store
-            .persist_stable_exact(&expected_stable, &mut LaunchTestControls::production())
-            .expect("persist stable");
-        assert_eq!(
-            store.load_stable().expect("load stable"),
-            Some(expected_stable)
-        );
-
-        let path = store.directory.join(STABLE_RECORD_FILE);
-        let bytes = std::fs::read(&path).expect("read stable record");
-        let text = String::from_utf8(bytes).expect("stable JSON");
-        assert!(!text.contains("launch_secret"));
-        assert!(!text.contains("bootstrap"));
-        assert!(!text.contains("credential"));
-        assert_eq!(
-            std::fs::metadata(path)
-                .expect("stable metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o600
-        );
-        assert_eq!(
-            std::fs::metadata(&store.directory)
-                .expect("directory metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o700
-        );
-
-        let different = stable();
-        assert_eq!(
-            store.persist_stable_exact(&different, &mut LaunchTestControls::production()),
-            Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
-        );
-    }
-
-    #[test]
-    fn activation_record_with_weakened_acl_is_rejected() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-            .expect("protect runtime root");
-        let store = ActivationStateStore::open(temporary.path()).expect("state store");
-        store
-            .persist_stable_exact(&stable(), &mut LaunchTestControls::production())
-            .expect("persist stable");
-        let path = store.directory.join(STABLE_RECORD_FILE);
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))
-            .expect("weaken stable permissions");
-        assert_eq!(
-            store.load_stable(),
-            Err(ProtectedBundledRuntimeError::ActivationStateUnavailable)
-        );
-    }
-
-    #[test]
-    fn concrete_supervisor_exhausts_the_bounded_restart_budget() {
-        let temporary = tempfile::tempdir().expect("temporary directory");
-        let daemon = temporary.path().join("gocoded");
-        executable(&daemon, 0o755);
-        let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(&daemon, &temporary.path().join("runtime"))
-                .expect("launch spec");
-        let mut supervisor =
-            ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
-        let now = Instant::now();
-
-        for _ in 0..5 {
-            supervisor
-                .schedule_restart(now)
-                .expect("restart remains available");
-            assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Backoff);
+    /// Returns the authenticated non-secret provider binding for V2 launches.
+    #[must_use]
+    pub const fn provider_activation(&self) -> Option<&ProviderActivationBindingV1> {
+        #[cfg(not(unix))]
+        {
+            None
         }
-        assert_eq!(
-            supervisor.schedule_restart(now),
-            Err(ProtectedBundledRuntimeError::RestartExhausted)
-        );
-        assert_eq!(supervisor.state(), BundledRuntimeLifecycleState::Exhausted);
+        #[cfg(unix)]
+        {
+            self.activation.provider_activation()
+        }
     }
+
+    /// Copies role-separated activation keys only for test-support leak audits.
+    #[cfg(all(feature = "test-support", unix))]
+    #[doc(hidden)]
+    #[must_use]
+    pub fn test_activation_key_material(
+        &self,
+    ) -> gocode_api::ProtectedActivationKeyMaterialForTest {
+        self.keys.test_material()
+    }
+
+    /// Drains captured child output after the audited child has exited.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn take_captured_output_for_test(
+        &mut self,
+    ) -> Result<(Vec<u8>, Vec<u8>), ProtectedBundledRuntimeError> {
+        if self.status()? != BundledRuntimeProcessStatus::Exited {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        if let Some(mut handle) = self.captured_stdout.take() {
+            handle
+                .read_to_end(&mut stdout)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        }
+        if let Some(mut handle) = self.captured_stderr.take() {
+            handle
+                .read_to_end(&mut stderr)
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        }
+        Ok((stdout, stderr))
+    }
+
+    /// Confirms that a connected client represents the exact current owned
+    /// launch and protected transport.
+    #[must_use]
+    pub fn matches_client(&self, client: &AuthenticatedRuntimeClient) -> bool {
+        #[cfg(not(unix))]
+        {
+            let _ = client;
+            false
+        }
+        #[cfg(unix)]
+        {
+            if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
+                return false;
+            }
+            let owned_launch = self.activation.compatibility_owned();
+            let ready = self.activation.compatibility_ready();
+            let session = client.session_info();
+            session.profile_id == owned_launch.profile().profile_id()
+                && session.schema_hash == hex::encode(owned_launch.profile().profile_hash())
+                && session.authority_id == hex::encode(owned_launch.stable().authority_id())
+                && session.principal_id == owned_launch.stable().principal_id()
+                && session.event_log_lineage_id
+                    == uuid::Uuid::from_bytes(*owned_launch.stable().lineage_id()).to_string()
+                && session.daemon_instance_id
+                    == uuid::Uuid::from_bytes(*owned_launch.daemon_instance_id()).to_string()
+                && session.launch_generation == owned_launch.launch_generation()
+                && session.session_id == hex::encode(owned_launch.session_id())
+                && session.capability_digest
+                    == hex::encode(owned_launch.profile().capability_digest())
+                && session.certificate_sha256 == hex::encode(ready.certificate_sha256())
+                && session
+                    .capabilities
+                    .iter()
+                    .map(String::as_str)
+                    .eq(REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
+        }
+    }
+
+    /// Rotates the protected HTTP session without reusing launch authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed failure for stale ownership, replay, channel, or ticket
+    /// proof failures.
+    pub fn renew_profile(
+        &mut self,
+    ) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            if self.graceful_requested {
+                return Err(ProtectedBundledRuntimeError::InvalidState);
+            }
+            let sequence = self
+                .renewal_sequence
+                .checked_add(1)
+                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+            let mut nonce = [0_u8; 32];
+            OsRng.fill_bytes(&mut nonce);
+            if nonce == [0; 32] {
+                return Err(ProtectedBundledRuntimeError::LaunchAuthority(
+                    LaunchAuthorityError::RenewalUnavailable,
+                ));
+            }
+            let profile = match &mut self.activation {
+                ProtectedProcessActivation::V1 {
+                    request,
+                    ready,
+                    owned,
+                } => {
+                    let mut renewal = ProtectedRenewRequestV1::new(owned.clone(), sequence, nonce)?;
+                    nonce.fill(0);
+                    renewal.sign(&self.keys);
+                    let renewal_frame = Zeroizing::new(
+                        renewal
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &renewal_frame)?;
+                    let ticket_frame = read_frame(&mut self.channel)?;
+                    let ticket = ProtectedRenewTicketV1::decode_frame(&ticket_frame)
+                        .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+                    ticket.verify_exact(&renewal, &self.keys)?;
+                    let profile = ProtectedBundledRuntimeProfile::from_renewal(
+                        ready, request, &renewal, &ticket, &self.keys,
+                    )?;
+                    *owned = ticket.next_owned_launch();
+                    profile
+                }
+                ProtectedProcessActivation::V2 {
+                    request,
+                    ready,
+                    owned,
+                } => {
+                    let mut renewal = ProtectedRenewRequestV2::new(owned.clone(), sequence, nonce)?;
+                    nonce.fill(0);
+                    renewal.sign(&self.keys);
+                    let renewal_frame = Zeroizing::new(
+                        renewal
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &renewal_frame)?;
+                    let ticket_frame = read_frame(&mut self.channel)?;
+                    let ticket = ProtectedRenewTicketV2::decode_frame(&ticket_frame)
+                        .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+                    ticket.verify_exact(&renewal, &self.keys)?;
+                    let profile = ProtectedBundledRuntimeProfile::from_renewal_v2(
+                        ready, request, &renewal, &ticket, &self.keys,
+                    )?;
+                    *owned = ticket.next_owned_launch();
+                    profile
+                }
+            };
+            self.renewal_sequence = sequence;
+            Ok(profile)
+        }
+    }
+
+    /// Polls only the child handle returned by the direct spawn.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed ownership or platform error if the handle cannot be
+    /// observed.
+    pub fn status(&mut self) -> Result<BundledRuntimeProcessStatus, ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            self.child
+                .try_wait()
+                .map(|status| {
+                    if status.is_some() {
+                        BundledRuntimeProcessStatus::Exited
+                    } else {
+                        BundledRuntimeProcessStatus::Running
+                    }
+                })
+                .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)
+        }
+    }
+
+    /// Requests orderly shutdown for the exact current owned launch.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed channel, proof, ownership, or shutdown failure.
+    pub fn request_graceful_stop(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            if self.graceful_requested {
+                return Ok(());
+            }
+            match &self.activation {
+                ProtectedProcessActivation::V1 { owned, .. } => {
+                    let mut shutdown = ProtectedShutdownV1::new(owned.clone());
+                    shutdown.sign(&self.keys);
+                    let frame = Zeroizing::new(
+                        shutdown
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &frame)?;
+                    let acknowledgement_frame = read_frame(&mut self.channel)?;
+                    let acknowledgement =
+                        ProtectedShutdownAckV1::decode_frame(&acknowledgement_frame)
+                            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+                    acknowledgement.verify_exact(owned, &self.keys)?;
+                    if !acknowledgement.graceful() {
+                        return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+                    }
+                }
+                ProtectedProcessActivation::V2 { owned, .. } => {
+                    let mut shutdown = ProtectedShutdownV2::new(owned.clone());
+                    shutdown.sign(&self.keys);
+                    let frame = Zeroizing::new(
+                        shutdown
+                            .encode_frame()
+                            .map_err(|_| LaunchAuthorityError::InvalidContract)?,
+                    );
+                    write_frame(&mut self.channel, &frame)?;
+                    let acknowledgement_frame = read_frame(&mut self.channel)?;
+                    let acknowledgement =
+                        ProtectedShutdownAckV2::decode_frame(&acknowledgement_frame)
+                            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+                    acknowledgement.verify_exact(owned, &self.keys)?;
+                    if !acknowledgement.graceful() {
+                        return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
+                    }
+                }
+            }
+            self.graceful_requested = true;
+            Ok(())
+        }
+    }
+
+    /// Waits only for the exact owned child handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed ownership or platform error if status cannot be read.
+    pub fn wait_for_exit(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<BundledRuntimeProcessStatus, ProtectedBundledRuntimeError> {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let status = self.status()?;
+            if status == BundledRuntimeProcessStatus::Exited || Instant::now() >= deadline {
+                return Ok(status);
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Forces only the process represented by the already-owned child handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed ownership or incomplete-shutdown failure.
+    pub fn terminate(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            if self.status()? == BundledRuntimeProcessStatus::Exited {
+                return Ok(());
+            }
+            self.child
+                .kill()
+                .map_err(|_| ProtectedBundledRuntimeError::ShutdownIncomplete)
+        }
+    }
+}

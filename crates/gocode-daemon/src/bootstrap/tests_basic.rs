@@ -4,6 +4,12 @@
 
     /// Build a `ConfigurationSnapshot` rooted at a temp dir.
     fn test_config(temp: &TempDir) -> ConfigurationSnapshot {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+
+            fs::set_permissions(temp.path(), fs::Permissions::from_mode(0o700)).unwrap();
+        }
         let defaults = BuiltInDefaults::new(temp.path());
         ConfigurationSnapshot::from_defaults(&defaults)
     }

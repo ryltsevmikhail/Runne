@@ -45,6 +45,38 @@ class CheckSourceFileLengthTests(unittest.TestCase):
         self.assertEqual(checked, [])
         self.assertEqual(violations, [])
 
+    def test_unterminated_final_line_is_counted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            path = root / "unterminated.rs"
+            path.write_bytes((b"x\n" * 300) + b"x")
+
+            checked, violations = checker.audit_paths(
+                root,
+                ["unterminated.rs"],
+                max_lines=300,
+                excludes=(),
+            )
+
+        self.assertEqual([(item.path, item.lines) for item in checked], [("unterminated.rs", 301)])
+        self.assertEqual([(item.path, item.lines) for item in violations], [("unterminated.rs", 301)])
+
+    def test_included_source_without_a_standard_suffix_is_counted(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            included = root / "implementation.inc"
+            included.write_text("x\n" * 301, encoding="utf-8")
+
+            checked, violations = checker.audit_paths(
+                root,
+                ["implementation.inc"],
+                max_lines=300,
+                excludes=(),
+            )
+
+        self.assertEqual([(item.path, item.lines) for item in checked], [("implementation.inc", 301)])
+        self.assertEqual([(item.path, item.lines) for item in violations], [("implementation.inc", 301)])
+
     def test_missing_paths_are_not_counted(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = pathlib.Path(temporary_directory)

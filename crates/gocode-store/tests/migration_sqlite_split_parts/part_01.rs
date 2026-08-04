@@ -1,8 +1,7 @@
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Barrier},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use gocode_application::migration::{
@@ -35,14 +34,15 @@ use gocode_domain::{
     id::{CommandId, IdempotencyKey},
     timestamp::Timestamp,
 };
-use gocode_store::{migration_store::SqliteMigrationControlStore, schema::open_with_pragmas};
+use gocode_store::migration_store::SqliteMigrationControlStore;
 use rusqlite::Connection;
 
 #[test]
 fn two_writers_racing_same_routing_generation_have_one_winner() {
     let db = TempDb::new("routing-cas");
     let left = SqliteMigrationControlStore::open(db.path()).unwrap();
-    let right = SqliteMigrationControlStore::open(db.path()).unwrap();
+    assert!(SqliteMigrationControlStore::open(db.path()).is_err());
+    let right = db.adopt();
     left.commit(stage_commit()).unwrap();
 
     let barrier = Arc::new(Barrier::new(2));
@@ -75,7 +75,7 @@ fn two_writers_racing_same_routing_generation_have_one_winner() {
         1
     );
 
-    let connection = Connection::open(db.path()).unwrap();
+    let connection = db.reader();
     let snapshot_count: i64 = connection
         .query_row("SELECT COUNT(*) FROM routing_snapshots", [], |row| {
             row.get(0)
@@ -89,7 +89,7 @@ fn direct_stage_seven_commit_is_rejected_without_durable_effects() {
     let db = TempDb::new("stage-seven-direct-commit");
     let store = SqliteMigrationControlStore::open(db.path()).unwrap();
     store.commit(stage_commit()).unwrap();
-    let before = durable_counts(&Connection::open(db.path()).unwrap());
+    let before = durable_counts(&db.reader());
 
     let loaded = store.load_plan(&plan_id()).unwrap().unwrap();
     let mut plan = loaded.plan;
@@ -134,7 +134,7 @@ fn direct_stage_seven_commit_is_rejected_without_durable_effects() {
         })
     );
     assert_eq!(
-        durable_counts(&Connection::open(db.path()).unwrap()),
+        durable_counts(&db.reader()),
         before
     );
 }
@@ -143,7 +143,7 @@ fn direct_stage_seven_commit_is_rejected_without_durable_effects() {
 fn audit_failure_rolls_back_plan_snapshot_head_and_receipt() {
     let db = TempDb::new("audit-rollback");
     let store = SqliteMigrationControlStore::open(db.path()).unwrap();
-    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    let connection = db.writer();
     connection
         .execute_batch(
             "CREATE TRIGGER reject_migration_audit
@@ -193,7 +193,7 @@ fn load_plan_rejects_normalized_candidate_mismatch() {
     let db = TempDb::new("normalized-plan-corruption");
     let store = SqliteMigrationControlStore::open(db.path()).unwrap();
     store.commit(stage_commit()).unwrap();
-    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    let connection = db.writer();
     connection
         .execute(
             "UPDATE migration_plans
@@ -222,7 +222,7 @@ fn load_plan_rejects_evidence_blob_that_does_not_match_its_digest() {
             fixture_digest: ArtifactDigest::from_bytes([9; 32]),
         })
         .unwrap();
-    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    let connection = db.writer();
     connection
         .execute(
             "UPDATE migration_evidence SET evidence_blob = ?1",
@@ -253,7 +253,7 @@ fn second_forward_plan_cannot_silently_reuse_an_existing_routing_head() {
         )),
         Err(MigrationStoreError::IntegrityViolation)
     );
-    let connection = Connection::open(db.path()).unwrap();
+    let connection = db.reader();
     assert_eq!(row_count(&connection, "migration_plans"), 1);
     assert_eq!(row_count(&connection, "routing_snapshots"), 1);
     assert_eq!(row_count(&connection, "routing_head"), 1);

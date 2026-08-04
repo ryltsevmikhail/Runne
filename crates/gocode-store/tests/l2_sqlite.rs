@@ -1,9 +1,7 @@
-//! L2-I: SQLite integration tests for gocode-store.
-//!
-//! Uses a real temporary SQLite file and `StoreTransaction` for full
-//! persistence tests. Tests the complete lifecycle through the service
-//! layer, dedup, conflicts, reopen, concurrent writes, clock regression,
-//! and fail-closed behavior on schema corruption.
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
+#[path = "support/validated_reopen_store.rs"]
+mod validated_reopen_store;
 
 include!("l2_sqlite_split_parts/part_01.rs");
 include!("l2_sqlite_split_parts/part_02.rs");

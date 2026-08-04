@@ -1,9 +1,9 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
+use gocode_api::ProviderActivationBindingV1;
 use gocode_app_core::{AppCore, RuntimeAvailability, RuntimeMode};
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
@@ -20,6 +20,8 @@ use gocode_runtime_client::RuntimeTransportKind;
 use gocode_security::SecretBroker;
 use gocode_store::verification::backup_store::InMemoryBackupStore;
 use rand::{RngCore as _, rngs::OsRng};
+
+static PROCESS_FAULT_AUDIT_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn random_secret() -> [u8; 32] {
     let mut value = [0_u8; 32];
@@ -105,14 +107,14 @@ fn assert_tracked_fixtures_absent(representations: &[Vec<u8>]) {
 
 #[test]
 fn early_child_exit_closes_the_inherited_channel_without_readiness_timeout() {
-    let executable = PathBuf::from("/usr/bin/false");
+    let executable = owner_private::ControlledExecutable::copy_from("/usr/bin/false");
     assert!(
-        executable.is_file(),
+        executable.path().is_file(),
         "direct-exec false fixture is required"
     );
-    let temporary = tempfile::tempdir().expect("temporary early-exit root");
+    let temporary = owner_private::tempdir();
     let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(&executable, &temporary.path().join("runtime"))
+        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
             .expect("early-exit launch spec");
     let started = Instant::now();
     assert_eq!(

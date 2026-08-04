@@ -1,3 +1,4 @@
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +86,7 @@ mod tests {
             config,
             cancel,
             service,
+            None,
             None,
             drain_complete_tx,
         ));

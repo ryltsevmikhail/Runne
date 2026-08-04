@@ -24,6 +24,20 @@ impl SqliteAtomicPreEffectStore {
             .ok_or(AtomicTransactionError::StoreUnavailable)?;
         let connection =
             open_with_pragmas(path).map_err(|_| AtomicTransactionError::StoreUnavailable)?;
+        Self::open_with_connection(path, connection)
+    }
+
+    /// Adopts an already admitted writable connection for this store.
+    ///
+    /// The caller must first use `open_with_pragmas` or
+    /// `open_existing_with_pragmas_validated` for this exact path and same
+    /// connection. The connection must be writable, `query_only = OFF`, and
+    /// have no attached databases; validated reopen must verify exact authority
+    /// and event-log lineage identity. This is not an admission API.
+    pub fn open_with_connection(
+        path: &str,
+        connection: Connection,
+    ) -> Result<Self, AtomicTransactionError> {
         apply_migrations(&connection).map_err(|_| AtomicTransactionError::StoreUnavailable)?;
         run_startup_gates(&connection, path)
             .map_err(|_| AtomicTransactionError::StoreUnavailable)?;

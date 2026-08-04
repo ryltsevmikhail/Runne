@@ -1,12 +1,54 @@
 use thiserror::Error;
 
-use gocode_provider::DispatchAttemptId;
-
 /// Revision-bound reference to durable provider-effect authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProviderEffectAuthorityRef {
     authority_id: [u8; 16],
     revision: u64,
+}
+
+/// Closed activation identity required for a runtime-owned provider lease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderLeaseBindingKind {
+    /// Protected protocol V2 session.
+    ProtectedV2,
+    /// Fixed owner-private external configuration.
+    ExternalOwnerPrivate,
+}
+
+impl ProviderLeaseBindingKind {
+    /// Durable closed code.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::ProtectedV2 => "protected_v2",
+            Self::ExternalOwnerPrivate => "external_owner_private",
+        }
+    }
+}
+
+/// Non-secret aggregate budget state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProviderBudgetUtilization {
+    pub limit: u64,
+    pub reserved: u64,
+    pub settled: u64,
+    pub remaining: u64,
+}
+
+impl ProviderBudgetUtilization {
+    /// Validates and derives remaining capacity.
+    pub fn new(limit: u64, reserved: u64, settled: u64) -> Result<Self, ProviderAdmissionError> {
+        let remaining = limit
+            .checked_sub(reserved)
+            .and_then(|value| value.checked_sub(settled))
+            .ok_or(ProviderAdmissionError::RepositoryFailure)?;
+        Ok(Self {
+            limit,
+            reserved,
+            settled,
+            remaining,
+        })
+    }
 }
 
 impl ProviderEffectAuthorityRef {
@@ -32,68 +74,6 @@ impl ProviderEffectAuthorityRef {
     }
 }
 
-/// Authoritative, revision-bound provider-effect authorization record.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderEffectAuthorityRecord {
-    /// Immutable authority identity and revision.
-    pub authority_ref: ProviderEffectAuthorityRef,
-    /// Bound durable dispatch attempt.
-    pub attempt_id: DispatchAttemptId,
-    /// Bound winner-only permit.
-    pub permit_id: [u8; 16],
-    /// Granted capability retained by the authority issuer.
-    pub capability_grant_id: String,
-    /// Bound token reservation.
-    pub token_reservation_id: [u8; 16],
-    /// Bound cost reservation.
-    pub cost_reservation_id: [u8; 16],
-    /// Bound prepared request digest.
-    pub prepared_digest: [u8; 32],
-    /// Bound render digest.
-    pub render_digest: [u8; 32],
-    /// Bound provider profile digest.
-    pub profile_digest: [u8; 32],
-    /// Authority owner identity.
-    pub owner_id: String,
-    /// Authority scope.
-    pub scope: String,
-    /// Bound non-zero fencing token.
-    pub fencing_token: u64,
-    /// Inclusive Unix timestamp after which the authority is denied.
-    pub expires_at: i64,
-    /// Whether an issuer revoked the authority.
-    pub revoked: bool,
-    /// Whether admission has consumed the authority.
-    pub consumed: bool,
-}
-
-/// Exact provider effect admission input.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderEffectRequest {
-    /// Reference to issuer-created, revision-bound authority.
-    pub authority_ref: ProviderEffectAuthorityRef,
-    /// Durable dispatch attempt.
-    pub attempt_id: DispatchAttemptId,
-    /// Winner-only permit.
-    pub permit_id: [u8; 16],
-    /// Exact prepared request digest.
-    pub prepared_digest: [u8; 32],
-    /// Exact committed render digest.
-    pub render_digest: [u8; 32],
-    /// Exact provider profile digest.
-    pub profile_digest: [u8; 32],
-    /// Token budget reservation.
-    pub token_reservation_id: [u8; 16],
-    /// Cost budget reservation.
-    pub cost_reservation_id: [u8; 16],
-    /// Current fencing token.
-    pub fencing_token: u64,
-    /// Caller identity reference, verified against issued authority.
-    pub owner_id: String,
-    /// Requested authority scope reference, verified against issued authority.
-    pub scope: String,
-}
-
 /// Typed rejection before adapter network code.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ProviderAdmissionError {
@@ -109,6 +89,33 @@ pub enum ProviderAdmissionError {
     /// Capability or approval authority is absent.
     #[error("provider capability was denied")]
     CapabilityDenied,
+    /// Required capability lease expired.
+    #[error("provider capability expired")]
+    CapabilityExpired,
+    /// Required human or policy approval is absent.
+    #[error("provider approval was denied")]
+    ApprovalDenied,
+    /// Required approval existed but expired before atomic admission.
+    #[error("provider approval expired")]
+    ApprovalExpired,
+    /// Required capability is invalidated by a revocation epoch.
+    #[error("provider capability was revoked")]
+    CapabilityRevoked,
+    /// Required approval is invalidated by a revocation epoch.
+    #[error("provider approval was revoked")]
+    ApprovalRevoked,
+    /// Requested token reservation exceeds the current durable budget.
+    #[error("provider token budget was denied")]
+    TokenBudgetDenied,
+    /// Requested worst-case cost exceeds the current durable budget.
+    #[error("provider cost budget was denied")]
+    CostBudgetDenied,
+    /// Runtime pricing revision differs from the requested immutable profile.
+    #[error("provider pricing revision mismatch")]
+    PricingRevisionMismatch,
+    /// Semantic context is absent, unbounded or internally inconsistent.
+    #[error("provider semantic context is invalid")]
+    InvalidSemanticContext,
     /// Token reservation does not bind this effect.
     #[error("provider token reservation mismatch")]
     TokenReservationMismatch,
@@ -133,10 +140,4 @@ pub enum ProviderAdmissionError {
     /// Durable repository failed closed.
     #[error("provider repository failed")]
     RepositoryFailure,
-}
-
-/// Atomic audit/budget/intent/permit admission port.
-pub trait ProviderEffectAdmission: Send + Sync {
-    /// Commits the full pre-effect boundary or returns typed rejection.
-    fn admit(&self, request: &ProviderEffectRequest) -> Result<(), ProviderAdmissionError>;
 }

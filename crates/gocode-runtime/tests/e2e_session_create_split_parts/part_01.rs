@@ -1,4 +1,3 @@
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
 
 use gocode_api::{
@@ -29,19 +28,6 @@ const COMMAND_ID: &str = "018f2e3a-7000-7000-8000-0000000000d3";
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
-}
-
-fn temp_path(test_name: &str, suffix: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "gocode-phase2b-{test_name}-{}-{suffix}.sqlite",
-        std::process::id()
-    ))
-}
-
-fn cleanup(path: &Path) {
-    let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_file(format!("{}-wal", path.display()));
-    let _ = std::fs::remove_file(format!("{}-shm", path.display()));
 }
 
 fn schema() -> Arc<JSONSchema> {
@@ -105,13 +91,48 @@ fn wire_input() -> OpenCodeCreateInput {
     }
 }
 
-fn open_host(path: &Path) -> RuntimeConversationHost<StoreTransaction, StoreTransaction> {
-    let store = StoreTransaction::open(
-        path.to_str().unwrap(),
-        RuntimeAuthorityId("runtime-phase2b".into()),
-        available_guard(),
-    )
-    .unwrap();
+fn runtime_authority() -> RuntimeAuthorityId {
+    RuntimeAuthorityId("runtime-phase2b".into())
+}
+
+struct RuntimeFixture {
+    _database: validated_reopen::ValidatedTestDatabase,
+    database_path: String,
+    identity: validated_reopen::MainDatabaseIdentity,
+}
+
+impl RuntimeFixture {
+    fn new(test_name: &str) -> (Self, StoreTransaction) {
+        let database = validated_reopen::ValidatedTestDatabase::new(test_name);
+        let database_path = database.path().to_owned();
+        let (store, identity) = validated_reopen::initialize_store(
+            &database_path,
+            runtime_authority(),
+            available_guard(),
+        )
+        .unwrap();
+        (
+            Self {
+                _database: database,
+                database_path,
+                identity,
+            },
+            store,
+        )
+    }
+
+    fn reopen_store(&self) -> StoreTransaction {
+        validated_reopen::reopen_store(
+            &self.database_path,
+            self.identity,
+            runtime_authority(),
+            available_guard(),
+        )
+        .unwrap()
+    }
+}
+
+fn open_host(store: StoreTransaction) -> RuntimeConversationHost<StoreTransaction, StoreTransaction> {
     RuntimeConversationHost::new(ConversationService::new(
         store.clone(),
         store.clone(),
@@ -158,13 +179,12 @@ where
 
 #[tokio::test]
 async fn session_create_commits_binding_and_only_a_conversation_stream() {
-    let runtime_path = temp_path("success", "runtime");
-    let binding_path = temp_path("success", "binding");
-    cleanup(&runtime_path);
-    cleanup(&binding_path);
+    let (runtime_fixture, runtime_store) = RuntimeFixture::new("session-create-success");
+    let binding_directory = tempfile::tempdir().unwrap();
+    let binding_path = binding_directory.path().join("binding.sqlite");
 
     let binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
-    let host = open_host(&runtime_path);
+    let host = open_host(runtime_store);
     let service = OpenCodeSessionCreateService::new(binding.clone(), host, profile(), schema());
 
     let response = service
@@ -179,19 +199,18 @@ async fn session_create_commits_binding_and_only_a_conversation_stream() {
         Some(SessionBindingStatus::Committed { .. })
     ));
 
-    let runtime = StoreTransaction::open(
-        runtime_path.to_str().unwrap(),
-        RuntimeAuthorityId("runtime-phase2b".into()),
-        available_guard(),
-    )
-    .unwrap();
+    let runtime = runtime_fixture.reopen_store();
     let stream = runtime
         .load_conversation(CONVERSATION_ID.parse().unwrap())
         .unwrap();
     assert_eq!(stream.current_version, 1);
     assert_eq!(stream.events.len(), 1);
 
-    let conn = gocode_store::schema::open_with_pragmas(runtime_path.to_str().unwrap()).unwrap();
+    let conn = validated_reopen::open_validated_connection(
+        &runtime_fixture.database_path,
+        runtime_fixture.identity,
+    )
+    .unwrap();
     let counts: (i64, i64, i64) = conn
         .query_row(
             "SELECT
@@ -208,6 +227,4 @@ async fn session_create_commits_binding_and_only_a_conversation_stream() {
     drop(runtime);
     drop(service);
     drop(binding);
-    cleanup(&runtime_path);
-    cleanup(&binding_path);
 }

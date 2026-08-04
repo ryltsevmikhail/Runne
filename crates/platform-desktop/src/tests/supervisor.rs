@@ -10,7 +10,7 @@
         );
         assert_eq!(
             BundledRuntimeLaunchSpec::new(
-                PathBuf::from("/opt/gocode/gocoded"),
+                absolute_test_executable(),
                 BundledRuntimeLaunchMode::Shell,
                 None,
             ),
@@ -18,15 +18,12 @@
         );
 
         let spec = BundledRuntimeLaunchSpec::new(
-            PathBuf::from("/opt/gocode/gocoded"),
+            absolute_test_executable(),
             BundledRuntimeLaunchMode::Direct,
             None,
         )
         .expect("accept direct launch without a secret transport");
-        assert_eq!(
-            spec.executable(),
-            std::path::Path::new("/opt/gocode/gocoded")
-        );
+        assert_eq!(spec.executable(), absolute_test_executable());
     }
 
     #[test]
@@ -40,7 +37,7 @@
         ] {
             assert_eq!(
                 BundledRuntimeLaunchSpec::new(
-                    PathBuf::from("/opt/gocode/gocoded"),
+                    absolute_test_executable(),
                     BundledRuntimeLaunchMode::Direct,
                     Some(transport),
                 ),
@@ -101,7 +98,7 @@
         let clock = FakeClock::new(Instant::now());
         let (launcher, spawn_count) = FakeLauncher::new([Ok(FakeProcess::running())]);
         let unbound_spec = BundledRuntimeLaunchSpec::new(
-            PathBuf::from("/opt/gocode/gocoded"),
+            absolute_test_executable(),
             BundledRuntimeLaunchMode::Direct,
             None,
         )

@@ -1,5 +1,7 @@
 use std::fs;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
+#[cfg(unix)]
+use std::net::SocketAddr;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gocode_runtime_client::{
@@ -176,10 +178,11 @@ fn ordered_capability_digest(capabilities: &[&str]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+#[cfg(unix)]
 fn secure(path: &std::path::Path) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("secure file");
-    }
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("secure file");
 }
+
+#[cfg(not(unix))]
+const fn secure(_: &std::path::Path) {}

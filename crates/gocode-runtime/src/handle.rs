@@ -12,6 +12,7 @@ use tokio::sync::{Semaphore, mpsc};
 use crate::error::{QueueKind, RuntimeError};
 use crate::gate::AdmissionGate;
 use crate::types::{AdmittedRequest, InFlightLease, Reply, RuntimeRequest};
+use crate::{CanonicalProviderExecutionError, CanonicalProviderExecutionJob};
 
 /// A cloneable, `Send`-able handle for submitting commands to the runtime.
 ///
@@ -200,6 +201,35 @@ impl RuntimeHandle {
             reply,
         })
         .await
+    }
+
+    /// Submits one canonical provider job to the runtime supervisor.
+    pub async fn execute_canonical_provider(
+        &self,
+        job: CanonicalProviderExecutionJob,
+    ) -> Result<TextGenerationReceipt, CanonicalProviderExecutionError> {
+        let in_flight_permit = self
+            .in_flight_sem
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| CanonicalProviderExecutionError::Unavailable)?;
+        let lease = InFlightLease::new(in_flight_permit);
+        let reservation = self
+            .gate
+            .try_reserve()
+            .ok_or(CanonicalProviderExecutionError::Unavailable)?;
+        let (reply, waiter) = tokio::sync::oneshot::channel();
+        self.sender
+            .try_send(AdmittedRequest {
+                request: RuntimeRequest::CanonicalProviderExecution { job, reply },
+                lease,
+            })
+            .map_err(|_| CanonicalProviderExecutionError::Unavailable)?;
+        drop(reservation);
+        waiter
+            .await
+            .map_err(|_| CanonicalProviderExecutionError::Unavailable)?
     }
 }
 

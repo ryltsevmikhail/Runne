@@ -16,6 +16,7 @@ const props = defineProps<{
 }>()
 
 const failureLabels: Record<RuntimeFailureCode, string> = {
+  configuration_required: 'Provider configuration is required',
   protected_activation_unavailable: 'Protected activation unavailable',
   bundled_executable_unavailable: 'Bundled runtime is missing',
   bundled_executable_identity_mismatch: 'Executable verification failed',
@@ -27,6 +28,7 @@ const failureLabels: Record<RuntimeFailureCode, string> = {
 }
 
 const lifecycleTitles: Record<RuntimeLifecycleStatus, string> = {
+  configuration_required: 'Provider configuration required',
   starting: 'Runtime starting',
   ready: 'Runtime ready',
   restarting: 'Runtime restarting',
@@ -42,6 +44,8 @@ const detail = computed(() => {
     return failureLabels[props.failure]
   }
   switch (props.lifecycle) {
+    case 'configuration_required':
+      return 'Configure a provider to start the bundled runtime'
     case 'starting':
       return 'Protected activation'
     case 'ready':

@@ -13,13 +13,33 @@ use gocode_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
 };
 use gocode_platform_desktop::{
-    BundledRuntimeLifecycleState, BundledRuntimeStopDisposition, DevelopmentBundledRuntimeLauncher,
-    PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedBundledRuntimeError,
-    ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
+    BundledRuntimeLifecycleState, BundledRuntimeStopDisposition, ProtectedBundledRuntimeError,
+    ProtectedBundledRuntimeSupervisor,
+};
+#[cfg(feature = "test-support")]
+use gocode_platform_desktop::{
+    DevelopmentBundledRuntimeLauncher, PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
+    ProtectedBundledRuntimeLaunchSpec, discover_bundled_runtime,
 };
 
 const BUNDLED_CLIENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const SUPERVISOR_POLL_INTERVAL: Duration = Duration::from_millis(250);
+
+/// Opaque compile-time gate for the native loopback fixture only.
+///
+/// It is unavailable from a release desktop build, has no renderer surface,
+/// and cannot convey a production provider enrollment.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy, Debug)]
+pub struct NativeOpenAiActivationTestGate(());
+
+#[cfg(feature = "test-support")]
+impl NativeOpenAiActivationTestGate {
+    #[must_use]
+    pub const fn loopback_fixture() -> Self {
+        Self(())
+    }
+}
 
 /// Closed host-side result of the explicit-quit shutdown policy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +55,7 @@ struct RuntimeOperationFence {
 }
 
 impl RuntimeOperationFence {
+    #[cfg(any(test, feature = "test-support"))]
     const fn new() -> Self {
         Self {
             stopping: AtomicBool::new(false),
@@ -73,6 +94,7 @@ struct ProtectedSessionRenewalSchedule {
 }
 
 impl ProtectedSessionRenewalSchedule {
+    #[cfg(any(test, feature = "test-support"))]
     const fn new(renew_after: Duration) -> Self {
         Self {
             renew_after,

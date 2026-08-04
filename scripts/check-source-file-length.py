@@ -17,6 +17,7 @@ SOURCE_SUFFIXES = frozenset(
         ".cjs",
         ".css",
         ".html",
+        ".inc",
         ".js",
         ".jsx",
         ".mjs",
@@ -60,11 +61,11 @@ def is_source_path(path: str) -> bool:
 
 
 def count_text_lines(path: pathlib.Path) -> int | None:
-    """Count newline-terminated lines, returning None for binary files."""
+    """Count physical text lines, returning None for binary files."""
     data = path.read_bytes()
     if b"\0" in data:
         return None
-    return data.count(b"\n")
+    return data.count(b"\n") + int(bool(data) and not data.endswith(b"\n"))
 
 
 def audit_paths(

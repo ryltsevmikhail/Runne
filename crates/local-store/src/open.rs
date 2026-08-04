@@ -264,7 +264,10 @@ impl LocalStore {
             std::fs::set_permissions(&temporary, permissions)
                 .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
         }
-        std::fs::File::open(&temporary)
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&temporary)
             .and_then(|file| file.sync_all())
             .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
         verify_pre_v4_backup_path(&temporary)?;

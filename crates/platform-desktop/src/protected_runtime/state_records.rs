@@ -1,138 +1,261 @@
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredExecutableV1 {
-    executable_sha256: [u8; 32],
-    canonical_path_sha256: [u8; 32],
-    byte_length: u64,
+// Development/ad-hoc protected bundled-runtime launch and supervision.
+//
+// This module deliberately makes no production signing or notarization claim.
+// The Unix backend is usable for local macOS development/ad-hoc execution and
+// for Linux contract testing. Unsupported native backends fail closed.
+
+use std::fmt;
+#[cfg(unix)]
+use std::fs::{File, OpenOptions};
+#[cfg(any(unix, feature = "test-support"))]
+use std::io::Read;
+#[cfg(unix)]
+use std::io::Write;
+use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(unix)]
+use std::os::fd::OwnedFd;
+#[cfg(unix)]
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+
+use gocode_api::{
+    ExecutableIdentityV1, LaunchAuthorityError, PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
+    PendingFirstActivationV1, ProtectedRuntimeProfileV1, ProviderActivationBindingV1,
+    StableRuntimeBindingV1,
+};
+#[cfg(unix)]
+use gocode_api::{
+    ActivationDispositionV1, LaunchSecret, ProtectedActivationKeys,
+    ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
+    ProtectedLaunchRequestV2, ProtectedOwnedLaunchV1, ProtectedOwnedLaunchV2, ProtectedReadyV1,
+    ProtectedReadyV2, ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
+    ProtectedRenewTicketV2, ProtectedShutdownAckV1, ProtectedShutdownAckV2, ProtectedShutdownV1,
+    ProtectedShutdownV2,
+};
+use gocode_runtime_client::{
+    AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, ProtectedBundledRuntimeProfile,
+    REQUIRED_RUNTIME_CAPABILITIES,
+};
+#[cfg(unix)]
+use gocode_runtime_client::RuntimeTransportKind;
+#[cfg(unix)]
+use rand::{RngCore, rngs::OsRng};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+use zeroize::Zeroizing;
+
+use crate::{
+    BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT, BundledRuntimeBackoff, BundledRuntimeLifecycleState,
+    BundledRuntimeProcessStatus, BundledRuntimeRestartDisposition, BundledRuntimeStopDisposition,
+};
+
+const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
+const MAX_STATE_BYTES: u64 = 64 * 1024;
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+const LOCAL_PRINCIPAL: &str = "local-owner";
+const STATE_SCHEMA_VERSION: u32 = 1;
+const ACTIVATION_STATE_DIRECTORY: &str = ".desktop-protected-activation";
+const STAGED_EXECUTABLE_DIRECTORY: &str = "executables-v1";
+const STABLE_RECORD_FILE: &str = "stable-binding-v1.json";
+const PENDING_RECORD_FILE: &str = "pending-first-activation-v1.json";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ActivationCheckpoint {
+    BeforePreparePersistence,
+    AfterPrepareFileSync,
+    AfterPreparePersistence,
+    BeforeCommit,
+    AfterCommit,
+    AfterEventLogCreation,
+    BeforeFinalPin,
+    AfterFinalPinFileSync,
+    AfterFinalPin,
 }
 
-impl StoredExecutableV1 {
-    const fn from_contract(value: &ExecutableIdentityV1) -> Self {
+/// Test-only crash/durable-write boundary for first-activation recovery.
+#[cfg(feature = "test-support")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FirstActivationFaultPoint {
+    BeforePreparePersistence,
+    AfterPrepareFileSync,
+    AfterPreparePersistence,
+    BeforeCommit,
+    AfterCommit,
+    AfterEventLogCreation,
+    BeforeFinalPin,
+    AfterFinalPinFileSync,
+    AfterFinalPin,
+}
+
+#[cfg(feature = "test-support")]
+impl From<FirstActivationFaultPoint> for ActivationCheckpoint {
+    fn from(value: FirstActivationFaultPoint) -> Self {
+        match value {
+            FirstActivationFaultPoint::BeforePreparePersistence => Self::BeforePreparePersistence,
+            FirstActivationFaultPoint::AfterPrepareFileSync => Self::AfterPrepareFileSync,
+            FirstActivationFaultPoint::AfterPreparePersistence => Self::AfterPreparePersistence,
+            FirstActivationFaultPoint::BeforeCommit => Self::BeforeCommit,
+            FirstActivationFaultPoint::AfterCommit => Self::AfterCommit,
+            FirstActivationFaultPoint::AfterEventLogCreation => Self::AfterEventLogCreation,
+            FirstActivationFaultPoint::BeforeFinalPin => Self::BeforeFinalPin,
+            FirstActivationFaultPoint::AfterFinalPinFileSync => Self::AfterFinalPinFileSync,
+            FirstActivationFaultPoint::AfterFinalPin => Self::AfterFinalPin,
+        }
+    }
+}
+
+struct LaunchTestControls {
+    secret_override: Option<Zeroizing<[u8; 32]>>,
+    capture_output: bool,
+    fail_at: Option<ActivationCheckpoint>,
+    fault_triggered: bool,
+}
+
+impl LaunchTestControls {
+    const fn production() -> Self {
         Self {
-            executable_sha256: *value.executable_sha256(),
-            canonical_path_sha256: *value.canonical_path_sha256(),
-            byte_length: value.byte_length(),
+            secret_override: None,
+            capture_output: false,
+            fail_at: None,
+            fault_triggered: false,
         }
     }
 
-    fn into_contract(self) -> Result<ExecutableIdentityV1, ProtectedBundledRuntimeError> {
-        ExecutableIdentityV1::new(
-            self.executable_sha256,
-            self.canonical_path_sha256,
-            self.byte_length,
-        )
-        .map_err(Into::into)
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredProfileV1 {
-    transport_profile_id: String,
-    runtime_profile_schema_version: u32,
-    profile_id: String,
-    profile_hash: [u8; 32],
-    capability_digest: [u8; 32],
-}
-
-impl StoredProfileV1 {
-    fn from_contract(value: &ProtectedRuntimeProfileV1) -> Self {
-        Self {
-            transport_profile_id: value.transport_profile_id().to_owned(),
-            runtime_profile_schema_version: value.runtime_profile_schema_version(),
-            profile_id: value.profile_id().to_owned(),
-            profile_hash: *value.profile_hash(),
-            capability_digest: *value.capability_digest(),
-        }
-    }
-
-    fn into_contract(self) -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRuntimeError> {
-        ProtectedRuntimeProfileV1::new(
-            self.transport_profile_id,
-            self.runtime_profile_schema_version,
-            self.profile_id,
-            self.profile_hash,
-            self.capability_digest,
-        )
-        .map_err(Into::into)
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredStableV1 {
-    schema_version: u32,
-    authority_id: [u8; 16],
-    principal_id: String,
-    lineage_id: [u8; 16],
-    profile_id: String,
-    profile_hash: [u8; 32],
-    capability_digest: [u8; 32],
-}
-
-impl StoredStableV1 {
-    fn from_contract(value: &StableRuntimeBindingV1) -> Self {
-        Self {
-            schema_version: STATE_SCHEMA_VERSION,
-            authority_id: *value.authority_id(),
-            principal_id: value.principal_id().to_owned(),
-            lineage_id: *value.lineage_id(),
-            profile_id: value.profile_id().to_owned(),
-            profile_hash: *value.profile_hash(),
-            capability_digest: *value.capability_digest(),
-        }
-    }
-
-    fn into_contract(self) -> Result<StableRuntimeBindingV1, ProtectedBundledRuntimeError> {
-        if self.schema_version != STATE_SCHEMA_VERSION {
+    fn checkpoint(
+        &mut self,
+        point: ActivationCheckpoint,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        if self.fail_at == Some(point) && !self.fault_triggered {
+            self.fault_triggered = true;
             return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
         }
-        StableRuntimeBindingV1::new(
-            self.authority_id,
-            self.principal_id,
-            self.lineage_id,
-            self.profile_id,
-            self.profile_hash,
-            self.capability_digest,
-        )
-        .map_err(Into::into)
+        Ok(())
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredPendingV1 {
-    schema_version: u32,
-    preparation_id: [u8; 16],
-    runtime_root_identity: [u8; 32],
-    stable: StoredStableV1,
-    executable: StoredExecutableV1,
-    profile: StoredProfileV1,
+/// Closed, renderer-safe failure vocabulary for protected bundled activation.
+#[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
+pub enum ProtectedBundledRuntimeError {
+    #[error("unsupported_platform_backend")]
+    UnsupportedPlatformBackend,
+    #[error("bundled_executable_unavailable")]
+    ExecutableUnavailable,
+    #[error("bundled_executable_identity_mismatch")]
+    ExecutableIdentityMismatch,
+    #[error("protected_runtime_root_unavailable")]
+    RuntimeRootUnavailable,
+    #[error("protected_activation_state_unavailable")]
+    ActivationStateUnavailable,
+    #[error("protected_channel_unavailable")]
+    ProtectedChannelUnavailable,
+    #[error("bundled_spawn_failed")]
+    SpawnFailed,
+    #[error("bundled_readiness_timeout")]
+    ReadinessTimeout,
+    #[error("bundled_runtime_not_owned")]
+    OwnershipMismatch,
+    #[error("bundled_runtime_invalid_state")]
+    InvalidState,
+    #[error("bundled_runtime_restart_exhausted")]
+    RestartExhausted,
+    #[error("bundled_runtime_shutdown_incomplete")]
+    ShutdownIncomplete,
+    #[error("{0}")]
+    LaunchAuthority(#[from] LaunchAuthorityError),
 }
 
-impl StoredPendingV1 {
-    fn from_contract(value: &PendingFirstActivationV1) -> Self {
-        Self {
-            schema_version: STATE_SCHEMA_VERSION,
-            preparation_id: *value.preparation_id(),
-            runtime_root_identity: *value.runtime_root_identity(),
-            stable: StoredStableV1::from_contract(value.stable()),
-            executable: StoredExecutableV1::from_contract(value.executable()),
-            profile: StoredProfileV1::from_contract(value.profile()),
+/// Canonical executable and owner-private runtime root for one local profile.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedBundledRuntimeLaunchSpec {
+    executable: PathBuf,
+    runtime_root: PathBuf,
+    trusted_source_identity: ExecutableIdentityV1,
+    provider_activation: Option<ProviderActivationBindingV1>,
+}
+
+impl fmt::Debug for ProtectedBundledRuntimeLaunchSpec {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProtectedBundledRuntimeLaunchSpec")
+            .field("executable", &"<measured>")
+            .field("runtime_root", &"<owner-private>")
+            .field("provider_activation", &self.provider_activation)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ProtectedBundledRuntimeLaunchSpec {
+    /// Validates one direct, absolute executable and owner-private runtime root.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed platform, executable, or runtime-root failure.
+    pub fn new(
+        executable: &Path,
+        runtime_root: &Path,
+    ) -> Result<Self, ProtectedBundledRuntimeError> {
+        #[cfg(not(unix))]
+        {
+            let _ = (executable, runtime_root);
+            Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+        }
+        #[cfg(unix)]
+        {
+            let executable = validate_executable_path(executable)?;
+            let trusted_source_identity = ExecutableIdentityV1::measure(&executable)
+                .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
+            let runtime_root = ensure_owner_private_directory(runtime_root)?;
+            Ok(Self {
+                executable,
+                runtime_root,
+                trusted_source_identity,
+                provider_activation: None,
+            })
         }
     }
 
-    fn into_contract(self) -> Result<PendingFirstActivationV1, ProtectedBundledRuntimeError> {
-        if self.schema_version != STATE_SCHEMA_VERSION {
-            return Err(ProtectedBundledRuntimeError::ActivationStateUnavailable);
-        }
-        PendingFirstActivationV1::new(
-            self.preparation_id,
-            self.runtime_root_identity,
-            self.stable.into_contract()?,
-            self.executable.into_contract()?,
-            self.profile.into_contract()?,
-        )
-        .map_err(Into::into)
+    #[must_use]
+    pub fn executable(&self) -> &Path {
+        &self.executable
+    }
+
+    #[must_use]
+    pub fn runtime_root(&self) -> &Path {
+        &self.runtime_root
+    }
+
+    const fn trusted_source_identity(&self) -> &ExecutableIdentityV1 {
+        &self.trusted_source_identity
+    }
+
+    /// Selects provider-bound protected protocol V2 for this in-memory launch.
+    #[must_use]
+    pub fn with_provider_activation(
+        mut self,
+        provider_activation: ProviderActivationBindingV1,
+    ) -> Self {
+        self.provider_activation = Some(provider_activation);
+        self
+    }
+
+    /// Selects the released native `OpenAI` Responses text provider for V2.
+    ///
+    /// The native desktop host calls this convenience method rather than
+    /// constructing a provider binding from renderer-controlled input.
+    #[must_use]
+    pub fn with_openai_provider_activation(self) -> Self {
+        self.with_provider_activation(ProviderActivationBindingV1::openai_responses_text_v1())
+    }
+
+    /// Returns the exact non-secret provider binding selected for V2.
+    #[must_use]
+    pub const fn provider_activation(&self) -> Option<&ProviderActivationBindingV1> {
+        self.provider_activation.as_ref()
     }
 }

@@ -117,7 +117,7 @@ async fn issued_cursor_is_opaque_and_round_trips_through_acknowledge() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(json_body(response).await, json!({"acknowledged": true}));
 
-    let database_path = directory.path().join("replay.sqlite");
+    let database_path = directory.path();
     let connection = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
     let (authority, generation): (Vec<u8>, i64) = connection
         .query_row(

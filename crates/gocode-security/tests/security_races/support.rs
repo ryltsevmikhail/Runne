@@ -16,21 +16,27 @@ use gocode_security::broker::network::{
 use gocode_security::broker::secret::{SecretBroker, SecretError};
 use gocode_security::cleanup::{CleanupError, CleanupPool, CleanupState};
 use gocode_store::atomic_pre_effect::SqliteAtomicPreEffectStore;
-use tempfile::TempDir;
 use tokio::sync::Barrier;
 
 type CommitResult = Result<PreEffectTransactionOutcome, AtomicTransactionError>;
 
 fn shared_sqlite_stores() -> (
-    TempDir,
+    validated_reopen::ValidatedTestDatabase,
     Arc<SqliteAtomicPreEffectStore>,
     Arc<SqliteAtomicPreEffectStore>,
 ) {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("security-races.sqlite");
-    let first = Arc::new(SqliteAtomicPreEffectStore::open(&path).unwrap());
-    let second = Arc::new(SqliteAtomicPreEffectStore::open(&path).unwrap());
-    (directory, first, second)
+    let database = validated_reopen::ValidatedTestDatabase::new("security-races");
+    let identity = validated_reopen::initialize_database_identity(database.path()).unwrap();
+    let first = Arc::new(
+        SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).unwrap(),
+    );
+    assert!(SqliteAtomicPreEffectStore::open(std::path::Path::new(database.path())).is_err());
+    let connection =
+        validated_reopen::open_validated_connection(database.path(), identity).unwrap();
+    let second = Arc::new(
+        SqliteAtomicPreEffectStore::open_with_connection(database.path(), connection).unwrap(),
+    );
+    (database, first, second)
 }
 
 async fn concurrent_commits(

@@ -4,67 +4,44 @@ use core::pin::Pin;
 use thiserror::Error;
 
 use crate::{
-    DispatchAttemptId, ProviderCall, ProviderCapability, ProviderStreamId, ProviderStreamItem,
-    StreamCursor, StreamError, canonical_provider_call_digest,
+    DispatchAttemptId, PreparedRequest, ProviderCall, ProviderCallDigestVersion,
+    ProviderCapability, ProviderDispatchClaim, ProviderStreamId, ProviderStreamItem, StreamCursor,
+    StreamError,
 };
 
 /// Runtime-neutral boxed future returned by adapter operations.
 pub type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// Content-addressed reference to a prepared non-secret request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PreparedRequestRef([u8; 32]);
-
-impl PreparedRequestRef {
-    /// Returns the reference digest.
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-}
-
-/// Immutable prepared request metadata. Credential material is absent.
-#[derive(Debug, Clone, PartialEq)]
-pub struct PreparedRequest {
-    request_ref: PreparedRequestRef,
-    call: ProviderCall,
-}
-
-impl PreparedRequest {
-    /// Deterministically constructs a credential-free prepared request.
-    pub fn from_call(call: &ProviderCall) -> Result<Self, PrepareError> {
-        let digest = canonical_provider_call_digest(call)
-            .map_err(|error| PrepareError::Render(error.to_string()))?;
-        Ok(Self {
-            request_ref: PreparedRequestRef(*digest.as_bytes()),
-            call: call.clone(),
-        })
-    }
-
-    /// Returns the content-addressed request reference.
-    pub const fn request_ref(&self) -> PreparedRequestRef {
-        self.request_ref
-    }
-
-    /// Returns the normalized source call.
-    pub const fn call(&self) -> &ProviderCall {
-        &self.call
-    }
-}
-
 /// Request to enter the adapter dispatch boundary.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DispatchRequest {
     prepared: PreparedRequest,
-    attempt_id: DispatchAttemptId,
+    claim: ProviderDispatchClaim,
 }
 
 impl DispatchRequest {
-    /// Constructs a dispatch request for an exact prepared request and attempt.
-    pub const fn new(prepared: PreparedRequest, attempt_id: DispatchAttemptId) -> Self {
-        Self {
-            prepared,
-            attempt_id,
+    /// Constructs a dispatch request only from the exact durable effect claim.
+    pub fn new(
+        prepared: PreparedRequest,
+        claim: ProviderDispatchClaim,
+    ) -> Result<Self, DispatchRequestError> {
+        if claim.call_id != prepared.call().call_id()
+            || claim.prepared_digest != *prepared.request_ref().as_bytes()
+            || claim.render_digest != *prepared.render_digest()
+        {
+            return Err(DispatchRequestError::PreparedClaimMismatch);
         }
+        if claim.fencing_token == 0
+            || claim.provider_idempotency_key.is_empty()
+            || claim.provider_idempotency_key.len() > 256
+            || claim
+                .provider_idempotency_key
+                .bytes()
+                .any(|byte| byte.is_ascii_control())
+        {
+            return Err(DispatchRequestError::InvalidEffectBinding);
+        }
+        Ok(Self { prepared, claim })
     }
 
     /// Returns the prepared request.
@@ -74,8 +51,30 @@ impl DispatchRequest {
 
     /// Returns the durable attempt identity.
     pub const fn attempt_id(&self) -> DispatchAttemptId {
-        self.attempt_id
+        self.claim.attempt_id
     }
+
+    /// Returns the stable non-secret provider-visible idempotency key.
+    pub fn provider_idempotency_key(&self) -> &str {
+        &self.claim.provider_idempotency_key
+    }
+
+    /// Returns the exact durable authority, reservations, fence, and evidence
+    /// admitted before the adapter effect boundary.
+    pub const fn claim(&self) -> &ProviderDispatchClaim {
+        &self.claim
+    }
+}
+
+/// Invalid adapter dispatch request metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum DispatchRequestError {
+    /// Prepared request identity differs from the durable claim.
+    #[error("provider dispatch claim does not bind the prepared request")]
+    PreparedClaimMismatch,
+    /// Permit, fence, reservations, or provider idempotency metadata is invalid.
+    #[error("provider dispatch effect binding is invalid")]
+    InvalidEffectBinding,
 }
 
 /// Request to cancel a transient provider stream.
@@ -123,11 +122,23 @@ pub enum PrepareError {
     /// Deterministic rendering failed.
     #[error("provider render failed: {0}")]
     Render(String),
+    /// Exact credential-free rendered bytes are empty or exceed their bound.
+    #[error("provider rendered request violates its byte bound")]
+    RenderedRequestBound,
+    /// Adapter cannot reconstruct the requested historical digest contract.
+    #[error("provider digest version is unsupported for recovery: {0:?}")]
+    UnsupportedDigestVersion(ProviderCallDigestVersion),
 }
 
 /// Dispatch/control boundary failure.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DispatchError {
+    /// Adapter proves the external effect boundary was not crossed.
+    #[error("provider dispatch was rejected before external effect")]
+    RejectedBeforeEffect(crate::ProviderPreEffectRejection),
+    /// Dispatch began but remote acceptance cannot be proven or excluded.
+    #[error("provider dispatch may have reached the external provider")]
+    MaybeDispatched,
     /// Attempt identity conflicts with an existing prepared request.
     #[error("provider dispatch attempt conflicts with existing request")]
     AttemptConflict,
@@ -160,6 +171,13 @@ pub enum ReconciliationDisposition {
 pub trait ProviderPort: Send + Sync {
     /// Deterministically prepares a non-secret request without dispatch.
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError>;
+
+    /// Reconstructs an exact historical prepared request for durable replay.
+    fn prepare_for_digest_version(
+        &self,
+        call: &ProviderCall,
+        digest_version: ProviderCallDigestVersion,
+    ) -> Result<PreparedRequest, PrepareError>;
 
     /// Dispatches an already admitted request.
     fn dispatch(

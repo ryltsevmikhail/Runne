@@ -1,3 +1,88 @@
+
+impl DeterministicCodec for ProtectedLaunchRequestV1 {
+    const MESSAGE_TYPE_ID: u32 = 1;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        encoder.write_map_header(12);
+        write_key(encoder, 0);
+        encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
+        write_key(encoder, 1);
+        encoder.write_unsigned(u64::from(self.protocol_schema_version));
+        write_key(encoder, 2);
+        encoder.write_byte_string(&self.launch_authority_id);
+        write_key(encoder, 3);
+        encoder.write_byte_string(&self.desktop_host_instance_id);
+        write_key(encoder, 4);
+        encoder.write_byte_string(self.launch_secret.as_bytes());
+        write_key(encoder, 5);
+        encoder.write_unsigned(self.issued_at_unix_millis);
+        write_key(encoder, 6);
+        encoder.write_unsigned(self.expires_at_unix_millis);
+        write_key(encoder, 7);
+        encoder.write_text_string(&self.principal_id);
+        write_key(encoder, 8);
+        encode_profile(encoder, &self.profile);
+        write_key(encoder, 9);
+        encode_executable(encoder, &self.executable);
+        write_key(encoder, 10);
+        encoder.write_text_string(
+            self.runtime_root
+                .to_str()
+                .expect("validated UTF-8 runtime root"),
+        );
+        write_key(encoder, 11);
+        encode_disposition(encoder, &self.activation_disposition);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(12)? != 12 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_key(decoder, 1)?;
+        let schema = decoder.read_unsigned(u64::from(u32::MAX))?;
+        if schema != u64::from(PROTOCOL_SCHEMA_VERSION) {
+            return Err(DecodeError::UnknownField { key: 1 });
+        }
+        expect_key(decoder, 2)?;
+        let launch_authority_id = decode_fixed::<16>(decoder)?;
+        expect_key(decoder, 3)?;
+        let desktop_host_instance_id = decode_fixed::<16>(decoder)?;
+        expect_key(decoder, 4)?;
+        let launch_secret = LaunchSecret::from_bytes(decode_fixed::<32>(decoder)?)
+            .map_err(|_| DecodeError::UnknownField { key: 4 })?;
+        expect_key(decoder, 5)?;
+        let issued_at_unix_millis = decoder.read_unsigned(u64::MAX)?;
+        expect_key(decoder, 6)?;
+        let expires_at_unix_millis = decoder.read_unsigned(u64::MAX)?;
+        expect_key(decoder, 7)?;
+        let principal_id = decoder.read_text_string(MAX_PRINCIPAL_ID_BYTES)?.to_owned();
+        expect_key(decoder, 8)?;
+        let profile = decode_profile(decoder)?;
+        expect_key(decoder, 9)?;
+        let executable = decode_executable(decoder)?;
+        expect_key(decoder, 10)?;
+        let runtime_root = PathBuf::from(decoder.read_text_string(MAX_TEXT_BYTES)?);
+        expect_key(decoder, 11)?;
+        let activation_disposition = decode_disposition(decoder)?;
+        Self::new(
+            launch_authority_id,
+            desktop_host_instance_id,
+            launch_secret,
+            issued_at_unix_millis,
+            expires_at_unix_millis,
+            principal_id,
+            profile,
+            executable,
+            runtime_root,
+            activation_disposition,
+        )
+        .map_err(|_| DecodeError::UnknownField { key: 11 })
+    }
+}
+
 /// Runtime-prepared non-secret first-activation record with exact HMAC proof.
 #[derive(Clone, Eq, PartialEq)]
 pub struct ProtectedFirstActivationPreparedV1 {
@@ -119,41 +204,5 @@ impl fmt::Debug for ProtectedFirstActivationPreparedV1 {
             .field("pending", &self.pending)
             .field("protected_fields", &"<redacted>")
             .finish()
-    }
-}
-
-impl DeterministicCodec for ProtectedFirstActivationPreparedV1 {
-    const MESSAGE_TYPE_ID: u32 = 7;
-
-    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
-        self.encode_fields(encoder, true);
-        Ok(())
-    }
-
-    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
-        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(6)? != 6 {
-            return Err(DecodeError::UnknownMessageType { type_id });
-        }
-        expect_key(decoder, 0)?;
-        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
-        expect_key(decoder, 1)?;
-        if decoder.read_unsigned(u64::from(u32::MAX))? != u64::from(PROTOCOL_SCHEMA_VERSION) {
-            return Err(DecodeError::UnknownField { key: 1 });
-        }
-        expect_key(decoder, 2)?;
-        let launch_authority_id = decode_fixed::<16>(decoder)?;
-        expect_key(decoder, 3)?;
-        let desktop_host_instance_id = decode_fixed::<16>(decoder)?;
-        expect_key(decoder, 4)?;
-        let pending = decode_pending(decoder)?;
-        expect_key(decoder, 5)?;
-        let proof = decode_fixed::<32>(decoder)?;
-        Ok(Self {
-            protocol_schema_version: PROTOCOL_SCHEMA_VERSION,
-            launch_authority_id,
-            desktop_host_instance_id,
-            pending,
-            proof,
-        })
     }
 }

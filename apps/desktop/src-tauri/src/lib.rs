@@ -8,6 +8,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(feature = "test-support")]
+pub use bundled_runtime::NativeOpenAiActivationTestGate;
 pub use bundled_runtime::{BundledRuntimeController, BundledShutdownOutcome};
 use conversation_channel::{
     ConversationChannelError, ConversationChannelEvent, ConversationSubscriptionManager,

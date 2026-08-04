@@ -1,21 +1,3 @@
-/// Authenticated readiness for exactly one protected launch.
-#[derive(Clone, Eq, PartialEq)]
-pub struct ProtectedReadyV1 {
-    protocol_schema_version: u32,
-    launch_authority_id: [u8; 16],
-    desktop_host_instance_id: [u8; 16],
-    executable: ExecutableIdentityV1,
-    profile: ProtectedRuntimeProfileV1,
-    stable: StableRuntimeBindingV1,
-    daemon_instance_id: [u8; 16],
-    launch_generation: u64,
-    session_id: [u8; 16],
-    endpoint: String,
-    certificate_sha256: [u8; 32],
-    certificate_der: Vec<u8>,
-    capabilities: Vec<String>,
-    readiness_proof: [u8; 32],
-}
 
 impl ProtectedReadyV1 {
     /// Builds an unsigned exact readiness value.
@@ -246,16 +228,5 @@ impl ProtectedReadyV1 {
             encoder.write_byte_string(&self.readiness_proof);
         }
         Ok(())
-    }
-}
-
-impl fmt::Debug for ProtectedReadyV1 {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("ProtectedReadyV1")
-            .field("protocol_schema_version", &self.protocol_schema_version)
-            .field("launch_generation", &self.launch_generation)
-            .field("protected_fields", &"<redacted>")
-            .finish()
     }
 }

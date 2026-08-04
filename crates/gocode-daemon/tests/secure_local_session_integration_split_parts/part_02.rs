@@ -50,7 +50,7 @@ async fn stalled_tls_handshakes_release_pre_auth_permits_after_timeout() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stale_profile_from_real_restart_is_rejected_before_protected_http() {
-    let directory = tempfile::tempdir().expect("temporary directory");
+    let directory = owner_private::tempdir();
     let mut defaults = BuiltInDefaults::new(directory.path());
     defaults.http_bind = "127.0.0.1:0".to_owned();
     let config = ConfigurationSnapshot::from_defaults(&defaults);
@@ -104,7 +104,7 @@ struct RunningDaemon {
 
 impl RunningDaemon {
     async fn start() -> Self {
-        let directory = tempfile::tempdir().expect("temporary directory");
+        let directory = owner_private::tempdir();
         let mut defaults = BuiltInDefaults::new(directory.path());
         defaults.http_bind = "127.0.0.1:0".to_owned();
         let config = ConfigurationSnapshot::from_defaults(&defaults);
