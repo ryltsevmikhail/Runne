@@ -6,6 +6,6 @@ mod effect_admission;
 pub use dispatch_store::{
     MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderClaimOutcome,
     ProviderDispatchClaim, ProviderDispatchRecord, ProviderDispatchState, ProviderStoreError,
-    SettleProviderDispatch, SqliteProviderDispatchStore,
+    RecoveryCasOutcome, SettleProviderDispatch, SqliteProviderDispatchStore,
 };
 pub use effect_admission::SqliteProviderEffectAdmission;
