@@ -1,28 +1,12 @@
 #[test]
 fn preflight_rejects_partial_v9_that_contains_legacy_required_fragments() {
-    let path = candidate_database("partial-v9");
-    let connection = Connection::open(&path).unwrap();
-    connection
-        .execute_batch(
-            "CREATE TABLE schema_lineage (schema_version INTEGER PRIMARY KEY, provenance TEXT NOT NULL);
-             INSERT INTO schema_lineage VALUES (9, 'released-v8-to-strict-v9');
-             CREATE TABLE verification_evidence (
-                 evidence_id BLOB PRIMARY KEY CHECK(length(evidence_id) = 16),
-                 layer INTEGER NOT NULL CHECK(layer IN (0, 1, 2, 3, 4, 5)),
-                 verified_by TEXT NOT NULL CHECK(length(verified_by) > 0)
-             );
-             CREATE TABLE consumption_intents (
-                 intent_id BLOB PRIMARY KEY CHECK(length(intent_id) = 16),
-                 idempotency_key TEXT NOT NULL UNIQUE,
-                 integrity_digest BLOB NOT NULL CHECK(length(integrity_digest) = 32)
-             );",
-        )
-        .unwrap();
-    drop(connection);
-    let before = snapshot(&path);
+    let path = released_v8_database("partial-v9");
+    assert_clean_preflight(&path);
+    apply_partial_v9_lineage_marker(&path);
+    assert_no_sidecars(&path);
+    let before = capture_rejection_no_mutation_oracle(&path);
 
-    assert!(preflight_existing_file(&path).is_err());
-    assert_unchanged(&path, &before);
+    assert_rejected_without_sidecars(&path, &before);
 }
 
 #[test]

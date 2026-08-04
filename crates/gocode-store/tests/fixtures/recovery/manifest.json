@@ -1,0 +1,57 @@
+{
+  "manifest_version": 1,
+  "fixtures": [
+    {
+      "path": "event-integrity-v1.sqlite",
+      "fixture_kind": "historical_extracted",
+      "source_commit": "6fe778f0f223e9d6a7c844294ee54fe8d4382a1d",
+      "source_ref": "detached",
+      "writer_file": "crates/gocode-store/src/store.rs",
+      "writer_symbol": "UnitOfWork::commit",
+      "writer_test": "test_wal_reopen_data_intact",
+      "schema_version": 61,
+      "integrity_profile": 1,
+      "digest_domain": "TaskRun",
+      "expected_rows": [
+        {"table":"events","primary_key_hex":"019fcd8b4a2c70008000019fcd8b4a2c","columns":{"actor":"73797374656d","aggregate_id":"019fcd8b4a2b70008000019fcd8b4a2b","aggregate_type":"1","causation_id":"null","command_id":"018f2e3a700070008000000000000001","correlation_id":"019fcd8b4a2b70008000019fcd8b4a2b","correlation_type":"1","event_id":"019fcd8b4a2c70008000019fcd8b4a2c","global_position":"1","idempotency_key":"746573742d6b65792d31","integrity_digest":"aa28c7dfdc9782025efb9e45a7f0e2197743e1b9440ce078369286cb08601f9b","integrity_profile":"1","payload":"000101","schema_version":"1","sensitivity":"0","sequence":"1","timestamp":"1785859885612361"}},
+        {"table":"events","primary_key_hex":"019fcd8b4a3170008000019fcd8b4a2d","columns":{"actor":"73797374656d","aggregate_id":"019fcd8b4a2b70008000019fcd8b4a2b","aggregate_type":"1","causation_id":"019fcd8b4a2c70008000019fcd8b4a2c","command_id":"018f2e3a700070008000000000000002","correlation_id":"019fcd8b4a2b70008000019fcd8b4a2b","correlation_type":"1","event_id":"019fcd8b4a3170008000019fcd8b4a2d","global_position":"2","idempotency_key":"746573742d6b65792d32","integrity_digest":"3374ff5f66590e68f52a0842cc2fbc5f2f29e61f53b16f2b894270cc9350b9cb","integrity_profile":"1","payload":"000102","schema_version":"1","sensitivity":"0","sequence":"2","timestamp":"1785859885617359"}},
+        {"table":"events","primary_key_hex":"019fcd8b4a3370008000019fcd8b4a2e","columns":{"actor":"73797374656d","aggregate_id":"019fcd8b4a2b70008000019fcd8b4a2b","aggregate_type":"1","causation_id":"019fcd8b4a3170008000019fcd8b4a2d","command_id":"018f2e3a700070008000000000000003","correlation_id":"019fcd8b4a2b70008000019fcd8b4a2b","correlation_type":"1","event_id":"019fcd8b4a3370008000019fcd8b4a2e","global_position":"3","idempotency_key":"746573742d6b65792d33","integrity_digest":"c0e7fa38593b925ce270c50c37255790ed8a1a75c4a881e9a3c1c8ae081395b6","integrity_profile":"1","payload":"000103","schema_version":"1","sensitivity":"0","sequence":"3","timestamp":"1785859885619787"}},
+        {"table":"events","primary_key_hex":"019fcd8b4a3b70008000019fcd8b4a3a","columns":{"actor":"73797374656d","aggregate_id":"019fcd8b4a2b70008000019fcd8b4a2b","aggregate_type":"1","causation_id":"019fcd8b4a3370008000019fcd8b4a2e","command_id":"018f2e3a700070008000000000000004","correlation_id":"019fcd8b4a2b70008000019fcd8b4a2b","correlation_type":"1","event_id":"019fcd8b4a3b70008000019fcd8b4a3a","global_position":"4","idempotency_key":"746573742d6b65792d34","integrity_digest":"af19f26b1164c8463a252e652c6ab3be7f2d34e3969e2d4f4243d98ae4e3711b","integrity_profile":"1","payload":"000104019fcd8b4a3a70008000019fcd8b4a39","schema_version":"1","sensitivity":"0","sequence":"4","timestamp":"1785859885627101"}},
+        {"table":"events","primary_key_hex":"019fcd8b4a3d70008000019fcd8b4a3b","columns":{"actor":"73797374656d","aggregate_id":"019fcd8b4a2b70008000019fcd8b4a2b","aggregate_type":"1","causation_id":"019fcd8b4a3b70008000019fcd8b4a3a","command_id":"018f2e3a700070008000000000000005","correlation_id":"019fcd8b4a2b70008000019fcd8b4a2b","correlation_type":"1","event_id":"019fcd8b4a3d70008000019fcd8b4a3b","global_position":"5","idempotency_key":"746573742d6b65792d35","integrity_digest":"4f87eb1770ba3e2d6dc4e31fd0fa4660d9e0001b711b8c364e40f9b7bb3e78e0","integrity_profile":"1","payload":"00010d00","schema_version":"1","sensitivity":"0","sequence":"5","timestamp":"1785859885630035"}}
+      ],
+      "sha256": "fa5ed9a038119d624374b04d66b27760a7e1398c80ce643fe583d0c91144d569"
+    },
+    {
+      "path": "event-integrity-v2.sqlite",
+      "fixture_kind": "historical_extracted",
+      "source_commit": "3e8348e6407e67cb407322738b2bd1e2792c8d0c",
+      "source_ref": "detached",
+      "writer_file": "crates/gocode-store/src/store.rs",
+      "writer_symbol": "ConversationRepository::commit_conversation",
+      "writer_test": "conversation_create_is_durable_idempotent_and_replayable_after_reopen",
+      "schema_version": 61,
+      "integrity_profile": 2,
+      "digest_domain": "Conversation",
+      "expected_rows": [
+        {"table":"events","primary_key_hex":"019fcd8b4b7e70008000019fcd8b4b7e","columns":{"actor":"746573742d6163746f72","aggregate_id":"018f2e3a7000700080000000000000c1","aggregate_type":"2","causation_id":"null","command_id":"018f2e3a7000700080000000000000c3","correlation_id":"018f2e3a7000700080000000000000c1","correlation_type":"2","event_id":"019fcd8b4b7e70008000019fcd8b4b7e","global_position":"1","idempotency_key":"636f6e766572736174696f6e2d637265617465","integrity_digest":"40dba9f04dd2e1e13b3f07c5b47f953720d093d4a4b7f4aec74a61443ccfeac7","integrity_profile":"2","payload":"000120018f2e3a7000700080000000000000c2","schema_version":"1","sensitivity":"0","sequence":"1","timestamp":"1785859885951030"}}
+      ],
+      "sha256": "532cbe2060fb7e195d3e8f77c56c436587de8ccbb4b456158b3f58e9c94acfdf"
+    },
+    {
+      "path": "provider-prepared-v1-vector.sqlite",
+      "fixture_kind": "synthetic_test_vector",
+      "source_commit": "02dbef687efc35672bb7b902df0c4627dd2f4503",
+      "source_ref": "local-one-time-generator",
+      "writer_file": "crates/gocode-store/src/provider/dispatch_store/store.rs",
+      "writer_symbol": "SqliteProviderDispatchStore::persist_prepared",
+      "writer_test": "generate_provider_prepared_v1_vector_once (removed)",
+      "schema_version": 61,
+      "integrity_profile": 1,
+      "digest_domain": "ProviderPreparedV1",
+      "expected_rows": [
+        {"table":"provider_prepared_requests","primary_key_hex":"10101010101010101010101010101010","columns":{"call_id":"10101010101010101010101010101010","prepared_digest":"2020202020202020202020202020202020202020202020202020202020202020","render_digest":"3030303030303030303030303030303030303030303030303030303030303030","profile_digest":"4040404040404040404040404040404040404040404040404040404040404040","record_digest":"cb0aef942d41b61ac7dc73e1fc07fd868591aa2760d07b97a7c4f1816ec89310"}}
+      ],
+      "sha256": "915b20e4610b1ed5db18abbc6b83de69be92d1ac0b533dad70a7026fed9a7b89"
+    }
+  ]
+}

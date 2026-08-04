@@ -15,5 +15,6 @@ use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
 
 include!("dispatch_store/types.rs");
 include!("dispatch_store/store.rs");
+include!("dispatch_store/recovery.rs");
 include!("dispatch_store/repository.rs");
 include!("dispatch_store/helpers.rs");

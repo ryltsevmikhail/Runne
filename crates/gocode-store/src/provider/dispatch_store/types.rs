@@ -61,6 +61,17 @@ pub enum ProviderDispatchState {
     Uncertain,
 }
 
+/// Result of a recovery compare-and-swap attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecoveryCasOutcome {
+    /// The incomplete dispatch was transitioned to uncertain.
+    TransitionedToUncertain,
+    /// The dispatch was already uncertain.
+    AlreadyUncertain,
+    /// The dispatch was already settled.
+    AlreadySettled,
+}
+
 /// Durable dispatch record.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderDispatchRecord {
@@ -156,6 +167,9 @@ pub enum ProviderStoreError {
     /// Requested transition follows terminal settlement.
     #[error("provider dispatch is already terminal")]
     AlreadyTerminal,
+    /// Recovery input or durable state conflicts with the requested snapshot.
+    #[error("provider dispatch recovery conflicts with durable state")]
+    RecoveryConflict,
     /// Idempotency key violates its stable bound.
     #[error("provider idempotency key is invalid")]
     InvalidIdempotencyKey,
