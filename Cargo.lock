@@ -1874,6 +1874,7 @@ name = "gocode-platform"
 version = "0.1.0"
 dependencies = [
  "gocode-application",
+ "gocode-platform-ports",
  "libc",
  "thiserror 2.0.18",
  "uuid",
@@ -2021,6 +2022,7 @@ dependencies = [
  "gocode-application",
  "gocode-domain",
  "gocode-platform",
+ "gocode-platform-ports",
  "gocode-store",
  "hex",
  "rustix",
@@ -2059,6 +2061,7 @@ name = "gocode-tools"
 version = "0.1.0"
 dependencies = [
  "gocode-platform",
+ "gocode-platform-ports",
  "gocode-security",
  "jsonschema",
  "serde",

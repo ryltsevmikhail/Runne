@@ -8,6 +8,7 @@ mod gateway;
 mod model;
 mod output;
 mod process;
+mod process_contract;
 mod registry;
 
 pub use executor::{EffectAdmission, ToolExecutionHandle, ToolExecutorError, ToolExecutorPort};
@@ -24,5 +25,14 @@ pub use output::{BlobRef, InvalidOutputContract, RawToolOutput, ToolOutput, Tool
 pub use process::{
     ProcessCloseMaterial, ProcessLifecycleReport, ProcessOperation, ProcessStartRequest,
     ProcessToolError, ProcessToolExecutor,
+};
+pub use process_contract::{
+    ProcessAuditRecordV1, ProcessAuditStageV1, ProcessCancellationDispositionV1,
+    ProcessContractErrorV1, ProcessLifecycleStateV1, ProcessMonotonicTimingDispositionV1,
+    ProcessOutputBoundsV1, ProcessOutputCaptureErrorV1, ProcessOutputChannelEvidenceV1,
+    ProcessOutputEvidenceV1, ProcessOutputSourceErrorV1, ProcessOutputSourceViolationV1,
+    ProcessOutputStopEvidenceV1, ProcessOwnerVerificationV1, ProcessSettlementProofV1,
+    ProcessTerminalResultV1, ProcessTerminalSettlementV1, ProcessTreeCleanupV1,
+    ProcessUncertainReasonV1,
 };
 pub use registry::{RegisterToolOutcome, ToolRegistry, ToolRegistryError};
