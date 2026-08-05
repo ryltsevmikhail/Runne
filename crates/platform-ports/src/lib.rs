@@ -1,6 +1,8 @@
 //! Domain-neutral native capability traits.
 
 pub mod desktop;
+/// Domain-neutral, fail-closed process platform contracts.
+pub mod process;
 
 use std::fmt;
 
