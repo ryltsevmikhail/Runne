@@ -9,7 +9,7 @@ use gocode_application::provider::{
     ProviderAuthorityIssueRequest, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
     ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
-    ProviderTerminalPricingBinding,
+    ProviderTerminalPricingBinding, ProviderRecoveryObserver, ProviderRecoveryObserverError,
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -36,7 +36,7 @@ use gocode_store::provider::{
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 #[derive(Default)]
-struct MemoryKeyring {
+pub(crate) struct MemoryKeyring {
     keys: Mutex<HashMap<ProviderJournalKeyRef, [u8; 32]>>,
     loads: AtomicUsize,
 }
@@ -118,7 +118,7 @@ fn existing_key_preflight_validates_metadata_without_loading_key_bytes() {
     assert_eq!(restarted.preflight_existing_active_key([1; 16], 7), Ok(key));
     assert_eq!(keyring.loads.load(Ordering::SeqCst), 0);
 }
-fn context(fixture: &Fixture) -> ProviderEventJournalContext {
+pub(crate) fn context(fixture: &Fixture) -> ProviderEventJournalContext {
     ProviderEventJournalContext {
         attempt_id: fixture.attempt_id,
         fencing_token: fixture.fencing_token,
@@ -128,7 +128,7 @@ fn context(fixture: &Fixture) -> ProviderEventJournalContext {
     }
 }
 
-fn successful_events(output: &str) -> Vec<ProviderStreamEvent> {
+pub(crate) fn successful_events(output: &str) -> Vec<ProviderStreamEvent> {
     vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(
@@ -156,7 +156,7 @@ fn successful_events(output: &str) -> Vec<ProviderStreamEvent> {
     ]
 }
 
-async fn poll_events<P: ProviderTerminalPricing>(
+pub(crate) async fn poll_events<P: ProviderTerminalPricing>(
     runtime: &RuntimeProviderExecution<'_, MemoryKeyring, SqliteProviderExecutionStore, P>,
     fixture: &Fixture,
     events: Vec<ProviderStreamEvent>,

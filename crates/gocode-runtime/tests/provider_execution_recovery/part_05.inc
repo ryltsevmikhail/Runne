@@ -26,6 +26,16 @@ impl ProviderTerminalOutboxApplication for IdempotentTerminalApplication {
     }
 }
 
+struct IgnoringRecoveryObserver;
+
+impl ProviderRecoveryObserver for IgnoringRecoveryObserver {
+    fn observe_recovered_terminal_output(&self) -> Result<(), ProviderRecoveryObserverError> {
+        Ok(())
+    }
+}
+
+static IGNORING_RECOVERY_OBSERVER: IgnoringRecoveryObserver = IgnoringRecoveryObserver;
+
 #[tokio::test(flavor = "current_thread")]
 async fn crash_after_application_commit_before_outbox_ack_replays_one_completion_identity() {
     const OUTPUT: &[u8] = b"idempotent-terminal-output-marker-92";
@@ -48,10 +58,13 @@ async fn crash_after_application_commit_before_outbox_ack_replays_one_completion
     let recovery = runtime(&keyring, &store);
     let application = IdempotentTerminalApplication::default();
     assert_eq!(
-        recovery.apply_pending_terminal_outputs(&application),
+        recovery.apply_pending_terminal_outputs(&application, &IGNORING_RECOVERY_OBSERVER),
         Err(RuntimeProviderExecutionError::PersistenceUnavailable)
     );
-    assert_eq!(recovery.apply_pending_terminal_outputs(&application), Ok(1));
+    assert_eq!(
+        recovery.apply_pending_terminal_outputs(&application, &IGNORING_RECOVERY_OBSERVER),
+        Ok(1)
+    );
     assert_eq!(application.calls.load(Ordering::SeqCst), 2);
     assert_eq!(application.committed.lock().unwrap().len(), 1);
     assert!(

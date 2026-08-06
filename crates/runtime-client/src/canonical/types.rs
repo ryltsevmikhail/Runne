@@ -23,6 +23,7 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
 ];
 
 /// Strict `UUIDv7` identity used by the canonical client contract.

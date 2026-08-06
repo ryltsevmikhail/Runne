@@ -8,6 +8,7 @@ mod dispatch_store;
 mod effect_port;
 mod effect_start;
 mod execution_store;
+pub mod operational_telemetry;
 
 pub use dispatch_binding::ProviderExecutionBinding;
 pub use dispatch_coordinator::{ProviderCoordinatorOutcome, SqliteProviderDispatchCoordinator};

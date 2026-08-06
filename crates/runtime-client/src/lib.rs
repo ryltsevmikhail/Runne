@@ -21,6 +21,14 @@ pub use canonical::{
     CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
     RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind,
 };
+pub use gocode_api::{
+    ExpiryAggregateV1, MAX_OPERATIONAL_TELEMETRY_WIRE_BYTES_V1,
+    OPERATIONAL_TELEMETRY_CAPABILITY_V1, OPERATIONAL_TELEMETRY_SCHEMA_VERSION_V1,
+    RecoveryObservationStatusV1, RuntimeBudgetV1, RuntimeDurableAccountingV1,
+    RuntimeDurableOperationalTelemetryV1, RuntimeOperationalTelemetrySnapshotV1,
+    RuntimeRecoveryTransientV1, TelemetryCompletenessV1, TelemetryFreshnessV1,
+    TelemetrySectionMetaV1,
+};
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
 };

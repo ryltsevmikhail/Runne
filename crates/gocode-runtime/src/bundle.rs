@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "dca8e3a64b77171495a5474a4994dcd8c33a715f2d6b492a9fc2d14e30619862";
+    "fa05104a8400cd7279a02210489df1d2a958e3e040a384d2a6d7ea6ce522b6ad";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -30,6 +30,7 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
 ];
 
 /// Ordered capability catalog described by the generated API contract.
@@ -43,6 +44,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
 ];
 
 #[cfg(test)]
@@ -51,8 +53,20 @@ mod tests {
 
     #[test]
     fn replay_capabilities_are_published_in_catalog_order() {
-        assert_eq!(RUNTIME_CAPABILITY_CATALOG.len(), 9);
-        assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, RUNTIME_CAPABILITY_CATALOG);
+        let expected = [
+            "conversation.create.v1",
+            "conversation.generate_text.v1",
+            "conversation.list_messages.v1",
+            "replay.aggregate.open.v1",
+            "replay.aggregate.read_page.v1",
+            "replay.aggregate.acknowledge.v1",
+            "replay.aggregate.complete_catch_up.v1",
+            "replay.aggregate.continue_live.v1",
+            "replay.aggregate.sse.v1",
+            "runtime.operational-telemetry.v1",
+        ];
+        assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
+        assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);
     }
 
     #[test]

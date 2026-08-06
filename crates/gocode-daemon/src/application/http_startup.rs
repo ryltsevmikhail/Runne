@@ -1,6 +1,7 @@
 use super::replay_authorization::DaemonReplayAuthorization;
 use super::shutdown::map_recovery_state;
 use super::*;
+use crate::operational_telemetry::compose_operational_telemetry_query;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
@@ -27,23 +28,24 @@ pub(super) async fn start_http_and_runtime(
         ..RuntimeConfig::default()
     };
     let generation = RuntimeGenerationId(bootstrap.launch_generation);
-    let (handle, mut runtime_controller) = if let Some(provider_service) = provider_service {
-        Runtime::start_borrowed_with_provider_conversations(
-            TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
-            service,
-            conversation_text_service,
-            provider_service,
-            runtime_config,
-        )
-    } else {
-        Runtime::start_borrowed_with_conversations(
-            TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
-            service,
-            conversation_text_service,
-            runtime_config,
-        )
-    }
-    .map_err(|error| DaemonError::Bootstrap(format!("start runtime: {error}")))?;
+    let (handle, mut runtime_controller) =
+        if let Some(provider_service) = provider_service.as_ref() {
+            Runtime::start_borrowed_with_provider_conversations(
+                TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
+                service,
+                conversation_text_service,
+                provider_service.clone(),
+                runtime_config,
+            )
+        } else {
+            Runtime::start_borrowed_with_conversations(
+                TokioRuntimeContext::new(generation, tokio::runtime::Handle::current()),
+                service,
+                conversation_text_service,
+                runtime_config,
+            )
+        }
+        .map_err(|error| DaemonError::Bootstrap(format!("start runtime: {error}")))?;
     let runtime_liveness = handle.clone();
 
     let task_run_host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
@@ -142,7 +144,8 @@ pub(super) async fn start_http_and_runtime(
             Arc::clone(&local_session_service),
         )),
     );
-    let http_host = LocalRuntimeTlsHost::bind(
+    let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
+    let http_host = LocalRuntimeTlsHost::bind_with_operational_telemetry(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
         HealthState {
@@ -167,6 +170,7 @@ pub(super) async fn start_http_and_runtime(
             LimitsConfig::default(),
             prohibited_content,
         ),
+        telemetry_state,
     )
     .await
     .map_err(DaemonError::from)?;
@@ -224,4 +228,14 @@ pub(super) async fn start_http_and_runtime(
         task_supervisor: RuntimeTaskSupervisor::new(),
         shutdown_timeout,
     })
+}
+
+fn operational_telemetry_state(
+    provider_service: Option<&Arc<DaemonCanonicalOpenAiService>>,
+    binding: &RuntimeSessionBinding,
+) -> OperationalTelemetryHttpState {
+    OperationalTelemetryHttpState::new(compose_operational_telemetry_query(
+        provider_service,
+        binding.ephemeral().launch_generation(),
+    ))
 }

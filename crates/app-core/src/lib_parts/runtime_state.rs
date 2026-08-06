@@ -48,36 +48,31 @@ impl AppCore {
     }
 
     fn runtime_lifecycle(&self) -> Result<RuntimeLifecycleStatus, AppCoreError> {
-        self.runtime_lifecycle
+        self.host_lifecycle
             .read()
-            .map(|state| *state)
+            .map(|state| state.current().map(HostLifecycleCurrentV1::lifecycle))
+            .map(|lifecycle| lifecycle.unwrap_or(RuntimeLifecycleStatus::External))
             .map_err(|_| AppCoreError::StateUnavailable)
     }
 
     fn runtime_failure(&self) -> Result<Option<RuntimeFailureCode>, AppCoreError> {
-        self.runtime_failure
+        self.host_lifecycle
             .read()
-            .map(|failure| *failure)
+            .map(|state| state.current().and_then(HostLifecycleCurrentV1::failure))
             .map_err(|_| AppCoreError::StateUnavailable)
     }
 
     fn set_runtime_lifecycle(&self, lifecycle: RuntimeLifecycleStatus) -> Result<(), AppCoreError> {
-        *self
-            .runtime_lifecycle
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = lifecycle;
-        Ok(())
+        let failure = (lifecycle == RuntimeLifecycleStatus::ConfigurationRequired)
+            .then_some(RuntimeFailureCode::ConfigurationRequired);
+        self.record_automatic_host_lifecycle(lifecycle, failure)
     }
 
     fn set_runtime_failure_code(
         &self,
         failure: Option<RuntimeFailureCode>,
     ) -> Result<(), AppCoreError> {
-        *self
-            .runtime_failure
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = failure;
-        Ok(())
+        self.record_automatic_host_failure(failure)
     }
 
     fn effective_runtime_availability(&self) -> Result<RuntimeAvailability, AppCoreError> {

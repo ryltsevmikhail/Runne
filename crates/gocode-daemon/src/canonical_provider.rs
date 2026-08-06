@@ -43,6 +43,7 @@ mod composition;
 mod execution;
 mod projection;
 mod readiness;
+mod recovery;
 mod runtime_store;
 
 pub(crate) use activation_provenance::DaemonActivationProvenance;

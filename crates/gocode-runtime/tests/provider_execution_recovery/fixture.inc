@@ -1,13 +1,13 @@
-struct Fixture {
+pub(crate) struct Fixture {
     _database: validated_reopen::ValidatedTestDatabase,
-    execution: Arc<SqliteProviderExecutionStore>,
-    attempt_id: gocode_provider::DispatchAttemptId,
+    pub(crate) execution: Arc<SqliteProviderExecutionStore>,
+    pub(crate) attempt_id: gocode_provider::DispatchAttemptId,
     fencing_token: u64,
     path: std::path::PathBuf,
     identity: validated_reopen::MainDatabaseIdentity,
 }
 
-fn fixture() -> Fixture {
+pub(crate) fn fixture() -> Fixture {
     fixture_with_input_tokens(512)
 }
 

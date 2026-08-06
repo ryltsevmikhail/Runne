@@ -25,9 +25,13 @@ where
     /// Applies every pending terminal output through an idempotent
     /// authoritative application boundary, then durably acknowledges its
     /// exact receipt.
-    pub fn apply_pending_terminal_outputs<A: ProviderTerminalOutboxApplication>(
+    pub fn apply_pending_terminal_outputs<
+        A: ProviderTerminalOutboxApplication,
+        O: ProviderRecoveryObserver,
+    >(
         &self,
         application: &A,
+        observer: &O,
     ) -> Result<usize, RuntimeProviderExecutionError> {
         let pending = self.recover_pending_terminal_outputs()?;
         let mut applied = 0_usize;
@@ -46,6 +50,7 @@ where
                 return Err(RuntimeProviderExecutionError::ApplicationConflict);
             }
             self.acknowledge_terminal_output(recovered.record().outbox_id, receipt_digest)?;
+            let _ = observer.observe_recovered_terminal_output();
             applied = applied
                 .checked_add(1)
                 .ok_or(RuntimeProviderExecutionError::ApplicationConflict)?;
