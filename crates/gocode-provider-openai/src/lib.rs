@@ -3,6 +3,7 @@
 
 //! Exact-profile `OpenAI` Responses text adapter contracts.
 
+pub mod canary;
 mod credential;
 mod profile;
 mod render;
