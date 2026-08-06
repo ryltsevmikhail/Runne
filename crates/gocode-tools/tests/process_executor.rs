@@ -21,16 +21,32 @@ impl ProcessLauncher for PanicLauncher {
     }
 }
 
+fn virtual_executable() -> String {
+    #[cfg(windows)]
+    {
+        r"C:\virtual\bin\tool.exe".into()
+    }
+    #[cfg(not(windows))]
+    {
+        "/virtual/bin/tool".into()
+    }
+}
+
+fn virtual_cwd() -> String {
+    #[cfg(windows)]
+    {
+        r"C:\virtual\workspace".into()
+    }
+    #[cfg(not(windows))]
+    {
+        "/virtual/workspace".into()
+    }
+}
+
 fn spec() -> ProcessSpec {
-    let cwd = std::env::current_dir()
-        .unwrap()
-        .to_string_lossy()
-        .into_owned();
+    let cwd = virtual_cwd();
     ProcessSpec {
-        executable: std::env::current_exe()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned(),
+        executable: virtual_executable(),
         executable_digest: Some([7; 32]),
         argv: vec!["--version".into()],
         env: HashMap::new(),

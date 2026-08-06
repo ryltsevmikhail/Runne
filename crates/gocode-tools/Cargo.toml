@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 gocode-platform = { path = "../gocode-platform" }
+gocode-platform-ports = { path = "../platform-ports" }
 gocode-security = { path = "../gocode-security" }
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
 serde.workspace = true

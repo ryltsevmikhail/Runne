@@ -6,6 +6,7 @@ pub mod broker;
 pub mod certification;
 pub mod cleanup;
 pub mod fencing;
+pub mod process_contract;
 pub mod prohibited_content;
 
 pub use audit::AuditLogger;
