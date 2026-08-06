@@ -1,3 +1,10 @@
+// L2-I: SQLite integration tests for gocode-store.
+//
+// Uses a real temporary SQLite file and `StoreTransaction` for full
+// persistence tests. Tests the complete lifecycle through the service
+// layer, dedup, conflicts, reopen, concurrent writes, clock regression,
+// and fail-closed behavior on schema corruption.
+
 use std::sync::Arc;
 
 use gocode_api::{
@@ -197,13 +204,19 @@ fn assert_no_conversation_commit_rows(db_path: &str) {
 
 #[test]
 fn test_pragma_profile() {
-    let db_path = temp_db_path("pragma");
+    let database = validated_reopen::ValidatedTestDatabase::new("pragma");
+    let db_path = database.path().to_owned();
     cleanup_db(&db_path);
 
-    let (_store, _svc) = open_service(&db_path);
+    let (_store, identity) = validated_reopen::initialize_store(
+        &db_path,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
 
     // Verify PRAGMAs via direct rusqlite connection
-    let conn = gocode_store::schema::open_with_pragmas(&db_path).unwrap();
+    let conn = validated_reopen_store::open_validated_reader(&db_path, identity).unwrap();
 
     let journal_mode: String = conn
         .query_row("PRAGMA journal_mode;", [], |row| row.get(0))

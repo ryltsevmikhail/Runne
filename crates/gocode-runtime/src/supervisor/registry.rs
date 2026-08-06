@@ -1,3 +1,5 @@
+// Supervisor — worker lifecycle management and ingress routing.
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -10,10 +12,15 @@ use tokio::sync::{Semaphore, mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
+use crate::canonical_provider_execution::{
+    CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
+    CanonicalProviderExecutionService,
+};
 use crate::config::RuntimeConfig;
 use crate::controller::{ControlCommand, ShutdownMode, ShutdownOutcome};
 use crate::error::{QueueKind, RuntimeError};
 use crate::gate::AdmissionGate;
+use crate::types::CanonicalProviderReply;
 use crate::types::{
     AdmittedPerRunRequest, AdmittedRequest, ConversationTextCall, ConversationTextReply,
     InFlightLease, PerRunRequest, Reply, RuntimeRequest,
@@ -41,6 +48,14 @@ enum RuntimeTaskExit {
         outcome: Result<gocode_application::ports::TextGenerationReceipt, RuntimeError>,
         reply: ConversationTextReply,
     },
+    CanonicalProvider {
+        outcome: Result<
+            gocode_application::ports::TextGenerationReceipt,
+            CanonicalProviderExecutionError,
+        >,
+        reply: CanonicalProviderReply,
+        lease: InFlightLease,
+    },
 }
 
 // ── WorkerRegistry ──────────────────────────────────────────────────────────
@@ -58,6 +73,7 @@ where
     cancel: CancellationToken,
     service: Arc<TaskRunService<E, U, I>>,
     conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+    provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
 }
 
 impl<E, U, I> WorkerRegistry<E, U, I>
@@ -71,6 +87,7 @@ where
         cancel: CancellationToken,
         service: Arc<TaskRunService<E, U, I>>,
         conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
+        provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
     ) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_max_concurrent_blocking));
         Self {
@@ -81,7 +98,28 @@ where
             cancel,
             service,
             conversation_service,
+            provider_service,
         }
+    }
+
+    fn spawn_canonical_provider_task(
+        &mut self,
+        job: CanonicalProviderExecutionJob,
+        reply: CanonicalProviderReply,
+        lease: InFlightLease,
+    ) {
+        let Some(service) = self.provider_service.clone() else {
+            let _ = reply.send(Err(CanonicalProviderExecutionError::Unavailable));
+            return;
+        };
+        self.join_set.spawn(async move {
+            let outcome = service.execute(job).await;
+            RuntimeTaskExit::CanonicalProvider {
+                outcome,
+                reply,
+                lease,
+            }
+        });
     }
 
     fn get_or_spawn(&mut self, taskrun_id: TaskRunId) -> Result<WorkerHandle, RuntimeError> {
@@ -182,5 +220,16 @@ where
 
     fn close_all_workers(&mut self) {
         self.workers.clear();
+    }
+}
+
+// ── extract_reply ───────────────────────────────────────────────────────────
+
+fn extract_reply(request: PerRunRequest) -> Reply {
+    match request {
+        PerRunRequest::Queue { reply, .. }
+        | PerRunRequest::Admit { reply, .. }
+        | PerRunRequest::StartAttempt { reply, .. }
+        | PerRunRequest::Complete { reply, .. } => reply,
     }
 }

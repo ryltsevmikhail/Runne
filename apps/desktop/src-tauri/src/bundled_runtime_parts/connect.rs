@@ -1,19 +1,40 @@
 impl BundledRuntimeController {
-    /// Discovers and pins the colocated daemon before creating its supervisor.
+    /// Rejects bundled startup until an authenticated native enrollment broker
+    /// supplies the provider activation.
     ///
     /// # Errors
     ///
-    /// Returns one closed renderer-safe code. No external runtime fallback is
-    /// attempted.
+    /// Returns one closed renderer-safe configuration code. No external
+    /// runtime fallback is attempted.
     pub fn discover(
+        _core: Arc<AppCore>,
+        _desktop_executable: &std::path::Path,
+        _runtime_root: &std::path::Path,
+    ) -> Result<Arc<Self>, RuntimeFailureCode> {
+        Err(RuntimeFailureCode::ConfigurationRequired)
+    }
+
+    /// Starts the loopback fixture through an explicit native-only test gate.
+    ///
+    /// This API is absent from production builds and is not evidence that a
+    /// native credential enrollment has been completed.
+    ///
+    /// # Errors
+    ///
+    /// Returns one closed renderer-safe code when the controlled fixture
+    /// executable or its owner-private runtime root is rejected.
+    #[cfg(feature = "test-support")]
+    pub fn discover_with_loopback_openai_activation(
         core: Arc<AppCore>,
         desktop_executable: &std::path::Path,
         runtime_root: &std::path::Path,
+        _gate: NativeOpenAiActivationTestGate,
     ) -> Result<Arc<Self>, RuntimeFailureCode> {
         let executable =
             discover_bundled_runtime(desktop_executable).map_err(map_protected_failure)?;
         let spec = ProtectedBundledRuntimeLaunchSpec::new(&executable, runtime_root)
-            .map_err(map_protected_failure)?;
+            .map_err(map_protected_failure)?
+            .with_openai_provider_activation();
         let supervisor =
             ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
         Ok(Arc::new(Self {
@@ -167,5 +188,4 @@ impl BundledRuntimeController {
         }
         Err(AppCoreError::RuntimeUnavailable)
     }
-
 }

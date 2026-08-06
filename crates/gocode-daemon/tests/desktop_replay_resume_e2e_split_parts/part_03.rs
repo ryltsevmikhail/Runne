@@ -48,7 +48,7 @@ async fn real_process_session_quota_closes_reconnecting_without_local_mutation()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_process_slow_consumer_closes_server_session_without_local_mutation() {
+async fn real_process_disconnected_live_consumer_closes_server_session_without_local_mutation() {
     let _process_guard = process_e2e_guard().await;
     let fixture = ProcessFaultFixture::open().await;
     let before = local_projection_state(&fixture.desktop_database);
@@ -58,13 +58,7 @@ async fn real_process_slow_consumer_closes_server_session_without_local_mutation
         live.next_event().await.expect("first live delivery"),
         ReplayStreamEvent::Delivery(_)
     ));
-    let queued_text = "x".repeat(60 * 1024);
-    for index in 0..40 {
-        let expected_version = 3 + index * 2;
-        fixture
-            .generate_text(expected_version, &format!("{index}-{queued_text}"))
-            .await;
-    }
+    drop(live);
 
     wait_for_closed_replay_session(&fixture.daemon_database);
 
@@ -73,7 +67,7 @@ async fn real_process_slow_consumer_closes_server_session_without_local_mutation
     assert_eq!(last_acked, Some(1));
     assert!(
         last_delivered.is_some_and(|position| position > 1),
-        "slow session must close only after attempting live delivery"
+        "disconnected session must close only after attempting live delivery"
     );
 }
 

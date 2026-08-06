@@ -95,6 +95,31 @@ async fn bundled_failures_are_closed_and_do_not_retain_a_live_client() {
 }
 
 #[tokio::test]
+async fn configuration_required_is_a_distinct_bundled_lifecycle() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let core = AppCore::open_with_runtime_mode(
+        &directory.path().join("profile.sqlite3"),
+        RuntimeMode::Bundled,
+    )
+    .expect("open bundled core");
+
+    core.mark_bundled_runtime_failed(RuntimeFailureCode::ConfigurationRequired)
+        .await
+        .expect("mark configuration required");
+
+    let bootstrap = core.bootstrap().expect("configuration bootstrap");
+    assert_eq!(bootstrap.runtime, RuntimeAvailability::Unconfigured);
+    assert_eq!(
+        bootstrap.runtime_lifecycle,
+        RuntimeLifecycleStatus::ConfigurationRequired
+    );
+    assert_eq!(
+        bootstrap.runtime_failure,
+        Some(RuntimeFailureCode::ConfigurationRequired)
+    );
+}
+
+#[tokio::test]
 async fn stale_activation_completion_cannot_replace_a_newer_restart() {
     let directory = tempfile::tempdir().expect("temp directory");
     let core = AppCore::open_with_runtime_mode(

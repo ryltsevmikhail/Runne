@@ -27,6 +27,10 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
         9 => is_released_strict_v9(conn, schema_version)?,
         10 => is_released_provider_v10(conn, schema_version)?,
         11 => is_released_provider_v11(conn, schema_version)?,
+        12 => is_released_provider_v12(conn, schema_version)?,
+        13 => is_released_provider_v13(conn, schema_version)?,
+        14 => is_released_provider_v14(conn, schema_version)?,
+        15 => is_released_provider_v15(conn, schema_version)?,
         _ => false,
     };
     if compatible {

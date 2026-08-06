@@ -15,8 +15,9 @@ use gocode_application::prohibited_content::{
 use gocode_domain::event::Actor;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, WorkspaceId};
 use gocode_domain::message::MessageText;
-use gocode_store::schema::open_with_pragmas;
-use gocode_store::store::StoreTransaction;
+
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 const MARKER: &[u8] = b"task-seven-inert-marker";
 
@@ -73,8 +74,13 @@ fn context(command_id: &str, key: &str) -> ApplicationCommandContext {
     }
 }
 
-fn row_counts(path: &str, conversation_id: ConversationId) -> (i64, i64, i64, i64) {
-    let connection = open_with_pragmas(path).unwrap();
+fn row_counts(
+    path: &str,
+    identity: validated_reopen::MainDatabaseIdentity,
+    conversation_id: ConversationId,
+) -> (i64, i64, i64, i64) {
+    let connection = validated_reopen::open_validated_connection(path, identity).unwrap();
+    connection.execute_batch("PRAGMA query_only = ON;").unwrap();
     let events = connection
         .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
         .unwrap();
@@ -102,11 +108,10 @@ fn row_counts(path: &str, conversation_id: ConversationId) -> (i64, i64, i64, i6
 }
 
 fn assert_denied_without_mutation(mode: GuardMode) {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("persistence.sqlite");
-    let path = path.to_str().unwrap();
+    let database = validated_reopen::ValidatedTestDatabase::new("persistence");
+    let path = database.path();
     let authority = RuntimeAuthorityId("persistence-boundary".into());
-    let store = StoreTransaction::open(
+    let (store, identity) = validated_reopen::initialize_store(
         path,
         authority.clone(),
         Arc::new(BoundaryGuard {
@@ -131,11 +136,16 @@ fn assert_denied_without_mutation(mode: GuardMode) {
             },
         )
         .unwrap();
-    let before = row_counts(path, conversation_id);
+    let before = row_counts(path, identity, conversation_id);
 
     let generate = context("018f2e3a-7000-7000-8000-000000000074", "denied-generation");
-    let denied_store =
-        StoreTransaction::open(path, authority.clone(), Arc::new(BoundaryGuard { mode })).unwrap();
+    let denied_store = validated_reopen::reopen_store(
+        path,
+        identity,
+        authority.clone(),
+        Arc::new(BoundaryGuard { mode }),
+    )
+    .unwrap();
     let text = match mode {
         GuardMode::Marker => std::str::from_utf8(MARKER).unwrap(),
         GuardMode::Unavailable => "safe-persistence-payload",
@@ -163,7 +173,7 @@ fn assert_denied_without_mutation(mode: GuardMode) {
             )
         ))
     ));
-    assert_eq!(row_counts(path, conversation_id), before);
+    assert_eq!(row_counts(path, identity, conversation_id), before);
 }
 
 #[test]

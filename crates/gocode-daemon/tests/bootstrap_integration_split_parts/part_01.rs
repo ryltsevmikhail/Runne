@@ -5,6 +5,7 @@ use gocode_daemon::recovery::{RecoveryState, enumerate_recovery_tasks};
 use gocode_store::schema;
 use rusqlite::Connection;
 use std::fs;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
@@ -12,6 +13,7 @@ use tempfile::TempDir;
 
 /// Build a `ConfigurationSnapshot` rooted at a temp dir.
 fn test_config(temp: &TempDir) -> ConfigurationSnapshot {
+    owner_private::secure_directory(temp.path());
     let defaults = BuiltInDefaults::new(temp.path());
     ConfigurationSnapshot::from_defaults(&defaults)
 }

@@ -8,13 +8,13 @@ for forbidden_router in \
   "merge(command_router" \
   "merge(query_router"
 do
-  if grep -n -F "$forbidden_router" crates/gocode-http/src/router.rs; then
+  if grep -n -F "$forbidden_router" crates/gocode-http/src/router_parts/production.rs; then
     echo "synthetic legacy router is mounted in the production surface" >&2
     exit 1
   fi
 done
 
-if ! grep -q -F ".merge(replay_router(replay_state))" crates/gocode-http/src/router.rs; then
+if ! grep -q -F ".merge(replay_router(replay_state))" crates/gocode-http/src/router_parts/production.rs; then
   echo "canonical replay router is absent from the production surface" >&2
   exit 1
 fi

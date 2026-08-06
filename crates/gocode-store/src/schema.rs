@@ -13,13 +13,17 @@ use rand::rngs::OsRng;
 use std::{
     fmt, fs,
     path::{Path, PathBuf},
-    sync::{Mutex, OnceLock},
 };
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Result as SqliteResult};
+use rusqlite::{
+    Connection, DatabaseName, OpenFlags, OptionalExtension, Result as SqliteResult, Transaction,
+    TransactionBehavior,
+};
+use sha2::{Digest, Sha256};
+use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 11;
+pub const CURRENT_SCHEMA_VERSION: i64 = 15;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +47,25 @@ impl fmt::Display for SchemaOpenDiagnostic {
 
 impl std::error::Error for SchemaOpenDiagnostic {}
 
+/// Fail-closed disposition for an explicitly requested V12-to-V11 rollback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SchemaRollbackError {
+    #[error("schema rollback source is unsupported")]
+    UnsupportedSchema,
+    #[error("schema rollback snapshot is unavailable")]
+    SnapshotUnavailable,
+    #[error("schema rollback fence is closed")]
+    RollbackClosed,
+    #[error("schema rollback snapshot does not match")]
+    SnapshotMismatch,
+    #[error("schema rollback path is unsafe")]
+    UnsafePath,
+    #[error("schema rollback store is unavailable")]
+    StoreUnavailable,
+    #[error("schema rollback authority switch is unavailable")]
+    AuthoritySwitchUnavailable,
+}
+
 fn diagnostic_error(diagnostic: SchemaOpenDiagnostic) -> rusqlite::Error {
     rusqlite::Error::ToSqlConversionFailure(Box::new(diagnostic))
 }
@@ -53,6 +76,10 @@ include!("schema/admission_recovery.rs");
 include!("schema/admission_classification.rs");
 include!("schema/migration_control.rs");
 include!("schema/validation.rs");
+include!("schema/provider_validation.rs");
+include!("schema/v12_snapshot.rs");
+include!("schema/v12_fence.rs");
+include!("schema/v12_rollback.rs");
 include!("schema/startup.rs");
 include!("schema/migrations/v1_v3.rs");
 include!("schema/migrations/v4.rs");
@@ -60,6 +87,9 @@ include!("schema/migrations/v5_v6.rs");
 include!("schema/migrations/v7_v8.rs");
 include!("schema/migrations/v9.rs");
 include!("schema/migrations/v10_v11.rs");
+include!("schema/migrations/v12.rs");
+include!("schema/migrations/v13.rs");
+pub(crate) mod provider_schema;
 include!("schema/open.rs");
 include!("schema/authority_identity.rs");
 include!("schema/authority_launch.rs");

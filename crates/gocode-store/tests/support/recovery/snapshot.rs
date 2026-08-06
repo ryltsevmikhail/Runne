@@ -46,9 +46,11 @@ impl DispatchSnapshot {
                 |row| {
                     let state = match row.get::<_, i64>(10)? {
                         1 => ProviderDispatchState::Dispatching,
-                        2 => ProviderDispatchState::Streaming,
-                        3 => ProviderDispatchState::Settled,
-                        4 => ProviderDispatchState::Uncertain,
+                        2 => ProviderDispatchState::RejectedBeforeEffect,
+                        3 => ProviderDispatchState::Streaming,
+                        4 => ProviderDispatchState::TerminalPendingCommit,
+                        5 => ProviderDispatchState::Settled,
+                        6 => ProviderDispatchState::Uncertain,
                         _ => return Err(rusqlite::Error::InvalidQuery),
                     };
                     Ok(Self {

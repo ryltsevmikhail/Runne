@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/secure-replay-evidence-v2.schema.json",
+  "title": "Secure Replay Evidence V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceId",
+    "recordedAt",
+    "subject",
+    "correctiveSuperseding",
+    "canonicalJsonDigestAlgorithm",
+    "canonicalJsonSha256",
+    "platform",
+    "toolchains",
+    "qualification",
+    "observedResults",
+    "closureValidation",
+    "coverage",
+    "securityReview",
+    "markerScan",
+    "sensitiveDataPolicy"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "evidenceId": { "const": "secure-replay-desktop-resume-v2" },
+    "recordedAt": { "type": "string", "pattern": "^2026-07-30$" },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceBaseCommit",
+        "sourceHeadCommit",
+        "manifestAlgorithm",
+        "manifestSelfExcludedPath",
+        "changedFileManifest",
+        "contractProfileId",
+        "transportProfileId",
+        "contractBundleSha256"
+      ],
+      "properties": {
+        "sourceBaseCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "sourceHeadCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "manifestAlgorithm": { "const": "git-tree-diff-sha256-v1" },
+        "manifestSelfExcludedPath": { "const": "docs/evidence/secure-replay-desktop-resume-v1.json" },
+        "changedFileManifest": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "status", "sha256"],
+            "properties": {
+              "path": { "type": "string", "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+              "status": { "enum": ["present", "deleted"] },
+              "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+            }
+          }
+        },
+        "contractProfileId": { "const": "gocode-ui-client/1" },
+        "transportProfileId": { "const": "gocode-local-runtime/2" },
+        "contractBundleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "correctiveSuperseding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "supersedesEvidenceId",
+        "originalEvidenceBlobSha1",
+        "originalEvidenceContentSha256",
+        "recoveredSnapshotCommit",
+        "recoveredSnapshotEvidenceBlobSha1"
+      ],
+      "properties": {
+        "supersedesEvidenceId": { "const": "secure-replay-desktop-resume-v1" },
+        "originalEvidenceBlobSha1": { "const": "4713d84e94f68ae9c29de71325d4ecbd8d3096bb" },
+        "originalEvidenceContentSha256": { "const": "a46fe7da40bfc8e95a2a82a9ea3c742221685db323ba2652329901db65f17692" },
+        "recoveredSnapshotCommit": { "const": "6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca" },
+        "recoveredSnapshotEvidenceBlobSha1": { "const": "e9acc14752ddd821fc460a2d099752bc65c20268" }
+      }
+    },
+    "canonicalJsonDigestAlgorithm": { "const": "canonical-json-sha256-v1" },
+    "canonicalJsonSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "platform": { "type": "object" },
+    "toolchains": { "type": "object" },
+    "qualification": { "type": "object" },
+    "observedResults": { "type": "array" },
+    "closureValidation": { "type": "array" },
+    "coverage": { "type": "object" },
+    "securityReview": { "type": "object" },
+    "markerScan": { "type": "object" },
+    "sensitiveDataPolicy": { "type": "object" }
+  }
+}

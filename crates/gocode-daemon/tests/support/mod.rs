@@ -9,6 +9,8 @@ use reqwest::Client;
 use serde_json::Value;
 use sha2::Sha256;
 
+pub mod owner_private;
+
 pub struct TestSession {
     pub client: Client,
     pub authorization: String,

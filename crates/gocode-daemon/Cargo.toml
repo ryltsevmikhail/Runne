@@ -3,6 +3,11 @@ name = "gocode-daemon"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
+publish = false
+
+[features]
+default = []
+test-support = []
 
 [dependencies]
 gocode-api = { path = "../gocode-api" }
@@ -12,8 +17,12 @@ gocode-runtime = { path = "../gocode-runtime" }
 gocode-store = { path = "../gocode-store" }
 gocode-observability = { path = "../gocode-observability" }
 gocode-security = { path = "../gocode-security" }
+gocode-secure-store = { path = "../secure-store" }
+gocode-provider-openai = { path = "../gocode-provider-openai" }
+gocode-provider = { path = "../gocode-provider" }
 gocode-platform = { path = "../gocode-platform" }
 gocode-http = { path = "../gocode-http" }
+gocode-daemon-openai-effect = { path = "../gocode-daemon-openai-effect" }
 axum = "0.8"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }
@@ -36,6 +45,7 @@ tracing = "0.1"
 tracing-subscriber = "0.3"
 async-trait = { workspace = true }
 base64 = { workspace = true }
+bytes = "1"
 fs2 = "0.4"
 crc32fast = "1"
 rusqlite = "=0.34.0"
@@ -54,7 +64,6 @@ rustix = { version = "=1.1.4", features = ["process"] }
 [dev-dependencies]
 gocode-app-core = { path = "../app-core" }
 gocode-platform-desktop = { path = "../platform-desktop", features = ["test-support"] }
-gocode-provider = { path = "../gocode-provider" }
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
 tempfile = "3"
 reqwest = { version = "0.12", features = ["json"] }

@@ -14,7 +14,12 @@ fn every_fault_point_has_static_disposition_and_reopens_authoritative_state() {
         let settlement = settlement_request(&claim);
 
         {
-            let decorator = RecoveryFaultDecorator::new(&store, &provider, fault);
+            let decorator = RecoveryFaultDecorator::new(
+                directory.path().join("s"),
+                &store,
+                &provider,
+                fault,
+            );
             match fault {
                 RecoveryFaultPoint::BeforeClaim | RecoveryFaultPoint::AfterClaimBeforeDispatch => {
                     assert_eq!(
@@ -39,6 +44,7 @@ fn every_fault_point_has_static_disposition_and_reopens_authoritative_state() {
                 RecoveryFaultPoint::AfterSettleBeforeAcknowledgement => {
                     decorator.claim(&claim).unwrap();
                     assert_eq!(decorator.mark_streaming(&streaming), Ok(Streaming));
+                    store.mark_terminal_pending(&settlement).unwrap();
                     assert_eq!(
                         decorator.settle(&settlement),
                         Err(RecoveryTestDisposition::Injected(fault))
@@ -52,7 +58,7 @@ fn every_fault_point_has_static_disposition_and_reopens_authoritative_state() {
             provider.assert_count(0);
             continue;
         }
-        let reopened = second_store(&directory);
+        let reopened = &store;
         let before_recovery = DispatchSnapshot::load(&path, claim.attempt_id);
         match before_recovery.state {
             Dispatching => {
@@ -91,6 +97,7 @@ fn every_fault_point_has_static_disposition_and_reopens_authoritative_state() {
                 assert_eq!(DispatchSnapshot::load(&path, claim.attempt_id), before_recovery);
             }
             Uncertain => unreachable!(),
+            RejectedBeforeEffect | TerminalPendingCommit => unreachable!(),
         }
         provider.assert_count(usize::from(fault != RecoveryFaultPoint::AfterClaimBeforeDispatch));
     }

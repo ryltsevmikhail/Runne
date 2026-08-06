@@ -16,7 +16,7 @@ use tokio::sync::oneshot;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn daemon_and_shared_client_use_only_peer_authenticated_profile_v2() {
-    let directory = tempfile::tempdir().expect("temporary directory");
+    let directory = owner_private::tempdir();
     let mut defaults = BuiltInDefaults::new(directory.path());
     defaults.http_bind = "127.0.0.1:0".to_owned();
     let legacy_token_path = directory.path().join("gocode-daemon").join("token.json");
@@ -74,7 +74,7 @@ async fn daemon_and_shared_client_use_only_peer_authenticated_profile_v2() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_v1_database_upgrades_without_reusing_legacy_authority_or_token() {
-    let directory = tempfile::tempdir().expect("temporary directory");
+    let directory = owner_private::tempdir();
     let mut defaults = BuiltInDefaults::new(directory.path());
     defaults.http_bind = "127.0.0.1:0".to_owned();
     let config = ConfigurationSnapshot::from_defaults(&defaults);
@@ -241,12 +241,31 @@ async fn completed_tls_connections_are_bounded_for_their_full_http_lifetime() {
         "a sixty-fifth live HTTP connection must not be admitted"
     );
 
-    idle_tls_connections.pop();
-    LocalRuntimeProfile::load(&running.profile_path)
-        .expect("profile")
-        .connect(Duration::from_secs(5))
-        .await
-        .expect("released lifetime permit admits a replacement");
+    let mut released = idle_tls_connections.pop().expect("full connection set");
+    released.shutdown().await.expect("shutdown released connection");
+    drop(released);
+    let replacement = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let tcp = tokio::net::TcpStream::connect(running.address)
+                .await
+                .expect("replacement TCP connection");
+            match connector
+                .connect(
+                    ServerName::IpAddress(rustls::pki_types::IpAddr::V4(
+                        [127, 0, 0, 1].into(),
+                    )),
+                    tcp,
+                )
+                .await
+            {
+                Ok(stream) => break stream,
+                Err(_) => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    })
+    .await
+    .expect("released lifetime permit admits a replacement");
+    drop(replacement);
     drop(idle_tls_connections);
     running.stop().await;
 }

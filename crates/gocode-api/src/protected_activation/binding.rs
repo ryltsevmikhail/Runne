@@ -1,3 +1,85 @@
+
+impl ProviderActivationBindingV1 {
+    /// Creates a bounded exact provider activation binding.
+    pub fn new(
+        mode: ProviderActivationModeV1,
+        profile_id: impl Into<String>,
+        profile_digest: [u8; 32],
+    ) -> Result<Self, LaunchAuthorityError> {
+        let profile_id = profile_id.into();
+        let expected = match mode {
+            ProviderActivationModeV1::DeterministicV1 => (
+                DETERMINISTIC_PROVIDER_PROFILE_ID,
+                DETERMINISTIC_PROVIDER_PROFILE_DIGEST,
+            ),
+            ProviderActivationModeV1::OpenAiResponsesTextV1 => (
+                OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID,
+                OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
+            ),
+        };
+        if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
+            || profile_id != expected.0
+            || profile_digest != expected.1
+        {
+            return Err(LaunchAuthorityError::ProviderProfileMismatch);
+        }
+        Ok(Self {
+            mode,
+            profile_id,
+            profile_digest,
+        })
+    }
+
+    /// Returns the released deterministic provider binding.
+    #[must_use]
+    pub fn deterministic_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::DeterministicV1,
+            profile_id: DETERMINISTIC_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: DETERMINISTIC_PROVIDER_PROFILE_DIGEST,
+        }
+    }
+
+    /// Returns the released exact OpenAI Responses text provider binding.
+    #[must_use]
+    pub fn openai_responses_text_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::OpenAiResponsesTextV1,
+            profile_id: OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
+        }
+    }
+
+    /// Returns the exact activation mode.
+    #[must_use]
+    pub const fn mode(&self) -> ProviderActivationModeV1 {
+        self.mode
+    }
+
+    /// Returns the exact immutable provider profile identifier.
+    #[must_use]
+    pub fn profile_id(&self) -> &str {
+        &self.profile_id
+    }
+
+    /// Returns the exact immutable provider profile digest.
+    #[must_use]
+    pub const fn profile_digest(&self) -> &[u8; 32] {
+        &self.profile_digest
+    }
+
+    fn verify_exact(&self, expected: &Self) -> Result<(), LaunchAuthorityError> {
+        if self.mode != expected.mode {
+            return Err(LaunchAuthorityError::ProviderModeMismatch);
+        }
+        if self.profile_id != expected.profile_id || self.profile_digest != expected.profile_digest
+        {
+            return Err(LaunchAuthorityError::ProviderProfileMismatch);
+        }
+        Ok(())
+    }
+}
+
 /// Stable runtime identity expected across daemon restarts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct StableRuntimeBindingV1 {
@@ -133,4 +215,11 @@ impl ActivationDispositionV1 {
             Self::ResumeFirstActivation(pending) => Some(pending.stable()),
         }
     }
+}
+
+/// Exact non-secret values the daemon must match before consuming authority.
+pub struct LaunchAuthorityValidationV1<'a> {
+    pub principal_id: &'a str,
+    pub profile: &'a ProtectedRuntimeProfileV1,
+    pub executable: &'a ExecutableIdentityV1,
 }

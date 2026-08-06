@@ -139,7 +139,7 @@ fn prepared_cutover_and_canary_head_survive_reopen() {
     ));
     drop(reopened);
 
-    let connection = open_with_pragmas(db.path().to_str().unwrap()).unwrap();
+    let connection = db.writer();
     connection
         .execute("DELETE FROM migration_reports", [])
         .unwrap();

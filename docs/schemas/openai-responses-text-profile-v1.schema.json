@@ -1,0 +1,170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/openai-responses-text-profile-v1.schema.json",
+  "title": "GOCODE OpenAI Responses Text Profile V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "profile_id",
+    "profile_revision",
+    "provider_id",
+    "origin",
+    "path",
+    "model",
+    "pricing",
+    "capabilities",
+    "developer_prompt",
+    "request",
+    "limits"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "profile_id": {
+      "const": "gocode-openai-responses-text/1"
+    },
+    "profile_revision": {
+      "const": 2
+    },
+    "provider_id": {
+      "const": "openai"
+    },
+    "origin": {
+      "const": "https://api.openai.com"
+    },
+    "path": {
+      "const": "/v1/responses"
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id", "model_id", "revision", "aliases"],
+      "properties": {
+        "request_id": {
+          "const": "gpt-5.5-2026-04-23"
+        },
+        "model_id": {
+          "const": "gpt-5.5"
+        },
+        "revision": {
+          "const": "2026-04-23"
+        },
+        "aliases": {
+          "const": []
+        }
+      }
+    },
+    "pricing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "revision",
+        "currency",
+        "unit_tokens",
+        "input_micros",
+        "cached_input_micros",
+        "output_micros",
+        "long_context_threshold_tokens",
+        "long_context_enabled"
+      ],
+      "properties": {
+        "revision": {
+          "const": "openai-gpt-5.5-standard-short-context-2026-07-31/1"
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "unit_tokens": {
+          "const": 1000000
+        },
+        "input_micros": {
+          "const": 5000000
+        },
+        "cached_input_micros": {
+          "const": 500000
+        },
+        "output_micros": {
+          "const": 30000000
+        },
+        "long_context_threshold_tokens": {
+          "const": 272000
+        },
+        "long_context_enabled": {
+          "const": false
+        }
+      }
+    },
+    "capabilities": {
+      "const": ["streaming"]
+    },
+    "developer_prompt": {
+      "type": "null"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service_tier",
+        "reasoning_effort",
+        "tools",
+        "tool_choice",
+        "background",
+        "store",
+        "stream"
+      ],
+      "properties": {
+        "service_tier": {
+          "const": "default"
+        },
+        "reasoning_effort": {
+          "const": "none"
+        },
+        "tools": {
+          "const": []
+        },
+        "tool_choice": {
+          "const": "none"
+        },
+        "background": {
+          "const": false
+        },
+        "store": {
+          "const": false
+        },
+        "stream": {
+          "const": true
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_input_entries",
+        "max_input_entry_bytes",
+        "max_input_bytes",
+        "max_output_tokens",
+        "max_request_bytes"
+      ],
+      "properties": {
+        "max_input_entries": {
+          "const": 64
+        },
+        "max_input_entry_bytes": {
+          "const": 65536
+        },
+        "max_input_bytes": {
+          "const": 262144
+        },
+        "max_output_tokens": {
+          "const": 16384
+        },
+        "max_request_bytes": {
+          "const": 524288
+        }
+      }
+    }
+  }
+}

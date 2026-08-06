@@ -1,3 +1,4 @@
+
 #[cfg(test)]
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
@@ -7,7 +8,8 @@ mod tests {
     use crate::RuntimeEndpoint;
     use gocode_api::{
         ActivationDispositionV1, ExecutableIdentityV1, LaunchSecret, ProtectedLaunchRequestV1,
-        ProtectedReadyV1, ProtectedRuntimeProfileV1, StableRuntimeBindingV1,
+        ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2, ProtectedRuntimeProfileV1,
+        ProviderActivationBindingV1, StableRuntimeBindingV1,
     };
 
     #[test]
@@ -77,6 +79,29 @@ mod tests {
             )
             .expect_err("credential-first profile is never bundled"),
             LaunchAuthorityError::DowngradedExternalProfile
+        );
+    }
+
+    #[test]
+    fn provider_bound_v2_profile_requires_the_exact_outer_readiness_proof() {
+        let (request_v1, ready_v1, keys) =
+            protected_ready_fixture(PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID);
+        let binding = ProviderActivationBindingV1::openai_responses_text_v1();
+        let request = ProtectedLaunchRequestV2::new(request_v1, binding.clone()).unwrap();
+        let mut ready = ProtectedReadyV2::new(ready_v1, binding).unwrap();
+        ready.sign(&keys);
+
+        ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &request, &keys)
+            .expect("exact V2 protected profile");
+
+        let changed = ProviderActivationBindingV1::deterministic_v1();
+        let changed_request =
+            ProtectedLaunchRequestV2::new(request.compatibility_request().clone(), changed)
+                .unwrap();
+        assert_eq!(
+            ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &changed_request, &keys)
+                .expect_err("provider profile change must fail closed"),
+            LaunchAuthorityError::ProviderModeMismatch
         );
     }
 
@@ -198,7 +223,7 @@ mod tests {
             "local-owner",
             runtime_profile.clone(),
             executable.clone(),
-            PathBuf::from("/private/tmp/gocode-protected-runtime"),
+            protected_runtime_root(),
             ActivationDispositionV1::FirstActivation,
         )
         .expect("launch");
@@ -227,5 +252,16 @@ mod tests {
         [
             0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, last,
         ]
+    }
+
+    fn protected_runtime_root() -> PathBuf {
+        #[cfg(unix)]
+        {
+            PathBuf::from("/private/tmp/gocode-protected-runtime")
+        }
+        #[cfg(not(unix))]
+        {
+            PathBuf::from(r"C:\gocode-protected-runtime")
+        }
     }
 }
