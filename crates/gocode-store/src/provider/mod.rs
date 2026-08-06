@@ -16,7 +16,7 @@ pub use authority_config::ProviderRuntimeAuthorityConfig;
 pub use dispatch_store::{
     MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderClaimOutcome,
     ProviderDispatchClaim, ProviderDispatchRecord, ProviderDispatchState, ProviderStoreError,
-    SettleProviderDispatch, SqliteProviderDispatchStore,
+    RecoveryCasOutcome, SettleProviderDispatch, SqliteProviderDispatchStore,
 };
 pub use effect_port::{ProviderEffectPort, ProviderReadyEffect};
 pub use effect_start::ProviderEffectStartReceipt;

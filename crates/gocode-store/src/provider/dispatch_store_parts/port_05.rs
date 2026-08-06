@@ -203,6 +203,7 @@ const fn repository_error(error: ProviderStoreError) -> ProviderRepositoryError 
         | ProviderStoreError::SettlementBeforeStreaming
         | ProviderStoreError::SettlementBeforeTerminal
         | ProviderStoreError::AlreadyTerminal
+        | ProviderStoreError::RecoveryConflict
         | ProviderStoreError::InvalidIdempotencyKey
         | ProviderStoreError::LegacyClaimDisabled => ProviderRepositoryError::Conflict,
     }
