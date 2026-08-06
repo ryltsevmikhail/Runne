@@ -11,11 +11,15 @@ mod process;
 mod process_contract;
 mod registry;
 
-pub use executor::{EffectAdmission, ToolExecutionHandle, ToolExecutorError, ToolExecutorPort};
+pub use executor::{
+    CompletionMode, EffectAdmission, NoTerminalCompletion, ProcessCompletion,
+    ProcessToolExecutorPort, ProtocolCompletion, ProtocolToolExecutorPort, ToolExecutionHandle,
+    ToolExecutorError, ToolExecutorPort,
+};
 pub use gateway::{
     GateStage, ToolAdmissionDecision, ToolAdmissionError, ToolAdmissionPort, ToolCancelDisposition,
     ToolCancelRequest, ToolCloseEvidence, ToolCloseRequest, ToolDispatchRequest, ToolGateway,
-    ToolGatewayError, ToolTerminalDisposition,
+    ToolGatewayError, ToolProtocolCloseRequest, ToolTerminalDisposition,
 };
 pub use model::{
     InvalidToolDefinition, InvalidToolIdentity, SandboxProfile, ToolClass, ToolDefinition,

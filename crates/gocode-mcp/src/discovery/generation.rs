@@ -46,6 +46,18 @@ impl McpDispatchBinding {
     pub const fn generation(&self) -> u64 {
         self.generation
     }
+
+    pub(crate) fn connection_id(&self) -> &str {
+        self.connection_id.as_str()
+    }
+
+    pub(crate) fn server_id(&self) -> &McpServerId {
+        &self.server_id
+    }
+
+    pub(crate) const fn binding_digest(&self) -> [u8; 32] {
+        self.binding_digest
+    }
 }
 
 /// Runtime-owned MCP generation authority.

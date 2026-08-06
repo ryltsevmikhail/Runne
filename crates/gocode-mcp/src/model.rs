@@ -92,16 +92,6 @@ impl McpNormalizedMessage {
         }
     }
 
-    pub(crate) fn success(request_id: McpRequestId, result: serde_json::Value) -> Self {
-        Self {
-            request_id: Some(request_id),
-            method: None,
-            params: None,
-            result: Some(result),
-            error_code: None,
-        }
-    }
-
     /// Optional request identity.
     pub const fn request_id(&self) -> Option<&McpRequestId> {
         self.request_id.as_ref()

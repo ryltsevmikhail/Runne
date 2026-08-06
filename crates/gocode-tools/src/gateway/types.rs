@@ -7,7 +7,8 @@ use thiserror::Error;
 
 use crate::{
     EffectAdmission, RawToolOutput, ToolDispatchBinding, ToolExecutionHandle, ToolExecutorError,
-    ToolExecutorPort, ToolOutput, ToolOutputBounds,
+    ProcessCompletion, ProtocolCompletion, ProtocolToolExecutorPort, ToolExecutorPort, ToolOutput,
+    ToolOutputBounds,
 };
 
 /// Ordered pre-effect gate.
@@ -92,6 +93,31 @@ pub struct ToolCloseEvidence {
     pub cleanup_closed: bool,
 }
 
+/// Process-free terminal close request for a correlated protocol effect.
+///
+/// This tuple is deliberately not proof. The selected protocol executor is the
+/// sole authority that validates its private terminal and settlement claim.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolProtocolCloseRequest {
+    /// Stable invocation identity.
+    pub invocation_id: String,
+    /// Canonical request digest.
+    pub request_digest: [u8; 32],
+    /// Exact executor-owned execution handle.
+    pub handle: ToolExecutionHandle,
+}
+
+impl ToolProtocolCloseRequest {
+    /// Captures only the immutable dispatch tuple.
+    pub fn new(
+        invocation_id: String,
+        request_digest: [u8; 32],
+        handle: ToolExecutionHandle,
+    ) -> Self {
+        Self { invocation_id, request_digest, handle }
+    }
+}
+
 impl ToolCloseEvidence {
     fn is_complete(self) -> bool {
         self.process_terminal && self.containment_released && self.cleanup_closed
@@ -155,6 +181,9 @@ pub enum ToolGatewayError {
     /// A permit was claimed but execution outcome is ambiguous.
     #[error("tool execution is uncertain after effect admission")]
     UncertainAfterAdmission,
+    /// A protocol closure replay changed evidence or settlement binding.
+    #[error("tool protocol closure binding conflict")]
+    ProtocolClosureConflict,
 }
 
 #[derive(Debug, Clone)]
