@@ -7,13 +7,14 @@ use gocode_tools::{
     EffectAdmission, InvalidToolDefinition, SandboxProfile, ToolAdmissionPort, ToolClass,
     ToolDefinition, ToolDispatchBinding, ToolDispatchRequest, ToolExecutionHandle,
     ToolExecutorError, ToolExecutorPort, ToolGateway, ToolGatewayError, ToolId, ToolOutputBounds,
-    ToolRef, ToolRegistry, ToolRegistryError, ToolVersion, ToolsetSnapshot,
+    ToolProtocolCloseRequest,
+    ToolRef, ToolRegistry, ToolRegistryError, ToolTerminalDisposition, ToolVersion, ToolsetSnapshot,
 };
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    InvalidMcpIdentity, McpClientPort, McpConnectionId, McpInvocationId, McpNormalizedMessage,
+    InvalidMcpIdentity, McpClientPort, McpProtocolCompletionPort, McpConnectionId, McpInvocationId, McpNormalizedMessage,
     McpRequestId, McpRuntimeInstanceId, McpServerId, McpSessionId,
 };
 
@@ -81,6 +82,7 @@ impl McpDiscoverySnapshot {
     /// Freezes one complete canonical descriptor set.
     pub fn new(
         server_id: McpServerId,
+        kind: McpServerKind,
         mut tools: Vec<McpToolDescriptor>,
     ) -> Result<Self, McpDiscoveryError> {
         if tools.len() > MAX_MCP_TOOL_DESCRIPTORS {
@@ -93,7 +95,7 @@ impl McpDiscoverySnapshot {
         {
             return Err(McpDiscoveryError::DuplicateDefinition);
         }
-        let digest = discovery_digest(&server_id, &tools);
+        let digest = discovery_digest(&server_id, kind, &tools);
         Ok(Self {
             server_id,
             tools: tools.into_boxed_slice(),
@@ -217,6 +219,12 @@ pub struct McpToolDispatchCapability {
     request_digest: [u8; 32],
 }
 
+impl McpToolDispatchCapability {
+    pub(crate) const fn request_digest(&self) -> [u8; 32] {
+        self.request_digest
+    }
+}
+
 /// Normalizes, filters and atomically publishes an exact MCP tool snapshot.
 pub fn publish_mcp_tools(
     server_id: McpServerId,
@@ -224,7 +232,7 @@ pub fn publish_mcp_tools(
     descriptors: Vec<McpToolDescriptor>,
     allowlist: &[&str],
 ) -> Result<PublishedMcpTools, McpDiscoveryError> {
-    let snapshot = McpDiscoverySnapshot::new(server_id.clone(), descriptors)?;
+    let snapshot = McpDiscoverySnapshot::new(server_id.clone(), kind, descriptors)?;
     let allowed = allowlist.iter().copied().collect::<BTreeSet<_>>();
     let mut definitions = Vec::new();
     let mut server_names = BTreeMap::new();

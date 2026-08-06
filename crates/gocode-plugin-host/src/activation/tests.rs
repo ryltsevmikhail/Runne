@@ -164,6 +164,8 @@ struct CountingToolExecutor {
 }
 
 impl ToolExecutorPort for CountingToolExecutor {
+    type CompletionMode = gocode_tools::NoTerminalCompletion;
+
     fn start(
         &self,
         request: &ToolDispatchRequest,
