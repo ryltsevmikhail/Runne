@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/release-manifest-v2.schema.json",
+  "title": "GOCODE Release Manifest V2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "build_input_sha256", "artifact_inventory_sha256", "candidate_sha256", "manifest_schema", "product_tuple_sha256", "qualification_evidence_sha256s", "release_profile"],
+  "properties": {
+    "schema_version": {"const": "release-manifest.v2"},
+    "build_input_sha256": {"$ref": "#/$defs/sha256"},
+    "artifact_inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "candidate_sha256": {"$ref": "#/$defs/sha256"},
+    "manifest_schema": {"const": "release-manifest.v2"},
+    "product_tuple_sha256": {"$ref": "#/$defs/sha256"},
+    "qualification_evidence_sha256s": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/sha256"}},
+    "release_profile": {"const": "release"}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

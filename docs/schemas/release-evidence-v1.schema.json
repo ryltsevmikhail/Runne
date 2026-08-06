@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/release-evidence-v1.schema.json",
+  "title": "GOCODE Qualification Evidence V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "qualification_subject_sha256", "records"],
+  "properties": {
+    "schema_version": {"const": "qualification-evidence.v1"},
+    "qualification_subject_sha256": {"$ref": "#/$defs/sha256"},
+    "records": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/record"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "check": {"type": "object", "additionalProperties": false, "required": ["name", "digest", "result"], "properties": {"name": {"enum": ["artifact_digest", "build", "clippy", "docs", "rustdoc", "tests", "advisory_report"]}, "digest": {"$ref": "#/$defs/sha256"}, "result": {"const": "PASS"}}},
+    "review": {"type": "object", "additionalProperties": false, "required": ["owner", "owner_role", "reviewer", "reviewer_role", "review_id"], "properties": {"owner": {"$ref": "#/$defs/text"}, "owner_role": {"$ref": "#/$defs/text"}, "reviewer": {"$ref": "#/$defs/text"}, "reviewer_role": {"$ref": "#/$defs/text"}, "review_id": {"$ref": "#/$defs/text"}}},
+    "text": {"type": "string", "pattern": "^\\S+$"},
+    "record": {"type": "object", "additionalProperties": false, "required": ["kind", "schema_version", "qualification_subject_sha256", "qualification_binding_sha256", "payload_sha256", "producer", "produced_at", "fresh_until", "authenticity_method", "environment_class", "outcome", "source_sha256", "product_tuple_sha256", "artifact_inventory_sha256", "platform", "target", "profile", "tool_version", "generation", "producer_lane", "os_image_sha256", "command_sha256", "attestation_sha256", "checks", "review", "evidence_sha256"], "properties": {"kind": {"const": "hosted-qualification"}, "schema_version": {"const": "qualification-evidence.v1"}, "qualification_subject_sha256": {"$ref": "#/$defs/sha256"}, "qualification_binding_sha256": {"$ref": "#/$defs/sha256"}, "payload_sha256": {"$ref": "#/$defs/sha256"}, "producer": {"const": "structural_fixture"}, "produced_at": {"type": "integer", "minimum": 0}, "fresh_until": {"type": "integer", "minimum": 0}, "authenticity_method": {"const": "STRUCTURAL_FIXTURE"}, "environment_class": {"const": "FIXTURE"}, "outcome": {"const": "PASS"}, "source_sha256": {"$ref": "#/$defs/sha256"}, "product_tuple_sha256": {"$ref": "#/$defs/sha256"}, "artifact_inventory_sha256": {"$ref": "#/$defs/sha256"}, "platform": {"enum": ["linux", "macos", "windows"]}, "target": {"enum": ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin", "x86_64-pc-windows-msvc"]}, "profile": {"const": "release"}, "tool_version": {"enum": ["rust-1.95.0", "rust-1.97.1"]}, "generation": {"const": "ACTUAL"}, "producer_lane": {"enum": ["linux-pinned", "linux-msrv", "macos-pinned", "macos-msrv", "windows-pinned", "windows-msrv"]}, "os_image_sha256": {"$ref": "#/$defs/sha256"}, "command_sha256": {"$ref": "#/$defs/sha256"}, "attestation_sha256": {"$ref": "#/$defs/sha256"}, "checks": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/check"}}, "review": {"$ref": "#/$defs/review"}, "evidence_sha256": {"$ref": "#/$defs/sha256"}}}
+  }
+}
