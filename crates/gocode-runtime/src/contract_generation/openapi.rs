@@ -11,6 +11,12 @@ fn openapi() -> Value {
             "description": "Canonical response",
         })
     };
+    let no_store = || {
+        json!({
+            "description": "Responses are never stored",
+            "schema": {"const": "no-store", "type": "string"},
+        })
+    };
     let session_parameter = || {
         json!({
             "in": "path",
@@ -23,6 +29,11 @@ fn openapi() -> Value {
         "info": {
             "title": "GOCODE Local Runtime API",
             "version": "1.0.0",
+        },
+        "components": {
+            "securitySchemes": {
+                "sessionAuth": {"scheme": "GocodeSession", "type": "http"}
+            }
         },
         "jsonSchemaDialect": DRAFT_2020_12,
         "openapi": "3.1.0",
@@ -37,6 +48,23 @@ fn openapi() -> Value {
                 "post": {
                     "requestBody": request("schemas/local-session-v1.schema.json#/$defs/challengeRequest"),
                     "responses": {"200": response("schemas/local-session-v1.schema.json#/$defs/challengeResponse")},
+                }
+            },
+            "/v1/runtime/operational-telemetry": {
+                "get": {
+                    "security": [{"sessionAuth": []}],
+                    "responses": {
+                        "200": {
+                            "content": {"application/json": {"schema": {"$ref": "schemas/operational-telemetry-v1.schema.json"}}},
+                            "description": "Operational telemetry snapshot",
+                            "headers": {"Cache-Control": no_store()},
+                        },
+                        "400": {"description": "Static bad request response", "headers": {"Cache-Control": no_store()}},
+                        "401": {"description": "Static unauthorized response", "headers": {"Cache-Control": no_store()}},
+                        "405": {"description": "Static method not allowed response", "headers": {"Cache-Control": no_store()}},
+                        "413": {"description": "Static payload too large response", "headers": {"Cache-Control": no_store()}},
+                        "503": {"description": "Static unavailable response", "headers": {"Cache-Control": no_store()}},
+                    }
                 }
             },
             "/v1/replay/open-session": {
@@ -111,6 +139,32 @@ fn local_session_golden() -> Value {
             "challengeId": "AQEBAQEBAQEBAQEBAQEBAQ",
             "serverNonce": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg",
         },
+    })
+}
+
+fn operational_telemetry_golden() -> Value {
+    json!({
+        "durable": {
+            "accounting": {
+                "costMicroUsd": {"limit": 10, "remaining": 5, "reserved": 2, "settled": 3},
+                "tokens": {"limit": 10, "remaining": 5, "reserved": 2, "settled": 3},
+            },
+            "committedProviderEffects": {"activeCount": 0, "expiredActiveCount": 0, "nearestUnexpiredExpiryUnixSeconds": null},
+            "meta": {"completeness": "complete", "freshness": "observed_in_current_cycle", "observedAtUnixSeconds": 10},
+            "providerApprovalLease": {"activeCount": 0, "expiredActiveCount": 0, "nearestUnexpiredExpiryUnixSeconds": null},
+            "providerEffectAuthorities": {"activeCount": 1, "expiredActiveCount": 0, "nearestUnexpiredExpiryUnixSeconds": 11},
+            "uncertainAttempts": 0,
+        },
+        "launchGeneration": 1,
+        "observedAtUnixSeconds": 10,
+        "recoveryTransient": {
+            "counterSaturated": false,
+            "droppedEventCount": 0,
+            "meta": {"completeness": "complete", "freshness": "observed_in_current_cycle", "observedAtUnixSeconds": 10},
+            "observedOutboxRecoveriesInGeneration": 0,
+            "status": "lower_bound_since_launch",
+        },
+        "schemaVersion": 1,
     })
 }
 

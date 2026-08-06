@@ -17,7 +17,7 @@ use gocode_application::provider::{
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
     ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
-    ProviderTerminalPricingBinding,
+    ProviderTerminalPricingBinding, ProviderRecoveryObserver,
 };
 use gocode_domain::message::MessageText;
 use gocode_provider::{

@@ -68,6 +68,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&local_session_golden())?,
         ),
         (
+            "golden/operational-telemetry.json",
+            canonical_json(&operational_telemetry_golden())?,
+        ),
+        (
             "golden/replay-conversation.json",
             canonical_json(&replay_conversation_golden())?,
         ),
@@ -87,6 +91,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
         (
             "schemas/local-session-v1.schema.json",
             canonical_json(&local_session_schema())?,
+        ),
+        (
+            "schemas/operational-telemetry-v1.schema.json",
+            canonical_json(&operational_telemetry_schema())?,
         ),
         (
             "schemas/replay-v1.schema.json",

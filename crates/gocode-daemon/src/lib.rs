@@ -13,6 +13,7 @@ pub mod error;
 pub mod host;
 pub mod launch_identity;
 pub mod lock;
+pub mod operational_telemetry;
 pub mod protected_activation;
 pub mod provider_activation;
 pub mod recovery;

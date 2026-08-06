@@ -1,0 +1,576 @@
+{
+  "$defs": {
+    "accounting": {
+      "additionalProperties": false,
+      "properties": {
+        "costMicroUsd": {
+          "$ref": "#/$defs/budget"
+        },
+        "tokens": {
+          "$ref": "#/$defs/budget"
+        }
+      },
+      "required": [
+        "costMicroUsd",
+        "tokens"
+      ],
+      "type": "object"
+    },
+    "budget": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "remaining": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reserved": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "settled": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit",
+        "remaining",
+        "reserved",
+        "settled"
+      ],
+      "type": "object"
+    },
+    "durable": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "meta": {
+                "properties": {
+                  "completeness": {
+                    "const": "complete"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "accounting": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "committedProviderEffects": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "providerApprovalLease": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "providerEffectAuthorities": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "uncertainAttempts": {
+                "not": {
+                  "type": "null"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "meta": {
+                "properties": {
+                  "completeness": {
+                    "const": "partial"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "accounting": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "committedProviderEffects": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "providerApprovalLease": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "providerEffectAuthorities": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "uncertainAttempts": {
+                        "not": {
+                          "type": "null"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "accounting": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "committedProviderEffects": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "providerApprovalLease": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "providerEffectAuthorities": {
+                        "type": "null"
+                      }
+                    }
+                  },
+                  {
+                    "properties": {
+                      "uncertainAttempts": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "meta": {
+                "properties": {
+                  "completeness": {
+                    "const": "unavailable"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "accounting": {
+                "type": "null"
+              },
+              "committedProviderEffects": {
+                "type": "null"
+              },
+              "providerApprovalLease": {
+                "type": "null"
+              },
+              "providerEffectAuthorities": {
+                "type": "null"
+              },
+              "uncertainAttempts": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "properties": {
+        "accounting": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/accounting"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "committedProviderEffects": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/expiryAggregate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "meta": {
+          "$ref": "#/$defs/sectionMeta"
+        },
+        "providerApprovalLease": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/expiryAggregate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "providerEffectAuthorities": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/expiryAggregate"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uncertainAttempts": {
+          "oneOf": [
+            {
+              "maximum": 18446744073709551615,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "accounting",
+        "committedProviderEffects",
+        "meta",
+        "providerApprovalLease",
+        "providerEffectAuthorities",
+        "uncertainAttempts"
+      ],
+      "type": "object"
+    },
+    "expiryAggregate": {
+      "additionalProperties": false,
+      "properties": {
+        "activeCount": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expiredActiveCount": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nearestUnexpiredExpiryUnixSeconds": {
+          "oneOf": [
+            {
+              "maximum": 18446744073709551615,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "activeCount",
+        "expiredActiveCount",
+        "nearestUnexpiredExpiryUnixSeconds"
+      ],
+      "type": "object"
+    },
+    "recoveryTransient": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "else": {
+            "properties": {
+              "counterSaturated": {
+                "const": false
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "droppedEventCount": {
+                "const": 18446744073709551615
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "counterSaturated": {
+                "const": true
+              }
+            }
+          }
+        }
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "counterSaturated": {
+              "const": false
+            },
+            "droppedEventCount": {
+              "const": 0
+            },
+            "meta": {
+              "properties": {
+                "completeness": {
+                  "const": "complete"
+                },
+                "freshness": {
+                  "const": "observed_in_current_cycle"
+                }
+              }
+            },
+            "observedOutboxRecoveriesInGeneration": {
+              "not": {
+                "type": "null"
+              }
+            },
+            "status": {
+              "const": "lower_bound_since_launch"
+            }
+          }
+        },
+        {
+          "properties": {
+            "droppedEventCount": {
+              "minimum": 1
+            },
+            "meta": {
+              "properties": {
+                "completeness": {
+                  "const": "partial"
+                },
+                "freshness": {
+                  "const": "observed_in_current_cycle"
+                }
+              }
+            },
+            "observedOutboxRecoveriesInGeneration": {
+              "not": {
+                "type": "null"
+              }
+            },
+            "status": {
+              "const": "truncated_lower_bound_since_launch"
+            }
+          }
+        },
+        {
+          "properties": {
+            "meta": {
+              "properties": {
+                "completeness": {
+                  "const": "unavailable"
+                },
+                "freshness": {
+                  "const": "unavailable"
+                }
+              }
+            },
+            "observedOutboxRecoveriesInGeneration": {
+              "type": "null"
+            },
+            "status": {
+              "const": "unavailable"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "counterSaturated": {
+          "type": "boolean"
+        },
+        "droppedEventCount": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "meta": {
+          "$ref": "#/$defs/sectionMeta"
+        },
+        "observedOutboxRecoveriesInGeneration": {
+          "oneOf": [
+            {
+              "maximum": 18446744073709551615,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "status": {
+          "enum": [
+            "lower_bound_since_launch",
+            "truncated_lower_bound_since_launch",
+            "unavailable"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "counterSaturated",
+        "droppedEventCount",
+        "meta",
+        "observedOutboxRecoveriesInGeneration",
+        "status"
+      ],
+      "type": "object"
+    },
+    "sectionMeta": {
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "completeness": {
+              "const": "complete"
+            },
+            "freshness": {
+              "const": "observed_in_current_cycle"
+            }
+          }
+        },
+        {
+          "properties": {
+            "completeness": {
+              "const": "partial"
+            },
+            "freshness": {
+              "const": "observed_in_current_cycle"
+            }
+          }
+        },
+        {
+          "properties": {
+            "completeness": {
+              "const": "unavailable"
+            },
+            "freshness": {
+              "const": "unavailable"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "completeness": {
+          "enum": [
+            "complete",
+            "partial",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "freshness": {
+          "enum": [
+            "observed_in_current_cycle",
+            "unavailable"
+          ],
+          "type": "string"
+        },
+        "observedAtUnixSeconds": {
+          "maximum": 18446744073709551615,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "completeness",
+        "freshness",
+        "observedAtUnixSeconds"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/operational-telemetry-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "durable": {
+      "$ref": "#/$defs/durable"
+    },
+    "launchGeneration": {
+      "maximum": 18446744073709551615,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "observedAtUnixSeconds": {
+      "maximum": 18446744073709551615,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "recoveryTransient": {
+      "$ref": "#/$defs/recoveryTransient"
+    },
+    "schemaVersion": {
+      "const": 1,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "durable",
+    "launchGeneration",
+    "observedAtUnixSeconds",
+    "recoveryTransient",
+    "schemaVersion"
+  ],
+  "title": "Operational Telemetry V1",
+  "type": "object"
+}

@@ -8,6 +8,8 @@ pub mod conversation;
 pub mod host_port;
 /// Local runtime-session binding contracts.
 pub mod local_session;
+/// Closed runtime operational telemetry wire contracts.
+pub mod operational_telemetry;
 /// API command principals and actors.
 pub mod principal;
 /// Protected bundled-runtime activation contracts.
@@ -24,6 +26,7 @@ pub mod types;
 pub use conversation::*;
 pub use host_port::*;
 pub use local_session::*;
+pub use operational_telemetry::*;
 pub use principal::*;
 pub use protected_activation::*;
 pub use replay::*;
