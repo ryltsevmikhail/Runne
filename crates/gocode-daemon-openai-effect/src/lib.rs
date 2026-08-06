@@ -19,6 +19,7 @@ use zeroize::Zeroizing;
 
 mod bounds;
 mod client;
+mod offline_canary;
 mod port_impl;
 mod response;
 
