@@ -6,6 +6,10 @@
       "sha256": "779211a081c21bd8bbfca6613f94629ceb9f941988f7bcace5c1d4664ada4669"
     },
     {
+      "path": "golden/operational-telemetry.json",
+      "sha256": "cd0564111f8a34cd2c872e8f94bb846fe17bb6a5c54fdbbaa5b4c84c4d82c87f"
+    },
+    {
       "path": "golden/replay-conversation.json",
       "sha256": "cfbee2bfc609386a884231c2df9f4f37e821c9a90dfac5b43b83eff28d116e68"
     },
@@ -19,15 +23,19 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "0f317badbfb1b3ba9fe290f617d53b2f82d3b3fc5df0f76f864c4b686045a974"
+      "sha256": "61813fbc121048d53e80c064c9b6b5b7653aa4ad231a33e61d018de282822398"
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
-      "sha256": "57e16e78c5404354a5bc37410f05b8dfa6b078572c1627f98494fb86df9fe278"
+      "sha256": "483a50f229461b665cec418ad7fc9129181ded2ede95f666200dd529cb8bdd58"
     },
     {
       "path": "schemas/local-session-v1.schema.json",
       "sha256": "c897befe17834b965f49e5c3d471253ca77917e67676d15166b1318e85eaf97b"
+    },
+    {
+      "path": "schemas/operational-telemetry-v1.schema.json",
+      "sha256": "570d224c258e732a6b44cbb666abcb136fab4c775aa9cada4068b9ed2ee18196"
     },
     {
       "path": "schemas/replay-v1.schema.json",
@@ -47,7 +55,8 @@
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
-    "replay.aggregate.sse.v1"
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1"
   ],
   "generatorSchemaVersion": 1,
   "publishedCapabilities": [
@@ -59,7 +68,8 @@
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
-    "replay.aggregate.sse.v1"
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1"
   ],
   "transportProfileId": "gocode-local-runtime/2"
 }

@@ -32,7 +32,7 @@ const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"GOCODE_PROVIDER_EXECUTION_SEMANT
 
 /// SQLite runtime-owned atomic provider authority issuer.
 pub struct SqliteProviderExecutionStore {
-    connection: Mutex<Connection>,
+    pub(super) connection: Mutex<Connection>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     #[cfg(test)]
     fail_effect_readback: AtomicBool,

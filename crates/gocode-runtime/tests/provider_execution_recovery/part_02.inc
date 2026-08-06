@@ -11,7 +11,7 @@ impl ProhibitedContentPort for DenyingGuard {
     }
 }
 
-struct FixedPricing;
+pub(crate) struct FixedPricing;
 
 impl ProviderTerminalPricing for FixedPricing {
     fn price_terminal_usage(
@@ -48,7 +48,7 @@ static ZERO_INPUT_PRICING: ZeroInputPricing = ZeroInputPricing;
 static ALLOWING_GUARD: AllowingGuard = AllowingGuard;
 static DENYING_GUARD: DenyingGuard = DenyingGuard;
 
-fn runtime<'a, S>(
+pub(crate) fn runtime<'a, S>(
     keyring: &'a MemoryKeyring,
     store: &'a S,
 ) -> RuntimeProviderExecution<'a, MemoryKeyring, S, FixedPricing>

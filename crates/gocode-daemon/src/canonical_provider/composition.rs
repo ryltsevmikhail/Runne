@@ -4,6 +4,10 @@ use super::*;
 use crate::application::workspace_internal::{
     ProtectedProviderDependencyCapsule, provider_dependencies::ProviderDependencyState,
 };
+use crate::operational_telemetry::{
+    DaemonOperationalTelemetryCompositionError, DaemonTelemetryLaunchContext,
+};
+use gocode_observability::operational::RecoveryObservationRegistry;
 
 /// Normative cumulative provider token budget for development/ad-hoc policy V1.
 pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
@@ -46,6 +50,9 @@ pub struct DaemonCanonicalOpenAiService {
     pub(super) prohibited_content: Arc<dyn ProhibitedContentPort>,
     pub(super) runtime_authority_id: [u8; 16],
     pub(super) database_generation: u64,
+    pub(super) runtime_generation: u64,
+    pub(super) fencing_token: u64,
+    pub(super) recovery_registry: Arc<RecoveryObservationRegistry>,
 }
 
 pub(crate) struct DaemonCanonicalOpenAiComposition {
@@ -156,6 +163,7 @@ impl DaemonCanonicalOpenAiService {
                 lease_ttl_seconds: PROVIDER_POLICY_V1_LEASE_SECONDS,
             })
             .map_err(|_| DaemonError::Bootstrap("provider authority unavailable".into()))?;
+        let recovery_registry = Arc::new(RecoveryObservationRegistry::new().0);
         let keyring =
             retained_keyring.unwrap_or_else(|| native_journal_keyring(runtime_authority_id));
         let runtime_store = runtime_store(
@@ -233,36 +241,34 @@ impl DaemonCanonicalOpenAiService {
             prohibited_content,
             runtime_authority_id,
             database_generation: 1,
+            runtime_generation,
+            fencing_token,
+            recovery_registry,
         });
         service.recover_pending().await?;
         Ok(service)
     }
 
-    async fn recover_pending(&self) -> Result<(), DaemonError> {
-        let runtime_store = Arc::clone(&self.runtime_store);
-        let profile = Arc::clone(&self.profile);
-        let keyring = Arc::clone(&self.keyring);
-        let prohibited = Arc::clone(&self.prohibited_content);
-        let application = ConversationProviderTerminalApplication::new(
-            self.conversation_store.clone(),
-            Arc::clone(&self.conversation_service),
-        );
-        let authority = self.runtime_authority_id;
-        let generation = self.database_generation;
-        tokio::task::spawn_blocking(move || {
-            let execution = RuntimeProviderExecution::new(
-                keyring.as_ref(),
-                runtime_store.as_ref(),
-                profile.as_ref(),
-                prohibited.as_ref(),
-            );
-            execution.preflight_existing_active_key(authority, generation)?;
-            execution.apply_pending_terminal_outputs(&application)
-        })
-        .await
-        .map_err(|_| DaemonError::Bootstrap("provider recovery unavailable".into()))?
-        .map(|_| ())
-        .map_err(|_| DaemonError::Bootstrap("provider recovery unavailable".into()))
+    pub(crate) fn operational_telemetry_store(&self) -> Arc<SqliteProviderExecutionStore> {
+        Arc::clone(&self.execution_store)
+    }
+
+    pub(crate) fn recovery_observation_registry(&self) -> Arc<RecoveryObservationRegistry> {
+        Arc::clone(&self.recovery_registry)
+    }
+
+    pub(crate) fn telemetry_launch_context(
+        &self,
+        authenticated_launch_generation: u64,
+    ) -> Result<DaemonTelemetryLaunchContext, DaemonOperationalTelemetryCompositionError> {
+        DaemonTelemetryLaunchContext::from_retained_fields(
+            self.runtime_authority_id,
+            self.database_generation,
+            self.runtime_generation,
+            self.fencing_token,
+            self.profile.profile_digest(),
+            authenticated_launch_generation,
+        )
     }
 }
 
@@ -283,3 +289,6 @@ fn runtime_store(
         execution, terminal,
     ))
 }
+
+#[cfg(test)]
+mod tests;

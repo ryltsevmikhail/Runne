@@ -40,6 +40,7 @@ use gocode_http::admission::AdmissionState;
 use gocode_http::conversations::ConversationHttpState;
 use gocode_http::health::{HealthState, RecoveryState as HttpRecoveryState};
 use gocode_http::limits::LimitsConfig;
+use gocode_http::operational_telemetry::OperationalTelemetryHttpState;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState};
 use gocode_http::runtime_profile::RuntimeProfileHttpState;
 use gocode_http::secure_local_host::LocalRuntimeTlsHost;

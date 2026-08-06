@@ -10,8 +10,9 @@
         ConversationMessagesSnapshot, ConversationQueryHostPort, ConversationTextResult,
         CreateCanonicalConversationCommand, CreateTaskRunCommand, DaemonInstanceId,
         ExistingTaskRunCommand, GenerateConversationTextCommand, StableRuntimeBinding,
-        TaskRunCommandAck, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
-        TaskRunQueryHostPort, TaskRunSnapshot,
+        OperationalTelemetryQueryErrorV1, OperationalTelemetryQueryPort,
+        RuntimeOperationalTelemetrySnapshotV1, TaskRunCommandAck, TaskRunCommandContext,
+        TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
     };
     use gocode_application::local_session::{LocalSessionService, bootstrap_proof_transcript};
     use gocode_application::ports::{
@@ -35,6 +36,16 @@
     struct AvailableGuard;
 
     struct AvailableReplayAuthorization;
+
+    struct UnavailableOperationalTelemetry;
+
+    impl OperationalTelemetryQueryPort for UnavailableOperationalTelemetry {
+        fn query_operational_telemetry(
+            &self,
+        ) -> Result<RuntimeOperationalTelemetrySnapshotV1, OperationalTelemetryQueryErrorV1> {
+            Err(OperationalTelemetryQueryErrorV1::Unavailable)
+        }
+    }
 
     impl ReplayAuthorizationPort for AvailableReplayAuthorization {
         fn current_lease(
@@ -141,6 +152,10 @@
     }
 
     fn binding() -> gocode_api::RuntimeSessionBinding {
+        binding_with_capabilities(CAPABILITIES)
+    }
+
+    fn binding_with_capabilities(capabilities: &[&str]) -> gocode_api::RuntimeSessionBinding {
         gocode_api::RuntimeSessionBinding::new(
             StableRuntimeBinding::new(
                 [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 1],
@@ -150,7 +165,7 @@
                     .unwrap(),
                 "gocode-ui-client/1",
                 [3; 32],
-                crate::runtime_profile::ordered_capability_digest(CAPABILITIES),
+                crate::runtime_profile::ordered_capability_digest(capabilities),
             )
             .unwrap(),
             DaemonInstanceId::from_bytes([
@@ -170,7 +185,11 @@
     }
 
     fn profile_state() -> RuntimeProfileHttpState {
-        RuntimeProfileHttpState::new("legacy", "legacy", "0.1.0-test", CAPABILITIES)
+        profile_state_with_capabilities(CAPABILITIES)
+    }
+
+    fn profile_state_with_capabilities(capabilities: &'static [&'static str]) -> RuntimeProfileHttpState {
+        RuntimeProfileHttpState::new("legacy", "legacy", "0.1.0-test", capabilities)
     }
 
     fn replay_state() -> ReplayHttpState {
@@ -224,4 +243,34 @@
             replay_state(),
         )
         .unwrap()
+    }
+
+    fn host_with_operational_telemetry(
+        capabilities: &'static [&'static str],
+        telemetry: Option<OperationalTelemetryHttpState>,
+    ) -> Result<SecureLocalHttpHost, SecureLocalHttpHostError> {
+        let binding = binding_with_capabilities(capabilities);
+        let service = Arc::new(Mutex::new(LocalSessionService::new(binding.clone(), [7; 32])));
+        SecureLocalHttpHost::new_with_operational_telemetry(
+            VerifiedLocalTls::from_verified_listener(),
+            HealthState {
+                recovery_state: crate::health::RecoveryState::Ready,
+            },
+            AdmissionState::new(crate::health::RecoveryState::Ready),
+            service,
+            binding,
+            false,
+            clock(),
+            profile_state_with_capabilities(capabilities),
+            TaskRunHttpState::new(
+                UnavailableTaskRunHost,
+                ApiActor::new("gocode-http-test").unwrap(),
+            ),
+            ConversationHttpState::new(
+                UnavailableConversationHost,
+                ApiActor::new("gocode-http-test").unwrap(),
+            ),
+            replay_state(),
+            telemetry,
+        )
     }

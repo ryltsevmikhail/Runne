@@ -272,4 +272,8 @@ impl RuntimeProfileHttpState {
     pub(crate) fn ordered_capability_digest(&self) -> [u8; 32] {
         ordered_capability_digest(self.capabilities)
     }
+
+    pub(crate) fn advertises(&self, capability: &str) -> bool {
+        self.capabilities.contains(&capability)
+    }
 }

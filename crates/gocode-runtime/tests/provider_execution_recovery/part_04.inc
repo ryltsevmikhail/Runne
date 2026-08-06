@@ -195,9 +195,9 @@ async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
     );
 }
 
-struct FailFirstAcknowledgementStore {
-    inner: Arc<SqliteProviderExecutionStore>,
-    fail_acknowledgement: AtomicBool,
+pub(crate) struct FailFirstAcknowledgementStore {
+    pub(crate) inner: Arc<SqliteProviderExecutionStore>,
+    pub(crate) fail_acknowledgement: AtomicBool,
 }
 
 impl ProviderExecutionStore for FailFirstAcknowledgementStore {

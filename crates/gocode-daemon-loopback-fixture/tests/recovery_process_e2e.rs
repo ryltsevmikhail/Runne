@@ -3,7 +3,7 @@
 mod support;
 
 use gocode_daemon_loopback_fixture::prepare_runtime_root;
-use gocode_runtime_client::ReplayDeliveryDisposition;
+use gocode_runtime_client::{RecoveryObservationStatusV1, ReplayDeliveryDisposition};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 
@@ -74,6 +74,26 @@ async fn recovery_process_replays_the_pending_terminal_outbox_without_a_second_e
     assert_eq!(
         second_session.capability_digest,
         first_session.capability_digest
+    );
+    let telemetry = second_client
+        .operational_telemetry()
+        .await
+        .expect("authenticated telemetry after initial recovery");
+    assert_eq!(
+        telemetry.launch_generation(),
+        second_session.launch_generation
+    );
+    assert!(matches!(
+        telemetry.recovery_transient().status(),
+        RecoveryObservationStatusV1::LowerBoundSinceLaunch
+            | RecoveryObservationStatusV1::TruncatedLowerBoundSinceLaunch
+    ));
+    assert_eq!(
+        telemetry
+            .recovery_transient()
+            .observed_outbox_recoveries_in_generation(),
+        Some(1),
+        "only the pre-startup pending terminal outbox recovery is observed"
     );
     let restored = second_client
         .list_messages(conversation.conversation_id)

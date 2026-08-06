@@ -40,7 +40,7 @@ impl AppCore {
             .write()
             .map_err(|_| AppCoreError::StateUnavailable)? = None;
         self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
-        self.set_runtime_lifecycle(RuntimeLifecycleStatus::Restarting)?;
+        self.record_bundled_shutdown_lifecycle()?;
         self.set_runtime_failure_code(None)
     }
 
