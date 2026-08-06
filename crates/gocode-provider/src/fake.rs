@@ -7,7 +7,8 @@ use crate::{
     CancelDisposition, CancelRequest, DispatchAttemptId, DispatchError, DispatchRequest,
     PrepareError, PreparedRequest, ProviderCall, ProviderCapability, ProviderFinishReason,
     ProviderFuture, ProviderPort, ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId,
-    ProviderStreamItem, ReconcileRequest, ReconciliationDisposition, StreamCursor, StreamError,
+    ProviderStreamItem, ProviderStreamValidator, ReconcileRequest, ReconciliationDisposition,
+    StreamCursor, StreamError,
 };
 
 #[derive(Debug)]
@@ -40,15 +41,9 @@ impl ScriptedProvider {
         capabilities: impl IntoIterator<Item = ProviderCapability>,
         script: Vec<ProviderStreamEvent>,
     ) -> Result<Self, ScriptedProviderError> {
-        for (expected, event) in script.iter().enumerate() {
-            let expected = expected as u64;
-            if event.sequence() != expected {
-                return Err(StreamError::InvalidScriptSequence {
-                    expected,
-                    actual: event.sequence(),
-                }
-                .into());
-            }
+        let mut validator = ProviderStreamValidator::default();
+        for event in &script {
+            validator.accept(event)?;
         }
         Ok(Self {
             capabilities: capabilities.into_iter().collect(),
@@ -73,12 +68,20 @@ impl ScriptedProvider {
 
 impl ProviderPort for ScriptedProvider {
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
+        self.prepare_for_digest_version(call, crate::ProviderCallDigestVersion::V2)
+    }
+
+    fn prepare_for_digest_version(
+        &self,
+        call: &ProviderCall,
+        digest_version: crate::ProviderCallDigestVersion,
+    ) -> Result<PreparedRequest, PrepareError> {
         for capability in call.required_capabilities() {
             if !self.capabilities.contains(capability) {
                 return Err(PrepareError::UnsupportedCapability(*capability));
             }
         }
-        PreparedRequest::from_call(call)
+        PreparedRequest::from_call_for_digest_version(call, digest_version)
     }
 
     fn dispatch(
@@ -126,6 +129,7 @@ impl ProviderPort for ScriptedProvider {
                 .ok_or(StreamError::Closed)?;
             if let ProviderStreamEventKind::Finished {
                 reason: ProviderFinishReason::Unknown { raw },
+                ..
             } = event.kind()
             {
                 return Err(StreamError::UnknownFinishReason { raw: raw.clone() });

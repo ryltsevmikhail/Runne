@@ -9,11 +9,24 @@
 use std::fmt;
 use thiserror::Error;
 
+mod provider_credential;
+mod provider_journal_key;
+
+pub use provider_credential::{
+    MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
+    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
+    ProviderCredentialStore,
+};
+pub use provider_journal_key::{
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyStatus, ProviderJournalKeyring,
+};
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum SecureStoreError {
     #[error("secure store is unavailable on this platform")]
     Unavailable,
@@ -23,6 +36,36 @@ pub enum SecureStoreError {
     CorruptAnchor,
     #[error("anchor not found")]
     NotFound,
+    #[error("provider journal key is corrupt or has the wrong authority binding")]
+    CorruptProviderJournalKey,
+    #[error("provider journal key was not found")]
+    ProviderJournalKeyNotFound,
+    #[error("secure-store backend cannot retain provider journal key versions")]
+    RetentionUnsupported,
+    #[error("provider journal key deletion proof was denied")]
+    DeletionDenied,
+    #[error("provider journal key generation failed")]
+    ProviderJournalKeyGenerationFailed,
+    #[error("native secure-store backend is unsupported")]
+    UnsupportedSecureStoreBackend,
+    #[error("provider credential is invalid")]
+    InvalidProviderCredential,
+    #[error("provider credential was not found")]
+    ProviderCredentialNotFound,
+    #[error("provider credential access was denied")]
+    CredentialAccessDenied,
+    #[error("provider credential executable identity mismatch")]
+    CredentialIdentityMismatch,
+    #[error("provider credential ACL migration is required")]
+    CredentialAclMigrationRequired,
+    #[error("provider credential item is corrupt")]
+    CorruptProviderCredential,
+    #[error("provider credential operation failed")]
+    ProviderCredentialOperationFailed,
+    #[error("provider credential enrollment is incomplete")]
+    CredentialEnrollmentIncomplete,
+    #[error("provider credential ACL migration is incomplete")]
+    CredentialMigrationIncomplete,
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +161,9 @@ mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::MacOsKeychainStore;
 
+#[cfg(target_os = "macos")]
+pub use macos::MacOsProviderCredentialStore as NativeProviderCredentialStore;
+
 // ---------------------------------------------------------------------------
 // Stub implementations for platforms not yet wired
 // ---------------------------------------------------------------------------
@@ -127,3 +173,6 @@ mod stub;
 
 #[cfg(not(target_os = "macos"))]
 pub use stub::StubStore;
+
+#[cfg(not(target_os = "macos"))]
+pub use stub::StubStore as NativeProviderCredentialStore;

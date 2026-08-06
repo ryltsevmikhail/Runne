@@ -27,15 +27,16 @@ use gocode_domain::conversation::Conversation;
 use gocode_domain::id::{CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
 use gocode_domain::message::MessageText;
 use gocode_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
+use gocode_provider::ProviderFuture;
 use gocode_runtime::config::RuntimeConfig;
 use gocode_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome};
 use gocode_runtime::{
-    LocalTextProvider, LocalTextProviderError, Runtime, RuntimeCanonicalConversationHost,
-    RuntimeTaskRunHost,
+    CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
+    CanonicalProviderExecutionService, DeterministicTextProvider, LocalTextProvider,
+    LocalTextProviderError, Runtime, RuntimeCanonicalConversationHost, RuntimeTaskRunHost,
 };
 use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
-use tempfile::TempDir;
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-00000000000a";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-00000000000b";
@@ -48,9 +49,10 @@ fn available_guard() -> Arc<dyn ProhibitedContentPort> {
 }
 
 struct TestRuntime {
-    _directory: TempDir,
+    _database: validated_reopen::ValidatedTestDatabase,
     database_path: String,
     authority: RuntimeAuthorityId,
+    identity: validated_reopen::MainDatabaseIdentity,
     store: StoreTransaction,
     host: RuntimeTaskRunHost<StoreTransaction>,
     controller: RuntimeController,
@@ -58,19 +60,21 @@ struct TestRuntime {
 
 impl TestRuntime {
     fn start() -> Self {
-        let directory = tempfile::tempdir().unwrap();
-        let database_path = directory
-            .path()
-            .join("runtime.sqlite")
-            .to_str()
-            .unwrap()
-            .to_owned();
+        let database = validated_reopen::ValidatedTestDatabase::new("task-run-host");
+        let database_path = database.path().to_owned();
         let authority = RuntimeAuthorityId("canonical-taskrun-test".to_owned());
-        let (store, host, controller) = start_runtime(&database_path, authority.clone());
+        let (store, identity) = validated_reopen::initialize_store(
+            &database_path,
+            authority.clone(),
+            available_guard(),
+        )
+        .unwrap();
+        let (host, controller) = start_runtime(store.clone(), authority.clone());
         Self {
-            _directory: directory,
+            _database: database,
             database_path,
             authority,
+            identity,
             store,
             host,
             controller,
@@ -83,21 +87,22 @@ impl TestRuntime {
             .shutdown(ShutdownMode::Graceful {
                 timeout: Duration::from_secs(5),
             })
-            .await;
+        .await;
         assert_eq!(outcome, ShutdownOutcome::Quiesced);
+        assert_eq!(
+            self.controller.wait_terminated().await,
+            ShutdownOutcome::Quiesced
+        );
     }
 }
 
 fn start_runtime(
-    database_path: &str,
+    store: StoreTransaction,
     authority: RuntimeAuthorityId,
 ) -> (
-    StoreTransaction,
     RuntimeTaskRunHost<StoreTransaction>,
     RuntimeController,
 ) {
-    let store =
-        StoreTransaction::open(database_path, authority.clone(), available_guard()).unwrap();
     let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -111,7 +116,7 @@ fn start_runtime(
     )
     .unwrap();
     let host = RuntimeTaskRunHost::new(handle, store.clone());
-    (store, host, controller)
+    (host, controller)
 }
 
 fn command_context(sequence: u8, key: impl Into<String>) -> TaskRunCommandContext {
@@ -130,115 +135,4 @@ fn create_command() -> CreateTaskRunCommand {
         conversation_id: CONVERSATION_ID.parse::<ConversationId>().unwrap(),
         workspace_id: WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
     }
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn dispatches_and_reconstructs_the_complete_durable_lifecycle() {
-    let mut runtime = TestRuntime::start();
-
-    let create_context = command_context(1, "create-1");
-    let created = runtime
-        .host
-        .create_task_run(create_context.clone(), create_command())
-        .await
-        .unwrap();
-    assert_eq!(created.new_version, 1);
-    assert_eq!(created.kind, TaskRunCommandAckKind::Created);
-
-    let duplicate = runtime
-        .host
-        .create_task_run(create_context, create_command())
-        .await
-        .unwrap();
-    assert_eq!(duplicate, created);
-
-    let taskrun_id = created.taskrun_id;
-    let queued = runtime
-        .host
-        .queue_task_run(
-            command_context(2, "queue-1"),
-            ExistingTaskRunCommand {
-                taskrun_id,
-                expected_version: 1,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(queued.new_version, 2);
-    assert_eq!(queued.kind, TaskRunCommandAckKind::Queued);
-
-    let admitted = runtime
-        .host
-        .admit_task_run(
-            command_context(3, "admit-1"),
-            ExistingTaskRunCommand {
-                taskrun_id,
-                expected_version: 2,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(admitted.new_version, 3);
-    assert_eq!(admitted.kind, TaskRunCommandAckKind::Admitted);
-
-    let started = runtime
-        .host
-        .start_attempt(
-            command_context(4, "attempt-1"),
-            ExistingTaskRunCommand {
-                taskrun_id,
-                expected_version: 3,
-            },
-        )
-        .await
-        .unwrap();
-    let attempt_id = match started.kind {
-        TaskRunCommandAckKind::AttemptStarted { attempt_id } => attempt_id,
-        other => panic!("expected attempt acknowledgement, got {other:?}"),
-    };
-    assert_eq!(started.new_version, 4);
-    let running = runtime.host.get_task_run(taskrun_id).await.unwrap();
-    assert_eq!(running.state, CanonicalTaskRunState::Running);
-    assert_eq!(running.active_attempt_id, Some(attempt_id));
-
-    let completed = runtime
-        .host
-        .complete_task_run(
-            command_context(5, "complete-1"),
-            CompleteTaskRunCommand {
-                taskrun_id,
-                expected_version: 4,
-                result: CanonicalTerminalResult::Success,
-            },
-        )
-        .await
-        .unwrap();
-    assert_eq!(completed.new_version, 5);
-    assert_eq!(
-        completed.kind,
-        TaskRunCommandAckKind::Completed {
-            result: CanonicalTerminalResult::Success,
-        }
-    );
-
-    let snapshot = runtime.host.get_task_run(taskrun_id).await.unwrap();
-    assert_eq!(snapshot.taskrun_id, taskrun_id);
-    assert_eq!(snapshot.state, CanonicalTaskRunState::Succeeded);
-    assert_eq!(snapshot.stream_version, 5);
-    assert_eq!(snapshot.active_attempt_id, None);
-    assert_eq!(
-        snapshot.terminal_result,
-        Some(CanonicalTerminalResult::Success)
-    );
-
-    let stream = runtime.store.load_task_run(taskrun_id).unwrap();
-    assert_eq!(stream.events.len(), 5);
-    assert!(
-        stream
-            .events
-            .iter()
-            .all(|event| event.actor().as_str() == "gocode-cli")
-    );
-
-    runtime.shutdown().await;
 }

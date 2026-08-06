@@ -78,6 +78,7 @@ fn runtime_lifecycle_and_failure_codes_are_closed() {
     assert_eq!(
         lifecycle,
         [
+            "\"configuration_required\"",
             "\"starting\"",
             "\"ready\"",
             "\"restarting\"",
@@ -94,6 +95,7 @@ fn runtime_lifecycle_and_failure_codes_are_closed() {
     assert_eq!(
         failures,
         [
+            "\"configuration_required\"",
             "\"protected_activation_unavailable\"",
             "\"bundled_executable_unavailable\"",
             "\"bundled_executable_identity_mismatch\"",

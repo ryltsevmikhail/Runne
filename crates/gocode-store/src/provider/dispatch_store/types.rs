@@ -1,11 +1,29 @@
-const PREPARED_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V1\0";
-const MAX_IDEMPOTENCY_KEY_BYTES: usize = 256;
+use std::path::Path;
+use std::sync::Mutex;
+
+use gocode_provider::{
+    DispatchAttemptId, PreparedProviderRecord as ContractPreparedProviderRecord,
+    ProviderCallDigestVersion, ProviderCallId,
+    ProviderDispatchClaim as ContractProviderDispatchClaim, ProviderDispatchRepository,
+    ProviderPreEffectRejection, ProviderRepositoryClaimOutcome, ProviderRepositoryError,
+    ProviderRepositoryState, ProviderStreamId,
+};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use sha2::{Digest, Sha256};
+use thiserror::Error;
+
+use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
+
+const PREPARED_V1_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V1\0";
+const PREPARED_V2_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V2\0";
 
 /// Durable metadata of one non-effecting prepared provider request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreparedProviderRecord {
     /// Durable provider call identity.
     pub call_id: ProviderCallId,
+    /// Exact canonical provider-call digest contract.
+    pub call_digest_version: ProviderCallDigestVersion,
     /// Exact prepared request digest.
     pub prepared_digest: [u8; 32],
     /// Committed render evidence digest.
@@ -53,8 +71,12 @@ pub struct ProviderDispatchClaim {
 pub enum ProviderDispatchState {
     /// Permit exists but network admission has not produced stream evidence.
     Dispatching,
+    /// A typed local rejection proves the external effect did not begin.
+    RejectedBeforeEffect,
     /// Adapter returned an exact stream identity.
     Streaming,
+    /// Terminal evidence is durable but authoritative completion is pending.
+    TerminalPendingCommit,
     /// Terminal settlement evidence was committed.
     Settled,
     /// Recovery cannot prove the external effect disposition.
@@ -85,6 +107,9 @@ pub struct ProviderDispatchRecord {
     pub stream_id: Option<ProviderStreamId>,
     /// Optional terminal settlement digest.
     pub settlement_digest: Option<[u8; 32]>,
+    /// Exact typed reason when dispatch was rejected before external effect.
+    pub pre_effect_rejection: Option<ProviderPreEffectRejection>,
+    call_digest_version: ProviderCallDigestVersion,
     fencing_token: u64,
     permit_id: [u8; 16],
     token_reservation_id: [u8; 16],
@@ -164,6 +189,15 @@ pub enum ProviderStoreError {
     /// Existing settlement differs from the replay.
     #[error("provider settlement conflicts with existing settlement")]
     SettlementConflict,
+    /// Existing pre-effect rejection differs from the replay.
+    #[error("provider pre-effect rejection conflicts with existing rejection")]
+    RejectionConflict,
+    /// Terminal settlement was attempted before a durable stream binding.
+    #[error("provider settlement requires a streaming dispatch")]
+    SettlementBeforeStreaming,
+    /// Authoritative settlement was attempted before terminal evidence was durable.
+    #[error("provider settlement requires terminal pending evidence")]
+    SettlementBeforeTerminal,
     /// Requested transition follows terminal settlement.
     #[error("provider dispatch is already terminal")]
     AlreadyTerminal,
@@ -173,4 +207,12 @@ pub enum ProviderStoreError {
     /// Idempotency key violates its stable bound.
     #[error("provider idempotency key is invalid")]
     InvalidIdempotencyKey,
+    /// Caller-selected V12 claim path is disabled after runtime-owned V13 admission.
+    #[error("legacy caller-selected provider claim is disabled")]
+    LegacyClaimDisabled,
+}
+
+/// Repository-owned SQLite provider dispatch store.
+pub struct SqliteProviderDispatchStore {
+    connection: Mutex<Connection>,
 }

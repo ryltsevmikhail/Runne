@@ -15,14 +15,16 @@ use gocode_runtime::controller::{ShutdownMode, ShutdownOutcome};
 use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 
+#[path = "../../gocode-store/tests/support/validated_reopen.rs"]
+mod validated_reopen;
+
 type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
 }
 
-fn make_service(db: &str, authority: RuntimeAuthorityId) -> Arc<SqliteService> {
-    let conn = StoreTransaction::open(db, authority.clone(), available_guard()).unwrap();
+fn make_service(conn: StoreTransaction, authority: RuntimeAuthorityId) -> Arc<SqliteService> {
     Arc::new(TaskRunService::new(
         conn.clone(),
         conn.clone(),
@@ -52,25 +54,18 @@ fn ws_id() -> WorkspaceId {
     "018f2e3a-7000-7000-8000-00000000000b".parse().unwrap()
 }
 
-fn db_path(name: &str) -> String {
-    let mut d = std::env::temp_dir();
-    d.push(format!("gocode-rt-l2i-{}.sqlite", name));
-    d.to_str().unwrap().to_string()
-}
-
 #[tokio::test(flavor = "current_thread")]
 async fn test_full_lifecycle_sqlite() {
-    let db = db_path("lifecycle");
-    let wal = format!("{}-wal", db);
-    let shm = format!("{}-shm", db);
-    for p in [db.as_str(), wal.as_str(), shm.as_str()] {
-        let _ = std::fs::remove_file(p);
-    }
-
-    let svc = make_service(&db, RuntimeAuthorityId("test-host".into()));
+    let database = validated_reopen::ValidatedTestDatabase::new("lifecycle");
+    let authority = RuntimeAuthorityId("test-host".into());
+    let guard = available_guard();
+    let (conn, identity) =
+        validated_reopen::initialize_store(database.path(), authority.clone(), guard.clone())
+            .unwrap();
+    let svc = make_service(conn, authority.clone());
     let (handle, mut ctrl) = Runtime::start_borrowed(
         gocode_runtime::TokioRuntimeContext::new_for_test(),
-        svc,
+        svc.clone(),
         default_config(),
     )
     .unwrap();
@@ -106,18 +101,12 @@ async fn test_full_lifecycle_sqlite() {
         })
         .await;
     assert!(matches!(outcome, ShutdownOutcome::Quiesced));
+    assert_eq!(ctrl.wait_terminated().await, ShutdownOutcome::Quiesced);
+    drop(handle);
+    drop(svc);
 
-    let conn = StoreTransaction::open(
-        &db,
-        RuntimeAuthorityId("test-host".into()),
-        available_guard(),
-    )
-    .unwrap();
+    let conn = validated_reopen::reopen_store(database.path(), identity, authority, guard).unwrap();
     let stream = conn.load_task_run(tr).unwrap();
     assert_eq!(stream.current_version, 2);
     assert_eq!(stream.events.len(), 2);
-
-    let _ = std::fs::remove_file(&db);
-    let _ = std::fs::remove_file(&wal);
-    let _ = std::fs::remove_file(&shm);
 }

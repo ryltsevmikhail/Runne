@@ -1,13 +1,14 @@
 use Outcome::*;
 use State::*;
 use gocode_provider::{
-    DispatchAttemptId as Attempt, ProviderCallId as Call, ProviderStreamId as Stream,
+    DispatchAttemptId as Attempt, ProviderCallDigestVersion, ProviderCallId as Call,
+    ProviderStreamId as Stream,
 };
 use gocode_store::provider::{
     MarkProviderStreaming as MarkStreaming, PreparedProviderRecord as Prepared,
-    ProviderDispatchClaim as Claim, ProviderDispatchState as State, ProviderStoreError as Error,
-    RecoveryCasOutcome as Outcome, SettleProviderDispatch as Settlement,
-    SqliteProviderDispatchStore as Store,
+    ProviderClaimOutcome, ProviderDispatchClaim as Claim, ProviderDispatchState as State,
+    ProviderStoreError as Error, RecoveryCasOutcome as Outcome,
+    SettleProviderDispatch as Settlement, SqliteProviderDispatchStore as Store,
 };
 use rusqlite::Connection;
 use tempfile::TempDir;
@@ -15,11 +16,16 @@ use tempfile::TempDir;
 #[path = "support/recovery/mod.rs"]
 mod recovery_support;
 
+use recovery_support::claim_dispatch_row;
+
 type Setup = (TempDir, Store, Claim);
 
 fn setup(name: &str) -> Setup {
     let (d, store, claim) = prepared_setup(name);
-    store.claim(&claim).unwrap();
+    assert!(matches!(
+        claim_dispatch_row(&d.path().join("s"), &claim),
+        ProviderClaimOutcome::Winner { .. }
+    ));
     (d, store, claim)
 }
 
@@ -29,6 +35,7 @@ fn prepared_setup(name: &str) -> Setup {
     store
         .persist_prepared(&Prepared {
             call_id: Call::from_bytes([1; 16]),
+            call_digest_version: ProviderCallDigestVersion::V2,
             prepared_digest: [2; 32],
             render_digest: [3; 32],
             profile_digest: [4; 32],
@@ -161,6 +168,20 @@ fn recover_uncertain_is_idempotent() {
 fn recover_settled_is_read_only() {
     let (_d, store, claim) = setup("f");
     store
+        .mark_streaming(&MarkStreaming {
+            attempt_id: claim.attempt_id,
+            fencing_token: 9,
+            stream_id: Stream::from_bytes([10; 16]),
+        })
+        .unwrap();
+    store
+        .mark_terminal_pending(&Settlement {
+            attempt_id: claim.attempt_id,
+            fencing_token: 9,
+            settlement_digest: [11; 32],
+        })
+        .unwrap();
+    store
         .settle(&Settlement {
             attempt_id: claim.attempt_id,
             fencing_token: 9,
@@ -186,7 +207,7 @@ fn recover_conflicting_incomplete_state_is_recovery_conflict() {
 #[test]
 fn mark_streaming_zero_affected_rows_is_not_false_success() {
     let (d, store, claim) = setup("streaming-zero-row");
-    ignore_lifecycle_update(&d, 2);
+    ignore_lifecycle_update(&d, 3);
     let before = snapshot(&store, claim.attempt_id);
     let result = store.mark_streaming(&MarkStreaming {
         attempt_id: claim.attempt_id,
@@ -195,13 +216,27 @@ fn mark_streaming_zero_affected_rows_is_not_false_success() {
     });
 
     assert_eq!(snapshot(&store, claim.attempt_id), before);
-    assert_eq!(result, Err(Error::RecoveryConflict));
+    assert_eq!(result, Err(Error::CorruptData));
 }
 
 #[test]
 fn settle_zero_affected_rows_is_not_false_success() {
     let (d, store, claim) = setup("settlement-zero-row");
-    ignore_lifecycle_update(&d, 3);
+    store
+        .mark_streaming(&MarkStreaming {
+            attempt_id: claim.attempt_id,
+            fencing_token: claim.fencing_token,
+            stream_id: Stream::from_bytes([10; 16]),
+        })
+        .unwrap();
+    store
+        .mark_terminal_pending(&Settlement {
+            attempt_id: claim.attempt_id,
+            fencing_token: claim.fencing_token,
+            settlement_digest: [11; 32],
+        })
+        .unwrap();
+    ignore_lifecycle_update(&d, 5);
     let before = snapshot(&store, claim.attempt_id);
     let result = store.settle(&Settlement {
         attempt_id: claim.attempt_id,
@@ -210,7 +245,7 @@ fn settle_zero_affected_rows_is_not_false_success() {
     });
 
     assert_eq!(snapshot(&store, claim.attempt_id), before);
-    assert_eq!(result, Err(Error::RecoveryConflict));
+    assert_eq!(result, Err(Error::CorruptData));
 }
 
 include!("provider_dispatch_recovery_parts/task3.rs");

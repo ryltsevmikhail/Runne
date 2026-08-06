@@ -39,6 +39,7 @@ impl RunningDaemon {
 }
 
 fn test_config(directory: &TempDir) -> ConfigurationSnapshot {
+    support::owner_private::secure_directory(directory.path());
     let mut defaults = BuiltInDefaults::new(directory.path());
     defaults.http_bind = "127.0.0.1:0".to_owned();
     ConfigurationSnapshot::from_defaults(&defaults)

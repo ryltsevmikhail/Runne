@@ -5,8 +5,6 @@ use gocode_domain::{
     timestamp::Timestamp,
 };
 use gocode_store::migration_store::SqliteMigrationControlStore;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[test]
 fn evidence_fixtures_deterministic() {
@@ -31,7 +29,7 @@ fn evidence_fixtures_deterministic() {
 #[test]
 fn evidence_shadow_import_e2e_sqlite() {
     let db = Tdb::new("sh");
-    let s = SqliteMigrationControlStore::open(db.p()).unwrap();
+    let s = db.open();
     let svc = service::MigrationService::new(s, PS);
     let pi = pid("p1");
     let mut c = 0u64;
@@ -135,7 +133,7 @@ fn evidence_shadow_import_e2e_sqlite() {
 #[test]
 fn evidence_direct_store_lineage_stops_at_default_native() {
     let db = Tdb::new("lifecycle");
-    let store = SqliteMigrationControlStore::open(db.p()).unwrap();
+    let store = db.open();
     let svc = service::MigrationService::new(store.clone(), PS);
     let pi = pid("p1");
     let mut c = 0;
@@ -185,7 +183,7 @@ fn evidence_direct_store_lineage_stops_at_default_native() {
         state::MigrationPhase::DefaultNative,
     ] {
         direct_advance(&store, &pi, phase, &mut c);
-        let reopened = SqliteMigrationControlStore::open(db.p()).unwrap();
+        let reopened = db.open();
         assert_eq!(reopened.load_plan(&pi).unwrap().unwrap().plan.phase, phase);
     }
 

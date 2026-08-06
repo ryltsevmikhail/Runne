@@ -8,6 +8,30 @@ fn ensure_dir_secured(dir: &Path) -> Result<(), DaemonError> {
         .map_err(|e| DaemonError::Bootstrap(format!("cannot secure {dir:?}: {e}")))
 }
 
+fn acquire_existing_authority_lock(
+    conn: &rusqlite::Connection,
+    locks: &mut LockSet,
+    runtime_dir: &Path,
+) -> Result<Option<[u8; 16]>, DaemonError> {
+    let schema_version: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| DaemonError::Bootstrap(format!("read schema version: {error}")))?;
+    if schema_version < 8 {
+        return Ok(None);
+    }
+    let authority_id = schema::read_authority_id(conn)
+        .map_err(|error| DaemonError::Bootstrap(format!("read authority: {error}")))?
+        .ok_or_else(|| DaemonError::Bootstrap("existing DB has no authority ID".into()))?;
+    locks
+        .acquire_authority_lock(&authority_id, runtime_dir)
+        .map_err(|error| DaemonError::Bootstrap(format!("authority lock: {error}")))?;
+    Ok(Some(authority_id))
+}
+
 /// Open DB file with no-follow for verify / file-identity lock.
 fn open_verify_no_follow(db_path: &Path) -> Result<fs::File, DaemonError> {
     let mut opts = fs::OpenOptions::new();
@@ -68,9 +92,11 @@ fn acquire_authority(
                     "prepared authority does not match Event Log".into(),
                 ));
             }
-            locks
-                .acquire_authority_lock(&aid, runtime_dir)
-                .map_err(|e| DaemonError::Bootstrap(format!("authority lock: {e}")))?;
+            if locks.authority_lock.is_none() {
+                locks
+                    .acquire_authority_lock(&aid, runtime_dir)
+                    .map_err(|e| DaemonError::Bootstrap(format!("authority lock: {e}")))?;
+            }
             Ok((aid, Some(aid)))
         }
 

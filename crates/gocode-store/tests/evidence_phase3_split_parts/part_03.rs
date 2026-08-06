@@ -227,27 +227,4 @@ impl ports::ShadowExecutionPort for PS {
     }
 }
 
-struct Tdb {
-    p: PathBuf,
-}
-impl Tdb {
-    fn new(n: &str) -> Self {
-        let ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        Self {
-            p: std::env::temp_dir().join(format!("gev-{n}-{}-{ns}.sqlite", std::process::id())),
-        }
-    }
-    fn p(&self) -> &Path {
-        &self.p
-    }
-}
-impl Drop for Tdb {
-    fn drop(&mut self) {
-        for s in ["", "-wal", "-shm"] {
-            let _ = std::fs::remove_file(format!("{}{s}", self.p.display()));
-        }
-    }
-}
+type Tdb = validated_reopen::MigrationTestDatabase;

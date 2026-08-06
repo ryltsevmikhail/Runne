@@ -1,33 +1,51 @@
-/// Monotonic protected request for one replacement HTTP session authority.
+
+/// One-time protected bootstrap ticket for a rotated HTTP session.
 #[derive(Clone, Eq, PartialEq)]
-pub struct ProtectedRenewRequestV1 {
+pub struct ProtectedRenewTicketV1 {
     protocol_schema_version: u32,
     owned_launch: ProtectedOwnedLaunchV1,
     sequence: u64,
     nonce: [u8; 32],
+    next_session_id: [u8; 16],
+    bootstrap_ticket: [u8; 32],
+    issued_at_monotonic_millis: u64,
+    expires_at_monotonic_millis: u64,
     proof: [u8; 32],
 }
 
-impl ProtectedRenewRequestV1 {
-    /// Builds an unsigned renewal request.
+impl ProtectedRenewTicketV1 {
+    /// Builds an unsigned ticket for the exact accepted renewal.
     pub fn new(
-        owned_launch: ProtectedOwnedLaunchV1,
-        sequence: u64,
-        nonce: [u8; 32],
+        request: &ProtectedRenewRequestV1,
+        next_session_id: [u8; 16],
+        bootstrap_ticket: [u8; 32],
+        issued_at_monotonic_millis: u64,
+        expires_at_monotonic_millis: u64,
     ) -> Result<Self, LaunchAuthorityError> {
-        if sequence == 0 || nonce == [0; 32] {
-            return Err(LaunchAuthorityError::RenewalReplay);
+        if validate_uuid_v7_bytes(&next_session_id).is_err()
+            || next_session_id == *request.owned_launch.session_id()
+            || next_session_id == *request.owned_launch.daemon_instance_id()
+            || bootstrap_ticket == [0; 32]
+            || expires_at_monotonic_millis <= issued_at_monotonic_millis
+            || expires_at_monotonic_millis.saturating_sub(issued_at_monotonic_millis)
+                > MAX_LAUNCH_TTL_MILLIS
+        {
+            return Err(LaunchAuthorityError::RenewalUnavailable);
         }
         Ok(Self {
             protocol_schema_version: PROTOCOL_SCHEMA_VERSION,
-            owned_launch,
-            sequence,
-            nonce,
+            owned_launch: request.owned_launch.clone(),
+            sequence: request.sequence,
+            nonce: request.nonce,
+            next_session_id,
+            bootstrap_ticket,
+            issued_at_monotonic_millis,
+            expires_at_monotonic_millis,
             proof: [0; 32],
         })
     }
 
-    /// Signs the exact canonical renewal transcript.
+    /// Signs the exact canonical ticket transcript.
     pub fn sign(&mut self, keys: &ProtectedActivationKeys) {
         self.proof = authenticated_mac(
             keys.renewal_key_ref(),
@@ -36,40 +54,73 @@ impl ProtectedRenewRequestV1 {
         );
     }
 
-    /// Verifies exact ownership, strictly next sequence, and proof.
+    /// Verifies the ticket against the exact accepted renewal.
     pub fn verify_exact(
         &self,
-        expected: &ProtectedOwnedLaunchV1,
-        last_sequence: u64,
+        request: &ProtectedRenewRequestV1,
         keys: &ProtectedActivationKeys,
     ) -> Result<(), LaunchAuthorityError> {
-        if &self.owned_launch != expected {
-            return Err(LaunchAuthorityError::OwnershipMismatch);
-        }
-        if self.sequence != last_sequence.saturating_add(1) || self.nonce == [0; 32] {
+        if self.owned_launch != request.owned_launch
+            || self.sequence != request.sequence
+            || self.nonce != request.nonce
+        {
             return Err(LaunchAuthorityError::RenewalReplay);
         }
-        let expected_proof = authenticated_mac(
+        if validate_uuid_v7_bytes(&self.next_session_id).is_err()
+            || self.next_session_id == *self.owned_launch.session_id()
+            || self.next_session_id == *self.owned_launch.daemon_instance_id()
+            || self.bootstrap_ticket == [0; 32]
+            || self.expires_at_monotonic_millis <= self.issued_at_monotonic_millis
+            || self
+                .expires_at_monotonic_millis
+                .saturating_sub(self.issued_at_monotonic_millis)
+                > MAX_LAUNCH_TTL_MILLIS
+        {
+            return Err(LaunchAuthorityError::RenewalUnavailable);
+        }
+        let expected = authenticated_mac(
             keys.renewal_key_ref(),
             RENEW_DOMAIN,
             &self.unsigned_payload(),
         );
-        if !bool::from(expected_proof.ct_eq(&self.proof)) {
+        if !bool::from(expected.ct_eq(&self.proof)) {
             return Err(LaunchAuthorityError::ReadinessProofMismatch);
         }
         Ok(())
     }
 
-    pub const fn owned_launch(&self) -> &ProtectedOwnedLaunchV1 {
-        &self.owned_launch
+    pub const fn next_session_id(&self) -> &[u8; 16] {
+        &self.next_session_id
     }
 
-    pub const fn sequence(&self) -> u64 {
-        self.sequence
+    /// Copies the one-time bootstrap ticket into a zeroizing owner.
+    #[must_use]
+    pub fn bootstrap_ticket(&self) -> Zeroizing<[u8; 32]> {
+        Zeroizing::new(self.bootstrap_ticket)
     }
 
-    pub const fn nonce(&self) -> &[u8; 32] {
-        &self.nonce
+    pub const fn issued_at_monotonic_millis(&self) -> u64 {
+        self.issued_at_monotonic_millis
+    }
+
+    pub const fn expires_at_monotonic_millis(&self) -> u64 {
+        self.expires_at_monotonic_millis
+    }
+
+    /// Returns the ownership tuple after the ticket's session rotation.
+    #[must_use]
+    pub fn next_owned_launch(&self) -> ProtectedOwnedLaunchV1 {
+        ProtectedOwnedLaunchV1::new(
+            self.owned_launch.launch_authority_id,
+            self.owned_launch.desktop_host_instance_id,
+            self.owned_launch.executable.clone(),
+            self.owned_launch.profile.clone(),
+            self.owned_launch.stable.clone(),
+            self.owned_launch.daemon_instance_id,
+            self.owned_launch.launch_generation,
+            self.next_session_id,
+        )
+        .expect("validated renewal ticket has a valid next session")
     }
 
     pub fn encode_frame(&self) -> Result<Vec<u8>, EncodeError> {
@@ -92,7 +143,7 @@ impl ProtectedRenewRequestV1 {
     }
 
     fn encode_fields(&self, encoder: &mut CborEncoder, include_proof: bool) {
-        encoder.write_map_header(if include_proof { 6 } else { 5 });
+        encoder.write_map_header(if include_proof { 10 } else { 9 });
         write_key(encoder, 0);
         encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
         write_key(encoder, 1);
@@ -103,49 +154,37 @@ impl ProtectedRenewRequestV1 {
         encoder.write_unsigned(self.sequence);
         write_key(encoder, 4);
         encoder.write_byte_string(&self.nonce);
+        write_key(encoder, 5);
+        encoder.write_byte_string(&self.next_session_id);
+        write_key(encoder, 6);
+        encoder.write_byte_string(&self.bootstrap_ticket);
+        write_key(encoder, 7);
+        encoder.write_unsigned(self.issued_at_monotonic_millis);
+        write_key(encoder, 8);
+        encoder.write_unsigned(self.expires_at_monotonic_millis);
         if include_proof {
-            write_key(encoder, 5);
+            write_key(encoder, 9);
             encoder.write_byte_string(&self.proof);
         }
     }
 }
 
-impl fmt::Debug for ProtectedRenewRequestV1 {
+impl fmt::Debug for ProtectedRenewTicketV1 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("ProtectedRenewRequestV1")
+            .debug_struct("ProtectedRenewTicketV1")
             .field("sequence", &self.sequence)
+            .field(
+                "expires_at_monotonic_millis",
+                &self.expires_at_monotonic_millis,
+            )
             .field("protected_fields", &"<redacted>")
             .finish()
     }
 }
 
-impl DeterministicCodec for ProtectedRenewRequestV1 {
-    const MESSAGE_TYPE_ID: u32 = 3;
-
-    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
-        self.encode_fields(encoder, true);
-        Ok(())
-    }
-
-    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
-        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(6)? != 6 {
-            return Err(DecodeError::UnknownMessageType { type_id });
-        }
-        expect_key(decoder, 0)?;
-        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
-        expect_schema(decoder)?;
-        expect_key(decoder, 2)?;
-        let owned_launch = decode_owned_launch(decoder)?;
-        expect_key(decoder, 3)?;
-        let sequence = decoder.read_unsigned(u64::MAX)?;
-        expect_key(decoder, 4)?;
-        let nonce = decode_fixed::<32>(decoder)?;
-        expect_key(decoder, 5)?;
-        let proof = decode_fixed::<32>(decoder)?;
-        let mut value = Self::new(owned_launch, sequence, nonce)
-            .map_err(|_| DecodeError::UnknownField { key: 4 })?;
-        value.proof = proof;
-        Ok(value)
+impl Drop for ProtectedRenewTicketV1 {
+    fn drop(&mut self) {
+        self.bootstrap_ticket.zeroize();
     }
 }

@@ -17,6 +17,7 @@ export function isRuntimeMode(value: unknown): value is RuntimeMode {
 }
 
 export type RuntimeLifecycleStatus =
+  | 'configuration_required'
   | 'starting'
   | 'ready'
   | 'restarting'
@@ -25,6 +26,7 @@ export type RuntimeLifecycleStatus =
   | 'external'
 
 const runtimeLifecycleStatuses: readonly RuntimeLifecycleStatus[] = [
+  'configuration_required',
   'starting',
   'ready',
   'restarting',
@@ -39,6 +41,7 @@ export function isRuntimeLifecycleStatus(value: unknown): value is RuntimeLifecy
 }
 
 export type RuntimeFailureCode =
+  | 'configuration_required'
   | 'protected_activation_unavailable'
   | 'bundled_executable_unavailable'
   | 'bundled_executable_identity_mismatch'
@@ -49,6 +52,7 @@ export type RuntimeFailureCode =
   | 'downgraded_external_profile'
 
 const runtimeFailureCodes: readonly RuntimeFailureCode[] = [
+  'configuration_required',
   'protected_activation_unavailable',
   'bundled_executable_unavailable',
   'bundled_executable_identity_mismatch',

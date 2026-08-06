@@ -1,13 +1,12 @@
 #[tokio::test]
 async fn pending_binding_recovers_after_host_commit_before_binding_commit() {
-    let runtime_path = temp_path("recovery", "runtime");
-    let binding_path = temp_path("recovery", "binding");
-    cleanup(&runtime_path);
-    cleanup(&binding_path);
+    let (runtime_fixture, runtime_store) = RuntimeFixture::new("session-create-recovery");
+    let binding_directory = tempfile::tempdir().unwrap();
+    let binding_path = binding_directory.path().join("binding.sqlite");
 
     let binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
     let failing_host = FailAfterDurableHost {
-        inner: open_host(&runtime_path),
+        inner: open_host(runtime_store),
     };
     let failing_service =
         OpenCodeSessionCreateService::new(binding.clone(), failing_host, profile(), schema());
@@ -28,7 +27,7 @@ async fn pending_binding_recovers_after_host_commit_before_binding_commit() {
     let reopened_binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
     let recovered_service = OpenCodeSessionCreateService::new(
         reopened_binding.clone(),
-        open_host(&runtime_path),
+        open_host(runtime_fixture.reopen_store()),
         profile(),
         schema(),
     );
@@ -43,12 +42,7 @@ async fn pending_binding_recovers_after_host_commit_before_binding_commit() {
         Some(SessionBindingStatus::Committed { .. })
     ));
 
-    let runtime = StoreTransaction::open(
-        runtime_path.to_str().unwrap(),
-        RuntimeAuthorityId("runtime-phase2b".into()),
-        available_guard(),
-    )
-    .unwrap();
+    let runtime = runtime_fixture.reopen_store();
     assert_eq!(
         runtime
             .load_conversation(CONVERSATION_ID.parse().unwrap())
@@ -61,40 +55,28 @@ async fn pending_binding_recovers_after_host_commit_before_binding_commit() {
     drop(runtime);
     drop(recovered_service);
     drop(reopened_binding);
-    cleanup(&runtime_path);
-    cleanup(&binding_path);
 }
 
 #[test]
 fn concurrent_retries_commit_one_binding_conversation_event_and_receipt() {
-    let runtime_path = temp_path("concurrent", "runtime");
-    let binding_path = temp_path("concurrent", "binding");
-    cleanup(&runtime_path);
-    cleanup(&binding_path);
-
-    let binding_one = SqliteSessionBindingStore::open(&binding_path).unwrap();
-    let binding_two = SqliteSessionBindingStore::open(&binding_path).unwrap();
+    let (runtime_fixture, runtime_store) = RuntimeFixture::new("session-create-concurrent");
+    let binding_directory = tempfile::tempdir().unwrap();
+    let binding_path = binding_directory.path().join("binding.sqlite");
+    let first_binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
+    let second_binding = SqliteSessionBindingStore::open(&binding_path).unwrap();
     let barrier = Arc::new(Barrier::new(2));
-    let service_one = OpenCodeSessionCreateService::new(
-        binding_one,
-        BarrierHost {
-            inner: open_host(&runtime_path),
-            barrier: barrier.clone(),
-        },
-        profile(),
-        schema(),
-    );
-    let service_two = OpenCodeSessionCreateService::new(
-        binding_two,
-        BarrierHost {
-            inner: open_host(&runtime_path),
-            barrier,
-        },
-        profile(),
-        schema(),
-    );
-
+    let first_store = runtime_store.clone();
+    let first_barrier = barrier.clone();
     let first = std::thread::spawn(move || {
+        let service_one = OpenCodeSessionCreateService::new(
+            first_binding,
+            BarrierHost {
+                inner: open_host(first_store),
+                barrier: first_barrier,
+            },
+            profile(),
+            schema(),
+        );
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -102,6 +84,15 @@ fn concurrent_retries_commit_one_binding_conversation_event_and_receipt() {
             .block_on(service_one.create_session(key(), &request(), wire_input()))
     });
     let second = std::thread::spawn(move || {
+        let service_two = OpenCodeSessionCreateService::new(
+            second_binding,
+            BarrierHost {
+                inner: open_host(runtime_store),
+                barrier,
+            },
+            profile(),
+            schema(),
+        );
         tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -112,8 +103,11 @@ fn concurrent_retries_commit_one_binding_conversation_event_and_receipt() {
     let second = second.join().unwrap().unwrap();
     assert_eq!(first, second);
 
-    let runtime_conn =
-        gocode_store::schema::open_with_pragmas(runtime_path.to_str().unwrap()).unwrap();
+    let runtime_conn = validated_reopen::open_validated_connection(
+        &runtime_fixture.database_path,
+        runtime_fixture.identity,
+    )
+    .unwrap();
     let runtime_counts: (i64, i64) = runtime_conn
         .query_row(
             "SELECT
@@ -137,21 +131,19 @@ fn concurrent_retries_commit_one_binding_conversation_event_and_receipt() {
 
     drop(binding_conn);
     drop(runtime_conn);
-    cleanup(&runtime_path);
-    cleanup(&binding_path);
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn sqlite_writer_contention_does_not_block_unrelated_tokio_timers() {
-    let runtime_path = temp_path("async-contention", "runtime");
-    cleanup(&runtime_path);
-    let host = open_host(&runtime_path);
+    let (runtime_fixture, runtime_store) = RuntimeFixture::new("session-create-async-contention");
+    let host = open_host(runtime_store);
     let lock_barrier = Arc::new(Barrier::new(2));
     let lock_thread_barrier = lock_barrier.clone();
-    let lock_path = runtime_path.clone();
+    let lock_path = runtime_fixture.database_path.clone();
+    let identity = runtime_fixture.identity;
     let (release_lock, await_release) = std::sync::mpsc::channel();
     let lock_thread = std::thread::spawn(move || {
-        let conn = gocode_store::schema::open_with_pragmas(lock_path.to_str().unwrap()).unwrap();
+        let conn = validated_reopen::open_validated_connection(&lock_path, identity).unwrap();
         conn.execute_batch("BEGIN IMMEDIATE").unwrap();
         lock_thread_barrier.wait();
         await_release
@@ -178,5 +170,4 @@ async fn sqlite_writer_contention_does_not_block_unrelated_tokio_timers() {
 
     host_call.await.unwrap().unwrap();
     lock_thread.join().unwrap();
-    cleanup(&runtime_path);
 }

@@ -165,7 +165,7 @@ fn wait_for_closed_replay_session(database_path: &Path) {
         }
         assert!(
             Instant::now() < deadline,
-            "slow replay session did not close"
+            "disconnected replay session did not close"
         );
         std::thread::sleep(Duration::from_millis(20));
     }

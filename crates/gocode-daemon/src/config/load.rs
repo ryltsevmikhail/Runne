@@ -1,37 +1,56 @@
-// ── Public API ────────────────────────────────────────────────────────
 
-/// Load configuration.
-///
-/// If `system_config_path` is `Some` and the file exists, it is parsed as
-/// TOML and merged over `BuiltInDefaults`.  Schema version must be `2`;
-/// unknown keys, duplicate keys, and type mismatches are rejected.
-///
-/// If the path is `None` or the file does not exist, a snapshot built
-/// purely from defaults is returned (this is *not* an error).
-///
-/// If the file exists but is malformed or invalid, an error is returned
-/// and no partial snapshot is published.
-pub fn load_config(
-    system_config_path: Option<&Path>,
-) -> Result<ConfigurationSnapshot, DaemonError> {
-    let runtime_dir = resolve_runtime_dir();
-    let defaults = BuiltInDefaults::new(&runtime_dir);
+/// Loads the fixed external source, treating its absence as no selection.
+pub fn load_external_config() -> Result<ConfigurationSnapshot, DaemonError> {
+    load_external_config_at(&external_config_path())
+}
 
-    match system_config_path {
-        Some(path) if path.exists() => {
-            let contents = fs::read_to_string(path)?;
-            let system: SystemConfig = toml::from_str(&contents)?;
+/// Loads an injected fixed external source for native-entry tests.
+pub fn load_external_config_at(path: &Path) -> Result<ConfigurationSnapshot, DaemonError> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => load_config(Some(path)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => load_config(None),
+        Err(error) => Err(DaemonError::Io(error)),
+    }
+}
 
-            // Schema version gate
-            if system.schema_version != 2 {
-                return Err(DaemonError::Schema(format!(
-                    "unsupported schema_version: expected 2, got {}",
-                    system.schema_version
-                )));
-            }
-
-            Ok(ConfigurationSnapshot::from_merge(&defaults, &system, path))
+fn read_explicit_config(path: &Path) -> Result<String, DaemonError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)?;
+        let metadata = file.metadata()?;
+        if !metadata.is_file()
+            || metadata.uid() != rustix::process::geteuid().as_raw()
+            || metadata.permissions().mode() & 0o077 != 0
+        {
+            return Err(DaemonError::Config(
+                "external config is not owner-private".into(),
+            ));
         }
-        _ => Ok(ConfigurationSnapshot::from_defaults(&defaults)),
+        if metadata.len() > MAX_EXTERNAL_CONFIG_BYTES {
+            return Err(DaemonError::Config(
+                "external config exceeds size limit".into(),
+            ));
+        }
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        file.take(MAX_EXTERNAL_CONFIG_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 > MAX_EXTERNAL_CONFIG_BYTES {
+            return Err(DaemonError::Config(
+                "external config exceeds size limit".into(),
+            ));
+        }
+        String::from_utf8(bytes)
+            .map_err(|_| DaemonError::Config("external config is not UTF-8".into()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        Err(DaemonError::Config(
+            "external config validation is unsupported".into(),
+        ))
     }
 }

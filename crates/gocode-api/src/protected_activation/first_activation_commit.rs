@@ -1,3 +1,40 @@
+
+impl DeterministicCodec for ProtectedFirstActivationPreparedV1 {
+    const MESSAGE_TYPE_ID: u32 = 7;
+
+    fn encode(&self, encoder: &mut CborEncoder) -> Result<(), EncodeError> {
+        self.encode_fields(encoder, true);
+        Ok(())
+    }
+
+    fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(6)? != 6 {
+            return Err(DecodeError::UnknownMessageType { type_id });
+        }
+        expect_key(decoder, 0)?;
+        expect_message_type(decoder, Self::MESSAGE_TYPE_ID)?;
+        expect_key(decoder, 1)?;
+        if decoder.read_unsigned(u64::from(u32::MAX))? != u64::from(PROTOCOL_SCHEMA_VERSION) {
+            return Err(DecodeError::UnknownField { key: 1 });
+        }
+        expect_key(decoder, 2)?;
+        let launch_authority_id = decode_fixed::<16>(decoder)?;
+        expect_key(decoder, 3)?;
+        let desktop_host_instance_id = decode_fixed::<16>(decoder)?;
+        expect_key(decoder, 4)?;
+        let pending = decode_pending(decoder)?;
+        expect_key(decoder, 5)?;
+        let proof = decode_fixed::<32>(decoder)?;
+        Ok(Self {
+            protocol_schema_version: PROTOCOL_SCHEMA_VERSION,
+            launch_authority_id,
+            desktop_host_instance_id,
+            pending,
+            proof,
+        })
+    }
+}
+
 /// Desktop commit for the exact durably persisted first-activation record.
 #[derive(Clone, Eq, PartialEq)]
 pub struct ProtectedFirstActivationCommitV1 {
@@ -145,4 +182,17 @@ impl DeterministicCodec for ProtectedFirstActivationCommitV1 {
             proof,
         })
     }
+}
+
+/// Exact launch tuple required for renewal and shutdown ownership proofs.
+#[derive(Clone, Eq, PartialEq)]
+pub struct ProtectedOwnedLaunchV1 {
+    launch_authority_id: [u8; 16],
+    desktop_host_instance_id: [u8; 16],
+    executable: ExecutableIdentityV1,
+    profile: ProtectedRuntimeProfileV1,
+    stable: StableRuntimeBindingV1,
+    daemon_instance_id: [u8; 16],
+    launch_generation: u64,
+    session_id: [u8; 16],
 }

@@ -6,6 +6,7 @@ import RuntimeStatus from './RuntimeStatus.vue'
 
 describe('runtime lifecycle status', () => {
   it.each([
+    ['configuration_required', 'Provider configuration required'],
     ['starting', 'Runtime starting'],
     ['ready', 'Runtime ready'],
     ['restarting', 'Runtime restarting'],

@@ -125,7 +125,8 @@ impl AppCore {
         self.set_runtime_failure_code(Some(failure))
     }
 
-    /// Marks a terminal bundled activation/supervision failure.
+    /// Marks a terminal bundled activation/supervision failure, or routes a
+    /// missing authenticated configuration to its dedicated lifecycle state.
     ///
     /// # Errors
     ///
@@ -134,6 +135,9 @@ impl AppCore {
         &self,
         failure: RuntimeFailureCode,
     ) -> Result<(), AppCoreError> {
+        if failure == RuntimeFailureCode::ConfigurationRequired {
+            return self.mark_bundled_runtime_configuration_required().await;
+        }
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         self.invalidate_bundled_activation_lease()?;
@@ -146,4 +150,21 @@ impl AppCore {
         self.set_runtime_failure_code(Some(failure))
     }
 
+    /// Records that bundled startup requires authenticated native enrollment.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for external mode or poisoned application state.
+    pub async fn mark_bundled_runtime_configuration_required(&self) -> Result<(), AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.require_bundled_mode()?;
+        self.invalidate_bundled_activation_lease()?;
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.set_runtime_availability(RuntimeAvailability::Unconfigured)?;
+        self.set_runtime_lifecycle(RuntimeLifecycleStatus::ConfigurationRequired)?;
+        self.set_runtime_failure_code(Some(RuntimeFailureCode::ConfigurationRequired))
+    }
 }

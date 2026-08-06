@@ -1,3 +1,21 @@
+// Daemon configuration subsystem.
+//
+// Implements ADR-0014 bootstrap subset:
+// - `BuiltInDefaults` — mandatory defaults.
+// - `SystemConfig` — optional TOML overrides on top of defaults.
+// - `ConfigurationSnapshot` — immutable merge result with provenance and
+//   deterministic digest (SHA-256 of canonical JSON).
+
+use crate::error::DaemonError;
+use crate::provider_activation::ProviderActivation;
+use gocode_api::{ProviderActivationBindingV1, ProviderActivationModeV1};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+use std::fs;
+#[cfg(unix)]
+use std::io::Read as _;
+use std::path::{Path, PathBuf};
+
 // ── Resolution helpers ───────────────────────────────────────────────
 
 /// Resolve the OS runtime directory used for all daemon data.
@@ -13,6 +31,19 @@ fn resolve_runtime_dir() -> PathBuf {
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
             home.join(".local").join("share")
         })
+}
+
+#[cfg(unix)]
+const MAX_EXTERNAL_CONFIG_BYTES: u64 = 16 * 1024;
+
+/// Fixed native owner-scoped source for external daemon selection.
+#[must_use]
+pub fn external_config_path() -> PathBuf {
+    dirs::config_local_dir()
+        .or_else(dirs::config_dir)
+        .unwrap_or_else(resolve_runtime_dir)
+        .join("gocode-daemon")
+        .join("config.toml")
 }
 
 // ── Provenance ────────────────────────────────────────────────────────
@@ -104,6 +135,29 @@ pub struct SystemConfig {
     pub replay_integrity_key_path: Option<String>,
     pub max_in_flight: Option<u32>,
     pub shutdown_timeout_ms: Option<u64>,
+    pub provider_activation: Option<ExternalProviderActivationConfig>,
+}
+
+/// Explicit owner-controlled, non-secret external provider selection.
+#[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExternalProviderActivationConfig {
+    mode: String,
+    profile_id: String,
+    profile_digest: String,
+}
+
+impl ExternalProviderActivationConfig {
+    fn binding(&self) -> Result<ProviderActivationBindingV1, DaemonError> {
+        let mode = ProviderActivationModeV1::try_from(self.mode.as_str())
+            .map_err(|_| DaemonError::Config("invalid provider activation mode".into()))?;
+        let digest = hex::decode(&self.profile_digest)
+            .ok()
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| DaemonError::Config("invalid provider activation digest".into()))?;
+        ProviderActivationBindingV1::new(mode, self.profile_id.clone(), digest)
+            .map_err(|_| DaemonError::Config("invalid provider activation profile".into()))
+    }
 }
 
 // ── ConfigurationSnapshot ─────────────────────────────────────────────
@@ -122,6 +176,8 @@ pub struct ConfigurationSnapshot {
     pub replay_integrity_key_path: String,
     pub max_in_flight: u32,
     pub shutdown_timeout_ms: u64,
+    /// Exact non-secret provider selection; defaulting is deterministic only.
+    pub provider_activation: ProviderActivation,
 
     /// Per-field provenance map (field name → source).
     pub provenance: BTreeMap<String, FieldSource>,
@@ -129,122 +185,4 @@ pub struct ConfigurationSnapshot {
     /// SHA-256 hex digest of the canonical JSON representation of
     /// **all** configuration values (alphabetical keys, no whitespace).
     pub digest: String,
-}
-
-impl ConfigurationSnapshot {
-    /// Build a snapshot from defaults only (no system config file).
-    pub fn from_defaults(defaults: &BuiltInDefaults) -> Self {
-        let mut provenance = BTreeMap::new();
-        provenance.insert("schema_version".into(), builtin_source());
-        provenance.insert("db_path".into(), builtin_source());
-        provenance.insert("http_bind".into(), builtin_source());
-        provenance.insert("replay_integrity_key_path".into(), builtin_source());
-        provenance.insert("max_in_flight".into(), builtin_source());
-        provenance.insert("shutdown_timeout_ms".into(), builtin_source());
-
-        let values = canonical_values_map(
-            defaults.schema_version,
-            &defaults.db_path,
-            &defaults.http_bind,
-            &defaults.replay_integrity_key_path,
-            defaults.max_in_flight,
-            defaults.shutdown_timeout_ms,
-        );
-
-        Self {
-            schema_version: defaults.schema_version,
-            db_path: defaults.db_path.clone(),
-            http_bind: defaults.http_bind.clone(),
-            replay_integrity_key_path: defaults.replay_integrity_key_path.clone(),
-            max_in_flight: defaults.max_in_flight,
-            shutdown_timeout_ms: defaults.shutdown_timeout_ms,
-            provenance,
-            digest: compute_digest(&values),
-        }
-    }
-
-    /// Merge defaults with a system config overlay.
-    ///
-    /// Fields present in `system` override the corresponding defaults;
-    /// provenance is updated to `SystemFile` for overridden fields.
-    ///
-    /// `system_path` is stored in provenance to record where the override
-    /// came from.
-    pub fn from_merge(
-        defaults: &BuiltInDefaults,
-        system: &SystemConfig,
-        system_path: &Path,
-    ) -> Self {
-        let schema_version = defaults.schema_version;
-        let db_path = system
-            .db_path
-            .as_deref()
-            .unwrap_or(&defaults.db_path)
-            .to_string();
-        let http_bind = system
-            .http_bind
-            .as_deref()
-            .unwrap_or(&defaults.http_bind)
-            .to_string();
-        let replay_integrity_key_path = system
-            .replay_integrity_key_path
-            .as_deref()
-            .unwrap_or(&defaults.replay_integrity_key_path)
-            .to_string();
-        let max_in_flight = system.max_in_flight.unwrap_or(defaults.max_in_flight);
-        let shutdown_timeout_ms = system
-            .shutdown_timeout_ms
-            .unwrap_or(defaults.shutdown_timeout_ms);
-
-        let mut provenance = BTreeMap::new();
-        provenance.insert("schema_version".into(), builtin_source()); // never overridden
-
-        let sys_src = system_source(system_path);
-
-        // db_path
-        provenance.insert(
-            "db_path".into(),
-            select_provenance(system.db_path.is_some(), &sys_src),
-        );
-        // http_bind
-        provenance.insert(
-            "http_bind".into(),
-            select_provenance(system.http_bind.is_some(), &sys_src),
-        );
-        // replay_integrity_key_path
-        provenance.insert(
-            "replay_integrity_key_path".into(),
-            select_provenance(system.replay_integrity_key_path.is_some(), &sys_src),
-        );
-        // max_in_flight
-        provenance.insert(
-            "max_in_flight".into(),
-            select_provenance(system.max_in_flight.is_some(), &sys_src),
-        );
-        // shutdown_timeout_ms
-        provenance.insert(
-            "shutdown_timeout_ms".into(),
-            select_provenance(system.shutdown_timeout_ms.is_some(), &sys_src),
-        );
-
-        let values = canonical_values_map(
-            schema_version,
-            &db_path,
-            &http_bind,
-            &replay_integrity_key_path,
-            max_in_flight,
-            shutdown_timeout_ms,
-        );
-
-        Self {
-            schema_version,
-            db_path,
-            http_bind,
-            replay_integrity_key_path,
-            max_in_flight,
-            shutdown_timeout_ms,
-            provenance,
-            digest: compute_digest(&values),
-        }
-    }
 }
