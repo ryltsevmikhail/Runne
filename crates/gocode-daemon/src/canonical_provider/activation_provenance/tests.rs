@@ -167,3 +167,52 @@ fn daemon_derived_binding_rejects_mutation_without_durable_effect() {
     assert_eq!((after.0, after.1), original);
     assert_eq!(after.2, 0);
 }
+
+#[test]
+fn external_digest_cannot_be_relabelled_as_protected_without_effect() {
+    let (directory, token) = owner_token(openai_activation(), "config-a", [0x11; 16], 1);
+    let path = directory.path().join("authority.sqlite");
+    let store = SqliteProviderExecutionStore::open(&path).unwrap();
+    let config =
+        authority_config(DaemonActivationProvenance::from_verified_owner_private_config(&token));
+    store.install_runtime_authority(&config).unwrap();
+    let mut mutated = config;
+    mutated.activation_binding_kind = ProviderLeaseBindingKind::ProtectedV2;
+
+    assert_eq!(
+        store.install_runtime_authority(&mutated),
+        Err(ProviderAdmissionError::AuthorityConflict)
+    );
+    assert_eq!(store.admitted_count().unwrap(), 0);
+    assert_eq!(effect_count(&path), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn protected_digest_cannot_be_relabelled_as_external_without_effect() {
+    let (directory, start) = protected_token();
+    let path = directory.path().join("authority.sqlite");
+    let store = SqliteProviderExecutionStore::open(&path).unwrap();
+    let config = authority_config(DaemonActivationProvenance::from_verified_protected_launch(
+        &start,
+    ));
+    store.install_runtime_authority(&config).unwrap();
+    let mut mutated = config;
+    mutated.activation_binding_kind = ProviderLeaseBindingKind::ExternalOwnerPrivate;
+
+    assert_eq!(
+        store.install_runtime_authority(&mutated),
+        Err(ProviderAdmissionError::AuthorityConflict)
+    );
+    assert_eq!(store.admitted_count().unwrap(), 0);
+    assert_eq!(effect_count(&path), 0);
+}
+
+fn effect_count(path: &std::path::Path) -> i64 {
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM provider_effect_starts", [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+}
