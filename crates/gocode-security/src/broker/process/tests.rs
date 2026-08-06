@@ -2,18 +2,26 @@
 mod tests {
     use super::*;
 
-    fn absolute_executable() -> String {
-        std::env::current_exe()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
+    fn virtual_executable() -> String {
+        #[cfg(windows)]
+        {
+            r"C:\virtual\bin\tool.exe".into()
+        }
+        #[cfg(not(windows))]
+        {
+            "/virtual/bin/tool".into()
+        }
     }
 
-    fn absolute_cwd() -> String {
-        std::env::current_dir()
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
+    fn virtual_cwd() -> String {
+        #[cfg(windows)]
+        {
+            r"C:\virtual\workspace".into()
+        }
+        #[cfg(not(windows))]
+        {
+            "/virtual/workspace".into()
+        }
     }
 
     fn absolute_shell() -> String {
@@ -30,7 +38,7 @@ mod tests {
     #[test]
     fn shell_metacharacters_rejected() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
-        let cwd = absolute_cwd();
+        let cwd = virtual_cwd();
         let spec = ProcessSpec {
             executable: absolute_shell(),
             executable_digest: Some([1; 32]),
@@ -52,9 +60,9 @@ mod tests {
     #[test]
     fn secret_in_argv_rejected() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
-        let cwd = absolute_cwd();
+        let cwd = virtual_cwd();
         let spec = ProcessSpec {
-            executable: absolute_executable(),
+            executable: virtual_executable(),
             executable_digest: Some([1; 32]),
             argv: vec!["--token".into(), "sk-abc123".into()],
             env: HashMap::new(),
@@ -77,9 +85,9 @@ mod tests {
     #[test]
     fn valid_spec_accepted() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
-        let cwd = absolute_cwd();
+        let cwd = virtual_cwd();
         let spec = ProcessSpec {
-            executable: absolute_executable(),
+            executable: virtual_executable(),
             executable_digest: Some([1; 32]),
             argv: vec!["--input".into(), "file.txt".into()],
             env: HashMap::from([("HOME".into(), "/var/empty".into())]),
@@ -176,9 +184,9 @@ mod tests {
     }
 
     fn valid_spec() -> ProcessSpec {
-        let cwd = absolute_cwd();
+        let cwd = virtual_cwd();
         ProcessSpec {
-            executable: absolute_executable(),
+            executable: virtual_executable(),
             executable_digest: Some([1; 32]),
             argv: vec!["--input".into(), "file.txt".into()],
             env: HashMap::from([("HOME".into(), "/var/empty".into())]),
