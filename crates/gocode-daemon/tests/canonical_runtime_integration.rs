@@ -224,17 +224,7 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
     let profile: Value = profile.json().await.unwrap();
     assert_eq!(
         profile["capabilities"],
-        json!([
-            "conversation.create.v1",
-            "conversation.generate_text.v1",
-            "conversation.list_messages.v1",
-            "replay.aggregate.open.v1",
-            "replay.aggregate.read_page.v1",
-            "replay.aggregate.acknowledge.v1",
-            "replay.aggregate.complete_catch_up.v1",
-            "replay.aggregate.continue_live.v1",
-            "replay.aggregate.sse.v1",
-        ])
+        json!(gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES)
     );
 
     let replay = client

@@ -10,8 +10,8 @@ use std::{
 
 use axum::{Router, middleware as axum_mw};
 use gocode_api::{
-    ConversationCommandHostPort, ConversationQueryHostPort, TaskRunCommandHostPort,
-    TaskRunQueryHostPort,
+    ConversationCommandHostPort, ConversationQueryHostPort, OPERATIONAL_TELEMETRY_CAPABILITY_V1,
+    TaskRunCommandHostPort, TaskRunQueryHostPort,
 };
 
 use crate::admission::{AdmissionState, admission_middleware};
@@ -21,6 +21,9 @@ use crate::health::{HealthState, health_router};
 use crate::local_session::{LocalSessionHttpState, VerifiedLocalTls, local_session_router};
 use crate::middleware::request_id_middleware;
 use crate::opencode::{OpenCodeSessionState, opencode_session_router};
+use crate::operational_telemetry::{
+    OperationalTelemetryHttpState, no_store_response, operational_telemetry_router,
+};
 use crate::replay::{ReplayHttpState, replay_router};
 use crate::runtime_profile::{
     RuntimeProfileHttpState, runtime_profile_router, runtime_profile_session_router,

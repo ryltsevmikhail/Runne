@@ -14,8 +14,8 @@
     },
     "capabilities": {
       "items": false,
-      "maxItems": 9,
-      "minItems": 9,
+      "maxItems": 10,
+      "minItems": 10,
       "prefixItems": [
         {
           "const": "conversation.create.v1",
@@ -51,6 +51,10 @@
         },
         {
           "const": "replay.aggregate.sse.v1",
+          "type": "string"
+        },
+        {
+          "const": "runtime.operational-telemetry.v1",
           "type": "string"
         }
       ],

@@ -26,6 +26,8 @@ use crate::router::SecureLocalHttpHost;
 use crate::runtime_profile::RuntimeProfileHttpState;
 use crate::task_runs::TaskRunHttpState;
 
+mod operational_telemetry;
+
 const PRE_AUTH_HANDSHAKE_LIMIT: usize = 32;
 const PRE_AUTH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(1);
 const TOTAL_CONNECTION_LIMIT: usize = 64;

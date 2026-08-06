@@ -4,6 +4,7 @@ mod admission;
 mod authority;
 mod coordinator;
 mod execution;
+mod operational;
 
 pub use admission::{
     ProviderAdmissionError, ProviderBudgetUtilization, ProviderEffectAuthorityRef,
@@ -16,4 +17,11 @@ pub use execution::{
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
     ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
     ProviderTerminalPricingBinding,
+};
+pub use operational::{
+    ProviderDurableOperationalTelemetry, ProviderOperationalAccounting,
+    ProviderOperationalExpiryAggregate, ProviderOperationalTelemetryScope,
+    ProviderOperationalTelemetrySource, ProviderOperationalTelemetrySourceError,
+    ProviderRecoveryObservation, ProviderRecoveryObservationAvailability, ProviderRecoveryObserver,
+    ProviderRecoveryObserverError,
 };

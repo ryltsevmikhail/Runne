@@ -37,6 +37,14 @@ fn positive_integer_schema() -> Value {
     json!({"minimum": 1, "type": "integer"})
 }
 
+fn telemetry_u64_schema() -> Value {
+    json!({"maximum": u64::MAX, "minimum": 0, "type": "integer"})
+}
+
+fn positive_telemetry_u64_schema() -> Value {
+    json!({"maximum": u64::MAX, "minimum": 1, "type": "integer"})
+}
+
 fn enum_schema(values: &[&str]) -> Value {
     json!({"enum": values, "type": "string"})
 }

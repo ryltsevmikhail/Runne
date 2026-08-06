@@ -1,4 +1,12 @@
 {
+  "components": {
+    "securitySchemes": {
+      "sessionAuth": {
+        "scheme": "GocodeSession",
+        "type": "http"
+      }
+    }
+  },
   "info": {
     "title": "GOCODE Local Runtime API",
     "version": "1.0.0"
@@ -257,6 +265,96 @@
             "description": "Canonical response"
           }
         }
+      }
+    },
+    "/v1/runtime/operational-telemetry": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/operational-telemetry-v1.schema.json"
+                }
+              }
+            },
+            "description": "Operational telemetry snapshot",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Static bad request response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Static unauthorized response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Static method not allowed response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Static payload too large response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Static unavailable response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
       }
     }
   }

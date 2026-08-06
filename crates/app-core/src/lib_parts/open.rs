@@ -58,17 +58,22 @@ impl AppCore {
         runtime_mode: RuntimeMode,
         runtime_profile_path: Option<PathBuf>,
     ) -> Result<Self, AppCoreError> {
-        let runtime_lifecycle = match runtime_mode {
-            RuntimeMode::ExternalLocal => RuntimeLifecycleStatus::External,
-            RuntimeMode::Bundled => RuntimeLifecycleStatus::Starting,
-        };
+        let lifecycle = HostLifecycleState::new(runtime_mode);
+        let (lifecycle_sender, lifecycle_receiver) =
+            tokio::sync::mpsc::channel(HOST_LIFECYCLE_CHANNEL_CAPACITY_V1);
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_mode,
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
-            runtime_lifecycle: RwLock::new(runtime_lifecycle),
-            runtime_failure: RwLock::new(None),
+            host_lifecycle: RwLock::new(lifecycle),
+            lifecycle_sender,
+            lifecycle_event_pipeline: Mutex::new(HostLifecycleEventPipeline::new(lifecycle_receiver)),
+            lifecycle_pipeline_closed: AtomicBool::new(false),
+            lifecycle_producer_drops: AtomicU64::new(0),
+            lifecycle_producer_drop_saturated: AtomicBool::new(false),
+            lifecycle_evictions: AtomicU64::new(0),
+            lifecycle_eviction_saturated: AtomicBool::new(false),
             bundled_activation_epoch: Mutex::new(0),
             pending_resync_scopes: RwLock::new(HashSet::new()),
             runtime_client: RwLock::new(None),
@@ -89,13 +94,22 @@ impl AppCore {
         path: &Path,
         client: AuthenticatedRuntimeClient,
     ) -> Result<Self, AppCoreError> {
+        let lifecycle = HostLifecycleState::new(RuntimeMode::ExternalLocal);
+        let (lifecycle_sender, lifecycle_receiver) =
+            tokio::sync::mpsc::channel(HOST_LIFECYCLE_CHANNEL_CAPACITY_V1);
         Ok(Self {
             store: Mutex::new(LocalStore::open(path)?),
             runtime_mode: RuntimeMode::ExternalLocal,
             runtime_profile_path: None,
             runtime_state: RwLock::new(RuntimeAvailability::Live),
-            runtime_lifecycle: RwLock::new(RuntimeLifecycleStatus::External),
-            runtime_failure: RwLock::new(None),
+            host_lifecycle: RwLock::new(lifecycle),
+            lifecycle_sender,
+            lifecycle_event_pipeline: Mutex::new(HostLifecycleEventPipeline::new(lifecycle_receiver)),
+            lifecycle_pipeline_closed: AtomicBool::new(false),
+            lifecycle_producer_drops: AtomicU64::new(0),
+            lifecycle_producer_drop_saturated: AtomicBool::new(false),
+            lifecycle_evictions: AtomicU64::new(0),
+            lifecycle_eviction_saturated: AtomicBool::new(false),
             bundled_activation_epoch: Mutex::new(0),
             pending_resync_scopes: RwLock::new(HashSet::new()),
             runtime_client: RwLock::new(Some(client)),
