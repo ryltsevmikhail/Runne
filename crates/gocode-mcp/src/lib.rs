@@ -12,14 +12,17 @@ mod transport;
 pub use discovery::{
     McpDiscoveryError, McpDiscoverySnapshot, McpDispatchBinding, McpDispatchCapabilityError,
     McpGenerationAdvanceError, McpGenerationAuthority, McpGenerationClaimError, McpServerKind,
-    McpToolDescriptor, McpToolDispatchCapability, McpToolGateway, McpToolGatewayError,
-    PublishedMcpTools, publish_mcp_tools,
+    McpToolDescriptor, McpToolDispatchCapability, McpToolExecutionClass, McpToolGateway,
+    McpToolGatewayError, PublishedMcpTools, publish_mcp_tools,
 };
 pub use fixture::{
     FixtureApproval, FixtureApprovalAuthority, FixtureApprovalPolicy, FixtureAuditRecord,
     FixtureCallCapability, FixtureCallResult, FixtureIdentity, FixtureInitialize, FixtureLimits,
-    FixtureMcpFailure, FixtureMcpMode, FixtureMcpRuntime, FixtureProfile, FixturePublication,
-    FixtureScript, FixtureStep, FixtureTool,
+    FixtureMcpFailure, FixtureMcpMode, FixtureMcpRuntime, FixtureProcessApprovalAuthority,
+    FixtureProcessComposition, FixtureProcessCompositionMetadata, FixtureProfile,
+    FixturePublication, FixtureScript, FixtureStep, FixtureTool, McpProcessCall,
+    McpProcessExecutor, McpProcessGatewayError, McpProcessToolGateway,
+    derive_process_identity_binding,
 };
 pub use model::{
     InvalidMcpIdentity, McpConnectionId, McpInvocationId, McpNormalizedMessage, McpRequestId,

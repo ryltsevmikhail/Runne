@@ -11,10 +11,10 @@ use crate::EffectAdmission;
 
 use super::{
     ProcessAuditRecordV1, ProcessAuditStageV1, ProcessClaimBindingV1, ProcessClaimInputV1,
-    ProcessClaimJournalPort, ProcessClaimKeyV1, ProcessClaimRecordV1, ProcessContractErrorV1,
-    ProcessLifecycleStateV1, ProcessMonotonicTimingDispositionV1, ProcessOwnerVerificationV1,
-    ProcessSettlementProofV1, ProcessTerminalSettlementV1, ProcessTreeCleanupV1,
-    ProcessUncertainReasonV1,
+    ProcessClaimJournalMemoryV1, ProcessClaimJournalPort, ProcessClaimKeyV1, ProcessClaimRecordV1,
+    ProcessContractErrorV1, ProcessLifecycleStateV1, ProcessMonotonicTimingDispositionV1,
+    ProcessOwnerVerificationV1, ProcessSettlementProofV1, ProcessTerminalSettlementV1,
+    ProcessTreeCleanupV1, ProcessUncertainReasonV1,
     journal::{project_claim, settle, transition},
 };
 
@@ -135,7 +135,6 @@ fn terminal_settlement_atomically_contains_output_metadata() {
         )
         .expect("terminal evidence"),
     );
-
     let record = settle(&mut journal, &input, settlement(&input, proof)).expect("settled");
     let metadata = record.settlement().expect("settlement metadata");
 
@@ -254,6 +253,33 @@ fn exact_settlement_replay_is_idempotent_and_conflict_is_rejected() {
             .expect("original record")
             .settlement(),
         first.settlement()
+    );
+}
+
+#[test]
+fn memory_journal_keeps_exact_settlement_and_rejects_a_different_draft() {
+    let input = input();
+    let mut journal = ProcessClaimJournalMemoryV1::new();
+    project_claim(&mut journal, &input).expect("claim projection");
+    transition(&mut journal, &input, ProcessLifecycleStateV1::Launching).expect("launching");
+    let original = settlement(
+        &input,
+        ProcessSettlementProofV1::Uncertain(ProcessUncertainReasonV1::EvidenceUnavailable),
+    );
+
+    let first = settle(&mut journal, &input, original.clone()).expect("first settlement");
+    let replay = settle(&mut journal, &input, original).expect("exact settlement replay");
+    assert_eq!(first.settlement(), replay.settlement());
+    assert_eq!(
+        settle(
+            &mut journal,
+            &input,
+            settlement(
+                &input,
+                ProcessSettlementProofV1::Uncertain(ProcessUncertainReasonV1::TimingUnavailable),
+            ),
+        ),
+        Err(ProcessContractErrorV1::SettlementConflict)
     );
 }
 

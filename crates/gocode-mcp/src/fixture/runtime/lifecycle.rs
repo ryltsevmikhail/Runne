@@ -2,11 +2,26 @@ impl FixtureMcpRuntime {
     /// Creates a fixture runtime without exporting an approval authority.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        mode: FixtureMcpMode, identity: FixtureIdentity, tools: Vec<FixtureTool>, script: FixtureScript,
-        allowlist: &[&str], limits: FixtureLimits, policy: FixtureApprovalPolicy, accounting_limit: u64,
+        mode: FixtureMcpMode,
+        identity: FixtureIdentity,
+        tools: Vec<FixtureTool>,
+        script: FixtureScript,
+        allowlist: &[&str],
+        limits: FixtureLimits,
+        policy: FixtureApprovalPolicy,
+        accounting_limit: u64,
     ) -> Result<Self, FixtureMcpFailure> {
-        Self::new_with_approval_authority(mode, identity, tools, script, allowlist, limits, policy, accounting_limit)
-            .map(|(runtime, _)| runtime)
+        Self::new_with_approval_authority(
+            mode,
+            identity,
+            tools,
+            script,
+            allowlist,
+            limits,
+            policy,
+            accounting_limit,
+        )
+        .map(|(runtime, _)| runtime)
     }
 
     /// Creates a runtime and separately hands its injected fixture approval authority to the caller.
@@ -30,47 +45,71 @@ impl FixtureMcpRuntime {
         if names.len() != tools.len() || allowlist.iter().any(|name| !names.contains(*name)) {
             return Err(FixtureMcpFailure::ToolDefinitionInvalid);
         }
-        let allowlist = allowlist.iter().map(|name| (*name).to_owned()).collect::<BTreeSet<_>>();
+        let allowlist = allowlist
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<BTreeSet<_>>();
         let issuer_digest = super::model::digest(&[
             b"fixture-issuer-v1",
-            &FIXTURE_ISSUER_SEQUENCE.fetch_add(1, Ordering::Relaxed).to_be_bytes(),
+            &FIXTURE_ISSUER_SEQUENCE
+                .fetch_add(1, Ordering::Relaxed)
+                .to_be_bytes(),
         ]);
         let mut definition_parts = vec![
-            identity.definition_digest().to_vec(), script.digest().to_vec(),
-            limits.max_bytes.to_be_bytes().to_vec(), limits.max_depth.to_be_bytes().to_vec(),
-            limits.max_items.to_be_bytes().to_vec(), limits.max_string_bytes.to_be_bytes().to_vec(),
-            vec![policy as u8], accounting_limit.to_be_bytes().to_vec(),
+            identity.definition_digest().to_vec(),
+            script.digest().to_vec(),
+            limits.max_bytes.to_be_bytes().to_vec(),
+            limits.max_depth.to_be_bytes().to_vec(),
+            limits.max_items.to_be_bytes().to_vec(),
+            limits.max_string_bytes.to_be_bytes().to_vec(),
+            vec![policy as u8],
+            accounting_limit.to_be_bytes().to_vec(),
             b"fixture-in-process-transport-v1".to_vec(),
         ];
-        definition_parts.extend(tools.iter().map(FixtureTool::definition_digest).map(|digest| digest.to_vec()));
+        definition_parts.extend(
+            tools
+                .iter()
+                .map(FixtureTool::definition_digest)
+                .map(|digest| digest.to_vec()),
+        );
         definition_parts.extend(allowlist.iter().map(|name| name.as_bytes().to_vec()));
-        let definition_refs = definition_parts.iter().map(Vec::as_slice).collect::<Vec<_>>();
-        let definition_digest = super::model::digest_domain(b"GOCODE_MCP_FIXTURE_DEFINITION_V1\0", &definition_refs);
-        Ok((Self {
-            mode,
-            identity,
-            tools,
-            script,
-            allowlist,
-            limits,
-            policy,
-            definition_digest,
-            issuer_digest,
-            state: Arc::new(Mutex::new(FixtureState {
-                active: None,
-                reconnect_required: None,
-                reconnect_identity: None,
-                tick: 0,
-                next_step: 0,
-                remaining: accounting_limit,
-                effects: BTreeMap::new(),
-                audit: Vec::new(),
-                dispatches: 0,
-                selected_outcomes: BTreeMap::new(),
-                protocol_reservations: BTreeMap::new(),
-            })),
-            gateway: None,
-        }, FixtureApprovalAuthority { issuer_digest }))
+        let definition_refs = definition_parts
+            .iter()
+            .map(Vec::as_slice)
+            .collect::<Vec<_>>();
+        let definition_digest =
+            super::model::digest_domain(b"GOCODE_MCP_FIXTURE_DEFINITION_V1\0", &definition_refs);
+        Ok((
+            Self {
+                mode,
+                identity,
+                tools,
+                script,
+                allowlist,
+                limits,
+                policy,
+                definition_digest,
+                issuer_digest,
+                state: Arc::new(Mutex::new(FixtureState {
+                    active: None,
+                    reconnect_required: None,
+                    reconnect_identity: None,
+                    tick: 0,
+                    next_step: 0,
+                    remaining: accounting_limit,
+                    effects: BTreeMap::new(),
+                    audit: Vec::new(),
+                    dispatches: 0,
+                    selected_outcomes: BTreeMap::new(),
+                    protocol_reservations: BTreeMap::new(),
+                })),
+                gateway: None,
+                process_composition: None,
+                process_gateway: None,
+                process_generation: None,
+            },
+            FixtureApprovalAuthority { issuer_digest },
+        ))
     }
 
     /// Authenticates one exact identity/runtime/session/generation/connection tuple.
@@ -86,8 +125,12 @@ impl FixtureMcpRuntime {
             .map_err(|_| FixtureMcpFailure::InvalidStateTransition)?;
         if let Some(requirement) = &state.reconnect_required {
             let (connection_valid, generation) = match requirement {
-                ReconnectRequirement::Exact(connection_id, generation) => (connection_id == &request.connection_id, generation),
-                ReconnectRequirement::Fresh(connection_id, generation) => (connection_id != &request.connection_id, generation),
+                ReconnectRequirement::Exact(connection_id, generation) => {
+                    (connection_id == &request.connection_id, generation)
+                }
+                ReconnectRequirement::Fresh(connection_id, generation) => {
+                    (connection_id != &request.connection_id, generation)
+                }
             };
             if !connection_valid {
                 return Err(FixtureMcpFailure::ConnectionMismatch);
@@ -172,8 +215,13 @@ impl FixtureMcpRuntime {
             .tools
             .iter()
             .map(|tool| {
-                McpToolDescriptor::new(tool.name(), tool.version(), tool.input_schema().clone())
-                    .map_err(|_| FixtureMcpFailure::ToolDefinitionInvalid)
+                McpToolDescriptor::new_with_execution_class(
+                    tool.name(),
+                    tool.version(),
+                    tool.input_schema().clone(),
+                    tool.execution_class(),
+                )
+                .map_err(|_| FixtureMcpFailure::ToolDefinitionInvalid)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let allowed = self
@@ -199,16 +247,18 @@ impl FixtureMcpRuntime {
             *published.discovery_digest(),
         )
         .map_err(|_| FixtureMcpFailure::InvalidStateTransition)?;
+        let bounds = ToolOutputBounds::new(
+            self.limits.max_bytes,
+            self.limits.max_items,
+            self.limits.max_items,
+        )
+        .map_err(|_| FixtureMcpFailure::InvalidStateTransition)?;
+        self.activate_process_gateway(&binding, bounds)?;
         self.gateway = Some(McpToolGateway::new(
             FixtureAdmission,
             FixtureClient(Arc::clone(&self.state)),
             Arc::new(McpGenerationAuthority::new(&binding)),
-            ToolOutputBounds::new(
-                self.limits.max_bytes,
-                self.limits.max_items,
-                self.limits.max_items,
-            )
-            .map_err(|_| FixtureMcpFailure::InvalidStateTransition)?,
+            bounds,
         ));
         Ok(FixturePublication {
             published,
@@ -229,5 +279,7 @@ impl FixtureMcpRuntime {
     }
 
     /// Returns the canonical digest of the complete immutable fixture definition.
-    pub const fn definition_digest(&self) -> [u8; 32] { self.definition_digest }
+    pub const fn definition_digest(&self) -> [u8; 32] {
+        self.definition_digest
+    }
 }

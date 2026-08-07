@@ -87,7 +87,16 @@ impl McpGenerationAuthority {
         &self,
         binding: &McpDispatchBinding,
     ) -> Result<(), McpGenerationAdvanceError> {
-        let mut current = match self.current.try_write() {
+        let mut advance = self.prepare_advance(binding)?;
+        advance.apply_retaining_lock();
+        Ok(())
+    }
+
+    pub(crate) fn prepare_advance(
+        &self,
+        binding: &McpDispatchBinding,
+    ) -> Result<McpGenerationAdvance<'_>, McpGenerationAdvanceError> {
+        let current = match self.current.try_write() {
             Ok(current) => current,
             Err(TryLockError::WouldBlock) => return Err(McpGenerationAdvanceError::Busy),
             Err(TryLockError::Poisoned(_)) => return Err(McpGenerationAdvanceError::Unavailable),
@@ -95,14 +104,17 @@ impl McpGenerationAuthority {
         if binding.generation <= current.generation {
             return Err(McpGenerationAdvanceError::InvalidGeneration);
         }
-        *current = McpGenerationBinding {
-            generation: binding.generation,
-            binding_digest: binding.binding_digest,
-        };
-        Ok(())
+        Ok(McpGenerationAdvance {
+            current,
+            next: McpGenerationBinding {
+                generation: binding.generation,
+                binding_digest: binding.binding_digest,
+            },
+            applied: false,
+        })
     }
 
-    fn claim_dispatch(
+    pub(crate) fn claim_dispatch(
         &self,
         binding: &McpDispatchBinding,
     ) -> Result<McpGenerationReadPermit<'_>, McpGenerationClaimError> {
@@ -121,6 +133,28 @@ impl McpGenerationAuthority {
     }
 }
 
+pub(crate) struct McpGenerationAdvance<'a> {
+    current: RwLockWriteGuard<'a, McpGenerationBinding>,
+    next: McpGenerationBinding,
+    applied: bool,
+}
+
+impl McpGenerationAdvance<'_> {
+    pub(crate) fn current_generation(&self) -> u64 {
+        self.current.generation
+    }
+
+    pub(crate) fn apply_retaining_lock(&mut self) {
+        if !self.applied {
+            *self.current = McpGenerationBinding {
+                generation: self.next.generation,
+                binding_digest: self.next.binding_digest,
+            };
+            self.applied = true;
+        }
+    }
+}
+
 /// Generation advance failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpGenerationAdvanceError {
@@ -133,13 +167,13 @@ pub enum McpGenerationAdvanceError {
 }
 
 /// Read permit held through gateway admission and client dispatch.
-struct McpGenerationReadPermit<'a> {
+pub(crate) struct McpGenerationReadPermit<'a> {
     binding_digest: [u8; 32],
     _guard: RwLockReadGuard<'a, McpGenerationBinding>,
 }
 
 impl McpGenerationReadPermit<'_> {
-    fn matches(&self, binding: &McpDispatchBinding) -> bool {
+    pub(crate) fn matches(&self, binding: &McpDispatchBinding) -> bool {
         self.binding_digest == binding.binding_digest
     }
 }

@@ -7,6 +7,7 @@ use super::{
     ProcessIntentV1,
 };
 
+#[derive(Clone)]
 pub(crate) struct CurrentProcessContextV1 {
     executable: VerifiedExecutableV1,
     policy: ExecutablePolicyId,
@@ -16,6 +17,31 @@ pub(crate) struct CurrentProcessContextV1 {
     pub(crate) approver: ApproverId,
     pub(crate) revision: u64,
     pub(crate) epoch: u64,
+}
+
+impl CurrentProcessContextV1 {
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn new(
+        executable: VerifiedExecutableV1,
+        policy: ExecutablePolicyId,
+        cwd: VerifiedCwdV1,
+        root: AllowedRootId,
+        binding: ProcessIdentityBindingV1,
+        approver: ApproverId,
+        revision: u64,
+        epoch: u64,
+    ) -> Self {
+        Self {
+            executable,
+            policy,
+            cwd,
+            root,
+            binding,
+            approver,
+            revision,
+            epoch,
+        }
+    }
 }
 
 #[cfg(test)]

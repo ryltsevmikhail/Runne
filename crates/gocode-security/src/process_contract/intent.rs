@@ -3,8 +3,8 @@
 use core::fmt;
 
 use gocode_platform_ports::process::{
-    HeldProcessTreeHandleV1, ProcessAttemptIdV1, ProcessGenerationIdV1, ProcessOwnerIdV1,
-    ProcessSessionIdV1, VerifiedCwdV1, VerifiedExecutableV1,
+    HeldProcessTreeHandleV1, ProcessAttemptIdV1, ProcessGenerationIdV1, ProcessLifecycleBindingV1,
+    ProcessOwnerIdV1, ProcessSessionIdV1, VerifiedCwdV1, VerifiedExecutableV1,
 };
 
 use super::{
@@ -196,6 +196,19 @@ impl ProcessIntentV1 {
     pub const fn digest(&self) -> ProcessIntentDigestV1 {
         self.digest
     }
+
+    /// Projects the exact opaque lifecycle binding from this immutable intent.
+    #[must_use]
+    pub fn lifecycle_binding(&self) -> ProcessLifecycleBindingV1 {
+        ProcessLifecycleBindingV1::new(
+            self.binding.owner().clone(),
+            self.binding.attempt().clone(),
+            self.binding.session().clone(),
+            self.binding.generation().clone(),
+            self.binding.tree().clone(),
+        )
+    }
+
     pub(crate) fn approval(&self) -> &ApprovalId {
         &self.approval
     }
