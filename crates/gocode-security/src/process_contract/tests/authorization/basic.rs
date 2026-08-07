@@ -1,26 +1,27 @@
 use super::super::super::ProcessContractError;
 use super::super::super::authorization::{
-    AuthorizationReplayGuard, approval_scope, approve, issue_capability, validate_authorization,
+    AuthorizationReplayDomainV1, AuthorizationReplayGuard, approval_scope, approve_bound,
+    issue_capability, validate_authorization,
 };
 use super::super::super::context::current_context;
 use super::super::support::{approver, baseline, capability};
 
 #[test]
-fn replay_guard_snapshot_round_trip_preserves_replay_rejection() {
+fn replay_guard_rejects_reuse_without_a_cloned_snapshot() {
     let intent = baseline();
-    let mut replay_guard = AuthorizationReplayGuard::new([1; 16]);
+    let mut replay_guard =
+        AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([1; 16], 1));
     let authority = approver(20);
     let capability = issue_capability(capability(21), &replay_guard, &intent, 2, 1, 1);
-    let approval = approve(
+    let current = current_context(&intent, authority, 1, 1);
+    let approval = approve_bound(
         &intent,
         approval_scope(&intent),
-        authority.clone(),
+        &replay_guard,
+        &current,
         2,
-        1,
-        1,
         true,
     );
-    let current = current_context(&intent, authority, 1, 1);
     assert!(
         validate_authorization(
             intent.clone(),
@@ -32,20 +33,18 @@ fn replay_guard_snapshot_round_trip_preserves_replay_rejection() {
         )
         .is_ok()
     );
-    let snapshot = replay_guard.snapshot();
-    let mut reopened = AuthorizationReplayGuard::reopen(snapshot);
     assert!(matches!(
         validate_authorization(
             intent.clone(),
             Some(&capability),
             Some(&approval),
             &current,
-            &mut reopened,
+            &mut replay_guard,
             1
         ),
         Err(ProcessContractError::CapabilityInvalid)
     ));
-    let mut fresh = AuthorizationReplayGuard::new([2; 16]);
+    let mut fresh = AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([2; 16], 2));
     assert!(matches!(
         validate_authorization(
             intent,
@@ -62,19 +61,19 @@ fn replay_guard_snapshot_round_trip_preserves_replay_rejection() {
 #[test]
 fn exact_valid_authorization_is_recorded_once() {
     let intent = baseline();
-    let mut replay_guard = AuthorizationReplayGuard::new([1; 16]);
+    let mut replay_guard =
+        AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([1; 16], 1));
     let authority = approver(20);
     let capability = issue_capability(capability(21), &replay_guard, &intent, 2, 1, 1);
-    let approval = approve(
+    let current = current_context(&intent, authority, 1, 1);
+    let approval = approve_bound(
         &intent,
         approval_scope(&intent),
-        authority.clone(),
+        &replay_guard,
+        &current,
         2,
-        1,
-        1,
         true,
     );
-    let current = current_context(&intent, authority, 1, 1);
     assert!(
         validate_authorization(
             intent.clone(),
@@ -103,19 +102,20 @@ fn exact_valid_authorization_is_recorded_once() {
 fn replay_guard_id_mismatch_is_denied() {
     let intent = baseline();
     let authority = approver(20);
-    let issued_replay_guard = AuthorizationReplayGuard::new([1; 16]);
-    let mut current_replay_guard = AuthorizationReplayGuard::new([2; 16]);
+    let issued_replay_guard =
+        AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([1; 16], 1));
+    let mut current_replay_guard =
+        AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([2; 16], 2));
     let capability = issue_capability(capability(21), &issued_replay_guard, &intent, 2, 1, 1);
-    let approval = approve(
+    let current = current_context(&intent, authority, 1, 1);
+    let approval = approve_bound(
         &intent,
         approval_scope(&intent),
-        authority.clone(),
+        &issued_replay_guard,
+        &current,
         2,
-        1,
-        1,
         true,
     );
-    let current = current_context(&intent, authority, 1, 1);
     assert!(matches!(
         validate_authorization(
             intent,
@@ -133,18 +133,18 @@ fn replay_guard_id_mismatch_is_denied() {
 fn capability_and_approval_are_required_and_expire_at_their_deadline() {
     let intent = baseline();
     let authority = approver(20);
-    let mut replay_guard = AuthorizationReplayGuard::new([1; 16]);
+    let mut replay_guard =
+        AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([1; 16], 1));
     let expired_capability = issue_capability(capability(21), &replay_guard, &intent, 1, 1, 1);
-    let approval = approve(
+    let current = current_context(&intent, authority, 1, 1);
+    let approval = approve_bound(
         &intent,
         approval_scope(&intent),
-        authority.clone(),
+        &replay_guard,
+        &current,
         2,
-        1,
-        1,
         true,
     );
-    let current = current_context(&intent, authority, 1, 1);
     assert!(matches!(
         validate_authorization(
             intent.clone(),
@@ -179,12 +179,11 @@ fn capability_and_approval_are_required_and_expire_at_their_deadline() {
         Err(ProcessContractError::CapabilityInvalid)
     ));
     let valid_capability = issue_capability(capability(22), &replay_guard, &intent, 2, 1, 1);
-    let expired_approval = approve(
+    let expired_approval = approve_bound(
         &intent,
         approval_scope(&intent),
-        approver(20),
-        1,
-        1,
+        &replay_guard,
+        &current,
         1,
         true,
     );
@@ -205,27 +204,26 @@ fn capability_and_approval_are_required_and_expire_at_their_deadline() {
 fn rejected_approval_does_not_record_authorization() {
     let intent = baseline();
     let authority = approver(20);
-    let mut replay_guard = AuthorizationReplayGuard::new([1; 16]);
+    let mut replay_guard =
+        AuthorizationReplayGuard::new(AuthorizationReplayDomainV1::new([1; 16], 1));
     let capability = issue_capability(capability(21), &replay_guard, &intent, 2, 1, 1);
-    let rejected = approve(
+    let current = current_context(&intent, authority, 1, 1);
+    let rejected = approve_bound(
         &intent,
         approval_scope(&intent),
-        authority.clone(),
+        &replay_guard,
+        &current,
         2,
-        1,
-        1,
         false,
     );
-    let approved = approve(
+    let approved = approve_bound(
         &intent,
         approval_scope(&intent),
-        authority.clone(),
+        &replay_guard,
+        &current,
         2,
-        1,
-        1,
         true,
     );
-    let current = current_context(&intent, authority, 1, 1);
     assert!(matches!(
         validate_authorization(
             intent.clone(),

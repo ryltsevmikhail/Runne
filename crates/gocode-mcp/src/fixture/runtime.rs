@@ -6,7 +6,10 @@ use std::{
     },
 };
 
-use gocode_tools::{ToolExecutionHandle, ToolOutputBounds};
+use gocode_tools::{
+    ProcessApprovalV1, ProcessAuthorizationAuthorityV1, ProcessCapabilityV1, ProcessContractHostV1,
+    ProcessIntentV1, SandboxQualificationProbe, ToolExecutionHandle, ToolOutputBounds,
+};
 use serde_json::Value;
 
 use crate::{
@@ -20,6 +23,7 @@ use super::model::{
     FixtureScript, FixtureStepOutcome, FixtureTool,
 };
 use super::transport::{FixtureAdmission, FixtureClient};
+use super::{FixtureProcessComposition, McpProcessToolGateway};
 
 static FIXTURE_ISSUER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -46,6 +50,9 @@ pub struct FixtureMcpRuntime {
     issuer_digest: [u8; 32],
     state: Arc<Mutex<FixtureState>>,
     gateway: Option<McpToolGateway<FixtureAdmission, FixtureClient>>,
+    process_composition: Option<FixtureProcessComposition>,
+    process_gateway: Option<McpProcessToolGateway>,
+    process_generation: Option<u64>,
 }
 
 pub(super) struct FixtureState {
@@ -145,6 +152,62 @@ pub struct FixtureApprovalAuthority {
     issuer_digest: [u8; 32],
 }
 
+/// Process capability and approval issuer backed by one shared authority.
+#[derive(Clone)]
+pub struct FixtureProcessApprovalAuthority {
+    authority: ProcessAuthorizationAuthorityV1,
+}
+
+impl FixtureProcessApprovalAuthority {
+    /// Takes ownership of the explicit process authorization authority.
+    #[must_use]
+    pub fn new(authority: ProcessAuthorizationAuthorityV1) -> Self {
+        Self { authority }
+    }
+
+    /// Issues an exact process capability through a fresh bound child.
+    pub fn issue_capability(
+        &self,
+        intent: &ProcessIntentV1,
+        expires_at: u64,
+    ) -> Result<ProcessCapabilityV1, FixtureMcpFailure> {
+        self.authority
+            .bind_call(intent.lifecycle_binding())?
+            .issue_capability(intent, expires_at)
+            .map_err(Into::into)
+    }
+
+    /// Issues an exact process approval through a fresh bound child.
+    pub fn approve(
+        &self,
+        intent: &ProcessIntentV1,
+        expires_at: u64,
+        approved: bool,
+    ) -> Result<ProcessApprovalV1, FixtureMcpFailure> {
+        Ok(self
+            .authority
+            .bind_call(intent.lifecycle_binding())?
+            .approve(intent, expires_at, approved)?)
+    }
+
+    pub(super) fn prepare_authorization_advance(
+        &self,
+    ) -> Result<gocode_tools::ProcessAuthorizationAdvanceV1<'_>, gocode_tools::ProcessContractError>
+    {
+        self.authority.prepare_advance()
+    }
+
+    pub(super) fn compose_gateway(
+        &self,
+        host: ProcessContractHostV1,
+        probe: Arc<dyn SandboxQualificationProbe>,
+        generation: Arc<McpGenerationAuthority>,
+        bounds: ToolOutputBounds,
+    ) -> McpProcessToolGateway {
+        McpProcessToolGateway::new(self.authority.clone(), host, probe, generation, bounds)
+    }
+}
+
 impl FixtureApprovalAuthority {
     /// Approves exactly the immutable capability supplied by the fixture caller.
     pub fn approve(
@@ -159,4 +222,5 @@ impl FixtureApprovalAuthority {
 }
 
 include!("runtime/lifecycle.rs");
+include!("runtime/process_activation.rs");
 include!("runtime/dispatch.rs");

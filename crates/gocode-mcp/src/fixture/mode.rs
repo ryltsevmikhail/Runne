@@ -61,6 +61,54 @@ pub enum FixtureMcpFailure {
     AccountingMismatch,
     /// Lifecycle transition is not permitted from the current state.
     InvalidStateTransition,
+    /// A process intent could not be represented by the closed process contract.
+    ProcessIntentMalformed,
+    /// Process input or output bounds were exceeded before issuance.
+    ProcessInputBoundsExceeded,
+    /// The exact process environment was not granted.
+    ProcessEnvironmentNotGranted,
+    /// A process environment name is denied.
+    ProcessEnvironmentDenied,
+    /// The process intent digest could not be encoded.
+    ProcessDigestEncodingInvalid,
+    /// Process capability issuance rejected the exact intent.
+    ProcessCapabilityInvalid,
+    /// Process executable verification did not match the exact intent.
+    ProcessExecutableVerificationFailed,
+    /// Process working-directory verification did not match the exact intent.
+    ProcessCwdVerificationFailed,
+    /// Process approval issuance rejected the exact intent.
+    ProcessApprovalInvalid,
+    /// A process-backed tool requires typed process issuance.
+    ProcessIntentRequired,
+    /// Typed process issuance targeted a protocol-only tool.
+    ExecutionClassMismatch,
+}
+
+impl From<gocode_tools::ProcessContractError> for FixtureMcpFailure {
+    fn from(error: gocode_tools::ProcessContractError) -> Self {
+        match error {
+            gocode_tools::ProcessContractError::IntentMalformed => Self::ProcessIntentMalformed,
+            gocode_tools::ProcessContractError::InputBoundsExceeded => {
+                Self::ProcessInputBoundsExceeded
+            }
+            gocode_tools::ProcessContractError::EnvironmentNotGranted => {
+                Self::ProcessEnvironmentNotGranted
+            }
+            gocode_tools::ProcessContractError::EnvironmentDenied => Self::ProcessEnvironmentDenied,
+            gocode_tools::ProcessContractError::DigestEncodingInvalid => {
+                Self::ProcessDigestEncodingInvalid
+            }
+            gocode_tools::ProcessContractError::CapabilityInvalid => Self::ProcessCapabilityInvalid,
+            gocode_tools::ProcessContractError::ExecutableVerificationFailed => {
+                Self::ProcessExecutableVerificationFailed
+            }
+            gocode_tools::ProcessContractError::CwdVerificationFailed => {
+                Self::ProcessCwdVerificationFailed
+            }
+            gocode_tools::ProcessContractError::ApprovalInvalid => Self::ProcessApprovalInvalid,
+        }
+    }
 }
 
 impl core::fmt::Display for FixtureMcpFailure {
