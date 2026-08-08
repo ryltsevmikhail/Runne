@@ -24,6 +24,23 @@ FRONT_MATTER = load_module("front_matter", PARTS / "front_matter.py")
 TAXONOMY = load_module("documentation_taxonomy", PARTS / "documentation_taxonomy.inc")
 
 
+def valid_document(status="ready", extra="", body="safe text\n"):
+    return (
+        "---\n"
+        "title: \"Guide\"\n"
+        f"status: \"{status}\"\n"
+        "document_type: \"reference\"\n"
+        "source_status: \"Decision\"\n"
+        "created: 2026-08-08\n"
+        "updated: 2026-08-08\n"
+        "owners:\n"
+        "  - gocode-runtime\n"
+        f"{extra}"
+        "---\n"
+        f"{body}"
+    ).encode("utf-8")
+
+
 class DocumentationTaxonomyTests(unittest.TestCase):
     def assert_code(self, callable_, code):
         with self.assertRaisesRegex(ValueError, rf"^{code}$"):
@@ -50,6 +67,22 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             "FM_IMPLICIT_SCALAR",
         )
 
+    def test_accepts_quoted_scalar_punctuation(self):
+        parsed = FRONT_MATTER.parse_restricted_front_matter(b'title: "R&D! [v1] {safe}"\n')
+        self.assertEqual(parsed["title"], "R&D! [v1] {safe}")
+
+    def test_rejects_coercible_list_scalar(self):
+        self.assert_code(
+            lambda: FRONT_MATTER.parse_restricted_front_matter(b"owners:\n  - yes\n"),
+            "FM_IMPLICIT_SCALAR",
+        )
+
+    def test_rejects_invalid_iso_date(self):
+        self.assert_code(
+            lambda: FRONT_MATTER.parse_restricted_front_matter(b"created: 2026-02-30\n"),
+            "FM_INVALID_DATE",
+        )
+
     def test_rejects_unmapped_legacy_and_unexpected_taxonomy_value(self):
         self.assertEqual(
             TAXONOMY.validate_taxonomy_fields({"status": "ready"}), []
@@ -62,6 +95,22 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             TAXONOMY.validate_taxonomy_fields({"document_type": "unknown"}),
             ["TAXONOMY_UNMAPPED_DOCUMENT_TYPE:unknown"],
         )
+
+    def test_applies_restricted_front_matter_before_taxonomy(self):
+        with self.fixture_root() as root:
+            self.write_manifests(root, [("docs/guide.md", "governed", None),
+                                        ("docs/late.md", "governed", None)])
+            guide = root / "docs" / "guide.md"
+            guide.write_bytes(valid_document(extra='policy: "unexpected"\n'))
+            self.assertEqual(
+                TAXONOMY.validate_document_universe(root),
+                ["DOCUMENT_FRONT_MATTER:docs/guide.md:FM_UNKNOWN_KEY"],
+            )
+            guide.write_bytes(valid_document(status="retired"))
+            self.assertEqual(
+                TAXONOMY.validate_document_universe(root),
+                ["DOCUMENT_TAXONOMY:docs/guide.md:TAXONOMY_UNMAPPED_STATUS:retired"],
+            )
 
     def test_rejects_omitted_and_extra_universe_path(self):
         with self.fixture_root() as root:
@@ -76,7 +125,7 @@ class DocumentationTaxonomyTests(unittest.TestCase):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
                                         ("docs/late.md", "governed", None)])
-            (root / "docs" / "guide.md").write_text("RC0-qualified now.\n", encoding="utf-8")
+            (root / "docs" / "guide.md").write_bytes(valid_document(body="RC0-qualified now.\n"))
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
                 ["CLAIM_UNLISTED:docs/guide.md:RC0_QUALIFIED"],
@@ -86,7 +135,7 @@ class DocumentationTaxonomyTests(unittest.TestCase):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
                                         ("docs/late.md", "non_governed", "fixture exception")])
-            (root / "docs" / "late.md").write_text("RC0-qualified now.\n", encoding="utf-8")
+            (root / "docs" / "late.md").write_bytes(valid_document(body="RC0-qualified now.\n"))
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
                 ["CLAIM_UNLISTED:docs/late.md:RC0_QUALIFIED"],
@@ -111,10 +160,11 @@ class DocumentationTaxonomyTests(unittest.TestCase):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
                                         ("docs/late.md", "governed", None)])
-            (root / "docs" / "guide.md").write_text(
-                "ＲＣ０_QUALI\nFIED now. Candidate PASS. Production qualification PASS. "
-                "Release PASS. Signing PASS. Notarization PASS. Publication PASS.\n",
-                encoding="utf-8",
+            (root / "docs" / "guide.md").write_bytes(
+                valid_document(body=(
+                    "ＲＣ０_QUALI\nFIED now. Candidate PASS. Production qualification PASS. "
+                    "Release PASS. Signing PASS. Notarization PASS. Publication PASS.\n"
+                ))
             )
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
@@ -142,15 +192,15 @@ class DocumentationTaxonomyTests(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
         (root / "docs" / "rc0").mkdir(parents=True)
-        (root / "docs" / "guide.md").write_text("safe text\n", encoding="utf-8")
-        (root / "docs" / "late.md").write_text("safe text\n", encoding="utf-8")
+        (root / "docs" / "guide.md").write_bytes(valid_document())
+        (root / "docs" / "late.md").write_bytes(valid_document())
         design = root / "docs" / "superpowers" / "specs" / "2026-08-08-rc0-candidate-design.md"
         design.parent.mkdir(parents=True)
-        design.write_text("RC0-candidate design policy is non-production.\n", encoding="utf-8")
+        design.write_bytes(valid_document(body="RC0-candidate design policy is non-production.\n"))
         for extra in extras:
             path = root / extra
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("safe text\n", encoding="utf-8")
+            path.write_bytes(valid_document())
         subprocess.run(["git", "init", "--quiet", str(root)], check=True)
         subprocess.run(["git", "-C", str(root), "add", "."], check=True)
         return directory_context(root)

@@ -1,4 +1,5 @@
 """Fail-closed parser for the deliberately small documentation YAML subset."""
+from datetime import date
 import re
 
 
@@ -10,6 +11,10 @@ COERCIBLE_RE = re.compile(r"^(?:yes|no|true|false|null|~|[-+]?\d+(?:\.\d+)?)$", 
 
 def fail(code):
     raise ValueError(code)
+
+
+def unsupported_yaml(value):
+    return value.startswith(("&", "*", "!")) or any(marker in value for marker in ("{", "}", "[", "]"))
 
 
 def parse_restricted_front_matter(raw: bytes) -> dict[str, str]:
@@ -42,14 +47,17 @@ def parse_restricted_front_matter(raw: bytes) -> dict[str, str]:
     for line in lines:
         if not line or line.startswith("#"):
             continue
-        if any(marker in line for marker in ("&", "*", "!", "{", "}", "[", "]")):
-            fail("FM_UNSUPPORTED_YAML")
-        if line.startswith("- "):
+        stripped = line.lstrip(" ")
+        if stripped.startswith("- "):
             if active_list is None:
                 fail("FM_INVALID_LIST")
-            value = line[2:]
+            value = stripped[2:]
+            if unsupported_yaml(value):
+                fail("FM_UNSUPPORTED_YAML")
             if not value or value.startswith(("\"", "'")) or ":" in value:
                 fail("FM_INVALID_LIST")
+            if COERCIBLE_RE.fullmatch(value):
+                fail("FM_IMPLICIT_SCALAR")
             result[active_list] = ",".join(filter(None, (result[active_list], value)))
             continue
         if ":" not in line or line.startswith((" ", "\t")):
@@ -61,16 +69,24 @@ def parse_restricted_front_matter(raw: bytes) -> dict[str, str]:
             fail("FM_UNKNOWN_KEY")
         value = value.strip()
         active_list = None
+        quoted = ((value.startswith('"') and value.endswith('"')) or
+                  (value.startswith("'") and value.endswith("'")))
+        if not quoted and unsupported_yaml(value):
+            fail("FM_UNSUPPORTED_YAML")
         if not value:
             if key != "owners":
                 fail("FM_EMPTY_VALUE")
             result[key] = ""
             active_list = key
-        elif (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        elif quoted:
             if len(value) < 2:
                 fail("FM_INVALID_STRING")
             result[key] = value[1:-1]
         elif DATE_RE.fullmatch(value):
+            try:
+                date.fromisoformat(value)
+            except ValueError:
+                fail("FM_INVALID_DATE")
             result[key] = value
         elif COERCIBLE_RE.fullmatch(value):
             fail("FM_IMPLICIT_SCALAR")
