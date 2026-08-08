@@ -5,9 +5,12 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
 EVIDENCE_TEST=crates/gocode-store/tests/evidence_phase3.rs
-EVIDENCE_TEST_SOURCES=(
-    "$EVIDENCE_TEST"
-    "crates/gocode-store/tests/evidence_phase3_split_parts"
+EVIDENCE_TEST_DIR=$(dirname "$EVIDENCE_TEST")
+EVIDENCE_TEST_SOURCES=("$EVIDENCE_TEST")
+while IFS= read -r include_path; do
+    EVIDENCE_TEST_SOURCES+=("$EVIDENCE_TEST_DIR/$include_path")
+done < <(
+    sed -nE 's@^[[:space:]]*include!\("([^"]+)"\);[[:space:]]*$@\1@p' "$EVIDENCE_TEST"
 )
 REQUIRED_TESTS=(
     evidence_fixtures_deterministic
