@@ -60,6 +60,13 @@ fn every_openai_pre_readiness_gate_is_typed_and_fail_closed() {
     credential.credential_status = ProviderCredentialStatus::Missing;
     assert_eq!(credential.validate(), Err(OpenAiReadinessError::Credential));
 
+    let mut unsupported_credential = readiness();
+    unsupported_credential.credential_status = ProviderCredentialStatus::Unsupported;
+    assert_eq!(
+        unsupported_credential.validate(),
+        Err(OpenAiReadinessError::Credential)
+    );
+
     let mut key = readiness();
     key.journal_key_status = ProviderJournalKeyStatus::Missing;
     assert_eq!(key.validate(), Err(OpenAiReadinessError::JournalKey));
