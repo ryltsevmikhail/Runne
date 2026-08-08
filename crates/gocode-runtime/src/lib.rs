@@ -21,6 +21,7 @@ pub mod opencode_session;
 pub mod plugin_host;
 pub mod provider_execution;
 pub mod provider_tool;
+pub mod qualification_matrix;
 pub mod session_host;
 pub mod task_run_host;
 pub mod types;
