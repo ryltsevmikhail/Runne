@@ -10,6 +10,7 @@ use gocode_tools::{
 };
 use serde_json::json;
 
+use super::process::FixtureProcessComposition;
 use super::*;
 use crate::{McpConnectionId, McpRuntimeInstanceId, McpServerId, McpSessionId};
 

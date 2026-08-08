@@ -1,60 +1,74 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use gocode_tools::{
-    ProcessApprovalV1, ProcessAuthorizationAdvanceV1, ProcessAuthorizationAuthorityV1,
-    ProcessCapabilityV1, ProcessContractError, ProcessContractHostV1, ProcessIntentV1,
-    SandboxQualificationProbe, ToolExecutionHandle, ToolOutputBounds, production_sandbox_probe,
+    ProcessAuthorizationAdvanceV1, ProcessContractError, ProcessContractHostV1,
+    SandboxQualificationProbe, ToolOutputBounds,
 };
 
+#[cfg(test)]
 use gocode_tools::{
-    AuthorityId, CapabilityGrantId, PrincipalId, ProcessIdentityBindingV1, SandboxId,
+    AuthorityId, CapabilityGrantId, PrincipalId, ProcessAuthorizationAuthorityV1,
+    ProcessIdentityBindingV1, SandboxId, production_sandbox_probe,
 };
 
+use crate::McpGenerationAuthority;
+#[cfg(test)]
 use crate::discovery::derive_process_lifecycle_binding;
+#[cfg(test)]
 use crate::{McpDispatchBinding, McpInvocationId};
-use crate::{McpGenerationAuthority, McpToolDispatchCapability};
 
-use super::{FixtureProcessApprovalAuthority, McpProcessToolGateway};
+use super::process_gateway::McpProcessToolGateway;
+use super::runtime::FixtureProcessApprovalAuthority;
 
 /// Opaque production process composition retained across fixture reconnects.
-pub struct FixtureProcessComposition {
+pub(in crate::fixture) struct FixtureProcessComposition {
     authority: FixtureProcessApprovalAuthority,
-    host: Option<ProcessContractHostV1>,
+    host: Mutex<Option<ProcessContractHostV1>>,
     probe: Arc<dyn SandboxQualificationProbe>,
+    #[cfg(test)]
     host_compositions: u64,
 }
 
-/// Safe metadata about a sealed fixture process composition.
+/// Safe test metadata about a sealed fixture process composition.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FixtureProcessCompositionMetadata {
+pub(in crate::fixture) struct FixtureProcessCompositionMetadata {
     host_compositions: u64,
     generation: Option<u64>,
 }
 
+#[cfg(test)]
 impl FixtureProcessCompositionMetadata {
     /// Returns how many times the exclusive host was composed into a gateway.
     #[must_use]
-    pub const fn host_compositions(self) -> u64 {
+    pub(in crate::fixture) const fn host_compositions(self) -> u64 {
         self.host_compositions
     }
 
     /// Returns the generation bound to the composed process gateway.
     #[must_use]
-    pub const fn generation(self) -> Option<u64> {
+    pub(in crate::fixture) const fn generation(self) -> Option<u64> {
         self.generation
     }
 }
 
 impl FixtureProcessComposition {
     /// Composes the only production probe with an explicit shared authority and host.
+    #[cfg(test)]
     #[must_use]
-    pub fn new(authority: ProcessAuthorizationAuthorityV1, host: ProcessContractHostV1) -> Self {
+    pub(in crate::fixture) fn new(
+        authority: ProcessAuthorizationAuthorityV1,
+        host: ProcessContractHostV1,
+    ) -> Self {
         Self::with_probe(authority, host, Arc::new(production_sandbox_probe()))
     }
 
-    /// Returns safe metadata without exposing the host, probe, or replay boundary.
+    #[cfg(test)]
     #[must_use]
-    pub const fn metadata(&self, generation: Option<u64>) -> FixtureProcessCompositionMetadata {
+    pub(in crate::fixture) const fn metadata(
+        &self,
+        generation: Option<u64>,
+    ) -> FixtureProcessCompositionMetadata {
         FixtureProcessCompositionMetadata {
             host_compositions: self.host_compositions,
             generation,
@@ -70,6 +84,7 @@ impl FixtureProcessComposition {
         Self::with_probe(authority, host, probe)
     }
 
+    #[cfg(test)]
     fn with_probe(
         authority: ProcessAuthorizationAuthorityV1,
         host: ProcessContractHostV1,
@@ -77,12 +92,14 @@ impl FixtureProcessComposition {
     ) -> Self {
         Self {
             authority: FixtureProcessApprovalAuthority::new(authority),
-            host: Some(host),
+            host: Mutex::new(Some(host)),
             probe,
+            #[cfg(test)]
             host_compositions: 0,
         }
     }
 
+    #[cfg(test)]
     pub(super) fn authority(&self) -> FixtureProcessApprovalAuthority {
         self.authority.clone()
     }
@@ -96,99 +113,28 @@ impl FixtureProcessComposition {
     pub(super) fn compose_gateway(
         &mut self,
         generation: Arc<McpGenerationAuthority>,
+        ledger: Arc<super::runtime::process_ledger::FixtureProcessLedgerPort>,
         bounds: ToolOutputBounds,
     ) -> Option<McpProcessToolGateway> {
-        let host = self.host.take()?;
-        self.host_compositions = self.host_compositions.saturating_add(1);
-        Some(
-            self.authority
-                .compose_gateway(host, Arc::clone(&self.probe), generation, bounds),
-        )
-    }
-}
-
-/// Opaque process authorization material for one exact MCP process call.
-pub struct McpProcessCall {
-    pub(super) capability: McpToolDispatchCapability,
-    pub(super) intent: ProcessIntentV1,
-    pub(super) process_capability: Option<ProcessCapabilityV1>,
-    pub(super) approval: Option<ProcessApprovalV1>,
-    pub(super) now: u64,
-}
-
-/// Metadata-only terminal replay state for one exact process invocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ProcessTerminalRecord {
-    /// The sealed host completed and the process gateway closed the exact handle.
-    Completed {
-        digest: [u8; 32],
-        handle: ToolExecutionHandle,
-    },
-    /// The effect cannot be safely replayed after admission.
-    Uncertain { digest: [u8; 32] },
-}
-
-/// Exact replay resolution without process output or raw host material.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ProcessTerminalReplay {
-    /// The exact completed handle may be returned without redispatch.
-    Completed(ToolExecutionHandle),
-    /// The exact effect remains uncertain.
-    Uncertain,
-    /// The invocation identifier was reused with another digest.
-    DigestConflict,
-}
-
-impl ProcessTerminalRecord {
-    pub(super) const fn completed(digest: [u8; 32], handle: ToolExecutionHandle) -> Self {
-        Self::Completed { digest, handle }
-    }
-
-    pub(super) const fn uncertain(digest: [u8; 32]) -> Self {
-        Self::Uncertain { digest }
-    }
-
-    pub(super) fn replay(&self, digest: [u8; 32]) -> ProcessTerminalReplay {
-        match self {
-            Self::Completed {
-                digest: stored,
-                handle,
-            } if *stored == digest => ProcessTerminalReplay::Completed(handle.clone()),
-            Self::Uncertain { digest: stored } if *stored == digest => {
-                ProcessTerminalReplay::Uncertain
-            }
-            _ => ProcessTerminalReplay::DigestConflict,
-        }
-    }
-}
-
-impl McpProcessCall {
-    /// Binds all process authorization material before dispatch.
-    #[must_use]
-    #[rustfmt::skip]
-    pub fn new(capability: McpToolDispatchCapability, intent: ProcessIntentV1, process_capability: ProcessCapabilityV1, approval: ProcessApprovalV1, now: u64) -> Self { Self { capability, intent, process_capability: Some(process_capability), approval: Some(approval), now } }
-
-    /// Binds a call whose process approval is deliberately absent.
-    #[must_use]
-    #[rustfmt::skip]
-    pub fn without_process_approval(capability: McpToolDispatchCapability, intent: ProcessIntentV1, process_capability: ProcessCapabilityV1, now: u64) -> Self { Self { capability, intent, process_capability: Some(process_capability), approval: None, now } }
-
-    #[cfg(test)]
-    pub(crate) fn without_process_intent_digest_for_test(mut self) -> Self {
-        self.capability = self.capability.without_process_intent_digest_for_test();
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_invocation_id_for_test(mut self, invocation_id: &str) -> Self {
-        self.capability = self.capability.with_invocation_id_for_test(invocation_id);
-        self
+        let host = self.host.lock().ok()?.take()?;
+        #[cfg(test)]
+        let () = {
+            self.host_compositions = self.host_compositions.saturating_add(1);
+        };
+        Some(self.authority.compose_gateway(
+            host,
+            Arc::clone(&self.probe),
+            generation,
+            ledger,
+            bounds,
+        ))
     }
 }
 
 /// Derives the process identity that is exact for one MCP dispatch lifecycle.
 #[must_use]
-pub fn derive_process_identity_binding(
+#[cfg(test)]
+pub(in crate::fixture) fn derive_process_identity_binding(
     binding: &McpDispatchBinding,
     invocation: &McpInvocationId,
     principal: PrincipalId,
@@ -208,33 +154,4 @@ pub fn derive_process_identity_binding(
         sandbox,
         lifecycle.tree_handle().clone(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use gocode_tools::ToolExecutionHandle;
-
-    use super::{ProcessTerminalRecord, ProcessTerminalReplay};
-
-    #[test]
-    fn terminal_record_replays_only_the_exact_completed_or_uncertain_digest() {
-        let digest = [1; 32];
-        let handle = ToolExecutionHandle {
-            execution_id: "completed".into(),
-        };
-        let completed = ProcessTerminalRecord::completed(digest, handle.clone());
-
-        assert_eq!(
-            completed.replay(digest),
-            ProcessTerminalReplay::Completed(handle)
-        );
-        assert_eq!(
-            completed.replay([2; 32]),
-            ProcessTerminalReplay::DigestConflict
-        );
-        assert_eq!(
-            ProcessTerminalRecord::uncertain(digest).replay(digest),
-            ProcessTerminalReplay::Uncertain
-        );
-    }
 }

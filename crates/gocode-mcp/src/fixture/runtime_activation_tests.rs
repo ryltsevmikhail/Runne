@@ -12,6 +12,7 @@ use std::sync::{Arc, mpsc};
 use std::thread;
 use std::time::Duration;
 
+use super::process::FixtureProcessComposition;
 use super::*;
 use crate::{
     McpConnectionId, McpGenerationClaimError, McpRuntimeInstanceId, McpServerId, McpSessionId,

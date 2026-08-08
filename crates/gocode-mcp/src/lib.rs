@@ -2,6 +2,31 @@
 #![deny(missing_docs)]
 
 //! Project-owned MCP contracts and bounded transport admission.
+//!
+//! ```compile_fail
+//! use gocode_mcp::FixtureProcessApprovalAuthority;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::FixtureProcessComposition;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::FixtureProcessCompositionMetadata;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::McpProcessCall;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::McpProcessExecutor;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::McpProcessGatewayError;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::McpProcessToolGateway;
+//! ```
+//! ```compile_fail
+//! use gocode_mcp::derive_process_identity_binding;
+//! ```
 
 mod discovery;
 mod fixture;
@@ -16,13 +41,10 @@ pub use discovery::{
     McpToolGatewayError, PublishedMcpTools, publish_mcp_tools,
 };
 pub use fixture::{
-    FixtureApproval, FixtureApprovalAuthority, FixtureApprovalPolicy, FixtureAuditRecord,
-    FixtureCallCapability, FixtureCallResult, FixtureIdentity, FixtureInitialize, FixtureLimits,
-    FixtureMcpFailure, FixtureMcpMode, FixtureMcpRuntime, FixtureProcessApprovalAuthority,
-    FixtureProcessComposition, FixtureProcessCompositionMetadata, FixtureProfile,
-    FixturePublication, FixtureScript, FixtureStep, FixtureTool, McpProcessCall,
-    McpProcessExecutor, McpProcessGatewayError, McpProcessToolGateway,
-    derive_process_identity_binding,
+    FixtureApproval, FixtureApprovalAuthority, FixtureApprovalPolicy, FixtureAuditProcessPhase,
+    FixtureAuditProcessReason, FixtureAuditRecord, FixtureCallCapability, FixtureCallResult,
+    FixtureIdentity, FixtureInitialize, FixtureLimits, FixtureMcpFailure, FixtureMcpMode,
+    FixtureMcpRuntime, FixtureProfile, FixturePublication, FixtureScript, FixtureStep, FixtureTool,
 };
 pub use model::{
     InvalidMcpIdentity, McpConnectionId, McpInvocationId, McpNormalizedMessage, McpRequestId,

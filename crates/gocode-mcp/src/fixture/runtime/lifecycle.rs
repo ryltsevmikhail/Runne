@@ -98,6 +98,7 @@ impl FixtureMcpRuntime {
                     next_step: 0,
                     remaining: accounting_limit,
                     effects: BTreeMap::new(),
+                    process_ledger: BTreeMap::new(),
                     audit: Vec::new(),
                     dispatches: 0,
                     selected_outcomes: BTreeMap::new(),
