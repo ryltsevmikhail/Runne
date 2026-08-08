@@ -1,5 +1,6 @@
 """Closed-set taxonomy, Markdown inventory, and status-claim validation."""
 from dataclasses import dataclass
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -11,6 +12,11 @@ REPOSITORY_ROOT = Path(globals().get("BASE", Path(__file__).resolve().parents[2]
 PARTS_DIR = REPOSITORY_ROOT / "scripts" / "validate_docs_parts"
 MIGRATION_PATH = REPOSITORY_ROOT / "docs" / "rc0" / "taxonomy-migration-v1.json"
 MIGRATION = json.loads(MIGRATION_PATH.read_text(encoding="utf-8"))
+FRONT_MATTER_SPEC = importlib.util.spec_from_file_location(
+    "gocode_restricted_front_matter", PARTS_DIR / "front_matter.py"
+)
+FRONT_MATTER = importlib.util.module_from_spec(FRONT_MATTER_SPEC)
+FRONT_MATTER_SPEC.loader.exec_module(FRONT_MATTER)
 RELEASE_PREFIXES = ("docs/release/", "docs/desktop/09-release/", "docs/desktop/03-desktop/")
 CLAIM_PATTERNS = (
     ("RC0_QUALIFIED", re.compile(r"rc0qualified")),
@@ -184,10 +190,15 @@ def validate_document_universe(root: Path) -> list[str]:
     allowed = {(claim.path, claim.claim_id) for claim in claims}
     for path in universe:
         try:
-            content = (root / path).read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            diagnostics.append(f"CLAIM_INVALID_UTF8:{path}")
+            raw = (root / path).read_bytes()
+            fields = FRONT_MATTER.parse_restricted_front_matter(raw)
+        except (OSError, ValueError) as error:
+            code = str(error) if isinstance(error, ValueError) else "FM_READ_ERROR"
+            diagnostics.append(f"DOCUMENT_FRONT_MATTER:{path}:{code}")
             continue
+        for diagnostic in validate_taxonomy_fields(fields):
+            diagnostics.append(f"DOCUMENT_TAXONOMY:{path}:{diagnostic}")
+        content = raw.decode("utf-8")
         compact = _compact_claim_text(content)
         for claim_id, pattern in CLAIM_PATTERNS:
             if pattern.search(compact) and (path, claim_id) not in allowed:
