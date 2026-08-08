@@ -67,6 +67,7 @@ if [ "$MODE" = "pinned" ]; then
     "$PYTHON_BIN" scripts/verify-task-6c-release-exclusion.py
 
     "$PYTHON_BIN" -m unittest \
+        scripts.tests.test_check_deps \
         scripts.tests.test_check_source_file_length \
         scripts.tests.test_verify_task_6c_release_exclusion \
         -v

@@ -43,6 +43,19 @@ fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::Path
     profile_path
 }
 
+fn rewrite_profile(profile_path: &std::path::Path, mutate: impl FnOnce(&mut serde_json::Value)) {
+    let mut profile: serde_json::Value =
+        serde_json::from_slice(&fs::read(profile_path).expect("read profile"))
+            .expect("parse profile");
+    mutate(&mut profile);
+    fs::write(
+        profile_path,
+        serde_json::to_vec(&profile).expect("profile JSON"),
+    )
+    .expect("rewrite profile");
+    secure(profile_path);
+}
+
 #[cfg(unix)]
 #[test]
 fn loads_profile_v2_without_reading_the_bootstrap_secret() {
@@ -74,18 +87,12 @@ fn rejects_plaintext_external_and_unknown_profile_fields() {
     }
 
     let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
-    let mut profile: serde_json::Value =
-        serde_json::from_slice(&fs::read(&profile_path).expect("read profile"))
-            .expect("parse profile");
-    profile
-        .as_object_mut()
-        .expect("profile object")
-        .insert("unexpected".to_owned(), serde_json::json!(true));
-    fs::write(
-        &profile_path,
-        serde_json::to_vec(&profile).expect("profile JSON"),
-    )
-    .expect("rewrite profile");
+    rewrite_profile(&profile_path, |profile| {
+        profile
+            .as_object_mut()
+            .expect("profile object")
+            .insert("unexpected".to_owned(), serde_json::json!(true));
+    });
 
     assert_eq!(
         LocalRuntimeProfile::load(&profile_path).expect_err("unknown field"),
@@ -112,15 +119,9 @@ fn rejects_profile_v1_and_wrong_certificate_digest_redacted() {
     );
 
     let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
-    let mut profile: serde_json::Value =
-        serde_json::from_slice(&fs::read(&profile_path).expect("read profile"))
-            .expect("parse profile");
-    profile["certificateSha256"] = serde_json::json!("00".repeat(32));
-    fs::write(
-        &profile_path,
-        serde_json::to_vec(&profile).expect("profile JSON"),
-    )
-    .expect("rewrite profile");
+    rewrite_profile(&profile_path, |profile| {
+        profile["certificateSha256"] = serde_json::json!("00".repeat(32));
+    });
     assert_eq!(
         LocalRuntimeProfile::load(&profile_path).expect_err("wrong digest"),
         LocalProfileError::InvalidProfile
@@ -152,6 +153,46 @@ fn rejects_group_readable_profile() {
         LocalRuntimeProfile::load(&profile_path).expect_err("insecure profile"),
         LocalProfileError::InsecurePermissions
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn profile_missing_required_telemetry_capability_is_rejected() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
+    rewrite_profile(&profile_path, |profile| {
+        let capabilities = profile["capabilities"]
+            .as_array_mut()
+            .expect("capabilities");
+        capabilities.retain(|capability| capability != "runtime.operational-telemetry.v1");
+        let capabilities = capabilities
+            .iter()
+            .map(|capability| capability.as_str().expect("capability string"))
+            .collect::<Vec<_>>();
+        profile["capabilityDigest"] =
+            serde_json::json!(hex::encode(ordered_capability_digest(&capabilities)));
+    });
+
+    assert_eq!(
+        LocalRuntimeProfile::load(&profile_path).expect_err("missing telemetry capability"),
+        LocalProfileError::InvalidProfile
+    );
+}
+
+#[test]
+fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
+    let bundle = include_bytes!("../../../contracts/gocode-ui-client-1/bundle.json");
+    assert_eq!(hex::encode(Sha256::digest(bundle)), GOLDEN_BUNDLE_HASH);
+
+    let bundle: serde_json::Value = serde_json::from_slice(bundle).expect("bundle JSON");
+    let published_capabilities = bundle["publishedCapabilities"]
+        .as_array()
+        .expect("published capabilities")
+        .iter()
+        .map(|capability| capability.as_str().expect("capability string"))
+        .collect::<Vec<_>>();
+    assert_eq!(published_capabilities, REQUIRED_RUNTIME_CAPABILITIES);
+    assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"runtime.operational-telemetry.v1"));
 }
 
 fn certificate_der() -> Vec<u8> {

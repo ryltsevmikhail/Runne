@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/macos-production-evidence-v1.schema.json",
+  "title": "GOCODE macOS Production Signing Evidence V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "kind",
+    "profile",
+    "platform",
+    "environment_class",
+    "authenticity_method",
+    "producer_lane",
+    "candidate",
+    "signature",
+    "target",
+    "entitlements",
+    "commands",
+    "notarization",
+    "stapling",
+    "gatekeeper",
+    "produced_at",
+    "fresh_until",
+    "review",
+    "evidence_sha256"
+  ],
+  "properties": {
+    "schema_version": {"const": "macos-production-evidence.v1"},
+    "kind": {"const": "macos-production-signing"},
+    "profile": {"const": "production-developer-id"},
+    "platform": {"const": "darwin"},
+    "environment_class": {"const": "PRODUCTION"},
+    "authenticity_method": {"const": "HUMAN_OPERATOR"},
+    "producer_lane": {"const": "macos-human-operator"},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relative_name", "tree_sha256", "main_sha256", "daemon_sha256", "release_candidate_sha256", "app_entitlements_sha256", "daemon_entitlements_sha256"],
+      "properties": {
+        "relative_name": {"type": "string", "pattern": "^[A-Za-z0-9._-]+\\.app$"},
+        "tree_sha256": {"$ref": "#/$defs/sha256"},
+        "main_sha256": {"$ref": "#/$defs/sha256"},
+        "daemon_sha256": {"$ref": "#/$defs/sha256"},
+        "release_candidate_sha256": {"$ref": "#/$defs/sha256"},
+        "app_entitlements_sha256": {"$ref": "#/$defs/sha256"},
+        "daemon_entitlements_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundle_id", "team_identifier", "authority_class", "designated_requirement", "cdhash"],
+      "properties": {
+        "bundle_id": {"type": "string", "pattern": "^[A-Za-z0-9.-]+$"},
+        "team_identifier": {"type": "string", "pattern": "^[A-Z0-9]{10}$"},
+        "authority_class": {"const": "Developer ID Application"},
+        "designated_requirement": {"type": "string", "pattern": "^designated => .+$", "maxLength": 512},
+        "cdhash": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate", "main", "daemon"],
+      "properties": {
+        "candidate": {"type": "string", "pattern": "^[A-Za-z0-9._-]+\\.app$"},
+        "main": {"type": "string", "pattern": "^Contents/MacOS/[A-Za-z0-9._-]+$"},
+        "daemon": {"const": "Contents/MacOS/gocoded"}
+      }
+    },
+    "entitlements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["app_sha256", "daemon_sha256"],
+      "properties": {
+        "app_sha256": {"$ref": "#/$defs/sha256"},
+        "daemon_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "commands": {
+      "type": "array",
+      "minItems": 14,
+      "maxItems": 14,
+      "prefixItems": [
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "sign-daemon"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "verify-daemon"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "metadata-daemon"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "requirement-daemon"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "entitlements-daemon"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "sign-app"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "verify-app"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "metadata-app"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "requirement-app"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "entitlements-app"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "notary-submit"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "staple-staple"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "staple-validate"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}},
+        {"type": "object", "additionalProperties": false, "required": ["phase", "operation", "target", "hardened_runtime", "entitlement_sha256", "outcome"], "properties": {"phase": {"const": "gatekeeper"}, "operation": {"enum": ["sign", "verify", "metadata", "requirement", "entitlements", "submit", "staple", "validate", "assess"]}, "target": {"type": "string", "pattern": "^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$"}, "hardened_runtime": {"type": "boolean"}, "entitlement_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}, "outcome": {"const": "success"}}}
+      ],
+      "items": false
+    },
+    "notarization": {"type": "string"},
+    "stapling": {"type": "string"},
+    "gatekeeper": {"type": "string"},
+    "produced_at": {"type": "integer", "minimum": 0},
+    "fresh_until": {"type": "integer", "minimum": 0},
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "owner_role", "reviewer", "reviewer_role", "review_id"],
+      "properties": {
+        "owner": {"type": "string", "pattern": "^\\S+$", "maxLength": 128},
+        "owner_role": {"type": "string", "pattern": "^\\S+$", "maxLength": 128},
+        "reviewer": {"type": "string", "pattern": "^\\S+$", "maxLength": 128},
+        "reviewer_role": {"type": "string", "pattern": "^\\S+$", "maxLength": 128},
+        "review_id": {"type": "string", "pattern": "^\\S+$", "maxLength": 128}
+      }
+    },
+    "evidence_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
