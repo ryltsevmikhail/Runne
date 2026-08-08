@@ -47,6 +47,38 @@ class VerifyPhase3Tests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_rejects_required_test_declared_only_in_orphaned_split_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = pathlib.Path(temporary_directory)
+            script = root / "scripts/verify-phase3.sh"
+            script.parent.mkdir()
+            shutil.copy2(VERIFY, script)
+            source = root / "crates/gocode-store/tests/evidence_phase3.rs"
+            parts = source.parent / "evidence_phase3_split_parts"
+            parts.mkdir(parents=True)
+            source.write_text('include!("evidence_phase3_split_parts/part_01.rs");\n')
+            (parts / "part_01.rs").write_text(
+                "".join(f"fn {test_name}() {{}}\n" for test_name in REQUIRED_TESTS[:-1])
+            )
+            (parts / "orphan.rs").write_text(f"fn {REQUIRED_TESTS[-1]}() {{}}\n")
+            commands = root / "bin"
+            commands.mkdir()
+            for command in ("cargo", "python3", "git"):
+                stub = commands / command
+                stub.write_text("#!/bin/sh\nexit 0\n")
+                stub.chmod(0o755)
+
+            result = subprocess.run(
+                ["bash", str(script)],
+                cwd=root,
+                env={**os.environ, "PATH": f"{commands}:{os.environ['PATH']}"},
+                capture_output=True,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(REQUIRED_TESTS[-1], result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
