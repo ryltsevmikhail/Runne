@@ -81,8 +81,15 @@ def validate_inventory(document: dict) -> None:
     status = document.get("inventory_status")
     if status not in {"MUTABLE", "FROZEN"}:
         raise InventoryError("invalid inventory status")
-    if set(document) != {"inventory_version", "inventory_status", "records"}:
-        raise InventoryError("inventory contains checkout-owned authority data")
+    mutable_fields = {"inventory_version", "inventory_status", "records"}
+    frozen_fields = mutable_fields | {"final_inventory_digest"}
+    if status == "MUTABLE" and set(document) != mutable_fields:
+        raise InventoryError("mutable inventory contains checkout-owned authority data")
+    if status == "FROZEN" and (
+        set(document) != frozen_fields
+        or not re.fullmatch(r"[0-9a-f]{64}", str(document.get("final_inventory_digest")))
+    ):
+        raise InventoryError("frozen inventory requires a lowercase 64-hex final_inventory_digest")
     records = document.get("records")
     if not isinstance(records, list):
         raise InventoryError("inventory requires records")
