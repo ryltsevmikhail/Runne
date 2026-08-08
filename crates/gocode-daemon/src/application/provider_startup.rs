@@ -86,6 +86,7 @@ impl DaemonApplication {
         })?;
         let replay_connection = open_runtime_connection(
             &config.db_path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
             bootstrap.authority_id,
             replay_lineage,
             "replay store",
@@ -102,19 +103,18 @@ impl DaemonApplication {
         );
         let store_writer = open_runtime_connection(
             &config.db_path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
             bootstrap.authority_id,
             replay_lineage,
             "runtime writer",
         )?;
         let store_reader = open_runtime_connection(
             &config.db_path,
+            gocode_store::schema::ConnectionMode::Reader,
             bootstrap.authority_id,
             replay_lineage,
             "runtime reader",
         )?;
-        store_reader
-            .execute_batch("PRAGMA query_only = ON;")
-            .map_err(|error| DaemonError::Bootstrap(format!("restrict runtime reader: {error}")))?;
         let store = StoreTransaction::open_with_connections(
             &config.db_path,
             store_writer,
@@ -154,12 +154,14 @@ impl DaemonApplication {
                     let db_path = config.db_path.clone();
                     let dispatch_connection = open_runtime_connection(
                         &db_path,
+                        gocode_store::schema::ConnectionMode::ValidatedReopen,
                         bootstrap.authority_id,
                         replay_lineage,
                         "provider dispatch store",
                     );
                     let execution_connection = open_runtime_connection(
                         &db_path,
+                        gocode_store::schema::ConnectionMode::ValidatedReopen,
                         bootstrap.authority_id,
                         replay_lineage,
                         "provider execution store",

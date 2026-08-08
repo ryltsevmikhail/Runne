@@ -56,7 +56,11 @@ mod tests {
 
     #[test]
     fn empty_db_returns_ready() {
-        let conn = schema::open_with_pragmas(":memory:").unwrap();
+        let conn = schema::open_managed_connection(
+            std::path::Path::new(":memory:"),
+            schema::ConnectionMode::Writer,
+        )
+        .unwrap();
         schema::apply_migrations(&conn).unwrap();
         let state = enumerate_recovery_tasks(&conn).unwrap();
         assert_eq!(state, RecoveryState::Ready);

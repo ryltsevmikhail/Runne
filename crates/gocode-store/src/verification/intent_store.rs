@@ -13,7 +13,7 @@ use crate::schema;
 /// SQLite-backed intent store with durable, conditional state transitions.
 #[derive(Clone)]
 pub struct SqliteIntentStore {
-    conn: Arc<Mutex<Connection>>,
+    conn: Arc<Mutex<schema::ManagedConnection>>,
 }
 
 include!("intent_store_parts/store_impl.rs");

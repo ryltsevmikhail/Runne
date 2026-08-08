@@ -43,7 +43,7 @@ pub fn open_existing_read_only(db_path: &Path) -> SqliteResult<Connection> {
     open_classified_immutable_read_only(db_path)
 }
 
-/// Opens a validated owner-private existing database for writing.
+/// Opens a validated owner-private existing database and retains its profile proof.
 ///
 /// On Unix, the validator receives the same connection that is later returned.
 /// It runs with `query_only` enabled, after schema classification and before
@@ -52,25 +52,31 @@ pub fn open_existing_read_only(db_path: &Path) -> SqliteResult<Connection> {
 /// authorization.
 /// Windows intentionally fails closed until it has an equivalent protected
 /// handle-based implementation.
-pub fn open_existing_with_pragmas_validated<F>(
+pub fn reopen_managed_connection_validated<F>(
     db_path: &Path,
+    mode: ConnectionMode,
     validate: F,
-) -> SqliteResult<Connection>
+) -> SqliteResult<ManagedConnection>
 where
     F: FnOnce(&Connection) -> SqliteResult<()>,
 {
+    if !matches!(mode, ConnectionMode::Reader | ConnectionMode::ValidatedReopen) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
     #[cfg(not(unix))]
     {
-        let _ = (db_path, validate);
+        let _ = (db_path, mode, validate);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
     #[cfg(unix)]
     {
         let file_set = owner_private_recovery_file_set(db_path).map_err(diagnostic_error)?;
-        let connection = Connection::open_with_flags(
-            db_path,
-            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-        )?;
+        let flags = if mode == ConnectionMode::Reader {
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        };
+        let connection = Connection::open_with_flags(db_path, flags)?;
         connection.execute_batch("PRAGMA query_only = ON;")?;
         classify_existing_connection(&connection)?;
         validate(&connection)?;
@@ -80,8 +86,7 @@ where
             ));
         }
         connection.execute_batch("PRAGMA query_only = OFF;")?;
-        configure_writable_pragmas(&connection)?;
-        Ok(connection)
+        managed_after_profile(connection, mode, false)
     }
 }
 

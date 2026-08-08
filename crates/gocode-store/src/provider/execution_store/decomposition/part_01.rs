@@ -26,13 +26,16 @@ use sha2::{Digest, Sha256};
 use super::authority_config::ProviderRuntimeAuthorityConfig;
 use super::authority_state::{RuntimeAuthorityState, binding_kind, load_utilization};
 use super::effect_start::{ProviderEffectStartReceipt, start_effect};
-use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
+use crate::schema::{
+    ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+    publication_from_managed, readiness_from_managed,
+};
 
 const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"GOCODE_PROVIDER_EXECUTION_SEMANTIC_V1\0";
 
 /// SQLite runtime-owned atomic provider authority issuer.
 pub struct SqliteProviderExecutionStore {
-    pub(super) connection: Mutex<Connection>,
+    pub(super) connection: Mutex<ManagedConnection>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     #[cfg(test)]
     fail_effect_readback: AtomicBool,

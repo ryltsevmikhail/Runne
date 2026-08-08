@@ -5,10 +5,24 @@ fn recovery_blocked_state() {
 
     // Bootstrap to create the DB
     let o1 = bootstrap(&config).unwrap();
+    let authority_id = o1.authority_id;
     drop(o1);
 
     // Insert a synthetic event through a raw connection
-    let conn = schema::open_with_pragmas(&config.db_path).unwrap();
+    let conn = schema::reopen_managed_connection_validated(
+        Path::new(&config.db_path),
+        schema::ConnectionMode::ValidatedReopen,
+        |connection| {
+            if schema::read_authority_id(connection)? == Some(authority_id) {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .unwrap();
+    schema::readiness_from_managed(&conn).unwrap();
+    schema::publication_from_managed(&conn).unwrap();
 
     // Need to satisfy FK constraints
     conn.execute(
@@ -58,10 +72,11 @@ fn replay_key_missing_for_existing_db_is_provisioned_without_legacy_token_reuse(
 
     // Bootstrap once to create DB + replay-integrity key
     let o1 = bootstrap(&config).unwrap();
+    let authority_id = o1.authority_id;
     drop(o1);
 
     // Simulate a production-v1 install: DB + legacy bearer, no replay key.
-    remove_sidecar_migration_marker(&config);
+    remove_sidecar_migration_marker(&config, authority_id);
     fs::remove_file(replay_key_path(&config)).unwrap();
     let legacy_token_path = replay_key_path(&config).with_file_name("token.json");
     let legacy_token = [0x2a; 32];
@@ -97,11 +112,25 @@ fn local_session_authority_deleted_after_migration_fails_closed_without_replacem
     let temp = TempDir::new().unwrap();
     let config = test_config(&temp);
     let initial = bootstrap(&config).unwrap();
+    let initial_authority = initial.authority_id;
     drop(initial);
-    remove_sidecar_migration_marker(&config);
+    remove_sidecar_migration_marker(&config, initial_authority);
 
     let legacy_authority = [0x42; 16];
-    let connection = schema::open_with_pragmas(&config.db_path).unwrap();
+    let connection = schema::reopen_managed_connection_validated(
+        Path::new(&config.db_path),
+        schema::ConnectionMode::ValidatedReopen,
+        |connection| {
+            if schema::read_authority_id(connection)? == Some(initial_authority) {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .unwrap();
+    schema::readiness_from_managed(&connection).unwrap();
+    schema::publication_from_managed(&connection).unwrap();
     connection
         .execute(
             "UPDATE _authority SET authority_id = ?1 WHERE id = 1",
@@ -225,4 +254,17 @@ fn authority_lock_conflict_rejects_a_clone_before_writable_bootstrap_changes() {
     assert!(!PathBuf::from(format!("{}-wal", clone.display())).exists());
     assert!(!PathBuf::from(format!("{}-shm", clone.display())).exists());
     drop(holder);
+}
+
+#[cfg(unix)]
+#[test]
+fn validated_reopen_retains_bootstrap_authority_lock() {
+    let temp = TempDir::new().unwrap();
+    let config = test_config(&temp);
+    drop(bootstrap(&config).unwrap());
+
+    let reopened = bootstrap(&config).unwrap();
+    assert!(reopened.locks.authority_lock.is_some());
+    gocode_store::schema::readiness_from_managed(&reopened.db_conn).unwrap();
+    gocode_store::schema::publication_from_managed(&reopened.db_conn).unwrap();
 }

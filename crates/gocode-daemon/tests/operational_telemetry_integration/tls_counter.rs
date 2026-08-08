@@ -37,7 +37,10 @@ use gocode_http::{
     secure_local_host::{LocalRuntimeTlsHost, LocalRuntimeTlsHostError},
     task_runs::TaskRunHttpState,
 };
-use gocode_store::{replay_store::ReplayStore, schema::apply_migrations};
+use gocode_store::{
+    replay_store::ReplayStore,
+    schema::{ConnectionMode, apply_migrations, open_managed_connection},
+};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
@@ -230,7 +233,8 @@ fn binding() -> RuntimeSessionBinding {
 }
 
 fn replay_state() -> ReplayHttpState {
-    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    let connection =
+        open_managed_connection(std::path::Path::new(":memory:"), ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     let binding = binding();
     ReplayHttpState::new(

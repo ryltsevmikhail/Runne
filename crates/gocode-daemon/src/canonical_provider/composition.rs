@@ -57,8 +57,8 @@ pub struct DaemonCanonicalOpenAiService {
 
 pub(crate) struct DaemonCanonicalOpenAiComposition {
     pub(crate) db_path: String,
-    pub(crate) dispatch_connection: rusqlite::Connection,
-    pub(crate) execution_connection: rusqlite::Connection,
+    pub(crate) dispatch_connection: gocode_store::schema::ManagedConnection,
+    pub(crate) execution_connection: gocode_store::schema::ManagedConnection,
     pub(crate) runtime_authority_id: [u8; 16],
     pub(crate) runtime_generation: u64,
     pub(crate) activation_provenance: DaemonActivationProvenance,

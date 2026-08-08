@@ -36,7 +36,7 @@
         drop(conn);
 
         preflight_existing_file(&path).unwrap();
-        let conn = open_with_pragmas(path.to_str().unwrap()).unwrap();
+        let conn = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
 
         apply_migrations(&conn).unwrap();
 

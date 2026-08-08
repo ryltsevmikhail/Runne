@@ -130,9 +130,6 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
     }
 
     if current_version < 12 {
-        if conn.path().is_some_and(|path| !path.is_empty()) {
-            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")?;
-        }
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
         let snapshot = create_v11_upgrade_snapshot(&tx)?;
         tx.execute_batch(MIGRATION_V12)?;

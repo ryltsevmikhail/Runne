@@ -1,7 +1,7 @@
 #[test]
 fn preflight_rejects_v11_authority_table_with_same_columns_and_missing_constraints() {
     let path = current_database("v11-authority-constraints");
-    let connection = Connection::open(&path).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     connection
         .execute_batch(
@@ -46,13 +46,13 @@ fn preflight_rejects_v11_authority_table_with_same_columns_and_missing_constrain
 fn shared_opener_admits_new_released_v8_and_canonical_v9_files() {
     let new_path = std::env::temp_dir().join("gocode-schema-preflight-new.sqlite");
     let _ = std::fs::remove_file(&new_path);
-    let new_conn = open_with_pragmas(new_path.to_str().unwrap()).unwrap();
+    let new_conn = open_managed_connection(&new_path, ConnectionMode::Writer).unwrap();
     apply_migrations(&new_conn).unwrap();
     drop(new_conn);
 
     let v8_path = std::env::temp_dir().join("gocode-schema-preflight-v8.sqlite");
     let _ = std::fs::remove_file(&v8_path);
-    let v8_conn = Connection::open(&v8_path).unwrap();
+    let v8_conn = open_managed_connection(&v8_path, ConnectionMode::Writer).unwrap();
     apply_migrations(&v8_conn).unwrap();
     v8_conn
         .execute_batch(
@@ -66,9 +66,9 @@ fn shared_opener_admits_new_released_v8_and_canonical_v9_files() {
         )
         .unwrap();
     drop(v8_conn);
-    assert!(open_with_pragmas(v8_path.to_str().unwrap()).is_ok());
+    assert!(open_managed_connection(&v8_path, ConnectionMode::Writer).is_ok());
 
-    assert!(open_with_pragmas(new_path.to_str().unwrap()).is_ok());
+    assert!(open_managed_connection(&new_path, ConnectionMode::Writer).is_ok());
 
     for path in [new_path, v8_path] {
         for suffix in ["", "-wal", "-shm"] {

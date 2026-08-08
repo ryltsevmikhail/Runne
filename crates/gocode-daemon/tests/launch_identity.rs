@@ -1,5 +1,7 @@
 use gocode_daemon::launch_identity::LaunchIdentity;
-use gocode_store::schema::{apply_migrations, next_launch_generation, open_with_pragmas};
+use gocode_store::schema::{
+    ConnectionMode, apply_migrations, next_launch_generation, open_managed_connection,
+};
 use tempfile::tempdir;
 
 #[test]
@@ -7,12 +9,12 @@ fn launches_are_unique_and_generation_survives_database_reopen() {
     let directory = tempdir().unwrap();
     let database = directory.path().join("event-log.sqlite");
     let first_generation = {
-        let connection = open_with_pragmas(database.to_str().unwrap()).unwrap();
+        let connection = open_managed_connection(&database, ConnectionMode::Writer).unwrap();
         apply_migrations(&connection).unwrap();
         next_launch_generation(&connection).unwrap()
     };
     let second_generation = {
-        let connection = open_with_pragmas(database.to_str().unwrap()).unwrap();
+        let connection = open_managed_connection(&database, ConnectionMode::Writer).unwrap();
         apply_migrations(&connection).unwrap();
         next_launch_generation(&connection).unwrap()
     };
@@ -42,7 +44,7 @@ fn corrupt_launch_generations_are_never_rewritten() {
     for value in ["zero", "0", "18446744073709551615"] {
         let directory = tempdir().unwrap();
         let database = directory.path().join("event-log.sqlite");
-        let connection = open_with_pragmas(database.to_str().unwrap()).unwrap();
+        let connection = open_managed_connection(&database, ConnectionMode::Writer).unwrap();
         apply_migrations(&connection).unwrap();
         connection
             .execute(

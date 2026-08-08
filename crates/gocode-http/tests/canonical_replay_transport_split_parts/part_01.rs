@@ -26,7 +26,8 @@ use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
 use gocode_store::codec::{StoreCodec, TaskRunEventCodec};
 use gocode_store::integrity::compute_integrity_digest_with_global_position;
 use gocode_store::schema::{
-    apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id, open_with_pragmas,
+    ConnectionMode, apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id,
+    open_managed_connection,
 };
 use serde_json::{Value, json};
 use tower::ServiceExt;

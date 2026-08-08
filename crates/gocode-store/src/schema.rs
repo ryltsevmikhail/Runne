@@ -81,6 +81,7 @@ include!("schema/v12_snapshot.rs");
 include!("schema/v12_fence.rs");
 include!("schema/v12_rollback.rs");
 include!("schema/startup.rs");
+include!("schema/connection_profile.rs");
 include!("schema/migrations/v1_v3.rs");
 include!("schema/migrations/v4.rs");
 include!("schema/migrations/v5_v6.rs");

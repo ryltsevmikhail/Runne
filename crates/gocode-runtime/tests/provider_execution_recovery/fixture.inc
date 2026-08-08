@@ -36,7 +36,7 @@ fn fixture_with_digest_version_and_input_tokens(
         serde_json::Value::Null,
     )
     .unwrap();
-    let connection = gocode_store::schema::open_with_pragmas(path_text).unwrap();
+    let connection = validated_reopen::open_validated_connection(path_text, identity).unwrap();
     let dispatch = SqliteProviderDispatchStore::open_with_connection(path_text, connection).unwrap();
     assert!(SqliteProviderExecutionStore::open(&path).is_err());
     let connection = validated_reopen::open_validated_connection(path_text, identity).unwrap();
@@ -130,12 +130,10 @@ fn sql_snapshot(connection: &rusqlite::Connection) -> SqlSnapshot {
         .collect()
 }
 
-fn validated_connection(fixture: &Fixture) -> rusqlite::Connection {
-    let connection = validated_reopen::open_validated_connection(
+fn validated_connection(fixture: &Fixture) -> gocode_store::schema::ManagedConnection {
+    validated_reopen::open_validated_reader(
         fixture.path.to_str().unwrap(),
         fixture.identity,
     )
-    .unwrap();
-    connection.execute_batch("PRAGMA query_only = ON;").unwrap();
-    connection
+    .unwrap()
 }

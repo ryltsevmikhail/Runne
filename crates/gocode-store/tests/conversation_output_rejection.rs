@@ -35,8 +35,15 @@ fn context(command_id: &str, key: &str) -> ApplicationCommandContext {
 #[test]
 fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_message() {
     let directory = tempfile::tempdir().unwrap();
-    let database_path = directory
-        .path()
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let database_path = daemon
         .join("output-rejection.sqlite")
         .to_str()
         .unwrap()

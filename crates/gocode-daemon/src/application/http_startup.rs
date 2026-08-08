@@ -8,7 +8,7 @@ pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
     bootstrap: BootstrapOutcome,
     recovery_state: RecoveryState,
-    replay_connection: rusqlite::Connection,
+    replay_connection: gocode_store::schema::ManagedConnection,
     replay_lineage: gocode_domain::id::EventLogLineageId,
     store: StoreTransaction,
     service: Arc<SqliteTaskRunService>,

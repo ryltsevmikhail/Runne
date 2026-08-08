@@ -145,6 +145,21 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.InventoryError, "exact run"):
             verifier.verify_record(record, command)
 
+    def test_accepts_standard_libtest_list_summary(self) -> None:
+        verifier = load_verifier()
+        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        listing = "sqlite_managed_connection: test\n\n1 test, 0 benchmarks\n"
+        record["list_digest"] = hashlib.sha256(listing.encode()).hexdigest()
+
+        def command(args: tuple[str, ...]) -> str:
+            if args == ("rustc", "-V"):
+                return "rustc 1.95.0\n"
+            if args[-1] == "--list":
+                return listing
+            return "running 1 test\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+
+        verifier.verify_record(record, command)
+
     def test_verify_frozen_all_list_verifies_and_exact_runs_every_rust_record(self) -> None:
         verifier = load_verifier()
         rust_records = [resolved(*reservation) for reservation in RUST_RESERVATIONS]

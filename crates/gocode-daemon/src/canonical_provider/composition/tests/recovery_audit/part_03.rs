@@ -19,12 +19,12 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
     let prohibited = harness.prohibited();
     let store_a = SqliteProviderExecutionStore::open_with_connection(
         &harness.db_path,
-        rusqlite::Connection::open(&harness.db_path).unwrap(),
+        managed_test_connection(&harness.db_path),
     )
     .unwrap();
     let store_b = SqliteProviderExecutionStore::open_with_connection(
         &harness.db_path,
-        rusqlite::Connection::open(&harness.db_path).unwrap(),
+        managed_test_connection(&harness.db_path),
     )
     .unwrap();
     let runtime_a = RuntimeProviderExecution::new(

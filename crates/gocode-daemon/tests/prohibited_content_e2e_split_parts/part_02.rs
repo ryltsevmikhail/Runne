@@ -23,10 +23,12 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
         std::fs::set_permissions(&daemon_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let db_path = daemon_dir.join("prohibited-content.sqlite");
-    let setup_connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
+    let setup_connection = open_managed_connection(&db_path, ConnectionMode::Writer).unwrap();
     apply_migrations(&setup_connection).unwrap();
     ensure_authority_id(&setup_connection, &AUTHORITY).unwrap();
     let lineage = ensure_event_log_lineage_id(&setup_connection).unwrap();
+    readiness_from_managed(&setup_connection).unwrap();
+    publication_from_managed(&setup_connection).unwrap();
     drop(setup_connection);
     let authority = RuntimeAuthorityId("task-seven-e2e".into());
     let mut broker = SecretBroker::new();
