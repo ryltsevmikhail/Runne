@@ -1,0 +1,32 @@
+{
+  "inventory_version": "source-candidate-v1",
+  "inventory_status": "MUTABLE",
+  "records": [
+    {"id":"docs.claims","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
+    {"id":"schema.golden-api","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
+    {"id":"ci-local","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
+    {"id":"sqlite.managed-connection","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"connection_profile","selector_status":"UNRESOLVED"},
+    {"id":"sqlite.local-reliability","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"local_reliability_inventory","selector_status":"UNRESOLVED"},
+    {"id":"phase3.evidence-fixtures","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"UNRESOLVED"},
+    {"id":"phase3.evidence-shadow-import","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"UNRESOLVED"},
+    {"id":"phase3.evidence-lineage","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"UNRESOLVED"},
+    {"id":"phase3.evidence-rollback","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"UNRESOLVED"},
+    {"id":"phase3.migration-control","stage":"SOURCE_CANDIDATE","package":"gocode-application","integration_target":"migration_control","selector_status":"UNRESOLVED"},
+    {"id":"phase3.migration-rollout","stage":"SOURCE_CANDIDATE","package":"gocode-application","integration_target":"migration_rollout","selector_status":"UNRESOLVED"},
+    {"id":"phase3.migration-sqlite","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"migration_sqlite","selector_status":"UNRESOLVED"},
+    {"id":"phase3.migration-routing-sqlite","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"migration_routing_sqlite","selector_status":"UNRESOLVED"},
+    {"id":"phase3.migration-routing","stage":"SOURCE_CANDIDATE","package":"gocode-runtime","integration_target":"migration_routing","selector_status":"UNRESOLVED"},
+    {"id":"scanner.withheld-tail","stage":"SOURCE_CANDIDATE","package":"gocode-runtime","integration_target":"provider_redaction_recovery","selector_status":"UNRESOLVED"},
+    {"id":"scanner.recovery-dispatch","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"provider_dispatch_recovery","selector_status":"UNRESOLVED"},
+    {"id":"credentials.native-store","stage":"SOURCE_CANDIDATE","package":"gocode-secure-store","integration_target":"provider_credential","selector_status":"UNRESOLVED"},
+    {"id":"credentials.lifecycle","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"provider_credential_lifecycle","selector_status":"UNRESOLVED"},
+    {"id":"bootstrap.encoder","stage":"SOURCE_CANDIDATE","package":"gocode-pairing-crypto","integration_target":"bootstrap_v3","selector_status":"UNRESOLVED"},
+    {"id":"bootstrap.persistence","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"bootstrap_reservation_store","selector_status":"UNRESOLVED"},
+    {"id":"bootstrap.composition","stage":"SOURCE_CANDIDATE","package":"gocode-daemon","integration_target":"bootstrap_reservation_composition","selector_status":"UNRESOLVED"},
+    {"id":"bootstrap.http-wire","stage":"SOURCE_CANDIDATE","package":"gocode-http","integration_target":"local_session_bootstrap_v3","selector_status":"UNRESOLVED"},
+    {"id":"bootstrap.client-wire","stage":"SOURCE_CANDIDATE","package":"gocode-runtime-client","integration_target":"local_profile","selector_status":"UNRESOLVED"},
+    {"id":"sandbox.containment","stage":"SOURCE_CANDIDATE","package":"gocode-security","integration_target":"process_containment_admission","selector_status":"UNRESOLVED"},
+    {"id":"pty.process-contract","stage":"SOURCE_CANDIDATE","package":"gocode-tools","integration_target":"process_contract","selector_status":"UNRESOLVED"},
+    {"id":"mcp.supervision","stage":"SOURCE_CANDIDATE","package":"gocode-runtime","integration_target":"plugin_mcp_supervision","selector_status":"UNRESOLVED"}
+  ]
+}
