@@ -39,6 +39,7 @@ use crate::operational_telemetry::compose_operational_telemetry_query;
 use crate::provider_activation::ProviderActivation;
 
 mod pending;
+mod recovery_audit;
 
 struct FixedClock;
 
