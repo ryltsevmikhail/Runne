@@ -31,36 +31,47 @@ fn random_secret() -> [u8; 32] {
     value
 }
 
-fn material_representations(materials: &[Vec<u8>]) -> Vec<Vec<u8>> {
+fn material_representations(materials: &[Vec<u8>]) -> Vec<secret_scan::SecretRepresentation> {
     let mut representations = Vec::new();
     for material in materials {
         let standard = base64::engine::general_purpose::STANDARD.encode(material);
         representations.extend([
-            material.clone(),
-            standard.as_bytes().to_vec(),
-            standard.trim_end_matches('=').as_bytes().to_vec(),
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .encode(material)
-                .into_bytes(),
-            hex::encode(material).into_bytes(),
-            hex::encode_upper(material).into_bytes(),
+            secret_scan::SecretRepresentation {
+                class: secret_scan::RepresentationClass::Raw,
+                bytes: material.clone(),
+            },
+            secret_scan::SecretRepresentation {
+                class: secret_scan::RepresentationClass::Base64,
+                bytes: standard.as_bytes().to_vec(),
+            },
+            secret_scan::SecretRepresentation {
+                class: secret_scan::RepresentationClass::Base64Unpadded,
+                bytes: standard.trim_end_matches('=').as_bytes().to_vec(),
+            },
+            secret_scan::SecretRepresentation {
+                class: secret_scan::RepresentationClass::Base64Url,
+                bytes: base64::engine::general_purpose::URL_SAFE_NO_PAD
+                    .encode(material)
+                    .into_bytes(),
+            },
+            secret_scan::SecretRepresentation {
+                class: secret_scan::RepresentationClass::LowerHex,
+                bytes: hex::encode(material).into_bytes(),
+            },
+            secret_scan::SecretRepresentation {
+                class: secret_scan::RepresentationClass::UpperHex,
+                bytes: hex::encode_upper(material).into_bytes(),
+            },
         ]);
     }
     representations
 }
 
-fn assert_absent(kind: &str, bytes: &[u8], representations: &[Vec<u8>]) {
-    for representation in representations {
-        assert!(
-            !bytes
-                .windows(representation.len())
-                .any(|window| window == representation),
-            "{kind} contained protected material"
-        );
-    }
+fn assert_absent(kind: &str, bytes: &[u8], scanner: &secret_scan::SecretScanner) {
+    secret_scan::assert_reader_absent(scanner, kind, std::io::Cursor::new(bytes));
 }
 
-fn assert_tree_absent(root: &std::path::Path, representations: &[Vec<u8>]) {
+fn assert_tree_absent(sink: &str, root: &std::path::Path, scanner: &secret_scan::SecretScanner) {
     let mut pending = vec![root.to_path_buf()];
     while let Some(path) = pending.pop() {
         if path.is_dir() {
@@ -70,16 +81,12 @@ fn assert_tree_absent(root: &std::path::Path, representations: &[Vec<u8>]) {
                     .map(|entry| entry.expect("audited entry").path()),
             );
         } else if path.is_file() {
-            assert_absent(
-                path.to_string_lossy().as_ref(),
-                &std::fs::read(&path).expect("read audited artifact"),
-                representations,
-            );
+            secret_scan::assert_file_absent(scanner, sink, &path);
         }
     }
 }
 
-fn assert_tracked_fixtures_absent(representations: &[Vec<u8>]) {
+fn assert_tracked_fixtures_absent(scanner: &secret_scan::SecretScanner) {
     let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(std::path::Path::parent)
@@ -96,11 +103,7 @@ fn assert_tracked_fixtures_absent(representations: &[Vec<u8>]) {
         }
         let path = repository.join(String::from_utf8_lossy(relative).as_ref());
         if path.is_file() {
-            assert_absent(
-                path.to_string_lossy().as_ref(),
-                &std::fs::read(&path).expect("read tracked file"),
-                representations,
-            );
+            secret_scan::assert_file_absent(scanner, "tracked fixture", &path);
         }
     }
 }
@@ -113,9 +116,11 @@ fn early_child_exit_closes_the_inherited_channel_without_readiness_timeout() {
         "direct-exec false fixture is required"
     );
     let temporary = owner_private::tempdir();
-    let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
-            .expect("early-exit launch spec");
+    let spec = ProtectedBundledRuntimeLaunchSpec::new(
+        executable.path(),
+        &temporary.path().join("runtime"),
+    )
+    .expect("early-exit launch spec");
     let started = Instant::now();
     assert_eq!(
         DevelopmentBundledRuntimeLauncher::new()

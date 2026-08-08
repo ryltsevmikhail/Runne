@@ -9,7 +9,7 @@ POLICIES = {
     "gocode-domain": {"uuid", "sha2", "hex", "chrono", "serde"},
     "gocode-plugin-protocol": set(),
     "gocode-observability": {"gocode-application"},
-    "gocode-platform": {"gocode-application", "libc", "thiserror", "uuid"},
+    "gocode-platform": {"gocode-application", "gocode-platform-ports", "libc", "thiserror", "uuid"},
 }
 
 
