@@ -10,6 +10,7 @@
     use gocode_domain::id::{EventLogLineageId, IntegrityDigest};
     use gocode_domain::replay::GapRangeRef;
     use gocode_store::replay_store::ReplayStore;
+    use gocode_store::schema::{ConnectionMode, open_managed_connection};
 
     struct AvailableReplayAuthorization;
 
@@ -108,7 +109,11 @@
     fn maximum_canonical_failure_payload_fits_sse_frame_limit() {
         let service = ReplayService::new(
             Arc::new(ReplayStore::new(
-                rusqlite::Connection::open_in_memory().unwrap(),
+                open_managed_connection(
+                    std::path::Path::new(":memory:"),
+                    ConnectionMode::Writer,
+                )
+                .unwrap(),
             )),
             [0x11; 32],
             EventLogLineageId::from_bytes([0x22; 16]),

@@ -246,5 +246,5 @@ fn next_sequence_after(event: &ReplayEvent) -> Result<u64, ReplayError> {
 /// All database operations are dispatched through [`tokio::task::spawn_blocking`].
 #[derive(Clone)]
 pub struct ReplayStore {
-    conn: Arc<Mutex<Connection>>,
+    conn: Arc<Mutex<ManagedConnection>>,
 }

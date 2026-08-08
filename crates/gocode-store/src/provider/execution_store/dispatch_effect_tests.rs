@@ -104,7 +104,15 @@ impl ProhibitedContentPort for Guard {
 #[test]
 fn lost_effect_readback_freezes_before_stage2_send() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("provider.sqlite");
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path = daemon.join("provider.sqlite");
     let path_text = path.to_str().unwrap();
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(path_text, configured_connection(&path))
@@ -176,7 +184,7 @@ fn lost_effect_readback_freezes_before_stage2_send() {
         })
         .unwrap();
     assert_eq!(state, 6);
-    let durable: (i64, i64) = rusqlite::Connection::open(directory.path().join("provider.sqlite")).unwrap().query_row(
+    let durable: (i64, i64) = rusqlite::Connection::open(daemon.join("provider.sqlite")).unwrap().query_row(
         "SELECT (SELECT COUNT(*) FROM provider_effect_starts), (SELECT COUNT(*) FROM security_audit_pre_effect)", [], |row| Ok((row.get(0)?, row.get(1)?)),
     ).unwrap();
     assert_eq!(durable, (1, 1));

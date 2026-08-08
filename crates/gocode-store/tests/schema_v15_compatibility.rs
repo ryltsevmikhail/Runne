@@ -2,14 +2,17 @@ use std::path::{Path, PathBuf};
 
 use gocode_store::{
     provider::SqliteProviderExecutionStore,
-    schema::{CURRENT_SCHEMA_VERSION, apply_migrations, preflight_existing_file},
+    schema::{
+        CURRENT_SCHEMA_VERSION, ConnectionMode, apply_migrations, open_managed_connection,
+        preflight_existing_file,
+    },
 };
 use rusqlite::{Connection, params};
 
 fn released_v15_database() -> (tempfile::TempDir, PathBuf) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("released-v15.sqlite");
-    let connection = Connection::open(&path).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     drop(connection);
     (directory, path)

@@ -1,6 +1,5 @@
 fn store_with_events(count: i64) -> ReplayStore {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     connection
         .execute(
             "INSERT INTO aggregate_streams
@@ -18,7 +17,7 @@ fn store_with_events(count: i64) -> ReplayStore {
 fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("replay.sqlite");
-    let connection = Connection::open(&path).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     connection
         .execute(
@@ -31,10 +30,8 @@ fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
     for position in 1..=count {
         insert_taskrun_event(&connection, position, position);
     }
-    drop(connection);
-    let store_connection = Connection::open(&path).unwrap();
     let observer = Connection::open(&path).unwrap();
-    (ReplayStore::new(store_connection), observer, directory)
+    (ReplayStore::new(connection), observer, directory)
 }
 
 fn service(store: ReplayStore, authorization: MutableAuthorization) -> ReplayService {

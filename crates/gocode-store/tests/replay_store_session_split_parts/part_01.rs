@@ -14,7 +14,9 @@ use gocode_domain::timestamp::Timestamp;
 use gocode_store::codec::{StoreCodec, TaskRunEventCodec};
 use gocode_store::integrity::compute_integrity_digest_with_global_position;
 use gocode_store::replay_store::ReplayStore;
-use gocode_store::schema::apply_migrations;
+use gocode_store::schema::{
+    ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -99,14 +101,11 @@ fn taskrun_row(aggregate: [u8; 16], sequence: i64, global_position: i64) -> Task
 }
 
 fn store() -> ReplayStore {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
-    ReplayStore::new(connection)
+    ReplayStore::new(managed_memory())
 }
 
 fn store_with_events(count: i64) -> ReplayStore {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     connection
         .execute(
             "INSERT INTO aggregate_streams \
@@ -144,8 +143,7 @@ fn store_with_scoped_and_unrelated_event() -> ReplayStore {
         0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0xdd,
     ];
 
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     for (aggregate_id, position) in [(AGGREGATE, 1_i64), (OTHER_AGGREGATE, 2_i64)] {
         let row = taskrun_row(aggregate_id, 1, position);
         connection
@@ -181,7 +179,7 @@ fn store_with_scoped_and_unrelated_event() -> ReplayStore {
 fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("replay.sqlite");
-    let connection = Connection::open(&path).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     connection
         .execute(
@@ -214,6 +212,13 @@ fn file_store_with_events(count: i64) -> (ReplayStore, Connection, TempDir) {
     }
     let writer = Connection::open(&path).unwrap();
     (ReplayStore::new(connection), writer, directory)
+}
+
+fn managed_memory() -> ManagedConnection {
+    let connection =
+        open_managed_connection(std::path::Path::new(":memory:"), ConnectionMode::Writer).unwrap();
+    apply_migrations(&connection).unwrap();
+    connection
 }
 
 async fn open(

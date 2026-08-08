@@ -12,9 +12,9 @@ use gocode_store::provider::{
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use gocode_store::schema::{
-    apply_migrations, ensure_authority_id, ensure_event_log_lineage_id, generate_authority_id,
-    open_existing_with_pragmas_validated, open_with_pragmas, read_authority_id,
-    read_event_log_lineage_id, run_startup_gates,
+    ConnectionMode, ManagedConnection, apply_migrations, ensure_authority_id,
+    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection,
+    read_authority_id, read_event_log_lineage_id, reopen_managed_connection_validated,
 };
 use rusqlite::{Connection, Error as SqliteError, OpenFlags};
 
@@ -48,11 +48,11 @@ fn durable_dispatch(
     let prepared = effect
         .prepare(&openai_call(profile))
         .expect("prepared OpenAI request");
-    let dispatch_connection = open_with_pragmas(path_str).expect("dispatch connection");
+    let dispatch_connection =
+        open_managed_connection(&path, ConnectionMode::Writer).expect("dispatch connection");
     apply_migrations(&dispatch_connection).expect("dispatch migrations");
     ensure_authority_id(&dispatch_connection, &generate_authority_id()).expect("authority ID");
     ensure_event_log_lineage_id(&dispatch_connection).expect("event-log lineage ID");
-    run_startup_gates(&dispatch_connection, path_str).expect("dispatch startup gates");
     let identity = capture_main_database_identity(&dispatch_connection).expect("main DB identity");
     let dispatch_store =
         SqliteProviderDispatchStore::open_with_connection(path_str, dispatch_connection)
@@ -76,10 +76,7 @@ fn durable_dispatch(
         .expect("hold hot WAL");
     let execution_connection =
         open_validated_connection(&path, identity).expect("validated execution connection");
-    let reader = open_validated_connection(&path, identity).expect("validated reader connection");
-    reader
-        .execute_batch("PRAGMA query_only = ON;")
-        .expect("restrict reader");
+    let _reader = open_validated_reader(&path, identity).expect("validated reader connection");
     let execution_store =
         SqliteProviderExecutionStore::open_with_connection(path_str, execution_connection)
             .expect("execution store");
@@ -108,8 +105,21 @@ fn capture_main_database_identity(
 fn open_validated_connection(
     path: &Path,
     identity: MainDatabaseIdentity,
-) -> Result<Connection, SqliteError> {
-    open_existing_with_pragmas_validated(path, |connection| {
+) -> Result<ManagedConnection, SqliteError> {
+    reopen_managed_connection_validated(path, ConnectionMode::ValidatedReopen, |connection| {
+        if capture_main_database_identity(connection)? == identity {
+            Ok(())
+        } else {
+            Err(SqliteError::InvalidQuery)
+        }
+    })
+}
+
+fn open_validated_reader(
+    path: &Path,
+    identity: MainDatabaseIdentity,
+) -> Result<ManagedConnection, SqliteError> {
+    reopen_managed_connection_validated(path, ConnectionMode::Reader, |connection| {
         if capture_main_database_identity(connection)? == identity {
             Ok(())
         } else {

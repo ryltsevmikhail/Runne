@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 
+use super::super::{PreparedProviderRecord, SqliteProviderDispatchStore};
+use super::{
+    ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig, SqliteProviderExecutionStore,
+};
 use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
@@ -10,26 +14,24 @@ use gocode_provider::{
 };
 use rusqlite::Connection;
 
-use super::super::{PreparedProviderRecord, SqliteProviderDispatchStore};
-use super::{
-    ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig, SqliteProviderExecutionStore,
-};
-
 pub(super) struct TestClock(AtomicI64);
 
-pub(super) fn configured_connection(path: &Path) -> Connection {
-    let connection = Connection::open(path).unwrap();
-    connection
-        .execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = FULL;
-             PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
+pub(super) fn configured_connection(path: &Path) -> crate::schema::ManagedConnection {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    if path.exists() {
+        crate::schema::reopen_managed_connection_validated(
+            path,
+            crate::schema::ConnectionMode::ValidatedReopen,
+            |_| Ok(()),
         )
-        .unwrap();
-    #[cfg(target_os = "macos")]
-    connection.execute_batch("PRAGMA fullfsync = ON;").unwrap();
-    connection
+        .unwrap()
+    } else {
+        crate::schema::open_managed_connection(path, crate::schema::ConnectionMode::Writer).unwrap()
+    }
 }
 
 impl TestClock {
@@ -53,7 +55,16 @@ pub(super) struct Fixture {
 impl Fixture {
     pub(super) fn new(now: i64) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("provider-v14.sqlite");
+        let daemon = directory.path().join("gocode-daemon");
+        std::fs::create_dir(&daemon).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = daemon.join("provider-v14.sqlite");
         let clock = Arc::new(TestClock(AtomicI64::new(now)));
         let captured = Arc::clone(&clock);
         let store =

@@ -28,6 +28,7 @@ REQUIRED_IDS = RUST_IDS | EXTERNAL_IDS
 TARGET_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SELECTOR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
 LIST_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_:]*): test$")
+LIST_SUMMARY_RE = re.compile(r"^\d+ tests?, \d+ benchmarks$")
 RESULT_RE = re.compile(r"test result: ok\. 1 passed; 0 failed; 0 ignored;")
 
 
@@ -121,8 +122,12 @@ def verify_record(record: dict, command: Command = subprocess_command) -> None:
         raise InventoryError(f"record {record['id']} is UNRESOLVED")
     listing = command(_list_command(record))
     listed = [match.group(1) for line in listing.splitlines() if (match := LIST_RE.fullmatch(line))]
+    unexpected = [
+        line for line in listing.splitlines()
+        if line and not LIST_RE.fullmatch(line) and not LIST_SUMMARY_RE.fullmatch(line)
+    ]
     selector = record["fully_qualified_test_name"]
-    if listed.count(selector) != 1 or len(listed) != len(listing.splitlines()):
+    if listed.count(selector) != 1 or unexpected:
         raise InventoryError(f"record {record['id']} selector is not exactly one listed test")
     if hashlib.sha256(listing.encode()).hexdigest() != record["list_digest"]:
         raise InventoryError(f"record {record['id']} list digest changed")

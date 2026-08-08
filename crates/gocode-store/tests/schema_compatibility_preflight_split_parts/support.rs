@@ -40,9 +40,12 @@ fn assert_clean_preflight(path: &Path) {
 
 fn canonical_current_database(name: &str) -> PathBuf {
     let path = current_database(name);
-    let connection = open_with_pragmas(path.to_str().unwrap()).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
-    checkpoint_and_close(connection);
+    connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+    drop(connection);
     assert_clean_preflight(&path);
     path
 }

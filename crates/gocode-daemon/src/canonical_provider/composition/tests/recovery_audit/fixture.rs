@@ -8,6 +8,7 @@ use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
 };
 
+pub(super) use super::super::managed_test_connection;
 use super::super::*;
 pub(super) use super::snapshot::{Snapshot, assert_unchanged_except, snapshot, table_columns};
 
@@ -89,8 +90,8 @@ impl Harness {
         });
         DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
             db_path: self.db_path.clone(),
-            dispatch_connection: rusqlite::Connection::open(&self.db_path).unwrap(),
-            execution_connection: rusqlite::Connection::open(&self.db_path).unwrap(),
+            dispatch_connection: managed_test_connection(&self.db_path),
+            execution_connection: managed_test_connection(&self.db_path),
             runtime_authority_id: self.authority,
             runtime_generation: generation,
             activation_provenance: self.provenance,

@@ -6,7 +6,7 @@ use gocode_application::verification::evidence_recorder::*;
 use gocode_domain::verification::digest::{DigestContract, VerificationDigest};
 use gocode_domain::verification::evidence::*;
 use gocode_domain::verification::identity::*;
-use rusqlite::{Connection, TransactionBehavior, params};
+use rusqlite::{TransactionBehavior, params};
 
 use crate::schema;
 
@@ -16,15 +16,16 @@ use crate::schema;
 /// Every atomic write uses `BEGIN IMMEDIATE` for CAS semantics.
 #[derive(Clone)]
 pub struct SqliteEvidenceStore {
-    conn: Arc<Mutex<Connection>>,
+    conn: Arc<Mutex<schema::ManagedConnection>>,
 }
 
 impl SqliteEvidenceStore {
     /// Open a durable evidence store using the canonical schema migrations.
     pub fn open(db_path: &Path) -> Result<Self, rusqlite::Error> {
-        let conn = schema::open_with_pragmas(&db_path.to_string_lossy())?;
+        let conn = schema::open_managed_connection(db_path, schema::ConnectionMode::Writer)?;
         schema::apply_migrations(&conn)?;
-        schema::run_startup_gates(&conn, &db_path.to_string_lossy())?;
+        schema::readiness_from_managed(&conn)?;
+        schema::publication_from_managed(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -33,7 +34,10 @@ impl SqliteEvidenceStore {
     /// Open an in-memory evidence store using the canonical schema migrations.
     #[doc(hidden)]
     pub fn open_in_memory() -> Result<Self, rusqlite::Error> {
-        let conn = Connection::open_in_memory()?;
+        let conn = schema::open_managed_connection(
+            Path::new(":memory:"),
+            schema::ConnectionMode::Writer,
+        )?;
         schema::apply_migrations(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),

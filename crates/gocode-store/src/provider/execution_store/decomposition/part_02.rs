@@ -11,26 +11,27 @@ impl SqliteProviderExecutionStore {
         let path = path
             .to_str()
             .ok_or(ProviderAdmissionError::RepositoryFailure)?;
-        let connection =
-            open_with_pragmas(path).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let connection = open_managed_connection(Path::new(path), ConnectionMode::Writer)
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         Self::open_with_connection_and_now(path, connection, now)
     }
 
     /// Adopts a validated writable connection without reopening its path.
     pub fn open_with_connection(
         path: &str,
-        connection: Connection,
+        connection: ManagedConnection,
     ) -> Result<Self, ProviderAdmissionError> {
         Self::open_with_connection_and_now(path, connection, Arc::new(unix_timestamp))
     }
 
     fn open_with_connection_and_now(
-        path: &str,
-        connection: Connection,
+        _path: &str,
+        connection: ManagedConnection,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, ProviderAdmissionError> {
         apply_migrations(&connection).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        run_startup_gates(&connection, path)
+        readiness_from_managed(&connection)
+            .and_then(|_| publication_from_managed(&connection).map(|_| ()))
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         Ok(Self {
             connection: Mutex::new(connection),
