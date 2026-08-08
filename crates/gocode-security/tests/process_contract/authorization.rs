@@ -54,3 +54,31 @@ fn facade_does_not_reexport_authority_constructors() {
         );
     }
 }
+
+#[test]
+fn authorization_boundary_exposes_only_bound_per_call_operations() {
+    let boundary = include_str!("../../src/process_contract/boundary.rs");
+    let facade = include_str!("../../src/process_contract.rs");
+
+    for legacy in [
+        "ProcessAuthorizationSnapshotV1",
+        "pub fn new(",
+        "advance_lifecycle",
+        "snapshot",
+        "reopen",
+    ] {
+        assert!(
+            !boundary.contains(legacy),
+            "boundary must not expose {legacy}"
+        );
+        assert!(!facade.contains(legacy), "facade must not expose {legacy}");
+    }
+}
+
+#[test]
+fn authorization_boundary_exposes_non_consuming_preflight_only() {
+    let boundary = include_str!("../../src/process_contract/boundary.rs");
+
+    assert!(boundary.contains("pub fn preflight_authorization("));
+    assert!(!boundary.contains("pub fn validate_authorization("));
+}

@@ -1,3 +1,7 @@
+include!("allowlist/protocol_digest.rs");
+include!("allowlist/issuance_policy.rs");
+include!("allowlist/descriptor_compatibility.rs");
+
 #[test]
 fn discovery_allowlist_publishes_only_selected_exact_tools() {
     let published = published();
@@ -18,53 +22,54 @@ fn discovery_allowlist_publishes_only_selected_exact_tools() {
 }
 
 #[test]
-fn local_and_remote_publications_bind_kind_to_digest_class_and_capability() {
-    let descriptor = McpToolDescriptor::new("read", "1.0.0", json!({"type":"object"})).unwrap();
-    let server_id = McpServerId::new("kind-server").unwrap();
-    let local = publish_mcp_tools(server_id.clone(), McpServerKind::Local, vec![descriptor.clone()], &["read"]).unwrap();
-    let equivalent_local = publish_mcp_tools(server_id.clone(), McpServerKind::Local, vec![descriptor.clone()], &["read"]).unwrap();
-    let remote = publish_mcp_tools(server_id.clone(), McpServerKind::Remote, vec![descriptor], &["read"]).unwrap();
-    let local_ref = local.snapshot().tool_refs()[0].clone();
-    let remote_ref = remote.snapshot().tool_refs()[0].clone();
-    assert_ne!(local.discovery_digest(), remote.discovery_digest());
-    assert_eq!(local.discovery_digest(), equivalent_local.discovery_digest());
-    assert_eq!(local.resolve(&local_ref).unwrap().class(), ToolClass::McpLocal);
-    assert_eq!(local.resolve(&local_ref).unwrap().sandbox_profile(), SandboxProfile::McpLocal);
-    assert_eq!(remote.resolve(&remote_ref).unwrap().class(), ToolClass::McpRemote);
-    assert_eq!(remote.resolve(&remote_ref).unwrap().sandbox_profile(), SandboxProfile::NetworkRestricted);
-    let binding = |digest| McpDispatchBinding::new(
+fn discovery_digest_is_canonical_and_binds_each_tool_execution_triple() {
+    let server_id = McpServerId::new("digest-server").unwrap();
+    let protocol = McpToolDescriptor::new_with_execution_class(
+        "protocol",
+        "1.0.0",
+        json!({"type":"object"}),
+        McpToolExecutionClass::ProtocolOnly,
+    )
+    .unwrap();
+    let process = McpToolDescriptor::new_with_execution_class(
+        "process",
+        "1.0.0",
+        json!({"type":"object"}),
+        McpToolExecutionClass::ProcessBacked,
+    )
+    .unwrap();
+    let ordered = publish_mcp_tools(
         server_id.clone(),
-        McpRuntimeInstanceId::new("runtime-1").unwrap(),
-        McpConnectionId::new("connection-1").unwrap(),
-        McpSessionId::new("session-1").unwrap(),
-        1,
-        digest,
-    ).unwrap();
-    let local_binding = binding(*local.discovery_digest());
-    let remote_binding = binding(*remote.discovery_digest());
-    assert!(matches!(
-        local.issue_dispatch(&remote_binding, &local_ref, McpInvocationId::new("wrong-kind").unwrap(), json!({})),
-        Err(McpDispatchCapabilityError::InvalidBinding)
-    ));
-    let local_capability = local.issue_dispatch(
-        &local_binding,
-        &local_ref,
-        McpInvocationId::new("local-kind").unwrap(),
-        json!({}),
-    ).unwrap();
-    let rejected = McpToolGateway::new(
-        Admission { calls: Arc::new(Mutex::new(Vec::new())), reject: None },
-        Client {
-            sends: Arc::new(Mutex::new(0)),
-            messages: Arc::new(Mutex::new(Vec::new())),
-            fail_after_send: false,
-            generation_cutover: None,
-            reservations: reservations(),
-        },
-        Arc::new(McpGenerationAuthority::new(&remote_binding)),
-        ToolOutputBounds::new(1024, 16, 16).unwrap(),
-    );
-    assert_eq!(rejected.dispatch(local_capability), Err(McpToolGatewayError::StaleGeneration));
+        McpServerKind::Local,
+        vec![protocol.clone(), process.clone()],
+        &["protocol", "process"],
+    )
+    .unwrap();
+    let reordered = publish_mcp_tools(
+        server_id.clone(),
+        McpServerKind::Local,
+        vec![process.clone(), protocol.clone()],
+        &["protocol", "process"],
+    )
+    .unwrap();
+    let changed = publish_mcp_tools(
+        server_id,
+        McpServerKind::Local,
+        vec![
+            McpToolDescriptor::new_with_execution_class(
+                "protocol",
+                "1.0.0",
+                json!({"type":"object"}),
+                McpToolExecutionClass::ProcessBacked,
+            )
+            .unwrap(),
+            process,
+        ],
+        &["protocol", "process"],
+    )
+    .unwrap();
+    assert_eq!(ordered.discovery_digest(), reordered.discovery_digest());
+    assert_ne!(ordered.discovery_digest(), changed.discovery_digest());
 }
 
 #[test]

@@ -4,14 +4,18 @@ use core::fmt;
 
 use sha2::{Digest, Sha256};
 
+mod authority;
 mod authorization;
+mod boundary;
 mod context;
 mod digest;
 mod error;
 mod ids;
 mod intent;
 
+pub use authority::{ProcessAuthorizationAdvanceV1, ProcessAuthorizationAuthorityV1};
 pub use authorization::{ProcessApprovalV1, ProcessCapabilityV1, ValidatedProcessIntentV1};
+pub use boundary::ProcessAuthorizationBoundaryV1;
 pub use error::ProcessContractError;
 pub use ids::{
     AllowedRootId, ApprovalId, ApproverId, AuthorityId, CapabilityGrantId, ExecutablePolicyId,
@@ -100,14 +104,7 @@ impl ValidatedProcessIntentV1 {
     /// Returns the exact opaque lifecycle binding; it never exposes an identifier-only control.
     #[must_use]
     pub fn lifecycle_binding(&self) -> gocode_platform_ports::process::ProcessLifecycleBindingV1 {
-        let binding = self.intent().binding();
-        gocode_platform_ports::process::ProcessLifecycleBindingV1::new(
-            binding.owner().clone(),
-            binding.attempt().clone(),
-            binding.session().clone(),
-            binding.generation().clone(),
-            binding.tree().clone(),
-        )
+        self.intent().lifecycle_binding()
     }
 
     /// Returns the validated monotonic timeout budget in ticks.
@@ -148,5 +145,13 @@ impl ValidatedProcessIntentV1 {
     }
 }
 
+#[cfg(test)]
+mod authority_r1_tests;
+#[cfg(test)]
+mod authority_r2_tests;
+#[cfg(test)]
+mod authority_r3_tests;
+#[cfg(test)]
+mod authority_tests;
 #[cfg(test)]
 mod tests;

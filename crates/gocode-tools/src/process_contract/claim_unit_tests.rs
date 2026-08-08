@@ -2,8 +2,9 @@ use crate::EffectAdmission;
 use gocode_platform_ports::process::MonotonicDeadline;
 
 use super::{
-    ProcessClaimBindingV1, ProcessClaimInputV1, ProcessClaimRecordV1, ProcessContractErrorV1,
-    ProcessLifecycleStateV1, journal::project_claim, orchestrator_test_support::Journal,
+    ProcessClaimBindingV1, ProcessClaimInputV1, ProcessClaimJournalMemoryV1, ProcessClaimRecordV1,
+    ProcessContractErrorV1, ProcessLifecycleStateV1, journal::project_claim,
+    orchestrator_test_support::Journal,
 };
 
 fn input() -> ProcessClaimInputV1 {
@@ -88,6 +89,42 @@ fn first_projection_replays_once_and_changed_binding_or_digest_conflicts() {
             Err(ProcessContractErrorV1::ClaimProjectionConflict)
         );
     }
+}
+
+#[test]
+fn memory_journal_replays_only_the_exact_claim_projection() {
+    let admission = EffectAdmission {
+        permit_id: "memory-permit".to_owned(),
+    };
+    let deadline = MonotonicDeadline::checked_after(10, 5).expect("valid deadline");
+    let original = ProcessClaimInputV1::new(
+        &admission,
+        [1; 32],
+        ProcessClaimBindingV1::new([2; 16], [3; 16], [4; 16], [5; 16], [6; 16])
+            .expect("marker-safe binding"),
+        deadline,
+    )
+    .expect("outer admission");
+    let conflicting = ProcessClaimInputV1::new(
+        &admission,
+        [9; 32],
+        ProcessClaimBindingV1::new([2; 16], [3; 16], [4; 16], [5; 16], [6; 16])
+            .expect("marker-safe binding"),
+        deadline,
+    )
+    .expect("outer admission");
+    let mut journal = ProcessClaimJournalMemoryV1::new();
+
+    let (first, claimed) = project_claim(&mut journal, &original).expect("first projection");
+    let (replay, replayed) = project_claim(&mut journal, &original).expect("exact replay");
+
+    assert!(claimed);
+    assert!(!replayed);
+    assert_eq!(replay, first);
+    assert_eq!(
+        project_claim(&mut journal, &conflicting),
+        Err(ProcessContractErrorV1::ClaimProjectionConflict)
+    );
 }
 
 #[test]

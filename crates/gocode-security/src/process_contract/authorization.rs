@@ -1,4 +1,4 @@
-//! Crate-private capability authorization validation and durable replay rejection.
+//! Crate-private capability authorization issuance and durable replay rejection.
 //!
 //! This guard rejects authorization replay only. A validated witness is a prerequisite and does
 //! not authorize an external effect; outer effect admission remains the sole effect authority.
@@ -6,11 +6,15 @@
 
 use std::collections::BTreeSet;
 
-use super::context::{CurrentProcessContextV1, validate_current_context};
+use super::context::CurrentProcessContextV1;
 use super::{
     ApprovalId, ApproverId, ProcessCapabilityId, ProcessContractError, ProcessIdentityBindingV1,
     ProcessIntentDigestV1, ProcessIntentV1,
 };
+
+mod validation;
+
+pub(crate) use validation::{preflight_authorization, validate_authorization};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Decision {
@@ -21,6 +25,7 @@ enum Decision {
 /// Opaque consume-only approval contract.
 pub struct ProcessApprovalV1 {
     id: ApprovalId,
+    domain: AuthorizationReplayDomainV1,
     digest: ProcessIntentDigestV1,
     binding: ProcessIdentityBindingV1,
     scope: ApprovalScopeV1,
@@ -33,7 +38,7 @@ pub struct ProcessApprovalV1 {
 /// Opaque consume-only runtime capability.
 pub struct ProcessCapabilityV1 {
     id: ProcessCapabilityId,
-    replay_guard_id: [u8; 16],
+    domain: AuthorizationReplayDomainV1,
     digest: ProcessIntentDigestV1,
     binding: ProcessIdentityBindingV1,
     approval: ApprovalId,
@@ -51,6 +56,31 @@ pub(crate) struct ApprovalScopeV1 {
     binding: ProcessIdentityBindingV1,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) struct AuthorizationReplayDomainV1 {
+    legacy_seed: [u8; 16],
+    authority_instance: u64,
+}
+
+impl AuthorizationReplayDomainV1 {
+    pub(crate) const fn new(legacy_seed: [u8; 16], authority_instance: u64) -> Self {
+        Self {
+            legacy_seed,
+            authority_instance,
+        }
+    }
+
+    pub(crate) const fn authority_instance(&self) -> u64 {
+        self.authority_instance
+    }
+}
+
+impl From<[u8; 16]> for AuthorizationReplayDomainV1 {
+    fn from(legacy_seed: [u8; 16]) -> Self {
+        Self::new(legacy_seed, 0)
+    }
+}
+
 impl ValidatedProcessIntentV1 {
     #[must_use]
     pub const fn intent(&self) -> &ProcessIntentV1 {
@@ -58,39 +88,34 @@ impl ValidatedProcessIntentV1 {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct AuthorizationReplayGuard {
-    id: [u8; 16],
-    used: BTreeSet<Vec<u8>>,
+impl ProcessCapabilityV1 {
+    /// Returns the stable opaque capability identifier for metadata-only correlation.
+    #[must_use]
+    pub const fn id_label(&self) -> [u8; 16] {
+        *self.id.bytes()
+    }
 }
-pub(crate) struct AuthorizationReplayGuardSnapshot {
-    id: [u8; 16],
+
+pub(crate) struct AuthorizationReplayGuard {
+    domain: AuthorizationReplayDomainV1,
     used: BTreeSet<Vec<u8>>,
 }
 
 impl AuthorizationReplayGuard {
-    pub(crate) fn new(id: [u8; 16]) -> Self {
+    pub(crate) fn new(domain: impl Into<AuthorizationReplayDomainV1>) -> Self {
         Self {
-            id,
+            domain: domain.into(),
             used: BTreeSet::new(),
         }
     }
-    pub(crate) fn id(&self) -> [u8; 16] {
-        self.id
+    pub(crate) fn domain(&self) -> AuthorizationReplayDomainV1 {
+        self.domain
     }
-    pub(crate) fn snapshot(&self) -> AuthorizationReplayGuardSnapshot {
-        AuthorizationReplayGuardSnapshot {
-            id: self.id,
-            used: self.used.clone(),
-        }
+    #[cfg(test)]
+    pub(crate) const fn id(&self) -> [u8; 16] {
+        self.domain.legacy_seed
     }
-    pub(crate) fn reopen(snapshot: AuthorizationReplayGuardSnapshot) -> Self {
-        Self {
-            id: snapshot.id,
-            used: snapshot.used,
-        }
-    }
-    fn record_use(&mut self, key: Vec<u8>) -> Result<(), ProcessContractError> {
+    pub(super) fn record_use(&mut self, key: Vec<u8>) -> Result<(), ProcessContractError> {
         if !self.used.insert(key) {
             Err(ProcessContractError::CapabilityInvalid)
         } else {
@@ -109,7 +134,7 @@ pub(crate) fn issue_capability(
 ) -> ProcessCapabilityV1 {
     ProcessCapabilityV1 {
         id,
-        replay_guard_id: replay_guard.id,
+        domain: replay_guard.domain(),
         digest: intent.digest(),
         binding: intent.binding().clone(),
         approval: intent.approval().clone(),
@@ -126,6 +151,33 @@ pub(crate) fn approval_scope(intent: &ProcessIntentV1) -> ApprovalScopeV1 {
     }
 }
 
+pub(crate) fn approve_bound(
+    intent: &ProcessIntentV1,
+    scope: ApprovalScopeV1,
+    replay_guard: &AuthorizationReplayGuard,
+    current: &CurrentProcessContextV1,
+    expires: u64,
+    approved: bool,
+) -> ProcessApprovalV1 {
+    ProcessApprovalV1 {
+        id: intent.approval().clone(),
+        domain: replay_guard.domain(),
+        digest: intent.digest(),
+        binding: intent.binding().clone(),
+        scope,
+        approver: current.approver.clone(),
+        decision: if approved {
+            Decision::Approved
+        } else {
+            Decision::Rejected
+        },
+        expires,
+        revision: current.revision,
+        epoch: current.epoch,
+    }
+}
+
+#[cfg(test)]
 pub(crate) fn approve(
     intent: &ProcessIntentV1,
     scope: ApprovalScopeV1,
@@ -137,6 +189,7 @@ pub(crate) fn approve(
 ) -> ProcessApprovalV1 {
     ProcessApprovalV1 {
         id: intent.approval().clone(),
+        domain: AuthorizationReplayDomainV1::from([1; 16]),
         digest: intent.digest(),
         binding: intent.binding().clone(),
         scope,
@@ -150,86 +203,4 @@ pub(crate) fn approve(
         revision,
         epoch,
     }
-}
-
-pub(crate) fn validate_authorization(
-    intent: ProcessIntentV1,
-    capability: Option<&ProcessCapabilityV1>,
-    approval: Option<&ProcessApprovalV1>,
-    current: &CurrentProcessContextV1,
-    replay_guard: &mut AuthorizationReplayGuard,
-    now: u64,
-) -> Result<ValidatedProcessIntentV1, ProcessContractError> {
-    let capability = capability.ok_or(ProcessContractError::CapabilityInvalid)?;
-    if capability.replay_guard_id != replay_guard.id
-        || capability.digest != intent.digest()
-        || capability.binding != *intent.binding()
-        || capability.approval != *intent.approval()
-        || now >= capability.expires
-        || capability.revision != current.revision
-        || capability.epoch != current.epoch
-    {
-        return Err(ProcessContractError::CapabilityInvalid);
-    }
-    let approval = approval.ok_or(ProcessContractError::ApprovalInvalid)?;
-    if approval.id != *intent.approval()
-        || approval.digest != intent.digest()
-        || approval.binding != *intent.binding()
-        || approval.scope.digest != intent.digest()
-        || approval.scope.binding != *intent.binding()
-        || approval.approver != current.approver
-        || approval.decision != Decision::Approved
-        || now >= approval.expires
-        || approval.revision != current.revision
-        || approval.epoch != current.epoch
-    {
-        return Err(ProcessContractError::ApprovalInvalid);
-    }
-    validate_current_context(current, &intent)?;
-    replay_guard.record_use(authorization_replay_key(capability, approval, &intent))?;
-    Ok(ValidatedProcessIntentV1 { intent })
-}
-
-pub(crate) fn authorization_replay_key(
-    capability: &ProcessCapabilityV1,
-    approval: &ProcessApprovalV1,
-    intent: &ProcessIntentV1,
-) -> Vec<u8> {
-    let mut key = Vec::new();
-    let binding = binding_bytes(&capability.binding);
-    for value in [
-        capability.replay_guard_id.as_slice(),
-        capability.id.bytes().as_slice(),
-        approval.id.bytes().as_slice(),
-        intent.digest().as_bytes().as_slice(),
-        binding.as_slice(),
-        capability.revision.to_be_bytes().as_slice(),
-        capability.epoch.to_be_bytes().as_slice(),
-    ] {
-        part(&mut key, value);
-    }
-    key
-}
-
-fn binding_bytes(binding: &ProcessIdentityBindingV1) -> Vec<u8> {
-    let mut value = Vec::new();
-    for part_value in [
-        binding.principal.bytes().as_slice(),
-        binding.authority.bytes().as_slice(),
-        binding.owner.as_bytes().as_slice(),
-        binding.attempt.as_bytes().as_slice(),
-        binding.session.as_bytes().as_slice(),
-        binding.generation.as_bytes().as_slice(),
-        binding.accounting.bytes().as_slice(),
-        binding.sandbox.bytes().as_slice(),
-        binding.tree.as_bytes().as_slice(),
-    ] {
-        part(&mut value, part_value);
-    }
-    value
-}
-
-fn part(out: &mut Vec<u8>, value: &[u8]) {
-    out.extend_from_slice(&u32::try_from(value.len()).unwrap_or(u32::MAX).to_be_bytes());
-    out.extend_from_slice(value);
 }

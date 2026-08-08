@@ -60,9 +60,12 @@ where A: ToolAdmissionPort, C: McpClientPort + McpProtocolCompletionPort + Send 
 
     /// Claims generation, builds an exact binding and dispatches through every gate.
     pub fn dispatch(&self, capability: McpToolDispatchCapability) -> Result<ToolExecutionHandle, McpToolGatewayError> {
+        if capability.execution_class() != McpToolExecutionClass::ProtocolOnly {
+            return Err(McpToolGatewayError::InvalidBinding);
+        }
         let permit = self.generation.claim_dispatch(&capability.binding).map_err(|_| McpToolGatewayError::StaleGeneration)?;
         if !permit.matches(&capability.binding) { return Err(McpToolGatewayError::InvalidBinding); }
-        let McpToolDispatchCapability { binding, tool_ref, invocation_id, input, server_tool_name, request_digest } = capability;
+        let McpToolDispatchCapability { binding, tool_ref, invocation_id, input, server_tool_name, request_digest, .. } = capability;
         let invocation_id = invocation_id.as_str().to_owned();
         let message = McpNormalizedMessage::request(Some(McpRequestId::String(invocation_id.clone())), MCP_TOOLS_CALL_METHOD.into(), json!({
             "name": server_tool_name, "arguments": input, "runtime": binding.runtime_id.as_str(), "session": binding.session_id.as_str(),
@@ -109,13 +112,34 @@ where A: ToolAdmissionPort, C: McpClientPort + McpProtocolCompletionPort + Send 
 fn discovery_digest(server_id: &McpServerId, kind: McpServerKind, tools: &[McpToolDescriptor]) -> [u8; 32] {
     let mut hasher = Sha256::new(); hasher.update(b"GOCODE_MCP_DISCOVERY_V2\0");
     hash_field(&mut hasher, server_id.as_str().as_bytes()); hasher.update((tools.len() as u64).to_be_bytes());
-    let (kind, class, sandbox) = match kind {
-        McpServerKind::Local => (b"local".as_slice(), b"mcp-local".as_slice(), b"mcp-local".as_slice()),
-        McpServerKind::Remote => (b"remote".as_slice(), b"mcp-remote".as_slice(), b"network-restricted".as_slice()),
-    };
-    for value in [kind, class, sandbox] { hash_field(&mut hasher, value); }
-    for tool in tools { hash_field(&mut hasher, tool.name.as_bytes()); hash_field(&mut hasher, tool.version.to_string().as_bytes()); hash_field(&mut hasher, &serde_json::to_vec(&tool.input_schema).expect("serde_json::Value always serializes")); }
+    let kind_label = match kind { McpServerKind::Local => b"local".as_slice(), McpServerKind::Remote => b"remote".as_slice() };
+    hash_field(&mut hasher, kind_label);
+    for tool in tools {
+        let mapping = publication_mapping(kind, tool.execution_class());
+        let version = tool.version.to_string();
+        let schema = serde_json::to_vec(&tool.input_schema).expect("serde_json::Value always serializes");
+        for value in [
+            tool.name.as_bytes(), version.as_bytes(), schema.as_slice(),
+            tool.execution_class().label(), tool_class_label(mapping.class), sandbox_profile_label(mapping.sandbox),
+        ] { hash_field(&mut hasher, value); }
+    }
     hasher.finalize().into()
+}
+
+fn tool_class_label(class: ToolClass) -> &'static [u8] {
+    match class {
+        ToolClass::BuiltInProcess => b"built-in-process", ToolClass::BuiltInFilesystem => b"built-in-filesystem",
+        ToolClass::BuiltInNetwork => b"built-in-network", ToolClass::Plugin => b"plugin",
+        ToolClass::McpLocal => b"mcp-local", ToolClass::McpRemote => b"mcp-remote",
+    }
+}
+
+fn sandbox_profile_label(profile: SandboxProfile) -> &'static [u8] {
+    match profile {
+        SandboxProfile::ProcessRestricted => b"process-restricted", SandboxProfile::WorkspaceCoding => b"workspace-coding",
+        SandboxProfile::NetworkRestricted => b"network-restricted", SandboxProfile::PluginHost => b"plugin-host",
+        SandboxProfile::McpLocal => b"mcp-local",
+    }
 }
 
 fn binding_digest(server_id: &McpServerId, runtime_id: &McpRuntimeInstanceId, connection_id: &McpConnectionId, session_id: &McpSessionId, generation: u64, discovery_digest: [u8; 32]) -> [u8; 32] {

@@ -1,8 +1,23 @@
+use gocode_tools::ToolRef;
 use serde_json::Value;
+use std::sync::MutexGuard;
 
-use crate::{FixtureMcpFailure, McpInvocationId};
+use crate::{
+    FixtureMcpFailure, McpDispatchCapabilityError, McpInvocationId, McpToolDispatchCapability,
+};
 
-use super::{FixtureCallCapability, FixturePublication};
+use super::{FixtureCallCapability, FixturePublication, runtime::FixtureState};
+
+#[cfg(test)]
+mod process_issuance;
+
+struct PreparedIssue<'a> {
+    _state_guard: MutexGuard<'a, FixtureState>,
+    active: super::FixtureInitialize,
+    tool: super::FixtureTool,
+    tool_ref: ToolRef,
+    invocation: McpInvocationId,
+}
 
 impl FixturePublication {
     /// Issues an exact schema-validated, secret-free, expiry-bound capability.
@@ -16,6 +31,35 @@ impl FixturePublication {
         authority: &str,
         expires_at: u64,
     ) -> Result<FixtureCallCapability, FixtureMcpFailure> {
+        let prepared = self.prepare_issue(tool_name, invocation_id, &input)?;
+        let capability = self
+            .published
+            .issue_dispatch(
+                &self.binding,
+                &prepared.tool_ref,
+                prepared.invocation.clone(),
+                input.clone(),
+            )
+            .map_err(Self::map_dispatch_error)?;
+        let request_digest = capability.request_digest();
+        self.finish_issue(
+            prepared,
+            tool_name,
+            invocation_id,
+            request_digest,
+            capability,
+            expires_at,
+            principal,
+            authority,
+        )
+    }
+
+    fn prepare_issue<'a>(
+        &'a self,
+        tool_name: &str,
+        invocation_id: &str,
+        input: &Value,
+    ) -> Result<PreparedIssue<'a>, FixtureMcpFailure> {
         let state = self
             .state
             .lock()
@@ -29,14 +73,14 @@ impl FixturePublication {
         {
             return Err(FixtureMcpFailure::DiscoveryStale);
         }
-        drop(state);
         let tool = self
             .tools
             .get(tool_name)
+            .cloned()
             .ok_or(FixtureMcpFailure::ToolNotAllowed)?;
-        super::schema::validate_value(&input, &self.limits)?;
-        super::schema::reject_secret_material(&input)?;
-        super::schema::validate_instance(tool.input_schema(), &input)?;
+        super::schema::validate_value(input, &self.limits)?;
+        super::schema::reject_secret_material(input)?;
+        super::schema::validate_instance(tool.input_schema(), input)?;
         let expected_id = format!("mcp::{}::{tool_name}", self.binding.server_id().as_str());
         let tool_ref = self
             .published
@@ -44,44 +88,66 @@ impl FixturePublication {
             .tool_refs()
             .iter()
             .find(|reference| reference.tool_id().as_str() == expected_id)
+            .cloned()
             .ok_or(FixtureMcpFailure::ToolNotAllowed)?;
         let invocation = McpInvocationId::new(invocation_id)
             .map_err(|_| FixtureMcpFailure::CapabilityMissing)?;
-        let capability = self
-            .published
-            .issue_dispatch(&self.binding, tool_ref, invocation, input.clone())
-            .map_err(|_| FixtureMcpFailure::CapabilityMissing)?;
-        let request_digest = capability.request_digest();
-        let bytes = serde_json::to_vec(&input)
-            .map_err(|_| FixtureMcpFailure::RequestTooLarge)?
-            .len();
+        Ok(PreparedIssue {
+            _state_guard: state,
+            active,
+            tool,
+            tool_ref,
+            invocation,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn finish_issue(
+        &self,
+        prepared: PreparedIssue<'_>,
+        tool_name: &str,
+        invocation_id: &str,
+        request_digest: [u8; 32],
+        capability: McpToolDispatchCapability,
+        expires_at: u64,
+        principal: &str,
+        authority: &str,
+    ) -> Result<FixtureCallCapability, FixtureMcpFailure> {
         let approval_digest = super::model::digest(&[
             b"fixture-approval-v2",
             principal.as_bytes(),
             authority.as_bytes(),
             invocation_id.as_bytes(),
             request_digest.as_slice(),
-            tool_ref.tool_id().as_str().as_bytes(),
-            tool_ref.version().to_string().as_bytes(),
+            prepared.tool_ref.tool_id().as_str().as_bytes(),
+            prepared.tool_ref.version().to_string().as_bytes(),
             &self.definition_digest,
             &self.issuer_digest,
-            &tool.definition_digest(),
+            &prepared.tool.definition_digest(),
             self.binding.connection_id().as_bytes(),
             &self.binding.binding_digest(),
             &self.binding.generation().to_be_bytes(),
-            active.runtime_id.as_str().as_bytes(),
-            active.session_id.as_str().as_bytes(),
+            prepared.active.runtime_id.as_str().as_bytes(),
+            prepared.active.session_id.as_str().as_bytes(),
             &expires_at.to_be_bytes(),
             format!("{:?}", self.policy).as_bytes(),
         ]);
         Ok(FixtureCallCapability {
             capability: Some(capability),
+            execution_class: self
+                .tools
+                .get(tool_name)
+                .expect("prepared tool exists")
+                .execution_class(),
+            process_key: None,
+            process_payload: None,
+            #[cfg(test)]
+            process_payload_take_count: 0,
             invocation_id: invocation_id.to_owned(),
             approval_digest,
             connection_id: self.binding.connection_id().to_owned(),
             generation: self.binding.generation(),
             expires_at,
-            bytes,
             request_digest,
             issuer_digest: self.issuer_digest,
             definition_digest: self.definition_digest,
@@ -95,5 +161,17 @@ impl FixturePublication {
                 tool_name.to_owned(),
             ),
         })
+    }
+
+    fn map_dispatch_error(error: McpDispatchCapabilityError) -> FixtureMcpFailure {
+        match error {
+            McpDispatchCapabilityError::ProcessIntentRequired => {
+                FixtureMcpFailure::ProcessIntentRequired
+            }
+            McpDispatchCapabilityError::ExecutionClassMismatch => {
+                FixtureMcpFailure::ExecutionClassMismatch
+            }
+            _ => FixtureMcpFailure::CapabilityMissing,
+        }
     }
 }
