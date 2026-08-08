@@ -166,6 +166,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
             for identifier in ("docs.claims", "schema.golden-api", "ci-local")
         )
         document = inventory(records, "FROZEN")
+        document["final_inventory_digest"] = "0" * 64
         verifier.RUST_IDS = frozenset({"sqlite.managed-connection"})
         calls: list[tuple[str, ...]] = []
 
