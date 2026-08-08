@@ -1,12 +1,14 @@
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generated_protected_material_is_absent_from_every_forbidden_local_sink() {
     let _process_guard = PROCESS_FAULT_AUDIT_LOCK.lock().await;
     let temporary = owner_private::tempdir();
-    let executable = owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
-    let spec =
-        ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &temporary.path().join("runtime"))
-            .expect("protected launch spec");
+    let executable =
+        owner_private::ControlledExecutable::copy_from(env!("CARGO_BIN_EXE_gocode-daemon"));
+    let spec = ProtectedBundledRuntimeLaunchSpec::new(
+        executable.path(),
+        &temporary.path().join("runtime"),
+    )
+    .expect("protected launch spec");
     let runtime_root = spec.runtime_root().to_path_buf();
     let launch_secret = random_secret();
     let mut process = DevelopmentBundledRuntimeLauncher::new()
@@ -56,7 +58,8 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
         materials.len(),
         "raw secret, derived keys, renewal ticket and session authorities must be distinct"
     );
-    let representations = material_representations(&materials);
+    let scanner = secret_scan::SecretScanner::new(material_representations(&materials))
+        .unwrap_or_else(|_| panic!("protected material scanner"));
 
     let desktop_database = temporary.path().join("desktop-audit.sqlite3");
     let project_directory = temporary.path().join("audit-project");
@@ -91,7 +94,7 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
         .unwrap(),
     ]
     .concat();
-    assert_absent("renderer frames", &renderer_frames, &representations);
+    assert_absent("renderer frames", &renderer_frames, &scanner);
 
     let safe_error_frames = format!(
         "{process:?};{};{}",
@@ -103,10 +106,10 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
     assert_absent(
         "renderer-safe errors",
         safe_error_frames.as_bytes(),
-        &representations,
+        &scanner,
     );
 
-    assert_tree_absent(temporary.path(), &representations);
+    assert_tree_absent("temporary tree", temporary.path(), &scanner);
 
     let mut broker = SecretBroker::new();
     for (index, material) in materials.iter().enumerate() {
@@ -137,7 +140,7 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
             0,
         )
         .expect("safe export");
-    assert_absent("export", &safe_export, &representations);
+    assert_absent("export", &safe_export, &scanner);
     for material in &materials {
         let encoded = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(material);
         assert!(
@@ -171,7 +174,7 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
         &backup
             .archive_bytes(&manifest.backup_id)
             .expect("backup bytes"),
-        &representations,
+        &scanner,
     );
     let safe_archive_count = backup.archive_count();
     for material in &materials {
@@ -205,11 +208,11 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
     let (stdout, stderr) = process
         .take_captured_output_for_test()
         .expect("captured audited output");
-    assert_absent("captured stdout", &stdout, &representations);
-    assert_absent("captured stderr/logs", &stderr, &representations);
+    assert_absent("captured stdout", &stdout, &scanner);
+    assert_absent("captured stderr/logs", &stderr, &scanner);
     drop(core);
 
-    assert_tree_absent(&runtime_root, &representations);
-    assert_tree_absent(temporary.path(), &representations);
-    assert_tracked_fixtures_absent(&representations);
+    assert_tree_absent("runtime tree", &runtime_root, &scanner);
+    assert_tree_absent("temporary tree", temporary.path(), &scanner);
+    assert_tracked_fixtures_absent(&scanner);
 }
