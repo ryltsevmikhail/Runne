@@ -122,7 +122,7 @@ pub(crate) fn context(fixture: &Fixture) -> ProviderEventJournalContext {
     ProviderEventJournalContext {
         attempt_id: fixture.attempt_id,
         fencing_token: fixture.fencing_token,
-        call_digest_version: gocode_provider::ProviderCallDigestVersion::V2,
+        call_digest_version: fixture.call_digest_version,
         profile_digest: [2; 32],
         runtime_generation: 11,
     }
