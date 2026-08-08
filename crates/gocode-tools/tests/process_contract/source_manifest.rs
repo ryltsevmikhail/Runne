@@ -8,7 +8,7 @@ pub(super) const LEGACY_TEST_SOURCES: [(&str, &str); 3] = [
 ];
 
 #[rustfmt::skip]
-pub(super) const PROCESS_CONTRACT_SOURCES: [(&str, &str); 35] = [
+pub(super) const PROCESS_CONTRACT_SOURCES: [(&str, &str); 40] = [
     ("crates/gocode-platform/src/process_contract.rs", include_str!("../../../gocode-platform/src/process_contract.rs")),
     ("crates/gocode-platform/src/process_contract/linux.rs", include_str!("../../../gocode-platform/src/process_contract/linux.rs")),
     ("crates/gocode-platform/src/process_contract/macos.rs", include_str!("../../../gocode-platform/src/process_contract/macos.rs")),
@@ -16,7 +16,10 @@ pub(super) const PROCESS_CONTRACT_SOURCES: [(&str, &str); 35] = [
     ("crates/gocode-platform/src/process_contract/status.rs", include_str!("../../../gocode-platform/src/process_contract/status.rs")),
     ("crates/gocode-platform/src/process_contract/windows.rs", include_str!("../../../gocode-platform/src/process_contract/windows.rs")),
     ("crates/gocode-security/src/process_contract.rs", include_str!("../../../gocode-security/src/process_contract.rs")),
+    ("crates/gocode-security/src/process_contract/authority.rs", include_str!("../../../gocode-security/src/process_contract/authority.rs")),
     ("crates/gocode-security/src/process_contract/authorization.rs", include_str!("../../../gocode-security/src/process_contract/authorization.rs")),
+    ("crates/gocode-security/src/process_contract/authorization/validation.rs", include_str!("../../../gocode-security/src/process_contract/authorization/validation.rs")),
+    ("crates/gocode-security/src/process_contract/boundary.rs", include_str!("../../../gocode-security/src/process_contract/boundary.rs")),
     ("crates/gocode-security/src/process_contract/context.rs", include_str!("../../../gocode-security/src/process_contract/context.rs")),
     ("crates/gocode-security/src/process_contract/digest.rs", include_str!("../../../gocode-security/src/process_contract/digest.rs")),
     ("crates/gocode-security/src/process_contract/error.rs", include_str!("../../../gocode-security/src/process_contract/error.rs")),
@@ -28,7 +31,9 @@ pub(super) const PROCESS_CONTRACT_SOURCES: [(&str, &str); 35] = [
     ("crates/gocode-tools/src/process_contract/control.rs", include_str!("../../src/process_contract/control.rs")),
     ("crates/gocode-tools/src/process_contract/error.rs", include_str!("../../src/process_contract/error.rs")),
     ("crates/gocode-tools/src/process_contract/evidence.rs", include_str!("../../src/process_contract/evidence.rs")),
+    ("crates/gocode-tools/src/process_contract/host.rs", include_str!("../../src/process_contract/host.rs")),
     ("crates/gocode-tools/src/process_contract/journal.rs", include_str!("../../src/process_contract/journal.rs")),
+    ("crates/gocode-tools/src/process_contract/journal_memory.rs", include_str!("../../src/process_contract/journal_memory.rs")),
     ("crates/gocode-tools/src/process_contract/lifecycle.rs", include_str!("../../src/process_contract/lifecycle.rs")),
     ("crates/gocode-tools/src/process_contract/orchestrator.rs", include_str!("../../src/process_contract/orchestrator.rs")),
     ("crates/gocode-tools/src/process_contract/orchestrator_input.rs", include_str!("../../src/process_contract/orchestrator_input.rs")),

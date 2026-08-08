@@ -100,3 +100,5 @@ include!("fixture_runtime/lifecycle.rs");
 include!("fixture_runtime/discovery.rs");
 include!("fixture_runtime/validation.rs");
 include!("fixture_runtime/security.rs");
+include!("fixture_runtime/process.rs");
+include!("fixture_runtime/issuance_lock.rs");
