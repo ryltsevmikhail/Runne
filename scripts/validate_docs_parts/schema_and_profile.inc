@@ -22,6 +22,11 @@ EXCLUDED_ROOTS = {
     os.path.join(BASE, "upstream", "desktop"),
 }
 HISTORIC_SCHEMA_EXCEPTIONS = {"opencode-baseline-inventory-v1.schema.json"}
+DOCS_TAXONOMY_MANIFESTS = (
+    os.path.join(DOCS_DIR, "rc0", "document-universe-v1.json"),
+    os.path.join(DOCS_DIR, "rc0", "governed-scope-v1.json"),
+    os.path.join(DOCS_DIR, "rc0", "status-claims-v1.json"),
+)
 
 errors = []
 warnings = []
