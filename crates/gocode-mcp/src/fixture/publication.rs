@@ -8,6 +8,9 @@ use crate::{
 
 use super::{FixtureCallCapability, FixturePublication, runtime::FixtureState};
 
+#[cfg(test)]
+mod process_issuance;
+
 struct PreparedIssue<'a> {
     _state_guard: MutexGuard<'a, FixtureState>,
     active: super::FixtureInitialize,
@@ -43,7 +46,6 @@ impl FixturePublication {
             prepared,
             tool_name,
             invocation_id,
-            input,
             request_digest,
             capability,
             expires_at,
@@ -105,16 +107,12 @@ impl FixturePublication {
         prepared: PreparedIssue<'_>,
         tool_name: &str,
         invocation_id: &str,
-        input: Value,
         request_digest: [u8; 32],
         capability: McpToolDispatchCapability,
         expires_at: u64,
         principal: &str,
         authority: &str,
     ) -> Result<FixtureCallCapability, FixtureMcpFailure> {
-        let bytes = serde_json::to_vec(&input)
-            .map_err(|_| FixtureMcpFailure::RequestTooLarge)?
-            .len();
         let approval_digest = super::model::digest(&[
             b"fixture-approval-v2",
             principal.as_bytes(),
@@ -136,12 +134,20 @@ impl FixturePublication {
         ]);
         Ok(FixtureCallCapability {
             capability: Some(capability),
+            execution_class: self
+                .tools
+                .get(tool_name)
+                .expect("prepared tool exists")
+                .execution_class(),
+            process_key: None,
+            process_payload: None,
+            #[cfg(test)]
+            process_payload_take_count: 0,
             invocation_id: invocation_id.to_owned(),
             approval_digest,
             connection_id: self.binding.connection_id().to_owned(),
             generation: self.binding.generation(),
             expires_at,
-            bytes,
             request_digest,
             issuer_digest: self.issuer_digest,
             definition_digest: self.definition_digest,

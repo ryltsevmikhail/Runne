@@ -1,6 +1,4 @@
-use gocode_tools::{
-    ProcessIntentDigestV1, ToolDispatchBinding, ToolDispatchRequest, ToolRef, ToolVersion,
-};
+use gocode_tools::{ProcessIntentDigestV1, ToolRef, ToolVersion};
 use serde_json::Value;
 
 use super::{McpDiscoveryError, McpDispatchBinding, McpInvocationId};
@@ -120,14 +118,5 @@ impl McpToolDispatchCapability {
 
     pub(crate) const fn request_digest(&self) -> [u8; 32] {
         self.request_digest
-    }
-
-    /// Consumes the opaque capability into crate-private exact dispatch parts.
-    #[rustfmt::skip]
-    pub(crate) fn into_parts(self) -> (McpDispatchBinding, McpToolExecutionClass, ToolDispatchRequest, Option<ProcessIntentDigestV1>) {
-        let Self { binding, tool_ref, invocation_id, request_digest, execution_class, process_intent_digest, .. } = self;
-        let request = ToolDispatchRequest { invocation_id: invocation_id.as_str().to_owned(), request_digest,
-            binding: ToolDispatchBinding::new(tool_ref, binding.connection_id().to_owned(), binding.binding_digest(), binding.generation(), binding.discovery_digest) };
-        (binding, execution_class, request, process_intent_digest)
     }
 }

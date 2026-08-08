@@ -83,6 +83,10 @@ pub enum FixtureMcpFailure {
     ProcessIntentRequired,
     /// Typed process issuance targeted a protocol-only tool.
     ExecutionClassMismatch,
+    /// A matching process call is already reserved or admitted.
+    ProcessReservationBusy,
+    /// No sealed process composition is available for the process-backed tool.
+    ProcessSandboxUnavailable,
 }
 
 impl From<gocode_tools::ProcessContractError> for FixtureMcpFailure {

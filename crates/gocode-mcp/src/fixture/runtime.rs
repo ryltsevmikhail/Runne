@@ -6,36 +6,31 @@ use std::{
     },
 };
 
+#[cfg(test)]
+use gocode_tools::{ProcessApprovalV1, ProcessCapabilityV1, ProcessIntentV1};
 use gocode_tools::{
-    ProcessApprovalV1, ProcessAuthorizationAuthorityV1, ProcessCapabilityV1, ProcessContractHostV1,
-    ProcessIntentV1, SandboxQualificationProbe, ToolExecutionHandle, ToolOutputBounds,
+    ProcessAuthorizationAuthorityV1, ProcessContractHostV1, SandboxQualificationProbe,
+    ToolExecutionHandle, ToolOutputBounds,
 };
 use serde_json::Value;
 
 use crate::{
     FixtureMcpFailure, FixtureMcpMode, McpConnectionId, McpDispatchBinding, McpGenerationAuthority,
-    McpServerKind, McpToolDescriptor, McpToolDispatchCapability, McpToolGateway, PublishedMcpTools,
-    publish_mcp_tools,
+    McpServerKind, McpToolDescriptor, McpToolDispatchCapability, McpToolExecutionClass,
+    McpToolGateway, PublishedMcpTools, publish_mcp_tools,
 };
 
+use self::process_ledger::ProcessLedgerEntry;
 use super::model::{
     FixtureApprovalPolicy, FixtureCallResult, FixtureIdentity, FixtureInitialize, FixtureLimits,
     FixtureScript, FixtureStepOutcome, FixtureTool,
 };
+use super::process::FixtureProcessComposition;
+use super::process_call::{ProcessDispatchPayload, ProcessEffectKey};
+use super::process_gateway::McpProcessToolGateway;
 use super::transport::{FixtureAdmission, FixtureClient};
-use super::{FixtureProcessComposition, McpProcessToolGateway};
 
 static FIXTURE_ISSUER_SEQUENCE: AtomicU64 = AtomicU64::new(1);
-
-/// Safe fixture audit metadata; payloads and error text are never retained.
-#[derive(Clone, PartialEq, Eq)]
-pub struct FixtureAuditRecord {
-    invocation_digest: [u8; 32],
-    connection_digest: [u8; 32],
-    generation: u64,
-    bytes: usize,
-    uncertain: bool,
-}
 
 /// In-process deterministic fixture runtime; it owns no I/O, process, or task handles.
 pub struct FixtureMcpRuntime {
@@ -63,6 +58,7 @@ pub(super) struct FixtureState {
     next_step: usize,
     remaining: u64,
     effects: BTreeMap<EffectKey, FixtureCallResult>,
+    process_ledger: BTreeMap<String, ProcessLedgerEntry>,
     audit: Vec<FixtureAuditRecord>,
     pub(super) dispatches: u64,
     pub(super) selected_outcomes: BTreeMap<String, FixtureStepOutcome>,
@@ -99,17 +95,48 @@ pub struct FixturePublication {
 /// Opaque single-use fixture capability with an exact approval binding.
 pub struct FixtureCallCapability {
     pub(super) capability: Option<McpToolDispatchCapability>,
+    pub(super) execution_class: McpToolExecutionClass,
+    pub(super) process_key: Option<ProcessEffectKey>,
+    pub(super) process_payload: Option<ProcessDispatchPayload>,
+    #[cfg(test)]
+    pub(super) process_payload_take_count: usize,
     pub(super) invocation_id: String,
     pub(super) approval_digest: [u8; 32],
     pub(super) connection_id: String,
     pub(super) generation: u64,
     pub(super) expires_at: u64,
-    pub(super) bytes: usize,
     pub(super) request_digest: [u8; 32],
     pub(super) issuer_digest: [u8; 32],
     pub(super) definition_digest: [u8; 32],
     pub(super) tool_name: String,
     pub(super) effect_key: EffectKey,
+}
+
+impl FixtureCallCapability {
+    pub(in crate::fixture) const fn execution_class(&self) -> McpToolExecutionClass {
+        self.execution_class
+    }
+    pub(in crate::fixture) fn process_key(&self) -> Option<&ProcessEffectKey> {
+        self.process_key.as_ref()
+    }
+    pub(in crate::fixture) fn take_process_payload(&mut self) -> Option<ProcessDispatchPayload> {
+        #[cfg(test)]
+        {
+            self.process_payload_take_count += 1;
+        }
+        self.process_payload.take()
+    }
+    pub(in crate::fixture) fn restore_process_payload(&mut self, payload: ProcessDispatchPayload) {
+        assert!(
+            self.process_payload.is_none(),
+            "process payload already present"
+        );
+        self.process_payload = Some(payload);
+    }
+    #[cfg(test)]
+    pub(in crate::fixture) const fn process_payload_take_count_for_test(&self) -> usize {
+        self.process_payload_take_count
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -154,18 +181,20 @@ pub struct FixtureApprovalAuthority {
 
 /// Process capability and approval issuer backed by one shared authority.
 #[derive(Clone)]
-pub struct FixtureProcessApprovalAuthority {
+pub(in crate::fixture) struct FixtureProcessApprovalAuthority {
     authority: ProcessAuthorizationAuthorityV1,
 }
 
 impl FixtureProcessApprovalAuthority {
     /// Takes ownership of the explicit process authorization authority.
+    #[cfg(test)]
     #[must_use]
     pub fn new(authority: ProcessAuthorizationAuthorityV1) -> Self {
         Self { authority }
     }
 
     /// Issues an exact process capability through a fresh bound child.
+    #[cfg(test)]
     pub fn issue_capability(
         &self,
         intent: &ProcessIntentV1,
@@ -178,6 +207,7 @@ impl FixtureProcessApprovalAuthority {
     }
 
     /// Issues an exact process approval through a fresh bound child.
+    #[cfg(test)]
     pub fn approve(
         &self,
         intent: &ProcessIntentV1,
@@ -202,9 +232,17 @@ impl FixtureProcessApprovalAuthority {
         host: ProcessContractHostV1,
         probe: Arc<dyn SandboxQualificationProbe>,
         generation: Arc<McpGenerationAuthority>,
+        ledger: Arc<process_ledger::FixtureProcessLedgerPort>,
         bounds: ToolOutputBounds,
     ) -> McpProcessToolGateway {
-        McpProcessToolGateway::new(self.authority.clone(), host, probe, generation, bounds)
+        McpProcessToolGateway::new(
+            self.authority.clone(),
+            host,
+            probe,
+            generation,
+            ledger,
+            bounds,
+        )
     }
 }
 
@@ -222,5 +260,11 @@ impl FixtureApprovalAuthority {
 }
 
 include!("runtime/lifecycle.rs");
+#[path = "runtime/process_audit.rs"]
+mod process_audit;
+#[path = "runtime/process_ledger.rs"]
+pub(in crate::fixture) mod process_ledger;
+pub use process_audit::{FixtureAuditProcessPhase, FixtureAuditProcessReason, FixtureAuditRecord};
 include!("runtime/process_activation.rs");
+mod process_dispatch;
 include!("runtime/dispatch.rs");

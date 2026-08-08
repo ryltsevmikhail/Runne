@@ -1,9 +1,8 @@
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     collections::BTreeMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 
 use gocode_tools::{
@@ -11,28 +10,102 @@ use gocode_tools::{
     ToolAdmissionDecision, ToolAdmissionError, ToolAdmissionPort, ToolDispatchRequest,
 };
 
-use super::{GateFailure, PendingCalls};
+use super::super::runtime::process_ledger::{
+    FixtureProcessLedgerPort, PendingProcessCall, ProcessLedgerError, ProcessPreEffectFailure,
+};
+use super::PendingCalls;
+
+pub(super) type Failures = Arc<Mutex<BTreeMap<String, ProcessPreEffectFailure>>>;
 
 pub(super) struct ProcessAdmission {
-    pub(super) authority: ProcessAuthorizationAuthorityV1,
-    pub(super) probe: Arc<dyn SandboxQualificationProbe>,
-    pub(super) pending: PendingCalls,
-    pub(super) failures: Arc<Mutex<BTreeMap<String, GateFailure>>>,
-    pub(super) effects: Arc<AtomicUsize>,
+    authority: ProcessAuthorizationAuthorityV1,
+    probe: Arc<dyn SandboxQualificationProbe>,
+    pending: PendingCalls,
+    failures: Failures,
+    #[cfg(test)]
+    effects: Arc<AtomicUsize>,
+    ledger: Arc<FixtureProcessLedgerPort>,
+    #[cfg(test)]
+    fault: Option<ProcessGateFault>,
+}
+
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(in crate::fixture) enum ProcessGateFault {
+    BudgetDenied,
+    EffectUncertain,
+    Uncertain(super::super::runtime::process_ledger::ProcessUncertainReason),
+    PanicFinalValidation,
+    PanicWitnessAssignment,
+    PanicCommit,
 }
 
 impl ProcessAdmission {
+    pub(super) fn new(
+        authority: ProcessAuthorizationAuthorityV1,
+        probe: Arc<dyn SandboxQualificationProbe>,
+        pending: PendingCalls,
+        #[cfg(test)] effects: Arc<AtomicUsize>,
+        failures: Failures,
+        ledger: Arc<FixtureProcessLedgerPort>,
+    ) -> Self {
+        Self {
+            authority,
+            probe,
+            pending,
+            #[cfg(test)]
+            effects,
+            ledger,
+            failures,
+            #[cfg(test)]
+            fault: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_with_fault(
+        authority: ProcessAuthorizationAuthorityV1,
+        probe: Arc<dyn SandboxQualificationProbe>,
+        pending: PendingCalls,
+        effects: Arc<AtomicUsize>,
+        failures: Failures,
+        ledger: Arc<FixtureProcessLedgerPort>,
+        fault: ProcessGateFault,
+    ) -> Self {
+        let mut admission = Self::new(authority, probe, pending, effects, failures, ledger);
+        admission.fault = Some(fault);
+        admission
+    }
+
     fn reject(
         &self,
-        invocation: &str,
+        request: &ToolDispatchRequest,
         stage: GateStage,
-        failure: GateFailure,
+        failure: ProcessPreEffectFailure,
     ) -> Result<ToolAdmissionDecision, ToolAdmissionError> {
         self.failures
             .lock()
             .map_err(|_| ToolAdmissionError::Unavailable)?
-            .insert(invocation.to_owned(), failure);
+            .insert(request.invocation_id.clone(), failure);
         Err(ToolAdmissionError::Rejected(stage))
+    }
+
+    fn pending_call<T>(
+        &self,
+        request: &ToolDispatchRequest,
+        action: impl FnOnce(&mut PendingProcessCall) -> Result<T, ProcessPreEffectFailure>,
+    ) -> Result<T, ProcessPreEffectFailure> {
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| ProcessPreEffectFailure::GatewayUnavailable)?;
+        let call = pending
+            .get_mut(&request.invocation_id)
+            .ok_or(ProcessPreEffectFailure::GatewayUnavailable)?;
+        (call.admission_evidence().request_digest() == request.request_digest)
+            .then_some(())
+            .ok_or(ProcessPreEffectFailure::CapabilityPreflight)?;
+        action(call)
     }
 }
 
@@ -44,89 +117,127 @@ impl ToolAdmissionPort for ProcessAdmission {
     ) -> Result<ToolAdmissionDecision, ToolAdmissionError> {
         match stage {
             GateStage::Capability => {
-                let result = {
-                    let pending = self
-                        .pending
-                        .lock()
-                        .map_err(|_| ToolAdmissionError::Unavailable)?;
-                    let call = pending
-                        .get(&request.invocation_id)
-                        .ok_or(ToolAdmissionError::Unavailable)?;
-                    if call.digest != request.request_digest || call.validated.is_some() {
-                        Err(GateFailure::InvalidBinding)
-                    } else {
-                        self.authority
-                            .bind_call(call.lifecycle.clone())
-                            .and_then(|boundary| {
-                                boundary.preflight_authorization(
-                                    &call.intent,
-                                    call.capability.as_ref(),
-                                    call.approval.as_ref(),
-                                    call.now,
-                                )
-                            })
-                            .map_err(GateFailure::Authorization)
-                    }
-                };
-                match result {
-                    Ok(()) => Ok(ToolAdmissionDecision::Passed),
-                    Err(failure) => {
-                        self.reject(&request.invocation_id, GateStage::Capability, failure)
-                    }
-                }
+                let outcome = self.pending_call(request, |call| {
+                    self.authority
+                        .bind_call(call.material().intent().lifecycle_binding())
+                        .and_then(|boundary| {
+                            boundary.preflight_authorization(
+                                call.material().intent(),
+                                Some(call.material().capability()),
+                                Some(call.material().approval()),
+                                call.material().issued_at(),
+                            )
+                        })
+                        .map_err(|_| ProcessPreEffectFailure::Authorization)
+                });
+                outcome
+                    .map(|_| ToolAdmissionDecision::Passed)
+                    .or_else(|failure| self.reject(request, stage, failure))
             }
-            GateStage::Approval | GateStage::Budget => Ok(ToolAdmissionDecision::Passed),
+            GateStage::Approval => Ok(ToolAdmissionDecision::Passed),
+            GateStage::Budget => {
+                #[cfg(test)]
+                if matches!(self.fault, Some(ProcessGateFault::BudgetDenied)) {
+                    return self.reject(request, stage, ProcessPreEffectFailure::Budget);
+                }
+                let outcome = self.pending_call(request, |call| {
+                    self.ledger
+                        .verify_reserved(&call.identity())
+                        .map_err(|error| match error {
+                            ProcessLedgerError::ReceiptNotReserved
+                            | ProcessLedgerError::StateUnavailable => {
+                                ProcessPreEffectFailure::GatewayUnavailable
+                            }
+                        })
+                });
+                outcome
+                    .map(|_| ToolAdmissionDecision::Passed)
+                    .or_else(|failure| self.reject(request, stage, failure))
+            }
             GateStage::Containment => match self.probe.qualify() {
                 Ok(()) => Ok(ToolAdmissionDecision::Passed),
-                Err(disposition) => self.reject(
-                    &request.invocation_id,
-                    GateStage::Containment,
-                    GateFailure::Sandbox(disposition),
-                ),
+                Err(_) => self.reject(request, stage, ProcessPreEffectFailure::Containment),
             },
-            GateStage::EffectAdmission => {
-                let permit = EffectAdmission {
-                    permit_id: format!(
-                        "mcp-process:{}:{:02x}",
-                        request.invocation_id, request.request_digest[0]
-                    ),
-                };
-                let result = {
-                    let mut pending = self
-                        .pending
-                        .lock()
-                        .map_err(|_| ToolAdmissionError::Unavailable)?;
-                    let call = pending
-                        .get_mut(&request.invocation_id)
-                        .ok_or(ToolAdmissionError::Unavailable)?;
-                    if call.digest != request.request_digest || call.validated.is_some() {
-                        Err(GateFailure::InvalidBinding)
-                    } else {
-                        let intent = call.intent.clone();
-                        self.authority
-                            .bind_call(call.lifecycle.clone())
-                            .and_then(|boundary| {
-                                boundary.validate(
-                                    intent,
-                                    call.capability.as_ref(),
-                                    call.approval.as_ref(),
-                                    call.now,
-                                )
-                            })
-                            .map(|validated| call.validated = Some(validated))
-                            .map_err(GateFailure::Authorization)
-                    }
-                };
-                match result {
-                    Ok(()) => {
-                        self.effects.fetch_add(1, Ordering::Relaxed);
-                        Ok(ToolAdmissionDecision::Winner(permit))
-                    }
-                    Err(failure) => {
-                        self.reject(&request.invocation_id, GateStage::EffectAdmission, failure)
-                    }
-                }
-            }
+            GateStage::EffectAdmission => self.admit(request),
         }
     }
+}
+
+impl ProcessAdmission {
+    fn admit(
+        &self,
+        request: &ToolDispatchRequest,
+    ) -> Result<ToolAdmissionDecision, ToolAdmissionError> {
+        let mut pending = self
+            .pending
+            .lock()
+            .map_err(|_| ToolAdmissionError::Unavailable)?;
+        let call = pending
+            .get_mut(&request.invocation_id)
+            .ok_or(ToolAdmissionError::Unavailable)?;
+        if call.admission_evidence().request_digest() != request.request_digest {
+            return self.reject(
+                request,
+                GateStage::EffectAdmission,
+                ProcessPreEffectFailure::CapabilityPreflight,
+            );
+        }
+        let identity = call.identity();
+        let evidence = call.admission_evidence();
+        let permit_digest = evidence.permit_digest();
+        let guard = self
+            .ledger
+            .begin_admission(identity.clone(), evidence)
+            .map_err(|_| ToolAdmissionError::Unavailable)?;
+        #[cfg(test)]
+        if matches!(self.fault, Some(ProcessGateFault::PanicFinalValidation)) {
+            panic!("deterministic final validation fault");
+        }
+        let validated = match self
+            .authority
+            .bind_call(call.material().intent().lifecycle_binding())
+            .and_then(|boundary| {
+                boundary.validate(
+                    call.material().intent().clone(),
+                    Some(call.material().capability()),
+                    Some(call.material().approval()),
+                    call.material().issued_at(),
+                )
+            }) {
+            Ok(validated) => validated,
+            Err(_) => {
+                return self.reject(
+                    request,
+                    GateStage::EffectAdmission,
+                    ProcessPreEffectFailure::Authorization,
+                );
+            }
+        };
+        #[cfg(test)]
+        if matches!(self.fault, Some(ProcessGateFault::PanicWitnessAssignment)) {
+            panic!("deterministic witness assignment fault");
+        }
+        let token = call.store_validated(validated, &identity);
+        #[cfg(test)]
+        if matches!(self.fault, Some(ProcessGateFault::PanicCommit)) {
+            panic!("deterministic admission commit fault");
+        }
+        guard.commit(token);
+        #[cfg(test)]
+        self.effects.fetch_add(1, Ordering::Relaxed);
+        #[cfg(test)]
+        if matches!(self.fault, Some(ProcessGateFault::EffectUncertain)) {
+            return Ok(ToolAdmissionDecision::Uncertain);
+        }
+        Ok(ToolAdmissionDecision::Winner(EffectAdmission {
+            permit_id: super::super::process_call::process_permit_id(permit_digest),
+        }))
+    }
+}
+
+pub(super) fn take_failure(
+    failures: &Failures,
+    invocation: &str,
+) -> Option<ProcessPreEffectFailure> {
+    failures.lock().ok()?.remove(invocation)
 }

@@ -1,7 +1,7 @@
 use gocode_tools::{
     HeldProcessTreeHandleV1, ProcessAttemptIdV1, ProcessGenerationIdV1, ProcessIntentDigestV1,
     ProcessIntentV1, ProcessLifecycleBindingV1, ProcessOwnerIdV1, ProcessSessionIdV1,
-    ToolDispatchRequest, ToolRef, ToolRegistryError,
+    ToolDispatchBinding, ToolDispatchRequest, ToolRef, ToolRegistryError,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -137,6 +137,23 @@ impl PublishedMcpTools {
 }
 
 impl McpToolDispatchCapability {
+    pub(crate) fn verified_process_call(&self) -> (McpDispatchBinding, ToolDispatchRequest) {
+        (
+            self.binding.clone(),
+            ToolDispatchRequest {
+                invocation_id: self.invocation_id.as_str().to_owned(),
+                request_digest: self.request_digest,
+                binding: ToolDispatchBinding::new(
+                    self.tool_ref.clone(),
+                    self.binding.connection_id().to_owned(),
+                    self.binding.binding_digest(),
+                    self.binding.generation(),
+                    self.binding.discovery_digest,
+                ),
+            },
+        )
+    }
+
     /// Verifies the opaque capability against the exact process call before consumption.
     pub(crate) fn verify_c2b(
         &self,
@@ -168,27 +185,9 @@ impl McpToolDispatchCapability {
         }
         Ok(())
     }
-
-    /// Consumes the opaque capability into crate-private exact process dispatch parts.
-    #[rustfmt::skip]
-    pub(crate) fn into_process_parts(self) -> (McpDispatchBinding, McpToolExecutionClass, ToolDispatchRequest, ProcessLifecycleBindingV1, Option<ProcessIntentDigestV1>) {
-        let lifecycle = derive_process_lifecycle_binding(&self.binding, &self.invocation_id);
-        let (binding, execution_class, request, process_intent_digest) = self.into_parts(); (binding, execution_class, request, lifecycle, process_intent_digest)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn without_process_intent_digest_for_test(mut self) -> Self {
-        self.process_intent_digest = None;
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) fn with_invocation_id_for_test(mut self, invocation_id: &str) -> Self {
-        self.invocation_id = McpInvocationId::new(invocation_id).expect("test invocation is valid");
-        self
-    }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ProcessCallBindingError {
     ExecutionClassMismatch,
     ProcessIntentRequired,

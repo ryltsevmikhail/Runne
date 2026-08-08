@@ -39,6 +39,8 @@ impl core::fmt::Debug for FixtureCallCapability {
         formatter
             .debug_struct("FixtureCallCapability")
             .field("has_capability", &self.capability.is_some())
+            .field("execution_class", &self.execution_class)
+            .field("has_process_payload", &self.process_payload.is_some())
             .field("generation", &self.generation)
             .field("expires_at", &self.expires_at)
             .finish()
