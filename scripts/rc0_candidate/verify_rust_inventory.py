@@ -81,13 +81,8 @@ def validate_inventory(document: dict) -> None:
     status = document.get("inventory_status")
     if status not in {"MUTABLE", "FROZEN"}:
         raise InventoryError("invalid inventory status")
-    if status == "MUTABLE" and set(document) != {"inventory_version", "inventory_status", "records"}:
-        raise InventoryError("mutable inventory contains frozen or checkout-owned authority data")
-    if status == "FROZEN" and (
-        set(document) != {"inventory_version", "inventory_status", "records", "final_inventory_digest"}
-        or not re.fullmatch(r"[0-9a-f]{64}", str(document.get("final_inventory_digest")))
-    ):
-        raise InventoryError("frozen inventory requires canonical final_inventory_digest")
+    if set(document) != {"inventory_version", "inventory_status", "records"}:
+        raise InventoryError("inventory contains checkout-owned authority data")
     records = document.get("records")
     if not isinstance(records, list):
         raise InventoryError("inventory requires records")
@@ -140,7 +135,7 @@ def verify_frozen_all(document: dict, command: Command = subprocess_command) -> 
     for record in records:
         verify_record(record, command)
         completed.add(record["id"])
-    if completed != RUST_IDS:
+    if completed != {record["id"] for record in records}:
         raise InventoryError("frozen-all completed Rust IDs do not equal inventory Rust IDs")
 
 

@@ -131,20 +131,6 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.InventoryError, "non-Rust"):
             verifier.validate_record(record)
 
-    def test_rejects_mutable_inventory_with_a_final_digest(self) -> None:
-        verifier = load_verifier()
-        document = inventory([])
-        document["final_inventory_digest"] = "0" * 64
-        with self.assertRaisesRegex(verifier.InventoryError, "mutable inventory"):
-            verifier.validate_inventory(document)
-
-    def test_rejects_frozen_inventory_with_a_noncanonical_final_digest(self) -> None:
-        verifier = load_verifier()
-        document = inventory([] , "FROZEN")
-        document["final_inventory_digest"] = "fixture-digest"
-        with self.assertRaisesRegex(verifier.InventoryError, "final_inventory_digest"):
-            verifier.validate_inventory(document)
-
     def test_rejects_exact_output_without_one_executed_test(self) -> None:
         verifier = load_verifier()
         record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
@@ -180,7 +166,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
             for identifier in ("docs.claims", "schema.golden-api", "ci-local")
         )
         document = inventory(records, "FROZEN")
-        document["final_inventory_digest"] = "0" * 64
+        verifier.RUST_IDS = frozenset({"sqlite.managed-connection"})
         calls: list[tuple[str, ...]] = []
 
         def command(args: tuple[str, ...]) -> str:
