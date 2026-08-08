@@ -5,6 +5,10 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
 EVIDENCE_TEST=crates/gocode-store/tests/evidence_phase3.rs
+EVIDENCE_TEST_SOURCES=(
+    "$EVIDENCE_TEST"
+    "crates/gocode-store/tests/evidence_phase3_split_parts"
+)
 REQUIRED_TESTS=(
     evidence_fixtures_deterministic
     evidence_shadow_import_e2e_sqlite
@@ -13,7 +17,7 @@ REQUIRED_TESTS=(
 )
 
 for test_name in "${REQUIRED_TESTS[@]}"; do
-    if ! rg -q "^fn ${test_name}\\(\\)" "$EVIDENCE_TEST"; then
+    if ! rg -q "^fn ${test_name}\\(\\)" "${EVIDENCE_TEST_SOURCES[@]}"; then
         echo "ERROR: missing Phase 3 evidence test: $test_name"
         exit 1
     fi
