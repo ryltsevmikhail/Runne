@@ -10,12 +10,25 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
 
     fn create_version(
         &self,
-        reference: CredentialVersionRef,
+        claim: CredentialNativeCreateClaim,
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        self.version_store(&reference)?
-            .create_immutable_version(credential, access)
+        let authority = self.version_authority()?;
+        let reference = authority
+            .authorize_create(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?
+            .clone();
+        self.version_store(&reference)?.create_immutable_version(
+            credential,
+            access,
+            || {
+                authority
+                    .authorize_create(&claim)
+                    .map(|_| ())
+                    .map_err(|_| SecureStoreError::CredentialAccessDenied)
+            },
+        )
     }
 
     fn load_version(
@@ -52,6 +65,7 @@ impl MacOsProviderCredentialStore {
         &self,
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
+        validate_authority: impl FnOnce() -> Result<(), SecureStoreError>,
     ) -> Result<(), SecureStoreError> {
         access
             .validate_writer_current()
@@ -63,61 +77,64 @@ impl MacOsProviderCredentialStore {
         access.remeasure().map_err(map_identity_access_error)?;
         let metadata = ProviderCredentialMetadata::from_access(access, exact_access.digest());
         let encoded = StoredProviderCredential::encode(credential, access, exact_access.digest())?;
-        Self::with_noninteractive(|keychain| match self.find_metadata_pair(keychain)? {
-            (None, None) => create_populated_provider_item(
-                keychain,
-                &self.service,
-                &self.account,
-                &metadata,
-                &exact_access,
-                &encoded,
-                None,
-            )
-            .map(|_| ()),
-            (Some((existing_metadata, metadata_item)), None) => {
-                existing_metadata.validate_writer_current()?;
-                if !existing_metadata.access_matches(access)
-                    || existing_metadata.acl_set_digest() != exact_access.digest()
-                {
-                    return Err(SecureStoreError::CredentialAccessDenied);
-                }
-                verify_item_acl(&metadata_item, exact_access.digest())?;
-                if !existing_metadata.is_complete() {
-                    gocode_macos_keychain_acl::delete_item(&metadata_item)
-                        .map_err(map_acl_error)?;
-                    return create_populated_provider_item(
-                        keychain,
-                        &self.service,
-                        &self.account,
-                        &metadata,
-                        &exact_access,
-                        &encoded,
-                        None,
-                    )
-                    .map(|_| ());
-                }
-                let Some((existing, item)) = self.find_primary_item(keychain)? else {
-                    return Err(SecureStoreError::CredentialEnrollmentIncomplete);
-                };
-                let stored = StoredProviderCredential::decode(&existing)?;
-                if !stored.metadata_matches(&existing_metadata)
-                    || !stored.access_matches(access)
-                    || stored.acl_set_digest() != exact_access.digest()
-                {
-                    return Err(SecureStoreError::CorruptProviderCredential);
-                }
-                verify_item_acl(&item, exact_access.digest())?;
-                stored.into_material().with_bytes(|existing| {
-                    credential.with_bytes(|incoming| {
-                        if existing == incoming {
-                            Ok(())
-                        } else {
-                            Err(SecureStoreError::ProviderCredentialOperationFailed)
-                        }
+        Self::with_noninteractive(|keychain| {
+            validate_authority()?;
+            match self.find_metadata_pair(keychain)? {
+                (None, None) => create_populated_provider_item(
+                    keychain,
+                    &self.service,
+                    &self.account,
+                    &metadata,
+                    &exact_access,
+                    &encoded,
+                    None,
+                )
+                .map(|_| ()),
+                (Some((existing_metadata, metadata_item)), None) => {
+                    existing_metadata.validate_writer_current()?;
+                    if !existing_metadata.access_matches(access)
+                        || existing_metadata.acl_set_digest() != exact_access.digest()
+                    {
+                        return Err(SecureStoreError::CredentialAccessDenied);
+                    }
+                    verify_item_acl(&metadata_item, exact_access.digest())?;
+                    if !existing_metadata.is_complete() {
+                        gocode_macos_keychain_acl::delete_item(&metadata_item)
+                            .map_err(map_acl_error)?;
+                        return create_populated_provider_item(
+                            keychain,
+                            &self.service,
+                            &self.account,
+                            &metadata,
+                            &exact_access,
+                            &encoded,
+                            None,
+                        )
+                        .map(|_| ());
+                    }
+                    let Some((existing, item)) = self.find_primary_item(keychain)? else {
+                        return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+                    };
+                    let stored = StoredProviderCredential::decode(&existing)?;
+                    if !stored.metadata_matches(&existing_metadata)
+                        || !stored.access_matches(access)
+                        || stored.acl_set_digest() != exact_access.digest()
+                    {
+                        return Err(SecureStoreError::CorruptProviderCredential);
+                    }
+                    verify_item_acl(&item, exact_access.digest())?;
+                    stored.into_material().with_bytes(|existing| {
+                        credential.with_bytes(|incoming| {
+                            if existing == incoming {
+                                Ok(())
+                            } else {
+                                Err(SecureStoreError::ProviderCredentialOperationFailed)
+                            }
+                        })
                     })
-                })
+                }
+                _ => Err(SecureStoreError::CredentialMigrationIncomplete),
             }
-            _ => Err(SecureStoreError::CredentialMigrationIncomplete),
         })
     }
 

@@ -6,10 +6,12 @@ use std::{
 
 use gocode_provider::{
     CredentialAuthorityPair, CredentialGcClaim, CredentialLease, CredentialLifecycleError,
-    CredentialVersionRef, NativeCredentialAuthority, NativeCredentialDeletionProof,
-    PrepareCredentialVersion, ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
+    CredentialNativeCreateClaim, CredentialVersionRef, NativeCredentialAuthority,
+    NativeCredentialDeletionProof, PrepareCredentialVersion, ProviderCredentialVersionStore,
+    ProviderId, RevokeCredentialVersion,
 };
 use gocode_store::provider::SqliteProviderCredentialLifecycleStore;
+use rusqlite::Connection;
 
 pub const OWNER_A: [u8; 16] = [0xA1; 16];
 pub const OWNER_B: [u8; 16] = [0xB2; 16];
@@ -107,6 +109,13 @@ impl FixtureNative {
             .copied()
             .unwrap_or(0)
     }
+
+    pub fn authorize_create(
+        &self,
+        claim: &CredentialNativeCreateClaim,
+    ) -> Result<(), CredentialLifecycleError> {
+        self.authority.authorize_create(claim).map(|_| ())
+    }
 }
 
 impl Default for FixtureNative {
@@ -126,4 +135,27 @@ pub fn finish_deletions(
         store.complete_native_delete(proof)?;
     }
     Ok(())
+}
+
+pub fn corrupt_ref_digest(path: &Path, version: i64) {
+    let connection = Connection::open(path).unwrap();
+    let trigger: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='trigger'
+             AND name='provider_credential_identity_immutable'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    connection
+        .execute_batch("DROP TRIGGER provider_credential_identity_immutable")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE provider_credential_versions SET ref_digest=zeroblob(32)
+             WHERE provider_id='openai' AND credential_version=?1",
+            [version],
+        )
+        .unwrap();
+    connection.execute_batch(&trigger).unwrap();
 }

@@ -4,13 +4,15 @@ use std::sync::Mutex;
 use super::*;
 
 struct ProvisioningNative {
+    authority: NativeCredentialAuthority,
     values: Mutex<HashMap<CredentialVersionRef, Vec<u8>>>,
     creates: AtomicUsize,
 }
 
 impl ProvisioningNative {
-    fn new() -> Self {
+    fn new(authority: NativeCredentialAuthority) -> Self {
         Self {
+            authority,
             values: Mutex::new(HashMap::new()),
             creates: AtomicUsize::new(0),
         }
@@ -32,10 +34,15 @@ impl NativeProviderCredentialVersionStore for ProvisioningNative {
 
     fn create_version(
         &self,
-        reference: CredentialVersionRef,
+        claim: CredentialNativeCreateClaim,
         credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        let reference = self
+            .authority
+            .authorize_create(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?
+            .clone();
         self.creates.fetch_add(1, Ordering::SeqCst);
         let incoming = credential.with_bytes(<[u8]>::to_vec);
         let mut values = self.values.lock().unwrap();
@@ -112,18 +119,25 @@ fn restart_after_durable_prepare_reuses_exact_prepared_version() {
 fn restart_after_native_create_replays_exact_version_and_activates() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("credential-native-restart.sqlite");
-    let (lifecycle, _) = CredentialAuthorityPair::new().split();
+    let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
     let store =
         SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)
             .unwrap();
     let provider = ProviderId::new("openai").unwrap();
-    let provision = store.begin_provision(&provider, [0x41; 16]).unwrap();
-    let native = ProvisioningNative::new();
+    let source = store.provision_source([0x42; 16]).unwrap();
+    let provision = store
+        .begin_provision(&provider, [0x41; 16], &source)
+        .unwrap();
+    let native = ProvisioningNative::new(native_authority);
     let material = ProviderCredentialMaterial::new(b"crash-replay-material".to_vec()).unwrap();
     let executable = std::env::current_exe().unwrap();
     let access = ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap();
     native
-        .create_version(provision.version_ref().clone(), &material, &access)
+        .create_version(
+            store.claim_native_create(&provision).unwrap(),
+            &material,
+            &access,
+        )
         .unwrap();
 
     provision_active_with_material(
@@ -150,20 +164,33 @@ fn provisioning_rejects_conflicting_operation_and_native_payload() {
     let path = directory
         .path()
         .join("credential-provision-conflict.sqlite");
-    let store = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
+    let (lifecycle, native_authority) = CredentialAuthorityPair::new().split();
+    let store =
+        SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)
+            .unwrap();
     let provider = ProviderId::new("openai").unwrap();
-    let provision = store.begin_provision(&provider, [0x51; 16]).unwrap();
+    let source = store.provision_source([0x53; 16]).unwrap();
+    let provision = store
+        .begin_provision(&provider, [0x51; 16], &source)
+        .unwrap();
+    let other_source = store.provision_source([0x54; 16]).unwrap();
     assert_eq!(
-        store.begin_provision(&provider, [0x52; 16]).unwrap_err(),
+        store
+            .begin_provision(&provider, [0x52; 16], &other_source)
+            .unwrap_err(),
         gocode_provider::CredentialLifecycleError::Conflict
     );
-    let native = ProvisioningNative::new();
+    let native = ProvisioningNative::new(native_authority);
     let original = ProviderCredentialMaterial::new(b"original-material".to_vec()).unwrap();
     let conflicting = ProviderCredentialMaterial::new(b"conflicting-material".to_vec()).unwrap();
     let executable = std::env::current_exe().unwrap();
     let access = ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap();
     native
-        .create_version(provision.version_ref().clone(), &original, &access)
+        .create_version(
+            store.claim_native_create(&provision).unwrap(),
+            &original,
+            &access,
+        )
         .unwrap();
 
     assert!(
@@ -210,7 +237,13 @@ fn ambiguous_prepared_orphans_remain_untouched_and_fail_closed() {
 
     assert!(store.reconcile(100).unwrap().native_deletions().is_empty());
     assert_eq!(
-        store.begin_provision(&provider, [0x61; 16]).unwrap_err(),
+        store
+            .begin_provision(
+                &provider,
+                [0x61; 16],
+                &store.provision_source([0x62; 16]).unwrap(),
+            )
+            .unwrap_err(),
         gocode_provider::CredentialLifecycleError::Conflict
     );
     assert_eq!(

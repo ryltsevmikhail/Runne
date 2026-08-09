@@ -36,10 +36,18 @@ pub(super) fn compose_credential_lifecycle(
     );
     let native = native_version_store(native_authority.clone(), fixture);
     let now = chrono::Utc::now().timestamp();
-    reconcile_native(store.as_ref(), native.as_ref(), now)?;
     let provider =
         ProviderId::new(ProviderCredentialId::OpenAi.account()).map_err(|_| unavailable())?;
-    finish_completed_provision(store.as_ref(), &provider)?;
+    resolve_pending_provision(
+        store.as_ref(),
+        native.as_ref(),
+        &provider,
+        owner,
+        fencing_token,
+        now,
+        fixture,
+    )?;
+    reconcile_native(store.as_ref(), native.as_ref(), now)?;
     if store
         .authorize_active(&provider, owner, fencing_token, now)
         .is_err()
@@ -68,6 +76,26 @@ pub(super) fn compose_credential_lifecycle(
         store,
         native_authority,
     })
+}
+
+fn resolve_pending_provision(
+    store: &SqliteProviderCredentialLifecycleStore,
+    native: &dyn NativeProviderCredentialVersionStore,
+    provider: &ProviderId,
+    owner: [u8; 16],
+    fencing_token: u64,
+    now: i64,
+    fixture: bool,
+) -> Result<(), DaemonError> {
+    finish_completed_provision(store, provider)?;
+    if store
+        .pending_provision(provider)
+        .map_err(|_| unavailable())?
+        .is_some()
+    {
+        provision_active(store, native, provider, owner, fencing_token, now, fixture)?;
+    }
+    Ok(())
 }
 
 fn native_version_store(
@@ -153,14 +181,25 @@ fn provision_active_with_material(
         .map_err(|_| unavailable())?
     {
         Some(provision) => provision,
-        None => store
-            .begin_provision(provider, *uuid::Uuid::now_v7().as_bytes())
-            .map_err(|_| unavailable())?,
+        None => {
+            let source = store
+                .provision_source(*uuid::Uuid::now_v7().as_bytes())
+                .map_err(|_| unavailable())?;
+            store
+                .begin_provision(provider, *uuid::Uuid::now_v7().as_bytes(), &source)
+                .map_err(|_| unavailable())?
+        }
     };
     let reference = provision.version_ref().clone();
     if let Some((material, access)) = native_input {
         native
-            .create_version(reference.clone(), material, access)
+            .create_version(
+                store
+                    .claim_native_create(&provision)
+                    .map_err(|_| unavailable())?,
+                material,
+                access,
+            )
             .map_err(|_| unavailable())?;
         if native
             .version_status(&reference, access)

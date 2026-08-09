@@ -3,7 +3,8 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use gocode_provider::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
-    CredentialVersionRef, NativeCredentialAuthority, NativeCredentialDeletionProof, ProviderId,
+    CredentialLifecycleAuthority, CredentialNativeCreateClaim, CredentialVersionRef,
+    NativeCredentialAuthority, NativeCredentialDeletionProof, ProviderId,
 };
 use gocode_secure_store::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
@@ -55,12 +56,17 @@ impl NativeProviderCredentialVersionStore for OpaqueVersionFixture {
 
     fn create_version(
         &self,
-        reference: CredentialVersionRef,
+        claim: CredentialNativeCreateClaim,
         credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        let incoming = credential.with_bytes(<[u8]>::to_vec);
         let mut values = self.values.lock().unwrap();
+        let reference = self
+            .authority
+            .authorize_create(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?
+            .clone();
+        let incoming = credential.with_bytes(<[u8]>::to_vec);
         match values.get(&reference) {
             Some(VersionState::Complete(existing)) if existing == &incoming => Ok(()),
             Some(VersionState::Complete(_)) => {
@@ -106,6 +112,17 @@ impl NativeProviderCredentialVersionStore for OpaqueVersionFixture {
     }
 }
 
+fn create_claim(
+    authority: &CredentialLifecycleAuthority,
+    reference: CredentialVersionRef,
+    discriminator: u8,
+) -> CredentialNativeCreateClaim {
+    let source = authority
+        .issue_provision_source([discriminator; 16])
+        .unwrap();
+    authority.issue_native_create(reference, &source).unwrap()
+}
+
 #[test]
 fn opaque_version_operations_never_expose_secret_bytes() {
     let (lifecycle, native) = CredentialAuthorityPair::new().split();
@@ -115,7 +132,11 @@ fn opaque_version_operations_never_expose_secret_bytes() {
     let material = ProviderCredentialMaterial::new(secret.clone()).unwrap();
     let executable = controlled_executable();
     fixture
-        .create_version(reference.clone(), &material, &executable.access)
+        .create_version(
+            create_claim(&lifecycle, reference.clone(), 1),
+            &material,
+            &executable.access,
+        )
         .unwrap();
     assert_eq!(
         fixture
@@ -124,7 +145,11 @@ fn opaque_version_operations_never_expose_secret_bytes() {
         ProviderCredentialStatus::Configured
     );
     fixture
-        .create_version(reference.clone(), &material, &executable.access)
+        .create_version(
+            create_claim(&lifecycle, reference.clone(), 1),
+            &material,
+            &executable.access,
+        )
         .unwrap();
     let lease = CredentialLease::new(reference.clone(), [0xA1; 16], i64::MAX, 7).unwrap();
     let active = lifecycle.issue_dispatch(lease);
@@ -161,19 +186,33 @@ fn opaque_version_operations_never_expose_secret_bytes() {
 
 #[test]
 fn foreign_capabilities_cannot_load_or_delete_native_version() {
-    let (_, native) = CredentialAuthorityPair::new().split();
+    let (lifecycle, native) = CredentialAuthorityPair::new().split();
     let fixture = OpaqueVersionFixture::new(native);
     let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 8).unwrap();
     let executable = controlled_executable();
     let material = ProviderCredentialMaterial::new(b"authority-bound-secret".to_vec()).unwrap();
     fixture
-        .create_version(reference.clone(), &material, &executable.access)
+        .create_version(
+            create_claim(&lifecycle, reference.clone(), 2),
+            &material,
+            &executable.access,
+        )
         .unwrap();
     let (foreign, _) = CredentialAuthorityPair::new().split();
     let lease = CredentialLease::new(reference.clone(), [0xB2; 16], i64::MAX, 8).unwrap();
     assert_eq!(
         fixture
             .load_version(&foreign.issue_dispatch(lease), &executable.access)
+            .unwrap_err(),
+        SecureStoreError::CredentialAccessDenied
+    );
+    assert_eq!(
+        fixture
+            .create_version(
+                create_claim(&foreign, reference.clone(), 3),
+                &material,
+                &executable.access,
+            )
             .unwrap_err(),
         SecureStoreError::CredentialAccessDenied
     );
@@ -194,20 +233,29 @@ fn immutable_create_repairs_incomplete_state_and_serializes_competing_bytes() {
     fixture.inject_incomplete(reference.clone());
     let repaired = ProviderCredentialMaterial::new(b"repaired-secret".to_vec()).unwrap();
     fixture
-        .create_version(reference.clone(), &repaired, &executable.access)
+        .create_version(
+            create_claim(&lifecycle, reference.clone(), 4),
+            &repaired,
+            &executable.access,
+        )
         .unwrap();
 
     let competing = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 10).unwrap();
     let barrier = Arc::new(Barrier::new(3));
-    let results = [b"first-secret".to_vec(), b"second-secret".to_vec()].map(|bytes| {
+    let [first_claim, second_claim] =
+        [5, 6].map(|id| create_claim(&lifecycle, competing.clone(), id));
+    let results = [
+        (b"first-secret".to_vec(), first_claim),
+        (b"second-secret".to_vec(), second_claim),
+    ]
+    .map(|(bytes, claim)| {
         let fixture = Arc::clone(&fixture);
         let barrier = Arc::clone(&barrier);
-        let reference = competing.clone();
         let access = executable.access.clone();
         std::thread::spawn(move || {
             let material = ProviderCredentialMaterial::new(bytes).unwrap();
             barrier.wait();
-            fixture.create_version(reference, &material, &access)
+            fixture.create_version(claim, &material, &access)
         })
     });
     barrier.wait();

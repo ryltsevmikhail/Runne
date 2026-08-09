@@ -6,8 +6,8 @@ use crate::{
 };
 use gocode_provider::CredentialVersionRef;
 use gocode_provider::{
-    CredentialDispatchCapability, CredentialGcClaim, NativeCredentialAuthority,
-    NativeCredentialDeletionProof,
+    CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
+    NativeCredentialAuthority, NativeCredentialDeletionProof,
 };
 
 /// Stub implementation for platforms where the secure store is not yet wired.
@@ -137,10 +137,15 @@ impl NativeProviderCredentialVersionStore for StubStore {
 
     fn create_version(
         &self,
-        _reference: CredentialVersionRef,
+        claim: CredentialNativeCreateClaim,
         _credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.version_authority
+            .as_ref()
+            .ok_or(SecureStoreError::CredentialAccessDenied)?
+            .authorize_create(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 
