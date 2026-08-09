@@ -1,6 +1,8 @@
 import importlib
 import json
 import unittest
+from collections import UserDict
+from decimal import Decimal
 
 
 def canonical_module():
@@ -53,6 +55,28 @@ class Rc0PolicyCanonicalTests(unittest.TestCase):
             canonical.loads_canonical('"e\u0301"'.encode())
         parsed = canonical.loads_canonical(b'{"z":1,"a":2}')
         self.assertEqual(canonical.canonical_bytes(parsed), b'{"a":2,"z":1}')
+
+    def test_canonical_bytes_rejects_non_profile_python_values(self):
+        canonical = canonical_module()
+        invalid = (
+            {"value": 1.0},
+            {"value": Decimal("1")},
+            {1: "silently-stringified-key"},
+            UserDict({"value": 1}),
+            {"value": 2**64},
+            {"value": "e\u0301"},
+            {"value": "\ud800"},
+        )
+        for value in invalid:
+            with self.subTest(value_type=type(value).__name__):
+                try:
+                    canonical.canonical_bytes(value)
+                except canonical.StrictJSONError:
+                    pass
+                except Exception as error:
+                    self.fail(f"canonicalization leaked {type(error).__name__}")
+                else:
+                    self.fail("canonicalization accepted a non-profile value")
 
 
 if __name__ == "__main__":

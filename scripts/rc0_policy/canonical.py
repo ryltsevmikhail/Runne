@@ -43,25 +43,33 @@ def _pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 def _check(value: Any, depth: int = 1) -> None:
     if depth > MAX_DEPTH:
         raise StrictJSONError(f"JSON depth exceeds {MAX_DEPTH}")
-    if isinstance(value, str):
+    if type(value) is str:
         if unicodedata.normalize("NFC", value) != value:
             raise StrictJSONError("strings and object keys must be NFC")
-        if len(value.encode("utf-8")) > MAX_STRING_BYTES:
+        try:
+            encoded = value.encode("utf-8", errors="strict")
+        except UnicodeEncodeError as error:
+            raise StrictJSONError("string contains invalid Unicode") from error
+        if len(encoded) > MAX_STRING_BYTES:
             raise StrictJSONError(f"string exceeds {MAX_STRING_BYTES} UTF-8 bytes")
-    elif isinstance(value, dict):
+    elif type(value) is dict:
         if len(value) > MAX_CONTAINER_ITEMS:
             raise StrictJSONError(f"object exceeds {MAX_CONTAINER_ITEMS} members")
         for key, item in value.items():
+            if type(key) is not str:
+                raise StrictJSONError("object keys must be strings")
             _check(key, depth + 1)
             _check(item, depth + 1)
-    elif isinstance(value, list):
+    elif type(value) is list:
         if len(value) > MAX_CONTAINER_ITEMS:
             raise StrictJSONError(f"array exceeds {MAX_CONTAINER_ITEMS} items")
         for item in value:
             _check(item, depth + 1)
-    elif isinstance(value, int) and not isinstance(value, bool):
+    elif type(value) is int:
         if not MIN_INTEGER <= value <= MAX_INTEGER:
             raise StrictJSONError("integer is outside the bounded exact range")
+    elif value is not None and type(value) is not bool:
+        raise StrictJSONError(f"unsupported JSON value type: {type(value).__name__}")
 
 
 def loads_canonical(raw: bytes) -> Any:
@@ -96,5 +104,5 @@ def canonical_bytes(value: Any) -> bytes:
         return json.dumps(
             value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
-    except (TypeError, ValueError) as error:
+    except (TypeError, ValueError, UnicodeEncodeError) as error:
         raise StrictJSONError(str(error)) from error

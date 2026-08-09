@@ -1,5 +1,8 @@
 import importlib
+import json
 import unittest
+from copy import deepcopy
+from pathlib import Path
 
 
 SCHEMA_IDS = (
@@ -15,6 +18,7 @@ SCHEMA_IDS = (
     "gocode.rc0.schema.qualification-policy-bundle/3",
     "gocode.rc0.schema.verification-report/3",
 )
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def policy_module(name):
@@ -73,11 +77,34 @@ class Rc0PolicySchemaTests(unittest.TestCase):
         checksums = {"artifacts": [{**key, "size": 3}]}
         spdx = {"artifact_bindings": [key]}
         self.assertEqual(model.validate_artifact_bijection(inventory, checksums, spdx), ())
+        inventory["artifacts"][0]["locator"] = "cas:sha256:" + "d" * 64
+        self.assertTrue(model.validate_artifact_bijection(inventory, checksums, spdx))
+        inventory["artifacts"][0]["locator"] = "cas:sha256:" + "c" * 64
         checksums["artifacts"][0]["size"] = 4
         self.assertTrue(model.validate_artifact_bijection(inventory, checksums, spdx))
         checksums["artifacts"][0]["size"] = 3
         spdx["artifact_bindings"] = []
         self.assertTrue(model.validate_artifact_bijection(inventory, checksums, spdx))
+
+    def test_fixture_artifact_parser_rejects_locator_digest_substitution(self):
+        model = policy_module("model")
+        canonical = policy_module("canonical")
+        record = {
+            "schema_id": "gocode.rc0.schema.artifact-inventory/3",
+            "repository_id": "gocode",
+            "candidate_source_revision": "a" * 40,
+            "evidence_attempt_id": "018f0000-0000-7000-8000-000000000000",
+            "policy_digest": "b" * 64,
+            "profile": "gocode.rc0.evidence-profile/3",
+            "artifacts": [{
+                "relative_path": "dist/gocode.tar", "sha256": "c" * 64,
+                "size": 3, "locator": "cas:sha256:" + "d" * 64, "kind": "BINARY",
+            }],
+        }
+        result = model.validate_fixture(
+            canonical.canonical_bytes(record), "gocode.rc0.schema.artifact-inventory/3"
+        )
+        self.assertNotEqual(result.marker, "FIXTURE_LOCAL_INPUTS_SATISFIED")
 
     def test_checksums_text_requires_exact_headers_sorting_and_lf(self):
         model = policy_module("model")
@@ -143,6 +170,128 @@ class Rc0PolicySchemaTests(unittest.TestCase):
         diagnostics = model.validate_record_bindings(records)
         self.assertTrue(any("head_revision" in item for item in diagnostics))
         self.assertTrue(any("gate mapping" in item for item in diagnostics))
+
+    def test_policy_inventory_rejects_duplicate_or_noncanonical_keys(self):
+        model = policy_module("model")
+        self.assertTrue(hasattr(model, "validate_policy_inventory"))
+        policy = json.loads(
+            (ROOT / "scripts/tests/fixtures/rc0_policy/fixture-policy.json").read_text()
+        )
+        self.assertEqual(model.validate_policy_inventory(policy), ())
+        mutations = []
+        duplicate_schema = deepcopy(policy)
+        duplicate_schema["expected_schema_digests"][-1]["schema_id"] = duplicate_schema["expected_schema_digests"][0]["schema_id"]
+        duplicate_schema["expected_schema_digests"][-1]["sha256"] = "0" * 64
+        mutations.append(duplicate_schema)
+        arbitrary_schema = deepcopy(policy)
+        arbitrary_schema["expected_schema_digests"][-1]["schema_id"] = "candidate.chosen/3"
+        mutations.append(arbitrary_schema)
+        self.assertTrue(
+            policy_module("schemas").validate_schema(
+                arbitrary_schema, "gocode.rc0.schema.qualification-policy-bundle/3"
+            )
+        )
+        duplicate_gate = deepcopy(policy)
+        duplicate_gate["required_gates"].append({**duplicate_gate["required_gates"][0], "stage": "PRODUCTION_QUALIFICATION"})
+        mutations.append(duplicate_gate)
+        duplicate_selector = deepcopy(policy)
+        duplicate_selector["required_gates"][0]["selectors"] *= 2
+        mutations.append(duplicate_selector)
+        source_only = deepcopy(policy)
+        source_only["required_gates"] = [gate for gate in source_only["required_gates"] if gate["stage"] == "SOURCE_CANDIDATE"]
+        mutations.append(source_only)
+        malformed_key = deepcopy(policy)
+        malformed_key["expected_schema_digests"][-1]["schema_id"] = ["not", "a", "key"]
+        mutations.append(malformed_key)
+        for mutation in mutations:
+            with self.subTest(mutation=mutations.index(mutation)):
+                try:
+                    diagnostics = model.validate_policy_inventory(mutation)
+                except Exception as error:
+                    self.fail(f"policy diagnostics leaked {type(error).__name__}")
+                self.assertTrue(diagnostics)
+
+    def test_portable_paths_and_immutable_locators_reject_aliases(self):
+        model = policy_module("model")
+        self.assertTrue(hasattr(model, "validate_portable_relative_path"))
+        self.assertEqual(model.validate_portable_relative_path("dist/продукт.tar"), ())
+        for path in ("/abs", "C:/drive", "a\\b", "a//b", ".", "..", "a/./b", "a/../b", "a\x00b"):
+            with self.subTest(path=path):
+                self.assertTrue(model.validate_portable_relative_path(path))
+        valid = "cas:sha256:" + "c" * 64
+        self.assertEqual(model.validate_content_locator(valid), ())
+        for locator in ("latest", "git:HEAD:dist/a", "git:main:dist/a", "cas:sha256:" + "C" * 64):
+            with self.subTest(locator=locator):
+                self.assertTrue(model.validate_content_locator(locator))
+
+    def test_source_capture_requires_raw_current_identity_equality(self):
+        model = policy_module("model")
+        self.assertTrue(hasattr(model, "validate_source_capture"))
+        source = "a" * 40
+        pinned = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
+        capture = {
+            "captured_origin_main_revision": source,
+            "head_revision": source,
+            "raw_tree_oid": "b" * 40,
+            "current_tree_oid": "b" * 40,
+            "raw_gitmodules_sha256": "c" * 64,
+            "current_gitmodules_sha256": "c" * 64,
+            "raw_opencode_gitlink_revision": pinned,
+            "current_opencode_gitlink_revision": pinned,
+            "capture_evidence_kind": "RAW_GIT_OBJECTS",
+        }
+        self.assertEqual(model.validate_source_capture(capture, source), ())
+        missing_raw_tree = dict(capture)
+        missing_raw_tree.pop("raw_tree_oid")
+        missing_raw_tree.pop("current_tree_oid")
+        self.assertTrue(
+            any("raw_tree_oid" in item for item in model.validate_source_capture(missing_raw_tree, source))
+        )
+        for left, right in (
+            ("raw_tree_oid", "current_tree_oid"),
+            ("raw_gitmodules_sha256", "current_gitmodules_sha256"),
+            ("raw_opencode_gitlink_revision", "current_opencode_gitlink_revision"),
+        ):
+            changed = dict(capture)
+            changed[right] = "d" * len(changed[right])
+            with self.subTest(field=right):
+                diagnostics = model.validate_source_capture(changed, source)
+                self.assertTrue(any(left in item or right in item for item in diagnostics))
+
+    def test_schemas_require_raw_capture_and_reject_path_or_policy_aliases(self):
+        schemas = policy_module("schemas")
+        source = "a" * 40
+        identity = {
+            "schema_id": "gocode.rc0.schema.source-gate-results/3",
+            "repository_id": "gocode",
+            "candidate_source_revision": source,
+            "evidence_attempt_id": "018f0000-0000-7000-8000-000000000000",
+            "policy_digest": "b" * 64,
+            "profile": "gocode.rc0.evidence-profile/3",
+        }
+        capture = {
+            "remote_url": "https://github.com/Ryltsevmg/gocode",
+            "captured_origin_main_revision": source,
+            "head_revision": source,
+            "tree_clean": True,
+        }
+        diagnostics = schemas.validate_schema(
+            {**identity, "capture": capture}, "gocode.rc0.schema.source-gate-results/3"
+        )
+        self.assertTrue(any("raw_tree_oid" in item for item in diagnostics))
+        artifact = {
+            "relative_path": "../escape", "sha256": "c" * 64,
+            "size": 1, "locator": "latest", "kind": "BINARY",
+        }
+        artifact_record = {
+            **{key: value for key, value in identity.items() if key != "schema_id"},
+            "schema_id": "gocode.rc0.schema.artifact-inventory/3",
+            "artifacts": [artifact],
+        }
+        diagnostics = schemas.validate_schema(
+            artifact_record, "gocode.rc0.schema.artifact-inventory/3"
+        )
+        self.assertTrue(any("relative_path" in item or "locator" in item for item in diagnostics))
 
 
 if __name__ == "__main__":
