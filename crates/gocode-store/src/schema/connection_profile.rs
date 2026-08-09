@@ -1,4 +1,4 @@
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
 /// Factory-selected role for a managed SQLite connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +18,21 @@ pub struct ConnectionProfileCapability {
 }
 
 /// SQLite connection that retains its factory-issued profile capability.
+///
+/// Mutable dereferencing is deliberately unavailable, so public callers cannot
+/// replace the factory-opened connection while retaining its capability.
+///
+/// ```compile_fail
+/// use gocode_store::schema::ManagedConnection;
+/// use rusqlite::Connection;
+///
+/// fn replace_factory_connection(
+///     managed: &mut ManagedConnection,
+///     replacement: Connection,
+/// ) -> Connection {
+///     std::mem::replace(&mut **managed, replacement)
+/// }
+/// ```
 pub struct ManagedConnection {
     connection: Connection,
     _validated: ConnectionProfileCapability,
@@ -33,17 +48,24 @@ pub trait ManagedConnectionAuthority: managed_authority::Sealed {}
 impl managed_authority::Sealed for ManagedConnection {}
 impl ManagedConnectionAuthority for ManagedConnection {}
 
+impl ManagedConnection {
+    pub(crate) fn transaction(&mut self) -> SqliteResult<Transaction<'_>> {
+        self.connection.transaction()
+    }
+
+    pub(crate) fn transaction_with_behavior(
+        &mut self,
+        behavior: TransactionBehavior,
+    ) -> SqliteResult<Transaction<'_>> {
+        self.connection.transaction_with_behavior(behavior)
+    }
+}
+
 impl Deref for ManagedConnection {
     type Target = Connection;
 
     fn deref(&self) -> &Self::Target {
         &self.connection
-    }
-}
-
-impl DerefMut for ManagedConnection {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.connection
     }
 }
 

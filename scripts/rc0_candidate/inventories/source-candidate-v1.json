@@ -5,7 +5,7 @@
     {"id":"docs.claims","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
     {"id":"schema.golden-api","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
     {"id":"ci-local","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
-    {"id":"sqlite.managed-connection","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"connection_profile","selector_status":"RESOLVED","fully_qualified_test_name":"writer_reader_and_reopen_read_back_required_pragmas","list_digest":"ef003da13a97089fa61a9968788cbfc6f394edbe0c490401456724f4f6b8c346","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
+    {"id":"sqlite.managed-connection","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"connection_profile","selector_status":"RESOLVED","fully_qualified_test_name":"writer_reader_and_reopen_read_back_required_pragmas","list_digest":"0d4aeb22c0632a815b60ba736328fcafe6337f335f3a09b3ca1379b8b2bb64ac","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"sqlite.local-reliability","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"local_reliability_inventory","selector_status":"RESOLVED","fully_qualified_test_name":"named_recovery_and_telemetry_inventory_is_complete","list_digest":"3ee16354485bcb30421f847db926fabd2a8bd94bc4a291d5575d9926f69c836e","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"phase3.evidence-fixtures","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"UNRESOLVED"},
     {"id":"phase3.evidence-shadow-import","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"UNRESOLVED"},
