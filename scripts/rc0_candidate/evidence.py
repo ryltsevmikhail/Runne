@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from scripts.rc0_policy.bindings import EVIDENCE_FILES, validate_record_bindings
-from scripts.rc0_policy.canonical import StrictJSONError, canonical_bytes
+from scripts.rc0_policy.canonical import StrictJSONError, canonical_bytes, loads_canonical
 from scripts.rc0_policy.model import FixtureValidationError, parse_checksums_text
 from scripts.rc0_policy.schemas import validate_schema
 
@@ -140,6 +140,28 @@ def _prepare_blobs(records: Mapping[str, Any]) -> tuple[str, dict[str, bytes]]:
     return source_sha, blobs
 
 
+def _validate_completed_blobs(
+    expected_source_sha: str, blobs: Mapping[str, bytes]
+) -> None:
+    records: dict[str, Any] = {}
+    try:
+        for name in EVIDENCE_FILES:
+            raw = blobs[name]
+            if name == "checksums.txt":
+                records[name] = raw
+                continue
+            value = loads_canonical(raw)
+            if canonical_bytes(value) != raw:
+                raise EvidenceConstructionError(f"completed {name} is not canonical")
+            records[name] = value
+        source_sha, rebuilt = _prepare_blobs(records)
+    except (KeyError, StrictJSONError, TypeError) as error:
+        raise EvidenceConstructionError("completed evidence blobs are invalid") from error
+    if source_sha != expected_source_sha or rebuilt != dict(blobs):
+        raise EvidenceConstructionError("completed evidence source or bytes changed")
+    evidence_bundle_digest(source_sha, rebuilt)
+
+
 def build_fixture_evidence(
     records: Mapping[str, Any],
     output_root: Path,
@@ -168,7 +190,8 @@ def load_completed_fixture_evidence(
     """Accept filesystem evidence only when the exact completion marker validates."""
     try:
         return load_completed_private_blobs(
-            Path(output_root), source_sha, EVIDENCE_FILES, validation_hook
+            Path(output_root), source_sha, EVIDENCE_FILES, validation_hook,
+            lambda blobs: _validate_completed_blobs(source_sha, blobs),
         )
     except CompletionValidationError as error:
         raise EvidenceConstructionError(str(error)) from error

@@ -8,14 +8,14 @@ import stat
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from .publish_completion import manifest, marker_matches
+from .publish_completion import CompletionPublishError, assert_completed_bound
 from .publish_fs import (
-    DIRECTORY, OWNER_XATTR, PublishFilesystemError, entry_state, open_root,
-    full_state, read_regular,
+    DIRECTORY, OWNER_XATTR, PublishFilesystemError, assert_lock_bound, entry_state,
+    open_existing_lock, open_root, read_regular,
 )
+from .publish_recovery import RecoveryError
 
 _SHA = re.compile(r"[0-9a-f]{40}")
-_TOKEN = re.compile(rb"[0-9a-f]{64}")
 
 
 class CompletionValidationError(ValueError):
@@ -27,6 +27,7 @@ def load_completed_private_blobs(
     source_sha: str,
     expected_names: Sequence[str],
     validation_hook: Callable[[str, int, str], None] | None = None,
+    blob_validator: Callable[[Mapping[str, bytes]], None] | None = None,
 ) -> Mapping[str, bytes]:
     if _SHA.fullmatch(source_sha) is None:
         raise CompletionValidationError("completed evidence source SHA is invalid")
@@ -34,8 +35,10 @@ def load_completed_private_blobs(
         root = open_root(Path(output_root), None)
     except PublishFilesystemError as error:
         raise CompletionValidationError(str(error)) from error
-    directory_fd = -1
+    lock_fd = directory_fd = -1
     try:
+        lock_name = f".{source_sha}.construction-lock"
+        lock_fd, lock_state, owner_id = open_existing_lock(root, lock_name)
         directory_fd = os.open(source_sha, DIRECTORY, dir_fd=root.root_fd)
         metadata = os.fstat(directory_fd)
         directory_state = entry_state(metadata)
@@ -45,36 +48,37 @@ def load_completed_private_blobs(
             or metadata.st_uid != os.geteuid()
         ):
             raise CompletionValidationError("completed evidence directory mode is unsafe")
-        token = os.getxattr(directory_fd, OWNER_XATTR)
-        if _TOKEN.fullmatch(token) is None:
-            raise CompletionValidationError("completed evidence owner token is invalid")
+        if os.getxattr(directory_fd, OWNER_XATTR) != owner_id:
+            raise CompletionValidationError("completed evidence owner identity is invalid")
         if set(os.listdir(directory_fd)) != set(expected_names):
             raise CompletionValidationError("completed evidence does not contain exact blobs")
         blobs = {name: read_regular(directory_fd, name)[0] for name in expected_names}
-        marker_name = f".{source_sha}.complete"
-        if not marker_matches(
-            root.root_fd, marker_name, source_sha, directory_state, blobs, token
-        ):
-            raise CompletionValidationError("completion marker binding is invalid")
-        directory_path = os.stat(source_sha, dir_fd=root.root_fd, follow_symlinks=False)
-        if (
-            full_state(metadata) != full_state(os.fstat(directory_fd))
-            or full_state(metadata) != full_state(directory_path)
-            or set(os.listdir(directory_fd)) != set(expected_names)
-            or manifest(source_sha, directory_state, blobs, token)
-            != manifest(source_sha, entry_state(directory_path), blobs, token)
-        ):
-            raise CompletionValidationError("completed evidence namespace changed")
-        root.assert_bound()
+        assert_completed_bound(
+            root, directory_fd, directory_state, source_sha, blobs, owner_id,
+            blob_validator,
+        )
         if validation_hook is not None:
             validation_hook("before-return", root.root_fd, source_sha)
-        root.assert_bound()
-        return blobs
+        assert_lock_bound(root, lock_name, lock_fd, lock_state, owner_id)
+        assert_completed_bound(
+            root, directory_fd, directory_state, source_sha, blobs, owner_id,
+            blob_validator,
+        )
+        assert_lock_bound(root, lock_name, lock_fd, lock_state, owner_id)
+        assert_completed_bound(
+            root, directory_fd, directory_state, source_sha, blobs, owner_id,
+            blob_validator,
+        )
+        return dict(blobs)
     except CompletionValidationError:
         raise
-    except (OSError, PublishFilesystemError, ValueError) as error:
+    except (
+        OSError, CompletionPublishError, PublishFilesystemError, RecoveryError, ValueError,
+    ) as error:
         raise CompletionValidationError("completed evidence namespace is unavailable") from error
     finally:
         if directory_fd >= 0:
             os.close(directory_fd)
+        if lock_fd >= 0:
+            os.close(lock_fd)
         root.close()

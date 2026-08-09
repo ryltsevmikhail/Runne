@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import errno
+import hashlib
 import os
 import stat
+import struct
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,6 +14,7 @@ DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 FILE = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 FILE_CREATE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
 OWNER_XATTR = "user.gocode.rc0-construction-owner"
+LOCK_READ = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
 
 
 class PublishFilesystemError(ValueError):
@@ -27,6 +30,53 @@ def full_state(value: os.stat_result) -> tuple[int, ...]:
         value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_size,
         value.st_mtime_ns, value.st_ctime_ns,
     )
+
+
+def _safe_lock_state(value: os.stat_result) -> tuple[int, ...]:
+    if (
+        not stat.S_ISREG(value.st_mode)
+        or stat.S_IMODE(value.st_mode) != 0o600
+        or value.st_uid != os.geteuid()
+    ):
+        raise PublishFilesystemError("persistent construction lock is unsafe")
+    return entry_state(value)
+
+
+def ownership_id(root_state: tuple[int, ...], lock_state: tuple[int, ...]) -> bytes:
+    values = (root_state[0], root_state[1], lock_state[0], lock_state[1])
+    if any(value < 0 or value >= 2**64 for value in values):
+        raise PublishFilesystemError("filesystem identity is outside the ownership domain")
+    frame = b"GOCODE_RC0_CONSTRUCTION_OWNER_V1\0" + struct.pack(">QQQQ", *values)
+    return hashlib.sha256(frame).hexdigest().encode("ascii")
+
+
+def assert_lock_bound(
+    root: "RootHandle", name: str, fd: int, state: tuple[int, ...], owner_id: bytes
+) -> None:
+    root.assert_bound()
+    current = os.stat(name, dir_fd=root.root_fd, follow_symlinks=False)
+    held = os.fstat(fd)
+    if (
+        _safe_lock_state(current) != state
+        or _safe_lock_state(held) != state
+        or ownership_id(root.state, state) != owner_id
+    ):
+        raise PublishFilesystemError("persistent construction lock identity changed")
+    root.assert_bound()
+
+
+def open_existing_lock(
+    root: "RootHandle", name: str
+) -> tuple[int, tuple[int, ...], bytes]:
+    descriptor = os.open(name, LOCK_READ, dir_fd=root.root_fd)
+    try:
+        state = _safe_lock_state(os.fstat(descriptor))
+        owner_id = ownership_id(root.state, state)
+        assert_lock_bound(root, name, descriptor, state, owner_id)
+        return descriptor, state, owner_id
+    except Exception:
+        os.close(descriptor)
+        raise
 
 
 def write_all(fd: int, data: bytes) -> None:

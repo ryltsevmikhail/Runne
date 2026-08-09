@@ -205,6 +205,9 @@ from scripts.tests.rc0_candidate_fix_round2_evidence_cases import (
 from scripts.tests.rc0_candidate_fix_round3_evidence_cases import (
     Rc0CandidateEvidenceFixRound3Tests,
 )
+from scripts.tests.rc0_candidate_fix_round4_evidence_cases import (
+    Rc0CandidateEvidenceFixRound4Tests,
+)
 
 
 if __name__ == "__main__":
