@@ -11,11 +11,24 @@ from typing import Any, Callable, Mapping, Sequence
 from scripts.rc0_policy.canonical import StrictJSONError, loads_canonical
 
 from . import FixtureLocalInputsSummary
+from scripts.ci_local_receipt import LocalInputReceiptError, validate_local_input_receipt
 
 _SATISFIED = "FIXTURE_LOCAL_INPUTS_SATISFIED"
 _FIELDS = frozenset(
     ("fixture_only", "source_capture", "evidence_construction", "local_command_evidence")
 )
+_ROOT = Path(__file__).resolve().parents[2]
+
+
+def structural_summary(fixture_status: str) -> dict[str, str]:
+    """Keep local structural evidence separate from every external authority."""
+    local = _SATISFIED if fixture_status == _SATISFIED else "BLOCKED"
+    return {
+        "fixture_local_inputs": local,
+        "production_qualification": "BLOCKED",
+        "release_approval": "OUT_OF_SCOPE",
+        "publication_authorization": "OUT_OF_SCOPE",
+    }
 
 
 def summarize_fixture_local_inputs(inputs: Mapping[str, Any]) -> FixtureLocalInputsSummary:
@@ -93,6 +106,25 @@ def main(arguments: Sequence[str] | None = None) -> int:
     if not arguments:
         sys.stdout.write("BLOCKED(ADR_OR_POLICY_UNAVAILABLE)\n")
         return 2
+    if (
+        len(arguments) == 5
+        and arguments[0] == "fixture-local-inputs"
+        and arguments[1] == "--receipt"
+        and arguments[3] == "--inventory"
+    ):
+        try:
+            validate_local_input_receipt(
+                _ROOT,
+                Path(arguments[2]),
+                _ROOT / "scripts/ci-local-inputs.sh",
+                Path(arguments[4]),
+                consume=True,
+            )
+        except (LocalInputReceiptError, OSError):
+            sys.stdout.write("BLOCKED\n")
+            return 2
+        sys.stdout.write(_SATISFIED + "\n")
+        return 0
     if len(arguments) != 3 or arguments[:2] != ("fixture-dry-run", "--local-inputs"):
         return 2
     inputs = _load_inputs(arguments[2])
