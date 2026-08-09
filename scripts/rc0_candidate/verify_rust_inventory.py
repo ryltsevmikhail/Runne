@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 
@@ -47,6 +48,10 @@ SELECTOR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$
 LIST_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_:]*): test$")
 LIST_SUMMARY_RE = re.compile(r"^\d+ tests?, \d+ benchmarks$")
 RESULT_RE = re.compile(r"test result: ok\. 1 passed; 0 failed; 0 ignored;")
+TOOLCHAIN_RE = re.compile(
+    r"^rustc (?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*) "
+    r"\([0-9a-f]+ ([0-9]{4}-[0-9]{2}-[0-9]{2})\)$"
+)
 
 
 class InventoryError(ValueError):
@@ -79,6 +84,8 @@ def _validate_rust_record(record: dict) -> None:
         if set(record) != unresolved:
             raise InventoryError(f"unresolved record {record['id']} has evidence fields")
     elif status == "RESOLVED":
+        if not _valid_toolchain(record.get("toolchain")):
+            raise InventoryError(f"record {record['id']} has invalid toolchain")
         if set(record) != resolved or not all(record.get(key) for key in resolved - unresolved):
             raise InventoryError(f"resolved record {record['id']} lacks exactly one selector/list digest/toolchain")
     else:
@@ -97,6 +104,17 @@ def _validate_rust_record(record: dict) -> None:
     digest = record.get("list_digest")
     if digest is not None and not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
         raise InventoryError(f"record {record['id']} has invalid list digest")
+
+
+def _valid_toolchain(toolchain: object) -> bool:
+    match = TOOLCHAIN_RE.fullmatch(toolchain) if isinstance(toolchain, str) else None
+    if match is None:
+        return False
+    try:
+        date.fromisoformat(match.group(1))
+    except ValueError:
+        return False
+    return True
 
 
 def canonical_inventory_bytes(document: dict) -> bytes:
