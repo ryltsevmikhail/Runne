@@ -251,6 +251,7 @@ fn settle_zero_affected_rows_is_not_false_success() {
 include!("provider_dispatch_recovery_parts/task3.rs");
 include!("provider_dispatch_recovery_parts/task4.rs");
 include!("provider_dispatch_recovery_parts/task4_faults.rs");
+include!("provider_dispatch_recovery_parts/task5.rs");
 
 #[test]
 fn task4_test_support_is_available_only_to_integration_tests() {

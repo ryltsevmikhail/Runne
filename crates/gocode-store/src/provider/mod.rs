@@ -9,6 +9,7 @@ mod effect_port;
 mod effect_start;
 mod execution_store;
 pub mod operational_telemetry;
+mod recovery_store;
 
 pub use dispatch_binding::ProviderExecutionBinding;
 pub use dispatch_coordinator::{ProviderCoordinatorOutcome, SqliteProviderDispatchCoordinator};
@@ -24,3 +25,4 @@ pub use effect_start::ProviderEffectStartReceipt;
 pub use execution_store::{
     DurableProviderAdmission, ProviderAuthorityIssueOutcome, SqliteProviderExecutionStore,
 };
+pub use recovery_store::SqliteProviderRecoveryStore;
