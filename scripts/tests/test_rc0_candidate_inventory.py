@@ -57,7 +57,7 @@ def resolved(identifier: str, package: str, target: str) -> dict[str, str]:
         "selector_status": "RESOLVED",
         "fully_qualified_test_name": selector,
         "list_digest": hashlib.sha256(listing.encode()).hexdigest(),
-        "toolchain": "rustc 1.95.0",
+        "toolchain": "rustc 1.95.0 (abcdef123 2026-01-02)",
     }
 
 
@@ -113,7 +113,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
         verifier = load_verifier()
         record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
         del record["toolchain"]
-        with self.assertRaisesRegex(verifier.InventoryError, "resolved record"):
+        with self.assertRaisesRegex(verifier.InventoryError, "invalid toolchain"):
             verifier.validate_record(record)
 
     def test_rejects_path_filter_selector(self) -> None:
@@ -164,7 +164,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
         def command(args: tuple[str, ...]) -> str:
             if args == ("rustc", "-V"):
-                return "rustc 1.95.0\n"
+                return "rustc 1.95.0 (abcdef123 2026-01-02)\n"
             if args[-1] == "--list":
                 return "sqlite_managed_connection: test\n"
             return "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
@@ -180,7 +180,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
         def command(args: tuple[str, ...]) -> str:
             if args == ("rustc", "-V"):
-                return "rustc 1.95.0\n"
+                return "rustc 1.95.0 (abcdef123 2026-01-02)\n"
             if args[-1] == "--list":
                 return listing
             return "running 1 test\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
@@ -195,7 +195,6 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
             ("missing required", lambda records: records.pop()),
             ("missing required", lambda records: records.append(resolved("extra", "gocode-store", "extra"))),
             ("reservation tuple changed", lambda records: records[0].update(package="wrong")),
-            ("resolved record", lambda records: records[0].pop("toolchain")),
             ("resolved record", lambda records: records[0].pop("list_digest")),
         ):
             with self.subTest(expected=expected):
@@ -203,6 +202,22 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
                 mutate(document["records"])
                 calls: list[tuple[str, ...]] = []
                 with self.assertRaisesRegex(verifier.InventoryError, expected):
+                    verifier.verify_frozen_all(document, lambda args: calls.append(args) or "")
+                self.assertEqual(calls, [])
+
+    def test_frozen_rejects_malformed_toolchain_before_commands(self) -> None:
+        verifier = load_verifier()
+        for value in ("arbitrary", 1, "rustc 1.97.1 (BADc0ffee 2026-07-14)", "rustc 1.97.1 (8bab26f4f 2026-99-14)", None):
+            with self.subTest(value=value):
+                document = frozen_inventory(verifier, resolved_reservations())
+                record = document["records"][0]
+                if value is None:
+                    record.pop("toolchain")
+                else:
+                    record["toolchain"] = value
+                document["final_inventory_digest"] = verifier.final_inventory_digest(document)
+                calls: list[tuple[str, ...]] = []
+                with self.assertRaisesRegex(verifier.InventoryError, "invalid toolchain"):
                     verifier.verify_frozen_all(document, lambda args: calls.append(args) or "")
                 self.assertEqual(calls, [])
 
@@ -254,7 +269,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
         def command(args: tuple[str, ...]) -> str:
             calls.append(args)
             if args == ("rustc", "-V"):
-                return "rustc 1.95.0\n"
+                return "rustc 1.95.0 (abcdef123 2026-01-02)\n"
             if args[-1] == "--list":
                 return listings[args[args.index("--test") + 1]]
             return "running 1 test\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
