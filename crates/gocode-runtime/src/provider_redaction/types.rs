@@ -1,5 +1,5 @@
 use gocode_provider::{
-    DispatchAttemptId, ScannerCheckpoint, ScannerError, ScannerTerminalDisposition, TailBinding,
+    DispatchAttemptId, ScannerCheckpoint, ScannerTerminalDisposition, TailBinding,
 };
 use thiserror::Error;
 
@@ -10,6 +10,7 @@ pub struct ScannerRecoveryRecord {
     checkpoint: Option<ScannerCheckpoint>,
     durable_cursor: u64,
     durable_safe_prefix_high_water: u64,
+    durable_checkpoint_digest: Option<[u8; 32]>,
     disposition: Option<ScannerTerminalDisposition>,
 }
 
@@ -20,6 +21,7 @@ impl ScannerRecoveryRecord {
         checkpoint: Option<ScannerCheckpoint>,
         durable_cursor: u64,
         durable_safe_prefix_high_water: u64,
+        durable_checkpoint_digest: Option<[u8; 32]>,
         disposition: Option<ScannerTerminalDisposition>,
     ) -> Self {
         Self {
@@ -27,6 +29,7 @@ impl ScannerRecoveryRecord {
             checkpoint,
             durable_cursor,
             durable_safe_prefix_high_water,
+            durable_checkpoint_digest,
             disposition,
         }
     }
@@ -45,6 +48,10 @@ impl ScannerRecoveryRecord {
     /// Returns the safe-prefix high-water bound to the checkpoint digest.
     pub const fn durable_safe_prefix_high_water(self) -> u64 {
         self.durable_safe_prefix_high_water
+    }
+    /// Returns the exact digest authorizing the durable cursor advance.
+    pub const fn durable_checkpoint_digest(self) -> Option<[u8; 32]> {
+        self.durable_checkpoint_digest
     }
     /// Returns the committed terminal disposition, when terminal.
     pub const fn disposition(self) -> Option<ScannerTerminalDisposition> {
@@ -81,13 +88,6 @@ pub(super) const fn map_persistence_error(
     _: ScannerRecoveryPersistenceError,
 ) -> ProviderRedactionError {
     ProviderRedactionError::PersistenceUnavailable
-}
-
-pub(super) const fn map_scanner_error(error: ScannerError) -> ProviderRedactionError {
-    match error {
-        ScannerError::OutputLimitExceeded => ProviderRedactionError::OutputLimitExceeded,
-        _ => ProviderRedactionError::PersistenceUnavailable,
-    }
 }
 
 /// Managed persistence port enforcing checkpoint-before-cursor ordering.

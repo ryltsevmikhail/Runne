@@ -114,6 +114,7 @@ pub(super) fn decode_record(
         checkpoint,
         as_u64(row.get(12)?)?,
         as_u64(row.get(13)?)?,
+        optional_fixed(row.get(14)?)?,
         decode_optional_disposition(row.get(15)?)?,
     )))
 }

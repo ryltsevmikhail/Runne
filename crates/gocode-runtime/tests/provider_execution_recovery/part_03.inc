@@ -9,6 +9,7 @@ async fn remote_failure_without_usage_consumes_full_reservation_without_conversa
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &DENYING_GUARD,
+        &ALLOWING_REDACTION,
     );
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     let events = vec![
@@ -124,6 +125,7 @@ async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &DENYING_GUARD,
+        &ALLOWING_REDACTION,
     );
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     poll_events(&runtime, &fixture, successful_events(OUTPUT)).await;
@@ -162,6 +164,7 @@ async fn mismatched_exact_profile_pricing_creates_no_accounting_or_outbox() {
         fixture.execution.as_ref(),
         &openai_profile,
         &ALLOWING_GUARD,
+        &ALLOWING_REDACTION,
     );
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     poll_events(

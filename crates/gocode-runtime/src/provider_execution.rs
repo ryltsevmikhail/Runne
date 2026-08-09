@@ -8,4 +8,5 @@ include!("provider_execution_parts/part_02.rs");
 include!("provider_execution_parts/part_03.rs");
 include!("provider_execution_parts/part_04.rs");
 include!("provider_execution_parts/part_05.rs");
+include!("provider_execution_parts/part_07.rs");
 include!("provider_execution_parts/part_06.rs");

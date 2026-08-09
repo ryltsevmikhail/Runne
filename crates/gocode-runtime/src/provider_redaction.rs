@@ -1,14 +1,21 @@
 //! Pre-journal provider-byte withholding and fail-closed restart orchestration.
+mod boundary;
+mod completion;
+mod state;
 mod types;
 
+pub use boundary::{
+    PreJournalProviderEvent, ProhibitedContentCredentialMatcher, ProviderEventRedaction,
+    ProviderEventRedactionBoundary,
+};
 pub use types::{
     ProviderRedactionError, ScannerRecoveryPersistence, ScannerRecoveryPersistenceError,
     ScannerRecoveryRecord,
 };
 
 use gocode_provider::{
-    CredentialMatcher, ScannerCheckpoint, ScannerError, ScannerTerminalDisposition,
-    ScannerUncertainReason, TailBinding, WithheldTailStore, scan_provider_chunk,
+    CredentialMatcher, ScannerCheckpoint, ScannerTerminalDisposition, ScannerUncertainReason,
+    TailBinding, WithheldTailStore, scan_provider_chunk,
 };
 use zeroize::Zeroizing;
 
@@ -43,8 +50,30 @@ where
             checkpoint: None,
             disposition: None,
         };
-        if matcher.epoch().ok() != Some(binding.matcher_epoch()) {
-            session.fail(ScannerUncertainReason::CredentialMatcherUnavailable)?;
+        match persistence.load(binding.attempt_id()) {
+            Ok(None) => {
+                if tail_store.purge_orphaned_tails(binding, None).is_err() {
+                    session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+                    return Ok(session);
+                }
+            }
+            Ok(Some(_))
+            | Err(
+                ScannerRecoveryPersistenceError::Corrupt
+                | ScannerRecoveryPersistenceError::Conflict,
+            ) => {
+                session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+                return Ok(session);
+            }
+            Err(ScannerRecoveryPersistenceError::Unavailable) => {
+                session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+                return Err(ProviderRedactionError::PersistenceUnavailable);
+            }
+        }
+        match matcher.epoch() {
+            Ok(epoch) if epoch == binding.matcher_epoch() => {}
+            Ok(_) => session.fail(ScannerUncertainReason::CredentialMatcherUnavailable)?,
+            Err(error) => session.terminate_scanner_error(error)?,
         }
         Ok(session)
     }
@@ -74,7 +103,10 @@ where
                 session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
                 return Ok(session);
             }
-            Err(_) => return Err(ProviderRedactionError::PersistenceUnavailable),
+            Err(ScannerRecoveryPersistenceError::Unavailable) => {
+                session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+                return Err(ProviderRedactionError::PersistenceUnavailable);
+            }
         };
         let durable_binding = record.binding();
         session.binding = durable_binding;
@@ -84,6 +116,12 @@ where
         }
         if let Some(disposition) = record.disposition() {
             session.disposition = Some(disposition);
+            if tail_store
+                .purge_orphaned_tails(durable_binding, None)
+                .is_err()
+            {
+                session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+            }
             return Ok(session);
         }
         let Some(checkpoint) = record.checkpoint() else {
@@ -94,16 +132,31 @@ where
         if durable_binding != stored
             || record.durable_cursor() != stored.cursor()
             || record.durable_safe_prefix_high_water() != checkpoint.safe_prefix_high_water()
+            || record.durable_checkpoint_digest() != Some(checkpoint.digest())
         {
             session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
             return Ok(session);
         }
-        if matcher.epoch().ok() != Some(stored.matcher_epoch()) {
-            session.fail(ScannerUncertainReason::CredentialMatcherUnavailable)?;
-            return Ok(session);
+        match matcher.epoch() {
+            Ok(epoch) if epoch == stored.matcher_epoch() => {}
+            Ok(_) => {
+                session.fail(ScannerUncertainReason::CredentialMatcherUnavailable)?;
+                return Ok(session);
+            }
+            Err(error) => {
+                session.terminate_scanner_error(error)?;
+                return Ok(session);
+            }
         }
         if tail_store
             .load_tail(&checkpoint.tail_reference(), stored)
+            .is_err()
+        {
+            session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+            return Ok(session);
+        }
+        if tail_store
+            .purge_orphaned_tails(stored, Some(checkpoint.tail_reference()))
             .is_err()
         {
             session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
@@ -153,19 +206,34 @@ where
         let high_water = self
             .checkpoint
             .map_or(0, ScannerCheckpoint::safe_prefix_high_water);
-        let step = scan_provider_chunk(
+        let step = match scan_provider_chunk(
             self.matcher,
             self.binding,
             previous_tail,
             provider_bytes,
             high_water,
-        )
-        .map_err(map_scanner_error)?;
+        ) {
+            Ok(step) => step,
+            Err(error) => {
+                self.terminate_scanner_error(error)?;
+                return Ok(());
+            }
+        };
         if let Some(disposition) = step.disposition() {
-            self.commit_terminal(disposition)?;
+            match disposition {
+                ScannerTerminalDisposition::Uncertain(reason) => self.fail(reason)?,
+                ScannerTerminalDisposition::OutputLimitExceeded => {
+                    self.commit_terminal(disposition)?;
+                    self.purge_all_tails()?;
+                }
+                ScannerTerminalDisposition::Completed => {
+                    self.fail(ScannerUncertainReason::RedactionScannerUnavailable)?;
+                }
+            }
             return Ok(());
         }
-        staged_safe_material.extend_from_slice(step.safe_prefix());
+        let safe_prefix = Zeroizing::new(step.safe_prefix().to_vec());
+        let previous_reference = self.checkpoint.map(|value| value.tail_reference());
         let next_binding = step.binding();
         let next_high_water = step.safe_prefix_high_water();
         let reference = match self
@@ -181,110 +249,34 @@ where
         let sequence = self
             .checkpoint
             .map_or(1, |checkpoint| checkpoint.sequence() + 1);
-        let checkpoint = ScannerCheckpoint::new(reference, next_binding, sequence, next_high_water)
-            .map_err(map_scanner_error)?;
-        self.persistence
-            .persist_checkpoint(checkpoint)
-            .map_err(map_persistence_error)?;
-        self.persistence
-            .advance_checkpoint(checkpoint)
-            .map_err(map_persistence_error)?;
-        self.binding = next_binding;
-        self.checkpoint = Some(checkpoint);
-        Ok(())
-    }
-
-    /// Flushes a fully scanned tail, advances its empty checkpoint, then commits success.
-    pub fn complete(
-        &mut self,
-        staged_safe_material: &mut Zeroizing<Vec<u8>>,
-    ) -> Result<(), ProviderRedactionError> {
-        if self.disposition.is_some() {
-            return Ok(());
-        }
-        let previous = match self.checkpoint {
-            Some(checkpoint) => match self
-                .tail_store
-                .load_tail(&checkpoint.tail_reference(), self.binding)
-            {
-                Ok(bytes) => bytes,
-                Err(_) => {
-                    self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+        let checkpoint =
+            match ScannerCheckpoint::new(reference, next_binding, sequence, next_high_water) {
+                Ok(checkpoint) => checkpoint,
+                Err(error) => {
+                    let _ = self.tail_store.delete_tail(&reference);
+                    self.terminate_scanner_error(error)?;
                     return Ok(());
                 }
-            },
-            None => Zeroizing::new(Vec::new()),
-        };
-        if self.matcher.epoch().ok() != Some(self.binding.matcher_epoch()) {
-            self.fail(ScannerUncertainReason::CredentialMatcherUnavailable)?;
-            return Ok(());
+            };
+        if self.persistence.persist_checkpoint(checkpoint).is_err() {
+            let _ = self.tail_store.delete_tail(&reference);
+            self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+            return Err(ProviderRedactionError::PersistenceUnavailable);
         }
-        match self.matcher.contains_match(&previous) {
-            Ok(false) => {}
-            Ok(true) => {
-                self.fail(ScannerUncertainReason::SecretDetected)?;
-                return Ok(());
-            }
-            Err(ScannerError::MatcherUnavailable) => {
-                self.fail(ScannerUncertainReason::CredentialMatcherUnavailable)?;
-                return Ok(());
-            }
-            Err(_) => {
-                self.fail(ScannerUncertainReason::RedactionScannerUnavailable)?;
-                return Ok(());
-            }
+        if self.persistence.advance_checkpoint(checkpoint).is_err() {
+            let terminal = self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable);
+            let _ = self.tail_store.delete_tail(&reference);
+            terminal?;
+            return Err(ProviderRedactionError::PersistenceUnavailable);
         }
-        staged_safe_material.extend_from_slice(&previous);
-        let reference = match self
-            .tail_store
-            .put_tail(self.binding, Zeroizing::new(Vec::new()))
-        {
-            Ok(reference) => reference,
-            Err(_) => {
-                self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
-                return Ok(());
-            }
-        };
-        let sequence = self
-            .checkpoint
-            .map_or(1, |checkpoint| checkpoint.sequence() + 1);
-        let checkpoint =
-            ScannerCheckpoint::new(reference, self.binding, sequence, self.binding.cursor())
-                .map_err(map_scanner_error)?;
-        self.persistence
-            .persist_checkpoint(checkpoint)
-            .map_err(map_persistence_error)?;
-        self.persistence
-            .advance_checkpoint(checkpoint)
-            .map_err(map_persistence_error)?;
+        self.binding = next_binding;
         self.checkpoint = Some(checkpoint);
-        self.commit_terminal(ScannerTerminalDisposition::Completed)
-    }
-
-    /// Returns the current opaque checkpoint.
-    pub const fn checkpoint(&self) -> Option<ScannerCheckpoint> {
-        self.checkpoint
-    }
-    /// Returns the committed terminal disposition, or `None` while scanning.
-    pub const fn disposition(&self) -> Option<ScannerTerminalDisposition> {
-        self.disposition
-    }
-
-    fn fail(&mut self, reason: ScannerUncertainReason) -> Result<(), ProviderRedactionError> {
-        self.commit_terminal(ScannerTerminalDisposition::Uncertain(reason))
-    }
-
-    fn commit_terminal(
-        &mut self,
-        candidate: ScannerTerminalDisposition,
-    ) -> Result<(), ProviderRedactionError> {
-        let disposition = self
-            .disposition
-            .map_or(candidate, |current| current.dominant(candidate));
-        self.persistence
-            .commit_terminal(self.binding, disposition)
-            .map_err(map_persistence_error)?;
-        self.disposition = Some(disposition);
+        staged_safe_material.extend_from_slice(&safe_prefix);
+        if let Some(previous) = previous_reference {
+            if self.tail_store.delete_tail(&previous).is_err() {
+                self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+            }
+        }
         Ok(())
     }
 }
@@ -296,5 +288,3 @@ fn same_authority(expected: TailBinding, actual: TailBinding) -> bool {
         && expected.matcher_epoch() == actual.matcher_epoch()
         && expected.algorithm_version() == actual.algorithm_version()
 }
-
-use types::{map_persistence_error, map_scanner_error};

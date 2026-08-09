@@ -227,4 +227,12 @@ pub trait WithheldTailStore: Send + Sync {
         reference: &NativeSecretRef,
         binding: TailBinding,
     ) -> Result<Zeroizing<Vec<u8>>, SecureStoreError>;
+    /// Deletes one exact reference. Missing items are an idempotent success.
+    fn delete_tail(&self, reference: &NativeSecretRef) -> Result<(), SecureStoreError>;
+    /// Deletes attempt-scoped native refs other than the exact durable reference.
+    fn purge_orphaned_tails(
+        &self,
+        binding: TailBinding,
+        retained: Option<NativeSecretRef>,
+    ) -> Result<(), SecureStoreError>;
 }
