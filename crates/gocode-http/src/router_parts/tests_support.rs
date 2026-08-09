@@ -14,7 +14,7 @@
         RuntimeOperationalTelemetrySnapshotV1, TaskRunCommandAck, TaskRunCommandContext,
         TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
     };
-    use gocode_application::local_session::{LocalSessionService, bootstrap_proof_transcript};
+    use gocode_application::local_session::LocalSessionService;
     use gocode_application::ports::{
         ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
     };
@@ -224,10 +224,7 @@
 
     fn host() -> SecureLocalHttpHost {
         let binding = binding();
-        let service = Arc::new(Mutex::new(LocalSessionService::new(
-            binding.clone(),
-            [7; 32],
-        )));
+        let service = session_service(binding.clone());
         SecureLocalHttpHost::new(
             VerifiedLocalTls::from_verified_listener(),
             HealthState {
@@ -257,7 +254,7 @@
         telemetry: Option<OperationalTelemetryHttpState>,
     ) -> Result<SecureLocalHttpHost, SecureLocalHttpHostError> {
         let binding = binding_with_capabilities(capabilities);
-        let service = Arc::new(Mutex::new(LocalSessionService::new(binding.clone(), [7; 32])));
+        let service = session_service(binding.clone());
         SecureLocalHttpHost::new_with_operational_telemetry(
             VerifiedLocalTls::from_verified_listener(),
             HealthState {

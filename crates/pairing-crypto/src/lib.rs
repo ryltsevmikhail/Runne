@@ -2,6 +2,14 @@ use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+mod bootstrap_v3;
+
+pub use bootstrap_v3::{
+    BOOTSTRAP_TRANSCRIPT_DOMAIN, BOOTSTRAP_TRANSCRIPT_FIELD_COUNT, BootstrapTranscriptError,
+    BootstrapTranscriptV3, SERVER_NONCE_FIELD_INDEX, encode_final_transcript,
+    encode_preallocation_transcript,
+};
+
 // ── Constants ────────────────────────────────────────────────────────
 
 #[rustfmt::skip]

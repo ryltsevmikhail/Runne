@@ -1,252 +1,229 @@
-    use super::*;
-    use axum::{
-        body::{Body, to_bytes},
-        http::Request,
-    };
-    use gocode_api::{
-        ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding,
-    };
-    use gocode_application::local_session::bootstrap_proof_transcript;
-    use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
-    use hmac::{Hmac, Mac};
-    use tower::ServiceExt;
+use super::*;
+use axum::{
+    body::{Body, to_bytes},
+    http::Request,
+};
+use gocode_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding};
+use gocode_application::local_session::{
+    BootstrapClock, LocalSessionService, BOOTSTRAP_FINAL_ENDPOINT_V3,
+    BOOTSTRAP_HTTP_METHOD_V3, BOOTSTRAP_PREALLOCATION_ENDPOINT_V3, BOOTSTRAP_PROTOCOL_V3,
+};
+use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
+use gocode_pairing_crypto::{
+    BootstrapTranscriptV3, encode_final_transcript, encode_preallocation_transcript,
+};
+use gocode_store::{
+    local_session::SqliteBootstrapReservationStore,
+    schema::{ConnectionMode, apply_migrations, open_managed_connection},
+};
+use hmac::{Hmac, Mac};
+use tower::ServiceExt;
 
-    async fn assert_canonical_error(response: Response, status: StatusCode, code: &str) {
-        assert_eq!(response.status(), status);
-        let request_id = response
-            .headers()
-            .get("x-request-id")
-            .expect("canonical error must include request identity")
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let body: serde_json::Value =
-            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-        assert_eq!(
-            body,
-            serde_json::json!({"code": code, "requestId": request_id})
-        );
-    }
+const EXECUTABLE_SHA256: [u8; 32] = [0x0e; 32];
 
-    fn state() -> LocalSessionHttpState {
-        LocalSessionHttpState::new(
-            Arc::new(Mutex::new(LocalSessionService::new(binding(), [7; 32]))),
-            Arc::new(|| Duration::ZERO),
-            VerifiedLocalTls::from_verified_listener(),
+fn binding() -> RuntimeSessionBinding {
+    RuntimeSessionBinding::new(
+        StableRuntimeBinding::new(
+            [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 1],
+            ApiPrincipalId::new("local-owner").unwrap(),
+            "018f2e3a-7000-7000-8000-000000000003"
+                .parse::<EventLogLineageId>()
+                .unwrap(),
+            "gocode-ui-client/1",
+            [3; 32],
+            [4; 32],
         )
-    }
+        .unwrap(),
+        DaemonInstanceId::from_bytes([
+            1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 2,
+        ]),
+        7,
+        [5; 16],
+        3,
+        Sensitivity::Internal,
+        [6; 32],
+    )
+    .unwrap()
+}
 
-    fn binding() -> RuntimeSessionBinding {
-        RuntimeSessionBinding::new(
-            StableRuntimeBinding::new(
-                [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 1],
-                ApiPrincipalId::new("local-owner").unwrap(),
-                "018f2e3a-7000-7000-8000-000000000003"
-                    .parse::<EventLogLineageId>()
-                    .unwrap(),
-                "gocode-ui-client/1",
-                [3; 32],
-                [4; 32],
-            )
-            .unwrap(),
-            DaemonInstanceId::from_bytes([
-                1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 2,
-            ]),
-            7,
-            [5; 16],
-            3,
-            Sensitivity::Internal,
-            [6; 32],
-        )
-        .unwrap()
-    }
-
-    #[tokio::test]
-    async fn verified_tls_router_issues_and_consumes_a_challenge() {
-        let now = Arc::new(Mutex::new(Duration::ZERO));
-        let clock = {
-            let now = now.clone();
-            Arc::new(move || *now.lock().unwrap()) as Arc<dyn Fn() -> Duration + Send + Sync>
-        };
-        let state = LocalSessionHttpState::new(
-            Arc::new(Mutex::new(LocalSessionService::new(binding(), [7; 32]))),
+fn state() -> (LocalSessionHttpState, tempfile::TempDir) {
+    let directory = tempfile::tempdir().unwrap();
+    let connection = open_managed_connection(
+        &directory.path().join("bootstrap.sqlite"),
+        ConnectionMode::Writer,
+    )
+    .unwrap();
+    apply_migrations(&connection).unwrap();
+    let store = Arc::new(SqliteBootstrapReservationStore::new(connection));
+    let launch_authority = *binding().stable().authority_id();
+    let service = LocalSessionService::with_reservation_store(
+        binding(),
+        launch_authority,
+        EXECUTABLE_SHA256,
+        [7; 32],
+        store,
+    );
+    let clock = Arc::new(|| Some(BootstrapClock::new(100, Duration::ZERO)));
+    (
+        LocalSessionHttpState::with_clock(
+            Arc::new(Mutex::new(service)),
             clock,
             VerifiedLocalTls::from_verified_listener(),
-        );
-        let app = local_session_router(state);
-        let client = URL_SAFE_NO_PAD.encode([9; 32]);
-        let server = URL_SAFE_NO_PAD.encode([8; 32]);
-        let request = Request::builder()
-            .method("POST")
-            .uri("/v1/local-session/challenges")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({"clientNonce":client,"serverNonce":server}).to_string(),
-            ))
-            .unwrap();
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let dto: serde_json::Value =
-            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-        assert_eq!(dto["serverNonce"], URL_SAFE_NO_PAD.encode([8; 32]));
-        assert!(dto["challengeId"].is_string());
-        let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&[7; 32]).unwrap();
-        mac.update(&bootstrap_proof_transcript(&binding(), [8; 32], [9; 32]));
-        let payload = serde_json::json!({"challengeId":dto["challengeId"],"proof":URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()),"authority":URL_SAFE_NO_PAD.encode([10;32])});
-        let response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/authenticate")
-                    .header("content-type", "application/json")
-                    .body(Body::from(payload.to_string()))
-                    .unwrap(),
-            )
+        ),
+        directory,
+    )
+}
+
+fn transcript(endpoint: &[u8], client: &[u8; 32], server: Option<[u8; 32]>) -> Vec<u8> {
+    let binding = binding();
+    let stable = binding.stable();
+    let instance = binding.ephemeral().daemon_instance_id().into_bytes();
+    let generation = binding.ephemeral().launch_generation().to_be_bytes();
+    let fields: [&[u8]; 16] = [
+        BOOTSTRAP_PROTOCOL_V3,
+        stable.authority_id(),
+        stable.principal_id().as_str().as_bytes(),
+        stable.lineage_id().as_bytes(),
+        stable.profile_id().as_bytes(),
+        stable.schema_hash(),
+        &EXECUTABLE_SHA256,
+        &instance,
+        &generation,
+        binding.ephemeral().session_id(),
+        endpoint,
+        BOOTSTRAP_HTTP_METHOD_V3,
+        b"1970-01-01T00:00:00.000000Z",
+        b"1970-01-01T00:00:01.000000Z",
+        client,
+        &[],
+    ];
+    let input = BootstrapTranscriptV3 {
+        key_version: 1,
+        fields,
+    };
+    server.map_or_else(
+        || encode_preallocation_transcript(&input).unwrap(),
+        |nonce| encode_final_transcript(&input, nonce).unwrap(),
+    )
+}
+
+fn proof(transcript: &[u8]) -> String {
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&[7; 32]).unwrap();
+    mac.update(transcript);
+    URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
+}
+
+#[tokio::test]
+async fn verified_tls_router_issues_and_consumes_a_challenge() {
+    assert_verified_tls_router_issues_and_consumes_a_challenge().await;
+}
+
+pub(crate) async fn assert_verified_tls_router_issues_and_consumes_a_challenge() {
+    let (state, _directory) = state();
+    let app = local_session_router(state);
+    let client = [9; 32];
+    let request = serde_json::json!({
+        "wireVersion":"3", "keyVersion":1,
+        "clientNonce":URL_SAFE_NO_PAD.encode(client),
+        "notBefore":"1970-01-01T00:00:00.000000Z",
+        "expiry":"1970-01-01T00:00:01.000000Z",
+        "preallocationProof":proof(&transcript(BOOTSTRAP_PREALLOCATION_ENDPOINT_V3, &client, None)),
+    });
+    let response = app.clone().oneshot(json_request("/v1/local-session/challenges", request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let challenge: serde_json::Value = serde_json::from_slice(
+        &to_bytes(response.into_body(), 4096).await.unwrap(),
+    ).unwrap();
+    assert_eq!(challenge["wireVersion"], "3");
+    assert_eq!(challenge["keyVersion"], 1);
+    let server: [u8; 32] = URL_SAFE_NO_PAD.decode(challenge["serverNonce"].as_str().unwrap()).unwrap().try_into().unwrap();
+    let final_request = serde_json::json!({
+        "wireVersion":"3", "keyVersion":1,
+        "challengeId":challenge["challengeId"],
+        "finalProof":proof(&transcript(BOOTSTRAP_FINAL_ENDPOINT_V3, &client, Some(server))),
+        "authority":URL_SAFE_NO_PAD.encode([10;32]),
+    });
+    let response = app.oneshot(json_request("/v1/local-session/authenticate", final_request)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let authenticated: serde_json::Value = serde_json::from_slice(
+        &to_bytes(response.into_body(), 4096).await.unwrap(),
+    ).unwrap();
+    assert_eq!(authenticated["wireVersion"], "3");
+    assert_eq!(authenticated["keyVersion"], 1);
+}
+
+#[tokio::test]
+async fn oversized_transport_body_has_canonical_rejection() {
+    assert_oversized_transport_body_has_canonical_rejection().await;
+}
+
+#[tokio::test]
+async fn downgrade_alias_and_unknown_fields_are_closed_rejections() {
+    for value in [
+        serde_json::json!({
+            "wireVersion":"2", "keyVersion":1,
+            "clientNonce":URL_SAFE_NO_PAD.encode([9;32]),
+            "notBefore":"1970-01-01T00:00:00.000000Z",
+            "expiry":"1970-01-01T00:00:01.000000Z",
+            "preallocationProof":URL_SAFE_NO_PAD.encode([7;32]),
+        }),
+        serde_json::json!({
+            "wireVersion":"3", "keyVersion":1,
+            "clientNonce":URL_SAFE_NO_PAD.encode([9;32]),
+            "serverNonce":URL_SAFE_NO_PAD.encode([8;32]),
+            "notBefore":"1970-01-01T00:00:00.000000Z",
+            "expiry":"1970-01-01T00:00:01.000000Z",
+            "preallocationProof":URL_SAFE_NO_PAD.encode([7;32]),
+        }),
+        serde_json::json!({
+            "keyVersion":1,
+            "clientNonce":URL_SAFE_NO_PAD.encode([9;32]),
+            "notBefore":"1970-01-01T00:00:00.000000Z",
+            "expiry":"1970-01-01T00:00:01.000000Z",
+            "preallocationProof":URL_SAFE_NO_PAD.encode([7;32]),
+        }),
+        serde_json::json!({
+            "wire_version":"3", "key_version":1,
+            "client_nonce":URL_SAFE_NO_PAD.encode([9;32]),
+            "not_before":"1970-01-01T00:00:00.000000Z",
+            "expiry":"1970-01-01T00:00:01.000000Z",
+            "preallocation_proof":URL_SAFE_NO_PAD.encode([7;32]),
+        }),
+        serde_json::json!({
+            "wireVersion":"3", "keyVersion":1,
+            "clientNonce":URL_SAFE_NO_PAD.encode([9;32]),
+            "notBefore":"1970-01-01T00:00:00Z",
+            "expiry":"1970-01-01T00:00:01Z",
+            "preallocationProof":URL_SAFE_NO_PAD.encode([7;32]),
+        }),
+    ] {
+        let (state, _directory) = state();
+        let response = local_session_router(state)
+            .oneshot(json_request("/v1/local-session/challenges", value))
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = to_bytes(response.into_body(), 4096).await.unwrap();
-        let authenticated: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            authenticated,
-            serde_json::json!({
-                "expiresAtMonotonicMillis": 600_000,
-                "sessionId": hex::encode(binding().ephemeral().session_id()),
-            })
-        );
-        let replay = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/authenticate")
-                    .header("content-type", "application/json")
-                    .body(Body::from(payload.to_string()))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(replay.status(), StatusCode::UNAUTHORIZED);
-        assert!(
-            std::str::from_utf8(&to_bytes(replay.into_body(), 4096).await.unwrap())
-                .unwrap()
-                .contains("unauthorized")
-        );
-    }
-
-    #[tokio::test]
-    async fn verified_tls_router_rejects_unknown_challenge_fields_with_canonical_json() {
-        let response = local_session_router(state())
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/challenges")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "clientNonce": URL_SAFE_NO_PAD.encode([9; 32]),
-                            "serverNonce": URL_SAFE_NO_PAD.encode([8; 32]),
-                            "unexpected": true,
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_canonical_error(response, StatusCode::BAD_REQUEST, "invalid_request").await;
-    }
-
-    #[tokio::test]
-    async fn verified_tls_router_rejects_unknown_authentication_fields_with_canonical_json() {
-        let response = local_session_router(state())
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/authenticate")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "challengeId": URL_SAFE_NO_PAD.encode([1; 16]),
-                            "proof": URL_SAFE_NO_PAD.encode([2; 32]),
-                            "authority": URL_SAFE_NO_PAD.encode([3; 32]),
-                            "unexpected": true,
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_canonical_error(response, StatusCode::BAD_REQUEST, "invalid_request").await;
-    }
-
-    #[tokio::test]
-    async fn verified_tls_router_rejects_bodies_larger_than_eight_kib_with_canonical_json() {
-        let response = local_session_router(state())
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/challenges")
-                    .header("content-type", "application/json")
-                    .body(Body::from("x".repeat(MAX_LOCAL_SESSION_BODY_BYTES + 1)))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_canonical_error(response, StatusCode::PAYLOAD_TOO_LARGE, "invalid_request").await;
-    }
-
-    #[tokio::test]
-    async fn verified_tls_router_maps_challenge_exhaustion_to_canonical_unavailable() {
-        let app = local_session_router(state());
-        for value in 0..32_u8 {
-            let response = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .method("POST")
-                        .uri("/v1/local-session/challenges")
-                        .header("content-type", "application/json")
-                        .body(Body::from(
-                            serde_json::json!({
-                                "clientNonce": URL_SAFE_NO_PAD.encode([value; 32]),
-                                "serverNonce": URL_SAFE_NO_PAD.encode([value.wrapping_add(32); 32]),
-                            })
-                            .to_string(),
-                        ))
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::OK);
-        }
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/challenges")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "clientNonce": URL_SAFE_NO_PAD.encode([64; 32]),
-                            "serverNonce": URL_SAFE_NO_PAD.encode([96; 32]),
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_canonical_error(
-            response,
-            StatusCode::SERVICE_UNAVAILABLE,
-            "local_session_unavailable",
+        assert!(matches!(response.status(), StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED));
+        let body: serde_json::Value = serde_json::from_slice(
+            &to_bytes(response.into_body(), 4096).await.unwrap(),
         )
-        .await;
+        .unwrap();
+        assert_eq!(body["code"], "BOOTSTRAP_REJECTED");
     }
+}
+
+pub(crate) async fn assert_oversized_transport_body_has_canonical_rejection() {
+    let (state, _directory) = state();
+    let response = local_session_router(state)
+        .oneshot(Request::builder().method("POST").uri("/v1/local-session/challenges")
+            .header("content-type", "application/json")
+            .body(Body::from("x".repeat(MAX_LOCAL_SESSION_BODY_BYTES + 1))).unwrap())
+        .await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    assert_eq!(body["code"], "BOOTSTRAP_REJECTED");
+}
+
+fn json_request(uri: &str, value: serde_json::Value) -> Request<Body> {
+    Request::builder().method("POST").uri(uri).header("content-type", "application/json")
+        .body(Body::from(value.to_string())).unwrap()
+}

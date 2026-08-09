@@ -224,12 +224,15 @@ fn write_profile(
             "endpoint": format!("https://{endpoint}"),
             "certificateDerBase64": STANDARD.encode(certificate),
             "certificateSha256": certificate_sha256,
+            "executableSha256": "0e".repeat(32),
             "bootstrapSecretPath": bootstrap_path,
+            "launchAuthorityId": "018f2e3a700070008000000000000006",
             "authorityId": "018f2e3a700070008000000000000001",
             "principalId": "local-owner",
             "eventLogLineageId": "018f2e3a-7000-7000-8000-000000000003",
             "daemonInstanceId": "018f2e3a-7000-7000-8000-000000000002",
-            "launchGeneration": 7
+            "launchGeneration": 7,
+            "sessionId": "018f2e3a700070008000000000000005"
         }))
         .expect("profile JSON"),
     )

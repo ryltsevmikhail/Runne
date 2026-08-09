@@ -40,14 +40,14 @@ fn openapi() -> Value {
         "paths": {
             "/v1/local-session/authenticate": {
                 "post": {
-                    "requestBody": request("schemas/local-session-v1.schema.json#/$defs/authenticateRequest"),
-                    "responses": {"200": response("schemas/local-session-v1.schema.json#/$defs/authenticateResponse")},
+                    "requestBody": request("schemas/local-session-v2.schema.json#/$defs/authenticateRequest"),
+                    "responses": {"200": response("schemas/local-session-v2.schema.json#/$defs/authenticateResponse")},
                 }
             },
             "/v1/local-session/challenges": {
                 "post": {
-                    "requestBody": request("schemas/local-session-v1.schema.json#/$defs/challengeRequest"),
-                    "responses": {"200": response("schemas/local-session-v1.schema.json#/$defs/challengeResponse")},
+                    "requestBody": request("schemas/local-session-v2.schema.json#/$defs/challengeRequest"),
+                    "responses": {"200": response("schemas/local-session-v2.schema.json#/$defs/challengeResponse")},
                 }
             },
             "/v1/runtime/operational-telemetry": {
@@ -125,19 +125,29 @@ fn local_session_golden() -> Value {
         "authenticateRequest": {
             "authority": "CgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgo",
             "challengeId": "AQEBAQEBAQEBAQEBAQEBAQ",
-            "proof": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+            "finalProof": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+            "keyVersion": 1,
+            "wireVersion": "3",
         },
         "authenticateResponse": {
             "expiresAtMonotonicMillis": 600000,
+            "keyVersion": 1,
             "sessionId": "018f2e3a700070008000000000000112",
+            "wireVersion": "3",
         },
         "challengeRequest": {
             "clientNonce": "CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
-            "serverNonce": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg",
+            "expiry": "2025-01-01T00:00:30.000000Z",
+            "keyVersion": 1,
+            "notBefore": "2025-01-01T00:00:00.000000Z",
+            "preallocationProof": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc",
+            "wireVersion": "3",
         },
         "challengeResponse": {
             "challengeId": "AQEBAQEBAQEBAQEBAQEBAQ",
+            "keyVersion": 1,
             "serverNonce": "CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg",
+            "wireVersion": "3",
         },
     })
 }

@@ -20,7 +20,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "schemas/local-session-v1.schema.json#/$defs/authenticateRequest"
+                "$ref": "schemas/local-session-v2.schema.json#/$defs/authenticateRequest"
               }
             }
           },
@@ -31,7 +31,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "schemas/local-session-v1.schema.json#/$defs/authenticateResponse"
+                  "$ref": "schemas/local-session-v2.schema.json#/$defs/authenticateResponse"
                 }
               }
             },
@@ -46,7 +46,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "schemas/local-session-v1.schema.json#/$defs/challengeRequest"
+                "$ref": "schemas/local-session-v2.schema.json#/$defs/challengeRequest"
               }
             }
           },
@@ -57,7 +57,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "schemas/local-session-v1.schema.json#/$defs/challengeResponse"
+                  "$ref": "schemas/local-session-v2.schema.json#/$defs/challengeResponse"
                 }
               }
             },

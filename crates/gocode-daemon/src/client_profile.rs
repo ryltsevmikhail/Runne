@@ -26,12 +26,15 @@ pub(crate) struct ClientProfileV2Wire {
     endpoint: String,
     certificate_der_base64: String,
     certificate_sha256: String,
+    executable_sha256: String,
     bootstrap_secret_path: PathBuf,
+    launch_authority_id: String,
     authority_id: String,
     principal_id: String,
     event_log_lineage_id: String,
     daemon_instance_id: String,
     launch_generation: u64,
+    session_id: String,
 }
 
 impl ClientProfileV2Wire {
@@ -41,13 +44,21 @@ impl ClientProfileV2Wire {
         endpoint: SocketAddr,
         certificate_der_base64: String,
         certificate_sha256: [u8; 32],
+        executable_sha256: [u8; 32],
         bootstrap_secret_path: PathBuf,
+        launch_authority_id: [u8; 16],
         authority_id: [u8; 16],
         event_log_lineage_id: uuid::Uuid,
         daemon_instance_id: uuid::Uuid,
         launch_generation: u64,
+        session_id: [u8; 16],
     ) -> Result<Self, DaemonError> {
-        if !bootstrap_secret_path.is_absolute() || launch_generation == 0 {
+        if executable_sha256 == [0; 32]
+            || launch_authority_id == [0; 16]
+            || !bootstrap_secret_path.is_absolute()
+            || launch_generation == 0
+            || session_id == daemon_instance_id.into_bytes()
+        {
             return Err(DaemonError::Bootstrap("invalid profile-v2 identity".into()));
         }
         Ok(Self {
@@ -67,12 +78,15 @@ impl ClientProfileV2Wire {
             endpoint: format!("https://{endpoint}"),
             certificate_der_base64,
             certificate_sha256: hex::encode(certificate_sha256),
+            executable_sha256: hex::encode(executable_sha256),
             bootstrap_secret_path,
+            launch_authority_id: hex::encode(launch_authority_id),
             authority_id: hex::encode(authority_id),
             principal_id: "local-owner".to_owned(),
             event_log_lineage_id: event_log_lineage_id.to_string(),
             daemon_instance_id: daemon_instance_id.to_string(),
             launch_generation,
+            session_id: hex::encode(session_id),
         })
     }
 }
@@ -86,12 +100,16 @@ pub(crate) struct PublishedClientProfileV2 {
 }
 
 impl PublishedClientProfileV2 {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn publish(
         directory: &Path,
         endpoint: SocketAddr,
         identity: &LaunchIdentity,
+        launch_authority_id: [u8; 16],
+        executable_sha256: [u8; 32],
         authority_id: [u8; 16],
         lineage_id: uuid::Uuid,
+        session_id: [u8; 16],
     ) -> Result<Self, DaemonError> {
         let directory = std::fs::canonicalize(directory)
             .map_err(|_| DaemonError::Bootstrap("canonicalize v2 profile directory".into()))?;
@@ -110,11 +128,14 @@ impl PublishedClientProfileV2 {
             endpoint,
             identity.profile_certificate_der_base64(),
             *identity.certificate_sha256(),
+            executable_sha256,
             secret_path.clone(),
+            launch_authority_id,
             authority_id,
             lineage_id,
             uuid::Uuid::from_bytes(identity.daemon_instance_id().into_bytes()),
             identity.launch_generation(),
+            session_id,
         )?;
         let profile_bytes = serde_json::to_vec(&wire)
             .map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
@@ -218,8 +239,11 @@ mod tests {
             directory.path(),
             "127.0.0.1:3000".parse().unwrap(),
             &identity,
+            [0x0f; 16],
+            [0x0e; 32],
             [1; 16],
             uuid::Uuid::now_v7(),
+            *uuid::Uuid::now_v7().as_bytes(),
         )
         .unwrap();
         for entry in std::fs::read_dir(directory.path()).unwrap() {

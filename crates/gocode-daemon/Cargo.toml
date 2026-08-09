@@ -62,6 +62,7 @@ libc = "0.2"
 rustix = { version = "=1.1.4", features = ["process"] }
 
 [dev-dependencies]
+gocode-pairing-crypto = { path = "../pairing-crypto" }
 aho-corasick = { workspace = true }
 gocode-app-core = { path = "../app-core" }
 gocode-platform-desktop = { path = "../platform-desktop", features = ["test-support"] }
