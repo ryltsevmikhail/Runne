@@ -1,7 +1,6 @@
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
-    http::StatusCode,
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -56,21 +55,21 @@ pub(super) async fn challenge(
     State(state): State<LocalSessionHttpState>,
     body: Result<Json<PreallocationRequest>, JsonRejection>,
 ) -> Response {
-    let Json(body) = match decode_body(body) {
+    let Json(body) = match body {
         Ok(body) => body,
-        Err(status) => return rejected(status),
+        Err(_) => return rejected(),
     };
     let (Some(client_nonce), Some(proof), Some(now)) = (
         decode_32(&body.client_nonce),
         decode_32(&body.preallocation_proof),
         (state.clock)(),
     ) else {
-        return rejected(StatusCode::UNAUTHORIZED);
+        return rejected();
     };
     if body.wire_version != BOOTSTRAP_WIRE_VERSION_V3
         || body.key_version != BOOTSTRAP_KEY_VERSION_V3
     {
-        return rejected(StatusCode::UNAUTHORIZED);
+        return rejected();
     }
     let result = state
         .service
@@ -96,7 +95,7 @@ pub(super) async fn challenge(
             server_nonce: URL_SAFE_NO_PAD.encode(value.server_nonce),
         })
         .into_response(),
-        Err(_) => rejected(StatusCode::UNAUTHORIZED),
+        Err(_) => rejected(),
     }
 }
 
@@ -104,9 +103,9 @@ pub(super) async fn authenticate(
     State(state): State<LocalSessionHttpState>,
     body: Result<Json<FinalRequest>, JsonRejection>,
 ) -> Response {
-    let Json(body) = match decode_body(body) {
+    let Json(body) = match body {
         Ok(body) => body,
-        Err(status) => return rejected(status),
+        Err(_) => return rejected(),
     };
     let (Some(id), Some(proof), Some(authority), Some(now)) = (
         decode_16(&body.challenge_id),
@@ -114,12 +113,12 @@ pub(super) async fn authenticate(
         decode_32(&body.authority),
         (state.clock)(),
     ) else {
-        return rejected(StatusCode::UNAUTHORIZED);
+        return rejected();
     };
     if body.wire_version != BOOTSTRAP_WIRE_VERSION_V3
         || body.key_version != BOOTSTRAP_KEY_VERSION_V3
     {
-        return rejected(StatusCode::UNAUTHORIZED);
+        return rejected();
     }
     let result = state
         .service
@@ -142,16 +141,6 @@ pub(super) async fn authenticate(
             session_id: hex::encode(value.binding.ephemeral().session_id()),
         })
         .into_response(),
-        Err(_) => rejected(StatusCode::UNAUTHORIZED),
+        Err(_) => rejected(),
     }
-}
-
-fn decode_body<T>(body: Result<Json<T>, JsonRejection>) -> Result<Json<T>, StatusCode> {
-    body.map_err(|error| {
-        if error.into_response().status() == StatusCode::PAYLOAD_TOO_LARGE {
-            StatusCode::PAYLOAD_TOO_LARGE
-        } else {
-            StatusCode::BAD_REQUEST
-        }
-    })
 }

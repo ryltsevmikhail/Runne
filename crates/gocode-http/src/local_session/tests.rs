@@ -202,7 +202,7 @@ async fn downgrade_alias_and_unknown_fields_are_closed_rejections() {
             .oneshot(json_request("/v1/local-session/challenges", value))
             .await
             .unwrap();
-        assert!(matches!(response.status(), StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED));
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         let body: serde_json::Value = serde_json::from_slice(
             &to_bytes(response.into_body(), 4096).await.unwrap(),
         )
@@ -218,7 +218,7 @@ pub(crate) async fn assert_oversized_transport_body_has_canonical_rejection() {
             .header("content-type", "application/json")
             .body(Body::from("x".repeat(MAX_LOCAL_SESSION_BODY_BYTES + 1))).unwrap())
         .await.unwrap();
-    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(body["code"], "BOOTSTRAP_REJECTED");
 }
@@ -227,3 +227,6 @@ fn json_request(uri: &str, value: serde_json::Value) -> Request<Body> {
     Request::builder().method("POST").uri(uri).header("content-type", "application/json")
         .body(Body::from(value.to_string())).unwrap()
 }
+
+include!("tests/rejections.rs");
+include!("tests/entropy.rs");
