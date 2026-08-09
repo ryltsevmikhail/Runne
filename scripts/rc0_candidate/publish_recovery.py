@@ -34,6 +34,21 @@ class OwnedBlob:
     data: bytes
 
 
+@dataclass(frozen=True)
+class _CleanupEntry:
+    name: str
+    state: tuple[int, ...]
+    data: bytes
+
+
+@dataclass(frozen=True)
+class _CleanupPlan:
+    directory_state: tuple[int, ...]
+    owner: bytes | None
+    entries: tuple[_CleanupEntry, ...]
+    completion_marker: str | None
+
+
 def attempt_name(source_sha: str, owner_id: bytes, nonce: str) -> str:
     message = source_sha.encode("ascii") + b"\0" + nonce.encode("ascii")
     tag = hmac.new(owner_id, message, hashlib.sha256).hexdigest()
@@ -94,56 +109,101 @@ def _owner_xattr(directory_fd: int) -> bytes | None:
         raise RecoveryError("construction directory owner identity is unreadable") from error
 
 
+def _collect_cleanup_plan(
+    root_fd: int, name: str, directory_fd: int, state: tuple[int, ...],
+    blobs: Mapping[str, bytes], owner_id: bytes, *,
+    owned_blobs: Mapping[str, OwnedBlob] | None = None,
+    completion_marker: str | None = None, allow_unbound_empty: bool = False,
+) -> _CleanupPlan:
+    if _directory_safe(directory_fd) != state:
+        raise RecoveryError("held construction directory identity changed")
+    owner = _owner_xattr(directory_fd)
+    names = tuple(sorted(os.listdir(directory_fd), key=os.fsencode))
+    if owner != owner_id:
+        if not allow_unbound_empty or owner is not None or names:
+            raise RecoveryError("construction directory owner identity changed")
+    name_set = set(names)
+    if not name_set.issubset(blobs):
+        raise RecoveryError("owned construction directory has foreign entries")
+    if owned_blobs is not None and name_set != set(owned_blobs):
+        raise RecoveryError("owned construction directory identity set changed")
+    path = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+    if entry_state(path) != state:
+        raise RecoveryError("owned construction directory pathname changed")
+    _require_absent(root_fd, completion_marker)
+    entries = []
+    for filename in names:
+        data, blob_state = read_regular(directory_fd, filename)
+        expected_data = (
+            owned_blobs[filename].data if owned_blobs is not None else blobs[filename]
+        )
+        expected_state = owned_blobs[filename].state if owned_blobs is not None else None
+        if data != expected_data or (expected_state is not None and blob_state != expected_state):
+            raise RecoveryError("owned construction blob content or identity changed")
+        entries.append(_CleanupEntry(filename, blob_state, data))
+    return _CleanupPlan(state, owner, tuple(entries), completion_marker)
+
+
+def _validate_cleanup_plan(
+    root_fd: int, name: str, directory_fd: int, plan: _CleanupPlan,
+) -> None:
+    if (
+        _directory_safe(directory_fd) != plan.directory_state
+        or entry_state(os.stat(name, dir_fd=root_fd, follow_symlinks=False))
+        != plan.directory_state
+        or _owner_xattr(directory_fd) != plan.owner
+        or tuple(sorted(os.listdir(directory_fd), key=os.fsencode))
+        != tuple(entry.name for entry in plan.entries)
+    ):
+        raise RecoveryError("owned construction directory changed before cleanup")
+    _require_absent(root_fd, plan.completion_marker)
+    for entry in plan.entries:
+        data, state = read_regular(directory_fd, entry.name)
+        if data != entry.data or state != entry.state:
+            raise RecoveryError("owned construction blob changed before cleanup")
+    if (
+        _directory_safe(directory_fd) != plan.directory_state
+        or entry_state(os.stat(name, dir_fd=root_fd, follow_symlinks=False))
+        != plan.directory_state
+        or tuple(sorted(os.listdir(directory_fd), key=os.fsencode))
+        != tuple(entry.name for entry in plan.entries)
+    ):
+        raise RecoveryError("owned construction directory changed before cleanup")
+    _require_absent(root_fd, plan.completion_marker)
+    if _owner_xattr(directory_fd) != plan.owner:
+        raise RecoveryError("construction directory owner identity changed before deletion")
+
+
+def _execute_cleanup_plan(
+    root_fd: int, name: str, directory_fd: int, plan: _CleanupPlan,
+) -> None:
+    for entry in plan.entries:
+        current = os.stat(entry.name, dir_fd=directory_fd, follow_symlinks=False)
+        if entry_state(current) != entry.state:
+            raise RecoveryError("owned construction blob changed during cleanup")
+        os.unlink(entry.name, dir_fd=directory_fd)
+    if (
+        _directory_safe(directory_fd) != plan.directory_state
+        or entry_state(os.stat(name, dir_fd=root_fd, follow_symlinks=False))
+        != plan.directory_state
+    ):
+        raise RecoveryError("owned construction directory changed during cleanup")
+    os.rmdir(name, dir_fd=root_fd)
+
+
 def _remove_bound_directory(
     root_fd: int, name: str, directory_fd: int, state: tuple[int, ...],
     blobs: Mapping[str, bytes], owner_id: bytes, *,
     owned_blobs: Mapping[str, OwnedBlob] | None = None,
     completion_marker: str | None = None, allow_unbound_empty: bool = False,
 ) -> None:
-    if _directory_safe(directory_fd) != state:
-        raise RecoveryError("held construction directory identity changed")
-    owner = _owner_xattr(directory_fd)
-    names = set(os.listdir(directory_fd))
-    if owner != owner_id:
-        if not allow_unbound_empty or owner is not None or os.listdir(directory_fd):
-            raise RecoveryError("construction directory owner identity changed")
-    if not names.issubset(blobs):
-        raise RecoveryError("owned construction directory has foreign entries")
-    if owned_blobs is not None and names != set(owned_blobs):
-        raise RecoveryError("owned construction directory identity set changed")
-    path = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-    if entry_state(path) != state:
-        raise RecoveryError("owned construction directory pathname changed")
-    _require_absent(root_fd, completion_marker)
-    states: dict[str, tuple[int, ...]] = {}
-    for filename in names:
-        data, states[filename] = read_regular(directory_fd, filename)
-        expected_data = (
-            owned_blobs[filename].data if owned_blobs is not None else blobs[filename]
-        )
-        expected_state = owned_blobs[filename].state if owned_blobs is not None else None
-        if data != expected_data or (expected_state is not None and states[filename] != expected_state):
-            raise RecoveryError("owned construction blob content or identity changed")
-    if (
-        _directory_safe(directory_fd) != state
-        or entry_state(os.stat(name, dir_fd=root_fd, follow_symlinks=False)) != state
-        or (owner == owner_id and _owner_xattr(directory_fd) != owner_id)
-        or set(os.listdir(directory_fd)) != names
-    ):
-        raise RecoveryError("owned construction directory changed before cleanup")
-    _require_absent(root_fd, completion_marker)
-    for filename, expected in states.items():
-        current = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
-        if entry_state(current) != expected:
-            raise RecoveryError("owned construction blob changed during cleanup")
-        os.unlink(filename, dir_fd=directory_fd)
-    current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-    if entry_state(current) != state or os.listdir(directory_fd):
-        raise RecoveryError("owned construction directory changed during cleanup")
-    _require_absent(root_fd, completion_marker)
-    if _owner_xattr(directory_fd) != owner:
-        raise RecoveryError("construction directory owner identity changed before deletion")
-    os.rmdir(name, dir_fd=root_fd)
+    plan = _collect_cleanup_plan(
+        root_fd, name, directory_fd, state, blobs, owner_id,
+        owned_blobs=owned_blobs, completion_marker=completion_marker,
+        allow_unbound_empty=allow_unbound_empty,
+    )
+    _validate_cleanup_plan(root_fd, name, directory_fd, plan)
+    _execute_cleanup_plan(root_fd, name, directory_fd, plan)
 
 
 def cleanup_held_attempt(
