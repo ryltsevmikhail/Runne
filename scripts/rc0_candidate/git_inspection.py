@@ -11,7 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .git_policy import unsafe_config
+from .git_controls import check_layout_controls, check_submodule_relationship
+from .git_layout import (
+    GitLayout,
+    GitLayoutChanged,
+    GitLayoutError,
+    descriptor_state,
+    entry_state,
+)
+from .git_policy import GitInspectionError
 
 _SHA = re.compile(r"[0-9a-f]{40}")
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -29,13 +37,6 @@ _ENVIRONMENT = {
     "LANG": "C",
     "PATH": os.defpath,
 }
-
-class GitInspectionError(ValueError):
-    def __init__(self, reason: str, diagnostic: str):
-        super().__init__(diagnostic)
-        self.reason = reason
-        self.diagnostic = diagnostic
-
 
 @dataclass(frozen=True)
 class GitSnapshot:
@@ -84,13 +85,16 @@ def _open_directory(path: Path) -> int:
         raise
 
 
-def _run(root_fd: int, *arguments: str, check: bool = True) -> bytes:
+def _run(
+    root_fd: int, *arguments: str, check: bool = True,
+    extra_fds: tuple[int, ...] = (),
+) -> bytes:
     result = subprocess.run(
         (_GIT, "-C", f"/proc/self/fd/{root_fd}", "--no-pager", "--no-replace-objects", *arguments),
         check=False,
         capture_output=True,
         env=dict(_ENVIRONMENT),
-        pass_fds=(root_fd,),
+        pass_fds=(root_fd, *extra_fds),
         timeout=30,
     )
     if check and result.returncode != 0:
@@ -108,19 +112,16 @@ def run_repository_git(repository: Path, *arguments: str, check: bool = True) ->
 
 def validate_repository_controls(repository: Path) -> None:
     root_fd = _open_directory(Path(repository))
-    git_fd = -1
+    layout: GitLayout | None = None
     try:
-        git_fd = os.open(".git", _DIRECTORY, dir_fd=root_fd)
-        if unsafe_config(_config(root_fd)):
-            raise GitInspectionError("SOURCE_GIT_CONFIG_UNSAFE", "local Git config contains forbidden controls")
-        objects_fd = os.open("objects", _DIRECTORY, dir_fd=git_fd)
-        try:
-            _check_object_directory(objects_fd)
-        finally:
-            os.close(objects_fd)
+        layout = GitLayout.capture(root_fd, _run)
+        check_layout_controls(root_fd, layout, _run, _config)
+        layout.assert_unchanged()
+    except (GitLayoutError, OSError) as error:
+        raise GitInspectionError("SOURCE_GIT_INSPECTION_FAILED", "stable Git layout is unavailable") from error
     finally:
-        if git_fd >= 0:
-            os.close(git_fd)
+        if layout is not None:
+            layout.close()
         os.close(root_fd)
 
 
@@ -150,64 +151,6 @@ def _config(root_fd: int) -> tuple[tuple[str, str], ...]:
         except UnicodeDecodeError as error:
             raise GitInspectionError("SOURCE_GIT_CONFIG_UNSAFE", "local Git config is not UTF-8") from error
     return tuple(entries)
-
-
-def _exists(parent_fd: int, name: str) -> bool:
-    try:
-        os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-        return True
-    except FileNotFoundError:
-        return False
-
-
-def _check_object_directory(objects_fd: int) -> None:
-    try:
-        info_fd = os.open("info", _DIRECTORY, dir_fd=objects_fd)
-        try:
-            if any(_exists(info_fd, name) for name in ("alternates", "http-alternates")):
-                raise GitInspectionError("SOURCE_GIT_OBJECT_STORE_UNSAFE", "Git object alternates are forbidden")
-        finally:
-            os.close(info_fd)
-    except FileNotFoundError:
-        pass
-    try:
-        pack_fd = os.open("pack", _DIRECTORY, dir_fd=objects_fd)
-        try:
-            if any(name.endswith(".promisor") for name in os.listdir(pack_fd)):
-                raise GitInspectionError("SOURCE_GIT_OBJECT_STORE_UNSAFE", "promisor object packs are forbidden")
-        finally:
-            os.close(pack_fd)
-    except FileNotFoundError:
-        pass
-
-
-def _check_object_stores(root_fd: int, git_fd: int) -> None:
-    objects_fd = os.open("objects", _DIRECTORY, dir_fd=git_fd)
-    try:
-        _check_object_directory(objects_fd)
-    finally:
-        os.close(objects_fd)
-    fd = os.dup(root_fd)
-    try:
-        for part in ("upstream", "opencode", ".git", "objects"):
-            child = os.open(part, _DIRECTORY, dir_fd=fd)
-            os.close(fd)
-            fd = child
-        _check_object_directory(fd)
-    finally:
-        os.close(fd)
-
-
-def _check_repository_controls(root_fd: int, git_fd: int) -> None:
-    if unsafe_config(_config(root_fd)):
-        raise GitInspectionError("SOURCE_GIT_CONFIG_UNSAFE", "local Git config contains forbidden controls")
-    _check_object_stores(root_fd, git_fd)
-    submodule_fd = os.open("upstream/opencode", _DIRECTORY, dir_fd=root_fd)
-    try:
-        if unsafe_config(_config(submodule_fd)):
-            raise GitInspectionError("SOURCE_GIT_CONFIG_UNSAFE", "submodule Git config contains forbidden controls")
-    finally:
-        os.close(submodule_fd)
 
 
 def _tree_bindings(root_fd: int, revision: str) -> tuple[str, str, str, bytes]:
@@ -247,29 +190,45 @@ def capture_source_snapshot(
     repository: Path, mutation_hook: Callable[[str, Path], None] | None = None
 ) -> GitSnapshot:
     root_fd = _open_directory(Path(repository))
-    git_fd = modules_fd = config_fd = -1
+    layout: GitLayout | None = None
+    sub_layout: GitLayout | None = None
+    modules_fd = config_fd = sub_root_fd = -1
     try:
-        root_state = _state(os.fstat(root_fd))
-        git_fd = os.open(".git", _DIRECTORY, dir_fd=root_fd)
-        git_state = _state(os.fstat(git_fd))
-        config_fd = os.open("config", _FILE, dir_fd=git_fd)
+        layout = GitLayout.capture(root_fd, _run)
+        sub_root_fd = os.open("upstream/opencode", _DIRECTORY, dir_fd=root_fd)
+        sub_root_state = descriptor_state(sub_root_fd)
+        sub_path_state = entry_state(
+            os.stat("upstream/opencode", dir_fd=root_fd, follow_symlinks=False)
+        )
+        sub_layout = GitLayout.capture(sub_root_fd, _run)
+        check_submodule_relationship(layout, sub_layout)
+        config_fd = os.open("config", _FILE, dir_fd=layout.common_fd)
         modules_fd = os.open(".gitmodules", _FILE, dir_fd=root_fd)
         config_state = _state(os.fstat(config_fd))
         modules_state = _state(os.fstat(modules_fd))
         if not stat.S_ISREG(os.fstat(modules_fd).st_mode):
             raise GitInspectionError("SOURCE_GITMODULES_POLICY_MISMATCH", ".gitmodules is not regular")
-        _check_repository_controls(root_fd, git_fd)
+        check_layout_controls(root_fd, layout, _run, _config)
+        check_layout_controls(sub_root_fd, sub_layout, _run, _config)
         initial = _live(root_fd)
         retained_config = _read_retained(config_fd)
         retained_modules = _read_retained(modules_fd)
         if mutation_hook is not None:
             mutation_hook("before-final-recheck", Path(repository))
-        _check_repository_controls(root_fd, git_fd)
+        check_layout_controls(root_fd, layout, _run, _config)
+        check_layout_controls(sub_root_fd, sub_layout, _run, _config)
         final = _live(root_fd)
         config_again = _read_retained(config_fd)
         retained_again = _read_retained(modules_fd)
         path_state = _state(os.stat(".gitmodules", dir_fd=root_fd, follow_symlinks=False))
-        config_path_state = _state(os.stat("config", dir_fd=git_fd, follow_symlinks=False))
+        config_path_state = _state(
+            os.stat("config", dir_fd=layout.common_fd, follow_symlinks=False)
+        )
+        current_sub_state = entry_state(
+            os.stat("upstream/opencode", dir_fd=root_fd, follow_symlinks=False)
+        )
+        layout.assert_unchanged()
+        sub_layout.assert_unchanged()
         if (
             initial != final
             or retained_modules != retained_again
@@ -279,19 +238,25 @@ def capture_source_snapshot(
             or modules_state != path_state
             or config_state != _state(os.fstat(config_fd))
             or config_state != config_path_state
-            or git_state != _state(os.fstat(git_fd))
-            or root_state != _state(os.fstat(root_fd))
+            or sub_root_state != descriptor_state(sub_root_fd)
+            or sub_path_state != current_sub_state
         ):
             raise GitInspectionError("SOURCE_SNAPSHOT_CHANGED", "Git/filesystem snapshot changed during capture")
         if initial[3]:
             raise GitInspectionError("SOURCE_DIRTY", "tracked, untracked or submodule state is dirty")
         head, parents, tree, _status, _config_entries, origins, bindings = initial
         return GitSnapshot(head, parents, tree, origins, bindings[0], retained_modules, bindings[2], bindings[1])
+    except GitLayoutChanged as error:
+        raise GitInspectionError("SOURCE_SNAPSHOT_CHANGED", "Git/filesystem snapshot changed during capture") from error
     except GitInspectionError:
         raise
-    except (OSError, UnicodeDecodeError, ValueError) as error:
+    except (GitLayoutError, OSError, UnicodeDecodeError, ValueError) as error:
         raise GitInspectionError("SOURCE_GIT_INSPECTION_FAILED", "stable Git snapshot is unavailable") from error
     finally:
-        for descriptor in (modules_fd, config_fd, git_fd, root_fd):
+        if sub_layout is not None:
+            sub_layout.close()
+        if layout is not None:
+            layout.close()
+        for descriptor in (modules_fd, config_fd, sub_root_fd, root_fd):
             if descriptor >= 0:
                 os.close(descriptor)

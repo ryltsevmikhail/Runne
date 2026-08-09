@@ -197,6 +197,9 @@ class Rc0CandidateEvidenceTests(unittest.TestCase):
 from scripts.tests.rc0_candidate_fix_round1_evidence_cases import (
     Rc0CandidateEvidenceFixRound1Tests,
 )
+from scripts.tests.rc0_candidate_fix_round2_evidence_cases import (
+    Rc0CandidateEvidenceFixRound2Tests,
+)
 
 
 if __name__ == "__main__":
