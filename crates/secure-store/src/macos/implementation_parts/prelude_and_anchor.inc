@@ -90,6 +90,10 @@ impl MacOsKeychainStore {
             account_name: format!("{ACCOUNT_PREFIX}:{}", profile_id.as_ref()),
         }
     }
+
+    pub(crate) fn provider_recovery_profile_scope(&self) -> &str {
+        &self.account_name
+    }
 }
 
 impl SecureStore for MacOsKeychainStore {

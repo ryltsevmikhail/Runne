@@ -26,6 +26,8 @@ same-file = "1"
 gocode-api = { path = "../gocode-api" }
 gocode-runtime = { path = "../gocode-runtime", features = ["provider-terminal-test-support"] }
 gocode-security = { path = "../gocode-security" }
+gocode-secure-store = { path = "../secure-store" }
+zeroize.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

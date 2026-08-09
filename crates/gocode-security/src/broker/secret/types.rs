@@ -101,6 +101,14 @@ impl SecretRegistryState {
         })
     }
 
+    pub(crate) fn maximum_active_representation_len(&self) -> usize {
+        self.derived_representations
+            .iter()
+            .map(Vec::len)
+            .max()
+            .unwrap_or(1)
+    }
+
     fn advance_epoch(&mut self) -> Result<(), SecretError> {
         self.policy_epoch = match self.policy_epoch.checked_add(1) {
             Some(next) => next,

@@ -67,11 +67,18 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                 profile_digest: *binding.profile_digest(),
                 runtime_generation: binding.runtime_generation(),
             };
+            let matcher = ProhibitedContentCredentialMatcher::new(self.prohibited_content.as_ref());
+            let redaction = ProviderEventRedactionBoundary::new(
+                self.tail_store.as_ref(),
+                self.scanner_store.as_ref(),
+                &matcher,
+            );
             let execution = RuntimeProviderExecution::new(
                 self.keyring.as_ref(),
                 self.runtime_store.as_ref(),
                 self.profile.as_ref(),
                 self.prohibited_content.as_ref(),
+                &redaction,
             );
             execution
                 .preflight_existing_active_key(self.runtime_authority_id, self.database_generation)
@@ -88,9 +95,13 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                     )
                     .await
                     .map_err(map_execution_error)?;
-                if let ProviderStreamEventKind::Finished { disposition, .. } = item.event().kind() {
-                    terminal_disposition = *disposition;
-                    break;
+                match item.event().kind() {
+                    ProviderStreamEventKind::Finished { disposition, .. }
+                    | ProviderStreamEventKind::ScannerCompleted { disposition, .. } => {
+                        terminal_disposition = *disposition;
+                        break;
+                    }
+                    _ => {}
                 }
                 cursor = cursor
                     .checked_add(1)
@@ -115,6 +126,8 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
             let profile = Arc::clone(&self.profile);
             let keyring = Arc::clone(&self.keyring);
             let prohibited = Arc::clone(&self.prohibited_content);
+            let scanner_store = Arc::clone(&self.scanner_store);
+            let tail_store = Arc::clone(&self.tail_store);
             let application = ConversationProviderTerminalApplication::new(
                 self.conversation_store.clone(),
                 Arc::clone(&self.conversation_service),
@@ -123,11 +136,18 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
             let authority = self.runtime_authority_id;
             let generation = self.database_generation;
             let applied = tokio::task::spawn_blocking(move || {
+                let matcher = ProhibitedContentCredentialMatcher::new(prohibited.as_ref());
+                let redaction = ProviderEventRedactionBoundary::new(
+                    tail_store.as_ref(),
+                    scanner_store.as_ref(),
+                    &matcher,
+                );
                 let execution = RuntimeProviderExecution::new(
                     keyring.as_ref(),
                     runtime_store.as_ref(),
                     profile.as_ref(),
                     prohibited.as_ref(),
+                    &redaction,
                 );
                 execution.preflight_existing_active_key(authority, generation)?;
                 execution.apply_terminal_output_for_attempt(attempt_id, &application)

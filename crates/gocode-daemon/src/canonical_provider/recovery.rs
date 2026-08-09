@@ -6,6 +6,8 @@ impl DaemonCanonicalOpenAiService {
         let profile = Arc::clone(&self.profile);
         let keyring = Arc::clone(&self.keyring);
         let prohibited = Arc::clone(&self.prohibited_content);
+        let scanner_store = Arc::clone(&self.scanner_store);
+        let tail_store = Arc::clone(&self.tail_store);
         let registry = Arc::clone(&self.recovery_registry);
         let application = ConversationProviderTerminalApplication::new(
             self.conversation_store.clone(),
@@ -14,11 +16,18 @@ impl DaemonCanonicalOpenAiService {
         let authority = self.runtime_authority_id;
         let generation = self.database_generation;
         tokio::task::spawn_blocking(move || {
+            let matcher = ProhibitedContentCredentialMatcher::new(prohibited.as_ref());
+            let redaction = ProviderEventRedactionBoundary::new(
+                tail_store.as_ref(),
+                scanner_store.as_ref(),
+                &matcher,
+            );
             let execution = RuntimeProviderExecution::new(
                 keyring.as_ref(),
                 runtime_store.as_ref(),
                 profile.as_ref(),
                 prohibited.as_ref(),
+                &redaction,
             );
             execution.preflight_existing_active_key(authority, generation)?;
             execution.apply_pending_terminal_outputs(&application, registry.as_ref())

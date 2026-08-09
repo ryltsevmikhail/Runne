@@ -112,6 +112,8 @@ fn event_kind_code(kind: &ProviderStreamEventKind) -> u8 {
         ProviderStreamEventKind::ToolCallRequested { .. } => 4,
         ProviderStreamEventKind::Finished { .. } => 5,
         ProviderStreamEventKind::UsageUnavailable => 6,
+        ProviderStreamEventKind::ScannerCompleted { .. } => 5,
+        ProviderStreamEventKind::ScannerProgress => 7,
     }
 }
 

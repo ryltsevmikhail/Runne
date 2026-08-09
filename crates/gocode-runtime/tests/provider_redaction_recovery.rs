@@ -18,9 +18,11 @@ fn sse_split_matrix_withholds_every_cross_boundary_match() {
         recovery.ingest(&bytes[split..], &mut staged).unwrap();
 
         assert!(!staged.windows(SECRET.len()).any(|window| window == SECRET));
-        assert_ne!(
+        assert_eq!(
             recovery.disposition(),
-            Some(ScannerTerminalDisposition::Completed)
+            Some(ScannerTerminalDisposition::Uncertain(
+                ScannerUncertainReason::SecretDetected,
+            ))
         );
         assert_no_publication(&durable);
         drop(durable);

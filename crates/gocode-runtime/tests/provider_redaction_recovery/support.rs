@@ -3,10 +3,13 @@ use std::sync::Mutex;
 
 use gocode_provider::{
     CredentialMatcher, DispatchAttemptId, NativeSecretRef, ScannerError,
-    ScannerTerminalDisposition, ScannerUncertainReason, SecureStoreError, TailBinding,
+    ScannerCheckpoint, ScannerTerminalDisposition, ScannerUncertainReason, SecureStoreError, TailBinding,
     WithheldTailStore,
 };
-use gocode_runtime::provider_redaction::{ProviderRedactionRecovery, ScannerRecoveryPersistence};
+use gocode_runtime::provider_redaction::{
+    ProviderRedactionError, ProviderRedactionRecovery, ScannerRecoveryPersistence,
+};
+use gocode_runtime::provider_redaction::{ScannerRecoveryPersistenceError, ScannerRecoveryRecord};
 use gocode_store::provider::{SqliteProviderDispatchStore, SqliteProviderRecoveryStore};
 use zeroize::Zeroizing;
 
@@ -40,6 +43,7 @@ impl MemoryTailStore {
     fn remove(&self, reference: NativeSecretRef) { self.tails.lock().unwrap().remove(&reference); }
     fn corrupt(&self, reference: NativeSecretRef) { self.corrupt.lock().unwrap().insert(reference); }
     fn make_unavailable(&self) { *self.unavailable.lock().unwrap() = true; }
+    fn tail_count(&self) -> usize { self.tails.lock().unwrap().len() }
 }
 
 impl WithheldTailStore for MemoryTailStore {
@@ -59,6 +63,16 @@ impl WithheldTailStore for MemoryTailStore {
         if *stored_binding != binding || reference.binding_digest() != &binding.digest() { return Err(SecureStoreError::BindingMismatch); }
         Ok(Zeroizing::new(bytes.to_vec()))
     }
+    fn delete_tail(&self, reference: &NativeSecretRef) -> Result<(), SecureStoreError> {
+        self.tails.lock().unwrap().remove(reference);
+        Ok(())
+    }
+    fn purge_orphaned_tails(&self, binding: TailBinding, retained: Option<NativeSecretRef>) -> Result<(), SecureStoreError> {
+        self.tails.lock().unwrap().retain(|reference, (stored, _)| {
+            stored.attempt_id() != binding.attempt_id() || Some(*reference) == retained
+        });
+        Ok(())
+    }
 }
 
 fn binding() -> TailBinding {
@@ -75,4 +89,27 @@ fn stores() -> (tempfile::TempDir, SqliteProviderRecoveryStore) {
 
 fn assert_no_publication(store: &SqliteProviderRecoveryStore) {
     assert_eq!(store.canonical_publication_counts().unwrap(), (0, 0));
+}
+
+#[derive(Clone, Copy)]
+enum FailPhase { Persist, Advance }
+
+struct FailingPersistence<'a> {
+    inner: &'a SqliteProviderRecoveryStore,
+    phase: FailPhase,
+}
+
+impl ScannerRecoveryPersistence for FailingPersistence<'_> {
+    fn persist_checkpoint(&self, checkpoint: ScannerCheckpoint) -> Result<(), ScannerRecoveryPersistenceError> {
+        if matches!(self.phase, FailPhase::Persist) { Err(ScannerRecoveryPersistenceError::Unavailable) } else { self.inner.persist_checkpoint(checkpoint) }
+    }
+    fn advance_checkpoint(&self, checkpoint: ScannerCheckpoint) -> Result<(), ScannerRecoveryPersistenceError> {
+        if matches!(self.phase, FailPhase::Advance) { Err(ScannerRecoveryPersistenceError::Unavailable) } else { self.inner.advance_checkpoint(checkpoint) }
+    }
+    fn commit_terminal(&self, binding: TailBinding, disposition: ScannerTerminalDisposition) -> Result<(), ScannerRecoveryPersistenceError> {
+        self.inner.commit_terminal(binding, disposition)
+    }
+    fn load(&self, attempt: DispatchAttemptId) -> Result<Option<ScannerRecoveryRecord>, ScannerRecoveryPersistenceError> {
+        self.inner.load(attempt)
+    }
 }

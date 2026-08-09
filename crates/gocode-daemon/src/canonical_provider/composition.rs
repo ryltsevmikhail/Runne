@@ -1,5 +1,7 @@
 use super::projection::{derived_identity, policy_binding_digest};
-use super::readiness::{credential_access_policy, native_journal_keyring};
+use super::readiness::{
+    credential_access_policy, native_journal_keyring, native_withheld_tail_store,
+};
 use super::*;
 use crate::application::workspace_internal::{
     ProtectedProviderDependencyCapsule, provider_dependencies::ProviderDependencyState,
@@ -48,6 +50,8 @@ pub struct DaemonCanonicalOpenAiService {
     pub(super) profile: Arc<OpenAiResponsesTextProfile>,
     pub(super) keyring: Arc<dyn ProviderJournalKeyring>,
     pub(super) prohibited_content: Arc<dyn ProhibitedContentPort>,
+    pub(super) scanner_store: Arc<SqliteProviderRecoveryStore>,
+    pub(super) tail_store: Arc<dyn WithheldTailStore>,
     pub(super) runtime_authority_id: [u8; 16],
     pub(super) database_generation: u64,
     pub(super) runtime_generation: u64,
@@ -133,6 +137,11 @@ impl DaemonCanonicalOpenAiService {
                     DaemonError::Bootstrap("provider execution store unavailable".into())
                 })?,
         );
+        let scanner_store = Arc::new(
+            SqliteProviderRecoveryStore::open(std::path::Path::new(&db_path)).map_err(|_| {
+                DaemonError::Bootstrap("provider scanner recovery unavailable".into())
+            })?,
+        );
         let fencing_token = runtime_generation;
         let policy_binding =
             policy_binding_digest(activation_provenance.digest(), profile.as_ref());
@@ -166,16 +175,28 @@ impl DaemonCanonicalOpenAiService {
         let recovery_registry = Arc::new(RecoveryObservationRegistry::new().0);
         let keyring =
             retained_keyring.unwrap_or_else(|| native_journal_keyring(runtime_authority_id));
-        let runtime_store = runtime_store(
+        let tail_store: Arc<dyn WithheldTailStore> = if effect_source.is_some() {
+            Arc::new(LoopbackWithheldTailStore::default())
+        } else {
+            native_withheld_tail_store(runtime_authority_id)
+        };
+        let runtime_store = runtime_store::compose_runtime_store(
             Arc::clone(&execution_store),
             runtime_generation,
             terminal_store_decorator,
+        );
+        let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
+        let redaction = ProviderEventRedactionBoundary::new(
+            tail_store.as_ref(),
+            scanner_store.as_ref(),
+            &matcher,
         );
         let execution = RuntimeProviderExecution::new(
             keyring.as_ref(),
             runtime_store.as_ref(),
             profile.as_ref(),
             prohibited_content.as_ref(),
+            &redaction,
         );
         match execution_store
             .active_journal_key_binding()
@@ -239,6 +260,8 @@ impl DaemonCanonicalOpenAiService {
             profile,
             keyring,
             prohibited_content,
+            scanner_store,
+            tail_store,
             runtime_authority_id,
             database_generation: 1,
             runtime_generation,
@@ -270,24 +293,6 @@ impl DaemonCanonicalOpenAiService {
             authenticated_launch_generation,
         )
     }
-}
-
-fn runtime_store(
-    concrete: Arc<SqliteProviderExecutionStore>,
-    runtime_generation: u64,
-    decorator: Option<Arc<RuntimeStoreDecorator>>,
-) -> Arc<runtime_store::DaemonProviderRuntimeStore> {
-    let (execution, terminal) = match decorator {
-        None => {
-            let execution: Arc<dyn ProviderExecutionStore> = concrete.clone();
-            let terminal: Arc<dyn ProviderTerminalPersistence> = concrete.clone();
-            (execution, terminal)
-        }
-        Some(decorate) => decorate(concrete, runtime_generation),
-    };
-    Arc::new(runtime_store::DaemonProviderRuntimeStore::new(
-        execution, terminal,
-    ))
 }
 
 #[cfg(test)]
