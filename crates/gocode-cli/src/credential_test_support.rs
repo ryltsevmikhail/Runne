@@ -35,7 +35,7 @@ pub fn run(
         true,
     );
     ProcessResult {
-        outcome: process_outcome(result),
+        outcome: process_outcome(result, OutputFormat::Text),
         delete_calls: backend.delete_calls,
         resolver_calls: resolver.calls.get(),
         store_calls: backend.store_calls,

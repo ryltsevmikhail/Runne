@@ -1,4 +1,9 @@
 fn parse_create(mut arguments: VecDeque<OsString>) -> Result<ConversationCommand, CliError> {
+    // Check for --help
+    if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+        return Err(CliError::Help(CONVERSATION_CREATE_HELP.to_owned()));
+    }
+    
     if arguments.is_empty() {
         return Ok(ConversationCommand::Create {
             workspace_id: CanonicalId::now_v7(),
@@ -11,6 +16,11 @@ fn parse_create(mut arguments: VecDeque<OsString>) -> Result<ConversationCommand
 }
 
 fn parse_send(mut arguments: VecDeque<OsString>) -> Result<ConversationCommand, CliError> {
+    // Check for --help
+    if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+        return Err(CliError::Help(CONVERSATION_SEND_HELP.to_owned()));
+    }
+    
     expect_token(&mut arguments, "--conversation-id")?;
     let conversation_id = parse_id(&pop_string(&mut arguments)?)?;
     expect_token(&mut arguments, "--expected-version")?;
@@ -28,6 +38,11 @@ fn parse_send(mut arguments: VecDeque<OsString>) -> Result<ConversationCommand, 
 }
 
 fn parse_messages(mut arguments: VecDeque<OsString>) -> Result<ConversationCommand, CliError> {
+    // Check for --help
+    if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+        return Err(CliError::Help(CONVERSATION_MESSAGES_HELP.to_owned()));
+    }
+    
     expect_token(&mut arguments, "--conversation-id")?;
     let conversation_id = parse_id(&pop_string(&mut arguments)?)?;
     expect_end(&arguments)?;

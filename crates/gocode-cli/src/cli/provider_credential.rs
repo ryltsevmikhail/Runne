@@ -128,19 +128,43 @@ fn parse_provider_credential(
     mut arguments: VecDeque<OsString>,
 ) -> Result<ProviderCredentialCommand, CliError> {
     expect_token(&mut arguments, "provider")?;
+    
+    // Check for --help after "provider"
+    if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+        return Err(CliError::Help(PROVIDER_HELP.to_owned()));
+    }
+    
     expect_token(&mut arguments, "credential")?;
+    
+    // Check for --help after "credential"
+    if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+        return Err(CliError::Help(PROVIDER_CREDENTIAL_HELP.to_owned()));
+    }
+    
     let operation = pop_string(&mut arguments)?;
     let command = match operation.as_str() {
         "set" => {
+            // Check for --help
+            if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+                return Err(CliError::Help(PROVIDER_CREDENTIAL_SET_HELP.to_owned()));
+            }
             parse_openai_provider(&mut arguments)?;
             expect_token(&mut arguments, "--stdin")?;
             ProviderCredentialCommand::Set
         }
         "status" => {
+            // Check for --help
+            if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+                return Err(CliError::Help(PROVIDER_CREDENTIAL_STATUS_HELP.to_owned()));
+            }
             parse_openai_provider(&mut arguments)?;
             ProviderCredentialCommand::Status
         }
         "delete" => {
+            // Check for --help
+            if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
+                return Err(CliError::Help(PROVIDER_CREDENTIAL_DELETE_HELP.to_owned()));
+            }
             parse_openai_provider(&mut arguments)?;
             ProviderCredentialCommand::Delete
         }

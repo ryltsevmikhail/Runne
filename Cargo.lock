@@ -1676,9 +1676,12 @@ dependencies = [
 name = "gocode-cli"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "gocode-daemon",
  "gocode-runtime-client",
  "gocode-secure-store",
+ "hex",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
