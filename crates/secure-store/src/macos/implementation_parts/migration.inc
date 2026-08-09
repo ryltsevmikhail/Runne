@@ -19,8 +19,9 @@ impl MacOsProviderCredentialStore {
         replacement.remeasure().map_err(map_identity_access_error)?;
         Self::with_noninteractive(|keychain| {
             self.reconcile_migration_backup(keychain, current, replacement)?;
+            let source_service = self.source_service_for_migration(keychain)?;
             let Some((metadata, metadata_item)) =
-                self.find_named_metadata(keychain, &self.service)?
+                self.find_named_metadata(keychain, &source_service)?
             else {
                 return Err(SecureStoreError::ProviderCredentialNotFound);
             };
@@ -45,7 +46,7 @@ impl MacOsProviderCredentialStore {
             if !metadata.is_complete() {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }
-            let Some((encoded, item)) = self.find_primary_item(keychain)? else {
+            let Some((encoded, item)) = self.find_named_item(keychain, &source_service)? else {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             };
             let stored = StoredProviderCredential::decode(&encoded)
@@ -66,6 +67,20 @@ impl MacOsProviderCredentialStore {
             }
             let source_revision = metadata.source_revision();
             let material = stored.into_material();
+            for inactive_service in [self.service.clone(), self.source_alternate_service()] {
+                if inactive_service == source_service {
+                    continue;
+                }
+                let Some((inactive_metadata, inactive_item)) =
+                    self.find_named_metadata(keychain, &inactive_service)?
+                else {
+                    continue;
+                };
+                inactive_metadata.validate_writer_current()?;
+                verify_item_acl(&inactive_item, inactive_metadata.acl_set_digest())?;
+                gocode_macos_keychain_acl::delete_item(&inactive_item)
+                    .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
+            }
             let (current_metadata, replacement_metadata, replacement_encoded) =
                 if let Some(revision) = source_revision {
                     (

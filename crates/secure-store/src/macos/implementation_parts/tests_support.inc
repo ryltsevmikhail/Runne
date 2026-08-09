@@ -12,6 +12,10 @@
         fn drop(&mut self) {
             let cleanup = [
                 format!("{}{PROVIDER_CREDENTIAL_MIGRATION_SUFFIX}", self.service),
+                format!(
+                    "{}{PROVIDER_CREDENTIAL_SOURCE_ALTERNATE_SUFFIX}",
+                    self.service
+                ),
                 self.service.clone(),
             ]
             .into_iter()

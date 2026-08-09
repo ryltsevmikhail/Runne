@@ -12,6 +12,11 @@ use security_framework::os::macos::keychain_item::SecKeychainItem;
 use crate::provider_credential::{
     ProviderCredentialMetadata, StoredProviderCredential,
     generate_provider_credential_source_revision,
+    source_update::{
+        ProviderCredentialSourceSlot, ProviderCredentialSourceSlotBackend,
+        commit_provider_credential_source_update, committed_provider_credential_source_slot,
+        recover_provider_credential_record,
+    },
 };
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
@@ -29,6 +34,7 @@ const SERVICE_NAME: &str = "gocode-ui";
 const ACCOUNT_PREFIX: &str = "db_generation";
 const PROVIDER_JOURNAL_KEY_MAGIC: &[u8; 8] = b"GCPJKV1\0";
 const PROVIDER_CREDENTIAL_MIGRATION_SUFFIX: &str = ".migration-backup";
+const PROVIDER_CREDENTIAL_SOURCE_ALTERNATE_SUFFIX: &str = ".source-alternate";
 const ERR_SEC_AUTH_FAILED: i32 = -25_293;
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25_300;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
