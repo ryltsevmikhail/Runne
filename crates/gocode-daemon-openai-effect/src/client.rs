@@ -1,10 +1,10 @@
-use gocode_provider::ProviderFuture;
+use gocode_provider::{CredentialDispatchCapability, NativeCredentialAuthority, ProviderFuture};
 use gocode_provider_openai::{
     OpenAiCredentialError, OpenAiCredentialMaterializer, OpenAiTransportPolicy,
 };
 use gocode_secure_store::{
-    NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialStore, SecureStoreError,
+    NativeProviderCredentialStore, NativeProviderCredentialVersionStore,
+    ProviderCredentialAccessPolicy, SecureStoreError,
 };
 use reqwest::redirect::Policy;
 use std::net::SocketAddr;
@@ -46,30 +46,38 @@ fn client_builder(policy: &OpenAiTransportPolicy) -> reqwest::ClientBuilder {
 }
 
 pub(super) struct NativeCredential {
-    store: Arc<dyn ProviderCredentialStore>,
+    store: Arc<dyn NativeProviderCredentialVersionStore>,
     access: ProviderCredentialAccessPolicy,
 }
 
 impl NativeCredential {
     pub(super) fn current_process() -> Result<Self, ()> {
+        Err(())
+    }
+
+    pub(super) fn versioned(authority: NativeCredentialAuthority) -> Result<Self, ()> {
         let reader =
             std::fs::canonicalize(std::env::current_exe().map_err(|_| ())?).map_err(|_| ())?;
         let writer = reader.parent().ok_or(())?.join("gocode");
         Ok(Self {
-            store: Arc::new(NativeProviderCredentialStore::new()),
+            store: Arc::new(NativeProviderCredentialStore::new_versioned(authority)),
             access: ProviderCredentialAccessPolicy::new(&writer, &reader).map_err(|_| ())?,
         })
     }
 }
 
 impl OpenAiCredentialMaterializer for NativeCredential {
-    fn materialize(&self) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
+    fn materialize(
+        &self,
+        capability: &CredentialDispatchCapability,
+    ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
         let store = Arc::clone(&self.store);
         let access = self.access.clone();
+        let capability = capability.clone();
         Box::pin(async move {
             tokio::task::spawn_blocking(move || {
                 store
-                    .load_provider_credential(ProviderCredentialId::OpenAi, &access)
+                    .load_version(&capability, &access)
                     .map(|value| value.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))
                     .map_err(|error| match error {
                         SecureStoreError::ProviderCredentialNotFound => {
@@ -116,7 +124,10 @@ impl FixtureRequestAuthenticator {
 }
 
 impl OpenAiCredentialMaterializer for FixtureCredential {
-    fn materialize(&self) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
+    fn materialize(
+        &self,
+        _capability: &CredentialDispatchCapability,
+    ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>> {
         Box::pin(async { Ok(Zeroizing::new(FIXTURE_CREDENTIAL.to_vec())) })
     }
 }

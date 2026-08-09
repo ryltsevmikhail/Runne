@@ -1,4 +1,7 @@
-use gocode_provider::CredentialVersionRef;
+use gocode_provider::{
+    CredentialDispatchCapability, CredentialGcClaim, CredentialVersionRef,
+    NativeCredentialDeletionProof,
+};
 
 /// Opaque native operations for immutable provider credential versions.
 ///
@@ -18,21 +21,35 @@ pub trait NativeProviderCredentialVersionStore: Send + Sync {
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError>;
 
-    /// Loads native material for one exact active version reference.
+    /// Loads native material for one exact active dispatch capability.
+    ///
+    /// ```compile_fail
+    /// use gocode_provider::{CredentialVersionRef, ProviderId};
+    /// use gocode_secure_store::{NativeProviderCredentialStore,
+    ///     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy};
+    /// let store = NativeProviderCredentialStore::new();
+    /// let reference = CredentialVersionRef::new(ProviderId::new("openai")?, 1)?;
+    /// let access: ProviderCredentialAccessPolicy = todo!();
+    /// let _ = store.load_version(reference, &access);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     ///
     /// # Errors
     ///
     /// Returns a closed missing, access, corruption, or backend failure.
     fn load_version(
         &self,
-        reference: CredentialVersionRef,
+        capability: &CredentialDispatchCapability,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
 
-    /// Idempotently deletes one exact native version.
+    /// Idempotently deletes the exact version owned by an exclusive GC claim.
     ///
     /// # Errors
     ///
     /// Returns a closed access, corruption, or backend failure.
-    fn delete_version(&self, reference: CredentialVersionRef) -> Result<(), SecureStoreError>;
+    fn delete_version(
+        &self,
+        claim: CredentialGcClaim,
+    ) -> Result<NativeCredentialDeletionProof, SecureStoreError>;
 }

@@ -13,6 +13,8 @@ use gocode_store::provider::{
 use rusqlite::Connection;
 use tempfile::TempDir;
 
+#[path = "support/provider_credential_fixture.rs"]
+mod provider_credential_fixture;
 #[path = "support/recovery/mod.rs"]
 mod recovery_support;
 #[path = "support/validated_reopen.rs"]

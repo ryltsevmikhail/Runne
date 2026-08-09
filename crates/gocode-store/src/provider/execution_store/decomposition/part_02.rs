@@ -143,21 +143,29 @@ impl SqliteProviderExecutionStore {
     pub fn start_effect(
         &self,
         claim: &ProviderDispatchClaim,
+        credential: &crate::provider::CredentialDispatchBinding,
     ) -> Result<ProviderEffectStartReceipt, ProviderAdmissionError> {
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        start_effect(&mut connection, claim, self.now(), || self.now(), {
-            #[cfg(test)]
+        start_effect(
+            &mut connection,
+            claim,
+            credential,
+            self.now(),
+            || self.now(),
             {
-                self.fail_effect_readback.swap(false, Ordering::SeqCst)
-            }
-            #[cfg(not(test))]
-            {
-                false
-            }
-        })
+                #[cfg(test)]
+                {
+                    self.fail_effect_readback.swap(false, Ordering::SeqCst)
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            },
+        )
     }
 
     #[cfg(test)]
@@ -262,6 +270,10 @@ impl SqliteProviderExecutionStore {
 
     fn now(&self) -> i64 {
         (self.now)()
+    }
+
+    pub(super) fn credential_validation_time(&self) -> i64 {
+        self.now()
     }
 }
 

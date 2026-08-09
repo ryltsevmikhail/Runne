@@ -80,7 +80,24 @@ impl Task5ProductionFixture {
         else {
             panic!("first issue must win")
         };
-        let receipt = execution.start_effect(admitted.claim()).unwrap();
+        let credential = crate::provider_credential_fixture::credential(
+            &database,
+            "fixture-provider",
+            [1; 16],
+            13,
+            100,
+        );
+        let binding = credential
+            .authorize_active(
+                &ProviderId::new("fixture-provider").unwrap(),
+                [1; 16],
+                13,
+                100,
+            )
+            .unwrap();
+        let receipt = execution
+            .start_effect(admitted.claim(), &binding)
+            .unwrap();
         assert!(receipt.matches_claim(admitted.claim()));
         let attempt = admitted.claim().attempt_id;
         let fencing_token = admitted.claim().fencing_token;

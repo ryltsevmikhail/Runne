@@ -13,7 +13,8 @@ pub mod operational_telemetry;
 mod recovery_store;
 
 pub use dispatch_binding::{
-    CredentialDispatchBinding, ProviderExecutionBinding, VersionedProviderExecutionBinding,
+    CredentialDispatchAuthority, CredentialDispatchBinding, ProviderExecutionBinding,
+    VersionedProviderExecutionBinding,
 };
 pub use dispatch_coordinator::{ProviderCoordinatorOutcome, SqliteProviderDispatchCoordinator};
 

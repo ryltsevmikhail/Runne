@@ -50,8 +50,9 @@ fn rotation_revoke_gc_race_has_one_terminal_owner() {
         .unwrap();
     drop(setup);
 
-    let store = Arc::new(store(&path));
-    let native = Arc::new(FixtureNative::default());
+    let (lifecycle, native) = store_with_native(&path);
+    let store = Arc::new(lifecycle);
+    let native = Arc::new(native);
     native.create(first.clone(), b"fixture-credential-value");
     let barrier = Arc::new(Barrier::new(3));
     let handles = (0..2)

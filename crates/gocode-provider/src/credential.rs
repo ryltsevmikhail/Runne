@@ -5,6 +5,13 @@ use thiserror::Error;
 
 use crate::ProviderId;
 
+mod authority;
+
+pub use authority::{
+    CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim,
+    CredentialLifecycleAuthority, NativeCredentialAuthority, NativeCredentialDeletionProof,
+};
+
 const CREDENTIAL_REF_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_VERSION_REF_V1\0";
 
 /// Durable non-secret lifecycle state for one native credential version.
@@ -189,21 +196,26 @@ impl RevokeCredentialVersion {
 }
 
 /// Idempotent reconciliation work that still requires native deletion.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Default)]
 pub struct ReconcileCredentialVersions {
-    native_deletions: Vec<CredentialVersionRef>,
+    native_deletions: Vec<CredentialGcClaim>,
 }
 
 impl ReconcileCredentialVersions {
     /// Constructs store-owned native deletion work.
     #[doc(hidden)]
-    pub fn new(native_deletions: Vec<CredentialVersionRef>) -> Self {
+    pub fn new(native_deletions: Vec<CredentialGcClaim>) -> Self {
         Self { native_deletions }
     }
 
     /// Returns every `GC_CLAIMED` version awaiting idempotent native delete.
-    pub fn native_deletions(&self) -> &[CredentialVersionRef] {
+    pub fn native_deletions(&self) -> &[CredentialGcClaim] {
         &self.native_deletions
+    }
+
+    /// Consumes the reconciliation batch into exclusive native delete claims.
+    pub fn into_native_deletions(self) -> Vec<CredentialGcClaim> {
+        self.native_deletions
     }
 }
 

@@ -205,6 +205,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         db_path: db_path.clone(),
         dispatch_connection: managed_test_connection(&db_path),
         execution_connection: managed_test_connection(&db_path),
+        credential_connection: managed_test_connection(&db_path),
         runtime_authority_id: authority,
         runtime_generation: generation,
         activation_provenance: provenance,

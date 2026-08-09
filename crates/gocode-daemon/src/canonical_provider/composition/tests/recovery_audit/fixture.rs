@@ -100,6 +100,7 @@ impl Harness {
             db_path: self.db_path.clone(),
             dispatch_connection: managed_test_connection(&self.db_path),
             execution_connection: managed_test_connection(&self.db_path),
+            credential_connection: managed_test_connection(&self.db_path),
             runtime_authority_id: self.authority,
             runtime_generation: generation,
             activation_provenance: self.provenance,

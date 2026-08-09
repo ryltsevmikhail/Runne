@@ -1,100 +1,11 @@
-use rusqlite::{Connection, OptionalExtension};
-
-struct CredentialRow {
-    provider_id: String,
-    version: i64,
-    ref_digest: Vec<u8>,
-    state: CredentialVersionState,
-    lease_owner: Option<Vec<u8>>,
-    lease_expires_at: Option<i64>,
-    lease_fencing_token: Option<i64>,
-    revocation_fence: i64,
-    tombstone_digest: Option<Vec<u8>>,
-}
-
-type RawCredentialRow = (
-    String,
-    i64,
-    Vec<u8>,
-    String,
-    Option<Vec<u8>>,
-    Option<i64>,
-    Option<i64>,
-    i64,
-    Option<Vec<u8>>,
-);
-
-fn load_row(
-    connection: &Connection,
-    reference: &CredentialVersionRef,
-) -> Result<Option<CredentialRow>, CredentialLifecycleError> {
-    let raw: Option<RawCredentialRow> = connection
-        .query_row(
-            "SELECT provider_id, credential_version, ref_digest, lifecycle_state,
-                    lease_owner, lease_expires_at, lease_fencing_token,
-                    revocation_fence, tombstone_digest
-             FROM provider_credential_versions
-             WHERE provider_id=?1 AND credential_version=?2",
-            params![reference.provider().as_str(), to_i64(reference.version())?],
-            |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                    row.get(8)?,
-                ))
-            },
-        )
-        .optional()
-        .map_err(map_sql)?;
-    raw.map(decode_row).transpose()
-}
-
-fn decode_row(raw: RawCredentialRow) -> Result<CredentialRow, CredentialLifecycleError> {
-    let state = match raw.3.as_str() {
-        "PREPARED" => CredentialVersionState::Prepared,
-        "ACTIVE" => CredentialVersionState::Active,
-        "RETIRED" => CredentialVersionState::Retired,
-        "GC_CLAIMED" => CredentialVersionState::GcClaimed,
-        "DELETED" => CredentialVersionState::Deleted,
-        _ => return Err(CredentialLifecycleError::CorruptState),
-    };
-    Ok(CredentialRow {
-        provider_id: raw.0,
-        version: raw.1,
-        ref_digest: raw.2,
-        state,
-        lease_owner: raw.4,
-        lease_expires_at: raw.5,
-        lease_fencing_token: raw.6,
-        revocation_fence: raw.7,
-        tombstone_digest: raw.8,
-    })
-}
-
-fn validate_row_ref(
-    row: &CredentialRow,
-    reference: &CredentialVersionRef,
-) -> Result<(), CredentialLifecycleError> {
-    if row.provider_id == reference.provider().as_str()
-        && row.version == to_i64(reference.version())?
-        && row.ref_digest.as_slice() == reference.ref_digest()
-    {
-        Ok(())
-    } else {
-        Err(CredentialLifecycleError::CorruptState)
-    }
-}
-
 fn activate_lease(
     store: &SqliteProviderCredentialLifecycleStore,
     lease: CredentialLease,
+    now: i64,
 ) -> Result<CredentialVersionRef, CredentialLifecycleError> {
+    if now < 0 || lease.expires_at() <= now {
+        return Err(CredentialLifecycleError::StaleLease);
+    }
     let reference = lease.version_ref().clone();
     let mut connection = store.connection.lock().map_err(map_lock)?;
     let transaction = connection
@@ -104,6 +15,18 @@ fn activate_lease(
     validate_row_ref(&row, &reference)?;
     match row.state {
         CredentialVersionState::Prepared => {
+            let high_water: i64 = transaction
+                .query_row(
+                    "SELECT COALESCE(MAX(MAX(revocation_fence,
+                        COALESCE(lease_fencing_token, 0))), 0)
+                     FROM provider_credential_versions WHERE provider_id=?1",
+                    [reference.provider().as_str()],
+                    |row| row.get(0),
+                )
+                .map_err(map_sql)?;
+            if to_i64(lease.fencing_token())? <= high_water {
+                return Err(CredentialLifecycleError::StaleLease);
+            }
             let changed = transaction
                 .execute(
                     "UPDATE provider_credential_versions
@@ -179,11 +102,12 @@ fn revoke_lease(
         return transaction.commit().map_err(map_sql);
     }
     match row.state {
-        CredentialVersionState::Retired
-        | CredentialVersionState::GcClaimed
-        | CredentialVersionState::Deleted
+        CredentialVersionState::Retired | CredentialVersionState::GcClaimed
             if fence >= row.revocation_fence =>
         {
+            transaction.commit().map_err(map_sql)
+        }
+        CredentialVersionState::Deleted if fence == row.revocation_fence => {
             transaction.commit().map_err(map_sql)
         }
         CredentialVersionState::Prepared => Err(CredentialLifecycleError::Conflict),
@@ -224,24 +148,35 @@ fn reconcile_versions(
     let connection = store.connection.lock().map_err(map_lock)?;
     let mut statement = connection
         .prepare(
-            "SELECT provider_id, credential_version FROM provider_credential_versions
+            "SELECT provider_id, credential_version, ref_digest
+             FROM provider_credential_versions
              WHERE lifecycle_state='GC_CLAIMED' ORDER BY provider_id, credential_version",
         )
         .map_err(map_sql)?;
     let pairs = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+            ))
+        })
         .map_err(map_sql)?
         .collect::<Result<Vec<_>, _>>()
         .map_err(map_sql)?;
-    let references = pairs
+    let claims = pairs
         .into_iter()
-        .map(|(provider, version)| {
+        .map(|(provider, version, stored_digest)| {
             let provider = gocode_provider::ProviderId::new(provider)
                 .map_err(|_| CredentialLifecycleError::CorruptState)?;
             let version = u64::try_from(version)
                 .map_err(|_| CredentialLifecycleError::CorruptState)?;
-            CredentialVersionRef::new(provider, version)
+            let reference = CredentialVersionRef::new(provider, version)?;
+            if stored_digest.as_slice() != reference.ref_digest() {
+                return Err(CredentialLifecycleError::CorruptState);
+            }
+            Ok(store.authority.issue_gc(reference))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(ReconcileCredentialVersions::new(references))
+    Ok(ReconcileCredentialVersions::new(claims))
 }

@@ -33,7 +33,8 @@ use gocode_secure_store::{
     ProviderJournalKeyring,
 };
 use gocode_store::provider::{
-    ProviderCoordinatorOutcome, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator,
+    ProviderCoordinatorOutcome, ProviderRuntimeAuthorityConfig,
+    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore, SqliteProviderRecoveryStore,
 };
 use gocode_store::store::StoreTransaction;
@@ -44,6 +45,8 @@ use crate::provider_activation::ProviderActivation;
 
 mod activation_provenance;
 mod composition;
+mod composition_telemetry;
+mod credential_versions;
 mod execution;
 mod loopback_tail;
 mod projection;

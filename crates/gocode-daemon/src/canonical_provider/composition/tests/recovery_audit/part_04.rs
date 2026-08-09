@@ -33,6 +33,7 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
         begin.command_id,
         &started,
         true,
+        true,
     );
     assert_authority_renewal(&before, &after, &harness.db_path, generation + 1);
     assert_dispatch_rows(
@@ -41,6 +42,7 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
         &harness.db_path,
         &[(pending_terminal, 4, 5), (issued, 1, 6), (streaming, 3, 6)],
     );
+    assert_credential_rotation(&before, &after, &harness.db_path, generation);
     assert_unchanged_except(
         &before,
         &after,
@@ -52,6 +54,7 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
             "command_receipts",
             "aggregate_streams",
             "event_log_state",
+            "provider_credential_versions",
         ],
     );
     assert_eq!(
@@ -77,6 +80,33 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
             .observed_count(),
         Some(1)
     );
+}
+
+fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, path: &str, fence: u64) {
+    let columns = table_columns(path, "provider_credential_versions");
+    let version = column_index(&columns, "credential_version");
+    let state = column_index(&columns, "lifecycle_state");
+    let lease_fence = column_index(&columns, "lease_fencing_token");
+    let revocation = column_index(&columns, "revocation_fence");
+    let tombstone = column_index(&columns, "tombstone_digest");
+    assert_eq!(before["provider_credential_versions"].len(), 1);
+    assert_eq!(after["provider_credential_versions"].len(), 2);
+    let old = &after["provider_credential_versions"][0];
+    let replacement = &after["provider_credential_versions"][1];
+    assert_eq!(
+        (old[version].as_str(), old[state].as_str()),
+        ("1", "'DELETED'")
+    );
+    assert_eq!(old[lease_fence], fence.to_string());
+    assert_eq!(old[revocation], fence.to_string());
+    assert_ne!(old[tombstone], "NULL");
+    assert_eq!(
+        (replacement[version].as_str(), replacement[state].as_str()),
+        ("2", "'ACTIVE'")
+    );
+    assert_eq!(replacement[lease_fence], (fence + 1).to_string());
+    assert_eq!(replacement[revocation], "0");
+    assert_eq!(replacement[tombstone], "NULL");
 }
 
 fn assert_remaining(

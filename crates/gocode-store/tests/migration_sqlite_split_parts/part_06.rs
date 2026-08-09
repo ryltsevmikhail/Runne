@@ -16,6 +16,7 @@ fn interrupted_v16_migration_recovers_on_reopen() {
              DROP TRIGGER IF EXISTS provider_credential_insert_prepared;
              DROP TRIGGER IF EXISTS provider_credential_tombstone_permanent;
              DROP INDEX IF EXISTS provider_credential_one_active;
+             DROP TABLE IF EXISTS provider_credential_effect_bindings;
              DROP TABLE IF EXISTS provider_credential_versions;
              DELETE FROM schema_version WHERE version = 16;",
         )

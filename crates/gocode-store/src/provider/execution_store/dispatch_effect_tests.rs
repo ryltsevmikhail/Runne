@@ -7,15 +7,17 @@ use gocode_application::prohibited_content::{
 use gocode_application::provider::{ProviderCoordinatorRequest, ProviderLeaseBindingKind};
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
-    CancelDisposition, CancelRequest, DispatchError, DispatchRequest, ModelRef, PrepareError,
-    PreparedRequest, ProviderCall, ProviderCallId, ProviderFuture, ProviderId, ProviderPort,
-    ProviderStreamId, ProviderStreamItem, ReconcileRequest, ReconciliationDisposition,
-    StreamCursor, StreamError,
+    CancelDisposition, CancelRequest, CredentialLease, CredentialVersionRef, DispatchError,
+    DispatchRequest, ModelRef, PrepareCredentialVersion, PrepareError, PreparedRequest,
+    ProviderCall, ProviderCallId, ProviderCredentialVersionStore, ProviderFuture, ProviderId,
+    ProviderPort, ProviderStreamId, ProviderStreamItem, ReconcileRequest,
+    ReconciliationDisposition, StreamCursor, StreamError,
 };
 
 use super::super::{
-    ProviderCoordinatorOutcome, ProviderEffectPort, ProviderEffectStartReceipt,
-    ProviderReadyEffect, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator,
+    CredentialDispatchBinding, ProviderCoordinatorOutcome, ProviderEffectPort,
+    ProviderEffectStartReceipt, ProviderReadyEffect, ProviderRuntimeAuthorityConfig,
+    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
     SqliteProviderDispatchStore,
 };
 use super::SqliteProviderExecutionStore;
@@ -76,6 +78,7 @@ impl ProviderEffectPort for Provider {
     fn stage_effect(
         &self,
         _: DispatchRequest,
+        _: CredentialDispatchBinding,
     ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
         self.stages.fetch_add(1, Ordering::SeqCst);
         Box::pin(async { Ok(Box::new(Ready) as Box<dyn ProviderReadyEffect>) })
@@ -120,6 +123,18 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     let execution =
         SqliteProviderExecutionStore::open_with_connection(path_text, configured_connection(&path))
             .unwrap();
+    let credential = SqliteProviderCredentialLifecycleStore::open_connection_at(
+        configured_connection(&path),
+        100,
+    )
+    .unwrap();
+    let credential_ref = CredentialVersionRef::new(ProviderId::new("fixture").unwrap(), 1).unwrap();
+    credential
+        .create_prepared(PrepareCredentialVersion::new(credential_ref.clone()))
+        .unwrap();
+    credential
+        .activate(CredentialLease::new(credential_ref, [1; 16], i64::MAX, 1).unwrap())
+        .unwrap();
     execution
         .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
@@ -157,8 +172,14 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     .unwrap();
     execution.fail_next_effect_readback();
     let provider = Provider::default();
-    let coordinator =
-        SqliteProviderDispatchCoordinator::new(&dispatch, &execution, &provider, &provider, &Guard);
+    let coordinator = SqliteProviderDispatchCoordinator::new(
+        &dispatch,
+        &execution,
+        crate::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        &provider,
+        &provider,
+        &Guard,
+    );
     let outcome = block_on(coordinator.dispatch(ProviderCoordinatorRequest {
         call,
         principal_id: "principal".into(),

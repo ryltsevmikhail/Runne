@@ -6,12 +6,14 @@ use gocode_application::provider::{
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
-    ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
-    ProviderCall, ProviderCallId, ProviderId,
+    CredentialLease, CredentialVersionRef, ModelRef, PrepareCredentialVersion,
+    PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
+    ProviderCallId, ProviderCredentialVersionStore, ProviderId,
 };
 use gocode_store::provider::{
     PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchStore,
+    SqliteProviderExecutionStore,
 };
 use gocode_store::schema::{
     ConnectionMode, ManagedConnection, open_managed_connection, reopen_managed_connection_validated,
@@ -71,7 +73,22 @@ impl Fixture {
         else {
             panic!("expected a new admission");
         };
-        self.store.start_effect(admission.claim()).unwrap();
+        let credential = SqliteProviderCredentialLifecycleStore::open_connection_at(
+            configured_connection(&self.path),
+            100,
+        )
+        .unwrap();
+        let reference =
+            CredentialVersionRef::new(ProviderId::new("fixture-provider").unwrap(), 1).unwrap();
+        let _ = credential.create_prepared(PrepareCredentialVersion::new(reference.clone()));
+        let _ = credential
+            .activate(CredentialLease::new(reference.clone(), [1; 16], i64::MAX, 13).unwrap());
+        let binding = credential
+            .authorize_active(reference.provider(), [1; 16], 13, 100)
+            .unwrap();
+        self.store
+            .start_effect(admission.claim(), &binding)
+            .unwrap();
     }
 
     pub(super) fn read(
