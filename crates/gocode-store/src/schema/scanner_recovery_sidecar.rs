@@ -39,35 +39,35 @@ fn classify_scanner_sidecar(connection: &Connection) -> SqliteResult<()> {
     if version != SCANNER_SIDECAR_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
     }
-    let tables = connection
+    let catalog = connection
         .prepare(
-            "SELECT name, sql FROM sqlite_master
-             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            "SELECT type, name, sql FROM sqlite_master
+             WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
         )?
         .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         })?
         .collect::<SqliteResult<Vec<_>>>()?;
     let expected = [
-        ("provider_scanner_recovery", SCANNER_RECOVERY_SQL),
-        ("scanner_recovery_schema", SCANNER_IDENTITY_SQL),
+        (
+            "table",
+            "provider_scanner_recovery",
+            SCANNER_RECOVERY_SQL,
+        ),
+        ("table", "scanner_recovery_schema", SCANNER_IDENTITY_SQL),
     ];
-    if tables.len() != expected.len()
-        || tables
+    if catalog.len() != expected.len()
+        || catalog
             .iter()
             .zip(expected)
-            .any(|((name, sql), (expected_name, expected_sql))| {
-                name != expected_name || sql != expected_sql
+            .any(|((kind, name, sql), (expected_kind, expected_name, expected_sql))| {
+                kind != expected_kind || name != expected_name || sql != expected_sql
             })
     {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    let explicit_indexes: i64 = connection.query_row(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
-        [],
-        |row| row.get(0),
-    )?;
-    if explicit_indexes != 0 {
         return Err(rusqlite::Error::InvalidQuery);
     }
     Ok(())

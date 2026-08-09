@@ -80,6 +80,8 @@ impl Task5ProductionFixture {
         else {
             panic!("first issue must win")
         };
+        let receipt = execution.start_effect(admitted.claim()).unwrap();
+        assert!(receipt.matches_claim(admitted.claim()));
         let attempt = admitted.claim().attempt_id;
         let fencing_token = admitted.claim().fencing_token;
         let stream = ProviderStreamId::from_bytes([9; 16]);
@@ -149,6 +151,26 @@ impl Task5ProductionFixture {
                 )
                 .unwrap(),
         )
+    }
+
+    pub(super) fn effect_start_and_audit_counts(&self) -> (i64, i64) {
+        self.database
+            .query_connection()
+            .query_row(
+                "SELECT
+                    (SELECT COUNT(*) FROM provider_effect_starts
+                     WHERE dispatch_attempt_id = ?1
+                       AND provider_idempotency_key = ?2 AND state = 1),
+                    (SELECT COUNT(*) FROM security_audit_pre_effect
+                     WHERE intent_id = ('provider:' || lower(hex(?1)))
+                       AND side_effect_started = 1)",
+                rusqlite::params![
+                    self.attempt.as_bytes().as_slice(),
+                    self.request.provider_idempotency_key,
+                ],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap()
     }
 
     pub(super) fn dispatch_state(&self) -> ProviderRepositoryState {
