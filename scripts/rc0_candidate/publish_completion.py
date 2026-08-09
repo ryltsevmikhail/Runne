@@ -23,11 +23,11 @@ class CompletionPublishError(ValueError):
 
 
 def manifest(
-    source_sha: str, directory: tuple[int, ...], blobs: Mapping[str, bytes], token: bytes
+    source_sha: str, directory: tuple[int, ...], blobs: Mapping[str, bytes], owner_id: bytes
 ) -> bytes:
     lines = [
         "GOCODE_RC0_COMPLETE_V2", f"source_sha={source_sha}",
-        f"owner_token={token.decode('ascii')}", f"directory_dev={directory[0]}",
+        f"owner_token={owner_id.decode('ascii')}", f"directory_dev={directory[0]}",
         f"directory_ino={directory[1]}",
     ]
     for name in sorted(blobs, key=lambda value: value.encode("ascii")):
@@ -37,12 +37,12 @@ def manifest(
 
 def marker_matches(
     root_fd: int, marker_name: str, source_sha: str, state: tuple[int, ...],
-    blobs: Mapping[str, bytes], token: bytes,
+    blobs: Mapping[str, bytes], owner_id: bytes,
 ) -> bool:
     descriptor = os.open(marker_name, FILE, dir_fd=root_fd)
     try:
         before = os.fstat(descriptor)
-        if os.getxattr(descriptor, OWNER_XATTR) != token:
+        if os.getxattr(descriptor, OWNER_XATTR) != owner_id:
             raise CompletionPublishError("completion marker owner changed")
         data = read_bounded(descriptor, 64 << 10)
         path = os.stat(marker_name, dir_fd=root_fd, follow_symlinks=False)
@@ -51,14 +51,14 @@ def marker_matches(
             and before.st_uid == os.geteuid()
             and full_state(before) == full_state(os.fstat(descriptor))
             and full_state(before) == full_state(path)
-            and data == manifest(source_sha, state, blobs, token)
+            and data == manifest(source_sha, state, blobs, owner_id)
         )
     finally:
         os.close(descriptor)
 
 
 def publish_marker(
-    root_fd: int, marker_name: str, data: bytes, token: bytes, linkat,
+    root_fd: int, marker_name: str, data: bytes, owner_id: bytes, linkat,
     hook: Callable[[str, int, str], None] | None, source_sha: str,
 ) -> None:
     if linkat is None or not hasattr(os, "O_TMPFILE"):
@@ -69,7 +69,7 @@ def publish_marker(
         raise CompletionPublishError("atomic completion publication is unsupported") from error
     try:
         os.fchmod(descriptor, 0o600)
-        os.setxattr(descriptor, OWNER_XATTR, token, flags=os.XATTR_CREATE)
+        os.setxattr(descriptor, OWNER_XATTR, owner_id, flags=os.XATTR_CREATE)
         write_all(descriptor, data); os.fsync(descriptor)
         result = linkat(descriptor, b"", root_fd, os.fsencode(marker_name), AT_EMPTY_PATH)
         if result != 0:
@@ -93,7 +93,7 @@ def publish_marker(
 
 
 def open_final(
-    root_fd: int, source_sha: str, blobs: Mapping[str, bytes], token: bytes
+    root_fd: int, source_sha: str, blobs: Mapping[str, bytes], owner_id: bytes
 ) -> tuple[int, tuple[int, ...]]:
     descriptor = os.open(source_sha, DIRECTORY, dir_fd=root_fd)
     try:
@@ -101,7 +101,8 @@ def open_final(
         state = entry_state(metadata)
         if (
             not stat.S_ISDIR(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o700
-            or metadata.st_uid != os.geteuid() or os.getxattr(descriptor, OWNER_XATTR) != token
+            or metadata.st_uid != os.geteuid()
+            or os.getxattr(descriptor, OWNER_XATTR) != owner_id
         ):
             raise CompletionPublishError("final evidence namespace is not owned")
         validate_blob_set(descriptor, blobs, exact=True)
@@ -118,21 +119,64 @@ def open_final(
         raise
 
 
+def assert_completed_bound(
+    root: RootHandle, directory_fd: int, state: tuple[int, ...], source_sha: str,
+    blobs: Mapping[str, bytes], owner_id: bytes,
+    blob_validator: Callable[[Mapping[str, bytes]], None] | None = None,
+) -> None:
+    def check() -> None:
+        metadata = os.fstat(directory_fd)
+        path = os.stat(source_sha, dir_fd=root.root_fd, follow_symlinks=False)
+        if (
+            entry_state(metadata) != state
+            or not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+            or metadata.st_uid != os.geteuid()
+            or os.getxattr(directory_fd, OWNER_XATTR) != owner_id
+            or full_state(path) != full_state(metadata)
+        ):
+            raise CompletionPublishError("completed evidence directory binding changed")
+        validate_blob_set(directory_fd, blobs, exact=True)
+        if not marker_matches(
+            root.root_fd, f".{source_sha}.complete", source_sha, state, blobs, owner_id
+        ):
+            raise CompletionPublishError("completion marker binding is invalid")
+        held_after = os.fstat(directory_fd)
+        path_after = os.stat(source_sha, dir_fd=root.root_fd, follow_symlinks=False)
+        if (
+            full_state(held_after) != full_state(metadata)
+            or full_state(path_after) != full_state(metadata)
+            or os.getxattr(directory_fd, OWNER_XATTR) != owner_id
+            or set(os.listdir(directory_fd)) != set(blobs)
+        ):
+            raise CompletionPublishError("completed evidence changed during validation")
+        root.assert_bound()
+
+    check()
+    if blob_validator is not None:
+        blob_validator(dict(blobs))
+        check()
+
+
 def ensure_completed(
-    root: RootHandle, source_sha: str, blobs: Mapping[str, bytes], token: bytes,
+    root: RootHandle, source_sha: str, blobs: Mapping[str, bytes], owner_id: bytes,
     linkat, hook: Callable[[str, int, str], None] | None,
 ) -> tuple[int, tuple[int, ...]]:
-    directory_fd, state = open_final(root.root_fd, source_sha, blobs, token)
+    directory_fd, state = open_final(root.root_fd, source_sha, blobs, owner_id)
     marker_name = f".{source_sha}.complete"
     try:
         try:
-            valid = marker_matches(root.root_fd, marker_name, source_sha, state, blobs, token)
+            valid = marker_matches(
+                root.root_fd, marker_name, source_sha, state, blobs, owner_id
+            )
         except FileNotFoundError:
             publish_marker(
-                root.root_fd, marker_name, manifest(source_sha, state, blobs, token),
-                token, linkat, hook, source_sha,
+                root.root_fd, marker_name, manifest(source_sha, state, blobs, owner_id),
+                owner_id, linkat, hook, source_sha,
             )
-            valid = marker_matches(root.root_fd, marker_name, source_sha, state, blobs, token)
+            valid = marker_matches(
+                root.root_fd, marker_name, source_sha, state, blobs, owner_id
+            )
         if not valid:
             raise CompletionPublishError("completion marker binding is invalid")
         root.assert_bound()
