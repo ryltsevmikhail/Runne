@@ -160,9 +160,15 @@ def build_fixture_evidence(
     return EvidenceBuildResult(final, dict(blobs), digest)
 
 
-def load_completed_fixture_evidence(output_root: Path, source_sha: str) -> Mapping[str, bytes]:
+def load_completed_fixture_evidence(
+    output_root: Path,
+    source_sha: str,
+    validation_hook: Callable[[str, int, str], None] | None = None,
+) -> Mapping[str, bytes]:
     """Accept filesystem evidence only when the exact completion marker validates."""
     try:
-        return load_completed_private_blobs(Path(output_root), source_sha, EVIDENCE_FILES)
+        return load_completed_private_blobs(
+            Path(output_root), source_sha, EVIDENCE_FILES, validation_hook
+        )
     except CompletionValidationError as error:
         raise EvidenceConstructionError(str(error)) from error

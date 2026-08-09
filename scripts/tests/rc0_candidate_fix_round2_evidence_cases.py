@@ -43,6 +43,8 @@ class Rc0CandidateEvidenceFixRound2Tests(unittest.TestCase):
             root = Path(output)
             lock = root / f".{SOURCE}.construction-lock"
             descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+            os.write(descriptor, b"1" * 64 + b"\n")
+            os.fsync(descriptor)
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             with self.assertRaises(evidence.EvidenceConstructionError):
                 evidence.build_fixture_evidence(fixture_records(), root, Path(checkout))
@@ -214,8 +216,11 @@ class Rc0CandidateEvidenceFixRound2Tests(unittest.TestCase):
             def tamper(stage, root_fd, source_sha):
                 if stage != "after-final-create":
                     return
+                attempt = next(
+                    name for name in os.listdir(root_fd) if name.endswith(".attempt")
+                )
                 descriptor = os.open(
-                    source_sha, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                    attempt, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                     dir_fd=root_fd,
                 )
                 try:
@@ -228,7 +233,7 @@ class Rc0CandidateEvidenceFixRound2Tests(unittest.TestCase):
                 evidence.build_fixture_evidence(
                     fixture_records(), root, Path(checkout), boundary_hook=tamper
                 )
-            self.assertTrue((root / SOURCE).is_dir())
+            self.assertTrue(any(path.name.endswith(".attempt") for path in root.iterdir()))
             self.assertFalse((root / f".{SOURCE}.complete").exists())
             with self.assertRaises(evidence.EvidenceConstructionError):
                 evidence.load_completed_fixture_evidence(root, SOURCE)
@@ -239,7 +244,7 @@ class Rc0CandidateEvidenceFixRound2Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as output:
             root = Path(output)
             lock = root / f".{SOURCE}.construction-lock"
-            lock.write_bytes(b"persistent\n"); lock.chmod(0o600)
+            lock.write_bytes(b"1" * 64 + b"\n"); lock.chmod(0o600)
             with patch.object(atomic.os, "fchmod", side_effect=OSError("injected")):
                 with self.assertRaises(evidence.EvidenceConstructionError):
                     evidence.build_fixture_evidence(
