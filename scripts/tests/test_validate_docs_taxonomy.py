@@ -187,6 +187,19 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             self.assert_code(lambda: TAXONOMY.tracked_markdown_paths(root), "UNIVERSE_INVALID_UTF8_PATH")
 
+    def test_docs_manifest_has_no_release_overclaim(self):
+        manifest = ROOT / "docs/rc0/RC0_CANDIDATE_MANIFEST.md"
+        raw = manifest.read_text(encoding="utf-8")
+        compact = TAXONOMY._compact_claim_text(raw)
+        prohibited = {
+            claim_id for claim_id, pattern in TAXONOMY.CLAIM_PATTERNS
+            if pattern.search(compact)
+        }
+        self.assertEqual(prohibited, set())
+        self.assertIn("PRODUCTION_QUALIFICATION` | `BLOCKED", raw)
+        self.assertIn("RELEASE_APPROVAL` | `OUT_OF_SCOPE", raw)
+        self.assertIn("PUBLICATION_AUTHORIZATION` | `OUT_OF_SCOPE", raw)
+
     def fixture_root(self, extras=()):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
