@@ -14,30 +14,6 @@ use crate::schema::{self, ConnectionMode, ManagedConnection};
 mod codec;
 use codec::*;
 
-const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS provider_scanner_recovery (
- attempt_id BLOB PRIMARY KEY CHECK(length(attempt_id) = 16),
- fencing_token INTEGER NOT NULL CHECK(fencing_token > 0),
- policy_epoch INTEGER NOT NULL CHECK(policy_epoch > 0),
- matcher_epoch INTEGER NOT NULL CHECK(matcher_epoch > 0),
- algorithm_version INTEGER NOT NULL CHECK(algorithm_version > 0),
- tail_id BLOB CHECK(tail_id IS NULL OR length(tail_id) = 16),
- tail_version INTEGER CHECK(tail_version IS NULL OR tail_version > 0),
- binding_digest BLOB CHECK(binding_digest IS NULL OR length(binding_digest) = 32),
- checkpoint_sequence INTEGER CHECK(checkpoint_sequence IS NULL OR checkpoint_sequence > 0),
- checkpoint_cursor INTEGER CHECK(checkpoint_cursor IS NULL OR checkpoint_cursor >= 0),
- checkpoint_safe_high_water INTEGER CHECK(checkpoint_safe_high_water IS NULL OR checkpoint_safe_high_water >= 0),
- checkpoint_id BLOB CHECK(checkpoint_id IS NULL OR length(checkpoint_id) = 16),
- checkpoint_digest BLOB CHECK(checkpoint_digest IS NULL OR length(checkpoint_digest) = 32),
- durable_cursor INTEGER NOT NULL DEFAULT 0 CHECK(durable_cursor >= 0),
- durable_safe_high_water INTEGER NOT NULL DEFAULT 0 CHECK(durable_safe_high_water >= 0),
- durable_checkpoint_digest BLOB CHECK(durable_checkpoint_digest IS NULL OR length(durable_checkpoint_digest) = 32),
- disposition INTEGER CHECK(disposition IS NULL OR disposition BETWEEN 1 AND 6),
- CHECK((tail_id IS NULL AND tail_version IS NULL AND binding_digest IS NULL AND checkpoint_sequence IS NULL AND checkpoint_cursor IS NULL AND checkpoint_safe_high_water IS NULL AND checkpoint_id IS NULL AND checkpoint_digest IS NULL)
-    OR (tail_id IS NOT NULL AND tail_version IS NOT NULL AND binding_digest IS NOT NULL AND checkpoint_sequence IS NOT NULL AND checkpoint_cursor IS NOT NULL AND checkpoint_safe_high_water IS NOT NULL AND checkpoint_id IS NOT NULL AND checkpoint_digest IS NOT NULL))
-);
-"#;
-
 /// Managed SQLite persistence for opaque scanner checkpoint metadata.
 #[derive(Clone)]
 pub struct SqliteProviderRecoveryStore {
@@ -47,15 +23,23 @@ pub struct SqliteProviderRecoveryStore {
 
 impl SqliteProviderRecoveryStore {
     /// Opens the scanner projection through the authoritative managed connection factory.
-    pub fn open(path: &Path) -> Result<Self, ScannerRecoveryPersistenceError> {
+    pub fn open(
+        path: &Path,
+        authority_id: [u8; 16],
+    ) -> Result<Self, ScannerRecoveryPersistenceError> {
         let mut recovery_name = path.as_os_str().to_owned();
         recovery_name.push(".scanner-recovery");
-        let connection =
-            schema::open_managed_connection(Path::new(&recovery_name), ConnectionMode::Writer)
-                .map_err(|_| ScannerRecoveryPersistenceError::Unavailable)?;
-        connection
-            .execute_batch(SCHEMA)
-            .map_err(|_| ScannerRecoveryPersistenceError::Unavailable)?;
+        let recovery_path = Path::new(&recovery_name);
+        let connection = if recovery_path.exists() {
+            schema::reopen_managed_scanner_sidecar(recovery_path, authority_id)
+                .map_err(|_| ScannerRecoveryPersistenceError::Unavailable)?
+        } else {
+            let mut connection =
+                schema::open_managed_connection(recovery_path, ConnectionMode::Writer)
+                    .map_err(|_| ScannerRecoveryPersistenceError::Unavailable)?;
+            initialize_sidecar(&mut connection, authority_id)?;
+            connection
+        };
         Ok(Self {
             connection: Arc::new(Mutex::new(connection)),
             canonical_path: path.to_path_buf(),
@@ -73,6 +57,33 @@ impl SqliteProviderRecoveryStore {
         let outbox = table_count(&connection, "provider_terminal_outbox")?;
         Ok((replay, outbox))
     }
+}
+
+fn initialize_sidecar(
+    connection: &mut ManagedConnection,
+    authority_id: [u8; 16],
+) -> Result<(), ScannerRecoveryPersistenceError> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(map_sql)?;
+    transaction
+        .execute_batch(schema::SCANNER_IDENTITY_SQL)
+        .map_err(map_sql)?;
+    transaction
+        .execute_batch(schema::SCANNER_RECOVERY_SQL)
+        .map_err(map_sql)?;
+    transaction
+        .pragma_update(None, "user_version", 1_i64)
+        .map_err(map_sql)?;
+    transaction
+        .execute(
+            "INSERT INTO scanner_recovery_schema
+             (id, schema_kind, schema_version, authority_id)
+             VALUES (1, 'gocode.provider-scanner-recovery', 1, ?1)",
+            [authority_id.as_slice()],
+        )
+        .map_err(map_sql)?;
+    transaction.commit().map_err(map_sql)
 }
 
 impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
@@ -139,7 +150,7 @@ impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
         &self,
         binding: TailBinding,
         candidate: ScannerTerminalDisposition,
-    ) -> Result<(), ScannerRecoveryPersistenceError> {
+    ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
         let mut connection = self
             .connection
             .lock()
@@ -148,7 +159,7 @@ impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(map_sql)?;
         let current = current_head(&transaction, binding.attempt_id())?;
-        match current {
+        let authoritative = match current {
             Some(head) => {
                 if head.fence != binding.fencing_token() {
                     return Err(ScannerRecoveryPersistenceError::Conflict);
@@ -170,6 +181,7 @@ impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
                         ],
                     )
                     .map_err(map_sql)?;
+                disposition
             }
             None => {
                 if candidate == ScannerTerminalDisposition::Completed {
@@ -179,9 +191,11 @@ impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
                     "INSERT INTO provider_scanner_recovery (attempt_id,fencing_token,policy_epoch,matcher_epoch,algorithm_version,disposition) VALUES (?1,?2,?3,?4,?5,?6)",
                     params![binding.attempt_id().as_bytes(), as_i64(binding.fencing_token())?, as_i64(binding.policy_epoch())?, as_i64(binding.matcher_epoch())?, i64::from(binding.algorithm_version()), encode_disposition(candidate)],
                 ).map_err(map_sql)?;
+                candidate
             }
-        }
-        transaction.commit().map_err(map_sql)
+        };
+        transaction.commit().map_err(map_sql)?;
+        Ok(authoritative)
     }
 
     fn load(

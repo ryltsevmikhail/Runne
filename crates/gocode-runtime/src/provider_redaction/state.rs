@@ -56,6 +56,27 @@ where
         }
     }
 
+    pub(super) fn inspect_atomic_surface(
+        &mut self,
+        bytes: &[u8],
+    ) -> Result<(), ProviderRedactionError> {
+        if self.disposition.is_some() {
+            return Ok(());
+        }
+        match self.matcher.epoch() {
+            Ok(epoch) if epoch == self.binding.matcher_epoch() => {}
+            Ok(_) => {
+                return self.fail(ScannerUncertainReason::CredentialMatcherUnavailable);
+            }
+            Err(error) => return self.terminate_scanner_error(error),
+        }
+        match self.matcher.contains_match(bytes) {
+            Ok(false) => Ok(()),
+            Ok(true) => self.fail(ScannerUncertainReason::SecretDetected),
+            Err(error) => self.terminate_scanner_error(error),
+        }
+    }
+
     pub(super) fn commit_terminal(
         &mut self,
         candidate: ScannerTerminalDisposition,
@@ -63,9 +84,11 @@ where
         let disposition = self
             .disposition
             .map_or(candidate, |current| current.dominant(candidate));
-        self.disposition = Some(disposition);
-        self.persistence
+        let authoritative = self
+            .persistence
             .commit_terminal(self.binding, disposition)
-            .map_err(map_persistence_error)
+            .map_err(map_persistence_error)?;
+        self.disposition = Some(authoritative);
+        Ok(())
     }
 }

@@ -7,6 +7,7 @@ use gocode_provider::{
 };
 use zeroize::Zeroizing;
 
+use super::surfaces::inspect_event_surfaces;
 use super::{ProviderRedactionError, ProviderRedactionRecovery, ScannerRecoveryPersistence};
 use crate::provider_execution::ProviderEventJournalContext;
 
@@ -77,6 +78,10 @@ where
                 reason,
             } => {
                 let mut session = self.session(context)?;
+                inspect_event_surfaces(&mut session, event.kind())?;
+                if let Some(disposition) = session.disposition() {
+                    return Ok(PreJournalProviderEvent::Terminal(disposition));
+                }
                 let mut safe = Zeroizing::new(Vec::new());
                 session.complete(&mut safe)?;
                 decision(
@@ -85,6 +90,14 @@ where
                     safe,
                     Some((*disposition, reason.clone())),
                 )
+            }
+            ProviderStreamEventKind::ToolCallRequested { .. } => {
+                let mut session = self.session(context)?;
+                inspect_event_surfaces(&mut session, event.kind())?;
+                match session.disposition() {
+                    Some(disposition) => Ok(PreJournalProviderEvent::Terminal(disposition)),
+                    None => Ok(PreJournalProviderEvent::Append(event.clone())),
+                }
             }
             ProviderStreamEventKind::ScannerCompleted { .. }
             | ProviderStreamEventKind::ScannerProgress => Ok(PreJournalProviderEvent::Terminal(
@@ -117,17 +130,8 @@ where
         &self,
         context: &ProviderEventJournalContext,
     ) -> Result<ProviderRedactionRecovery<'_, T, P, M>, ProviderRedactionError> {
-        let loaded = self.persistence.load(context.attempt_id);
-        if let Ok(Some(record)) = loaded {
-            return ProviderRedactionRecovery::restart(
-                record.binding(),
-                self.tails,
-                self.persistence,
-                self.matcher,
-            );
-        }
         let epoch = self.matcher.epoch().unwrap_or(1);
-        let binding = TailBinding::new(
+        let expected = TailBinding::new(
             context.attempt_id,
             context.fencing_token,
             epoch,
@@ -136,7 +140,20 @@ where
             0,
         )
         .map_err(|_| ProviderRedactionError::PersistenceUnavailable)?;
-        ProviderRedactionRecovery::start(binding, self.tails, self.persistence, self.matcher)
+        match self.persistence.load(context.attempt_id) {
+            Ok(Some(_)) => ProviderRedactionRecovery::restart(
+                expected,
+                self.tails,
+                self.persistence,
+                self.matcher,
+            ),
+            Ok(None) | Err(_) => ProviderRedactionRecovery::start(
+                expected,
+                self.tails,
+                self.persistence,
+                self.matcher,
+            ),
+        }
     }
 }
 

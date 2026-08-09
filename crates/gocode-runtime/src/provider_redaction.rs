@@ -2,6 +2,7 @@
 mod boundary;
 mod completion;
 mod state;
+mod surfaces;
 mod types;
 
 pub use boundary::{

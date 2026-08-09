@@ -84,7 +84,7 @@ impl CredentialMatcher for ExecutionMatcher {
 #[tokio::test(flavor = "current_thread")]
 async fn authoritative_append_boundary_releases_clean_tail_only_after_completed() {
     let fixture = fixture();
-    let recovery = SqliteProviderRecoveryStore::open(&fixture.path).unwrap();
+    let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
     let tails = ExecutionTailStore::default();
     let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher);
     let keyring = MemoryKeyring::default();
@@ -140,7 +140,7 @@ async fn authoritative_append_boundary_releases_clean_tail_only_after_completed(
 #[tokio::test(flavor = "current_thread")]
 async fn authoritative_append_boundary_blocks_split_secret_before_text_journal() {
     let fixture = fixture();
-    let recovery = SqliteProviderRecoveryStore::open(&fixture.path).unwrap();
+    let recovery = SqliteProviderRecoveryStore::open(&fixture.path, [1; 16]).unwrap();
     let tails = ExecutionTailStore::default();
     let redaction = ProviderEventRedactionBoundary::new(&tails, &recovery, &ExecutionMatcher);
     let keyring = MemoryKeyring::default();

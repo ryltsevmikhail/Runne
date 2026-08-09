@@ -107,7 +107,7 @@ pub trait ScannerRecoveryPersistence: Send + Sync {
         &self,
         binding: TailBinding,
         disposition: ScannerTerminalDisposition,
-    ) -> Result<(), ScannerRecoveryPersistenceError>;
+    ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError>;
     /// Loads one non-secret recovery projection.
     fn load(
         &self,

@@ -24,6 +24,7 @@
     {"category":"recovery","package":"gocode-store","target":"provider_dispatch_recovery","fully_qualified_test_name":"stale_dispatching_recovery_conflict_requires_fresh_streaming_snapshot"},
     {"category":"recovery","package":"gocode-store","target":"provider_dispatch_recovery","fully_qualified_test_name":"stale_fence_recovery_is_read_only_without_simulated_redispatch"},
     {"category":"recovery","package":"gocode-store","target":"provider_dispatch_recovery","fully_qualified_test_name":"task4_test_support_is_available_only_to_integration_tests"},
+    {"category":"recovery","package":"gocode-store","target":"provider_dispatch_recovery","fully_qualified_test_name":"terminal_scanner_failure_has_no_publication"},
     {"category":"recovery","package":"gocode-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"crash_after_issue_before_start_effect_keeps_dispatching_and_reservations"},
     {"category":"recovery","package":"gocode-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"crash_after_start_effect_before_dispatch_keeps_effect_cas"},
     {"category":"recovery","package":"gocode-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"crash_before_issue_commit_leaves_no_attempt_or_reservation"},

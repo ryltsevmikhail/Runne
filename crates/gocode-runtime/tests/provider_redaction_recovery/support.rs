@@ -83,7 +83,7 @@ fn stores() -> (tempfile::TempDir, SqliteProviderRecoveryStore) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("provider.sqlite");
     drop(SqliteProviderDispatchStore::open(&path).unwrap());
-    let recovery = SqliteProviderRecoveryStore::open(&path).unwrap();
+    let recovery = SqliteProviderRecoveryStore::open(&path, [1; 16]).unwrap();
     (directory, recovery)
 }
 
@@ -106,7 +106,7 @@ impl ScannerRecoveryPersistence for FailingPersistence<'_> {
     fn advance_checkpoint(&self, checkpoint: ScannerCheckpoint) -> Result<(), ScannerRecoveryPersistenceError> {
         if matches!(self.phase, FailPhase::Advance) { Err(ScannerRecoveryPersistenceError::Unavailable) } else { self.inner.advance_checkpoint(checkpoint) }
     }
-    fn commit_terminal(&self, binding: TailBinding, disposition: ScannerTerminalDisposition) -> Result<(), ScannerRecoveryPersistenceError> {
+    fn commit_terminal(&self, binding: TailBinding, disposition: ScannerTerminalDisposition) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
         self.inner.commit_terminal(binding, disposition)
     }
     fn load(&self, attempt: DispatchAttemptId) -> Result<Option<ScannerRecoveryRecord>, ScannerRecoveryPersistenceError> {

@@ -8,9 +8,21 @@ where
     pub fn recover_pending_terminal_outputs(
         &self,
     ) -> Result<Vec<RecoveredProviderTerminalOutput>, RuntimeProviderExecutionError> {
-        self.store
+        let pending = self
+            .store
             .pending_terminal_outbox()
-            .map_err(map_execution_error)?
+            .map_err(map_execution_error)?;
+        for record in &pending {
+            if self
+                .redaction
+                .terminal_disposition(record.attempt_id)
+                .map_err(|_| RuntimeProviderExecutionError::PolicyDenied)?
+                != Some(gocode_provider::ScannerTerminalDisposition::Completed)
+            {
+                return Err(RuntimeProviderExecutionError::PolicyDenied);
+            }
+        }
+        pending
             .into_iter()
             .map(|record| {
                 let material = self.load_key(record.key)?;

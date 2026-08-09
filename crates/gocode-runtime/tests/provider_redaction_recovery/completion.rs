@@ -188,3 +188,83 @@ fn durable_checkpoint_digest_mismatch_is_checkpoint_secret_state_unavailable() {
     );
     assert_no_publication(&durable);
 }
+
+struct StrongerTerminalRace<'a> {
+    inner: &'a SqliteProviderRecoveryStore,
+    raced: std::sync::atomic::AtomicBool,
+}
+
+impl ScannerRecoveryPersistence for StrongerTerminalRace<'_> {
+    fn persist_checkpoint(
+        &self,
+        checkpoint: ScannerCheckpoint,
+    ) -> Result<(), ScannerRecoveryPersistenceError> {
+        self.inner.persist_checkpoint(checkpoint)
+    }
+
+    fn advance_checkpoint(
+        &self,
+        checkpoint: ScannerCheckpoint,
+    ) -> Result<(), ScannerRecoveryPersistenceError> {
+        self.inner.advance_checkpoint(checkpoint)
+    }
+
+    fn commit_terminal(
+        &self,
+        binding: TailBinding,
+        disposition: ScannerTerminalDisposition,
+    ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
+        if disposition == ScannerTerminalDisposition::Completed
+            && !self.raced.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.inner.commit_terminal(
+                binding,
+                ScannerTerminalDisposition::Uncertain(
+                    ScannerUncertainReason::SecretDetected,
+                ),
+            )?;
+        }
+        self.inner.commit_terminal(binding, disposition)
+    }
+
+    fn load(
+        &self,
+        attempt: DispatchAttemptId,
+    ) -> Result<Option<ScannerRecoveryRecord>, ScannerRecoveryPersistenceError> {
+        self.inner.load(attempt)
+    }
+}
+
+#[test]
+fn stronger_concurrent_terminal_blocks_final_tail_release() {
+    let (_directory, durable) = stores();
+    let racing = StrongerTerminalRace {
+        inner: &durable,
+        raced: std::sync::atomic::AtomicBool::new(false),
+    };
+    let tails = MemoryTailStore::default();
+    let matcher = FixtureMatcher {
+        epoch: 13,
+        unavailable: false,
+        scanner_unavailable: false,
+    };
+    let mut staged = Zeroizing::new(Vec::new());
+    let mut recovery =
+        ProviderRedactionRecovery::start(binding(), &tails, &racing, &matcher).unwrap();
+    recovery.ingest(b"short", &mut staged).unwrap();
+    let before_completion = staged.clone();
+
+    recovery.complete(&mut staged).unwrap();
+
+    assert_eq!(staged, before_completion);
+    assert_eq!(
+        recovery.disposition(),
+        Some(ScannerTerminalDisposition::Uncertain(
+            ScannerUncertainReason::SecretDetected,
+        ))
+    );
+    assert_eq!(
+        durable.load(binding().attempt_id()).unwrap().unwrap().disposition(),
+        recovery.disposition()
+    );
+}

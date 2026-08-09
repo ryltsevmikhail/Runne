@@ -138,9 +138,10 @@ impl DaemonCanonicalOpenAiService {
                 })?,
         );
         let scanner_store = Arc::new(
-            SqliteProviderRecoveryStore::open(std::path::Path::new(&db_path)).map_err(|_| {
-                DaemonError::Bootstrap("provider scanner recovery unavailable".into())
-            })?,
+            SqliteProviderRecoveryStore::open(std::path::Path::new(&db_path), runtime_authority_id)
+                .map_err(|_| {
+                    DaemonError::Bootstrap("provider scanner recovery unavailable".into())
+                })?,
         );
         let fencing_token = runtime_generation;
         let policy_binding =
