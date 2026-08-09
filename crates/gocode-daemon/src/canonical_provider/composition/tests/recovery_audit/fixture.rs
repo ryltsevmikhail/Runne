@@ -112,6 +112,7 @@ impl Harness {
                 effect,
                 Arc::clone(&self.keyring),
                 decorator,
+                Arc::new(crate::canonical_provider::credential_versions::fixture_native),
             ),
         })
         .await

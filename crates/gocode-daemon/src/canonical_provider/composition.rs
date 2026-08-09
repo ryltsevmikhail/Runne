@@ -91,14 +91,20 @@ impl DaemonCanonicalOpenAiService {
             prohibited_content,
             dependencies,
         } = composition;
-        let (effect_source, retained_keyring, terminal_store_decorator) =
+        let (effect_source, retained_keyring, terminal_store_decorator, credential_versions) =
             match dependencies.into_provider_state() {
-                ProviderDependencyState::Production => (None, None, None),
+                ProviderDependencyState::Production => (None, None, None, None),
                 ProviderDependencyState::LoopbackFixture {
                     effect,
                     keyring,
                     decorator,
-                } => (Some(effect), Some(keyring), Some(decorator)),
+                    credential_versions,
+                } => (
+                    Some(effect),
+                    Some(keyring),
+                    Some(decorator),
+                    Some(credential_versions),
+                ),
             };
         let profile = Arc::new(
             OpenAiResponsesTextProfile::from_json(include_bytes!(
@@ -191,6 +197,7 @@ impl DaemonCanonicalOpenAiService {
             runtime_authority_id,
             runtime_generation,
             effect_source.is_some(),
+            credential_versions,
         )?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
         let redaction = ProviderEventRedactionBoundary::new(

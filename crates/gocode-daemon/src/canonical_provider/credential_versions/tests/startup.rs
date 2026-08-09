@@ -28,7 +28,14 @@ fn expired_active_pending_command_completes_before_gc_and_uses_next_version() {
         gocode_store::schema::ConnectionMode::Writer,
     )
     .unwrap();
-    let composed = compose_credential_lifecycle(connection, [0x74; 16], 2, true).unwrap();
+    let composed = compose_credential_lifecycle(
+        connection,
+        [0x74; 16],
+        2,
+        true,
+        Some(Arc::new(fixture_native)),
+    )
+    .unwrap();
     let active = composed.store.active_lease(&provider).unwrap().unwrap();
     assert_eq!(active.version_ref().version(), 2);
     assert_eq!(
@@ -48,4 +55,66 @@ fn expired_active_pending_command_completes_before_gc_and_uses_next_version() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(states, ["ACTIVATED", "ACTIVATED"]);
+}
+
+#[test]
+fn explicit_fixture_native_dependency_rotates_across_two_launch_generations() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("two-launch-credential.sqlite");
+    let counters = Arc::new(FixtureNativeCounters::default());
+    let factory: Arc<LoopbackCredentialVersionStoreFactory> = Arc::new({
+        let counters = Arc::clone(&counters);
+        move |authority: NativeCredentialAuthority| {
+            fixture_native_with_counters(authority, Arc::clone(&counters))
+        }
+    });
+    let provider = ProviderId::new("openai").unwrap();
+    let owner = [0x84; 16];
+
+    let connection = gocode_store::schema::open_managed_connection(
+        &path,
+        gocode_store::schema::ConnectionMode::Writer,
+    )
+    .unwrap();
+    let first =
+        compose_credential_lifecycle(connection, owner, 1, true, Some(factory.clone())).unwrap();
+    let first_ref = first
+        .store
+        .active_lease(&provider)
+        .unwrap()
+        .unwrap()
+        .version_ref()
+        .clone();
+    drop(first);
+
+    let connection = gocode_store::schema::open_managed_connection(
+        &path,
+        gocode_store::schema::ConnectionMode::Writer,
+    )
+    .unwrap();
+    let second =
+        compose_credential_lifecycle(connection, owner, 2, true, Some(factory.clone())).unwrap();
+    assert_eq!(
+        second.store.version_state(&first_ref).unwrap(),
+        CredentialVersionState::Deleted
+    );
+    assert_eq!(
+        second
+            .store
+            .active_lease(&provider)
+            .unwrap()
+            .unwrap()
+            .fencing_token(),
+        2
+    );
+    let native = factory(second.native_authority.clone());
+    reconcile_native(
+        second.store.as_ref(),
+        native.as_ref(),
+        chrono::Utc::now().timestamp(),
+    )
+    .unwrap();
+    assert_eq!(counters.creates.load(Ordering::SeqCst), 0);
+    assert_eq!(counters.loads.load(Ordering::SeqCst), 0);
+    assert_eq!(counters.deletes.load(Ordering::SeqCst), 1);
 }

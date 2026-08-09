@@ -214,7 +214,10 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         conversation_service,
         prohibited_content: prohibited,
         dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
-            effect, keyring, decorator,
+            effect,
+            keyring,
+            decorator,
+            Arc::new(crate::canonical_provider::credential_versions::fixture_native),
         ),
     })
     .await

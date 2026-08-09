@@ -105,7 +105,14 @@ fn restart_after_durable_prepare_reuses_exact_prepared_version() {
         gocode_store::schema::ConnectionMode::Writer,
     )
     .unwrap();
-    let composed = compose_credential_lifecycle(connection, [0xC1; 16], 1, true).unwrap();
+    let composed = compose_credential_lifecycle(
+        connection,
+        [0xC1; 16],
+        1,
+        true,
+        Some(Arc::new(fixture_native)),
+    )
+    .unwrap();
     let active = composed.store.active_lease(&provider).unwrap().unwrap();
 
     assert_eq!(active.version_ref(), &prepared);
