@@ -1,6 +1,4 @@
-use std::cell::Cell;
-use std::path::{Path, PathBuf};
-use std::rc::Rc;
+use std::path::PathBuf;
 
 use gocode_store::schema::{
     ConnectionMode, ManagedConnection, ManagedConnectionAuthority, PublicationPermit, Readiness,
@@ -203,38 +201,4 @@ fn validated_reopen_runs_runtime_identity_closure_before_profile() {
     )
     .unwrap();
     assert_profile(&reopened, 0);
-}
-
-struct AuthorityLock(Rc<Cell<bool>>);
-
-impl Drop for AuthorityLock {
-    fn drop(&mut self) {
-        self.0.set(false);
-    }
-}
-
-#[cfg(unix)]
-#[test]
-fn validated_reopen_retains_bootstrap_authority_lock() {
-    let database = Database::new("validated-lock");
-    let writer = open_managed_connection(&database.path, ConnectionMode::Writer).unwrap();
-    apply_migrations(&writer).unwrap();
-    drop(writer);
-    let held = Rc::new(Cell::new(true));
-    let authority_lock = AuthorityLock(Rc::clone(&held));
-
-    let reopened = reopen_managed_connection_validated(
-        Path::new(&database.path),
-        ConnectionMode::ValidatedReopen,
-        |_| {
-            assert!(held.get());
-            Ok(())
-        },
-    )
-    .unwrap();
-    assert!(held.get());
-    drop(reopened);
-    assert!(held.get());
-    drop(authority_lock);
-    assert!(!held.get());
 }

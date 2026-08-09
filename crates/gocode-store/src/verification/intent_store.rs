@@ -5,7 +5,9 @@ use gocode_domain::verification::digest::VerificationDigest;
 use gocode_domain::verification::evaluation::IntentError;
 use gocode_domain::verification::identity::*;
 use gocode_domain::verification::intent::{ConsumptionIntent, DispatchEvidence, IntentState};
-use rusqlite::{Connection, Error as SqliteError, Transaction, TransactionBehavior, params};
+#[cfg(test)]
+use rusqlite::Connection;
+use rusqlite::{Error as SqliteError, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
 use crate::schema;

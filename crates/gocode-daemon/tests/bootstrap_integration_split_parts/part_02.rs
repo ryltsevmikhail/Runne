@@ -265,6 +265,23 @@ fn validated_reopen_retains_bootstrap_authority_lock() {
 
     let reopened = bootstrap(&config).unwrap();
     assert!(reopened.locks.authority_lock.is_some());
+    let authority_id = reopened.authority_id;
+    let competitor_path = temp.path().join("authority-lock-competitor.db");
+    fs::File::create(&competitor_path).unwrap();
+    let mut competitor = LockSet::acquire_path(&competitor_path, temp.path()).unwrap();
+
+    assert!(
+        competitor
+            .acquire_authority_lock(&authority_id, temp.path())
+            .is_err(),
+        "a competing authority lock must fail while BootstrapOutcome is alive"
+    );
+    assert!(competitor.authority_lock.is_none());
     gocode_store::schema::readiness_from_managed(&reopened.db_conn).unwrap();
     gocode_store::schema::publication_from_managed(&reopened.db_conn).unwrap();
+    drop(reopened);
+    competitor
+        .acquire_authority_lock(&authority_id, temp.path())
+        .expect("dropping BootstrapOutcome must release its authority lock");
+    assert!(competitor.authority_lock.is_some());
 }

@@ -1,8 +1,9 @@
 use gocode_application::provider::ProviderAdmissionError;
 use std::time::{Duration, Instant};
 
+use crate::schema::ManagedConnection;
 use gocode_provider::ProviderDispatchClaim;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 /// Durable result of the one-shot pre-effect compare-and-swap.
 ///
@@ -65,7 +66,7 @@ impl ProviderEffectStartReceipt {
 }
 
 pub(super) fn start_effect(
-    connection: &mut Connection,
+    connection: &mut ManagedConnection,
     claim: &ProviderDispatchClaim,
     wall_before: i64,
     wall_after: impl FnOnce() -> i64,
