@@ -16,8 +16,9 @@ use crate::{
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
     ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
-use gocode_provider::{CredentialDispatchCapability, CredentialGcClaim, CredentialVersionRef,
-    NativeCredentialAuthority, NativeCredentialDeletionProof};
+use gocode_provider::{CredentialDispatchCapability, CredentialGcClaim,
+    CredentialNativeCreateClaim, CredentialVersionRef, NativeCredentialAuthority,
+    NativeCredentialDeletionProof};
 use zeroize::Zeroizing;
 
 const SERVICE_NAME: &str = "gocode-ui";

@@ -2,6 +2,8 @@ use std::fmt::Write as _;
 use std::path::Path;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(test)]
+use std::sync::Barrier;
 use std::sync::{Arc, Mutex};
 
 use gocode_application::provider::{
@@ -39,6 +41,8 @@ pub struct SqliteProviderExecutionStore {
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     #[cfg(test)]
     fail_effect_readback: AtomicBool,
+    #[cfg(test)]
+    effect_receipt_pause: Mutex<Option<(Arc<Barrier>, Arc<Barrier>)>>,
 }
 
 /// Concrete store-owned admission returned only after durable read-back.

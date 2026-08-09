@@ -43,6 +43,7 @@ CREATE TABLE provider_credential_clock_high_water (
 );
 CREATE TABLE provider_credential_provisions (
     operation_id BLOB NOT NULL PRIMARY KEY CHECK(length(operation_id) = 16),
+    source_revision_id BLOB NOT NULL CHECK(length(source_revision_id) = 16),
     provider_id TEXT NOT NULL CHECK(length(provider_id) BETWEEN 1 AND 128),
     credential_version INTEGER NOT NULL CHECK(credential_version > 0),
     ref_digest BLOB NOT NULL CHECK(length(ref_digest) = 32),
@@ -88,7 +89,7 @@ const V16_TRIGGERS: [(&str, &str); 8] = [
     ),
     (
         "provider_credential_provision_order",
-        "CREATE TRIGGER provider_credential_provision_order BEFORE UPDATE ON provider_credential_provisions WHEN NEW.operation_id != OLD.operation_id OR NEW.provider_id != OLD.provider_id OR NEW.credential_version != OLD.credential_version OR NEW.ref_digest != OLD.ref_digest OR NOT (NEW.provision_state = OLD.provision_state OR (OLD.provision_state = 'PREPARED' AND NEW.provision_state = 'NATIVE_CREATED') OR (OLD.provision_state = 'NATIVE_CREATED' AND NEW.provision_state = 'ACTIVATED')) BEGIN SELECT RAISE(ABORT, 'invalid credential provision transition'); END",
+        "CREATE TRIGGER provider_credential_provision_order BEFORE UPDATE ON provider_credential_provisions WHEN NEW.operation_id != OLD.operation_id OR NEW.source_revision_id != OLD.source_revision_id OR NEW.provider_id != OLD.provider_id OR NEW.credential_version != OLD.credential_version OR NEW.ref_digest != OLD.ref_digest OR NOT (NEW.provision_state = OLD.provision_state OR (OLD.provision_state = 'PREPARED' AND NEW.provision_state = 'NATIVE_CREATED') OR (OLD.provision_state = 'NATIVE_CREATED' AND NEW.provision_state = 'ACTIVATED')) BEGIN SELECT RAISE(ABORT, 'invalid credential provision transition'); END",
     ),
     (
         "provider_credential_provision_permanent",

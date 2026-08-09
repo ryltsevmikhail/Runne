@@ -38,6 +38,8 @@ impl SqliteProviderExecutionStore {
             now,
             #[cfg(test)]
             fail_effect_readback: AtomicBool::new(false),
+            #[cfg(test)]
+            effect_receipt_pause: Mutex::new(None),
         })
     }
 
@@ -154,6 +156,15 @@ impl SqliteProviderExecutionStore {
             claim,
             credential,
             || self.now(),
+            || {
+                #[cfg(test)]
+                if let Some((reached, release)) =
+                    self.effect_receipt_pause.lock().unwrap().take()
+                {
+                    reached.wait();
+                    release.wait();
+                }
+            },
             {
                 #[cfg(test)]
                 {

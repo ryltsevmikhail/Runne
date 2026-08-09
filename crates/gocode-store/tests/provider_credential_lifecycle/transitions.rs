@@ -1,7 +1,7 @@
 use std::{fs, sync::Arc};
 
 use gocode_provider::{
-    CredentialLifecycleError, CredentialVersionState, ProviderCredentialVersionStore,
+    CredentialLifecycleError, CredentialVersionState, ProviderCredentialVersionStore, ProviderId,
 };
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
@@ -32,6 +32,54 @@ fn prepared_native_create_is_idempotent_after_crash() {
     assert_eq!(
         store(&path).version_state(&reference).unwrap(),
         CredentialVersionState::Prepared
+    );
+}
+
+#[test]
+fn deleted_version_can_never_reclaim_native_create_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("deleted-create-authority.sqlite");
+    let (store, native) = store_with_native(&path);
+    let provider = ProviderId::new("openai").unwrap();
+    let source = store.provision_source([0xD4; 16]).unwrap();
+    let provision = store
+        .begin_provision(&provider, [0xD5; 16], &source)
+        .unwrap();
+    let create = store.claim_native_create(&provision).unwrap();
+    assert_eq!(create.version_ref(), provision.version_ref());
+    let provision = store.mark_native_created(&provision).unwrap();
+    store
+        .activate(lease(
+            provision.version_ref().clone(),
+            OWNER_A,
+            i64::MAX,
+            93,
+        ))
+        .unwrap();
+    revoke(&store, provision.version_ref().clone(), 93);
+    let proof = native
+        .delete(
+            store
+                .reconcile(100)
+                .unwrap()
+                .into_native_deletions()
+                .pop()
+                .unwrap(),
+        )
+        .unwrap();
+    store.complete_native_delete(proof).unwrap();
+
+    assert_eq!(
+        native.authorize_create(&create).unwrap_err(),
+        CredentialLifecycleError::StaleLease
+    );
+    assert_eq!(
+        store.pending_provision(&provider).unwrap_err(),
+        CredentialLifecycleError::LifecycleClosed
+    );
+    assert_eq!(
+        store.claim_native_create(&provision).unwrap_err(),
+        CredentialLifecycleError::LifecycleClosed
     );
 }
 

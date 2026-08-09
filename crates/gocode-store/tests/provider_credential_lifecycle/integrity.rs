@@ -191,6 +191,48 @@ fn reconcile_rejects_corrupt_stored_reference_digest() {
 }
 
 #[test]
+fn reconcile_validates_existing_gc_batch_before_mutating_retired_rows() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("mixed-corrupt-gc.sqlite");
+    let lifecycle = store(&path);
+    let corrupt = version(1);
+    prepare(&lifecycle, corrupt.clone());
+    lifecycle
+        .activate(lease(corrupt.clone(), OWNER_A, i64::MAX, 91))
+        .unwrap();
+    revoke(&lifecycle, corrupt.clone(), 91);
+    assert_eq!(
+        lifecycle.reconcile(100).unwrap().native_deletions().len(),
+        1
+    );
+    let valid = version(2);
+    prepare(&lifecycle, valid.clone());
+    lifecycle
+        .activate(lease(valid.clone(), OWNER_B, i64::MAX, 92))
+        .unwrap();
+    revoke(&lifecycle, valid.clone(), 92);
+    drop(lifecycle);
+
+    corrupt_ref_digest(&path, 1);
+    assert_eq!(
+        store(&path).reconcile(100).unwrap_err(),
+        CredentialLifecycleError::CorruptState
+    );
+    let connection = Connection::open(&path).unwrap();
+    for (version, expected) in [(1, "GC_CLAIMED"), (2, "RETIRED")] {
+        let state: String = connection
+            .query_row(
+                "SELECT lifecycle_state FROM provider_credential_versions
+                 WHERE provider_id='openai' AND credential_version=?1",
+                [version],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(state, expected);
+    }
+}
+
+#[test]
 fn deleted_tombstone_rejects_every_row_mutation() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("immutable-tombstone.sqlite");

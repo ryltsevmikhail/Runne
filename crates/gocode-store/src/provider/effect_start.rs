@@ -13,6 +13,7 @@ pub(super) fn start_effect(
     claim: &ProviderDispatchClaim,
     credential: &CredentialDispatchBinding,
     now: impl Fn() -> i64,
+    before_receipt_lock: impl FnOnce(),
     fail_readback: bool,
 ) -> Result<ProviderEffectStartReceipt, ProviderAdmissionError> {
     let transaction = connection
@@ -193,10 +194,11 @@ pub(super) fn start_effect(
     if fail_readback {
         return Err(ProviderAdmissionError::PostClaimUncertain);
     }
-    let wall_after = now();
+    before_receipt_lock();
     let clock_transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    let wall_after = now();
     super::credential_lifecycle::advance_provider_clock(
         &clock_transaction,
         credential.version_ref().provider(),

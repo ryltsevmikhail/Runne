@@ -136,10 +136,13 @@ fn reconcile_versions(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
-    let transition_rows = load_reconcile_transition_rows(&transaction, now)?;
-    for (row, reference) in &transition_rows {
+    let batch = load_reconcile_batch(&transaction, now)?;
+    for (row, reference) in &batch {
         validate_row_ref(row, reference)?;
-        advance_provider_clock(&transaction, reference.provider(), now)?;
+        validate_reconcile_row(row, now)?;
+        if row.state != CredentialVersionState::GcClaimed {
+            advance_provider_clock(&transaction, reference.provider(), now)?;
+        }
     }
     transaction
         .execute(
@@ -158,45 +161,16 @@ fn reconcile_versions(
         )
         .map_err(map_sql)?;
     transaction.commit().map_err(map_sql)?;
-    drop(connection);
-
-    let connection = store.connection.lock().map_err(map_lock)?;
-    let mut statement = connection
-        .prepare(
-            "SELECT provider_id, credential_version, ref_digest
-             FROM provider_credential_versions
-             WHERE lifecycle_state='GC_CLAIMED' ORDER BY provider_id, credential_version",
-        )
-        .map_err(map_sql)?;
-    let pairs = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, Vec<u8>>(2)?,
-            ))
-        })
-        .map_err(map_sql)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(map_sql)?;
-    let claims = pairs
+    let claims = batch
         .into_iter()
-        .map(|(provider, version, stored_digest)| {
-            let provider = gocode_provider::ProviderId::new(provider)
-                .map_err(|_| CredentialLifecycleError::CorruptState)?;
-            let version = u64::try_from(version)
-                .map_err(|_| CredentialLifecycleError::CorruptState)?;
-            let reference = CredentialVersionRef::new(provider, version)?;
-            if stored_digest.as_slice() != reference.ref_digest() {
-                return Err(CredentialLifecycleError::CorruptState);
-            }
-            Ok(store.authority.issue_gc(reference))
+        .map(|(_, reference)| {
+            store.authority.issue_gc(reference)
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect();
     Ok(ReconcileCredentialVersions::new(claims))
 }
 
-fn load_reconcile_transition_rows(
+fn load_reconcile_batch(
     transaction: &rusqlite::Transaction<'_>,
     now: i64,
 ) -> Result<Vec<(CredentialRow, CredentialVersionRef)>, CredentialLifecycleError> {
@@ -208,7 +182,9 @@ fn load_reconcile_transition_rows(
              FROM provider_credential_versions
              WHERE (lifecycle_state='ACTIVE' AND lease_expires_at<=?1)
                 OR (lifecycle_state='RETIRED'
-                    AND (lease_expires_at<=?1 OR revocation_fence>=lease_fencing_token))",
+                    AND (lease_expires_at<=?1 OR revocation_fence>=lease_fencing_token))
+                OR lifecycle_state='GC_CLAIMED'
+             ORDER BY provider_id, credential_version",
         )
         .map_err(map_sql)?;
     let raw = statement
@@ -232,4 +208,34 @@ fn load_reconcile_transition_rows(
             Ok((row, reference))
         })
         .collect()
+}
+
+fn validate_reconcile_row(
+    row: &CredentialRow,
+    now: i64,
+) -> Result<(), CredentialLifecycleError> {
+    let owner_valid = row.lease_owner.as_ref().is_some_and(|owner| owner.len() == 16);
+    let expiry = row.lease_expires_at.filter(|expiry| *expiry > 0);
+    let fence = row.lease_fencing_token.filter(|fence| *fence > 0);
+    let common = owner_valid
+        && expiry.is_some()
+        && fence.is_some()
+        && row.revocation_fence >= 0
+        && row.tombstone_digest.is_none();
+    let valid = match row.state {
+        CredentialVersionState::Active => {
+            common
+                && expiry.is_some_and(|expiry| expiry <= now)
+                && fence.is_some_and(|fence| row.revocation_fence < fence)
+        }
+        CredentialVersionState::Retired | CredentialVersionState::GcClaimed => {
+            common && fence.is_some_and(|fence| row.revocation_fence >= fence)
+        }
+        _ => false,
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(CredentialLifecycleError::CorruptState)
+    }
 }

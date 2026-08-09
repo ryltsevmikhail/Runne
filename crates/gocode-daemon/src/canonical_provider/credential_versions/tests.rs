@@ -2,9 +2,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use gocode_provider::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
-    CredentialVersionRef, CredentialVersionState, NativeCredentialAuthority,
-    NativeCredentialDeletionProof, PrepareCredentialVersion, ProviderCredentialVersionStore,
-    ProviderId, RevokeCredentialVersion,
+    CredentialNativeCreateClaim, CredentialVersionRef, CredentialVersionState,
+    NativeCredentialAuthority, NativeCredentialDeletionProof, PrepareCredentialVersion,
+    ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
 };
 use gocode_secure_store::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
@@ -14,6 +14,7 @@ use gocode_secure_store::{
 use super::*;
 
 mod provisioning;
+mod startup;
 
 struct DeletingNative {
     authority: NativeCredentialAuthority,
@@ -40,10 +41,13 @@ impl NativeProviderCredentialVersionStore for DeletingNative {
 
     fn create_version(
         &self,
-        _reference: CredentialVersionRef,
+        claim: CredentialNativeCreateClaim,
         _credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.authority
+            .authorize_create(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 

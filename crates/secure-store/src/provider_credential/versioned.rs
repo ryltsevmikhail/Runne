@@ -1,6 +1,6 @@
 use gocode_provider::{
-    CredentialDispatchCapability, CredentialGcClaim, CredentialVersionRef,
-    NativeCredentialDeletionProof,
+    CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
+    CredentialVersionRef, NativeCredentialDeletionProof,
 };
 
 /// Opaque native operations for immutable provider credential versions.
@@ -22,12 +22,25 @@ pub trait NativeProviderCredentialVersionStore: Send + Sync {
 
     /// Idempotently creates immutable native material for a prepared version.
     ///
+    /// ```compile_fail
+    /// use gocode_provider::{CredentialVersionRef, ProviderId};
+    /// use gocode_secure_store::{NativeProviderCredentialStore,
+    ///     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
+    ///     ProviderCredentialMaterial};
+    /// let store = NativeProviderCredentialStore::new();
+    /// let reference = CredentialVersionRef::new(ProviderId::new("openai")?, 1)?;
+    /// let material: ProviderCredentialMaterial = todo!();
+    /// let access: ProviderCredentialAccessPolicy = todo!();
+    /// store.create_version(reference, &material, &access)?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns a closed validation, access, corruption, or backend failure.
     fn create_version(
         &self,
-        reference: CredentialVersionRef,
+        claim: CredentialNativeCreateClaim,
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError>;

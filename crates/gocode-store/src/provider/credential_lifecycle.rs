@@ -6,9 +6,10 @@ use std::{
 
 use gocode_provider::{
     CredentialAuthorityPair, CredentialLease, CredentialLifecycleAuthority,
-    CredentialLifecycleError, CredentialVersionRef, CredentialVersionState,
-    NativeCredentialDeletionProof, PrepareCredentialVersion, ProviderCredentialVersionStore,
-    ReconcileCredentialVersions, RevokeCredentialVersion,
+    CredentialLifecycleError, CredentialNativeCreateClaim, CredentialProvisionSource,
+    CredentialVersionRef, CredentialVersionState, NativeCredentialDeletionProof,
+    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
+    RevokeCredentialVersion,
 };
 use rusqlite::{TransactionBehavior, params};
 use sha2::{Digest, Sha256};

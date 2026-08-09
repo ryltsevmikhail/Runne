@@ -119,6 +119,43 @@ fn effect_start_withholds_receipt_on_post_commit_clock_rollback() {
     assert_eq!(effect_start_count(&fixture), 1);
 }
 
+#[test]
+fn effect_receipt_samples_expiry_only_after_the_second_write_lock() {
+    let fixture = Fixture::new(1_000);
+    fixture.install();
+    let admission = match fixture.issue(1).unwrap() {
+        ProviderAuthorityIssueOutcome::Winner(admission) => admission,
+        ProviderAuthorityIssueOutcome::Existing { .. } => panic!("new admission"),
+    };
+    let (_, credential) = fixture.credential();
+    fixture.clock.set(1_599);
+    let (reached, release) = fixture.store.pause_next_effect_receipt_lock();
+
+    let (sampled_while_locked, result) = std::thread::scope(|scope| {
+        let pending = scope.spawn(|| fixture.store.start_effect(admission.claim(), &credential));
+        reached.wait();
+        let blocker = Connection::open(&fixture.path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let reads_before = fixture.clock.read_count();
+        release.wait();
+        let mut sampled = false;
+        for _ in 0..100 {
+            if fixture.clock.read_count() > reads_before {
+                sampled = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        fixture.clock.set(1_600);
+        blocker.execute_batch("COMMIT").unwrap();
+        (sampled, pending.join().unwrap())
+    });
+
+    assert_eq!(result, Err(ProviderAdmissionError::AuthorityDenied));
+    assert!(!sampled_while_locked, "receipt time sampled before lock");
+    assert_eq!(effect_start_count(&fixture), 1);
+}
+
 fn effect_start_count(fixture: &Fixture) -> i64 {
     Connection::open(&fixture.path)
         .unwrap()

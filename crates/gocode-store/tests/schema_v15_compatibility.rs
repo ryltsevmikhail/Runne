@@ -223,8 +223,8 @@ fn corrupt_v16_provision_catalog_is_rejected_before_open() {
     replace_table_ddl(
         &path,
         "provider_credential_provisions",
-        "CHECK(length(operation_id) = 16)",
-        "CHECK(length(operation_id) <= 16)",
+        "CHECK(length(source_revision_id) = 16)",
+        "CHECK(length(source_revision_id) <= 16)",
     );
 
     assert!(preflight_existing_file(&path).is_err());
