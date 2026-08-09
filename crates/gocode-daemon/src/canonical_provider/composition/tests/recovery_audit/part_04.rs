@@ -55,6 +55,8 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
             "aggregate_streams",
             "event_log_state",
             "provider_credential_versions",
+            "provider_credential_provisions",
+            "provider_credential_clock_high_water",
         ],
     );
     assert_eq!(
@@ -107,6 +109,29 @@ fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, path: &str, f
     assert_eq!(replacement[lease_fence], (fence + 1).to_string());
     assert_eq!(replacement[revocation], "0");
     assert_eq!(replacement[tombstone], "NULL");
+
+    let provision_columns = table_columns(path, "provider_credential_provisions");
+    let provision_version = column_index(&provision_columns, "credential_version");
+    let provision_state = column_index(&provision_columns, "provision_state");
+    assert_eq!(before["provider_credential_provisions"].len(), 1);
+    assert_eq!(after["provider_credential_provisions"].len(), 2);
+    assert_eq!(
+        (
+            after["provider_credential_provisions"][1][provision_version].as_str(),
+            after["provider_credential_provisions"][1][provision_state].as_str(),
+        ),
+        ("2", "'ACTIVATED'")
+    );
+
+    let clock_columns = table_columns(path, "provider_credential_clock_high_water");
+    let observed = column_index(&clock_columns, "observed_at");
+    let before_clock = before["provider_credential_clock_high_water"][0][observed]
+        .parse::<i64>()
+        .unwrap();
+    let after_clock = after["provider_credential_clock_high_water"][0][observed]
+        .parse::<i64>()
+        .unwrap();
+    assert!(after_clock >= before_clock);
 }
 
 fn assert_remaining(

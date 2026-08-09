@@ -7,7 +7,7 @@ use gocode_provider::{
 };
 use gocode_secure_store::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
-    ProviderCredentialMaterial, SecureStoreError,
+    ProviderCredentialMaterial, ProviderCredentialStatus, SecureStoreError,
 };
 
 use super::controlled_executable;
@@ -39,6 +39,20 @@ impl OpaqueVersionFixture {
 }
 
 impl NativeProviderCredentialVersionStore for OpaqueVersionFixture {
+    fn version_status(
+        &self,
+        reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        Ok(match self.values.lock().unwrap().get(reference) {
+            Some(VersionState::Complete(_)) => ProviderCredentialStatus::Configured,
+            Some(VersionState::Incomplete) => {
+                return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+            }
+            None => ProviderCredentialStatus::Missing,
+        })
+    }
+
     fn create_version(
         &self,
         reference: CredentialVersionRef,
@@ -103,6 +117,12 @@ fn opaque_version_operations_never_expose_secret_bytes() {
     fixture
         .create_version(reference.clone(), &material, &executable.access)
         .unwrap();
+    assert_eq!(
+        fixture
+            .version_status(&reference, &executable.access)
+            .unwrap(),
+        ProviderCredentialStatus::Configured
+    );
     fixture
         .create_version(reference.clone(), &material, &executable.access)
         .unwrap();
@@ -120,6 +140,12 @@ fn opaque_version_operations_never_expose_secret_bytes() {
     let proof = fixture
         .delete_version(lifecycle.issue_gc(reference.clone()))
         .unwrap();
+    assert_eq!(
+        fixture
+            .version_status(&reference, &executable.access)
+            .unwrap(),
+        ProviderCredentialStatus::Missing
+    );
     assert_eq!(lifecycle.verify_deletion(&proof).unwrap(), &reference);
     let replay = fixture
         .delete_version(lifecycle.issue_gc(reference.clone()))

@@ -6,97 +6,28 @@ use crate::schema::ManagedConnection;
 use gocode_provider::ProviderDispatchClaim;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
-/// Durable result of the one-shot pre-effect compare-and-swap.
-///
-/// ```compile_fail
-/// use gocode_store::provider::ProviderEffectStartReceipt;
-///
-/// fn duplicate(receipt: ProviderEffectStartReceipt) {
-///     let _ = receipt.clone();
-/// }
-/// ```
-#[derive(PartialEq, Eq)]
-pub struct ProviderEffectStartReceipt {
-    expires_at: i64,
-    attempt_id: [u8; 16],
-    permit_id: [u8; 16],
-    provider_idempotency_key: String,
-    prepared_digest: [u8; 32],
-    render_digest: [u8; 32],
-    profile_digest: [u8; 32],
-    fencing_token: u64,
-    token_reservation_id: [u8; 16],
-    cost_reservation_id: [u8; 16],
-    deadline: Instant,
-    credential_provider: String,
-    credential_version: u64,
-    credential_ref_digest: [u8; 32],
-    credential_owner: [u8; 16],
-    credential_expires_at: i64,
-    credential_fencing_token: u64,
-}
-
-impl std::fmt::Debug for ProviderEffectStartReceipt {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ProviderEffectStartReceipt")
-            .field("expires_at", &self.expires_at)
-            .field("binding", &"<redacted>")
-            .field("deadline", &"<monotonic>")
-            .finish()
-    }
-}
-
-impl ProviderEffectStartReceipt {
-    /// Absolute Unix-second effect expiry loaded after the committed CAS.
-    pub const fn expires_at(&self) -> i64 {
-        self.expires_at
-    }
-
-    /// Returns the single monotonic deadline captured after durable readback.
-    pub const fn deadline(&self) -> Instant {
-        self.deadline
-    }
-
-    /// Returns whether this receipt is bound to the exact admitted claim.
-    pub fn matches_claim(&self, claim: &ProviderDispatchClaim) -> bool {
-        self.attempt_id == *claim.attempt_id.as_bytes()
-            && self.permit_id == claim.permit_id
-            && self.provider_idempotency_key == claim.provider_idempotency_key
-            && self.prepared_digest == claim.prepared_digest
-            && self.render_digest == claim.render_digest
-            && self.profile_digest == claim.profile_digest
-            && self.fencing_token == claim.fencing_token
-            && self.token_reservation_id == claim.token_reservation_id
-            && self.cost_reservation_id == claim.cost_reservation_id
-    }
-
-    /// Returns whether this receipt names the exact credential authority
-    /// committed atomically with the effect-start intent.
-    pub fn matches_credential(&self, binding: &CredentialDispatchBinding) -> bool {
-        self.credential_provider == binding.version_ref().provider().as_str()
-            && self.credential_version == binding.version_ref().version()
-            && self.credential_ref_digest == *binding.version_ref().ref_digest()
-            && self.credential_owner == *binding.owner()
-            && self.credential_expires_at == binding.expires_at()
-            && self.credential_fencing_token == binding.fencing_token()
-    }
-}
+include!("effect_start/receipt.rs");
 
 pub(super) fn start_effect(
     connection: &mut ManagedConnection,
     claim: &ProviderDispatchClaim,
     credential: &CredentialDispatchBinding,
-    wall_before: i64,
-    wall_after: impl FnOnce() -> i64,
+    now: impl Fn() -> i64,
     fail_readback: bool,
 ) -> Result<ProviderEffectStartReceipt, ProviderAdmissionError> {
-    let expires_at = wall_before
-        .checked_add(120)
-        .ok_or(ProviderAdmissionError::AuthorityDenied)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+    let wall_before = now();
+    if super::credential_lifecycle::advance_provider_clock(
+        &transaction,
+        credential.version_ref().provider(),
+        wall_before,
+    )
+    .is_err()
+    {
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
     let valid = transaction.query_row(
         "SELECT EXISTS(
             SELECT 1
@@ -185,8 +116,33 @@ pub(super) fn start_effect(
         ], |row| row.get::<_, bool>(0),
     ).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
     if !valid {
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         return Err(ProviderAdmissionError::AuthorityDenied);
     }
+    let effect_started_at = now();
+    if super::credential_lifecycle::advance_provider_clock(
+        &transaction,
+        credential.version_ref().provider(),
+        effect_started_at,
+    )
+    .is_err()
+    {
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
+    if credential.expires_at() <= effect_started_at {
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
+    let Some(expires_at) = effect_started_at.checked_add(120) else {
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    };
     let changed = transaction
         .execute(
             "INSERT INTO provider_effect_starts (
@@ -197,7 +153,7 @@ pub(super) fn start_effect(
                 claim.attempt_id.as_bytes().as_slice(),
                 claim.provider_idempotency_key,
                 claim.permit_id.as_slice(),
-                wall_before,
+                effect_started_at,
                 expires_at
             ],
         )
@@ -237,20 +193,35 @@ pub(super) fn start_effect(
     if fail_readback {
         return Err(ProviderAdmissionError::PostClaimUncertain);
     }
-    let wall_after = wall_after();
+    let wall_after = now();
+    let clock_transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    super::credential_lifecycle::advance_provider_clock(
+        &clock_transaction,
+        credential.version_ref().provider(),
+        wall_after,
+    )
+    .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    clock_transaction
+        .commit()
+        .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    if credential.expires_at() <= effect_started_at.max(wall_after) {
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
     connection
         .query_row(
             "SELECT effect_started_at, effect_expires_at FROM provider_effect_starts
-         WHERE dispatch_attempt_id = ?1 AND permit_id = ?2 AND effect_started_at = ?3
+             WHERE dispatch_attempt_id = ?1 AND permit_id = ?2 AND effect_started_at = ?3
            AND effect_expires_at = ?4 AND state = 1",
             params![
                 claim.attempt_id.as_bytes().as_slice(),
                 claim.permit_id.as_slice(),
-                wall_before,
+                effect_started_at,
                 expires_at
             ],
             |row| {
-                let effective_wall = wall_before.max(wall_after).max(row.get::<_, i64>(0)?);
+                let effective_wall = effect_started_at.max(wall_after).max(row.get::<_, i64>(0)?);
                 let effect_expires_at = row.get::<_, i64>(1)?;
                 let remaining = effect_expires_at
                     .checked_sub(effective_wall)

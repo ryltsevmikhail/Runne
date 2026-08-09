@@ -9,6 +9,17 @@ use gocode_provider::{
 /// bytes are returned solely as zeroizing native-store material and never as
 /// a serializable handle or reference payload.
 pub trait NativeProviderCredentialVersionStore: Send + Sync {
+    /// Validates non-secret native presence, metadata and canonical ref scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed access, corruption, missing-metadata, or backend failure.
+    fn version_status(
+        &self,
+        reference: &CredentialVersionRef,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError>;
+
     /// Idempotently creates immutable native material for a prepared version.
     ///
     /// # Errors

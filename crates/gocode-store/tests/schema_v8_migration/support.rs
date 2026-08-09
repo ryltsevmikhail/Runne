@@ -50,6 +50,8 @@ fn drop_v12_fences(conn: &Connection) {
 fn drop_v13_provider_execution(conn: &Connection) {
     conn.execute_batch(
         "DROP TABLE provider_credential_effect_bindings;
+         DROP TABLE provider_credential_provisions;
+         DROP TABLE provider_credential_clock_high_water;
          DROP TABLE provider_credential_versions;
          DROP TABLE provider_effect_starts;
          DROP TABLE provider_terminal_outbox;

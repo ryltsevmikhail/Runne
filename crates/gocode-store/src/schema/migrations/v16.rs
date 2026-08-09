@@ -36,6 +36,25 @@ CREATE TABLE provider_credential_versions (
 CREATE UNIQUE INDEX provider_credential_one_active
     ON provider_credential_versions(provider_id)
     WHERE lifecycle_state = 'ACTIVE';
+CREATE TABLE provider_credential_clock_high_water (
+    provider_id TEXT NOT NULL PRIMARY KEY
+        CHECK(length(provider_id) BETWEEN 1 AND 128),
+    observed_at INTEGER NOT NULL CHECK(observed_at >= 0)
+);
+CREATE TABLE provider_credential_provisions (
+    operation_id BLOB NOT NULL PRIMARY KEY CHECK(length(operation_id) = 16),
+    provider_id TEXT NOT NULL CHECK(length(provider_id) BETWEEN 1 AND 128),
+    credential_version INTEGER NOT NULL CHECK(credential_version > 0),
+    ref_digest BLOB NOT NULL CHECK(length(ref_digest) = 32),
+    provision_state TEXT NOT NULL
+        CHECK(provision_state IN ('PREPARED', 'NATIVE_CREATED', 'ACTIVATED')),
+    UNIQUE(provider_id, credential_version),
+    FOREIGN KEY(provider_id, credential_version)
+        REFERENCES provider_credential_versions(provider_id, credential_version)
+);
+CREATE UNIQUE INDEX provider_credential_one_pending_provision
+    ON provider_credential_provisions(provider_id)
+    WHERE provision_state != 'ACTIVATED';
 CREATE TABLE provider_credential_effect_bindings (
     dispatch_attempt_id BLOB NOT NULL PRIMARY KEY
         REFERENCES provider_effect_starts(dispatch_attempt_id),
@@ -50,7 +69,7 @@ CREATE TABLE provider_credential_effect_bindings (
 );
 "#;
 
-const V16_TRIGGERS: [(&str, &str); 4] = [
+const V16_TRIGGERS: [(&str, &str); 8] = [
     (
         "provider_credential_transition_order",
         "CREATE TRIGGER provider_credential_transition_order BEFORE UPDATE ON provider_credential_versions WHEN NEW.revocation_fence < OLD.revocation_fence OR NOT (NEW.lifecycle_state = OLD.lifecycle_state OR (OLD.lifecycle_state = 'PREPARED' AND NEW.lifecycle_state = 'ACTIVE') OR (OLD.lifecycle_state = 'ACTIVE' AND NEW.lifecycle_state = 'RETIRED' AND NEW.revocation_fence >= OLD.lease_fencing_token) OR (OLD.lifecycle_state = 'RETIRED' AND NEW.lifecycle_state = 'GC_CLAIMED' AND OLD.revocation_fence >= OLD.lease_fencing_token) OR (OLD.lifecycle_state = 'GC_CLAIMED' AND NEW.lifecycle_state = 'DELETED')) BEGIN SELECT RAISE(ABORT, 'invalid credential lifecycle transition'); END",
@@ -66,6 +85,22 @@ const V16_TRIGGERS: [(&str, &str); 4] = [
     (
         "provider_credential_tombstone_permanent",
         "CREATE TRIGGER provider_credential_tombstone_permanent BEFORE DELETE ON provider_credential_versions BEGIN SELECT RAISE(ABORT, 'credential tombstone is permanent'); END",
+    ),
+    (
+        "provider_credential_provision_order",
+        "CREATE TRIGGER provider_credential_provision_order BEFORE UPDATE ON provider_credential_provisions WHEN NEW.operation_id != OLD.operation_id OR NEW.provider_id != OLD.provider_id OR NEW.credential_version != OLD.credential_version OR NEW.ref_digest != OLD.ref_digest OR NOT (NEW.provision_state = OLD.provision_state OR (OLD.provision_state = 'PREPARED' AND NEW.provision_state = 'NATIVE_CREATED') OR (OLD.provision_state = 'NATIVE_CREATED' AND NEW.provision_state = 'ACTIVATED')) BEGIN SELECT RAISE(ABORT, 'invalid credential provision transition'); END",
+    ),
+    (
+        "provider_credential_provision_permanent",
+        "CREATE TRIGGER provider_credential_provision_permanent BEFORE DELETE ON provider_credential_provisions BEGIN SELECT RAISE(ABORT, 'credential provision identity is permanent'); END",
+    ),
+    (
+        "provider_credential_clock_monotonic",
+        "CREATE TRIGGER provider_credential_clock_monotonic BEFORE UPDATE ON provider_credential_clock_high_water WHEN NEW.provider_id != OLD.provider_id OR NEW.observed_at < OLD.observed_at BEGIN SELECT RAISE(ABORT, 'credential clock rollback'); END",
+    ),
+    (
+        "provider_credential_clock_permanent",
+        "CREATE TRIGGER provider_credential_clock_permanent BEFORE DELETE ON provider_credential_clock_high_water BEGIN SELECT RAISE(ABORT, 'credential clock high-water is permanent'); END",
     ),
 ];
 
@@ -94,6 +129,12 @@ fn is_released_provider_v16(conn: &Connection, version: i64) -> SqliteResult<boo
             "provider_credential_effect_bindings",
             MIGRATION_V16,
         )?
+        && table_sql_matches_migration(
+            conn,
+            "provider_credential_clock_high_water",
+            MIGRATION_V16,
+        )?
+        && table_sql_matches_migration(conn, "provider_credential_provisions", MIGRATION_V16)?
         && index_sql_matches_v16(conn)?
         && v16_triggers_match(conn)?
         && v16_catalog_matches(conn)?)
@@ -108,21 +149,28 @@ fn v16_marker_matches(conn: &Connection) -> SqliteResult<bool> {
     Ok(marker == (16, 1, 16, 136))
 }
 
-fn index_sql_matches_v16(conn: &Connection) -> SqliteResult<bool> {
+fn one_index_matches_v16(conn: &Connection, name: &str) -> SqliteResult<bool> {
     let actual: Option<String> = conn
         .query_row(
-            "SELECT sql FROM sqlite_master WHERE type='index' AND name='provider_credential_one_active'",
-            [],
+            "SELECT sql FROM sqlite_master WHERE type='index' AND name=?1",
+            [name],
             |row| row.get(0),
         )
         .optional()?;
     let expected = MIGRATION_V16
         .split(';')
         .map(str::trim)
-        .find(|sql| sql.starts_with("CREATE UNIQUE INDEX provider_credential_one_active"));
+        .find(|sql| sql.starts_with(&format!("CREATE UNIQUE INDEX {name}")));
     Ok(actual.is_some_and(|actual| {
         expected.is_some_and(|expected| normalize_ddl(&actual) == normalize_ddl(expected))
     }))
+}
+
+fn index_sql_matches_v16(conn: &Connection) -> SqliteResult<bool> {
+    one_index_matches_v16(conn, "provider_credential_one_active")?
+        .then(|| one_index_matches_v16(conn, "provider_credential_one_pending_provision"))
+        .transpose()
+        .map(|matched| matched == Some(true))
 }
 
 fn v16_triggers_match(conn: &Connection) -> SqliteResult<bool> {
@@ -173,9 +221,14 @@ fn v16_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
     tables.extend([
         "provider_effect_starts",
         "provider_credential_versions",
+        "provider_credential_clock_high_water",
+        "provider_credential_provisions",
         "provider_credential_effect_bindings",
     ]);
     let mut indexes = RELEASED_V12_EXPLICIT_INDEXES.to_vec();
-    indexes.push("provider_credential_one_active");
+    indexes.extend([
+        "provider_credential_one_active",
+        "provider_credential_one_pending_provision",
+    ]);
     released_catalog_matches_with_indexes(conn, &tables, &indexes)
 }

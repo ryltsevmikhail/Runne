@@ -21,9 +21,14 @@ use crate::schema::{
 use super::CredentialDispatchBinding;
 
 include!("credential_lifecycle/row.rs");
+include!("credential_lifecycle/clock.rs");
 include!("credential_lifecycle/sql.rs");
 include!("credential_lifecycle/dispatch_ops.rs");
 include!("credential_lifecycle/diagnostics.rs");
+include!("credential_lifecycle/provision.rs");
+
+#[cfg(test)]
+mod tests;
 
 const TOMBSTONE_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_TOMBSTONE_V1\0";
 
@@ -170,7 +175,7 @@ impl ProviderCredentialVersionStore for SqliteProviderCredentialLifecycleStore {
         &self,
         lease: CredentialLease,
     ) -> Result<CredentialVersionRef, CredentialLifecycleError> {
-        activate_lease(self, lease, (self.now)())
+        activate_lease(self, lease)
     }
 
     fn revoke_and_fence(

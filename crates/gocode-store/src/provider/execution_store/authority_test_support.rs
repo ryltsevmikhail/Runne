@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use super::super::{PreparedProviderRecord, SqliteProviderDispatchStore};
 use super::{
@@ -15,7 +15,12 @@ use gocode_provider::{
 };
 use rusqlite::Connection;
 
-pub(super) struct TestClock(AtomicI64);
+pub(super) struct TestClock {
+    now: AtomicI64,
+    reads: AtomicUsize,
+    step_at: AtomicUsize,
+    step_to: AtomicI64,
+}
 
 pub(super) fn configured_connection(path: &Path) -> crate::schema::ManagedConnection {
     #[cfg(unix)]
@@ -37,11 +42,29 @@ pub(super) fn configured_connection(path: &Path) -> crate::schema::ManagedConnec
 
 impl TestClock {
     pub(super) fn set(&self, now: i64) {
-        self.0.store(now, Ordering::SeqCst);
+        self.now.store(now, Ordering::SeqCst);
+    }
+
+    pub(super) fn read_count(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn step_on_read(&self, read: usize, now: i64) {
+        self.step_to.store(now, Ordering::SeqCst);
+        self.step_at.store(read, Ordering::SeqCst);
     }
 
     fn get(&self) -> i64 {
-        self.0.load(Ordering::SeqCst)
+        let read = self.reads.fetch_add(1, Ordering::SeqCst) + 1;
+        if self
+            .step_at
+            .compare_exchange(read, usize::MAX, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.now
+                .store(self.step_to.load(Ordering::SeqCst), Ordering::SeqCst);
+        }
+        self.now.load(Ordering::SeqCst)
     }
 }
 
@@ -66,7 +89,12 @@ impl Fixture {
             std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let path = daemon.join("provider-v14.sqlite");
-        let clock = Arc::new(TestClock(AtomicI64::new(now)));
+        let clock = Arc::new(TestClock {
+            now: AtomicI64::new(now),
+            reads: AtomicUsize::new(0),
+            step_at: AtomicUsize::new(usize::MAX),
+            step_to: AtomicI64::new(now),
+        });
         let captured = Arc::clone(&clock);
         let store =
             SqliteProviderExecutionStore::open_with_now(&path, Arc::new(move || captured.get()))

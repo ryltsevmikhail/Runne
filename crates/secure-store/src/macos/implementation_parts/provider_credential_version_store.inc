@@ -1,4 +1,13 @@
 impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
+    fn version_status(
+        &self,
+        reference: &CredentialVersionRef,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        self.version_store(reference)?
+            .provider_credential_status(ProviderCredentialId::OpenAi, access)
+    }
+
     fn create_version(
         &self,
         reference: CredentialVersionRef,
