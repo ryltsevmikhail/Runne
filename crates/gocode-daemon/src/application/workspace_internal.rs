@@ -8,7 +8,9 @@ use crate::protected_activation::VerifiedProtectedApplicationStart;
 pub(crate) mod provider_dependencies;
 
 #[doc(hidden)]
-pub use provider_dependencies::ProtectedProviderDependencyCapsule;
+pub use provider_dependencies::{
+    LoopbackCredentialVersionStoreFactory, ProtectedProviderDependencyCapsule,
+};
 
 /// Starts the protected path after its authenticated launch verification.
 ///

@@ -18,15 +18,29 @@ mod startup;
 
 struct DeletingNative {
     authority: NativeCredentialAuthority,
-    deletes: AtomicUsize,
+    counters: Arc<FixtureNativeCounters>,
 }
 
-pub(super) fn fixture_native(
+#[derive(Default)]
+pub(super) struct FixtureNativeCounters {
+    pub(super) creates: AtomicUsize,
+    pub(super) loads: AtomicUsize,
+    pub(super) deletes: AtomicUsize,
+}
+
+pub(crate) fn fixture_native(
     authority: NativeCredentialAuthority,
+) -> Arc<dyn NativeProviderCredentialVersionStore> {
+    fixture_native_with_counters(authority, Arc::new(FixtureNativeCounters::default()))
+}
+
+pub(super) fn fixture_native_with_counters(
+    authority: NativeCredentialAuthority,
+    counters: Arc<FixtureNativeCounters>,
 ) -> Arc<dyn NativeProviderCredentialVersionStore> {
     Arc::new(DeletingNative {
         authority,
-        deletes: AtomicUsize::new(0),
+        counters,
     })
 }
 
@@ -45,6 +59,7 @@ impl NativeProviderCredentialVersionStore for DeletingNative {
         _credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.counters.creates.fetch_add(1, Ordering::SeqCst);
         self.authority
             .authorize_create(&claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
@@ -56,6 +71,7 @@ impl NativeProviderCredentialVersionStore for DeletingNative {
         _capability: &CredentialDispatchCapability,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        self.counters.loads.fetch_add(1, Ordering::SeqCst);
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 
@@ -66,7 +82,7 @@ impl NativeProviderCredentialVersionStore for DeletingNative {
         self.authority
             .authorize_delete(&claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        self.deletes.fetch_add(1, Ordering::SeqCst);
+        self.counters.deletes.fetch_add(1, Ordering::SeqCst);
         self.authority
             .prove_deletion(claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)
@@ -83,7 +99,7 @@ fn production_reconcile_deletes_native_before_permanent_tombstone() {
             .unwrap();
     let native = DeletingNative {
         authority: native_authority,
-        deletes: AtomicUsize::new(0),
+        counters: Arc::new(FixtureNativeCounters::default()),
     };
     let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap();
     store
@@ -97,7 +113,7 @@ fn production_reconcile_deletes_native_before_permanent_tombstone() {
         .unwrap();
 
     reconcile_native(&store, &native, 100).unwrap();
-    assert_eq!(native.deletes.load(Ordering::SeqCst), 1);
+    assert_eq!(native.counters.deletes.load(Ordering::SeqCst), 1);
     assert_eq!(
         store.version_state(&reference).unwrap(),
         CredentialVersionState::Deleted
@@ -105,5 +121,5 @@ fn production_reconcile_deletes_native_before_permanent_tombstone() {
     assert!(store.tombstone_digest(&reference).unwrap().is_some());
 
     reconcile_native(&store, &native, 100).unwrap();
-    assert_eq!(native.deletes.load(Ordering::SeqCst), 1);
+    assert_eq!(native.counters.deletes.load(Ordering::SeqCst), 1);
 }

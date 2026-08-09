@@ -13,6 +13,7 @@ use gocode_store::provider::SqliteProviderCredentialLifecycleStore;
 use gocode_store::schema::ManagedConnection;
 
 use super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
+use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
 use crate::error::DaemonError;
 
 include!("credential_versions/source.rs");
@@ -29,6 +30,7 @@ pub(super) fn compose_credential_lifecycle(
     owner: [u8; 16],
     fencing_token: u64,
     fixture: bool,
+    fixture_native: Option<Arc<LoopbackCredentialVersionStoreFactory>>,
 ) -> Result<ComposedCredentialLifecycle, DaemonError> {
     let (lifecycle_authority, native_authority) = CredentialAuthorityPair::new().split();
     let store = Arc::new(
@@ -38,7 +40,14 @@ pub(super) fn compose_credential_lifecycle(
         )
         .map_err(|_| unavailable())?,
     );
-    let native = native_version_store(native_authority.clone(), fixture);
+    let native = fixture_native.map_or_else(
+        || {
+            Arc::new(NativeProviderCredentialStore::new_versioned(
+                native_authority.clone(),
+            )) as Arc<dyn NativeProviderCredentialVersionStore>
+        },
+        |factory| factory(native_authority.clone()),
+    );
     let now = chrono::Utc::now().timestamp();
     let provider =
         ProviderId::new(ProviderCredentialId::OpenAi.account()).map_err(|_| unavailable())?;
@@ -100,18 +109,6 @@ fn resolve_pending_provision(
         provision_active(store, native, provider, owner, fencing_token, now, fixture)?;
     }
     Ok(())
-}
-
-fn native_version_store(
-    authority: NativeCredentialAuthority,
-    fixture: bool,
-) -> Arc<dyn NativeProviderCredentialVersionStore> {
-    #[cfg(test)]
-    if fixture {
-        return tests::fixture_native(authority);
-    }
-    let _ = fixture;
-    Arc::new(NativeProviderCredentialStore::new_versioned(authority))
 }
 
 fn rotate_stale_active(
@@ -290,3 +287,5 @@ fn unavailable() -> DaemonError {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) use tests::fixture_native;
