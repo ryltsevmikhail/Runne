@@ -1,8 +1,43 @@
 use gocode_provider::{
-    DispatchAttemptId, ProviderCallDigestVersion, ProviderDispatchClaim, ProviderStreamId,
+    CredentialLease, CredentialVersionRef, DispatchAttemptId, ProviderCallDigestVersion,
+    ProviderDispatchClaim, ProviderStreamId,
 };
 
 use super::PreparedProviderRecord;
+
+/// Non-forgeable store-produced active credential lease/fence tuple.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialDispatchBinding(CredentialLease);
+
+impl CredentialDispatchBinding {
+    pub(super) const fn from_authoritative_lease(lease: CredentialLease) -> Self {
+        Self(lease)
+    }
+
+    /// Returns the active version reference.
+    pub const fn version_ref(&self) -> &CredentialVersionRef {
+        self.0.version_ref()
+    }
+
+    /// Returns the active owner identity.
+    pub const fn owner(&self) -> &[u8; 16] {
+        self.0.owner()
+    }
+
+    /// Returns the active lease expiry.
+    pub const fn expires_at(&self) -> i64 {
+        self.0.expires_at()
+    }
+
+    /// Returns the active fencing token.
+    pub const fn fencing_token(&self) -> u64 {
+        self.0.fencing_token()
+    }
+
+    pub(super) const fn lease(&self) -> &CredentialLease {
+        &self.0
+    }
+}
 
 /// Opaque runtime-owned execution and normalized stream binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,5 +102,57 @@ impl ProviderExecutionBinding {
     /// Returns the normalized adapter stream identity.
     pub const fn stream_id(&self) -> ProviderStreamId {
         self.stream_id
+    }
+
+    /// Adds the authoritative active credential lease/fence required by a
+    /// versioned provider effect.
+    pub fn bind_active_credential(
+        self,
+        credential: CredentialDispatchBinding,
+    ) -> VersionedProviderExecutionBinding {
+        VersionedProviderExecutionBinding {
+            execution: self,
+            credential,
+        }
+    }
+}
+
+/// Provider execution binding that carries only non-secret credential identity
+/// and its authoritative active lease/fence tuple.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionedProviderExecutionBinding {
+    execution: ProviderExecutionBinding,
+    credential: CredentialDispatchBinding,
+}
+
+impl VersionedProviderExecutionBinding {
+    /// Returns credential-free execution metadata.
+    pub const fn execution(&self) -> &ProviderExecutionBinding {
+        &self.execution
+    }
+
+    /// Returns the non-secret binding for mandatory pre-effect revalidation.
+    pub const fn credential_binding(&self) -> &CredentialDispatchBinding {
+        &self.credential
+    }
+
+    /// Returns the sole cross-layer credential identity.
+    pub const fn credential_version_ref(&self) -> &CredentialVersionRef {
+        self.credential.version_ref()
+    }
+
+    /// Returns the authoritative lease owner.
+    pub const fn credential_lease_owner(&self) -> &[u8; 16] {
+        self.credential.owner()
+    }
+
+    /// Returns the authoritative lease expiry.
+    pub const fn credential_lease_expires_at(&self) -> i64 {
+        self.credential.expires_at()
+    }
+
+    /// Returns the authoritative credential fencing token.
+    pub const fn credential_fencing_token(&self) -> u64 {
+        self.credential.fencing_token()
     }
 }

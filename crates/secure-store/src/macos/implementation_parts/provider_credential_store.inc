@@ -181,3 +181,107 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         self.migrate_provider_credential_access_inner(provider, current, replacement, None)
     }
 }
+
+impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
+    fn create_version(
+        &self,
+        reference: CredentialVersionRef,
+        credential: &ProviderCredentialMaterial,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        let version_store = self.version_store(&reference)?;
+        match version_store.provider_credential_status(ProviderCredentialId::OpenAi, access)? {
+            ProviderCredentialStatus::Configured => {
+                if version_store.version_material_matches(credential, access)? {
+                    Ok(())
+                } else {
+                    Err(SecureStoreError::ProviderCredentialOperationFailed)
+                }
+            }
+            ProviderCredentialStatus::Missing => version_store.store_provider_credential(
+                ProviderCredentialId::OpenAi,
+                credential,
+                access,
+            ),
+            ProviderCredentialStatus::Unsupported => {
+                Err(SecureStoreError::UnsupportedSecureStoreBackend)
+            }
+        }
+    }
+
+    fn load_version(
+        &self,
+        reference: CredentialVersionRef,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        self.version_store(&reference)?
+            .load_provider_credential(ProviderCredentialId::OpenAi, access)
+    }
+
+    fn delete_version(&self, reference: CredentialVersionRef) -> Result<(), SecureStoreError> {
+        self.version_store(&reference)?
+            .delete_provider_credential(ProviderCredentialId::OpenAi)
+    }
+}
+
+impl MacOsProviderCredentialStore {
+    fn version_material_matches(
+        &self,
+        credential: &ProviderCredentialMaterial,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<bool, SecureStoreError> {
+        access
+            .validate_writer_current()
+            .map_err(map_identity_access_error)?;
+        access.remeasure().map_err(map_identity_access_error)?;
+        let exact_access =
+            ExactKeychainAccess::new(access.writer_path(), access.reader_path())
+                .map_err(map_acl_error)?;
+        Self::with_noninteractive(|keychain| {
+            let (metadata, metadata_item) = match self.find_metadata_pair(keychain)? {
+                (Some(primary), None) => primary,
+                _ => return Err(SecureStoreError::CredentialMigrationIncomplete),
+            };
+            if !metadata.is_complete()
+                || !metadata.access_matches(access)
+                || metadata.acl_set_digest() != exact_access.digest()
+            {
+                return Err(SecureStoreError::CredentialAccessDenied);
+            }
+            verify_item_acl(&metadata_item, exact_access.digest())?;
+            let Some((encoded, item)) = self.find_primary_item(keychain)? else {
+                return Err(SecureStoreError::CredentialEnrollmentIncomplete);
+            };
+            let stored = StoredProviderCredential::decode(&encoded)?;
+            if !stored.metadata_matches(&metadata)
+                || !stored.access_matches(access)
+                || stored.acl_set_digest() != exact_access.digest()
+            {
+                return Err(SecureStoreError::CorruptProviderCredential);
+            }
+            verify_item_acl(&item, exact_access.digest())?;
+            let matches = stored.into_material().with_bytes(|existing| {
+                credential.with_bytes(|incoming| existing == incoming)
+            });
+            Ok(matches)
+        })
+    }
+
+    fn version_store(
+        &self,
+        reference: &CredentialVersionRef,
+    ) -> Result<Self, SecureStoreError> {
+        if reference.provider().as_str() != ProviderCredentialId::OpenAi.account() {
+            return Err(SecureStoreError::ProviderCredentialOperationFailed);
+        }
+        Ok(Self {
+            service: format!(
+                "{}.version.{}.{}",
+                self.service,
+                reference.version(),
+                encode_hex(reference.ref_digest())
+            ),
+            account: self.account.clone(),
+        })
+    }
+}

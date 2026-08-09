@@ -49,7 +49,8 @@ fn drop_v12_fences(conn: &Connection) {
 
 fn drop_v13_provider_execution(conn: &Connection) {
     conn.execute_batch(
-        "DROP TABLE provider_effect_starts;
+        "DROP TABLE provider_credential_versions;
+         DROP TABLE provider_effect_starts;
          DROP TABLE provider_terminal_outbox;
          DROP TABLE provider_accounting_settlements;
          DROP TABLE provider_stream_journal;

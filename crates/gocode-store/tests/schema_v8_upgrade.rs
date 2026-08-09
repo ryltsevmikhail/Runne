@@ -31,6 +31,7 @@ fn released_v8_db() -> Connection {
     conn.execute_batch(
         "DROP TABLE schema_upgrade_write_latch;
          DROP TABLE schema_upgrade_fence;
+         DROP TABLE provider_credential_versions;
          DROP TABLE provider_effect_starts;
          DROP TABLE provider_terminal_outbox;
          DROP TABLE provider_accounting_settlements;
@@ -72,8 +73,8 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 15);
-    assert_eq!(version, 15);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
+    assert_eq!(version, 16);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));
@@ -87,6 +88,7 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         "provider_journal_key_refs",
         "provider_terminal_outbox",
         "provider_effect_starts",
+        "provider_credential_versions",
     ] {
         assert!(table_exists(&conn, table), "missing released table {table}");
     }

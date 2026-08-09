@@ -1,35 +1,19 @@
+use gocode_provider::{CredentialVersionRef, ProviderId};
 use gocode_secure_store::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
-    SecureStoreError,
+    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
+    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt as _;
-
+use std::{collections::HashMap, sync::Mutex};
 struct ControlledExecutable {
-    _temporary: tempfile::TempDir,
     access: ProviderCredentialAccessPolicy,
 }
 
 fn controlled_executable() -> ControlledExecutable {
-    let temporary = tempfile::tempdir().expect("temporary executable directory");
-    #[cfg(unix)]
-    std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-        .expect("restrict temporary executable directory");
-
-    let executable = temporary.path().join("gocode-test-executable");
-    let current = std::env::current_exe().expect("current test executable");
-    std::fs::copy(current, &executable).expect("copy test executable");
-    #[cfg(unix)]
-    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
-        .expect("restrict test executable");
-
+    let executable = std::env::current_exe().expect("current test executable");
     let access = ProviderCredentialAccessPolicy::new(&executable, &executable)
         .expect("controlled executable access policy");
-    ControlledExecutable {
-        _temporary: temporary,
-        access,
-    }
+    ControlledExecutable { access }
 }
 
 struct StatusOnlyStore(ProviderCredentialStatus);
@@ -167,4 +151,81 @@ fn unsupported_platform_has_no_plaintext_fallback() {
         ProviderCredentialStatus::Unsupported
     );
     assert!(matches!(store, StubStore { .. }));
+}
+
+#[derive(Default)]
+struct OpaqueVersionFixture(Mutex<HashMap<CredentialVersionRef, Vec<u8>>>);
+
+impl NativeProviderCredentialVersionStore for OpaqueVersionFixture {
+    fn create_version(
+        &self,
+        reference: CredentialVersionRef,
+        credential: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        let incoming = credential.with_bytes(<[u8]>::to_vec);
+        let mut values = self.0.lock().unwrap();
+        let result = match values.get(&reference) {
+            Some(existing) if existing == &incoming => Ok(()),
+            Some(_) => Err(SecureStoreError::ProviderCredentialOperationFailed),
+            None => {
+                values.insert(reference, incoming);
+                Ok(())
+            }
+        };
+        drop(values);
+        result
+    }
+
+    fn load_version(
+        &self,
+        reference: CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        self.0
+            .lock()
+            .unwrap()
+            .get(&reference)
+            .cloned()
+            .ok_or(SecureStoreError::ProviderCredentialNotFound)
+            .and_then(ProviderCredentialMaterial::new)
+    }
+
+    fn delete_version(&self, reference: CredentialVersionRef) -> Result<(), SecureStoreError> {
+        self.0.lock().unwrap().remove(&reference);
+        Ok(())
+    }
+}
+
+#[test]
+fn opaque_version_operations_never_expose_secret_bytes() {
+    let fixture = OpaqueVersionFixture::default();
+    let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 7).unwrap();
+    let secret = b"opaque-fixture-secret-62cf".to_vec();
+    let material = ProviderCredentialMaterial::new(secret.clone()).unwrap();
+    let current = std::env::current_exe().unwrap();
+    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+
+    fixture
+        .create_version(reference.clone(), &material, &access)
+        .unwrap();
+    fixture
+        .create_version(reference.clone(), &material, &access)
+        .unwrap();
+    let loaded = fixture.load_version(reference.clone(), &access).unwrap();
+
+    assert_eq!(loaded.with_bytes(<[u8]>::to_vec), secret);
+    for rendered in [
+        format!("{reference:?}"),
+        format!("{material:?}"),
+        format!("{loaded:?}"),
+    ] {
+        assert!(!rendered.contains("opaque-fixture-secret-62cf"));
+    }
+    fixture.delete_version(reference.clone()).unwrap();
+    fixture.delete_version(reference.clone()).unwrap();
+    assert_eq!(
+        fixture.load_version(reference, &access).unwrap_err(),
+        SecureStoreError::ProviderCredentialNotFound
+    );
 }
