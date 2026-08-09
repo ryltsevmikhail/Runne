@@ -1,16 +1,18 @@
 fn activate_lease(
     store: &SqliteProviderCredentialLifecycleStore,
     lease: CredentialLease,
-    now: i64,
 ) -> Result<CredentialVersionRef, CredentialLifecycleError> {
-    if now < 0 || lease.expires_at() <= now {
-        return Err(CredentialLifecycleError::StaleLease);
-    }
     let reference = lease.version_ref().clone();
     let mut connection = store.connection.lock().map_err(map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
+    let now = (store.now)();
+    advance_provider_clock(&transaction, reference.provider(), now)?;
+    if lease.expires_at() <= now {
+        transaction.commit().map_err(map_sql)?;
+        return Err(CredentialLifecycleError::StaleLease);
+    }
     let row = load_row(&transaction, &reference)?.ok_or(CredentialLifecycleError::NotFound)?;
     validate_row_ref(&row, &reference)?;
     match row.state {
@@ -25,6 +27,7 @@ fn activate_lease(
                 )
                 .map_err(map_sql)?;
             if to_i64(lease.fencing_token())? <= high_water {
+                transaction.commit().map_err(map_sql)?;
                 return Err(CredentialLifecycleError::StaleLease);
             }
             let changed = transaction
@@ -48,6 +51,7 @@ fn activate_lease(
                 )
                 .map_err(map_sql)?;
             if changed != 1 {
+                transaction.commit().map_err(map_sql)?;
                 return Err(CredentialLifecycleError::Conflict);
             }
             transaction.commit().map_err(map_sql)?;
@@ -57,8 +61,14 @@ fn activate_lease(
             transaction.commit().map_err(map_sql)?;
             Ok(reference)
         }
-        CredentialVersionState::Active => Err(CredentialLifecycleError::Conflict),
-        _ => Err(CredentialLifecycleError::LifecycleClosed),
+        CredentialVersionState::Active => {
+            transaction.commit().map_err(map_sql)?;
+            Err(CredentialLifecycleError::Conflict)
+        }
+        _ => {
+            transaction.commit().map_err(map_sql)?;
+            Err(CredentialLifecycleError::LifecycleClosed)
+        }
     }
 }
 
@@ -126,6 +136,11 @@ fn reconcile_versions(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
+    let transition_rows = load_reconcile_transition_rows(&transaction, now)?;
+    for (row, reference) in &transition_rows {
+        validate_row_ref(row, reference)?;
+        advance_provider_clock(&transaction, reference.provider(), now)?;
+    }
     transaction
         .execute(
             "UPDATE provider_credential_versions
@@ -179,4 +194,42 @@ fn reconcile_versions(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(ReconcileCredentialVersions::new(claims))
+}
+
+fn load_reconcile_transition_rows(
+    transaction: &rusqlite::Transaction<'_>,
+    now: i64,
+) -> Result<Vec<(CredentialRow, CredentialVersionRef)>, CredentialLifecycleError> {
+    let mut statement = transaction
+        .prepare(
+            "SELECT provider_id, credential_version, ref_digest, lifecycle_state,
+                    lease_owner, lease_expires_at, lease_fencing_token,
+                    revocation_fence, tombstone_digest
+             FROM provider_credential_versions
+             WHERE (lifecycle_state='ACTIVE' AND lease_expires_at<=?1)
+                OR (lifecycle_state='RETIRED'
+                    AND (lease_expires_at<=?1 OR revocation_fence>=lease_fencing_token))",
+        )
+        .map_err(map_sql)?;
+    let raw = statement
+        .query_map([now], |row| {
+            Ok((
+                row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?,
+            ))
+        })
+        .map_err(map_sql)?
+        .collect::<Result<Vec<RawCredentialRow>, _>>()
+        .map_err(map_sql)?;
+    raw.into_iter()
+        .map(|raw| {
+            let row = decode_row(raw)?;
+            let provider = gocode_provider::ProviderId::new(row.provider_id.clone())
+                .map_err(|_| CredentialLifecycleError::CorruptState)?;
+            let version = u64::try_from(row.version)
+                .map_err(|_| CredentialLifecycleError::CorruptState)?;
+            let reference = CredentialVersionRef::new(provider, version)?;
+            Ok((row, reference))
+        })
+        .collect()
 }

@@ -4,6 +4,8 @@ use super::ProviderAuthorityIssueOutcome;
 use super::authority_test_support::{Fixture, configured_connection};
 use gocode_application::provider::ProviderAdmissionError;
 
+mod timing;
+
 #[test]
 fn issuance_does_not_record_pre_effect_audit_before_the_effect_cas() {
     let fixture = Fixture::new(1_000);

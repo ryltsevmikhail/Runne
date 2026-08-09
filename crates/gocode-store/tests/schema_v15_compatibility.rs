@@ -20,8 +20,15 @@ fn released_v15_database() -> (tempfile::TempDir, PathBuf) {
              DROP TRIGGER IF EXISTS provider_credential_identity_immutable;
              DROP TRIGGER IF EXISTS provider_credential_insert_prepared;
              DROP TRIGGER IF EXISTS provider_credential_tombstone_permanent;
+             DROP TRIGGER IF EXISTS provider_credential_provision_order;
+             DROP TRIGGER IF EXISTS provider_credential_provision_permanent;
+             DROP TRIGGER IF EXISTS provider_credential_clock_monotonic;
+             DROP TRIGGER IF EXISTS provider_credential_clock_permanent;
              DROP INDEX IF EXISTS provider_credential_one_active;
+             DROP INDEX IF EXISTS provider_credential_one_pending_provision;
              DROP TABLE IF EXISTS provider_credential_effect_bindings;
+             DROP TABLE IF EXISTS provider_credential_provisions;
+             DROP TABLE IF EXISTS provider_credential_clock_high_water;
              DROP TABLE IF EXISTS provider_credential_versions;
              DELETE FROM schema_version WHERE version = 16;",
         )
@@ -188,6 +195,51 @@ fn corrupt_v16_effect_binding_catalog_is_rejected_before_open() {
         "provider_credential_effect_bindings",
         "CHECK(credential_version > 0)",
         "CHECK(credential_version >= 0)",
+    );
+
+    assert!(preflight_existing_file(&path).is_err());
+    assert!(SqliteProviderExecutionStore::open(&path).is_err());
+}
+
+#[test]
+fn corrupt_v16_clock_catalog_is_rejected_before_open() {
+    let (_directory, path) = released_v15_database();
+    drop(SqliteProviderExecutionStore::open(&path).unwrap());
+    replace_table_ddl(
+        &path,
+        "provider_credential_clock_high_water",
+        "CHECK(observed_at >= 0)",
+        "CHECK(observed_at > -2)",
+    );
+
+    assert!(preflight_existing_file(&path).is_err());
+    assert!(SqliteProviderExecutionStore::open(&path).is_err());
+}
+
+#[test]
+fn corrupt_v16_provision_catalog_is_rejected_before_open() {
+    let (_directory, path) = released_v15_database();
+    drop(SqliteProviderExecutionStore::open(&path).unwrap());
+    replace_table_ddl(
+        &path,
+        "provider_credential_provisions",
+        "CHECK(length(operation_id) = 16)",
+        "CHECK(length(operation_id) <= 16)",
+    );
+
+    assert!(preflight_existing_file(&path).is_err());
+    assert!(SqliteProviderExecutionStore::open(&path).is_err());
+}
+
+#[test]
+fn corrupt_v16_clock_trigger_is_rejected_before_open() {
+    let (_directory, path) = released_v15_database();
+    drop(SqliteProviderExecutionStore::open(&path).unwrap());
+    replace_trigger_ddl(
+        &path,
+        "provider_credential_clock_monotonic",
+        "NEW.observed_at < OLD.observed_at",
+        "NEW.observed_at + 1 < OLD.observed_at",
     );
 
     assert!(preflight_existing_file(&path).is_err());

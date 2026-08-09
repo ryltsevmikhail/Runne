@@ -1,6 +1,7 @@
 use gocode_provider::{
     CredentialLifecycleError, CredentialVersionState, ProviderCredentialVersionStore,
 };
+use gocode_store::provider::SqliteProviderCredentialLifecycleStore;
 use rusqlite::Connection;
 
 use super::support::*;
@@ -90,6 +91,55 @@ fn activation_rejects_expired_lease_and_provider_fence_rollback() {
 }
 
 #[test]
+fn activation_rejects_durable_provider_clock_rollback_after_reopen() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("activation-clock-rollback.sqlite");
+    let first = version(1);
+    let initial = SqliteProviderCredentialLifecycleStore::open_at(&path, 200).unwrap();
+    prepare(&initial, first.clone());
+    initial
+        .activate(lease(first.clone(), OWNER_A, 500, 81))
+        .unwrap();
+    revoke(&initial, first, 81);
+    drop(initial);
+
+    let connection = Connection::open(&path).unwrap();
+    assert!(
+        connection
+            .execute(
+                "UPDATE provider_credential_clock_high_water SET observed_at=100
+                 WHERE provider_id='openai'",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "DELETE FROM provider_credential_clock_high_water
+                 WHERE provider_id='openai'",
+                [],
+            )
+            .is_err()
+    );
+    drop(connection);
+
+    let replacement = version(2);
+    let rolled_back = SqliteProviderCredentialLifecycleStore::open_at(&path, 100).unwrap();
+    prepare(&rolled_back, replacement.clone());
+    assert_eq!(
+        rolled_back
+            .activate(lease(replacement.clone(), OWNER_B, 500, 82))
+            .unwrap_err(),
+        CredentialLifecycleError::StaleLease
+    );
+    assert_eq!(
+        rolled_back.version_state(&replacement).unwrap(),
+        CredentialVersionState::Prepared
+    );
+}
+
+#[test]
 fn reconcile_rejects_corrupt_stored_reference_digest() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("corrupt-ref.sqlite");
@@ -128,6 +178,16 @@ fn reconcile_rejects_corrupt_stored_reference_digest() {
         store(&path).reconcile(100).unwrap_err(),
         CredentialLifecycleError::CorruptState
     );
+    let connection = Connection::open(&path).unwrap();
+    let state: String = connection
+        .query_row(
+            "SELECT lifecycle_state FROM provider_credential_versions
+             WHERE provider_id='openai' AND credential_version=1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "RETIRED");
 }
 
 #[test]

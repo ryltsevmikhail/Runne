@@ -21,6 +21,13 @@ fn prepared_native_create_is_idempotent_after_crash() {
     prepare(&store(&path), reference.clone());
     native.create(reference.clone(), b"fixture-credential-value");
 
+    assert!(
+        store(&path)
+            .reconcile(100)
+            .unwrap()
+            .native_deletions()
+            .is_empty()
+    );
     assert_eq!(native.configured_versions(), 1);
     assert_eq!(
         store(&path).version_state(&reference).unwrap(),

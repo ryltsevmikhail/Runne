@@ -19,6 +19,7 @@ pub use dispatch_binding::{
 pub use dispatch_coordinator::{ProviderCoordinatorOutcome, SqliteProviderDispatchCoordinator};
 
 pub use authority_config::ProviderRuntimeAuthorityConfig;
+pub use credential_lifecycle::CredentialProvision;
 pub use credential_lifecycle::SqliteProviderCredentialLifecycleStore;
 pub use dispatch_store::{
     MarkProviderStreaming, PersistPreparedOutcome, PreparedProviderRecord, ProviderClaimOutcome,

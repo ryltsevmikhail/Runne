@@ -13,6 +13,8 @@ use gocode_secure_store::{
 
 use super::*;
 
+mod provisioning;
+
 struct DeletingNative {
     authority: NativeCredentialAuthority,
     deletes: AtomicUsize,
@@ -28,6 +30,14 @@ pub(super) fn fixture_native(
 }
 
 impl NativeProviderCredentialVersionStore for DeletingNative {
+    fn version_status(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<gocode_secure_store::ProviderCredentialStatus, SecureStoreError> {
+        Ok(gocode_secure_store::ProviderCredentialStatus::Configured)
+    }
+
     fn create_version(
         &self,
         _reference: CredentialVersionRef,

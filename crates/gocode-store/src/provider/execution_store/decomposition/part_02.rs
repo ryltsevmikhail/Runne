@@ -153,7 +153,6 @@ impl SqliteProviderExecutionStore {
             &mut connection,
             claim,
             credential,
-            self.now(),
             || self.now(),
             {
                 #[cfg(test)]

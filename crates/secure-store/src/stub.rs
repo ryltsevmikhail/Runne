@@ -127,6 +127,14 @@ impl ProviderCredentialStore for StubStore {
 }
 
 impl NativeProviderCredentialVersionStore for StubStore {
+    fn version_status(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        Ok(ProviderCredentialStatus::Unsupported)
+    }
+
     fn create_version(
         &self,
         _reference: CredentialVersionRef,

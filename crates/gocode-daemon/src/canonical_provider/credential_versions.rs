@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
 use gocode_provider::{
-    CredentialAuthorityPair, CredentialLease, NativeCredentialAuthority, PrepareCredentialVersion,
+    CredentialAuthorityPair, CredentialLease, NativeCredentialAuthority,
     ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
 };
 use gocode_secure_store::{
     NativeProviderCredentialStore, NativeProviderCredentialVersionStore,
-    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialStore,
+    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
+    ProviderCredentialStatus, ProviderCredentialStore,
 };
 use gocode_store::provider::SqliteProviderCredentialLifecycleStore;
 use gocode_store::schema::ManagedConnection;
@@ -38,6 +39,7 @@ pub(super) fn compose_credential_lifecycle(
     reconcile_native(store.as_ref(), native.as_ref(), now)?;
     let provider =
         ProviderId::new(ProviderCredentialId::OpenAi.account()).map_err(|_| unavailable())?;
+    finish_completed_provision(store.as_ref(), &provider)?;
     if store
         .authorize_active(&provider, owner, fencing_token, now)
         .is_err()
@@ -111,21 +113,66 @@ fn provision_active(
     now: i64,
     fixture: bool,
 ) -> Result<(), DaemonError> {
-    let reference = store
-        .next_version_ref(provider)
-        .map_err(|_| unavailable())?;
-    store
-        .create_prepared(PrepareCredentialVersion::new(reference.clone()))
-        .map_err(|_| unavailable())?;
-    if !fixture {
-        let access = credential_access_policy()?;
-        let legacy = NativeProviderCredentialStore::new()
-            .load_provider_credential(ProviderCredentialId::OpenAi, &access)
-            .map_err(|_| unavailable())?;
-        native
-            .create_version(reference.clone(), &legacy, &access)
-            .map_err(|_| unavailable())?;
+    if fixture {
+        return provision_active_with_material(
+            store,
+            native,
+            provider,
+            owner,
+            fencing_token,
+            now,
+            None,
+        );
     }
+    let access = credential_access_policy()?;
+    let legacy = NativeProviderCredentialStore::new()
+        .load_provider_credential(ProviderCredentialId::OpenAi, &access)
+        .map_err(|_| unavailable())?;
+    provision_active_with_material(
+        store,
+        native,
+        provider,
+        owner,
+        fencing_token,
+        now,
+        Some((&legacy, &access)),
+    )
+}
+
+fn provision_active_with_material(
+    store: &SqliteProviderCredentialLifecycleStore,
+    native: &dyn NativeProviderCredentialVersionStore,
+    provider: &ProviderId,
+    owner: [u8; 16],
+    fencing_token: u64,
+    now: i64,
+    native_input: Option<(&ProviderCredentialMaterial, &ProviderCredentialAccessPolicy)>,
+) -> Result<(), DaemonError> {
+    let provision = match store
+        .pending_provision(provider)
+        .map_err(|_| unavailable())?
+    {
+        Some(provision) => provision,
+        None => store
+            .begin_provision(provider, *uuid::Uuid::now_v7().as_bytes())
+            .map_err(|_| unavailable())?,
+    };
+    let reference = provision.version_ref().clone();
+    if let Some((material, access)) = native_input {
+        native
+            .create_version(reference.clone(), material, access)
+            .map_err(|_| unavailable())?;
+        if native
+            .version_status(&reference, access)
+            .map_err(|_| unavailable())?
+            != ProviderCredentialStatus::Configured
+        {
+            return Err(unavailable());
+        }
+    }
+    let provision = store
+        .mark_native_created(&provision)
+        .map_err(|_| unavailable())?;
     let expires_at = now
         .checked_add(i64::try_from(PROVIDER_POLICY_V1_LEASE_SECONDS).unwrap_or(i64::MAX))
         .ok_or_else(unavailable)?;
@@ -135,7 +182,31 @@ fn provision_active(
                 .map_err(|_| unavailable())?,
         )
         .map_err(|_| unavailable())?;
+    store
+        .complete_provision(&provision)
+        .map_err(|_| unavailable())?;
     Ok(())
+}
+
+fn finish_completed_provision(
+    store: &SqliteProviderCredentialLifecycleStore,
+    provider: &ProviderId,
+) -> Result<(), DaemonError> {
+    let Some(provision) = store
+        .pending_provision(provider)
+        .map_err(|_| unavailable())?
+    else {
+        return Ok(());
+    };
+    let Some(active) = store.active_lease(provider).map_err(|_| unavailable())? else {
+        return Ok(());
+    };
+    if !provision.native_created() || active.version_ref() != provision.version_ref() {
+        return Err(unavailable());
+    }
+    store
+        .complete_provision(&provision)
+        .map_err(|_| unavailable())
 }
 
 pub(super) fn reconcile_native(
