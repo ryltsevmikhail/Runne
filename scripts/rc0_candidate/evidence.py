@@ -15,6 +15,7 @@ from scripts.rc0_policy.model import FixtureValidationError, parse_checksums_tex
 from scripts.rc0_policy.schemas import validate_schema
 
 from .atomic_publish import AtomicPublishError, publish_private_blobs
+from .evidence_completion import CompletionValidationError, load_completed_private_blobs
 from .path_policy import evidence_value_diagnostics, validate_artifact_path
 from .source import validate_fixture_evidence_commit
 
@@ -144,14 +145,24 @@ def build_fixture_evidence(
     output_root: Path,
     checkout_root: Path,
     publication_hook: Callable[[int, str], None] | None = None,
+    boundary_hook: Callable[[str, int, str], None] | None = None,
 ) -> EvidenceBuildResult:
     """Validate then atomically publish nine owner-private fixture blobs."""
     source_sha, blobs = _prepare_blobs(records)
     try:
         final = publish_private_blobs(
-            Path(output_root), Path(checkout_root), source_sha, blobs, publication_hook
+            Path(output_root), Path(checkout_root), source_sha, blobs, publication_hook,
+            boundary_hook,
         )
     except AtomicPublishError as error:
         raise EvidenceConstructionError(str(error)) from error
     digest = evidence_bundle_digest(source_sha, blobs)
     return EvidenceBuildResult(final, dict(blobs), digest)
+
+
+def load_completed_fixture_evidence(output_root: Path, source_sha: str) -> Mapping[str, bytes]:
+    """Accept filesystem evidence only when the exact completion marker validates."""
+    try:
+        return load_completed_private_blobs(Path(output_root), source_sha, EVIDENCE_FILES)
+    except CompletionValidationError as error:
+        raise EvidenceConstructionError(str(error)) from error

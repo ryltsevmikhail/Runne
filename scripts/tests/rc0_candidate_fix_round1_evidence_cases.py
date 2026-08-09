@@ -1,4 +1,5 @@
 import importlib
+import fcntl
 import os
 import tempfile
 import threading
@@ -70,10 +71,10 @@ class Rc0CandidateEvidenceFixRound1Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as output:
             root = Path(output)
             lock = root / f".{SOURCE}.construction-lock"
-            lock.write_bytes(b"foreign-active-lock")
-            lock.chmod(0o600)
-            before = lock.stat()
-            barrier = threading.Barrier(3)
+            descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_EXCL, 0o600)
+            os.write(descriptor, b"foreign-active-lock")
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            before = lock.stat(); barrier = threading.Barrier(3)
 
             def contend():
                 barrier.wait()
@@ -90,28 +91,23 @@ class Rc0CandidateEvidenceFixRound1Tests(unittest.TestCase):
             self.assertEqual(lock.read_bytes(), b"foreign-active-lock")
             self.assertEqual((before.st_dev, before.st_ino), (after.st_dev, after.st_ino))
             self.assertFalse((root / SOURCE).exists())
+            os.close(descriptor)
 
     def test_atomic_publication_never_replaces_file_directory_or_symlink_racer(self):
         evidence = evidence_module()
         for kind in ("file", "directory", "symlink"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as output:
                 marker = b"racer"
-
-                def race(root_fd, final_name, selected=kind):
-                    if selected == "file":
-                        fd = os.open(final_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root_fd)
-                        os.write(fd, marker)
-                        os.close(fd)
-                    elif selected == "directory":
-                        os.mkdir(final_name, 0o700, dir_fd=root_fd)
-                    else:
-                        os.symlink("foreign-target", final_name, dir_fd=root_fd)
+                final = Path(output) / SOURCE
+                if kind == "file":
+                    final.write_bytes(marker)
+                elif kind == "directory":
+                    final.mkdir()
+                else:
+                    final.symlink_to("foreign-target")
 
                 with self.assertRaises(evidence.EvidenceConstructionError):
-                    evidence.build_fixture_evidence(
-                        fixture_records(), Path(output), Path(checkout), publication_hook=race
-                    )
-                final = Path(output) / SOURCE
+                    evidence.build_fixture_evidence(fixture_records(), Path(output), Path(checkout))
                 if kind == "file":
                     self.assertEqual(final.read_bytes(), marker)
                 elif kind == "directory":
@@ -123,7 +119,7 @@ class Rc0CandidateEvidenceFixRound1Tests(unittest.TestCase):
     def test_atomic_publication_fails_closed_when_noreplace_is_unavailable(self):
         atomic = importlib.import_module("scripts.rc0_candidate.atomic_publish")
         evidence = evidence_module()
-        with patch.object(atomic, "_RENAMEAT2", None), tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as output:
+        with patch.object(atomic, "_LINKAT", None, create=True), tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as output:
             with self.assertRaises(evidence.EvidenceConstructionError):
                 evidence.build_fixture_evidence(fixture_records(), Path(output), Path(checkout))
 
@@ -135,24 +131,20 @@ class Rc0CandidateEvidenceFixRound1Tests(unittest.TestCase):
             with self.assertRaises(evidence.EvidenceConstructionError):
                 evidence.build_fixture_evidence(fixture_records(), alias, Path(checkout))
 
-    def test_cleanup_preserves_replaced_temporary_directory(self):
+    def test_final_directory_substitution_cannot_publish_completion(self):
         evidence = evidence_module()
         with tempfile.TemporaryDirectory() as checkout, tempfile.TemporaryDirectory() as output:
-            observed = {}
-
-            def replace_temporary(root_fd, _final_name):
-                name = next(item for item in os.listdir(root_fd) if item.endswith(".tmp"))
-                moved = name + ".owned"
-                os.rename(name, moved, src_dir_fd=root_fd, dst_dir_fd=root_fd)
+            def replace_final(root_fd, name):
+                os.rename(name, name + ".owned", src_dir_fd=root_fd, dst_dir_fd=root_fd)
                 os.mkdir(name, 0o700, dir_fd=root_fd)
-                observed.update(name=name, moved=moved)
 
             with self.assertRaises(evidence.EvidenceConstructionError):
                 evidence.build_fixture_evidence(
-                    fixture_records(), Path(output), Path(checkout), publication_hook=replace_temporary
+                    fixture_records(), Path(output), Path(checkout), publication_hook=replace_final
                 )
-            self.assertTrue((Path(output) / observed["name"]).is_dir())
-            self.assertTrue((Path(output) / observed["moved"]).is_dir())
+            self.assertTrue((Path(output) / SOURCE).is_dir())
+            self.assertTrue((Path(output) / (SOURCE + ".owned")).is_dir())
+            self.assertFalse((Path(output) / ("." + SOURCE + ".complete")).exists())
 
     def test_replaced_owned_lock_is_preserved_and_blocks_publication(self):
         evidence = evidence_module()

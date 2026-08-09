@@ -1,9 +1,11 @@
-"""Owner-private atomic no-replace publication for evidence directories."""
+"""Descriptor-held evidence construction with an atomic completion authority."""
 
 from __future__ import annotations
 
 import ctypes
 import errno
+import fcntl
+import hashlib
 import os
 import secrets
 import stat
@@ -12,36 +14,35 @@ from typing import Callable, Mapping
 
 _DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 _FILE_CREATE = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-_LOCK_CREATE = os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW
-_RENAME_NOREPLACE = 1
+_LOCK_OPEN = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
+_AT_EMPTY_PATH = 0x1000
+_OWNER_XATTR = "user.gocode.rc0-construction-owner"
 
 
 class AtomicPublishError(ValueError):
-    """Atomic no-replace publication was unsafe or unavailable."""
+    """A private construction namespace was unsafe or incomplete."""
 
 
-def _load_renameat2():
-    if not sys_platform_linux():
+def _load_linkat():
+    if os.uname().sysname != "Linux" or not hasattr(os, "O_TMPFILE"):
         return None
     try:
-        function = ctypes.CDLL(None, use_errno=True).renameat2
+        function = ctypes.CDLL(None, use_errno=True).linkat
     except (AttributeError, OSError):
         return None
-    function.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+    function.argtypes = (
+        ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
+    )
     function.restype = ctypes.c_int
     return function
 
 
-def sys_platform_linux() -> bool:
-    return os.uname().sysname == "Linux"
-
-
-_RENAMEAT2 = _load_renameat2()
+_LINKAT = _load_linkat()
 
 
 def _open_directory(path: Path) -> int:
     if not path.is_absolute() or any(part in (".", "..") for part in path.parts):
-        raise AtomicPublishError("output root must be absolute")
+        raise AtomicPublishError("output root must be canonical absolute")
     descriptor = os.open("/", _DIRECTORY)
     try:
         for part in path.parts[1:]:
@@ -54,13 +55,8 @@ def _open_directory(path: Path) -> int:
         raise
 
 
-def _root_state(fd: int) -> tuple[int, ...]:
-    value = os.fstat(fd)
-    return value.st_dev, value.st_ino, value.st_mode, value.st_uid
-
-
 def _entry_state(value: os.stat_result) -> tuple[int, ...]:
-    return value.st_dev, value.st_ino, value.st_mode
+    return value.st_dev, value.st_ino, value.st_mode, value.st_uid
 
 
 def _canonical_fd_path(fd: int) -> Path:
@@ -73,21 +69,22 @@ def _canonical_fd_path(fd: int) -> Path:
     return Path(value)
 
 
-def _open_root(output_root: Path, checkout_root: Path) -> tuple[int, Path, tuple[int, ...]]:
+def _open_root(output_root: Path, checkout_root: Path | None) -> tuple[int, Path, tuple[int, ...]]:
     descriptor = _open_directory(Path(output_root))
     try:
         metadata = os.fstat(descriptor)
         if (
             not stat.S_ISDIR(metadata.st_mode)
             or stat.S_IMODE(metadata.st_mode) != 0o700
-            or (hasattr(os, "geteuid") and metadata.st_uid != os.geteuid())
+            or metadata.st_uid != os.geteuid()
         ):
             raise AtomicPublishError("evidence output root must be owner-owned mode 0700")
         canonical = _canonical_fd_path(descriptor)
-        checkout = Path(checkout_root).resolve(strict=True)
-        if canonical == checkout or canonical.is_relative_to(checkout):
-            raise AtomicPublishError("evidence output root must be outside the checkout")
-        return descriptor, canonical, _root_state(descriptor)
+        if checkout_root is not None:
+            checkout = Path(checkout_root).resolve(strict=True)
+            if canonical == checkout or canonical.is_relative_to(checkout):
+                raise AtomicPublishError("evidence output root must be outside the checkout")
+        return descriptor, canonical, _entry_state(metadata)
     except Exception:
         os.close(descriptor)
         raise
@@ -96,99 +93,138 @@ def _open_root(output_root: Path, checkout_root: Path) -> tuple[int, Path, tuple
 def _write_all(fd: int, data: bytes) -> None:
     position = 0
     while position < len(data):
-        position += os.write(fd, data[position:])
+        written = os.write(fd, data[position:])
+        if written <= 0:
+            raise OSError(errno.EIO, "short evidence write")
+        position += written
 
 
-def _create_lock(root_fd: int, name: str) -> tuple[int, tuple[int, ...], bytes]:
-    descriptor = os.open(name, _LOCK_CREATE, 0o600, dir_fd=root_fd)
-    os.fchmod(descriptor, 0o600)
-    token = secrets.token_bytes(32)
-    _write_all(descriptor, token)
-    os.fsync(descriptor)
-    return descriptor, _entry_state(os.fstat(descriptor)), token
-
-
-def _remove_owned_lock(
-    root_fd: int, name: str, descriptor: int, expected_state: tuple[int, ...], token: bytes
-) -> None:
+def _lock_matches(root_fd: int, name: str, fd: int, expected: tuple[int, ...]) -> bool:
     try:
         current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        current_token = os.read(descriptor, len(token) + 1)
-        if _entry_state(current) == expected_state and current_token == token:
-            os.unlink(name, dir_fd=root_fd)
-    except FileNotFoundError:
-        pass
-
-
-def _lock_is_owned(
-    root_fd: int, name: str, descriptor: int, expected_state: tuple[int, ...], token: bytes
-) -> bool:
-    try:
-        current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        return _entry_state(current) == expected_state and os.read(descriptor, len(token) + 1) == token
     except FileNotFoundError:
         return False
+    return _entry_state(current) == expected == _entry_state(os.fstat(fd))
 
 
-def _temporary_directory(root_fd: int, source_sha: str) -> tuple[str, int]:
-    for _attempt in range(32):
-        name = f".{source_sha}.{secrets.token_hex(12)}.tmp"
+def _acquire_lock(root_fd: int, name: str) -> tuple[int, tuple[int, ...], bytes]:
+    created = False
+    try:
+        descriptor = os.open(name, _LOCK_OPEN | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root_fd)
+        created = True
+    except FileExistsError:
+        descriptor = os.open(name, _LOCK_OPEN, dir_fd=root_fd)
+    try:
+        if created:
+            os.fchmod(descriptor, 0o600)
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_uid != os.geteuid()
+        ):
+            raise AtomicPublishError("persistent construction lock is unsafe")
         try:
-            os.mkdir(name, 0o700, dir_fd=root_fd)
-        except FileExistsError:
-            continue
-        descriptor = os.open(name, _DIRECTORY, dir_fd=root_fd)
-        os.fchmod(descriptor, 0o700)
-        return name, descriptor
-    raise AtomicPublishError("private temporary directory allocation failed")
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise AtomicPublishError("evidence construction is already active") from error
+        token = secrets.token_hex(32).encode("ascii") + b"\n"
+        os.ftruncate(descriptor, 0)
+        _write_all(descriptor, token)
+        os.fsync(descriptor)
+        expected = _entry_state(os.fstat(descriptor))
+        if not _lock_matches(root_fd, name, descriptor, expected):
+            raise AtomicPublishError("persistent construction lock identity changed")
+        return descriptor, expected, token
+    except Exception:
+        os.close(descriptor)
+        raise
 
 
-def _write_blob(parent_fd: int, name: str, data: bytes) -> tuple[int, ...]:
+def _invoke(
+    hook: Callable[[str, int, str], None] | None, stage: str, root_fd: int, source_sha: str
+) -> None:
+    if hook is not None:
+        hook(stage, root_fd, source_sha)
+
+
+def _write_blob(
+    parent_fd: int, name: str, data: bytes, owned: dict[str, tuple[int, ...]],
+    hook: Callable[[str, int, str], None] | None, root_fd: int, source_sha: str,
+) -> None:
     descriptor = os.open(name, _FILE_CREATE, 0o600, dir_fd=parent_fd)
+    owned[name] = _entry_state(os.fstat(descriptor))
     try:
         os.fchmod(descriptor, 0o600)
+        _invoke(hook, "after-blob-create", root_fd, source_sha)
         _write_all(descriptor, data)
+        _invoke(hook, "after-blob-write", root_fd, source_sha)
         os.fsync(descriptor)
-        return _entry_state(os.fstat(descriptor))
+        _invoke(hook, "after-blob-fsync", root_fd, source_sha)
+        owned[name] = _entry_state(os.fstat(descriptor))
     finally:
         os.close(descriptor)
 
 
-def _cleanup_temporary(
-    root_fd: int, name: str, temp_fd: int, temp_state: tuple[int, ...],
-    owned_files: Mapping[str, tuple[int, ...]],
-) -> None:
+def _manifest(source_sha: str, directory: tuple[int, ...], blobs: Mapping[str, bytes]) -> bytes:
+    lines = [
+        "GOCODE_RC0_COMPLETE_V1", f"source_sha={source_sha}",
+        f"directory_dev={directory[0]}", f"directory_ino={directory[1]}",
+    ]
+    for name in sorted(blobs, key=lambda value: value.encode("ascii")):
+        lines.append(f"{hashlib.sha256(blobs[name]).hexdigest()} {len(blobs[name])} {name}")
+    return ("\n".join(lines) + "\n").encode("ascii")
+
+
+def _publish_marker(root_fd: int, name: str, data: bytes) -> tuple[int, ...]:
+    if _LINKAT is None:
+        raise AtomicPublishError("atomic completion publication is unsupported")
     try:
-        for filename, expected in owned_files.items():
-            try:
-                current = os.stat(filename, dir_fd=temp_fd, follow_symlinks=False)
-                if _entry_state(current) == expected:
-                    os.unlink(filename, dir_fd=temp_fd)
-            except FileNotFoundError:
-                pass
-        current_temp = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
-        if _entry_state(current_temp) == temp_state and not os.listdir(temp_fd):
+        descriptor = os.open(".", os.O_RDWR | os.O_TMPFILE, 0o600, dir_fd=root_fd)
+    except OSError as error:
+        raise AtomicPublishError("atomic completion publication is unsupported") from error
+    try:
+        os.fchmod(descriptor, 0o600)
+        _write_all(descriptor, data)
+        os.fsync(descriptor)
+        expected = _entry_state(os.fstat(descriptor))
+        result = _LINKAT(descriptor, b"", root_fd, os.fsencode(name), _AT_EMPTY_PATH)
+        if result != 0:
+            failure = ctypes.get_errno()
+            if failure == errno.EEXIST:
+                raise AtomicPublishError("evidence completion marker collision")
+            raise AtomicPublishError(f"atomic completion publication failed with errno {failure}")
+        current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        if _entry_state(current) != expected:
+            raise AtomicPublishError("completion marker identity changed")
+        return expected
+    finally:
+        os.close(descriptor)
+
+
+def _cleanup_incomplete(
+    root_fd: int, name: str, directory_fd: int, directory_state: tuple[int, ...],
+    owned: Mapping[str, tuple[int, ...]], owner_token: bytes, owner_bound: bool,
+) -> None:
+    if owner_bound:
+        try:
+            if os.getxattr(directory_fd, _OWNER_XATTR) != owner_token:
+                return
+        except OSError:
+            return
+    for filename, expected in owned.items():
+        try:
+            current = os.stat(filename, dir_fd=directory_fd, follow_symlinks=False)
+            if _entry_state(current) == expected:
+                os.unlink(filename, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+    try:
+        current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
+        if _entry_state(current) == directory_state and not os.listdir(directory_fd):
             os.rmdir(name, dir_fd=root_fd)
     except FileNotFoundError:
         pass
-
-
-def _rename_noreplace(root_fd: int, source: str, destination: str) -> None:
-    if _RENAMEAT2 is None:
-        raise AtomicPublishError("atomic no-replace directory publication is unsupported")
-    result = _RENAMEAT2(
-        root_fd, os.fsencode(source), root_fd, os.fsencode(destination), _RENAME_NOREPLACE
-    )
-    if result == 0:
-        return
-    failure = ctypes.get_errno()
-    if failure in (errno.ENOSYS, errno.EINVAL, errno.ENOTSUP):
-        raise AtomicPublishError("atomic no-replace directory publication is unsupported")
-    if failure in (errno.EEXIST, errno.ENOTEMPTY):
-        raise AtomicPublishError("evidence source directory collision")
-    raise AtomicPublishError(f"atomic no-replace publication failed with errno {failure}")
 
 
 def publish_private_blobs(
@@ -197,48 +233,66 @@ def publish_private_blobs(
     source_sha: str,
     blobs: Mapping[str, bytes],
     publication_hook: Callable[[int, str], None] | None = None,
+    boundary_hook: Callable[[str, int, str], None] | None = None,
 ) -> Path:
-    root_fd, canonical_root, initial_root_state = _open_root(output_root, checkout_root)
+    root_fd, canonical_root, root_state = _open_root(output_root, checkout_root)
     lock_name = f".{source_sha}.construction-lock"
-    lock_fd = temp_fd = -1
+    marker_name = f".{source_sha}.complete"
+    lock_fd = directory_fd = -1
+    directory_state: tuple[int, ...] | None = None
     lock_state: tuple[int, ...] | None = None
     lock_token = b""
-    temp_name: str | None = None
-    temp_state: tuple[int, ...] | None = None
-    owned_files: dict[str, tuple[int, ...]] = {}
+    owner_bound = False
+    owned: dict[str, tuple[int, ...]] = {}
     published = False
     try:
-        lock_fd, lock_state, lock_token = _create_lock(root_fd, lock_name)
-        temp_name, temp_fd = _temporary_directory(root_fd, source_sha)
-        temp_state = _entry_state(os.fstat(temp_fd))
+        lock_fd, lock_state, lock_token = _acquire_lock(root_fd, lock_name)
+        _invoke(boundary_hook, "after-lock", root_fd, source_sha)
+        os.mkdir(source_sha, 0o700, dir_fd=root_fd)
+        directory_fd = os.open(source_sha, _DIRECTORY, dir_fd=root_fd)
+        directory_state = _entry_state(os.fstat(directory_fd))
+        os.fchmod(directory_fd, 0o700)
+        directory_state = _entry_state(os.fstat(directory_fd))
+        os.setxattr(directory_fd, _OWNER_XATTR, lock_token, flags=os.XATTR_CREATE)
+        owner_bound = True
+        _invoke(boundary_hook, "after-final-create", root_fd, source_sha)
         for name, data in blobs.items():
-            owned_files[name] = _write_blob(temp_fd, name, data)
-        os.fsync(temp_fd)
+            _write_blob(
+                directory_fd, name, data, owned, boundary_hook, root_fd, source_sha
+            )
+        os.fsync(directory_fd)
+        _invoke(boundary_hook, "after-directory-fsync", root_fd, source_sha)
         if publication_hook is not None:
             publication_hook(root_fd, source_sha)
-        current_temp = os.stat(temp_name, dir_fd=root_fd, follow_symlinks=False)
+        _invoke(boundary_hook, "before-marker-publish", root_fd, source_sha)
+        current = os.stat(source_sha, dir_fd=root_fd, follow_symlinks=False)
         if (
-            _entry_state(current_temp) != temp_state
-            or not _lock_is_owned(root_fd, lock_name, lock_fd, lock_state, lock_token)
-            or _root_state(root_fd) != initial_root_state
+            _entry_state(current) != directory_state
+            or root_state != _entry_state(os.fstat(root_fd))
+            or not _lock_matches(root_fd, lock_name, lock_fd, lock_state)
         ):
-            raise AtomicPublishError("publication parent or source directory identity changed")
-        _rename_noreplace(root_fd, temp_name, source_sha)
+            raise AtomicPublishError("construction namespace identity changed")
+        _publish_marker(root_fd, marker_name, _manifest(source_sha, directory_state, blobs))
         published = True
+        _invoke(boundary_hook, "after-marker-publish", root_fd, source_sha)
         os.fsync(root_fd)
-        if _root_state(root_fd) != initial_root_state:
-            raise AtomicPublishError("publication parent identity changed")
         return canonical_root / source_sha
     except (AtomicPublishError, OSError) as error:
         if isinstance(error, AtomicPublishError):
             raise
-        raise AtomicPublishError("atomic evidence publication failed") from error
+        raise AtomicPublishError("private evidence construction failed") from error
     finally:
-        if temp_fd >= 0:
-            if not published and temp_name is not None and temp_state is not None:
-                _cleanup_temporary(root_fd, temp_name, temp_fd, temp_state, owned_files)
-            os.close(temp_fd)
-        if lock_fd >= 0 and lock_state is not None:
-            _remove_owned_lock(root_fd, lock_name, lock_fd, lock_state, lock_token)
-            os.close(lock_fd)
-        os.close(root_fd)
+        if directory_fd >= 0 and not published and directory_state is not None:
+            try:
+                _cleanup_incomplete(
+                    root_fd, source_sha, directory_fd, directory_state, owned,
+                    lock_token, owner_bound,
+                )
+            except OSError:
+                pass
+        for descriptor in (directory_fd, lock_fd, root_fd):
+            if descriptor >= 0:
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass

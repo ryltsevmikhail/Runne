@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 
+class GitInspectionError(ValueError):
+    def __init__(self, reason: str, diagnostic: str):
+        super().__init__(diagnostic)
+        self.reason = reason
+        self.diagnostic = diagnostic
+
+
 def unsafe_config(entries: tuple[tuple[str, str], ...]) -> bool:
     for key, _value in entries:
         if key.startswith(("alias.", "include.", "includeif.", "credential.", "url.")):
             return True
         if key in (
             "http.proxy", "https.proxy", "http.extraheader", "core.hookspath",
-            "core.fsmonitor", "core.sshcommand", "core.excludesfile", "core.worktree",
+            "core.fsmonitor", "core.sshcommand", "core.excludesfile",
             "core.alternaterefscommand", "extensions.worktreeconfig",
         ):
             return True

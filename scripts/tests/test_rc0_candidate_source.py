@@ -240,5 +240,10 @@ class Rc0CandidateSourceTests(unittest.TestCase):
                     self.assertEqual(result.blocked_reason, "SOURCE_SNAPSHOT_CHANGED")
 
 
+from scripts.tests.rc0_candidate_fix_round2_source_cases import (
+    Rc0CandidateSourceFixRound2Tests,
+)
+
+
 if __name__ == "__main__":
     unittest.main()

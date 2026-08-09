@@ -9,11 +9,10 @@ from pathlib import Path
 from typing import Callable
 
 from . import FixtureLocalInputsSummary
+from .git_evidence_snapshot import capture_evidence_commit_snapshot
 from .git_inspection import (
     GitInspectionError,
     capture_source_snapshot,
-    run_repository_git,
-    validate_repository_controls,
 )
 
 PINNED_OPENCODE_SHA = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
@@ -56,7 +55,8 @@ def _hex(value: object, pattern: re.Pattern[str]) -> bool:
 
 
 def validate_fixture_evidence_commit(
-    repository: Path, source_sha: str, evidence_revision: str
+    repository: Path, source_sha: str, evidence_revision: str,
+    mutation_hook: Callable[[str, Path], None] | None = None,
 ) -> tuple[str, ...]:
     """Validate a local fixture commit without assigning seal authority."""
     from .evidence import validate_fixture_evidence_entries
@@ -64,25 +64,15 @@ def validate_fixture_evidence_commit(
     if _GIT_SHA.fullmatch(source_sha) is None or _GIT_SHA.fullmatch(evidence_revision) is None:
         return ("source and evidence revisions must be lower-case Git SHAs",)
     try:
-        validate_repository_controls(Path(repository))
-        head = run_repository_git(Path(repository), "rev-parse", "HEAD").decode("ascii").strip()
-        parents = tuple(
-            run_repository_git(Path(repository), "show", "-s", "--format=%P", evidence_revision)
-            .decode("ascii").split()
+        snapshot = capture_evidence_commit_snapshot(
+            Path(repository), source_sha, evidence_revision, mutation_hook
         )
-        status = run_repository_git(
-            Path(repository), "status", "--porcelain=v1", "-z", "--untracked-files=all",
-            "--ignore-submodules=none",
-        )
-        changes = run_repository_git(
-            Path(repository), "diff-tree", "--no-commit-id", "--name-status", "-r",
-            "--no-renames", "-z", source_sha, evidence_revision
-        ).split(b"\0")
     except (GitInspectionError, UnicodeDecodeError):
-        return ("local evidence commit identity is unavailable",)
+        return ("local evidence commit snapshot changed or is unavailable",)
     errors: list[str] = []
-    if head != evidence_revision or parents != (source_sha,) or status:
+    if snapshot.head != evidence_revision or snapshot.parents != (source_sha,) or snapshot.status:
         errors.append("evidence commit must be clean HEAD with exactly the source parent")
+    changes = snapshot.changes.split(b"\0")
     if changes and changes[-1] == b"":
         changes.pop()
     if len(changes) % 2:
@@ -100,14 +90,16 @@ def validate_fixture_evidence_commit(
             errors.append(f"evidence diff contains a non-evidence source change: {path}")
             continue
         name = path.removeprefix(prefix)
-        tree = run_repository_git(Path(repository), "ls-tree", "-z", evidence_revision, "--", path)
+        tree, data = snapshot.tree_results.get(raw_path, (b"", None))
         metadata, separator, listed_path = tree.removesuffix(b"\0").partition(b"\t")
         fields = metadata.split(b" ")
         if separator != b"\t" or listed_path != raw_path or len(fields) != 3:
             errors.append(f"evidence tree entry is malformed: {path}")
             continue
         mode, kind, _oid = fields
-        data = run_repository_git(Path(repository), "cat-file", "blob", _oid.decode("ascii"))
+        if data is None:
+            errors.append(f"evidence tree blob is unavailable: {path}")
+            continue
         entries[name] = {"mode": mode.decode("ascii"), "type": kind.decode("ascii"), "data": data}
     errors.extend(validate_fixture_evidence_entries(source_sha, entries))
     return tuple(errors)

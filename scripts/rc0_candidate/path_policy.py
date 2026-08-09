@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -13,7 +14,8 @@ _CREDENTIAL_KEYS = (
 _CREDENTIAL_PREFIXES = (
     "-----begin private key", "bearer ", "basic ", "ghp_", "github_pat_", "sk-",
 )
-_AUTHORITY_TOKENS = {"declaration", "gate", "report", "verdict"}
+_AUTHORITY_SUBSTRINGS = ("verification", "report", "declaration", "verdict")
+_CANONICAL_EVIDENCE_NAMES = {"source-gate-results.json"}
 _HOST = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?")
 
 
@@ -49,15 +51,26 @@ def validate_artifact_path(value: Any) -> tuple[str, ...]:
         return ("artifact path must be text",)
     parts = value.split("/")
     lowered = [part.casefold() for part in parts]
+    folded = [
+        "".join(
+            char for char in unicodedata.normalize("NFKD", part.casefold())
+            if unicodedata.category(char) != "Mn"
+        )
+        for part in parts
+    ]
     basename = lowered[-1] if lowered else ""
-    tokens = {
-        token for part in lowered for token in re.split(r"[-_.]+", part) if token
-    }
     if lowered[:2] == ["docs", "evidence"]:
         return ("artifact path enters the evidence namespace",)
     if any(part in ("logs", "reports") for part in lowered) or basename.endswith(".log"):
         return ("artifact path enters a log or report namespace",)
-    if tokens & _AUTHORITY_TOKENS:
+    forbidden_substring = any(
+        item in part for part in folded for item in _AUTHORITY_SUBSTRINGS
+    )
+    gate_output = (
+        any("gate" in part for part in folded)
+        and basename not in _CANONICAL_EVIDENCE_NAMES
+    )
+    if forbidden_substring or gate_output:
         return ("artifact path resembles an authority output",)
     return ()
 
