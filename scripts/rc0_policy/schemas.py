@@ -54,7 +54,11 @@ def _kind_matches(value: Any, expected: str) -> bool:
     }.get(expected, False)
 
 
-def _validate(value: Any, schema: dict[str, Any], root: dict[str, Any], path: str) -> list[str]:
+def _validate(value: Any, schema: Any, root: dict[str, Any], path: str) -> list[str]:
+    if schema is True:
+        return []
+    if schema is False:
+        return [f"{path}: value is forbidden"]
     if "$ref" in schema:
         return _validate(value, _resolve(root, schema["$ref"]), root, path)
     errors: list[str] = []
@@ -83,8 +87,10 @@ def _validate(value: Any, schema: dict[str, Any], root: dict[str, Any], path: st
             rendered = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in value]
             if len(set(rendered)) != len(rendered):
                 errors.append(f"{path}: duplicate array item")
+        prefix_items = schema.get("prefixItems", [])
         for index, item in enumerate(value):
-            errors.extend(_validate(item, schema.get("items", {}), root, f"{path}[{index}]"))
+            item_schema = prefix_items[index] if index < len(prefix_items) else schema.get("items", {})
+            errors.extend(_validate(item, item_schema, root, f"{path}[{index}]"))
     elif isinstance(value, str):
         if len(value) < schema.get("minLength", 0):
             errors.append(f"{path}: string is too short")

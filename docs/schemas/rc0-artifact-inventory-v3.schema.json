@@ -23,12 +23,13 @@
       "additionalProperties": false,
       "required": ["relative_path", "sha256", "size", "locator", "kind"],
       "properties": {
-        "relative_path": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._/+@=-]+$"},
+        "relative_path": {"$ref": "#/$defs/portablePath"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "size": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615},
-        "locator": {"type": "string", "minLength": 1},
+        "locator": {"type": "string", "pattern": "^(?:cas:sha256:[0-9a-f]{64}|git:[0-9a-f]{40}:(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//).+)$"},
         "kind": {"enum": ["UNSIGNED_ARCHIVE", "BINARY", "SBOM", "METADATA"]}
       }
-    }
+    },
+    "portablePath": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[\\u0000-\\u001f\\u007f])(?!.*[<>:\"|?*]).+$"}
   }
 }
