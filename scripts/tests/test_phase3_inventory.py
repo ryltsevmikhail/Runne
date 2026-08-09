@@ -23,6 +23,17 @@ class Phase3InventoryTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(inventory.Phase3InventoryError):
                 inventory.parse_libtest_list(raw)
 
+    def test_list_requires_one_zero_benchmark_summary_matching_entries(self) -> None:
+        fixtures = (
+            b"suite::case: test\n",
+            b"suite::case: test\n\n1 test, 0 benchmarks\n1 test, 0 benchmarks\n",
+            b"suite::case: test\n\n99 tests, 0 benchmarks\n",
+            b"suite::case: test\n\n1 test, 1 benchmarks\n",
+        )
+        for raw in fixtures:
+            with self.subTest(raw=raw), self.assertRaises(inventory.Phase3InventoryError):
+                inventory.parse_libtest_list(raw)
+
     def test_run_requires_one_executed_one_passed_zero_ignored(self) -> None:
         listing = ("suite::case",)
         valid_run = (
