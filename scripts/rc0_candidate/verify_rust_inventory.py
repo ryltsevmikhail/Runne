@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed verifier for the RC0 Rust candidate test reservations."""
+"""Fail-closed RC0 verifier; frozen digests hash sorted JSON sans themselves."""
 
 from __future__ import annotations
 
@@ -12,17 +12,34 @@ from collections.abc import Callable
 from pathlib import Path
 
 
-RUST_IDS = frozenset({
-    "sqlite.managed-connection", "sqlite.local-reliability",
-    "phase3.evidence-fixtures", "phase3.evidence-shadow-import",
-    "phase3.evidence-lineage", "phase3.evidence-rollback",
-    "phase3.migration-control", "phase3.migration-rollout", "phase3.migration-sqlite",
-    "phase3.migration-routing-sqlite", "phase3.migration-routing",
-    "scanner.withheld-tail", "scanner.recovery-dispatch", "credentials.native-store",
-    "credentials.lifecycle", "bootstrap.encoder", "bootstrap.persistence",
-    "bootstrap.composition", "bootstrap.http-wire", "bootstrap.client-wire",
-    "sandbox.containment", "pty.process-contract", "mcp.supervision",
-})
+RUST_RESERVATIONS = (
+    ("sqlite.managed-connection", "gocode-store", "connection_profile"),
+    ("sqlite.local-reliability", "gocode-store", "local_reliability_inventory"),
+    ("phase3.evidence-fixtures", "gocode-store", "evidence_phase3"),
+    ("phase3.evidence-shadow-import", "gocode-store", "evidence_phase3"),
+    ("phase3.evidence-lineage", "gocode-store", "evidence_phase3"),
+    ("phase3.evidence-rollback", "gocode-store", "evidence_phase3"),
+    ("phase3.migration-control", "gocode-application", "migration_control"),
+    ("phase3.migration-rollout", "gocode-application", "migration_rollout"),
+    ("phase3.migration-sqlite", "gocode-store", "migration_sqlite"),
+    ("phase3.migration-routing-sqlite", "gocode-store", "migration_routing_sqlite"),
+    ("phase3.migration-routing", "gocode-runtime", "migration_routing"),
+    ("scanner.withheld-tail", "gocode-runtime", "provider_redaction_recovery"),
+    ("scanner.recovery-dispatch", "gocode-store", "provider_dispatch_recovery"),
+    ("credentials.native-store", "gocode-secure-store", "provider_credential"),
+    ("credentials.lifecycle", "gocode-store", "provider_credential_lifecycle"),
+    ("bootstrap.encoder", "gocode-pairing-crypto", "bootstrap_v3"),
+    ("bootstrap.persistence", "gocode-store", "bootstrap_reservation_store"),
+    ("bootstrap.composition", "gocode-daemon", "bootstrap_reservation_composition"),
+    ("bootstrap.http-wire", "gocode-http", "local_session_bootstrap_v3"),
+    ("bootstrap.client-wire", "gocode-runtime-client", "local_profile"),
+    ("sandbox.containment", "gocode-security", "process_containment_admission"),
+    ("pty.process-contract", "gocode-tools", "process_contract"),
+    ("mcp.supervision", "gocode-runtime", "plugin_mcp_supervision"),
+)
+RUST_IDS = frozenset(identifier for identifier, _, _ in RUST_RESERVATIONS)
+RUST_TUPLES = {identifier: ("SOURCE_CANDIDATE", package, target)
+               for identifier, package, target in RUST_RESERVATIONS}
 EXTERNAL_IDS = frozenset({"docs.claims", "schema.golden-api", "ci-local"})
 REQUIRED_IDS = RUST_IDS | EXTERNAL_IDS
 TARGET_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -68,12 +85,29 @@ def _validate_rust_record(record: dict) -> None:
         raise InventoryError(f"record {record['id']} has invalid selector_status")
     if not isinstance(record.get("package"), str) or not TARGET_RE.fullmatch(str(record.get("integration_target"))):
         raise InventoryError(f"record {record['id']} requires a Cargo --test integration_target")
+    if record["id"] not in RUST_TUPLES:
+        raise InventoryError(f"record {record['id']} is not owned by a completed source task")
+    if RUST_TUPLES[record["id"]] != (
+        record["stage"], record["package"], record["integration_target"]
+    ):
+        raise InventoryError(f"record {record['id']} reservation tuple changed")
     selector = record.get("fully_qualified_test_name")
     if selector is not None and not SELECTOR_RE.fullmatch(str(selector)):
         raise InventoryError(f"record {record['id']} has a path-filter selector")
     digest = record.get("list_digest")
     if digest is not None and not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
         raise InventoryError(f"record {record['id']} has invalid list digest")
+
+
+def canonical_inventory_bytes(document: dict) -> bytes:
+    """UTF-8 JSON: sort record IDs and object keys; omit final_inventory_digest."""
+    payload = {key: value for key, value in document.items() if key != "final_inventory_digest"}
+    payload["records"] = sorted(payload.get("records", []), key=lambda record: record.get("id", ""))
+    return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode()
+
+
+def final_inventory_digest(document: dict) -> str:
+    return hashlib.sha256(canonical_inventory_bytes(document)).hexdigest()
 
 
 def validate_inventory(document: dict) -> None:
@@ -101,6 +135,13 @@ def validate_inventory(document: dict) -> None:
         raise InventoryError("missing required or unexpected reservation category")
     for record in records:
         validate_record(record)
+    if status == "FROZEN":
+        unresolved = next((record["id"] for record in records
+                           if rust_record(record) and record["selector_status"] != "RESOLVED"), None)
+        if unresolved is not None:
+            raise InventoryError(f"frozen inventory contains UNRESOLVED record {unresolved}")
+        if document["final_inventory_digest"] != final_inventory_digest(document):
+            raise InventoryError("final inventory digest mismatch")
 
 
 def subprocess_command(args: tuple[str, ...]) -> str:
@@ -161,6 +202,8 @@ def main() -> int:
     try:
         document = json.loads(args.inventory.read_text(encoding="utf-8"))
         validate_inventory(document)
+        if document["inventory_status"] != "FROZEN":
+            raise InventoryError("external verification requires FROZEN inventory")
         if args.verify_frozen_all:
             verify_frozen_all(document)
         else:

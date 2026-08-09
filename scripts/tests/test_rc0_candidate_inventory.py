@@ -69,6 +69,28 @@ def inventory(records: list[dict[str, str]], status: str = "MUTABLE") -> dict:
     }
 
 
+def frozen_inventory(verifier, records: list[dict[str, str]]) -> dict:
+    records = list(records) + [
+        {"id": identifier, "stage": "SOURCE_CANDIDATE", "record_kind": "EXTERNAL_POLICY"}
+        for identifier in ("docs.claims", "schema.golden-api", "ci-local")
+    ]
+    document = inventory(records, "FROZEN")
+    document["final_inventory_digest"] = verifier.final_inventory_digest(document)
+    return document
+
+
+def resolved_reservations() -> list[dict[str, str]]:
+    records = [resolved(*reservation) for reservation in RUST_RESERVATIONS]
+    listings = {
+        target: "".join(f"{record['fully_qualified_test_name']}: test\n" for record in records
+                        if record["integration_target"] == target)
+        for target in {record["integration_target"] for record in records}
+    }
+    for record in records:
+        record["list_digest"] = hashlib.sha256(listings[record["integration_target"]].encode()).hexdigest()
+    return records
+
+
 class Rc0CandidateInventoryTests(unittest.TestCase):
     def test_rejects_missing_required_category(self) -> None:
         verifier = load_verifier()
@@ -100,6 +122,11 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
         record["fully_qualified_test_name"] = "tests/connection_profile.rs"
         with self.assertRaisesRegex(verifier.InventoryError, "path-filter"):
             verifier.validate_record(record)
+
+    def test_rejects_rust_record_not_owned_by_a_reservation(self) -> None:
+        verifier = load_verifier()
+        with self.assertRaisesRegex(verifier.InventoryError, "not owned"):
+            verifier.validate_record(resolved("unowned", "gocode-store", "candidate"))
 
     def test_unresolved_record_is_rejected_before_cargo(self) -> None:
         verifier = load_verifier()
@@ -160,9 +187,53 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
         verifier.verify_record(record, command)
 
+    def test_frozen_validation_rejects_bad_records_before_cargo(self) -> None:
+        verifier = load_verifier()
+        for expected, mutate in (
+            ("unresolved", lambda records: records[0].update(selector_status="UNRESOLVED")),
+            ("duplicate id", lambda records: records.append(records[0].copy())),
+            ("missing required", lambda records: records.pop()),
+            ("missing required", lambda records: records.append(resolved("extra", "gocode-store", "extra"))),
+            ("reservation tuple changed", lambda records: records[0].update(package="wrong")),
+            ("resolved record", lambda records: records[0].pop("toolchain")),
+            ("resolved record", lambda records: records[0].pop("list_digest")),
+        ):
+            with self.subTest(expected=expected):
+                document = frozen_inventory(verifier, resolved_reservations())
+                mutate(document["records"])
+                calls: list[tuple[str, ...]] = []
+                with self.assertRaisesRegex(verifier.InventoryError, expected):
+                    verifier.verify_frozen_all(document, lambda args: calls.append(args) or "")
+                self.assertEqual(calls, [])
+
+    def test_frozen_digest_is_canonical_and_checked_before_cargo(self) -> None:
+        verifier = load_verifier()
+        records = resolved_reservations()
+        first = frozen_inventory(verifier, records)
+        second = frozen_inventory(verifier, list(reversed(records)))
+        self.assertEqual(first["final_inventory_digest"], second["final_inventory_digest"])
+        first["final_inventory_digest"] = "0" * 64
+        calls: list[tuple[str, ...]] = []
+        with self.assertRaisesRegex(verifier.InventoryError, "final inventory digest mismatch"):
+            verifier.verify_frozen_all(first, lambda args: calls.append(args) or "")
+        self.assertEqual(calls, [])
+
+    def test_list_mismatch_refuses_exact_execution(self) -> None:
+        verifier = load_verifier()
+        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        for listing in ("0 tests, 0 benchmarks\n", "sqlite_managed_connection: test\nsqlite_managed_connection: test\n"):
+            with self.subTest(listing=listing):
+                calls: list[tuple[str, ...]] = []
+                with self.assertRaisesRegex(verifier.InventoryError, "selector is not exactly one"):
+                    verifier.verify_record(record, lambda args: calls.append(args) or listing)
+                self.assertEqual(len(calls), 1)
+        record["list_digest"] = "0" * 64
+        with self.assertRaisesRegex(verifier.InventoryError, "list digest changed"):
+            verifier.verify_record(record, lambda args: "sqlite_managed_connection: test\n")
+
     def test_verify_frozen_all_list_verifies_and_exact_runs_every_rust_record(self) -> None:
         verifier = load_verifier()
-        rust_records = [resolved(*reservation) for reservation in RUST_RESERVATIONS]
+        rust_records = resolved_reservations()
         records = list(rust_records)
         listings: dict[str, str] = {}
         for target in {record["integration_target"] for record in records}:
@@ -176,12 +247,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
             record["list_digest"] = hashlib.sha256(
                 listings[record["integration_target"]].encode()
             ).hexdigest()
-        records.extend(
-            {"id": identifier, "stage": "SOURCE_CANDIDATE", "record_kind": "EXTERNAL_POLICY"}
-            for identifier in ("docs.claims", "schema.golden-api", "ci-local")
-        )
-        document = inventory(records, "FROZEN")
-        document["final_inventory_digest"] = "0" * 64
+        document = frozen_inventory(verifier, records)
         verifier.RUST_IDS = frozenset({"sqlite.managed-connection"})
         calls: list[tuple[str, ...]] = []
 
