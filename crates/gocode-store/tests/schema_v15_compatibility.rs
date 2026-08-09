@@ -16,7 +16,11 @@ fn released_v15_database() -> (tempfile::TempDir, PathBuf) {
     apply_migrations(&connection).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER IF EXISTS provider_credential_transition_order;
+            "DROP TABLE IF EXISTS bootstrap_reservation_tombstones;
+             DROP TABLE IF EXISTS bootstrap_reservations;
+             DROP TABLE IF EXISTS bootstrap_last_observed_clock;
+             DELETE FROM schema_version WHERE version = 17;
+             DROP TRIGGER IF EXISTS provider_credential_transition_order;
              DROP TRIGGER IF EXISTS provider_credential_identity_immutable;
              DROP TRIGGER IF EXISTS provider_credential_insert_prepared;
              DROP TRIGGER IF EXISTS provider_credential_tombstone_permanent;
@@ -121,7 +125,7 @@ fn preflight_accepts_released_v15_shape() {
     preflight_existing_file(&path).unwrap();
     SqliteProviderExecutionStore::open(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 17);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
@@ -153,7 +157,7 @@ fn v15_to_v16_catalog_reopens_after_restart() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        16
+        17
     );
     assert!(connection
         .query_row(
@@ -259,4 +263,36 @@ fn corrupt_v16_tombstone_trigger_is_rejected_before_open() {
 
     assert!(preflight_existing_file(&path).is_err());
     assert!(SqliteProviderExecutionStore::open(&path).is_err());
+}
+
+#[test]
+fn v15_to_v16_to_v17_catalog_reopens_after_restart() {
+    let (_directory, path) = released_v15_database();
+    drop(SqliteProviderExecutionStore::open(&path).unwrap());
+    preflight_existing_file(&path).unwrap();
+    drop(SqliteProviderExecutionStore::open(&path).unwrap());
+
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        17
+    );
+    for table in [
+        "bootstrap_reservations",
+        "bootstrap_reservation_tombstones",
+        "bootstrap_last_observed_clock",
+    ] {
+        assert!(
+            connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
+                    [table],
+                    |row| row.get::<_, bool>(0),
+                )
+                .unwrap()
+        );
+    }
 }

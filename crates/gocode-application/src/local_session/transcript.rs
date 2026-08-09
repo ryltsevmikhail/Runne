@@ -1,29 +1,39 @@
-/// Exact binary bootstrap-proof transcript. No JSON canonicalization is used.
+/// Transitional non-wire transcript helper retained for internal callers.
+///
+/// It delegates to the sole v3 prefix-free encoder; production HTTP and
+/// runtime-client bootstrap use the timestamp-bound v3 operations directly.
 pub fn bootstrap_proof_transcript(
     binding: &RuntimeSessionBinding,
     server_nonce: [u8; 32],
     client_nonce: [u8; 32],
 ) -> Vec<u8> {
     let stable = binding.stable();
-    let mut output = b"gocode/local-runtime/bootstrap-proof/v2\0".to_vec();
-    output.extend_from_slice(&2_u32.to_be_bytes());
-    output.extend_from_slice(binding.certificate_sha256());
-    output.extend_from_slice(&server_nonce);
-    output.extend_from_slice(&client_nonce);
-    output.extend_from_slice(stable.authority_id());
-    append_string(&mut output, stable.principal_id().as_str());
-    output.extend_from_slice(stable.lineage_id().as_bytes());
-    output.extend_from_slice(&binding.ephemeral().daemon_instance_id().into_bytes());
-    output.extend_from_slice(&binding.ephemeral().launch_generation().to_be_bytes());
-    append_string(&mut output, stable.profile_id());
-    output.extend_from_slice(stable.schema_hash());
-    output.extend_from_slice(stable.capability_digest());
-    output
-}
-
-fn append_string(output: &mut Vec<u8>, value: &str) {
-    output.extend_from_slice(
-        &(u16::try_from(value.len()).expect("API identity and profile are bounded")).to_be_bytes(),
-    );
-    output.extend_from_slice(value.as_bytes());
+    let instance = binding.ephemeral().daemon_instance_id().into_bytes();
+    let generation = binding.ephemeral().launch_generation().to_be_bytes();
+    let fields: [&[u8]; 16] = [
+        BOOTSTRAP_PROTOCOL_V3,
+        stable.authority_id(),
+        stable.principal_id().as_str().as_bytes(),
+        stable.lineage_id().as_bytes(),
+        stable.profile_id().as_bytes(),
+        stable.schema_hash(),
+        binding.certificate_sha256(),
+        &instance,
+        &generation,
+        binding.ephemeral().session_id(),
+        BOOTSTRAP_FINAL_ENDPOINT_V3,
+        BOOTSTRAP_HTTP_METHOD_V3,
+        &[],
+        &[],
+        &client_nonce,
+        &[],
+    ];
+    gocode_pairing_crypto::encode_final_transcript(
+        &gocode_pairing_crypto::BootstrapTranscriptV3 {
+            key_version: BOOTSTRAP_KEY_VERSION_V3,
+            fields,
+        },
+        server_nonce,
+    )
+    .expect("fixed local-session fields fit the canonical transcript")
 }

@@ -11,7 +11,11 @@ fn interrupted_v16_migration_recovers_on_reopen() {
     apply_migrations(&connection).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER IF EXISTS provider_credential_transition_order;
+            "DROP TABLE IF EXISTS bootstrap_reservation_tombstones;
+             DROP TABLE IF EXISTS bootstrap_reservations;
+             DROP TABLE IF EXISTS bootstrap_last_observed_clock;
+             DELETE FROM schema_version WHERE version = 17;
+             DROP TRIGGER IF EXISTS provider_credential_transition_order;
              DROP TRIGGER IF EXISTS provider_credential_identity_immutable;
              DROP TRIGGER IF EXISTS provider_credential_insert_prepared;
              DROP TRIGGER IF EXISTS provider_credential_tombstone_permanent;
@@ -54,7 +58,7 @@ fn interrupted_v16_migration_recovers_on_reopen() {
         reopened
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get::<_, i64>(0))
             .unwrap(),
-        16
+        17
     );
     assert_eq!(
         reopened

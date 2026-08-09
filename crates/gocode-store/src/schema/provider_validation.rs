@@ -109,6 +109,10 @@ fn is_released_provider_v15(conn: &Connection, version: i64) -> SqliteResult<boo
     Ok(v15 && catalog)
 }
 
+fn is_released_provider_v17(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    released_v17_matches(conn, version)
+}
+
 const RELEASED_V12_TABLES: [&str; 34] = [
     "_authority",
     "_daemon_info",

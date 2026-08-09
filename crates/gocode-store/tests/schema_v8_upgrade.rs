@@ -29,7 +29,10 @@ fn released_v8_db() -> Connection {
             .unwrap();
     }
     conn.execute_batch(
-        "DROP TABLE schema_upgrade_write_latch;
+        "DROP TABLE bootstrap_reservation_tombstones;
+         DROP TABLE bootstrap_reservations;
+         DROP TABLE bootstrap_last_observed_clock;
+         DROP TABLE schema_upgrade_write_latch;
          DROP TABLE schema_upgrade_fence;
          DROP TABLE provider_credential_effect_bindings;
          DROP TABLE provider_credential_provisions;
@@ -76,8 +79,8 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
-    assert_eq!(version, 16);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 17);
+    assert_eq!(version, 17);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));

@@ -69,6 +69,7 @@ pub struct DaemonApplication {
     pub(super) client_profile: Option<PublishedClientProfileV2>,
     pub(super) binding: RuntimeSessionBinding,
     pub(super) local_session_service: Arc<Mutex<LocalSessionService>>,
+    pub(super) _bootstrap_reservation_store: Arc<SqliteBootstrapReservationStore>,
     pub(super) session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     pub(super) protected_activation: bool,
     pub(super) provider_activation: ProviderActivation,

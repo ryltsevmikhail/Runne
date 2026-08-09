@@ -35,5 +35,6 @@ include!("router_parts/production.rs");
 #[cfg(test)]
 mod tests {
     include!("router_parts/tests_support.rs");
+    include!("router_parts/bootstrap_test_support.rs");
     include!("router_parts/tests.rs");
 }

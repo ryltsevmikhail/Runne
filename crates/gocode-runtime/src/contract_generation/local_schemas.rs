@@ -20,11 +20,14 @@ fn local_runtime_profile_schema() -> Value {
             "daemonInstanceId": uuid_v7_schema(),
             "endpoint": {"pattern": "^https://(?:127\\.0\\.0\\.1|\\[::1\\]):[1-9][0-9]{0,4}$", "type": "string"},
             "eventLogLineageId": uuid_v7_schema(),
+            "executableSha256": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
+            "launchAuthorityId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
             "launchGeneration": positive_integer_schema(),
             "principalId": {"const": "local-owner", "type": "string"},
             "profileId": {"const": BUNDLE_ID, "type": "string"},
             "schemaHash": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
             "schemaVersion": {"const": 2, "type": "integer"},
+            "sessionId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
             "transportProfileId": {"const": TRANSPORT_PROFILE_ID, "type": "string"},
         }),
         &[
@@ -37,11 +40,14 @@ fn local_runtime_profile_schema() -> Value {
             "daemonInstanceId",
             "endpoint",
             "eventLogLineageId",
+            "executableSha256",
+            "launchAuthorityId",
             "launchGeneration",
             "principalId",
             "profileId",
             "schemaHash",
             "schemaVersion",
+            "sessionId",
             "transportProfileId",
         ],
     );
@@ -68,29 +74,52 @@ fn local_session_schema() -> Value {
         "pattern": BASE64_URL_PATTERN,
         "type": "string",
     });
+    let timestamp = json!({
+        "format": "date-time",
+        "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{6}Z$",
+        "type": "string",
+    });
+    let wire_version = json!({"const": "3", "type": "string"});
+    let key_version = json!({"const": 1, "type": "integer"});
     let definitions = json!({
         "authenticateRequest": closed_object(
             json!({
                 "authority": nonce,
                 "challengeId": challenge_id,
-                "proof": nonce,
+                "finalProof": nonce,
+                "keyVersion": key_version,
+                "wireVersion": wire_version,
             }),
-            &["authority", "challengeId", "proof"],
+            &["authority", "challengeId", "finalProof", "keyVersion", "wireVersion"],
         ),
         "authenticateResponse": closed_object(
             json!({
                 "expiresAtMonotonicMillis": positive_integer_schema(),
+                "keyVersion": key_version,
                 "sessionId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
+                "wireVersion": wire_version,
             }),
-            &["expiresAtMonotonicMillis", "sessionId"],
+            &["expiresAtMonotonicMillis", "keyVersion", "sessionId", "wireVersion"],
         ),
         "challengeRequest": closed_object(
-            json!({"clientNonce": nonce, "serverNonce": nonce}),
-            &["clientNonce", "serverNonce"],
+            json!({
+                "clientNonce": nonce,
+                "expiry": timestamp,
+                "keyVersion": key_version,
+                "notBefore": timestamp,
+                "preallocationProof": nonce,
+                "wireVersion": wire_version,
+            }),
+            &["clientNonce", "expiry", "keyVersion", "notBefore", "preallocationProof", "wireVersion"],
         ),
         "challengeResponse": closed_object(
-            json!({"challengeId": challenge_id, "serverNonce": nonce}),
-            &["challengeId", "serverNonce"],
+            json!({
+                "challengeId": challenge_id,
+                "keyVersion": key_version,
+                "serverNonce": nonce,
+                "wireVersion": wire_version,
+            }),
+            &["challengeId", "keyVersion", "serverNonce", "wireVersion"],
         ),
     });
     let mut schema = closed_object(
@@ -109,11 +138,11 @@ fn local_session_schema() -> Value {
     );
     let object = schema.as_object_mut().unwrap();
     object.insert("$defs".to_owned(), definitions);
-    object.insert("$id".to_owned(), json!("gocode://schemas/local-session-v1"));
+    object.insert("$id".to_owned(), json!("gocode://schemas/local-session-v2"));
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert(
         "title".to_owned(),
-        json!("Local Session V1 Golden Exchange"),
+        json!("Local Session V2 Golden Exchange"),
     );
     schema
 }

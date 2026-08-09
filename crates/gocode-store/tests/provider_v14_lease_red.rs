@@ -19,7 +19,7 @@ fn v13_upgrade_requires_v14_legacy_unbound_lease_columns() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 17);
 
     let columns = connection
         .prepare("PRAGMA table_info('provider_runtime_authority_state')")

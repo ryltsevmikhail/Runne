@@ -53,6 +53,7 @@ use gocode_runtime::{
     RuntimeTaskRunHost, TokioRuntimeContext,
 };
 use gocode_security::SecretBroker;
+use gocode_store::local_session::SqliteBootstrapReservationStore;
 use gocode_store::replay_store::ReplayStore;
 use gocode_store::schema::ensure_event_log_lineage_id;
 use gocode_store::store::StoreTransaction;
@@ -60,6 +61,7 @@ use gocode_store::store::StoreTransaction;
 type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
 
+mod executable_identity;
 mod http_startup;
 mod provider_startup;
 mod readiness;

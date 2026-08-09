@@ -7,6 +7,7 @@ use crate::protected_activation::VerifiedProtectedApplicationStart;
 pub(super) struct StartupProvider {
     activation: ProviderActivation,
     provenance: Option<DaemonActivationProvenance>,
+    launch_authority_id: Option<[u8; 16]>,
     dependencies: Option<ProtectedProviderDependencyCapsule>,
 }
 
@@ -20,6 +21,7 @@ impl StartupProvider {
         Ok(Self {
             activation: config.provider_activation.clone(),
             provenance: None,
+            launch_authority_id: None,
             dependencies: None,
         })
     }
@@ -33,6 +35,7 @@ impl StartupProvider {
             provenance: Some(
                 DaemonActivationProvenance::from_verified_owner_private_config(config),
             ),
+            launch_authority_id: None,
             dependencies: Some(dependencies),
         }
     }
@@ -47,6 +50,7 @@ impl StartupProvider {
             provenance: Some(DaemonActivationProvenance::from_verified_protected_launch(
                 start,
             )),
+            launch_authority_id: Some(start.launch_authority_id()),
             dependencies: Some(dependencies),
         }
     }
@@ -61,6 +65,7 @@ impl StartupProvider {
     ) -> (
         ProviderActivation,
         Option<DaemonActivationProvenance>,
+        Option<[u8; 16]>,
         bool,
         Option<ProtectedProviderDependencyCapsule>,
     ) {
@@ -68,6 +73,7 @@ impl StartupProvider {
         (
             self.activation,
             self.provenance,
+            self.launch_authority_id,
             protected,
             self.dependencies,
         )
@@ -145,8 +151,15 @@ impl DaemonApplication {
             session_id = *uuid::Uuid::now_v7().as_bytes();
         }
 
-        let (provider_activation, activation_provenance, protected_activation, dependencies) =
-            startup.into_parts();
+        let (
+            provider_activation,
+            activation_provenance,
+            launch_authority_id,
+            protected_activation,
+            dependencies,
+        ) = startup.into_parts();
+        let launch_authority_id =
+            launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
         let provider_profile_digest = *provider_activation.binding().profile_digest();
         let provider_service = match activation_provenance {
             Some(activation_provenance) => {
@@ -204,6 +217,8 @@ impl DaemonApplication {
             }
             None => None,
         };
+        let executable_sha256 =
+            *super::executable_identity::measure_launched_executable()?.executable_sha256();
         http_startup::start_http_and_runtime(
             config,
             bootstrap,
@@ -219,6 +234,8 @@ impl DaemonApplication {
             provider_activation,
             provider_service,
             protected_activation,
+            launch_authority_id,
+            executable_sha256,
             session_id,
         )
         .await
