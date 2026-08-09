@@ -11,6 +11,7 @@ use thiserror::Error;
 
 mod provider_credential;
 mod provider_journal_key;
+mod provider_recovery;
 
 pub use provider_credential::{
     MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
@@ -21,6 +22,7 @@ pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
+pub use provider_recovery::NativeWithheldTailStore;
 
 // ---------------------------------------------------------------------------
 // Errors
