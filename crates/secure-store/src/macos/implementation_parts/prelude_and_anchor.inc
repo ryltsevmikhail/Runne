@@ -9,10 +9,14 @@ use gocode_macos_keychain_acl::{
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 
-use crate::provider_credential::{ProviderCredentialMetadata, StoredProviderCredential};
+use crate::provider_credential::{
+    ProviderCredentialMetadata, StoredProviderCredential,
+    generate_provider_credential_source_revision,
+};
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore, NativeProviderCredentialVersionStore, ProviderJournalKeyDeletionProof,
+    ProviderCredentialSource, ProviderCredentialStatus, ProviderCredentialStore,
+    NativeProviderCredentialVersionStore, ProviderJournalKeyDeletionProof,
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
     ProviderJournalKeyring, SecureStore, SecureStoreError,
 };

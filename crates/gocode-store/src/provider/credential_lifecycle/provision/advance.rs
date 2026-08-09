@@ -4,6 +4,7 @@ fn advance_provision(
     target: &str,
     require_active: bool,
 ) -> Result<CredentialProvision, CredentialLifecycleError> {
+    let _progression = store.authority.invalidate_native_create_claims()?;
     let mut connection = store.connection.lock().map_err(map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -45,9 +46,6 @@ fn advance_provision(
                 params![target, provision.operation_id.as_slice()],
             )
             .map_err(map_sql)?;
-    }
-    if target_stage == ProvisionStage::NativeCreated {
-        store.authority.invalidate_native_create_claims()?;
     }
     transaction.commit().map_err(map_sql)?;
     Ok(CredentialProvision {

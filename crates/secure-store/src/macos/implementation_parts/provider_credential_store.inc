@@ -46,13 +46,22 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             .validate_writer_current()
             .map_err(map_identity_access_error)?;
         access.remeasure().map_err(map_identity_access_error)?;
+        let source_revision = generate_provider_credential_source_revision()?;
         Self::with_noninteractive(|keychain| {
             let exact_access = ExactKeychainAccess::new(access.writer_path(), access.reader_path())
                 .map_err(map_acl_error)?;
             access.remeasure().map_err(map_identity_access_error)?;
-            let metadata = ProviderCredentialMetadata::from_access(access, exact_access.digest());
-            let encoded =
-                StoredProviderCredential::encode(credential, access, exact_access.digest())?;
+            let metadata = ProviderCredentialMetadata::from_access_revision(
+                access,
+                exact_access.digest(),
+                source_revision,
+            );
+            let encoded = StoredProviderCredential::encode_with_revision(
+                credential,
+                access,
+                exact_access.digest(),
+                source_revision,
+            )?;
             match self.find_metadata_pair(keychain)? {
                 (Some((existing_metadata, metadata_item)), None) => {
                     existing_metadata.validate_writer_current()?;
@@ -89,6 +98,11 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
                     }
                     verify_item_acl(&item, exact_access.digest())?;
                     item.set_password(&encoded).map_err(map_keychain_error)?;
+                    gocode_macos_keychain_acl::set_generic_password_metadata(
+                        &item,
+                        &metadata.encode(),
+                    )
+                    .map_err(|_| SecureStoreError::CredentialEnrollmentIncomplete)?;
                     verify_item_acl(&item, exact_access.digest())
                 }
                 (None, None) => create_populated_provider_item(
@@ -111,49 +125,17 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         provider: ProviderCredentialId,
         expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        self.validate_provider(provider)?;
-        expected_access
-            .validate_reader_current()
-            .map_err(map_identity_access_error)?;
-        expected_access
-            .remeasure()
-            .map_err(map_identity_access_error)?;
-        let exact_access =
-            ExactKeychainAccess::new(expected_access.writer_path(), expected_access.reader_path())
-                .map_err(map_acl_error)?;
-        expected_access
-            .remeasure()
-            .map_err(map_identity_access_error)?;
-        Self::with_noninteractive(|keychain| {
-            let (metadata, metadata_item) = match self.find_metadata_pair(keychain)? {
-                (Some(primary), None) => primary,
-                (None, None) => return Err(SecureStoreError::ProviderCredentialNotFound),
-                _ => return Err(SecureStoreError::CredentialMigrationIncomplete),
-            };
-            if !metadata.access_matches(expected_access)
-                || metadata.acl_set_digest() != exact_access.digest()
-            {
-                return Err(SecureStoreError::CredentialAccessDenied);
-            }
-            verify_item_acl(&metadata_item, exact_access.digest())?;
-            if !metadata.is_complete() {
-                return Err(SecureStoreError::CredentialEnrollmentIncomplete);
-            }
-            let Some((encoded, item)) = self.find_primary_item(keychain)? else {
-                return Err(SecureStoreError::CredentialEnrollmentIncomplete);
-            };
-            let stored = StoredProviderCredential::decode(&encoded)?;
-            if !stored.metadata_matches(&metadata) {
-                return Err(SecureStoreError::CorruptProviderCredential);
-            }
-            if !stored.access_matches(expected_access)
-                || stored.acl_set_digest() != exact_access.digest()
-            {
-                return Err(SecureStoreError::CredentialAccessDenied);
-            }
-            verify_item_acl(&item, exact_access.digest())?;
-            Ok(stored.into_material())
-        })
+        self.load_provider_credential_record(provider, expected_access)
+            .map(StoredProviderCredential::into_material)
+    }
+
+    fn load_provider_credential_source(
+        &self,
+        provider: ProviderCredentialId,
+        expected_access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSource, SecureStoreError> {
+        self.load_provider_credential_record(provider, expected_access)?
+            .into_source()
     }
 
     fn delete_provider_credential(

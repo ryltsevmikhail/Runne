@@ -3,6 +3,8 @@ use std::sync::Mutex;
 
 use super::*;
 
+mod source_revision;
+
 struct ProvisioningNative {
     authority: NativeCredentialAuthority,
     values: Mutex<HashMap<CredentialVersionRef, Vec<u8>>>,
@@ -38,22 +40,24 @@ impl NativeProviderCredentialVersionStore for ProvisioningNative {
         credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        let reference = self
+        let authorization = self
             .authority
             .authorize_create(&claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?
-            .clone();
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let reference = authorization.version_ref().clone();
         self.creates.fetch_add(1, Ordering::SeqCst);
         let incoming = credential.with_bytes(<[u8]>::to_vec);
         let mut values = self.values.lock().unwrap();
-        match values.get(&reference) {
+        let result = match values.get(&reference) {
             Some(existing) if existing == &incoming => Ok(()),
             Some(_) => Err(SecureStoreError::ProviderCredentialOperationFailed),
             None => {
                 values.insert(reference, incoming);
                 Ok(())
             }
-        }
+        };
+        drop(authorization);
+        result
     }
 
     fn load_version(
@@ -144,9 +148,12 @@ fn restart_after_native_create_replays_exact_version_and_activates() {
         &store,
         &native,
         &provider,
-        [0xC2; 16],
-        1,
-        100,
+        ProvisionActivation {
+            owner: [0xC2; 16],
+            fencing_token: 1,
+            now: 100,
+        },
+        [0x42; 16],
         Some((&material, &access)),
     )
     .unwrap();
@@ -198,9 +205,12 @@ fn provisioning_rejects_conflicting_operation_and_native_payload() {
             &store,
             &native,
             &provider,
-            [0xC3; 16],
-            1,
-            100,
+            ProvisionActivation {
+                owner: [0xC3; 16],
+                fencing_token: 1,
+                now: 100,
+            },
+            [0x53; 16],
             Some((&conflicting, &access)),
         )
         .is_err()

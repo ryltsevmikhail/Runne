@@ -133,6 +133,7 @@ impl SqliteProviderCredentialLifecycleStore {
         &self,
         provision: &CredentialProvision,
     ) -> Result<CredentialNativeCreateClaim, CredentialLifecycleError> {
+        let issuer = self.authority.native_create_issuer()?;
         let mut connection = self.connection.lock().map_err(map_lock)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -151,15 +152,24 @@ impl SqliteProviderCredentialLifecycleStore {
         if row.state != CredentialVersionState::Prepared || row.tombstone_digest.is_some() {
             return Err(CredentialLifecycleError::LifecycleClosed);
         }
-        if existing.stage == ProvisionStage::Activated {
-            return Err(CredentialLifecycleError::Conflict);
+        if existing.stage != ProvisionStage::Prepared {
+            return Err(CredentialLifecycleError::LifecycleClosed);
         }
+        let validator = Arc::new(SqliteNativeCreateValidator {
+            connection: Arc::clone(&self.connection),
+            operation_id: provision.operation_id,
+            source_revision_id: provision.source_revision_id,
+            reference: provision.reference.clone(),
+        });
         transaction.commit().map_err(map_sql)?;
         let source = self
             .authority
             .issue_provision_source(provision.source_revision_id)?;
-        self.authority
-            .issue_native_create(provision.reference.clone(), &source)
+        issuer.issue_native_create(
+            provision.reference.clone(),
+            &source,
+            validator,
+        )
     }
 
     /// Completes a provision only after the exact version is ACTIVE.
@@ -174,3 +184,4 @@ impl SqliteProviderCredentialLifecycleStore {
 include!("provision/rows.rs");
 include!("provision/allocation.rs");
 include!("provision/advance.rs");
+include!("provision/validator.rs");

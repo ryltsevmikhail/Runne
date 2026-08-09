@@ -9,3 +9,9 @@ mod races;
 
 #[path = "provider_credential_lifecycle/integrity.rs"]
 mod integrity;
+
+#[path = "provider_credential_lifecycle/reconcile_integrity.rs"]
+mod reconcile_integrity;
+
+#[path = "provider_credential_lifecycle/native_create_integrity.rs"]
+mod native_create_integrity;

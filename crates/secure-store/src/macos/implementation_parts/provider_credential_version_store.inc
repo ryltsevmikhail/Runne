@@ -15,18 +15,18 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
         let authority = self.version_authority()?;
-        let reference = authority
-            .authorize_create(&claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?
-            .clone();
+        let reference = claim.version_ref().clone();
         self.version_store(&reference)?.create_immutable_version(
             credential,
             access,
             || {
-                authority
+                let authorization = authority
                     .authorize_create(&claim)
-                    .map(|_| ())
-                    .map_err(|_| SecureStoreError::CredentialAccessDenied)
+                    .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+                if authorization.version_ref() != &reference {
+                    return Err(SecureStoreError::CredentialAccessDenied);
+                }
+                Ok(authorization)
             },
         )
     }
@@ -61,11 +61,11 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
 }
 
 impl MacOsProviderCredentialStore {
-    fn create_immutable_version(
+    fn create_immutable_version<Authorization>(
         &self,
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
-        validate_authority: impl FnOnce() -> Result<(), SecureStoreError>,
+        validate_authority: impl FnOnce() -> Result<Authorization, SecureStoreError>,
     ) -> Result<(), SecureStoreError> {
         access
             .validate_writer_current()
@@ -78,8 +78,8 @@ impl MacOsProviderCredentialStore {
         let metadata = ProviderCredentialMetadata::from_access(access, exact_access.digest());
         let encoded = StoredProviderCredential::encode(credential, access, exact_access.digest())?;
         Self::with_noninteractive(|keychain| {
-            validate_authority()?;
-            match self.find_metadata_pair(keychain)? {
+            let authorization = validate_authority()?;
+            let result = match self.find_metadata_pair(keychain)? {
                 (None, None) => create_populated_provider_item(
                     keychain,
                     &self.service,
@@ -134,7 +134,9 @@ impl MacOsProviderCredentialStore {
                     })
                 }
                 _ => Err(SecureStoreError::CredentialMigrationIncomplete),
-            }
+            };
+            drop(authorization);
+            result
         })
     }
 

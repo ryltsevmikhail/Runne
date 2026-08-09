@@ -1,19 +1,27 @@
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 const PROVIDER_CREDENTIAL_MAGIC: &[u8; 8] = b"GCPCV1\0\0";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
+const PROVIDER_CREDENTIAL_V2_MAGIC: &[u8; 8] = b"GCPCV2\0\0";
+#[cfg(any(target_os = "macos", test))]
 const PROVIDER_CREDENTIAL_METADATA_MAGIC: &[u8; 8] = b"GCPMDV1\0";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
+const PROVIDER_CREDENTIAL_METADATA_V2_MAGIC: &[u8; 8] = b"GCPMDV2\0";
+#[cfg(any(target_os = "macos", test))]
 const PROVIDER_CREDENTIAL_INCOMPLETE_METADATA_MAGIC: &[u8; 8] = b"GCPMDI1\0";
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
+const PROVIDER_CREDENTIAL_INCOMPLETE_METADATA_V2_MAGIC: &[u8; 8] = b"GCPMDI2\0";
+#[cfg(any(target_os = "macos", test))]
 const EXECUTABLE_IDENTITY_BYTES: usize = 72;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 const PROVIDER_CREDENTIAL_HEADER_BYTES: usize =
     PROVIDER_CREDENTIAL_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32 + 4;
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 const PROVIDER_CREDENTIAL_METADATA_BYTES: usize =
     PROVIDER_CREDENTIAL_METADATA_MAGIC.len() + (2 * EXECUTABLE_IDENTITY_BYTES) + 32;
+#[cfg(any(target_os = "macos", test))]
+const PROVIDER_CREDENTIAL_REVISION_BYTES: usize = 16;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum ProviderCredentialEnrollmentState {
     Incomplete,
@@ -52,6 +60,81 @@ pub enum ProviderCredentialStatus {
     Missing,
     /// This platform has no accepted native backend.
     Unsupported,
+}
+
+/// Stable non-secret revision of one authoritative credential source item.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct ProviderCredentialSourceRevision([u8; 16]);
+
+impl ProviderCredentialSourceRevision {
+    /// Constructs an authority-owned immutable revision identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SecureStoreError::InvalidProviderCredential`] for zero.
+    pub fn new(revision: [u8; 16]) -> Result<Self, SecureStoreError> {
+        if revision == [0; 16] {
+            return Err(SecureStoreError::InvalidProviderCredential);
+        }
+        Ok(Self(revision))
+    }
+
+    /// Returns the non-secret stable revision bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 16] {
+        &self.0
+    }
+}
+
+impl fmt::Debug for ProviderCredentialSourceRevision {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("ProviderCredentialSourceRevision(<opaque>)")
+    }
+}
+
+/// One atomic authoritative source read containing material and its revision.
+pub struct ProviderCredentialSource {
+    material: ProviderCredentialMaterial,
+    revision: ProviderCredentialSourceRevision,
+}
+
+impl ProviderCredentialSource {
+    /// Binds validated credential material to source-owned revision metadata.
+    #[must_use]
+    pub const fn new(
+        material: ProviderCredentialMaterial,
+        revision: ProviderCredentialSourceRevision,
+    ) -> Self {
+        Self { material, revision }
+    }
+
+    /// Borrows the native-only credential material.
+    #[must_use]
+    pub const fn material(&self) -> &ProviderCredentialMaterial {
+        &self.material
+    }
+
+    /// Returns the immutable non-secret source revision.
+    #[must_use]
+    pub const fn revision(&self) -> ProviderCredentialSourceRevision {
+        self.revision
+    }
+
+    /// Consumes the source snapshot into zeroizing material.
+    #[must_use]
+    pub fn into_material(self) -> ProviderCredentialMaterial {
+        self.material
+    }
+}
+
+impl fmt::Debug for ProviderCredentialSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderCredentialSource")
+            .field("material", &"<redacted>")
+            .field("revision", &"<opaque>")
+            .finish()
+    }
 }
 
 impl fmt::Display for ProviderCredentialStatus {
@@ -161,7 +244,7 @@ impl fmt::Debug for ProviderCredentialAccessPolicy {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 fn validate_current_identity(expected: &ExecutableIdentityV1) -> Result<(), SecureStoreError> {
     let current = std::env::current_exe().map_err(|_| SecureStoreError::CredentialIdentityMismatch)?;
     let (_, measured) = measure_executable(&current)?;

@@ -6,10 +6,10 @@ use std::{
 
 use gocode_provider::{
     CredentialAuthorityPair, CredentialLease, CredentialLifecycleAuthority,
-    CredentialLifecycleError, CredentialNativeCreateClaim, CredentialProvisionSource,
-    CredentialVersionRef, CredentialVersionState, NativeCredentialDeletionProof,
-    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
-    RevokeCredentialVersion,
+    CredentialLifecycleError, CredentialNativeCreateClaim, CredentialNativeCreateValidator,
+    CredentialProvisionSource, CredentialVersionRef, CredentialVersionState,
+    NativeCredentialDeletionProof, PrepareCredentialVersion, ProviderCredentialVersionStore,
+    ReconcileCredentialVersions, RevokeCredentialVersion,
 };
 use rusqlite::{TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -35,7 +35,7 @@ const TOMBSTONE_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_TOMBSTONE_V1\0";
 
 /// SQLite authority for credential versions, leases, fences, and tombstones.
 pub struct SqliteProviderCredentialLifecycleStore {
-    connection: Mutex<ManagedConnection>,
+    connection: Arc<Mutex<ManagedConnection>>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     authority: CredentialLifecycleAuthority,
 }
@@ -104,7 +104,7 @@ impl SqliteProviderCredentialLifecycleStore {
         readiness_from_managed(&connection).map_err(map_sql)?;
         publication_from_managed(&connection).map_err(map_sql)?;
         Ok(Self {
-            connection: Mutex::new(connection),
+            connection: Arc::new(Mutex::new(connection)),
             now,
             authority,
         })
