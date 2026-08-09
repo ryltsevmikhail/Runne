@@ -4,6 +4,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -123,6 +124,120 @@ class Rc0CandidateSourceTests(unittest.TestCase):
             (result.status, result.blocked_reason),
             ("BLOCKED", "EXTERNAL_SOURCE_CAPTURE_REQUIRES_APPROVAL"),
         )
+
+    def test_rejects_dotdot_repository_alias(self):
+        source = candidate_source()
+        repo, expected = self.make_repo()
+        alias = repo / ".." / repo.name
+        result = source.validate_fixture_source(alias, self.expectation(repo, expected))
+        self.assertEqual(result.blocked_reason, "SOURCE_PATH_UNSAFE")
+
+    def test_ambient_git_and_path_redirectors_cannot_change_capture(self):
+        source = candidate_source()
+        repo, expected = self.make_repo()
+        expected_capture = self.expectation(repo, expected)
+        fake_dir = Path(tempfile.mkdtemp(dir=ROOT.parent))
+        self.addCleanup(lambda: __import__("shutil").rmtree(fake_dir))
+        fake_git = fake_dir / "git"
+        fake_git.write_text("#!/bin/sh\nexit 97\n", encoding="utf-8")
+        fake_git.chmod(0o755)
+        hostile = {
+            "PATH": str(fake_dir), "GIT_DIR": "/hostile/git",
+            "GIT_WORK_TREE": "/hostile/worktree", "GIT_INDEX_FILE": "/hostile/index",
+            "GIT_OBJECT_DIRECTORY": "/hostile/objects",
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES": "/hostile/alternates",
+            "GIT_COMMON_DIR": "/hostile/common", "GIT_CONFIG": "/hostile/config",
+            "GIT_CONFIG_GLOBAL": "/hostile/global", "GIT_CONFIG_SYSTEM": "/hostile/system",
+            "GIT_CONFIG_NOSYSTEM": "0", "HOME": "/hostile/home",
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.hooksPath",
+            "GIT_CONFIG_VALUE_0": "/hostile/hooks", "GIT_CONFIG_PARAMETERS": "'alias.status=!false'",
+        }
+        with patch.dict(__import__("os").environ, hostile):
+            result = source.validate_fixture_source(repo, expected_capture)
+        self.assertEqual(result.status, "FIXTURE_LOCAL_INPUTS_SATISFIED")
+
+    def test_rejects_config_rewrites_credentials_promisor_and_alternates(self):
+        source = candidate_source()
+        cases = (
+            ("include.path", "/tmp/hostile-config"),
+            ("includeIf.gitdir:/tmp/.path", "/tmp/hostile-config"),
+            ("url.https://evil.invalid/.insteadOf", "https://github.com/"),
+            ("url.https://evil.invalid/.pushInsteadOf", "https://github.com/"),
+            ("credential.helper", "!false"), ("http.proxy", "https://proxy.invalid"),
+            ("http.extraHeader", "Authorization: secret"),
+            ("http.https://github.com/.extraHeader", "Authorization: secret"),
+            ("http.https://github.com/.proxy", "https://proxy.invalid"),
+            ("remote.origin.promisor", "true"),
+            ("remote.origin.partialclonefilter", "blob:none"),
+            ("core.hooksPath", "/tmp/hooks"), ("core.fsmonitor", "!false"),
+            ("core.worktree", "."), ("extensions.worktreeConfig", "true"),
+            ("core.excludesFile", "/tmp/excludes"), ("alias.status", "!false"),
+        )
+        for key, value in cases:
+            repo, expected = self.make_repo()
+            git(repo, "config", "--local", key, value)
+            with self.subTest(key=key):
+                result = source.validate_fixture_source(repo, self.expectation(repo, expected))
+                self.assertEqual(result.blocked_reason, "SOURCE_GIT_CONFIG_UNSAFE")
+
+        for name in ("alternates", "http-alternates"):
+            repo, expected = self.make_repo()
+            alternate = repo / ".git/objects/info" / name
+            alternate.write_text(str(ROOT / ".git/objects") + "\n", encoding="utf-8")
+            result = source.validate_fixture_source(repo, self.expectation(repo, expected))
+            self.assertEqual(result.blocked_reason, "SOURCE_GIT_OBJECT_STORE_UNSAFE")
+
+        repo, expected = self.make_repo()
+        git(repo / "upstream/opencode", "config", "--local", "credential.helper", "!false")
+        result = source.validate_fixture_source(repo, self.expectation(repo, expected))
+        self.assertEqual(result.blocked_reason, "SOURCE_GIT_CONFIG_UNSAFE")
+
+    def test_rejects_origin_url_credentials_query_fragment_and_encoding(self):
+        source = candidate_source()
+        for url in (
+            "https://user:password@github.com/Ryltsevmg/gocode",
+            "https://github.com/Ryltsevmg/gocode?access_token=x",
+            "https://github.com/Ryltsevmg/gocode#signature=x",
+            "https://user%3Apassword%40github.com/Ryltsevmg/gocode",
+        ):
+            repo, expected = self.make_repo()
+            git(repo, "remote", "set-url", "origin", url)
+            with self.subTest(url=url):
+                result = source.validate_fixture_source(repo, self.expectation(repo, expected))
+                self.assertEqual(result.blocked_reason, "SOURCE_REMOTE_IDENTITY_MISMATCH")
+
+    def test_snapshot_recheck_blocks_head_status_origin_and_gitmodules_swaps(self):
+        source = candidate_source()
+        for mutation in ("head", "status", "origin", "gitmodules", "alternates"):
+            repo, expected = self.make_repo()
+
+            def mutate(stage, captured_repo, selected=mutation):
+                if stage != "before-final-recheck":
+                    return
+                if selected == "head":
+                    (captured_repo / "late").write_text("late\n", encoding="utf-8")
+                    git(captured_repo, "add", "late")
+                    git(captured_repo, "commit", "-qm", "late")
+                elif selected == "status":
+                    (captured_repo / "untracked").write_text("late\n", encoding="utf-8")
+                elif selected == "origin":
+                    git(captured_repo, "remote", "set-url", "origin", "https://github.com/Ryltsevmg/gocode.git")
+                elif selected == "gitmodules":
+                    replacement = captured_repo / ".gitmodules.replacement"
+                    replacement.write_bytes(expected)
+                    replacement.replace(captured_repo / ".gitmodules")
+                else:
+                    (captured_repo / ".git/objects/info/alternates").write_text(
+                        "/tmp\n", encoding="utf-8"
+                    )
+
+            with self.subTest(mutation=mutation):
+                result = source.validate_fixture_source(
+                    repo, self.expectation(repo, expected), mutation_hook=mutate
+                )
+                self.assertEqual(result.status, "BLOCKED")
+                if mutation != "alternates":
+                    self.assertEqual(result.blocked_reason, "SOURCE_SNAPSHOT_CHANGED")
 
 
 if __name__ == "__main__":

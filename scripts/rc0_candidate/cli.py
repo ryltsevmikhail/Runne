@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import stat
 import sys
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from scripts.rc0_policy.canonical import StrictJSONError, loads_canonical
 
@@ -45,14 +47,44 @@ def summarize_fixture_local_inputs(inputs: Mapping[str, Any]) -> FixtureLocalInp
     return FixtureLocalInputsSummary(_SATISFIED)
 
 
-def _load_inputs(path: str) -> Mapping[str, Any] | None:
+def _load_inputs(
+    path: str, mutation_hook: Callable[[str, Path], None] | None = None
+) -> Mapping[str, Any] | None:
     candidate = Path(path)
-    if candidate.is_symlink() or not candidate.is_file():
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(candidate, flags)
+    except OSError:
         return None
     try:
-        record = loads_canonical(candidate.read_bytes())
-    except (OSError, StrictJSONError):
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > 65_536:
+            return None
+        if mutation_hook is not None:
+            mutation_hook("after-open", candidate)
+        chunks: list[bytes] = []
+        remaining = 65_537
+        while remaining and (chunk := os.read(descriptor, min(remaining, 1 << 16))):
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        after = os.fstat(descriptor)
+        current = os.stat(candidate, follow_symlinks=False)
+        identity = lambda value: (
+            value.st_dev, value.st_ino, value.st_mode, value.st_size,
+            value.st_mtime_ns, value.st_ctime_ns,
+        )
+        if remaining == 0 or identity(before) != identity(after) or identity(before) != identity(current):
+            return None
+        try:
+            record = loads_canonical(b"".join(chunks))
+        except StrictJSONError:
+            return None
+    except OSError:
         return None
+    finally:
+        os.close(descriptor)
     return record if isinstance(record, dict) else None
 
 
