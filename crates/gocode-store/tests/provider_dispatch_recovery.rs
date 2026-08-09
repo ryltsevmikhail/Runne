@@ -15,6 +15,8 @@ use tempfile::TempDir;
 
 #[path = "support/recovery/mod.rs"]
 mod recovery_support;
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 use recovery_support::claim_dispatch_row;
 

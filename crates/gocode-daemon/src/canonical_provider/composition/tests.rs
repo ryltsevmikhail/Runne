@@ -142,6 +142,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     let profile_digest = *config.provider_activation.binding().profile_digest();
     let db_path = config.db_path.clone();
     let bootstrap = bootstrap(&config).unwrap();
+    gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
     let authority = bootstrap.authority_id;
     let generation = bootstrap.launch_generation;
     let provenance = DaemonActivationProvenance::from_verified_owner_private_config(

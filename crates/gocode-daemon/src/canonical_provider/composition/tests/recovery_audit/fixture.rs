@@ -37,6 +37,7 @@ impl Harness {
         let profile_digest = *config.provider_activation.binding().profile_digest();
         let db_path = config.db_path.clone();
         let bootstrap = bootstrap(&config).unwrap();
+        gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
         let authority = bootstrap.authority_id;
         let generation = bootstrap.launch_generation;
         let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
@@ -79,6 +80,13 @@ impl Harness {
         &self,
         generation: u64,
     ) -> Arc<DaemonCanonicalOpenAiService> {
+        self.try_compose_at_generation(generation).await.unwrap()
+    }
+
+    pub(super) async fn try_compose_at_generation(
+        &self,
+        generation: u64,
+    ) -> Result<Arc<DaemonCanonicalOpenAiService>, DaemonError> {
         let effect =
             gocode_daemon_openai_effect::effect_from_loopback_fixture(reqwest::Client::new())
                 .unwrap()
@@ -106,7 +114,6 @@ impl Harness {
             ),
         })
         .await
-        .unwrap()
     }
 
     pub(super) fn issue_incomplete(

@@ -15,7 +15,10 @@ use gocode_store::provider::{
 
 use super::super::DaemonCanonicalOpenAiService;
 
-pub(super) async fn create(service: &DaemonCanonicalOpenAiService, started: TextGenerationReceipt) {
+pub(super) async fn create(
+    service: &DaemonCanonicalOpenAiService,
+    started: TextGenerationReceipt,
+) -> gocode_provider::DispatchAttemptId {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([1; 16]),
         ModelRef::new(
@@ -107,6 +110,7 @@ pub(super) async fn create(service: &DaemonCanonicalOpenAiService, started: Text
             .unwrap();
     }
     runtime.finalize_terminal_output(&context).unwrap();
+    context.attempt_id
 }
 
 fn events() -> Vec<ProviderStreamEvent> {
