@@ -267,3 +267,5 @@ fn clock(path: &Path) -> i64 {
         )
         .unwrap()
 }
+
+include!("bootstrap_reservation_store/capacity_clock.rs");

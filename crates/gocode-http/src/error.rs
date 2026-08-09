@@ -16,6 +16,11 @@ impl RequestId {
         Self(uuid::Uuid::now_v7().to_string())
     }
 
+    /// Returns the non-random correlation token for closed bootstrap rejection.
+    pub fn bootstrap_rejection() -> Self {
+        Self("00000000-0000-0000-0000-000000000000".to_owned())
+    }
+
     /// Returns the stable textual identity.
     pub fn as_str(&self) -> &str {
         &self.0

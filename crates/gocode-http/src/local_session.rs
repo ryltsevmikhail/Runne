@@ -99,8 +99,12 @@ fn decode_32(value: &str) -> Option<[u8; 32]> {
 fn decode_16(value: &str) -> Option<[u8; 16]> {
     URL_SAFE_NO_PAD.decode(value).ok()?.try_into().ok()
 }
-fn rejected(status: StatusCode) -> Response {
-    canonical_error_response(status, "BOOTSTRAP_REJECTED", &RequestId::generate())
+fn rejected() -> Response {
+    canonical_error_response(
+        StatusCode::UNAUTHORIZED,
+        "BOOTSTRAP_REJECTED",
+        &RequestId::bootstrap_rejection(),
+    )
 }
 
 #[cfg(test)]

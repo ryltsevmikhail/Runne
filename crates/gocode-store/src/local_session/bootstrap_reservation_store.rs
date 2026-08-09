@@ -1,4 +1,7 @@
-use std::sync::Mutex;
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 use gocode_application::local_session::{
     BootstrapReservationError, BootstrapReservationState, BootstrapReservationStore,
@@ -18,6 +21,7 @@ use super::bootstrap_reservation_rows::{
 /// SQLite-backed reservation store using one factory-managed writer.
 pub struct SqliteBootstrapReservationStore {
     connection: Mutex<ManagedConnection>,
+    entropy_calls: Option<Arc<AtomicUsize>>,
 }
 
 impl SqliteBootstrapReservationStore {
@@ -25,6 +29,19 @@ impl SqliteBootstrapReservationStore {
     pub fn new(connection: ManagedConnection) -> Self {
         Self {
             connection: Mutex::new(connection),
+            entropy_calls: None,
+        }
+    }
+
+    /// Builds a store that counts actual OS-random fills for security tests.
+    #[doc(hidden)]
+    pub fn with_entropy_audit(
+        connection: ManagedConnection,
+        entropy_calls: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            connection: Mutex::new(connection),
+            entropy_calls: Some(entropy_calls),
         }
     }
 }
@@ -62,9 +79,10 @@ impl BootstrapReservationStore for SqliteBootstrapReservationStore {
             >= i64::try_from(gocode_application::local_session::MAX_BOOTSTRAP_RESERVATIONS)
                 .map_err(|_| BootstrapReservationError::Storage)?
         {
+            tx.commit().map_err(storage)?;
             return Err(BootstrapReservationError::Capacity);
         }
-        let (challenge_id, server_nonce) = random_challenge();
+        let (challenge_id, server_nonce) = random_challenge(self.entropy_calls.as_deref());
         tx.execute(
             "INSERT INTO bootstrap_reservations (
                 reservation_key, challenge_id, server_nonce, binding_proof, key_version,
@@ -180,14 +198,21 @@ impl BootstrapReservationStore for SqliteBootstrapReservationStore {
     }
 }
 
-fn random_challenge() -> (LocalSessionChallengeId, [u8; 32]) {
+fn random_challenge(entropy_calls: Option<&AtomicUsize>) -> (LocalSessionChallengeId, [u8; 32]) {
     let mut challenge = [0; 16];
     let mut nonce = [0; 32];
     while challenge == [0; 16] {
-        OsRng.fill_bytes(&mut challenge);
+        fill_random(entropy_calls, &mut challenge);
     }
     while nonce == [0; 32] {
-        OsRng.fill_bytes(&mut nonce);
+        fill_random(entropy_calls, &mut nonce);
     }
     (LocalSessionChallengeId(challenge), nonce)
+}
+
+fn fill_random(entropy_calls: Option<&AtomicUsize>, output: &mut [u8]) {
+    if let Some(calls) = entropy_calls {
+        calls.fetch_add(1, Ordering::SeqCst);
+    }
+    OsRng.fill_bytes(output);
 }
