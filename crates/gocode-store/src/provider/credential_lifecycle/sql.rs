@@ -143,9 +143,21 @@ fn reconcile_versions(
     for (row, reference) in &batch {
         validate_row_ref(row, reference)?;
         validate_reconcile_row(row, now)?;
-        if row.state != CredentialVersionState::GcClaimed {
-            advance_provider_clock(&transaction, reference.provider(), now)?;
-        }
+    }
+    let claim_refs = batch
+        .iter()
+        .map(|(_, reference)| reference.clone())
+        .collect::<Vec<_>>();
+    let clock_proposals = batch
+        .iter()
+        .filter(|(row, _)| row.state != CredentialVersionState::GcClaimed)
+        .map(|(_, reference)| reference.provider().clone())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|provider| propose_provider_clock(&transaction, &provider, now))
+        .collect::<Result<Vec<_>, _>>()?;
+    for proposal in &clock_proposals {
+        apply_provider_clock(&transaction, proposal)?;
     }
     transaction
         .execute(
@@ -164,11 +176,9 @@ fn reconcile_versions(
         )
         .map_err(map_sql)?;
     transaction.commit().map_err(map_sql)?;
-    let claims = batch
+    let claims = claim_refs
         .into_iter()
-        .map(|(_, reference)| {
-            store.authority.issue_gc(reference)
-        })
+        .map(|reference| store.authority.issue_gc(reference))
         .collect();
     Ok(ReconcileCredentialVersions::new(claims))
 }
