@@ -4,6 +4,8 @@ import unittest
 from copy import deepcopy
 from pathlib import Path
 
+from scripts.tests.rc0_policy_fix_round2_cases import Rc0PolicyFixRound2Tests
+
 
 SCHEMA_IDS = (
     "gocode.rc0.schema.candidate-record/3",
