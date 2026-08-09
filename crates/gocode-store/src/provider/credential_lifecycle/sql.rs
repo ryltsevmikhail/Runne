@@ -3,6 +3,7 @@ fn activate_lease(
     lease: CredentialLease,
 ) -> Result<CredentialVersionRef, CredentialLifecycleError> {
     let reference = lease.version_ref().clone();
+    let _progression = store.authority.invalidate_native_create_claims()?;
     let mut connection = store.connection.lock().map_err(map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -87,6 +88,7 @@ fn revoke_lease(
 ) -> Result<(), CredentialLifecycleError> {
     let reference = input.version_ref();
     let fence = to_i64(input.revocation_fence())?;
+    let _progression = store.authority.invalidate_native_create_claims()?;
     let mut connection = store.connection.lock().map_err(map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -132,6 +134,7 @@ fn reconcile_versions(
     if now < 0 {
         return Err(CredentialLifecycleError::InvalidInput);
     }
+    let _progression = store.authority.invalidate_native_create_claims()?;
     let mut connection = store.connection.lock().map_err(map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -181,8 +184,7 @@ fn load_reconcile_batch(
                     revocation_fence, tombstone_digest
              FROM provider_credential_versions
              WHERE (lifecycle_state='ACTIVE' AND lease_expires_at<=?1)
-                OR (lifecycle_state='RETIRED'
-                    AND (lease_expires_at<=?1 OR revocation_fence>=lease_fencing_token))
+                OR lifecycle_state='RETIRED'
                 OR lifecycle_state='GC_CLAIMED'
              ORDER BY provider_id, credential_version",
         )

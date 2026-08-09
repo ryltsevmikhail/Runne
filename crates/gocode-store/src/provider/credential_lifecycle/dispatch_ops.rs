@@ -76,6 +76,7 @@ impl SqliteProviderCredentialLifecycleStore {
     ) -> Result<(), CredentialLifecycleError> {
         let reference = self.authority.verify_deletion(&proof)?.clone();
         let digest = tombstone_digest(&reference);
+        let _progression = self.authority.invalidate_native_create_claims()?;
         let mut connection = self.connection.lock().map_err(map_lock)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)

@@ -1,7 +1,7 @@
 use gocode_secure_store::{
     MAX_PROVIDER_CREDENTIAL_BYTES, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
-    SecureStoreError,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
 struct ControlledExecutable {
     access: ProviderCredentialAccessPolicy,
@@ -88,6 +88,17 @@ fn credential_material_is_bounded_single_line_and_redacted() {
         maximum.with_bytes(<[u8]>::len),
         MAX_PROVIDER_CREDENTIAL_BYTES
     );
+    assert_eq!(
+        ProviderCredentialSourceRevision::new([0; 16]).unwrap_err(),
+        SecureStoreError::InvalidProviderCredential
+    );
+    let source = ProviderCredentialSource::new(
+        ProviderCredentialMaterial::new(marker).unwrap(),
+        ProviderCredentialSourceRevision::new([0x71; 16]).unwrap(),
+    );
+    let rendered = format!("{source:?} {:?}", source.revision());
+    assert!(!rendered.contains("provider-secret-marker-7f3c"));
+    assert!(!rendered.contains("71717171"));
 }
 
 #[test]
@@ -111,6 +122,12 @@ fn provider_identity_and_status_vocabulary_are_exact() {
             .unwrap(),
         ProviderCredentialStatus::Configured
     );
+    assert_eq!(
+        store
+            .load_provider_credential_source(ProviderCredentialId::OpenAi, &executable.access)
+            .unwrap_err(),
+        SecureStoreError::ProviderCredentialSourceRevisionUnavailable
+    );
 }
 
 #[test]
@@ -127,6 +144,7 @@ fn credential_errors_are_closed_and_never_carry_secret_or_path_context() {
         SecureStoreError::ProviderCredentialOperationFailed,
         SecureStoreError::CredentialEnrollmentIncomplete,
         SecureStoreError::CredentialMigrationIncomplete,
+        SecureStoreError::ProviderCredentialSourceRevisionUnavailable,
         SecureStoreError::ProviderJournalKeyGenerationFailed,
     ] {
         let rendered = format!("{error:?} {error}");

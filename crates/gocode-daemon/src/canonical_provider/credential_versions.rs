@@ -15,6 +15,10 @@ use gocode_store::schema::ManagedConnection;
 use super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
 use crate::error::DaemonError;
 
+include!("credential_versions/source.rs");
+
+const FIXTURE_SOURCE_REVISION: [u8; 16] = [0xF1; 16];
+
 pub(super) struct ComposedCredentialLifecycle {
     pub(super) store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) native_authority: NativeCredentialAuthority,
@@ -141,29 +145,29 @@ fn provision_active(
     now: i64,
     fixture: bool,
 ) -> Result<(), DaemonError> {
+    let activation = ProvisionActivation {
+        owner,
+        fencing_token,
+        now,
+    };
     if fixture {
         return provision_active_with_material(
             store,
             native,
             provider,
-            owner,
-            fencing_token,
-            now,
+            activation,
+            FIXTURE_SOURCE_REVISION,
             None,
         );
     }
     let access = credential_access_policy()?;
-    let legacy = NativeProviderCredentialStore::new()
-        .load_provider_credential(ProviderCredentialId::OpenAi, &access)
-        .map_err(|_| unavailable())?;
-    provision_active_with_material(
+    provision_active_from_legacy_source(
         store,
         native,
         provider,
-        owner,
-        fencing_token,
-        now,
-        Some((&legacy, &access)),
+        activation,
+        &NativeProviderCredentialStore::new(),
+        &access,
     )
 }
 
@@ -171,36 +175,37 @@ fn provision_active_with_material(
     store: &SqliteProviderCredentialLifecycleStore,
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,
-    owner: [u8; 16],
-    fencing_token: u64,
-    now: i64,
+    activation: ProvisionActivation,
+    source_revision: [u8; 16],
     native_input: Option<(&ProviderCredentialMaterial, &ProviderCredentialAccessPolicy)>,
 ) -> Result<(), DaemonError> {
+    let source = store
+        .provision_source(source_revision)
+        .map_err(|_| unavailable())?;
     let provision = match store
         .pending_provision(provider)
         .map_err(|_| unavailable())?
     {
-        Some(provision) => provision,
-        None => {
-            let source = store
-                .provision_source(*uuid::Uuid::now_v7().as_bytes())
-                .map_err(|_| unavailable())?;
-            store
-                .begin_provision(provider, *uuid::Uuid::now_v7().as_bytes(), &source)
-                .map_err(|_| unavailable())?
-        }
+        Some(provision) => store
+            .begin_provision(provider, *provision.operation_id(), &source)
+            .map_err(|_| unavailable())?,
+        None => store
+            .begin_provision(provider, *uuid::Uuid::now_v7().as_bytes(), &source)
+            .map_err(|_| unavailable())?,
     };
     let reference = provision.version_ref().clone();
     if let Some((material, access)) = native_input {
-        native
-            .create_version(
-                store
-                    .claim_native_create(&provision)
-                    .map_err(|_| unavailable())?,
-                material,
-                access,
-            )
-            .map_err(|_| unavailable())?;
+        if !provision.native_created() {
+            native
+                .create_version(
+                    store
+                        .claim_native_create(&provision)
+                        .map_err(|_| unavailable())?,
+                    material,
+                    access,
+                )
+                .map_err(|_| unavailable())?;
+        }
         if native
             .version_status(&reference, access)
             .map_err(|_| unavailable())?
@@ -212,13 +217,19 @@ fn provision_active_with_material(
     let provision = store
         .mark_native_created(&provision)
         .map_err(|_| unavailable())?;
-    let expires_at = now
+    let expires_at = activation
+        .now
         .checked_add(i64::try_from(PROVIDER_POLICY_V1_LEASE_SECONDS).unwrap_or(i64::MAX))
         .ok_or_else(unavailable)?;
     store
         .activate(
-            CredentialLease::new(reference, owner, expires_at, fencing_token)
-                .map_err(|_| unavailable())?,
+            CredentialLease::new(
+                reference,
+                activation.owner,
+                expires_at,
+                activation.fencing_token,
+            )
+            .map_err(|_| unavailable())?,
         )
         .map_err(|_| unavailable())?;
     store

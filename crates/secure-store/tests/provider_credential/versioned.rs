@@ -3,8 +3,9 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use gocode_provider::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
-    CredentialLifecycleAuthority, CredentialNativeCreateClaim, CredentialVersionRef,
-    NativeCredentialAuthority, NativeCredentialDeletionProof, ProviderId,
+    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateClaim,
+    CredentialNativeCreateValidator, CredentialVersionRef, NativeCredentialAuthority,
+    NativeCredentialDeletionProof, ProviderId,
 };
 use gocode_secure_store::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy,
@@ -61,13 +62,13 @@ impl NativeProviderCredentialVersionStore for OpaqueVersionFixture {
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
         let mut values = self.values.lock().unwrap();
-        let reference = self
+        let authorization = self
             .authority
             .authorize_create(&claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?
-            .clone();
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let reference = authorization.version_ref().clone();
         let incoming = credential.with_bytes(<[u8]>::to_vec);
-        match values.get(&reference) {
+        let result = match values.get(&reference) {
             Some(VersionState::Complete(existing)) if existing == &incoming => Ok(()),
             Some(VersionState::Complete(_)) => {
                 Err(SecureStoreError::ProviderCredentialOperationFailed)
@@ -77,7 +78,9 @@ impl NativeProviderCredentialVersionStore for OpaqueVersionFixture {
                 drop(values);
                 Ok(())
             }
-        }
+        };
+        drop(authorization);
+        result
     }
 
     fn load_version(
@@ -120,7 +123,19 @@ fn create_claim(
     let source = authority
         .issue_provision_source([discriminator; 16])
         .unwrap();
-    authority.issue_native_create(reference, &source).unwrap()
+    authority
+        .native_create_issuer()
+        .unwrap()
+        .issue_native_create(reference, &source, Arc::new(PreparedValidator))
+        .unwrap()
+}
+
+struct PreparedValidator;
+
+impl CredentialNativeCreateValidator for PreparedValidator {
+    fn validate(&self) -> Result<(), CredentialLifecycleError> {
+        Ok(())
+    }
 }
 
 #[test]

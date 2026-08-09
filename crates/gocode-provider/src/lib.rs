@@ -22,10 +22,12 @@ pub use coordination::{
 };
 pub use credential::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
-    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateClaim,
-    CredentialProvisionSource, CredentialVersionRef, CredentialVersionState,
-    NativeCredentialAuthority, NativeCredentialDeletionProof, PrepareCredentialVersion,
-    ProviderCredentialVersionStore, ReconcileCredentialVersions, RevokeCredentialVersion,
+    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateAuthorization,
+    CredentialNativeCreateClaim, CredentialNativeCreateIssuer, CredentialNativeCreateProgression,
+    CredentialNativeCreateValidator, CredentialProvisionSource, CredentialVersionRef,
+    CredentialVersionState, NativeCredentialAuthority, NativeCredentialDeletionProof,
+    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
+    RevokeCredentialVersion,
 };
 pub use digest::{
     CanonicalProviderError, ProviderCallDigest, ProviderCallDigestVersion,

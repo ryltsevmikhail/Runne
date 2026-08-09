@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::RwLock;
 
 use super::{CredentialLease, CredentialLifecycleError, CredentialVersionRef};
 
@@ -23,7 +23,7 @@ impl CredentialAuthorityPair {
         let gc = Arc::new(AuthoritySeal);
         let deletion = Arc::new(AuthoritySeal);
         let provision = Arc::new(AuthoritySeal);
-        let provision_generation = Arc::new(AtomicU64::new(1));
+        let provision_generation = Arc::new(RwLock::new(1));
         Self {
             lifecycle: CredentialLifecycleAuthority {
                 dispatch: Arc::clone(&dispatch),
@@ -61,61 +61,10 @@ pub struct CredentialLifecycleAuthority {
     gc: Arc<AuthoritySeal>,
     deletion: Arc<AuthoritySeal>,
     provision: Arc<AuthoritySeal>,
-    provision_generation: Arc<AtomicU64>,
+    provision_generation: Arc<RwLock<u64>>,
 }
 
 impl CredentialLifecycleAuthority {
-    /// Issues one opaque non-secret source revision identity.
-    pub fn issue_provision_source(
-        &self,
-        revision_id: [u8; 16],
-    ) -> Result<CredentialProvisionSource, CredentialLifecycleError> {
-        if revision_id == [0; 16] {
-            return Err(CredentialLifecycleError::InvalidInput);
-        }
-        Ok(CredentialProvisionSource {
-            revision_id,
-            seal: Arc::clone(&self.provision),
-        })
-    }
-
-    /// Validates that a source revision belongs to this lifecycle authority.
-    pub fn authorize_provision_source<'a>(
-        &self,
-        source: &'a CredentialProvisionSource,
-    ) -> Result<&'a [u8; 16], CredentialLifecycleError> {
-        if Arc::ptr_eq(&self.provision, &source.seal) {
-            Ok(&source.revision_id)
-        } else {
-            Err(CredentialLifecycleError::StaleLease)
-        }
-    }
-
-    /// Issues single-owner native create work after durable PREPARED validation.
-    pub fn issue_native_create(
-        &self,
-        reference: CredentialVersionRef,
-        source: &CredentialProvisionSource,
-    ) -> Result<CredentialNativeCreateClaim, CredentialLifecycleError> {
-        let source_revision_id = *self.authorize_provision_source(source)?;
-        Ok(CredentialNativeCreateClaim {
-            reference,
-            source_revision_id,
-            generation: self.provision_generation.load(Ordering::SeqCst),
-            seal: Arc::clone(&self.provision),
-        })
-    }
-
-    /// Revokes every outstanding create claim before lifecycle progression.
-    pub fn invalidate_native_create_claims(&self) -> Result<(), CredentialLifecycleError> {
-        self.provision_generation
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |generation| {
-                generation.checked_add(1)
-            })
-            .map(|_| ())
-            .map_err(|_| CredentialLifecycleError::CorruptState)
-    }
-
     /// Issues native load authority after the caller validated the durable row.
     #[must_use]
     pub fn issue_dispatch(&self, lease: CredentialLease) -> CredentialDispatchCapability {
@@ -160,27 +109,12 @@ pub struct NativeCredentialAuthority {
     gc: Arc<AuthoritySeal>,
     deletion: Arc<AuthoritySeal>,
     provision: Arc<AuthoritySeal>,
-    provision_generation: Arc<AtomicU64>,
+    provision_generation: Arc<RwLock<u64>>,
 }
 
 include!("authority/provision.rs");
 
 impl NativeCredentialAuthority {
-    /// Validates non-cloneable PREPARED native create work for this backend.
-    pub fn authorize_create<'a>(
-        &self,
-        claim: &'a CredentialNativeCreateClaim,
-    ) -> Result<&'a CredentialVersionRef, CredentialLifecycleError> {
-        if Arc::ptr_eq(&self.provision, &claim.seal)
-            && claim.source_revision_id != [0; 16]
-            && self.provision_generation.load(Ordering::SeqCst) == claim.generation
-        {
-            Ok(&claim.reference)
-        } else {
-            Err(CredentialLifecycleError::StaleLease)
-        }
-    }
-
     /// Validates an active dispatch capability for this native backend.
     pub fn authorize_load<'a>(
         &self,

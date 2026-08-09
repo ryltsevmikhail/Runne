@@ -64,16 +64,45 @@ impl MacOsProviderCredentialStore {
                 return verify_item_acl(&item, replacement_access.digest())
                     .map_err(|_| SecureStoreError::CredentialMigrationIncomplete);
             }
+            let source_revision = metadata.source_revision();
             let material = stored.into_material();
-            let current_metadata =
-                ProviderCredentialMetadata::from_access(current, current_access.digest());
-            let replacement_metadata =
-                ProviderCredentialMetadata::from_access(replacement, replacement_access.digest());
-            let replacement_encoded = StoredProviderCredential::encode(
-                &material,
-                replacement,
-                replacement_access.digest(),
-            )?;
+            let (current_metadata, replacement_metadata, replacement_encoded) =
+                if let Some(revision) = source_revision {
+                    (
+                        ProviderCredentialMetadata::from_access_revision(
+                            current,
+                            current_access.digest(),
+                            revision,
+                        ),
+                        ProviderCredentialMetadata::from_access_revision(
+                            replacement,
+                            replacement_access.digest(),
+                            revision,
+                        ),
+                        StoredProviderCredential::encode_with_revision(
+                            &material,
+                            replacement,
+                            replacement_access.digest(),
+                            revision,
+                        )?,
+                    )
+                } else {
+                    (
+                        ProviderCredentialMetadata::from_access(
+                            current,
+                            current_access.digest(),
+                        ),
+                        ProviderCredentialMetadata::from_access(
+                            replacement,
+                            replacement_access.digest(),
+                        ),
+                        StoredProviderCredential::encode(
+                            &material,
+                            replacement,
+                            replacement_access.digest(),
+                        )?,
+                    )
+                };
             let migration_service = self.migration_service();
             let backup_result = create_populated_provider_item(
                 keychain,

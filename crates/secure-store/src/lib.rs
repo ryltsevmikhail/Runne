@@ -16,7 +16,8 @@ mod provider_recovery;
 pub use provider_credential::{
     MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
     PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
@@ -68,6 +69,8 @@ pub enum SecureStoreError {
     CredentialEnrollmentIncomplete,
     #[error("provider credential ACL migration is incomplete")]
     CredentialMigrationIncomplete,
+    #[error("provider credential source revision is unavailable")]
+    ProviderCredentialSourceRevisionUnavailable,
 }
 
 // ---------------------------------------------------------------------------

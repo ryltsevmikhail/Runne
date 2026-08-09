@@ -9,8 +9,10 @@ mod authority;
 
 pub use authority::{
     CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim,
-    CredentialLifecycleAuthority, CredentialNativeCreateClaim, CredentialProvisionSource,
-    NativeCredentialAuthority, NativeCredentialDeletionProof,
+    CredentialLifecycleAuthority, CredentialNativeCreateAuthorization, CredentialNativeCreateClaim,
+    CredentialNativeCreateIssuer, CredentialNativeCreateProgression,
+    CredentialNativeCreateValidator, CredentialProvisionSource, NativeCredentialAuthority,
+    NativeCredentialDeletionProof,
 };
 
 const CREDENTIAL_REF_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_VERSION_REF_V1\0";
