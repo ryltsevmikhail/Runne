@@ -188,8 +188,10 @@ class Rc0CandidateEvidenceTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(result.directory.stat().st_mode), 0o700)
             self.assertTrue(all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in result.directory.iterdir()))
             before = {path.name: path.read_bytes() for path in result.directory.iterdir()}
-            with self.assertRaises(evidence.EvidenceConstructionError):
-                evidence.build_fixture_evidence(fixture_records(), Path(output), Path(checkout))
+            retry = evidence.build_fixture_evidence(
+                fixture_records(), Path(output), Path(checkout)
+            )
+            self.assertEqual(retry.directory, result.directory)
             self.assertEqual(before, {path.name: path.read_bytes() for path in result.directory.iterdir()})
             self.assertFalse((result.directory / "verification-report.json").exists())
 
@@ -199,6 +201,9 @@ from scripts.tests.rc0_candidate_fix_round1_evidence_cases import (
 )
 from scripts.tests.rc0_candidate_fix_round2_evidence_cases import (
     Rc0CandidateEvidenceFixRound2Tests,
+)
+from scripts.tests.rc0_candidate_fix_round3_evidence_cases import (
+    Rc0CandidateEvidenceFixRound3Tests,
 )
 
 

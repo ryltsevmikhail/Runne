@@ -143,7 +143,7 @@ class Rc0CandidateEvidenceFixRound1Tests(unittest.TestCase):
                     fixture_records(), Path(output), Path(checkout), publication_hook=replace_final
                 )
             self.assertTrue((Path(output) / SOURCE).is_dir())
-            self.assertTrue((Path(output) / (SOURCE + ".owned")).is_dir())
+            self.assertFalse((Path(output) / (SOURCE + ".owned")).exists())
             self.assertFalse((Path(output) / ("." + SOURCE + ".complete")).exists())
 
     def test_replaced_owned_lock_is_preserved_and_blocks_publication(self):
