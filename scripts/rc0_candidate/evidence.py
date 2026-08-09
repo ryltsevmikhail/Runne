@@ -3,22 +3,19 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
-import shutil
-import stat
 import struct
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
-from urllib.parse import urlsplit
+from typing import Any, Callable, Mapping
 
 from scripts.rc0_policy.bindings import EVIDENCE_FILES, validate_record_bindings
 from scripts.rc0_policy.canonical import StrictJSONError, canonical_bytes
 from scripts.rc0_policy.model import FixtureValidationError, parse_checksums_text
 from scripts.rc0_policy.schemas import validate_schema
 
+from .atomic_publish import AtomicPublishError, publish_private_blobs
+from .path_policy import evidence_value_diagnostics, validate_artifact_path
 from .source import validate_fixture_evidence_commit
 
 _SHA = re.compile(r"[0-9a-f]{40}")
@@ -32,7 +29,6 @@ _SCHEMAS = {
     "artifact-inventory.json": "gocode.rc0.schema.artifact-inventory/3",
     "sbom.spdx.json": "gocode.rc0.schema.sbom-spdx-2.3/3",
 }
-_CREDENTIAL_KEYS = ("password", "secret", "token", "credential", "private_key", "api_key")
 
 
 class EvidenceConstructionError(ValueError):
@@ -83,31 +79,7 @@ def evidence_bundle_digest(source_sha: str, blobs: Mapping[str, bytes]) -> str:
     return digest.hexdigest()
 
 
-def _credential_diagnostics(value: Any, path: str = "$") -> list[str]:
-    errors: list[str] = []
-    if isinstance(value, dict):
-        for key, item in value.items():
-            lowered = key.casefold()
-            if any(token in lowered for token in _CREDENTIAL_KEYS):
-                errors.append(f"credential-shaped field is forbidden at {path}.{key}")
-            errors.extend(_credential_diagnostics(item, f"{path}.{key}"))
-    elif isinstance(value, list):
-        for index, item in enumerate(value):
-            errors.extend(_credential_diagnostics(item, f"{path}[{index}]"))
-    elif isinstance(value, str):
-        parsed = urlsplit(value) if "://" in value else None
-        credential_url = parsed is not None and (
-            parsed.username is not None or parsed.password is not None
-        )
-        credential_prefix = value.startswith(
-            ("-----BEGIN PRIVATE KEY", "Bearer ", "ghp_", "github_pat_", "sk-")
-        )
-        if credential_url or credential_prefix:
-            errors.append(f"credential material is forbidden at {path}")
-    return errors
-
-
-def _self_reference_diagnostics(records: Mapping[str, Any]) -> list[str]:
+def _artifact_path_diagnostics(records: Mapping[str, Any]) -> list[str]:
     errors: list[str] = []
     for container, field in (
         (records["artifact-inventory.json"], "artifacts"),
@@ -115,8 +87,8 @@ def _self_reference_diagnostics(records: Mapping[str, Any]) -> list[str]:
         (records["sbom.spdx.json"], "artifact_bindings"),
     ):
         for item in container.get(field, []):
-            if isinstance(item, dict) and str(item.get("relative_path", "")).startswith("docs/evidence/"):
-                errors.append("candidate artifact inventory cannot reference evidence blobs")
+            if isinstance(item, dict):
+                errors.extend(validate_artifact_path(item.get("relative_path")))
     return errors
 
 
@@ -146,7 +118,7 @@ def _prepare_blobs(records: Mapping[str, Any]) -> tuple[str, dict[str, bytes]]:
             if not isinstance(value, dict):
                 diagnostics.append(f"{name} must be an object")
                 continue
-            diagnostics.extend(_credential_diagnostics(value))
+            diagnostics.extend(evidence_value_diagnostics(value))
             diagnostics.extend(validate_schema(value, _SCHEMAS[name]))
             try:
                 blobs[name] = canonical_bytes(value)
@@ -161,87 +133,25 @@ def _prepare_blobs(records: Mapping[str, Any]) -> tuple[str, dict[str, bytes]]:
     if not isinstance(source_sha, str) or _SHA.fullmatch(source_sha) is None:
         diagnostics.append("candidate source SHA is not canonical lower-case hex")
     else:
-        diagnostics.extend(_self_reference_diagnostics(normalized))
+        diagnostics.extend(_artifact_path_diagnostics(normalized))
     if diagnostics:
         raise EvidenceConstructionError("; ".join(diagnostics))
     return source_sha, blobs
 
 
-def _safe_output_root(output_root: Path, checkout_root: Path) -> Path:
-    output_root = Path(output_root)
-    checkout_root = Path(checkout_root)
-    if output_root.is_symlink() or not output_root.is_dir():
-        raise EvidenceConstructionError("output root must be an existing real directory")
-    resolved = output_root.resolve()
-    checkout = checkout_root.resolve()
-    if resolved == checkout or resolved.is_relative_to(checkout):
-        raise EvidenceConstructionError("evidence output root must be outside the checkout")
-    metadata = resolved.stat()
-    if not stat.S_ISDIR(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) & 0o077:
-        raise EvidenceConstructionError("evidence output root must be owner-private")
-    if hasattr(os, "geteuid") and metadata.st_uid != os.geteuid():
-        raise EvidenceConstructionError("evidence output root must be owner-owned")
-    return resolved
-
-
-def _write_private(path: Path, data: bytes) -> None:
-    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
-    descriptor = os.open(path, flags, 0o600)
-    try:
-        with os.fdopen(descriptor, "wb", closefd=False) as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
-    finally:
-        os.close(descriptor)
-
-
 def build_fixture_evidence(
-    records: Mapping[str, Any], output_root: Path, checkout_root: Path
+    records: Mapping[str, Any],
+    output_root: Path,
+    checkout_root: Path,
+    publication_hook: Callable[[int, str], None] | None = None,
 ) -> EvidenceBuildResult:
     """Validate then atomically publish nine owner-private fixture blobs."""
     source_sha, blobs = _prepare_blobs(records)
-    root = _safe_output_root(output_root, checkout_root)
-    final = root / source_sha
-    if final.exists() or final.is_symlink():
-        raise EvidenceConstructionError("evidence source directory already exists")
-    lock = root / f".{source_sha}.construction-lock"
-    lock_descriptor: int | None = None
-    temporary: Path | None = None
     try:
-        lock_descriptor = os.open(lock, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        temporary = Path(tempfile.mkdtemp(prefix=f".{source_sha}.", dir=root))
-        os.chmod(temporary, 0o700)
-        for name in EVIDENCE_FILES:
-            _write_private(temporary / name, blobs[name])
-        directory_descriptor = os.open(temporary, os.O_RDONLY)
-        try:
-            os.fsync(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
-        if final.exists() or final.is_symlink():
-            raise EvidenceConstructionError("evidence source directory collision")
-        os.rename(temporary, final)
-        temporary = None
-        root_descriptor = os.open(root, os.O_RDONLY)
-        try:
-            os.fsync(root_descriptor)
-        finally:
-            os.close(root_descriptor)
-    except (FileExistsError, OSError) as error:
-        if isinstance(error, EvidenceConstructionError):
-            raise
-        raise EvidenceConstructionError("atomic evidence construction failed") from error
-    finally:
-        if temporary is not None:
-            shutil.rmtree(temporary)
-        if lock_descriptor is not None:
-            os.close(lock_descriptor)
-        try:
-            lock.unlink()
-        except FileNotFoundError:
-            pass
+        final = publish_private_blobs(
+            Path(output_root), Path(checkout_root), source_sha, blobs, publication_hook
+        )
+    except AtomicPublishError as error:
+        raise EvidenceConstructionError(str(error)) from error
     digest = evidence_bundle_digest(source_sha, blobs)
     return EvidenceBuildResult(final, dict(blobs), digest)

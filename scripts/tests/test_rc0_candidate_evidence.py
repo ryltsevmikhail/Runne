@@ -194,5 +194,10 @@ class Rc0CandidateEvidenceTests(unittest.TestCase):
             self.assertFalse((result.directory / "verification-report.json").exists())
 
 
+from scripts.tests.rc0_candidate_fix_round1_evidence_cases import (
+    Rc0CandidateEvidenceFixRound1Tests,
+)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,6 +2,7 @@ import ast
 import importlib
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -74,6 +75,21 @@ class Rc0CandidateCliTests(unittest.TestCase):
     def test_missing_external_authority_is_blocked(self):
         result = run_cli()
         self.assertEqual((result.returncode, result.stdout, result.stderr), (2, "BLOCKED(ADR_OR_POLICY_UNAVAILABLE)\n", ""))
+
+    def test_fixture_input_open_detects_path_replacement(self):
+        cli = candidate_cli()
+        with tempfile.TemporaryDirectory() as location:
+            root = Path(location)
+            path = root / "inputs.json"
+            path.write_bytes((FIXTURES / "local-inputs-satisfied.json").read_bytes())
+
+            def replace(stage, opened_path):
+                if stage == "after-open":
+                    replacement = root / "replacement.json"
+                    replacement.write_bytes((FIXTURES / "local-inputs-blocked.json").read_bytes())
+                    replacement.replace(opened_path)
+
+            self.assertIsNone(cli._load_inputs(str(path), mutation_hook=replace))
 
 
 if __name__ == "__main__":
