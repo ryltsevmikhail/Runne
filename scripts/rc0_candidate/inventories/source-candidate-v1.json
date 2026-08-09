@@ -1,6 +1,7 @@
 {
   "inventory_version": "source-candidate-v1",
-  "inventory_status": "MUTABLE",
+  "inventory_status": "FROZEN",
+  "final_inventory_digest": "b9ae63596d771c0ee7d5f3ac0949eb4b0e50f969fb02942fdaaa5674192040e9",
   "records": [
     {"id":"docs.claims","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
     {"id":"schema.golden-api","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
