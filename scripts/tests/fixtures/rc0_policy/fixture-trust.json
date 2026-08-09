@@ -1,0 +1,6 @@
+{
+  "fixture_only": true,
+  "minimum_policy_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "minimum_policy_revision": 3,
+  "trusted_key_ids": ["fixture-key-1"]
+}

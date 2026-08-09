@@ -1,0 +1,49 @@
+{
+  "expires_at": "2026-08-09T02:00:00.000000Z",
+  "expected_schema_digests": [
+    {"schema_id": "gocode.rc0.schema.artifact-inventory/3", "sha256": "1111111111111111111111111111111111111111111111111111111111111111"},
+    {"schema_id": "gocode.rc0.schema.candidate-record/3", "sha256": "2222222222222222222222222222222222222222222222222222222222222222"},
+    {"schema_id": "gocode.rc0.schema.checksums-text/3", "sha256": "3333333333333333333333333333333333333333333333333333333333333333"},
+    {"schema_id": "gocode.rc0.schema.documentation-validation/3", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"},
+    {"schema_id": "gocode.rc0.schema.fail-closed-disposition/3", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"},
+    {"schema_id": "gocode.rc0.schema.qualification-policy-bundle/3", "sha256": "6666666666666666666666666666666666666666666666666666666666666666"},
+    {"schema_id": "gocode.rc0.schema.sbom-spdx-2.3/3", "sha256": "7777777777777777777777777777777777777777777777777777777777777777"},
+    {"schema_id": "gocode.rc0.schema.security-validation/3", "sha256": "8888888888888888888888888888888888888888888888888888888888888888"},
+    {"schema_id": "gocode.rc0.schema.source-gate-results/3", "sha256": "9999999999999999999999999999999999999999999999999999999999999999"},
+    {"schema_id": "gocode.rc0.schema.test-inventory/3", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    {"schema_id": "gocode.rc0.schema.verification-report/3", "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+  ],
+  "freshness_policy": {"clock_skew_seconds": 30, "maximum_age_seconds": 3600},
+  "issued_at": "2026-08-09T00:00:00.000000Z",
+  "issuer_id": "fixture-operator",
+  "key_id": "fixture-key-1",
+  "not_before": "2026-08-09T00:00:00.000000Z",
+  "policy_digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "policy_revision": 3,
+  "profile": "gocode.rc0.evidence-profile/3",
+  "repository_id": "gocode",
+  "required_gates": [
+    {
+      "exit_semantics": "ZERO_ONLY",
+      "expected_counts": {"executed": 1, "ignored": 0, "passed": 1},
+      "gate_id": "fixture-source-test",
+      "identity_profile_bindings": ["repository_id", "candidate_source_sha", "profile"],
+      "required": true,
+      "selectors": ["fixture::test"],
+      "signal_semantics": "ANY_SIGNAL_BLOCKS",
+      "stage": "SOURCE_CANDIDATE",
+      "timeout_seconds": 30,
+      "toolchain": "fixture-only",
+      "verification_mode": "DIRECT_RUN"
+    }
+  ],
+  "runner_contract": {
+    "dependency_inventory_digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "executable_digest": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "runner_class": "external-fixture-placeholder"
+  },
+  "schema_id": "gocode.rc0.schema.qualification-policy-bundle/3",
+  "signature": "fixture-only-not-a-signature",
+  "trusted_evidence_issuers": ["fixture-evidence-issuer"],
+  "workflow_policy_digests": ["ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]
+}

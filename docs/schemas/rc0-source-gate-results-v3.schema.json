@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.schema.source-gate-results/3",
+  "title": "GOCODE RC0 Source Gate Results V3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "repository_id", "candidate_source_revision", "evidence_attempt_id", "policy_digest", "profile", "capture"],
+  "properties": {
+    "schema_id": {"const": "gocode.rc0.schema.source-gate-results/3"},
+    "repository_id": {"type": "string", "minLength": 1},
+    "candidate_source_revision": {"$ref": "#/$defs/gitSha"},
+    "evidence_attempt_id": {"$ref": "#/$defs/uuidV7"},
+    "policy_digest": {"$ref": "#/$defs/sha256"},
+    "profile": {"const": "gocode.rc0.evidence-profile/3"},
+    "capture": {"$ref": "#/$defs/capture"}
+  },
+  "$defs": {
+    "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "uuidV7": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["remote_url", "captured_origin_main_revision", "head_revision", "tree_clean", "opencode_gitlink_revision"],
+      "properties": {
+        "remote_url": {"enum": ["https://github.com/Ryltsevmg/gocode", "https://github.com/Ryltsevmg/gocode.git"]},
+        "captured_origin_main_revision": {"$ref": "#/$defs/gitSha"},
+        "head_revision": {"$ref": "#/$defs/gitSha"},
+        "tree_clean": {"const": true},
+        "opencode_gitlink_revision": {"const": "66495a2a22cd0a57efcc4f721e65532f0987b4e8"}
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.schema.fail-closed-disposition/3",
+  "title": "GOCODE RC0 Fail-Closed Disposition V3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "repository_id", "candidate_source_revision", "evidence_attempt_id", "policy_digest", "profile", "dispositions"],
+  "properties": {
+    "schema_id": {"const": "gocode.rc0.schema.fail-closed-disposition/3"},
+    "repository_id": {"type": "string", "minLength": 1},
+    "candidate_source_revision": {"$ref": "#/$defs/gitSha"},
+    "evidence_attempt_id": {"$ref": "#/$defs/uuidV7"},
+    "policy_digest": {"$ref": "#/$defs/sha256"},
+    "profile": {"const": "gocode.rc0.evidence-profile/3"},
+    "dispositions": {"type": "array", "minItems": 1, "maxItems": 4096, "uniqueItems": true, "items": {"$ref": "#/$defs/disposition"}}
+  },
+  "$defs": {
+    "gitSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "uuidV7": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
+    "disposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subsystem", "stage", "disposition"],
+      "properties": {
+        "subsystem": {"enum": ["SANDBOX", "PTY", "MCP", "SQLITE"]},
+        "stage": {"enum": ["SOURCE_CANDIDATE", "PRODUCTION_QUALIFICATION"]},
+        "disposition": {"enum": ["NATIVE_SANDBOX_NOT_QUALIFIED", "BACKEND_UNAVAILABLE", "DISABLED_BY_POLICY", "SQLITE_PROFILE_UNAVAILABLE", "SATISFIED"]}
+      }
+    }
+  }
+}
