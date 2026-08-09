@@ -14,7 +14,8 @@ class VerifyTestInventoryTests(unittest.TestCase):
     def test_inventory_contains_required_test(self) -> None:
         self.assertEqual(
             verifier.verify_inventory(
-                "containment_unavailable::absent_certificate_is_unavailable: test\n",
+                "containment_unavailable::absent_certificate_is_unavailable: test\n"
+                "\n1 test, 0 benchmarks\n",
                 ["containment_unavailable::absent_certificate_is_unavailable"],
             ),
             [],
