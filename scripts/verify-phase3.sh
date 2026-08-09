@@ -12,6 +12,14 @@ EVIDENCE_DIR=$(mktemp -d)
 STDERR_FILE=$(mktemp)
 trap 'rm -rf "$EVIDENCE_DIR" "$STDERR_FILE"' EXIT
 
+emit_stderr() {
+    local identifier=$1 stage=$2
+    if [[ -s "$STDERR_FILE" ]]; then
+        echo "DIAGNOSTIC: $identifier $stage stderr" >&2
+        cat "$STDERR_FILE" >&2
+    fi
+}
+
 run_tuple() {
     local identifier=$1 package=$2 target=$3 selector=$4 source_sha=$5 expected_toolchain=$6 expected_digest=$7
     local digest_file="$EVIDENCE_DIR/$identifier.digest"
@@ -19,23 +27,42 @@ run_tuple() {
         echo "ERROR: $identifier toolchain changed" >&2
         return 1
     fi
-    if ! cargo test --locked -p "$package" --test "$target" -- --list 2>"$STDERR_FILE" |
-        python3 scripts/phase3_inventory.py list-digest "$selector" >"$digest_file"; then
-        echo "ERROR: $identifier list command or parser failed" >&2
-        [[ -s "$STDERR_FILE" ]] && cat "$STDERR_FILE" >&2
+    set +e
+    cargo test --locked -p "$package" --test "$target" -- --list 2>"$STDERR_FILE" |
+        python3 scripts/phase3_inventory.py list-digest "$selector" >"$digest_file"
+    local statuses=("${PIPESTATUS[@]}")
+    set -e
+    if (( statuses[0] != 0 )); then
+        echo "ERROR: $identifier list Cargo command failed" >&2
+        emit_stderr "$identifier" list
         return 1
     fi
+    if (( statuses[1] != 0 )); then
+        echo "ERROR: $identifier list parser failed" >&2
+        emit_stderr "$identifier" list
+        return 1
+    fi
+    emit_stderr "$identifier" list
     if [[ $(<"$digest_file") != "$expected_digest" ]]; then
         echo "ERROR: $identifier inventory digest changed" >&2
         return 1
     fi
-    if ! cargo test --locked -p "$package" --test "$target" "$selector" -- --exact 2>"$STDERR_FILE" |
-        python3 scripts/phase3_inventory.py exact "$selector"; then
-        echo "ERROR: $identifier exact command or parser failed" >&2
-        [[ -s "$STDERR_FILE" ]] && cat "$STDERR_FILE" >&2
+    set +e
+    cargo test --locked -p "$package" --test "$target" "$selector" -- --exact 2>"$STDERR_FILE" |
+        python3 scripts/phase3_inventory.py exact "$selector"
+    statuses=("${PIPESTATUS[@]}")
+    set -e
+    if (( statuses[0] != 0 )); then
+        echo "ERROR: $identifier exact Cargo command failed" >&2
+        emit_stderr "$identifier" exact
         return 1
     fi
-    [[ -s "$STDERR_FILE" ]] && cat "$STDERR_FILE" >&2
+    if (( statuses[1] != 0 )); then
+        echo "ERROR: $identifier exact parser failed" >&2
+        emit_stderr "$identifier" exact
+        return 1
+    fi
+    emit_stderr "$identifier" exact
     echo "tuple=$identifier package=$package target=$target test=$selector source_sha=$source_sha toolchain=$expected_toolchain inventory_digest=$expected_digest"
 }
 

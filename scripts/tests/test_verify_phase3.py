@@ -54,6 +54,33 @@ class VerifyPhase3Tests(unittest.TestCase):
             separator = parts.index("--")
             self.assertNotEqual(parts[separator - 1], target)
 
+    def test_shell_distinguishes_cargo_failures_from_parser_failures(self) -> None:
+        cases = (
+            ("list-cargo-exit", "list Cargo command failed"),
+            ("list-parser-output", "list parser failed"),
+            ("run-cargo-exit", "exact Cargo command failed"),
+            ("run-parser-output", "exact parser failed"),
+        )
+        for mode, diagnostic in cases:
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary_directory:
+                root = Path(temporary_directory)
+                self._copy_verifier(root)
+                self._write_commands(root, root / "commands.log")
+                result = self._run(root, mode)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"ERROR: phase3.evidence-fixtures {diagnostic}", result.stderr)
+
+    def test_shell_emits_successful_stderr_before_reuse(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            self._copy_verifier(root)
+            self._write_commands(root, root / "commands.log")
+            result = self._run(root, "success-stderr")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("list stderr diagnostic", result.stderr)
+        self.assertIn("exact stderr diagnostic", result.stderr)
+
     def _copy_verifier(self, root: Path) -> None:
         scripts = root / "scripts"
         scripts.mkdir()
@@ -90,7 +117,8 @@ class VerifyPhase3Tests(unittest.TestCase):
         }
         names = selectors[record["integration_target"]]
         listing = "".join(f"{name}: test\n" for name in names)
-        listing += "\n1 test, 0 benchmarks\n"
+        summary = "1 test" if len(names) == 1 else f"{len(names)} tests"
+        listing += f"\n{summary}, 0 benchmarks\n"
         return hashlib.sha256(listing.encode()).hexdigest()
 
     def _phase3_record_count(self) -> int:
@@ -110,13 +138,21 @@ class VerifyPhase3Tests(unittest.TestCase):
             "  [ \"$arg\" = \"--list\" ] && is_list=true\n"
             "  case \"$arg\" in phase3_*) selector=\"$arg\";; esac\n"
             "done\n"
+            "case \"${PHASE3_CARGO_MODE:-success}:$is_list\" in\n"
+            "  list-cargo-exit:true) echo 'list cargo stderr' >&2; exit 17;;\n"
+            "  list-parser-output:true) echo 'not libtest output'; exit 0;;\n"
+            "  run-cargo-exit:false) echo 'exact cargo stderr' >&2; exit 19;;\n"
+            "  run-parser-output:false) echo 'not libtest output'; exit 0;;\n"
+            "esac\n"
             "if $is_list; then\n"
             "  case \"$target\" in\n"
-            "    evidence_phase3) echo phase3_evidence_fixtures: test; echo phase3_evidence_shadow_import: test; echo phase3_evidence_lineage: test; echo phase3_evidence_rollback: test;;\n"
-            "    *) echo phase3_$(echo \"$target\" | tr '-' '_'): test;;\n"
+            "    evidence_phase3) echo phase3_evidence_fixtures: test; echo phase3_evidence_shadow_import: test; echo phase3_evidence_lineage: test; echo phase3_evidence_rollback: test; count=4;;\n"
+            "    *) echo phase3_$(echo \"$target\" | tr '-' '_'): test; count=1;;\n"
             "  esac\n"
-            "  echo; echo \"1 test, 0 benchmarks\"\n"
+            "  [ \"${PHASE3_CARGO_MODE:-success}\" = success-stderr ] && echo 'list stderr diagnostic' >&2\n"
+            "  echo; [ \"$count\" = 1 ] && echo \"1 test, 0 benchmarks\" || echo \"$count tests, 0 benchmarks\"\n"
             "else\n"
+            "  [ \"${PHASE3_CARGO_MODE:-success}\" = success-stderr ] && echo 'exact stderr diagnostic' >&2\n"
             "  echo\n  echo \"running 1 test\"\n  echo \"test ${selector} ... ok\"\n  echo\n"
             "  echo \"test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\"\n"
             "fi\n"
@@ -129,11 +165,11 @@ class VerifyPhase3Tests(unittest.TestCase):
         rustc.write_text("#!/bin/sh\necho 'rustc fixture'\n")
         rustc.chmod(0o755)
 
-    def _run(self, root: Path) -> subprocess.CompletedProcess[str]:
+    def _run(self, root: Path, mode: str = "success") -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["bash", "scripts/verify-phase3.sh"],
             cwd=root,
-            env={**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}"},
+            env={**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "PHASE3_CARGO_MODE": mode},
             capture_output=True,
             text=True,
         )

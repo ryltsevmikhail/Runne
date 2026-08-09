@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 TEST_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*): test$")
-LIST_SUMMARY_RE = re.compile(r"^\d+ tests?, \d+ benchmarks$")
+LIST_SUMMARY_RE = re.compile(r"^(\d+) tests?, (\d+) benchmarks?$")
 RUNNING_RE = re.compile(r"^running (\d+) tests?$")
 RESULT_RE = re.compile(
     r"^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; "
@@ -58,8 +58,12 @@ def _decode(raw: bytes) -> str:
 def parse_libtest_list(raw: bytes) -> tuple[str, ...]:
     """Accept only unique libtest test records and its explicit list summary."""
     names: list[str] = []
+    summaries: list[tuple[int, int]] = []
     for line in _decode(raw).splitlines():
-        if not line or LIST_SUMMARY_RE.fullmatch(line):
+        if not line:
+            continue
+        if summary := LIST_SUMMARY_RE.fullmatch(line):
+            summaries.append(tuple(map(int, summary.groups())))
             continue
         match = TEST_RE.fullmatch(line)
         if not match:
@@ -69,6 +73,11 @@ def parse_libtest_list(raw: bytes) -> tuple[str, ...]:
         raise Phase3InventoryError("missing Rust test inventory entries")
     if len(set(names)) != len(names):
         raise Phase3InventoryError("duplicate libtest test entry")
+    if len(summaries) != 1:
+        raise Phase3InventoryError("libtest list requires exactly one summary")
+    declared_tests, benchmarks = summaries[0]
+    if declared_tests != len(names) or benchmarks != 0:
+        raise Phase3InventoryError("libtest list summary does not match test entries")
     return tuple(names)
 
 
