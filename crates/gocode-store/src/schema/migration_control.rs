@@ -22,6 +22,7 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
             13 => is_released_provider_v13(conn, existing_version)?,
             14 => is_released_provider_v14(conn, existing_version)?,
             15 => is_released_provider_v15(conn, existing_version)?,
+            16 => is_released_provider_v16(conn, existing_version)?,
             _ => false,
         };
         if !compatible {
@@ -169,6 +170,10 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
 
     if current_version < 15 {
         provider_schema::apply_v15_migration(conn)?;
+    }
+
+    if current_version < 16 {
+        apply_v16_migration(conn)?;
     }
 
     if current_version < CURRENT_SCHEMA_VERSION {

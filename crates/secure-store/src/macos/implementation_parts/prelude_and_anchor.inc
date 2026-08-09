@@ -12,10 +12,11 @@ use security_framework::os::macos::keychain_item::SecKeychainItem;
 use crate::provider_credential::{ProviderCredentialMetadata, StoredProviderCredential};
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
+    ProviderCredentialStatus, ProviderCredentialStore, NativeProviderCredentialVersionStore, ProviderJournalKeyDeletionProof,
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
     ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
+use gocode_provider::CredentialVersionRef;
 use zeroize::Zeroizing;
 
 const SERVICE_NAME: &str = "gocode-ui";

@@ -4,6 +4,7 @@
 //! Provider-neutral contracts for GOCODE runtime adapters.
 
 mod coordination;
+mod credential;
 mod digest;
 mod fake;
 mod id;
@@ -18,6 +19,11 @@ pub use coordination::{
     PreparedProviderRecord, ProviderDispatchClaim, ProviderDispatchRepository,
     ProviderPreEffectRejection, ProviderRepositoryClaimOutcome, ProviderRepositoryError,
     ProviderRepositoryState,
+};
+pub use credential::{
+    CredentialLease, CredentialLifecycleError, CredentialVersionRef, CredentialVersionState,
+    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
+    RevokeCredentialVersion,
 };
 pub use digest::{
     CanonicalProviderError, ProviderCallDigest, ProviderCallDigestVersion,

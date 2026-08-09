@@ -14,9 +14,9 @@ mod provider_journal_key;
 mod provider_recovery;
 
 pub use provider_credential::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
-    ProviderCredentialStore,
+    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
+    PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,

@@ -1,9 +1,10 @@
 use crate::{
-    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
-    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
-    ProviderJournalKeyring, SecureStore, SecureStoreError,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
+use gocode_provider::CredentialVersionRef;
 
 /// Stub implementation for platforms where the secure store is not yet wired.
 /// All operations return `Unavailable`.
@@ -105,6 +106,29 @@ impl ProviderCredentialStore for StubStore {
         _current: &ProviderCredentialAccessPolicy,
         _replacement: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+}
+
+impl NativeProviderCredentialVersionStore for StubStore {
+    fn create_version(
+        &self,
+        _reference: CredentialVersionRef,
+        _credential: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+
+    fn load_version(
+        &self,
+        _reference: CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+
+    fn delete_version(&self, _reference: CredentialVersionRef) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 }
