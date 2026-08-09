@@ -29,6 +29,28 @@ fn sidecar_path(base: &Path) -> PathBuf {
     PathBuf::from(format!("{}.scanner-recovery", base.display()))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct DurableFileProof {
+    bytes: Vec<u8>,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+fn durable_file_proof(path: &Path) -> DurableFileProof {
+    let metadata = std::fs::metadata(path).unwrap();
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt as _;
+    DurableFileProof {
+        bytes: std::fs::read(path).unwrap(),
+        #[cfg(unix)]
+        device: metadata.dev(),
+        #[cfg(unix)]
+        inode: metadata.ino(),
+    }
+}
+
 fn durable_shape(path: &Path) -> (i64, Vec<(String, String)>, Vec<Vec<u8>>) {
     let connection = Connection::open(path).unwrap();
     let version = connection
@@ -134,6 +156,43 @@ fn scanner_sidecar_rejects_unknown_catalog_without_mutation() {
     let before = durable_shape(&sidecar);
     assert!(SqliteProviderRecoveryStore::open(&base, AUTHORITY).is_err());
     assert_eq!(durable_shape(&sidecar), before);
+}
+
+#[test]
+fn scanner_sidecar_rejects_unknown_view_without_file_mutation() {
+    let (directory, relative) = fixture("scanner-sidecar-unknown-view");
+    let base = base_path(&directory, &relative);
+    drop(SqliteProviderRecoveryStore::open(&base, AUTHORITY).unwrap());
+    let sidecar = sidecar_path(&base);
+    Connection::open(&sidecar)
+        .unwrap()
+        .execute_batch(
+            "CREATE VIEW unknown_recovery_view AS
+             SELECT attempt_id FROM provider_scanner_recovery;",
+        )
+        .unwrap();
+    let before = durable_file_proof(&sidecar);
+    assert!(SqliteProviderRecoveryStore::open(&base, AUTHORITY).is_err());
+    assert_eq!(durable_file_proof(&sidecar), before);
+}
+
+#[test]
+fn scanner_sidecar_rejects_unknown_trigger_without_file_mutation() {
+    let (directory, relative) = fixture("scanner-sidecar-unknown-trigger");
+    let base = base_path(&directory, &relative);
+    drop(SqliteProviderRecoveryStore::open(&base, AUTHORITY).unwrap());
+    let sidecar = sidecar_path(&base);
+    Connection::open(&sidecar)
+        .unwrap()
+        .execute_batch(
+            "CREATE TRIGGER unknown_recovery_trigger
+             AFTER INSERT ON provider_scanner_recovery
+             BEGIN SELECT 1; END;",
+        )
+        .unwrap();
+    let before = durable_file_proof(&sidecar);
+    assert!(SqliteProviderRecoveryStore::open(&base, AUTHORITY).is_err());
+    assert_eq!(durable_file_proof(&sidecar), before);
 }
 
 #[test]

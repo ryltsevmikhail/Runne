@@ -89,6 +89,7 @@ async fn terminal_scanner_failure_has_no_publication() {
         gocode_provider::ProviderStreamEventKind::Started
     ));
     assert_eq!(fixture.persisted_counts(), (1, 0, 0, 1));
+    assert_eq!(fixture.effect_start_and_audit_counts(), (1, 1));
     assert_eq!(fixture.dispatch_state(), ProviderRepositoryState::Uncertain);
     assert_eq!(
         fixture.retry_idempotency_state(),
