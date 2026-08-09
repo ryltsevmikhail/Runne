@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import os
@@ -19,6 +20,12 @@ _ATTEMPT = re.compile(
 
 class RecoveryError(ValueError):
     pass
+
+
+_ABSENT_XATTR_ERRNOS = {
+    value for value in (getattr(errno, "ENODATA", None), getattr(errno, "ENOATTR", None))
+    if value is not None
+}
 
 
 @dataclass(frozen=True)
@@ -78,6 +85,15 @@ def _require_absent(root_fd: int, name: str | None) -> None:
     raise RecoveryError("completion marker blocks construction cleanup")
 
 
+def _owner_xattr(directory_fd: int) -> bytes | None:
+    try:
+        return os.getxattr(directory_fd, OWNER_XATTR)
+    except OSError as error:
+        if error.errno in _ABSENT_XATTR_ERRNOS:
+            return None
+        raise RecoveryError("construction directory owner identity is unreadable") from error
+
+
 def _remove_bound_directory(
     root_fd: int, name: str, directory_fd: int, state: tuple[int, ...],
     blobs: Mapping[str, bytes], owner_id: bytes, *,
@@ -86,10 +102,7 @@ def _remove_bound_directory(
 ) -> None:
     if _directory_safe(directory_fd) != state:
         raise RecoveryError("held construction directory identity changed")
-    try:
-        owner = os.getxattr(directory_fd, OWNER_XATTR)
-    except OSError:
-        owner = None
+    owner = _owner_xattr(directory_fd)
     names = set(os.listdir(directory_fd))
     if owner != owner_id:
         if not allow_unbound_empty or owner is not None or os.listdir(directory_fd):
@@ -114,7 +127,7 @@ def _remove_bound_directory(
     if (
         _directory_safe(directory_fd) != state
         or entry_state(os.stat(name, dir_fd=root_fd, follow_symlinks=False)) != state
-        or (owner == owner_id and os.getxattr(directory_fd, OWNER_XATTR) != owner_id)
+        or (owner == owner_id and _owner_xattr(directory_fd) != owner_id)
         or set(os.listdir(directory_fd)) != names
     ):
         raise RecoveryError("owned construction directory changed before cleanup")
@@ -127,6 +140,9 @@ def _remove_bound_directory(
     current = os.stat(name, dir_fd=root_fd, follow_symlinks=False)
     if entry_state(current) != state or os.listdir(directory_fd):
         raise RecoveryError("owned construction directory changed during cleanup")
+    _require_absent(root_fd, completion_marker)
+    if _owner_xattr(directory_fd) != owner:
+        raise RecoveryError("construction directory owner identity changed before deletion")
     os.rmdir(name, dir_fd=root_fd)
 
 

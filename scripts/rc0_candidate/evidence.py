@@ -7,6 +7,7 @@ import re
 import struct
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
 from scripts.rc0_policy.bindings import EVIDENCE_FILES, validate_record_bindings
@@ -171,15 +172,21 @@ def build_fixture_evidence(
 ) -> EvidenceBuildResult:
     """Validate then atomically publish nine owner-private fixture blobs."""
     source_sha, blobs = _prepare_blobs(records)
+    output = Path(output_root)
+    checkout = Path(checkout_root)
+    prepared = EvidenceBuildResult(
+        output / source_sha,
+        MappingProxyType(dict(blobs)),
+        evidence_bundle_digest(source_sha, blobs),
+    )
     try:
-        final = publish_private_blobs(
-            Path(output_root), Path(checkout_root), source_sha, blobs, publication_hook,
+        publish_private_blobs(
+            output, checkout, source_sha, blobs, publication_hook,
             boundary_hook,
         )
     except AtomicPublishError as error:
         raise EvidenceConstructionError(str(error)) from error
-    digest = evidence_bundle_digest(source_sha, blobs)
-    return EvidenceBuildResult(final, dict(blobs), digest)
+    return prepared
 
 
 def load_completed_fixture_evidence(

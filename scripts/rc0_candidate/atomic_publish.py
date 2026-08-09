@@ -7,7 +7,6 @@ import errno
 import fcntl
 import os
 import secrets
-import stat
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -17,13 +16,13 @@ from .publish_completion import (
 from .publish_fs import (
     DIRECTORY, FILE_CREATE, OWNER_XATTR, PublishFilesystemError,
     assert_lock_bound, entry_state as _entry_state, open_root as _open_root,
-    ownership_id, write_all as _write_all,
+    write_all as _write_all,
 )
+from .publish_lock import LockPublishError, acquire_persistent_lock
 from .publish_recovery import (
     OwnedBlob, RecoveryError, attempt_name, cleanup_held_attempt, recover_attempts,
 )
 
-_LOCK_OPEN = os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK
 _RENAME_NOREPLACE = 1
 
 
@@ -56,38 +55,6 @@ def _invoke(
 ) -> None:
     if hook is not None:
         hook(stage, root_fd, source_sha)
-
-
-def _acquire_lock(root, name: str) -> tuple[int, tuple[int, ...], bytes]:
-    created = False
-    try:
-        descriptor = os.open(
-            name, _LOCK_OPEN | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root.root_fd
-        )
-        created = True
-    except FileExistsError:
-        descriptor = os.open(name, _LOCK_OPEN, dir_fd=root.root_fd)
-    try:
-        if created:
-            os.fchmod(descriptor, 0o600)
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or stat.S_IMODE(metadata.st_mode) != 0o600
-            or metadata.st_uid != os.geteuid()
-        ):
-            raise AtomicPublishError("persistent construction lock is unsafe")
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise AtomicPublishError("evidence construction is already active") from error
-        expected = _entry_state(os.fstat(descriptor))
-        owner_id = ownership_id(root.state, expected)
-        assert_lock_bound(root, name, descriptor, expected, owner_id)
-        return descriptor, expected, owner_id
-    except Exception:
-        os.close(descriptor)
-        raise
 
 
 def _write_blob(
@@ -139,7 +106,7 @@ def publish_private_blobs(
     output_root: Path, checkout_root: Path, source_sha: str, blobs: Mapping[str, bytes],
     publication_hook: Callable[[int, str], None] | None = None,
     boundary_hook: Callable[[str, int, str], None] | None = None,
-) -> Path:
+) -> None:
     try:
         root = _open_root(Path(output_root), Path(checkout_root))
     except PublishFilesystemError as error:
@@ -152,7 +119,9 @@ def publish_private_blobs(
     owner_id = b""
     owned_blobs: dict[str, OwnedBlob] = {}
     try:
-        lock_fd, lock_state, owner_id = _acquire_lock(root, lock_name)
+        lock_fd, lock_state, owner_id = acquire_persistent_lock(
+            root, lock_name, _LINKAT, boundary_hook, source_sha
+        )
         _invoke(boundary_hook, "after-lock", root.root_fd, source_sha)
         assert_lock_bound(root, lock_name, lock_fd, lock_state, owner_id)
         recover_attempts(root.root_fd, source_sha, owner_id, blobs)
@@ -170,7 +139,7 @@ def publish_private_blobs(
                 root, lock_name, lock_fd, lock_state, owner_id, final_fd,
                 final_state, source_sha, blobs,
             )
-            return root.canonical / source_sha
+            return
         staging_name = attempt_name(source_sha, owner_id, secrets.token_hex(16))
         os.mkdir(staging_name, 0o700, dir_fd=root.root_fd)
         staging_state = _entry_state(
@@ -227,9 +196,9 @@ def publish_private_blobs(
             root, lock_name, lock_fd, lock_state, owner_id, final_fd,
             final_state, source_sha, blobs,
         )
-        return root.canonical / source_sha
+        return
     except (
-        AtomicPublishError, CompletionPublishError, PublishFilesystemError,
+        AtomicPublishError, CompletionPublishError, LockPublishError, PublishFilesystemError,
         RecoveryError, OSError,
     ) as error:
         if isinstance(error, AtomicPublishError):
