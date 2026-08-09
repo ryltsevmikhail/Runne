@@ -4,37 +4,47 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT_DIR"
 
-EVIDENCE_TEST=crates/gocode-store/tests/evidence_phase3.rs
-EVIDENCE_TEST_DIR=$(dirname "$EVIDENCE_TEST")
-EVIDENCE_TEST_SOURCES=("$EVIDENCE_TEST")
-while IFS= read -r include_path; do
-    EVIDENCE_TEST_SOURCES+=("$EVIDENCE_TEST_DIR/$include_path")
-done < <(
-    sed -nE 's@^[[:space:]]*include!\("([^"]+)"\);[[:space:]]*$@\1@p' "$EVIDENCE_TEST"
-)
-REQUIRED_TESTS=(
-    evidence_fixtures_deterministic
-    evidence_shadow_import_e2e_sqlite
-    evidence_direct_store_lineage_stops_at_default_native
-    evidence_rollback_recovery_e2e
-)
+INVENTORY=scripts/rc0_candidate/inventories/source-candidate-v1.json
+SOURCE_SHA=$(git rev-parse HEAD)
+TOOLCHAIN=$(rustc -V)
+umask 077
+EVIDENCE_DIR=$(mktemp -d)
+STDERR_FILE=$(mktemp)
+trap 'rm -rf "$EVIDENCE_DIR" "$STDERR_FILE"' EXIT
 
-for test_name in "${REQUIRED_TESTS[@]}"; do
-    if ! rg -q "^fn ${test_name}\\(\\)" "${EVIDENCE_TEST_SOURCES[@]}"; then
-        echo "ERROR: missing Phase 3 evidence test: $test_name"
-        exit 1
+run_tuple() {
+    local identifier=$1 package=$2 target=$3 selector=$4 source_sha=$5 expected_toolchain=$6 expected_digest=$7
+    local digest_file="$EVIDENCE_DIR/$identifier.digest"
+    if [[ "$TOOLCHAIN" != "$expected_toolchain" ]]; then
+        echo "ERROR: $identifier toolchain changed" >&2
+        return 1
     fi
-done
+    if ! cargo test --locked -p "$package" --test "$target" -- --list 2>"$STDERR_FILE" |
+        python3 scripts/phase3_inventory.py list-digest "$selector" >"$digest_file"; then
+        echo "ERROR: $identifier list command or parser failed" >&2
+        [[ -s "$STDERR_FILE" ]] && cat "$STDERR_FILE" >&2
+        return 1
+    fi
+    if [[ $(<"$digest_file") != "$expected_digest" ]]; then
+        echo "ERROR: $identifier inventory digest changed" >&2
+        return 1
+    fi
+    if ! cargo test --locked -p "$package" --test "$target" "$selector" -- --exact 2>"$STDERR_FILE" |
+        python3 scripts/phase3_inventory.py exact "$selector"; then
+        echo "ERROR: $identifier exact command or parser failed" >&2
+        [[ -s "$STDERR_FILE" ]] && cat "$STDERR_FILE" >&2
+        return 1
+    fi
+    [[ -s "$STDERR_FILE" ]] && cat "$STDERR_FILE" >&2
+    echo "tuple=$identifier package=$package target=$target test=$selector source_sha=$source_sha toolchain=$expected_toolchain inventory_digest=$expected_digest"
+}
 
-echo "--- Phase 3 SQLite evidence ---"
-cargo test -p gocode-store --test evidence_phase3 --locked
-
-echo "--- Migration application contracts ---"
-cargo test -p gocode-application --test migration_control --test migration_rollout --locked
-
-echo "--- Migration SQLite and routing contracts ---"
-cargo test -p gocode-store --test migration_sqlite --test migration_routing_sqlite --locked
-cargo test -p gocode-runtime --test migration_routing --locked
+echo "--- Phase 3 exact integration evidence ---"
+tuple_rows=$(python3 scripts/phase3_inventory.py tuples "$INVENTORY" "$SOURCE_SHA")
+while IFS=$'\t' read -r identifier package target selector source_sha toolchain digest; do
+    [[ -z "$identifier" ]] && continue
+    run_tuple "$identifier" "$package" "$target" "$selector" "$source_sha" "$toolchain" "$digest"
+done <<< "$tuple_rows"
 
 echo "--- Clippy ---"
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
