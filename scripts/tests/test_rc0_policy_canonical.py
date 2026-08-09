@@ -78,6 +78,17 @@ class Rc0PolicyCanonicalTests(unittest.TestCase):
                 else:
                     self.fail("canonicalization accepted a non-profile value")
 
+    def test_canonical_bytes_enforces_exact_emitted_document_limit(self):
+        canonical = canonical_module()
+        exact_ascii = ["a" * 4096] * 15 + ["b" * 4047]
+        exact_nfc = ["é" * 2048] * 15 + [("é" * 2023) + "x"]
+        self.assertEqual(len(canonical.canonical_bytes(exact_ascii)), 65536)
+        self.assertEqual(len(canonical.canonical_bytes(exact_nfc)), 65536)
+        with self.assertRaises(canonical.StrictJSONError):
+            canonical.canonical_bytes(["a" * 4096] * 15 + ["b" * 4048])
+        with self.assertRaises(canonical.StrictJSONError):
+            canonical.canonical_bytes(["\x00" * 4096] * 3)
+
 
 if __name__ == "__main__":
     unittest.main()

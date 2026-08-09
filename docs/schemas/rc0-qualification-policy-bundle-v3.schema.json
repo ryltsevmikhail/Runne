@@ -52,7 +52,7 @@
       "additionalProperties": false,
       "required": ["gate_id", "stage", "required", "identity_profile_bindings", "verification_mode", "selectors", "toolchain", "timeout_seconds", "exit_semantics", "signal_semantics", "expected_counts"],
       "properties": {
-        "gate_id": {"type": "string", "minLength": 1},
+        "gate_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
         "stage": {"enum": ["SOURCE_CANDIDATE", "PRODUCTION_QUALIFICATION"]},
         "required": {"const": true},
         "identity_profile_bindings": {

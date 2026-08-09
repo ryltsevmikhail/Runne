@@ -40,7 +40,7 @@
         "relative_path": {"$ref": "#/$defs/portablePath"},
         "sha256": {"$ref": "#/$defs/sha256"},
         "size": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615},
-        "locator": {"type": "string", "pattern": "^(?:cas:sha256:[0-9a-f]{64}|git:[0-9a-f]{40}:(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//).+)$"}
+        "locator": {"type": "string", "pattern": "^(?:cas:sha256:[0-9a-f]{64}|git:[0-9a-f]{40}:(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)(?!\\.\\.?(?:/|$))(?!.*?/\\.\\.?(?:/|$))(?!.*[\\u0000-\\u001f\\u007f])(?!.*[<>:\"|?*])(?!.*\\/$).+)$"}
       }
     },
     "binding": {
@@ -73,7 +73,7 @@
       "additionalProperties": false,
       "required": ["gate_id", "stage", "execution_outcome", "gate_result", "binding"],
       "properties": {
-        "gate_id": {"type": "string", "minLength": 1},
+        "gate_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
         "stage": {"enum": ["SOURCE_CANDIDATE", "PRODUCTION_QUALIFICATION"]},
         "execution_outcome": {"enum": ["PASS", "FAIL", "NOT_RUN"]},
         "gate_result": {"enum": ["PASS", "BLOCKED"]},

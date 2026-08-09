@@ -34,6 +34,7 @@ _SHA256 = re.compile(r"[0-9a-f]{64}")
 _CHECKSUM = re.compile(r"(?P<sha>[0-9a-f]{64}) (?P<size>0|[1-9][0-9]*) (?P<path>.+)")
 _CAS = re.compile(r"cas:sha256:[0-9a-f]{64}")
 _GIT = re.compile(r"git:(?P<revision>[0-9a-f]{40}):(?P<path>.+)")
+_GATE_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
 _WINDOWS_RESERVED = re.compile(r"(?i)(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?")
 
 
@@ -233,8 +234,8 @@ def validate_policy_inventory(policy: Mapping[str, Any]) -> tuple[str, ...]:
         gates = []
         errors.append("policy required gate inventory must be an array")
     gate_ids = [gate.get("gate_id") for gate in gates if isinstance(gate, dict)]
-    if not gate_ids or any(type(value) is not str for value in gate_ids) or _duplicates(gate_ids):
-        errors.append("policy required gate_id values must be non-empty and unique")
+    if not gate_ids or any(type(value) is not str or _GATE_ID.fullmatch(value) is None for value in gate_ids) or _duplicates(gate_ids):
+        errors.append("policy required gate_id values must use exact lower-case identifier grammar and be unique")
     stages = [gate.get("stage") for gate in gates if isinstance(gate, dict)]
     if any(type(value) is not str for value in stages) or set(stages) != set(SUPPORTED_STAGES):
         errors.append("policy must cover the exact supported required stage set")

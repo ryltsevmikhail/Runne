@@ -101,8 +101,11 @@ def canonical_bytes(value: Any) -> bytes:
     """Return deterministic NFC UTF-8 JSON with keys sorted by Unicode value."""
     _check(value)
     try:
-        return json.dumps(
+        encoded = json.dumps(
             value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")
         ).encode("utf-8")
     except (TypeError, ValueError, UnicodeEncodeError) as error:
         raise StrictJSONError(str(error)) from error
+    if len(encoded) > MAX_DOCUMENT_BYTES:
+        raise StrictJSONError(f"canonical document exceeds {MAX_DOCUMENT_BYTES} bytes")
+    return encoded
