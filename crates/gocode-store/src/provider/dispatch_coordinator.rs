@@ -11,16 +11,18 @@ use gocode_provider::{
 };
 
 use super::{
-    MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderEffectPort, ProviderExecutionBinding, SqliteProviderDispatchStore,
-    SqliteProviderExecutionStore,
+    CredentialDispatchAuthority, MarkProviderStreaming, PreparedProviderRecord,
+    ProviderAuthorityIssueOutcome, ProviderEffectPort, ProviderExecutionBinding,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
 };
 
 /// Concrete SQLite provider dispatch outcome.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProviderCoordinatorOutcome {
     /// New adapter stream was opened.
-    Streaming { binding: ProviderExecutionBinding },
+    Streaming {
+        binding: Box<VersionedProviderExecutionBinding>,
+    },
     /// Exact replay observed an existing durable state.
     Existing { state: ProviderRepositoryState },
     /// Adapter proved that no external provider effect began.
@@ -36,6 +38,7 @@ pub enum ProviderCoordinatorOutcome {
 pub struct SqliteProviderDispatchCoordinator<'a, P: ?Sized, E: ?Sized> {
     dispatch_store: &'a SqliteProviderDispatchStore,
     execution_store: &'a SqliteProviderExecutionStore,
+    credential: CredentialDispatchAuthority<'a>,
     provider: &'a P,
     effect: &'a E,
     prohibited_content: &'a dyn ProhibitedContentPort,
@@ -50,6 +53,7 @@ where
     pub const fn new(
         dispatch_store: &'a SqliteProviderDispatchStore,
         execution_store: &'a SqliteProviderExecutionStore,
+        credential: CredentialDispatchAuthority<'a>,
         provider: &'a P,
         effect: &'a E,
         prohibited_content: &'a dyn ProhibitedContentPort,
@@ -57,6 +61,7 @@ where
         Self {
             dispatch_store,
             execution_store,
+            credential,
             provider,
             effect,
             prohibited_content,
@@ -110,6 +115,16 @@ where
                 profile_digest: prepared_record.profile_digest,
             },
         )?;
+        let credential = self
+            .credential
+            .store
+            .authorize_active(
+                request.call.model_ref().provider_id(),
+                self.credential.owner,
+                self.credential.fencing_token,
+                self.execution_store.credential_validation_time(),
+            )
+            .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
         let admitted = match self.execution_store.issue(&issue)? {
             ProviderAuthorityIssueOutcome::Winner(admitted) => admitted,
             ProviderAuthorityIssueOutcome::Existing { state } => {
@@ -136,7 +151,7 @@ where
             }
         };
 
-        let ready = match self.effect.stage_effect(dispatch).await {
+        let ready = match self.effect.stage_effect(dispatch, credential.clone()).await {
             Ok(ready) => ready,
             Err(DispatchError::RejectedBeforeEffect(reason)) => {
                 return self.reject_before_effect(attempt_id, fencing_token, reason);
@@ -148,7 +163,7 @@ where
                 return Ok(ProviderCoordinatorOutcome::Uncertain);
             }
         };
-        let effect = match self.execution_store.start_effect(&claim) {
+        let effect = match self.execution_store.start_effect(&claim, &credential) {
             Ok(effect) => effect,
             Err(ProviderAdmissionError::PostClaimUncertain) => {
                 let _ = self
@@ -181,11 +196,14 @@ where
                     return Ok(ProviderCoordinatorOutcome::Uncertain);
                 }
                 Ok(ProviderCoordinatorOutcome::Streaming {
-                    binding: ProviderExecutionBinding::new(
-                        &claim,
-                        runtime_generation,
-                        prepared_record,
-                        stream_id,
+                    binding: Box::new(
+                        ProviderExecutionBinding::new(
+                            &claim,
+                            runtime_generation,
+                            prepared_record,
+                            stream_id,
+                        )
+                        .bind_active_credential(credential),
                     ),
                 })
             }

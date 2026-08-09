@@ -2,7 +2,7 @@ use core::any::Any;
 
 use gocode_provider::{DispatchError, DispatchRequest, ProviderFuture, ProviderStreamId};
 
-use super::ProviderEffectStartReceipt;
+use super::{CredentialDispatchBinding, ProviderEffectStartReceipt};
 
 /// Store-local external-effect boundary; production implementations consume a
 /// receipt created only by the concrete SQLite effect CAS.
@@ -11,6 +11,7 @@ pub trait ProviderEffectPort: Send + Sync {
     fn stage_effect(
         &self,
         request: DispatchRequest,
+        credential: CredentialDispatchBinding,
     ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>>;
 
     /// Starts exactly one staged effect after receipt and binding verification.

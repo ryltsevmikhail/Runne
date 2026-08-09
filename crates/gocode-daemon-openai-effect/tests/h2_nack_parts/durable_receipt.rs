@@ -3,13 +3,15 @@ use std::path::Path;
 use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
 use gocode_domain::id::{AttemptId, ConversationId, EventLogLineageId, TaskRunId};
 use gocode_provider::{
-    DispatchRequest, ModelRef, PreparedRequest, ProviderCall, ProviderCallId, ProviderCapability,
-    ProviderId, ProviderInputRole, ProviderTextInput,
+    CredentialLease, CredentialVersionRef, DispatchRequest, ModelRef, PrepareCredentialVersion,
+    PreparedRequest, ProviderCall, ProviderCallId, ProviderCapability,
+    ProviderCredentialVersionStore, ProviderId, ProviderInputRole, ProviderTextInput,
 };
 use gocode_provider_openai::{OPENAI_MODEL_ID, OPENAI_MODEL_REVISION};
 use gocode_store::provider::{
     DurableProviderAdmission, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    ProviderRuntimeAuthorityConfig, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use gocode_store::schema::{
     ConnectionMode, ManagedConnection, apply_migrations, ensure_authority_id,
@@ -30,6 +32,7 @@ fn durable_dispatch(
 ) -> (
     DispatchRequest,
     gocode_store::provider::ProviderEffectStartReceipt,
+    gocode_store::provider::CredentialDispatchBinding,
 ) {
     let runtime_root = tempfile::tempdir().expect("temporary runtime root");
     let daemon_directory = runtime_root.path().join("gocode-daemon");
@@ -90,7 +93,21 @@ fn durable_dispatch(
         ProviderAuthorityIssueOutcome::Winner(admission) => admission,
         ProviderAuthorityIssueOutcome::Existing { .. } => panic!("new durable provider authority"),
     };
-    receipt_from_admission(execution_store, prepared, admission)
+    let credential_store = SqliteProviderCredentialLifecycleStore::open_with_connection(
+        open_validated_connection(&path, identity).expect("credential lifecycle connection"),
+    )
+    .expect("credential lifecycle store");
+    let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap();
+    credential_store
+        .create_prepared(PrepareCredentialVersion::new(reference.clone()))
+        .unwrap();
+    credential_store
+        .activate(CredentialLease::new(reference.clone(), [1; 16], i64::MAX, 13).unwrap())
+        .unwrap();
+    let binding = credential_store
+        .authorize_active(reference.provider(), [1; 16], 13, 100)
+        .unwrap();
+    receipt_from_admission(execution_store, prepared, admission, binding)
 }
 
 fn capture_main_database_identity(
@@ -132,16 +149,18 @@ fn receipt_from_admission(
     execution_store: SqliteProviderExecutionStore,
     prepared: PreparedRequest,
     admission: Box<DurableProviderAdmission>,
+    credential: gocode_store::provider::CredentialDispatchBinding,
 ) -> (
     DispatchRequest,
     gocode_store::provider::ProviderEffectStartReceipt,
+    gocode_store::provider::CredentialDispatchBinding,
 ) {
     let claim = admission.into_claim();
     let request = DispatchRequest::new(prepared, claim.clone()).expect("dispatch claim binding");
     let receipt = execution_store
-        .start_effect(&claim)
+        .start_effect(&claim, &credential)
         .expect("durable effect-start receipt");
-    (request, receipt)
+    (request, receipt, credential)
 }
 
 fn openai_call(profile: &OpenAiResponsesTextProfile) -> ProviderCall {

@@ -16,7 +16,8 @@ use crate::{
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
     ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
-use gocode_provider::CredentialVersionRef;
+use gocode_provider::{CredentialDispatchCapability, CredentialGcClaim, CredentialVersionRef,
+    NativeCredentialAuthority, NativeCredentialDeletionProof};
 use zeroize::Zeroizing;
 
 const SERVICE_NAME: &str = "gocode-ui";
@@ -62,6 +63,7 @@ pub struct MacOsKeychainStore {
 pub struct MacOsProviderCredentialStore {
     service: String,
     account: String,
+    version_authority: Option<NativeCredentialAuthority>,
 }
 
 impl MacOsProviderCredentialStore {
@@ -71,12 +73,23 @@ impl MacOsProviderCredentialStore {
         Self {
             service: crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
             account: ProviderCredentialId::OpenAi.account().to_owned(),
+            version_authority: None,
+        }
+    }
+
+    /// Constructs the production versioned store bound to native capability verification.
+    #[must_use]
+    pub fn new_versioned(authority: NativeCredentialAuthority) -> Self {
+        Self {
+            service: crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
+            account: ProviderCredentialId::OpenAi.account().to_owned(),
+            version_authority: Some(authority),
         }
     }
 
     #[cfg(test)]
     const fn with_test_item(service: String, account: String) -> Self {
-        Self { service, account }
+        Self { service, account, version_authority: None }
     }
 }
 impl Default for MacOsProviderCredentialStore {

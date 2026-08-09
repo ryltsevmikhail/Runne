@@ -36,6 +36,18 @@ CREATE TABLE provider_credential_versions (
 CREATE UNIQUE INDEX provider_credential_one_active
     ON provider_credential_versions(provider_id)
     WHERE lifecycle_state = 'ACTIVE';
+CREATE TABLE provider_credential_effect_bindings (
+    dispatch_attempt_id BLOB NOT NULL PRIMARY KEY
+        REFERENCES provider_effect_starts(dispatch_attempt_id),
+    provider_id TEXT NOT NULL,
+    credential_version INTEGER NOT NULL CHECK(credential_version > 0),
+    ref_digest BLOB NOT NULL CHECK(length(ref_digest) = 32),
+    lease_owner BLOB NOT NULL CHECK(length(lease_owner) = 16),
+    lease_expires_at INTEGER NOT NULL,
+    lease_fencing_token INTEGER NOT NULL CHECK(lease_fencing_token > 0),
+    FOREIGN KEY(provider_id, credential_version)
+        REFERENCES provider_credential_versions(provider_id, credential_version)
+);
 "#;
 
 const V16_TRIGGERS: [(&str, &str); 4] = [
@@ -45,7 +57,7 @@ const V16_TRIGGERS: [(&str, &str); 4] = [
     ),
     (
         "provider_credential_identity_immutable",
-        "CREATE TRIGGER provider_credential_identity_immutable BEFORE UPDATE ON provider_credential_versions WHEN NEW.provider_id != OLD.provider_id OR NEW.credential_version != OLD.credential_version OR NEW.ref_digest != OLD.ref_digest OR (OLD.lifecycle_state != 'PREPARED' AND (NEW.lease_owner != OLD.lease_owner OR NEW.lease_expires_at != OLD.lease_expires_at OR NEW.lease_fencing_token != OLD.lease_fencing_token)) BEGIN SELECT RAISE(ABORT, 'credential identity or lease is immutable'); END",
+        "CREATE TRIGGER provider_credential_identity_immutable BEFORE UPDATE ON provider_credential_versions WHEN OLD.lifecycle_state = 'DELETED' OR NEW.provider_id != OLD.provider_id OR NEW.credential_version != OLD.credential_version OR NEW.ref_digest != OLD.ref_digest OR (OLD.lifecycle_state != 'PREPARED' AND (NEW.lease_owner != OLD.lease_owner OR NEW.lease_expires_at != OLD.lease_expires_at OR NEW.lease_fencing_token != OLD.lease_fencing_token)) BEGIN SELECT RAISE(ABORT, 'credential identity, lease, or tombstone is immutable'); END",
     ),
     (
         "provider_credential_insert_prepared",
@@ -77,6 +89,11 @@ fn is_released_provider_v16(conn: &Connection, version: i64) -> SqliteResult<boo
     let v14 = provider_schema::v14_base_matches(conn, v12, v13)?;
     Ok(provider_schema::v15_matches(conn, 15, v14)?
         && table_sql_matches_migration(conn, "provider_credential_versions", MIGRATION_V16)?
+        && table_sql_matches_migration(
+            conn,
+            "provider_credential_effect_bindings",
+            MIGRATION_V16,
+        )?
         && index_sql_matches_v16(conn)?
         && v16_triggers_match(conn)?
         && v16_catalog_matches(conn)?)
@@ -153,7 +170,11 @@ fn trigger_sql_matches(conn: &Connection, name: &str, expected: &str) -> SqliteR
 
 fn v16_catalog_matches(conn: &Connection) -> SqliteResult<bool> {
     let mut tables = RELEASED_V13_TABLES.to_vec();
-    tables.extend(["provider_effect_starts", "provider_credential_versions"]);
+    tables.extend([
+        "provider_effect_starts",
+        "provider_credential_versions",
+        "provider_credential_effect_bindings",
+    ]);
     let mut indexes = RELEASED_V12_EXPLICIT_INDEXES.to_vec();
     indexes.push("provider_credential_one_active");
     released_catalog_matches_with_indexes(conn, &tables, &indexes)

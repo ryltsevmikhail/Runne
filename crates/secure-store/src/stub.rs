@@ -5,16 +5,32 @@ use crate::{
     ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
 use gocode_provider::CredentialVersionRef;
+use gocode_provider::{
+    CredentialDispatchCapability, CredentialGcClaim, NativeCredentialAuthority,
+    NativeCredentialDeletionProof,
+};
 
 /// Stub implementation for platforms where the secure store is not yet wired.
 /// All operations return `Unavailable`.
 #[derive(Default)]
-pub struct StubStore;
+pub struct StubStore {
+    version_authority: Option<NativeCredentialAuthority>,
+}
 
 impl StubStore {
     #[must_use]
     pub const fn new() -> Self {
-        Self
+        Self {
+            version_authority: None,
+        }
+    }
+
+    /// Constructs the fail-closed backend bound to a lifecycle authority.
+    #[must_use]
+    pub const fn new_versioned(authority: NativeCredentialAuthority) -> Self {
+        Self {
+            version_authority: Some(authority),
+        }
     }
 }
 
@@ -122,13 +138,30 @@ impl NativeProviderCredentialVersionStore for StubStore {
 
     fn load_version(
         &self,
-        _reference: CredentialVersionRef,
+        capability: &CredentialDispatchCapability,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        let authority = self
+            .version_authority
+            .as_ref()
+            .ok_or(SecureStoreError::CredentialAccessDenied)?;
+        authority
+            .authorize_load(capability)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 
-    fn delete_version(&self, _reference: CredentialVersionRef) -> Result<(), SecureStoreError> {
+    fn delete_version(
+        &self,
+        claim: CredentialGcClaim,
+    ) -> Result<NativeCredentialDeletionProof, SecureStoreError> {
+        let authority = self
+            .version_authority
+            .as_ref()
+            .ok_or(SecureStoreError::CredentialAccessDenied)?;
+        authority
+            .authorize_delete(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 }

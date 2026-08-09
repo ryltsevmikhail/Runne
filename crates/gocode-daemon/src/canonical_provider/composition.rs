@@ -6,9 +6,6 @@ use super::*;
 use crate::application::workspace_internal::{
     ProtectedProviderDependencyCapsule, provider_dependencies::ProviderDependencyState,
 };
-use crate::operational_telemetry::{
-    DaemonOperationalTelemetryCompositionError, DaemonTelemetryLaunchContext,
-};
 use gocode_observability::operational::RecoveryObservationRegistry;
 
 /// Normative cumulative provider token budget for development/ad-hoc policy V1.
@@ -43,6 +40,7 @@ where
 pub struct DaemonCanonicalOpenAiService {
     pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
+    pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) runtime_store: Arc<runtime_store::DaemonProviderRuntimeStore>,
     pub(super) conversation_store: StoreTransaction,
     pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
@@ -63,6 +61,7 @@ pub(crate) struct DaemonCanonicalOpenAiComposition {
     pub(crate) db_path: String,
     pub(crate) dispatch_connection: gocode_store::schema::ManagedConnection,
     pub(crate) execution_connection: gocode_store::schema::ManagedConnection,
+    pub(crate) credential_connection: gocode_store::schema::ManagedConnection,
     pub(crate) runtime_authority_id: [u8; 16],
     pub(crate) runtime_generation: u64,
     pub(crate) activation_provenance: DaemonActivationProvenance,
@@ -82,6 +81,7 @@ impl DaemonCanonicalOpenAiService {
             db_path,
             dispatch_connection,
             execution_connection,
+            credential_connection,
             runtime_authority_id,
             runtime_generation,
             activation_provenance,
@@ -186,6 +186,12 @@ impl DaemonCanonicalOpenAiService {
             runtime_generation,
             terminal_store_decorator,
         );
+        let credentials = super::credential_versions::compose_credential_lifecycle(
+            credential_connection,
+            runtime_authority_id,
+            runtime_generation,
+            effect_source.is_some(),
+        )?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
         let redaction = ProviderEventRedactionBoundary::new(
             tail_store.as_ref(),
@@ -248,12 +254,15 @@ impl DaemonCanonicalOpenAiService {
         .map_err(|error| DaemonError::Bootstrap(error.to_string()))?;
         let adapter = match effect_source {
             Some(effect) => effect,
-            None => gocode_daemon_openai_effect::production_effect()
-                .map_err(|_| DaemonError::Bootstrap("provider adapter unavailable".into()))?,
+            None => <dyn gocode_daemon_openai_effect::OpenAiEffect>::production(
+                credentials.native_authority,
+            )
+            .map_err(|_| DaemonError::Bootstrap("provider adapter unavailable".into()))?,
         };
         let service = Arc::new(Self {
             dispatch_store,
             execution_store,
+            credential_store: credentials.store,
             runtime_store,
             conversation_store,
             conversation_service,
@@ -271,28 +280,6 @@ impl DaemonCanonicalOpenAiService {
         });
         service.recover_pending().await?;
         Ok(service)
-    }
-
-    pub(crate) fn operational_telemetry_store(&self) -> Arc<SqliteProviderExecutionStore> {
-        Arc::clone(&self.execution_store)
-    }
-
-    pub(crate) fn recovery_observation_registry(&self) -> Arc<RecoveryObservationRegistry> {
-        Arc::clone(&self.recovery_registry)
-    }
-
-    pub(crate) fn telemetry_launch_context(
-        &self,
-        authenticated_launch_generation: u64,
-    ) -> Result<DaemonTelemetryLaunchContext, DaemonOperationalTelemetryCompositionError> {
-        DaemonTelemetryLaunchContext::from_retained_fields(
-            self.runtime_authority_id,
-            self.database_generation,
-            self.runtime_generation,
-            self.fencing_token,
-            self.profile.profile_digest(),
-            authenticated_launch_generation,
-        )
     }
 }
 

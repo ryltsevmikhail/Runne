@@ -9,8 +9,9 @@ use super::{
 use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
-    ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
-    ProviderCall, ProviderCallId, ProviderId,
+    CredentialLease, CredentialVersionRef, ModelRef, PrepareCredentialVersion,
+    PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
+    ProviderCallId, ProviderCredentialVersionStore, ProviderId,
 };
 use rusqlite::Connection;
 
@@ -90,6 +91,28 @@ impl Fixture {
     {
         let request = prepare_request(&self.path, discriminator);
         self.store.issue(&request)
+    }
+
+    pub(super) fn credential(
+        &self,
+    ) -> (
+        super::super::SqliteProviderCredentialLifecycleStore,
+        super::super::CredentialDispatchBinding,
+    ) {
+        let lifecycle = super::super::SqliteProviderCredentialLifecycleStore::open_connection_at(
+            configured_connection(&self.path),
+            self.clock.get(),
+        )
+        .unwrap();
+        let provider = ProviderId::new("fixture-provider").unwrap();
+        let reference = CredentialVersionRef::new(provider.clone(), 1).unwrap();
+        let lease = CredentialLease::new(reference.clone(), [1; 16], 1_600, 13).unwrap();
+        let _ = lifecycle.create_prepared(PrepareCredentialVersion::new(reference));
+        let _ = lifecycle.activate(lease);
+        let binding = lifecycle
+            .authorize_active(&provider, [1; 16], 13, self.clock.get())
+            .unwrap();
+        (lifecycle, binding)
     }
 }
 

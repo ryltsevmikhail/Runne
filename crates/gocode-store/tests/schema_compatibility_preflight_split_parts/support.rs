@@ -67,7 +67,8 @@ fn released_v8_database(name: &str) -> PathBuf {
     }
     connection
         .execute_batch(
-            "DROP TABLE provider_credential_versions;
+            "DROP TABLE provider_credential_effect_bindings;
+             DROP TABLE provider_credential_versions;
              DROP TABLE provider_effect_starts;
              DROP TABLE provider_terminal_outbox;
              DROP TABLE provider_accounting_settlements;

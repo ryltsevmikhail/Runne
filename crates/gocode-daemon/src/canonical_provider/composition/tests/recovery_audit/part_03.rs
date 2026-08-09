@@ -87,6 +87,7 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
         begin.command_id,
         &started,
         false,
+        false,
     );
     let receipt = harness
         .store

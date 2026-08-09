@@ -166,12 +166,20 @@ impl DaemonApplication {
                         replay_lineage,
                         "provider execution store",
                     );
+                    let credential_connection = open_runtime_connection(
+                        &db_path,
+                        gocode_store::schema::ConnectionMode::ValidatedReopen,
+                        bootstrap.authority_id,
+                        replay_lineage,
+                        "provider credential lifecycle store",
+                    );
                     let conversation_store = store.clone();
                     let conversation_service = Arc::clone(&conversation_text_service);
                     let prohibited_content = Arc::clone(&prohibited_content);
                     async move {
                         let dispatch_connection = dispatch_connection?;
                         let execution_connection = execution_connection?;
+                        let credential_connection = credential_connection?;
                         let dependencies = dependencies.ok_or_else(|| {
                             DaemonError::Bootstrap("provider dependencies unavailable".into())
                         })?;
@@ -179,6 +187,7 @@ impl DaemonApplication {
                             db_path,
                             dispatch_connection,
                             execution_connection,
+                            credential_connection,
                             runtime_authority_id: bootstrap.authority_id,
                             runtime_generation: bootstrap.launch_generation,
                             activation_provenance,

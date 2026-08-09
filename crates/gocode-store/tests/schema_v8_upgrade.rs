@@ -31,6 +31,7 @@ fn released_v8_db() -> Connection {
     conn.execute_batch(
         "DROP TABLE schema_upgrade_write_latch;
          DROP TABLE schema_upgrade_fence;
+         DROP TABLE provider_credential_effect_bindings;
          DROP TABLE provider_credential_versions;
          DROP TABLE provider_effect_starts;
          DROP TABLE provider_terminal_outbox;

@@ -21,7 +21,9 @@ pub use coordination::{
     ProviderRepositoryState,
 };
 pub use credential::{
-    CredentialLease, CredentialLifecycleError, CredentialVersionRef, CredentialVersionState,
+    CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
+    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialVersionRef,
+    CredentialVersionState, NativeCredentialAuthority, NativeCredentialDeletionProof,
     PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
     RevokeCredentialVersion,
 };

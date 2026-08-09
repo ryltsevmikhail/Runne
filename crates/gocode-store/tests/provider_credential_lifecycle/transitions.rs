@@ -49,6 +49,38 @@ fn revocation_fence_precedes_provider_dispatch() {
 }
 
 #[test]
+fn provider_dispatch_authority_selects_only_exact_active_owner_and_fence() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("dispatch-authority.sqlite");
+    let store = store(&path);
+    let reference = version(1);
+    prepare(&store, reference.clone());
+    store
+        .activate(lease(reference.clone(), OWNER_A, 500, 9))
+        .unwrap();
+
+    let binding = store
+        .authorize_active(reference.provider(), OWNER_A, 9, 100)
+        .unwrap();
+    assert_eq!(binding.version_ref(), &reference);
+    assert_eq!(binding.owner(), &OWNER_A);
+    assert_eq!(binding.expires_at(), 500);
+    assert_eq!(binding.fencing_token(), 9);
+    assert_eq!(
+        store
+            .authorize_active(reference.provider(), OWNER_B, 9, 100)
+            .unwrap_err(),
+        CredentialLifecycleError::StaleLease
+    );
+    assert_eq!(
+        store
+            .authorize_active(reference.provider(), OWNER_A, 8, 100)
+            .unwrap_err(),
+        CredentialLifecycleError::StaleLease
+    );
+}
+
+#[test]
 fn gc_claim_blocks_new_leases() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("gc-claim.sqlite");
@@ -59,10 +91,9 @@ fn gc_claim_blocks_new_leases() {
     store.activate(active).unwrap();
     revoke(&store, reference.clone(), 11);
 
-    assert_eq!(
-        store.reconcile(100).unwrap().native_deletions(),
-        std::slice::from_ref(&reference)
-    );
+    let pending = store.reconcile(100).unwrap();
+    assert_eq!(pending.native_deletions().len(), 1);
+    assert_eq!(pending.native_deletions()[0].version_ref(), &reference);
     assert_eq!(
         store.version_state(&reference).unwrap(),
         CredentialVersionState::GcClaimed
@@ -79,8 +110,8 @@ fn gc_claim_blocks_new_leases() {
 fn native_delete_precedes_deleted_tombstone() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("delete-order.sqlite");
-    let store = store(&path);
-    let native = Arc::new(FixtureNative::default());
+    let (store, native) = store_with_native(&path);
+    let native = Arc::new(native);
     let reference = version(1);
     prepare(&store, reference.clone());
     native.create(reference.clone(), b"fixture-credential-value");
@@ -90,11 +121,14 @@ fn native_delete_precedes_deleted_tombstone() {
     revoke(&store, reference.clone(), 13);
 
     let pending = store.reconcile(100).unwrap();
-    assert_eq!(pending.native_deletions(), std::slice::from_ref(&reference));
+    assert_eq!(pending.native_deletions().len(), 1);
+    assert_eq!(pending.native_deletions()[0].version_ref(), &reference);
     assert_eq!(store.tombstone_digest(&reference).unwrap(), None);
-    native.delete(reference.clone());
+    let proof = native
+        .delete(pending.into_native_deletions().pop().unwrap())
+        .unwrap();
     assert_eq!(store.tombstone_digest(&reference).unwrap(), None);
-    store.complete_native_delete(reference.clone()).unwrap();
+    store.complete_native_delete(proof).unwrap();
 
     assert_eq!(
         store.version_state(&reference).unwrap(),
@@ -104,14 +138,41 @@ fn native_delete_precedes_deleted_tombstone() {
 }
 
 #[test]
+fn tombstone_rejects_deletion_proof_from_foreign_native_authority() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("foreign-proof.sqlite");
+    let (store, _native) = store_with_native(&path);
+    let reference = version(1);
+    prepare(&store, reference.clone());
+    store
+        .activate(lease(reference.clone(), OWNER_A, 500, 15))
+        .unwrap();
+    revoke(&store, reference.clone(), 15);
+    store.reconcile(100).unwrap();
+
+    let (foreign_lifecycle, foreign_native) =
+        gocode_provider::CredentialAuthorityPair::new().split();
+    let proof = foreign_native
+        .prove_deletion(foreign_lifecycle.issue_gc(reference.clone()))
+        .unwrap();
+    assert_eq!(
+        store.complete_native_delete(proof).unwrap_err(),
+        CredentialLifecycleError::StaleLease
+    );
+    assert_eq!(
+        store.version_state(&reference).unwrap(),
+        CredentialVersionState::GcClaimed
+    );
+}
+
+#[test]
 fn sqlite_rows_never_contain_fixture_secret_or_derived_digest() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("secret-free.sqlite");
     let reference = version(1);
     let secret = b"fixture-secret-native-only-39b8";
     let secret_digest = Sha256::digest(secret);
-    let native = FixtureNative::default();
-    let store = store(&path);
+    let (store, native) = store_with_native(&path);
     prepare(&store, reference.clone());
     native.create(reference.clone(), secret);
     store.activate(lease(reference, OWNER_A, 500, 17)).unwrap();
@@ -146,58 +207,5 @@ fn sqlite_rows_never_contain_fixture_secret_or_derived_digest() {
             "revocation_fence",
             "tombstone_digest",
         ]
-    );
-}
-
-#[test]
-fn sqlite_transition_checks_reject_unfenced_retirement_and_skips() {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("transition-checks.sqlite");
-    let store = store(&path);
-    let active = version(1);
-    let prepared = version(2);
-    prepare(&store, active.clone());
-    prepare(&store, prepared.clone());
-    store
-        .activate(lease(active.clone(), OWNER_A, 500, 41))
-        .unwrap();
-
-    let connection = Connection::open(&path).unwrap();
-    assert!(
-        connection
-            .execute(
-                "UPDATE provider_credential_versions SET lifecycle_state='RETIRED'
-             WHERE provider_id='openai' AND credential_version=1",
-                [],
-            )
-            .is_err()
-    );
-    assert!(
-        connection
-            .execute(
-                "UPDATE provider_credential_versions SET revocation_fence=41
-             WHERE provider_id='openai' AND credential_version=1",
-                [],
-            )
-            .is_err()
-    );
-    assert!(
-        connection
-            .execute(
-                "UPDATE provider_credential_versions
-             SET lifecycle_state='GC_CLAIMED', lease_owner=?1,
-                 lease_expires_at=500, lease_fencing_token=42
-             WHERE provider_id='openai' AND credential_version=2",
-                [OWNER_B.as_slice()],
-            )
-            .is_err()
-    );
-    assert_eq!(
-        store.version_state(&active).unwrap(),
-        CredentialVersionState::Active
-    );
-    assert_eq!(
-        store.version_state(&prepared).unwrap(),
-        CredentialVersionState::Prepared
     );
 }

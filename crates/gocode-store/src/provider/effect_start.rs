@@ -1,6 +1,7 @@
 use gocode_application::provider::ProviderAdmissionError;
 use std::time::{Duration, Instant};
 
+use super::CredentialDispatchBinding;
 use crate::schema::ManagedConnection;
 use gocode_provider::ProviderDispatchClaim;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
@@ -27,6 +28,12 @@ pub struct ProviderEffectStartReceipt {
     token_reservation_id: [u8; 16],
     cost_reservation_id: [u8; 16],
     deadline: Instant,
+    credential_provider: String,
+    credential_version: u64,
+    credential_ref_digest: [u8; 32],
+    credential_owner: [u8; 16],
+    credential_expires_at: i64,
+    credential_fencing_token: u64,
 }
 
 impl std::fmt::Debug for ProviderEffectStartReceipt {
@@ -63,11 +70,23 @@ impl ProviderEffectStartReceipt {
             && self.token_reservation_id == claim.token_reservation_id
             && self.cost_reservation_id == claim.cost_reservation_id
     }
+
+    /// Returns whether this receipt names the exact credential authority
+    /// committed atomically with the effect-start intent.
+    pub fn matches_credential(&self, binding: &CredentialDispatchBinding) -> bool {
+        self.credential_provider == binding.version_ref().provider().as_str()
+            && self.credential_version == binding.version_ref().version()
+            && self.credential_ref_digest == *binding.version_ref().ref_digest()
+            && self.credential_owner == *binding.owner()
+            && self.credential_expires_at == binding.expires_at()
+            && self.credential_fencing_token == binding.fencing_token()
+    }
 }
 
 pub(super) fn start_effect(
     connection: &mut ManagedConnection,
     claim: &ProviderDispatchClaim,
+    credential: &CredentialDispatchBinding,
     wall_before: i64,
     wall_after: impl FnOnce() -> i64,
     fail_readback: bool,
@@ -141,6 +160,16 @@ pub(super) fn start_effect(
                          WHERE b.provider_idempotency_key = admission.provider_idempotency_key
                            AND b.dimension = 2 AND b.reservation_id = admission.cost_reservation_id
                            AND b.state = 1)
+              AND EXISTS(SELECT 1 FROM provider_credential_versions credential
+                         WHERE credential.provider_id = ?11
+                           AND credential.credential_version = ?12
+                           AND credential.ref_digest = ?13
+                           AND credential.lifecycle_state = 'ACTIVE'
+                           AND credential.lease_owner = ?14
+                           AND credential.lease_expires_at = ?15
+                           AND credential.lease_fencing_token = ?16
+                           AND credential.lease_expires_at > ?8
+                           AND credential.revocation_fence < credential.lease_fencing_token)
         )",
         params![
             claim.attempt_id.as_bytes().as_slice(), claim.permit_id.as_slice(),
@@ -148,6 +177,11 @@ pub(super) fn start_effect(
             claim.render_digest.as_slice(), claim.profile_digest.as_slice(),
             i64::try_from(claim.fencing_token).map_err(|_| ProviderAdmissionError::StaleFencingToken)?, wall_before,
             claim.token_reservation_id.as_slice(), claim.cost_reservation_id.as_slice(),
+            credential.version_ref().provider().as_str(),
+            i64::try_from(credential.version_ref().version()).map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
+            credential.version_ref().ref_digest().as_slice(), credential.owner().as_slice(),
+            credential.expires_at(),
+            i64::try_from(credential.fencing_token()).map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
         ], |row| row.get::<_, bool>(0),
     ).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
     if !valid {
@@ -171,6 +205,25 @@ pub(super) fn start_effect(
     if changed != 1 {
         return Err(ProviderAdmissionError::AuthorityDenied);
     }
+    transaction
+        .execute(
+            "INSERT INTO provider_credential_effect_bindings (
+                dispatch_attempt_id, provider_id, credential_version, ref_digest,
+                lease_owner, lease_expires_at, lease_fencing_token
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                claim.attempt_id.as_bytes().as_slice(),
+                credential.version_ref().provider().as_str(),
+                i64::try_from(credential.version_ref().version())
+                    .map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
+                credential.version_ref().ref_digest().as_slice(),
+                credential.owner().as_slice(),
+                credential.expires_at(),
+                i64::try_from(credential.fencing_token())
+                    .map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
+            ],
+        )
+        .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
     let intent_id = format!("provider:{}", encode_hex(claim.attempt_id.as_bytes()));
     transaction
         .execute(
@@ -216,6 +269,12 @@ pub(super) fn start_effect(
                     token_reservation_id: claim.token_reservation_id,
                     cost_reservation_id: claim.cost_reservation_id,
                     deadline: Instant::now() + Duration::from_secs(remaining.min(120)),
+                    credential_provider: credential.version_ref().provider().as_str().to_owned(),
+                    credential_version: credential.version_ref().version(),
+                    credential_ref_digest: *credential.version_ref().ref_digest(),
+                    credential_owner: *credential.owner(),
+                    credential_expires_at: credential.expires_at(),
+                    credential_fencing_token: credential.fencing_token(),
                 })
             },
         )
