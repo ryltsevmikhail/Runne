@@ -110,12 +110,10 @@ fn create_new_database_file(path: &Path) -> SqliteResult<ConnectionIdentityGuard
         .open(path)
     {
         Ok(file) => ConnectionIdentityGuard::from_created(path, file).map_err(diagnostic_error),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            return Err(diagnostic_error(
-                SchemaOpenDiagnostic::FileIdentityUncertain,
-            ));
-        }
-        Err(error) => return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(error))),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(diagnostic_error(
+            SchemaOpenDiagnostic::FileIdentityUncertain,
+        )),
+        Err(error) => Err(rusqlite::Error::ToSqlConversionFailure(Box::new(error))),
     }
 }
 
