@@ -7,6 +7,8 @@ import json
 import re
 import sys
 
+from capability_manifest_impl.validation import validate_repository
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs" / "desktop"
 STRICT = "--strict" in sys.argv
@@ -202,6 +204,8 @@ for path in sorted(DOCS.iterdir()):
     if path.is_dir() and path.name not in {"decisions"}:
         if not (path / "README.md").is_file():
             errors.append(f"docs/{path.name}: missing README.md")
+
+errors.extend(validate_repository(ROOT))
 
 print("=== GOCODE UI Docs Validator ===")
 print(f"Errors: {len(errors)}")
