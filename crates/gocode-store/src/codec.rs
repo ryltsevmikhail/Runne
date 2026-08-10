@@ -113,6 +113,7 @@ mod command;
 mod conversation;
 mod loop_refs;
 mod primitives;
+mod project_workspace;
 mod receipts;
 mod refs;
 mod task_run;
@@ -121,5 +122,6 @@ mod tests;
 
 pub use command::CommandOutcomeCodec;
 pub use conversation::ConversationEventCodec;
+pub use project_workspace::ProjectWorkspaceReceiptCodec;
 pub use receipts::{ConversationReceiptCodec, IdempotencyScopeCodec, TextGenerationReceiptCodec};
 pub use task_run::TaskRunEventCodec;

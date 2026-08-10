@@ -14,6 +14,7 @@ include!("protected_activation/wire_core.rs");
 include!("protected_activation/wire_identity.rs");
 include!("protected_activation/wire_binding.rs");
 include!("protected_activation/wire_disposition.rs");
+include!("protected_activation/root_admission.rs");
 include!("protected_activation_parts/port_17.rs");
 include!("protected_activation_parts/port_18.rs");
 include!("protected_activation_parts/port_19.rs");

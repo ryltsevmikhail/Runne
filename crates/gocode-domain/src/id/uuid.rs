@@ -108,6 +108,11 @@ macro_rules! uuid_v7_newtype {
             pub const fn into_bytes(self) -> [u8; 16] {
                 self.0
             }
+
+            /// Parses a UUIDv7 string into this typed identifier.
+            pub fn parse(value: &str) -> Result<Self, InvalidIdReason> {
+                value.parse()
+            }
         }
 
         impl fmt::Debug for $name {
@@ -146,6 +151,7 @@ uuid_v7_newtype!(
 );
 uuid_v7_newtype!(MessageId, "UUIDv7 identifier for a durable message.");
 uuid_v7_newtype!(WorkspaceId, "UUIDv7 identifier for a workspace aggregate.");
+uuid_v7_newtype!(ProjectId, "UUIDv7 identifier for a project aggregate.");
 uuid_v7_newtype!(
     AttemptId,
     "UUIDv7 identifier for a single execution attempt."

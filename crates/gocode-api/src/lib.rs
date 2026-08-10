@@ -12,6 +12,8 @@ pub mod local_session;
 pub mod operational_telemetry;
 /// API command principals and actors.
 pub mod principal;
+/// Canonical Project and Workspace command and query contracts.
+pub mod project_workspace;
 /// Protected bundled-runtime activation contracts.
 pub mod protected_activation;
 /// Public replay binding contracts.
@@ -28,6 +30,7 @@ pub use host_port::*;
 pub use local_session::*;
 pub use operational_telemetry::*;
 pub use principal::*;
+pub use project_workspace::*;
 pub use protected_activation::*;
 pub use replay::*;
 pub use session_info::*;
