@@ -30,8 +30,12 @@ def run_cli(*args):
 class Rc0CandidateCliTests(unittest.TestCase):
     def test_ci_local_is_nonrecursive_and_consumes_one_receipt(self):
         wrapper = (ROOT / "scripts/ci-local.sh").read_text(encoding="utf-8")
-        self.assertEqual(wrapper.count('bash "$input_script" "$receipt"'), 1)
+        self.assertEqual(
+            wrapper.count('python3 -m scripts.ci_local_receipt run --receipt "$receipt"'),
+            1,
+        )
         self.assertNotIn("ci-local.sh", "\n".join(wrapper.splitlines()[2:]))
+        self.assertNotIn("bash scripts/ci-local-inputs.sh", wrapper)
         self.assertNotIn("scripts.rc0_candidate.cli", wrapper)
 
         receipt_module = importlib.import_module("scripts.ci_local_receipt")
@@ -41,15 +45,9 @@ class Rc0CandidateCliTests(unittest.TestCase):
             receipt_directory = Path(location) / "receipt"
             receipt_directory.mkdir(mode=0o700)
             receipt = receipt_directory / "local-inputs-receipt.json"
-            receipt_module.issue_local_input_receipt(
-                fixture_root,
-                receipt,
-                fixture_root / "scripts/ci-local-inputs.sh",
-                "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-                "rustc 1.95.0 (000000000 2026-01-01)",
-            )
+            receipt_module.run_local_input_gates(fixture_root, receipt)
             record = receipt_module.validate_local_input_receipt(
-                fixture_root, receipt, fixture_root / "scripts/ci-local-inputs.sh",
+                fixture_root, receipt,
                 fixture_root / "scripts/rc0_candidate/inventories/source-candidate-v1.json",
                 consume=True,
             )
@@ -57,7 +55,7 @@ class Rc0CandidateCliTests(unittest.TestCase):
             self.assertFalse(receipt.exists())
             with self.assertRaises(receipt_module.LocalInputReceiptError):
                 receipt_module.validate_local_input_receipt(
-                    fixture_root, receipt, fixture_root / "scripts/ci-local-inputs.sh",
+                    fixture_root, receipt,
                     fixture_root / "scripts/rc0_candidate/inventories/source-candidate-v1.json",
                     consume=True,
                 )
@@ -92,17 +90,12 @@ class Rc0CandidateCliTests(unittest.TestCase):
             receipt_directory = Path(location) / "receipt"
             receipt_directory.mkdir(mode=0o700)
             receipt = receipt_directory / "receipt.json"
-            input_script = fixture_root / "scripts/ci-local-inputs.sh"
             inventory = fixture_root / "scripts/rc0_candidate/inventories/source-candidate-v1.json"
-            receipt_module.issue_local_input_receipt(
-                fixture_root, receipt, input_script,
-                "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-                "rustc 1.95.0 (000000000 2026-01-01)",
-            )
+            receipt_module.run_local_input_gates(fixture_root, receipt)
             inventory.write_bytes(inventory.read_bytes() + b"\n")
             with self.assertRaisesRegex(receipt_module.LocalInputReceiptError, "source|inventory"):
                 receipt_module.validate_local_input_receipt(
-                    fixture_root, receipt, input_script, inventory, consume=True,
+                    fixture_root, receipt, inventory, consume=True,
                 )
             self.assertTrue(receipt.exists())
 
@@ -115,19 +108,14 @@ class Rc0CandidateCliTests(unittest.TestCase):
             receipt_directory = Path(location) / "receipt"
             receipt_directory.mkdir(mode=0o700)
             receipt = receipt_directory / "receipt.json"
-            input_script = fixture_root / "scripts/ci-local-inputs.sh"
             inventory = fixture_root / "scripts/rc0_candidate/inventories/source-candidate-v1.json"
-            record = receipt_module.issue_local_input_receipt(
-                fixture_root, receipt, input_script,
-                "rustc 1.97.1 (8bab26f4f 2026-07-14)",
-                "rustc 1.95.0 (000000000 2026-01-01)",
-            )
+            record = receipt_module.run_local_input_gates(fixture_root, receipt)
             self.assertIn("issued_at_unix", record)
             record["issued_at_unix"] = 1
             receipt.write_bytes(canonical.canonical_bytes(record))
             with self.assertRaisesRegex(receipt_module.LocalInputReceiptError, "stale"):
                 receipt_module.validate_local_input_receipt(
-                    fixture_root, receipt, input_script, inventory, consume=True,
+                    fixture_root, receipt, inventory, consume=True,
                 )
 
     def test_candidate_cannot_emit_report_declaration_or_gate_verdict(self):
@@ -209,6 +197,7 @@ class Rc0CandidateCliTests(unittest.TestCase):
                 shutil.copy2(source, root / relative)
         (root / "scripts/ci-local-inputs.sh").write_text("#!/bin/sh\nexit 0\n")
         subprocess.run(["git", "init", "--quiet", str(root)], check=True)
+        (root / ".git").chmod(0o700)
         subprocess.run(["git", "-C", str(root), "config", "user.email", "fixture@example.invalid"], check=True)
         subprocess.run(["git", "-C", str(root), "config", "user.name", "Fixture"], check=True)
         subprocess.run(["git", "-C", str(root), "add", "."], check=True)
