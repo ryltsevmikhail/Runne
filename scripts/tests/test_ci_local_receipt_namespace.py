@@ -1,5 +1,6 @@
 import importlib
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,27 @@ from scripts.tests import test_ci_local_receipt_security as security_tests
 
 
 class LocalInputReceiptNamespaceTests(unittest.TestCase):
+    def test_docs_gate_runs_both_canonical_validators_in_closed_namespace(self):
+        namespace_module = importlib.import_module("scripts.ci_local_receipt_namespace")
+        runtime_module = importlib.import_module("scripts.ci_local_receipt_runtime")
+        runtime = runtime_module.resolve_trusted_runtime(security_tests.ROOT)
+        with namespace_module.execution_namespace(runtime) as namespace:
+            completed = subprocess.run(
+                [os.fspath(namespace.bash), "scripts/ci-local-docs.sh"],
+                cwd=security_tests.ROOT,
+                env=namespace.environment,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        gate = (security_tests.ROOT / "scripts/ci-local-inputs.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertEqual(gate.count('"$trusted_bash" scripts/ci-local-docs.sh'), 2)
+        self.assertNotIn("validate_markdown_links.py", gate)
+
     def test_closed_path_excludes_account_tool_directories_and_binds_frontend(self):
         namespace_module = importlib.import_module("scripts.ci_local_receipt_namespace")
         runtime_module = importlib.import_module("scripts.ci_local_receipt_runtime")
