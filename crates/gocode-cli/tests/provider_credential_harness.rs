@@ -134,7 +134,7 @@ fn main() {
             b"credential".as_slice(),
             true,
             "",
-            1,
+            4,
         ),
         (
             "backend-error",
@@ -142,7 +142,7 @@ fn main() {
             b"".as_slice(),
             false,
             "",
-            1,
+            4,
         ),
         (
             "set-resolver-error",
@@ -157,7 +157,7 @@ fn main() {
             b"stdin-secret".as_slice(),
             false,
             "",
-            1,
+            4,
         ),
         (
             "set-backend-error",
@@ -172,7 +172,7 @@ fn main() {
             b"stdin-secret".as_slice(),
             false,
             "",
-            1,
+            4,
         ),
         (
             "missing-stdin",
@@ -206,7 +206,7 @@ fn expected_stderr(scenario: &str, code: i32) -> &'static str {
         (_, 0) => "",
         ("tty", _) => "provider credential input is invalid\n",
         ("missing-stdin", _) => {
-            "Usage:\n  gocode [--profile PATH] conversation create [--workspace-id UUID]\n  gocode [--profile PATH] conversation send --conversation-id UUID --expected-version N --text TEXT\n  gocode [--profile PATH] conversation messages --conversation-id UUID\n"
+            "GOCODE command-line interface.\n\nUsage:\n  gocode [options] <command> [<args>]\n  gocode help [<command>]\n\nOptions:\n  -h, --help       Show this help message\n  -V, --version    Show version information\n\nCommands:\n  conversation     Manage conversations\n  provider         Manage provider credentials\n  status           Show runtime connection status\n  health           Check runtime health status\n  doctor           Run comprehensive system diagnostics\n  completion       Generate shell completion scripts\n\nRun 'gocode help <command>' for more information on a command.\n"
         }
         _ => "provider credential operation failed\n",
     }

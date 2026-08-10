@@ -19,7 +19,7 @@ use gocode_application::provider::ProviderExecutionStore;
 use gocode_domain::timestamp::Timestamp;
 use gocode_domain::{
     event::Actor,
-    id::{IdempotencyKey, WorkspaceId},
+    id::{EventLogLineageId, IdempotencyKey, WorkspaceId},
     message::MessageText,
 };
 use gocode_runtime::provider_execution::ProviderTerminalPersistence;
@@ -40,6 +40,26 @@ use crate::provider_activation::ProviderActivation;
 
 mod pending;
 mod recovery_audit;
+
+fn open_test_runtime_connection(
+    db_path: &str,
+    authority: [u8; 16],
+    lineage: EventLogLineageId,
+) -> rusqlite::Connection {
+    gocode_store::schema::open_existing_with_pragmas_validated(
+        std::path::Path::new(db_path),
+        |connection| {
+            if gocode_store::schema::read_authority_id(connection)? == Some(authority)
+                && gocode_store::schema::read_event_log_lineage_id(connection)? == Some(lineage)
+            {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .unwrap()
+}
 
 struct FixedClock;
 
@@ -114,6 +134,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     let db_path = config.db_path.clone();
     let bootstrap = bootstrap(&config).unwrap();
     let authority = bootstrap.authority_id;
+    let lineage = gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
     let generation = bootstrap.launch_generation;
     let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
         &VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap),
@@ -173,8 +194,8 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     });
     let service = DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
         db_path: db_path.clone(),
-        dispatch_connection: rusqlite::Connection::open(&db_path).unwrap(),
-        execution_connection: rusqlite::Connection::open(&db_path).unwrap(),
+        dispatch_connection: open_test_runtime_connection(&db_path, authority, lineage),
+        execution_connection: open_test_runtime_connection(&db_path, authority, lineage),
         runtime_authority_id: authority,
         runtime_generation: generation,
         activation_provenance: provenance,

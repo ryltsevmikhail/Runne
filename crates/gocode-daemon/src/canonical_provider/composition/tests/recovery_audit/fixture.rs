@@ -1,5 +1,5 @@
 use gocode_application::provider::ProviderAuthorityIssueRequest;
-use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
+use gocode_domain::id::{AttemptId, ConversationId, EventLogLineageId, TaskRunId};
 use gocode_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallDigestVersion, ProviderCallId, ProviderId, ProviderStreamId,
@@ -15,6 +15,7 @@ pub(super) struct Harness {
     _directory: tempfile::TempDir,
     pub(super) db_path: String,
     authority: [u8; 16],
+    lineage: EventLogLineageId,
     generation: u64,
     profile_digest: [u8; 32],
     provenance: DaemonActivationProvenance,
@@ -37,6 +38,8 @@ impl Harness {
         let db_path = config.db_path.clone();
         let bootstrap = bootstrap(&config).unwrap();
         let authority = bootstrap.authority_id;
+        let lineage =
+            gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
         let generation = bootstrap.launch_generation;
         let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
             &VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap),
@@ -60,6 +63,7 @@ impl Harness {
             _directory: directory,
             db_path,
             authority,
+            lineage,
             generation,
             profile_digest,
             provenance,
@@ -72,6 +76,10 @@ impl Harness {
 
     pub(super) async fn compose(&self) -> Arc<DaemonCanonicalOpenAiService> {
         self.compose_at_generation(self.generation).await
+    }
+
+    pub(super) fn open_runtime_connection(&self) -> rusqlite::Connection {
+        open_test_runtime_connection(&self.db_path, self.authority, self.lineage)
     }
 
     pub(super) async fn compose_at_generation(
@@ -89,8 +97,8 @@ impl Harness {
         });
         DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
             db_path: self.db_path.clone(),
-            dispatch_connection: rusqlite::Connection::open(&self.db_path).unwrap(),
-            execution_connection: rusqlite::Connection::open(&self.db_path).unwrap(),
+            dispatch_connection: self.open_runtime_connection(),
+            execution_connection: self.open_runtime_connection(),
             runtime_authority_id: self.authority,
             runtime_generation: generation,
             activation_provenance: self.provenance,

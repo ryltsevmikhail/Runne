@@ -82,6 +82,8 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
     );
 
     let messages = run_cli([
+        "--format",
+        "json",
         "--profile",
         profile.to_str().expect("profile path"),
         "conversation",
@@ -95,8 +97,7 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
         "messages failed: {}",
         String::from_utf8_lossy(&messages.stderr)
     );
-    let messages: serde_json::Value =
-        serde_json::from_slice(&messages.stdout).expect("messages JSON");
+    let messages = parse_messages_output(&messages);
     assert_eq!(messages["conversationId"], conversation_id);
     assert_eq!(messages["streamVersion"], 3);
     assert_eq!(messages["messages"].as_array().expect("messages").len(), 2);
@@ -109,6 +110,19 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
         .expect("daemon shutdown timeout")
         .expect("daemon task")
         .expect("daemon shutdown");
+}
+
+fn parse_messages_output(output: &std::process::Output) -> serde_json::Value {
+    let envelope: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("messages JSON");
+    assert_eq!(envelope["schemaVersion"], 1);
+    assert_eq!(envelope["ok"], true);
+    serde_json::from_str(
+        envelope["data"]["output"]
+            .as_str()
+            .expect("messages JSON output"),
+    )
+    .expect("messages JSON payload")
 }
 
 #[tokio::test]
