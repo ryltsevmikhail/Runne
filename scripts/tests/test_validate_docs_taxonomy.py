@@ -229,6 +229,9 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
                 [
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:NOTARIZATION_PASS", "CLAIM_POSITIVE_OUTCOME:docs/guide.md:PRODUCTION_QUALIFICATION",
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:PUBLICATION_PASS", "CLAIM_POSITIVE_OUTCOME:docs/guide.md:RELEASE_PASS",
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:SIGNING_PASS",
                     "CLAIM_UNLISTED:docs/guide.md:CANDIDATE_PASS",
                     "CLAIM_UNLISTED:docs/guide.md:NOTARIZATION_PASS",
                     "CLAIM_UNLISTED:docs/guide.md:PRODUCTION_QUALIFICATION",
@@ -250,11 +253,8 @@ class DocumentationTaxonomyTests(unittest.TestCase):
     def test_docs_manifest_has_no_release_overclaim(self):
         manifest = ROOT / "docs/rc0/RC0_CANDIDATE_MANIFEST.md"
         raw = manifest.read_text(encoding="utf-8")
-        compact = TAXONOMY._compact_claim_text(raw)
-        prohibited = {
-            claim_id for claim_id, pattern in TAXONOMY.CLAIM_PATTERNS
-            if pattern.search(compact)
-        }
+        parsed = TAXONOMY.CLAIM_OUTCOMES.parse_claims(raw)
+        prohibited = parsed.mentions | parsed.positive_outcomes
         self.assertEqual(prohibited, set())
         self.assertIn("PRODUCTION_QUALIFICATION` | `BLOCKED", raw)
         self.assertIn("RELEASE_APPROVAL` | `OUT_OF_SCOPE", raw)

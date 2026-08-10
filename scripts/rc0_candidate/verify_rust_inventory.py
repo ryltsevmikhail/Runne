@@ -12,6 +12,12 @@ from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
+from scripts.phase3_inventory import (
+    Phase3InventoryError,
+    parse_libtest_list,
+    verify_exact_execution,
+)
+
 
 RUST_RESERVATIONS = (
     ("sqlite.managed-connection", "gocode-store", "connection_profile"),
@@ -45,9 +51,6 @@ EXTERNAL_IDS = frozenset({"docs.claims", "schema.golden-api", "ci-local"})
 REQUIRED_IDS = RUST_IDS | EXTERNAL_IDS
 TARGET_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 SELECTOR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$")
-LIST_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_:]*): test$")
-LIST_SUMMARY_RE = re.compile(r"^\d+ tests?, \d+ benchmarks$")
-RESULT_RE = re.compile(r"test result: ok\. 1 passed; 0 failed; 0 ignored;")
 TOOLCHAIN_RE = re.compile(
     r"^rustc (?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*) "
     r"\([0-9a-f]+ ([0-9]{4}-[0-9]{2}-[0-9]{2})\)$"
@@ -58,7 +61,7 @@ class InventoryError(ValueError):
     """An inventory is incomplete, unsafe, or not exact-run evidence."""
 
 
-Command = Callable[[tuple[str, ...]], str]
+Command = Callable[[tuple[str, ...]], bytes | str]
 
 
 def rust_record(record: dict) -> bool:
@@ -162,9 +165,23 @@ def validate_inventory(document: dict) -> None:
             raise InventoryError("final inventory digest mismatch")
 
 
-def subprocess_command(args: tuple[str, ...]) -> str:
-    result = subprocess.run(args, check=True, text=True, capture_output=True)
+def subprocess_command(args: tuple[str, ...]) -> bytes:
+    result = subprocess.run(args, check=True, capture_output=True)
     return result.stdout
+
+
+def _raw_output(output: bytes | str) -> bytes:
+    try:
+        return output if isinstance(output, bytes) else output.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise InventoryError("libtest output is not valid UTF-8") from error
+
+
+def _text_output(output: bytes | str) -> str:
+    try:
+        return _raw_output(output).decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise InventoryError("toolchain output is not valid UTF-8") from error
 
 
 def _list_command(record: dict) -> tuple[str, ...]:
@@ -179,22 +196,24 @@ def verify_record(record: dict, command: Command = subprocess_command) -> None:
     validate_record(record)
     if record.get("selector_status") != "RESOLVED":
         raise InventoryError(f"record {record['id']} is UNRESOLVED")
-    listing = command(_list_command(record))
-    listed = [match.group(1) for line in listing.splitlines() if (match := LIST_RE.fullmatch(line))]
-    unexpected = [
-        line for line in listing.splitlines()
-        if line and not LIST_RE.fullmatch(line) and not LIST_SUMMARY_RE.fullmatch(line)
-    ]
+    listing = _raw_output(command(_list_command(record)))
+    try:
+        listed = parse_libtest_list(listing)
+    except Phase3InventoryError as error:
+        raise InventoryError(f"record {record['id']} libtest list invalid: {error}") from error
     selector = record["fully_qualified_test_name"]
-    if listed.count(selector) != 1 or unexpected:
+    if listed.count(selector) != 1:
         raise InventoryError(f"record {record['id']} selector is not exactly one listed test")
-    if hashlib.sha256(listing.encode()).hexdigest() != record["list_digest"]:
+    if hashlib.sha256(listing).hexdigest() != record["list_digest"]:
         raise InventoryError(f"record {record['id']} list digest changed")
-    if command(("rustc", "-V")).strip() != record["toolchain"]:
+    if _text_output(command(("rustc", "-V"))).strip() != record["toolchain"]:
         raise InventoryError(f"record {record['id']} toolchain changed")
-    output = command(_exact_command(record))
-    if "running 1 test" not in output or not RESULT_RE.search(output):
-        raise InventoryError(f"record {record['id']} exact run did not execute one passing test")
+    try:
+        verify_exact_execution((selector,), _raw_output(command(_exact_command(record))))
+    except Phase3InventoryError as error:
+        raise InventoryError(
+            f"record {record['id']} exact run has invalid libtest output: {error}"
+        ) from error
 
 
 def verify_frozen_all(document: dict, command: Command = subprocess_command) -> None:
