@@ -1,5 +1,6 @@
-"""Shared paths and strict JSON loading for Desktop v1 manifest tests."""
+"""Shared paths and small immutable fixture helpers for Desktop v1 tests."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -47,3 +48,33 @@ def validate_track_stages(schema: dict[str, object], stages: object) -> None:
     prefix_items = stage_schema.get("prefixItems")
     if stage_schema.get("items") is False and isinstance(prefix_items, list) and len(stages) > len(prefix_items):
         raise ValueError("array has more than prefixItems")
+
+
+def definition() -> dict[str, object]:
+    """Return an independently mutable copy of the checked-in definition."""
+
+    return copy.deepcopy(load_json_no_duplicates(PROFILE))  # type: ignore[return-value]
+
+
+def status() -> dict[str, object]:
+    """Return an independently mutable copy of the checked-in status."""
+
+    return copy.deepcopy(load_json_no_duplicates(STATUS))  # type: ignore[return-value]
+
+
+def status_with_track_stages(stages: tuple[int, ...]) -> dict[str, object]:
+    """Mark the CAP-SET track gates needed for the supplied track stages verified."""
+
+    value = status()
+    tracks = (
+        ("GATE-CONTRACT-SCHEMA", "GATE-CLIENT-USE-CASE", "GATE-TYPED-IPC", "GATE-REAL-DATA-UI", "GATE-E2E-RECOVERY"),
+        ("GATE-NATIVE-ADMISSION", "GATE-NATIVE-ADAPTER", "GATE-NATIVE-IPC", "GATE-NATIVE-PACKAGED"),
+        ("GATE-CONTRACT-SCHEMA", "GATE-CLIENT-USE-CASE", "GATE-TYPED-IPC", "GATE-REAL-DATA-UI", "GATE-E2E-RECOVERY"),
+    )
+    verified = {gate_id for stage, gates in zip(stages, tracks) for gate_id in gates[:stage // 20]}
+    for row in value["gates"]:  # type: ignore[index]
+        gate_id = row["gate_id"]
+        if gate_id in verified:
+            row.update({"disposition": "verified", "blocker_code": None, "evidence_ref": gate_id, "provenance": {"subject_sha256": "1" * 64, "predicate_sha256": "2" * 64}})
+    value["evidence_refs"] = [{"id": gate_id, "sha256": "1" * 64} for gate_id in sorted(verified)]  # type: ignore[index]
+    return value
