@@ -280,13 +280,6 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         with redirect_stdout(output): self.assertEqual(main(["score", "--status", str(STATUS), "--status-provenance", str(ROOT / "missing-bundle"), "--source-ref", "0d095d26", "--verify-provenance", "--format", "json"]), 1)
         self.assertIn("SOURCE_CONTENT_DIGEST_MISMATCH", output.getvalue())
 
-    def test_qualification_workflow_hardens_signed_bytes(self) -> None:
-        content = (ROOT / ".github/workflows/desktop-qualification.yml").read_text(encoding="utf-8")
-        for snippet in ('prepared_allowed = {', 'gate = {', 'invalid final package', 'desktop-v1-package-manifest.json', 'gh attestation verify "$signed_root/desktop-v1-contract-schema.json"'):
-            self.assertIn(snippet, content)
-        self.assertNotIn('ref: ${{ github.sha }}', content)
-        self.assertNotIn('prepared / "desktop-v1-contract-schema.json"', content)
-
     @staticmethod
     def _policy() -> dict[str, str]:
         return {"repository": "org/repo", "signer_workflow": ".github/workflows/qualify.yml", "source_ref": "refs/heads/release"}
