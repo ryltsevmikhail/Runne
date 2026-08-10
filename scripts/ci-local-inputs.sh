@@ -13,6 +13,11 @@ readonly trusted_bash="${GOCODE_TRUSTED_BASH:?}"
 readonly trusted_python="${GOCODE_TRUSTED_PYTHON:?}"
 readonly trusted_node="${GOCODE_TRUSTED_NODE:?}"
 readonly trusted_pnpm="${GOCODE_TRUSTED_PNPM:?}"
+readonly eslint_target="${GOCODE_FRONTEND_ESLINT:?}"
+readonly vitest_target="${GOCODE_FRONTEND_VITEST:?}"
+readonly vue_tsc_target="${GOCODE_FRONTEND_VUE_TSC:?}"
+readonly vite_target="${GOCODE_FRONTEND_VITE:?}"
+readonly playwright_target="${GOCODE_FRONTEND_PLAYWRIGHT:?}"
 readonly pinned_toolchain_bin="${GOCODE_PINNED_TOOLCHAIN_BIN:?}"
 readonly msrv_toolchain_bin="${GOCODE_MSRV_TOOLCHAIN_BIN:?}"
 
@@ -30,11 +35,39 @@ run_with_toolchain() {
     shift
     local bin_path
     bin_path="$(toolchain_bin "$version")"
-    PATH="$bin_path:$PATH" "$@"
+    PATH="$bin_path:$PATH" RUSTC="$bin_path/rustc" RUSTDOC="$bin_path/rustdoc" "$@"
 }
 
 pnpm_run() {
     "$trusted_node" "$trusted_pnpm" "$@"
+}
+
+node_at() {
+    local directory="$1"
+    local target="$2"
+    shift 2
+    (cd "$directory" && "$trusted_node" "$target" "$@")
+}
+
+typecheck_frontend() {
+    node_at apps/desktop "$vue_tsc_target" -b
+    node_at apps/site "$vue_tsc_target" -b
+    node_at packages/product "$vue_tsc_target" --noEmit -p tsconfig.json
+}
+
+test_frontend() {
+    node_at apps/desktop "$vitest_target" run
+    node_at apps/site "$vitest_target" run
+    node_at packages/product "$vitest_target" run
+}
+
+validate_frontend_contracts() {
+    node_at apps/desktop "$vitest_target" run
+    typecheck_frontend
+    "$trusted_node" "$playwright_target" test tests/desktop/e2e/replay-resume.spec.ts
+    "$trusted_python" scripts/desktop/validate_architecture.py
+    "$trusted_python" scripts/validate-docs.py --strict
+    "$trusted_python" scripts/validate_markdown_links.py
 }
 
 run_runtime_closure() {
@@ -105,12 +138,17 @@ run_runtime_closure "$pinned_toolchain" pinned
 run_runtime_closure "$msrv_toolchain" msrv
 
 echo "=== Local frontend closure ==="
-pnpm_run install --frozen-lockfile
-"$trusted_bash" scripts/verify-secure-replay-desktop.sh frontend
-pnpm_run lint
-pnpm_run test
-pnpm_run typecheck
-pnpm_run build
-CI=1 pnpm_run test:e2e
-pnpm_run validate:docs
-pnpm_run lint:architecture
+pnpm_run install --frozen-lockfile --offline --ignore-scripts \
+    --verify-store-integrity --store-dir "$PNPM_STORE_DIR"
+validate_frontend_contracts
+"$trusted_node" "$eslint_target" .
+test_frontend
+typecheck_frontend
+node_at apps/desktop "$vue_tsc_target" -b
+node_at apps/desktop "$vite_target" build
+node_at apps/site "$vue_tsc_target" -b
+node_at apps/site "$repo_root/apps/site/scripts/build.mjs"
+CI=1 "$trusted_node" "$playwright_target" test
+"$trusted_python" scripts/validate-docs.py --strict
+"$trusted_python" scripts/validate_markdown_links.py
+"$trusted_python" scripts/desktop/validate_architecture.py
