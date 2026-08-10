@@ -24,3 +24,26 @@ def load_json_no_duplicates(path: Path) -> object:
         return result
 
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicates)
+
+
+def validate_track_stages(schema: dict[str, object], stages: object) -> None:
+    """Apply the track-stage array bounds declared by the definition schema."""
+
+    definitions = schema["$defs"]
+    if not isinstance(definitions, dict):
+        raise ValueError("schema definitions are invalid")
+    track = definitions.get("track")
+    if not isinstance(track, dict):
+        raise ValueError("track schema is invalid")
+    properties = track.get("properties")
+    if not isinstance(properties, dict):
+        raise ValueError("track properties are invalid")
+    stage_schema = properties.get("stages")
+    if not isinstance(stage_schema, dict) or not isinstance(stages, list):
+        raise ValueError("track stages are invalid")
+    minimum = stage_schema.get("minItems")
+    if not isinstance(minimum, int) or len(stages) < minimum:
+        raise ValueError("array has fewer than minItems")
+    prefix_items = stage_schema.get("prefixItems")
+    if stage_schema.get("items") is False and isinstance(prefix_items, list) and len(stages) > len(prefix_items):
+        raise ValueError("array has more than prefixItems")

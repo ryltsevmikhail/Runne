@@ -10,10 +10,19 @@ from scripts.tests.desktop_capability_manifest_support import (
     STATUS,
     STATUS_SCHEMA,
     load_json_no_duplicates,
+    validate_track_stages,
 )
 
 
 class DesktopCapabilityManifestTests(unittest.TestCase):
+    def test_schema_rejects_truncated_track_stages(self) -> None:
+        schema = load_json_no_duplicates(CAPABILITY_SCHEMA)
+        definition = load_json_no_duplicates(PROFILE)
+        stages = definition["capabilities"][0]["tracks"][0]["stages"][:-1]
+
+        with self.assertRaisesRegex(ValueError, "minItems"):
+            validate_track_stages(schema, stages)
+
     def test_repository_artifacts_are_closed_and_weighted(self) -> None:
         capability_schema = load_json_no_duplicates(CAPABILITY_SCHEMA)
         status_schema = load_json_no_duplicates(STATUS_SCHEMA)

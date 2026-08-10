@@ -69,6 +69,7 @@
         "component_owner": {"enum": ["runtime", "apps/desktop", "tauri-host"]},
         "stages": {
           "type": "array",
+          "minItems": 5,
           "prefixItems": [
             {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 20}}}]},
             {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 40}}}]},
