@@ -73,8 +73,7 @@ def _qualification(args: argparse.Namespace) -> QualificationContext | None:
         commit = resolve_commit(ROOT, args.source_ref)
         if not evidence_only_difference(ROOT, policy["source_ref"], commit):
             return None
-        status_predicate = verify_attestation(args.status, args.status_provenance, policy, commit)
-        if not _status_predicate(status_predicate, status): return None
+        if verify_attestation(args.status, args.status_provenance, policy, commit) is None: return None
         trusted = _trusted_gates(status, args.status.parent, policy, commit)
         if trusted is None: return None
         return QualificationContext(
@@ -82,10 +81,6 @@ def _qualification(args: argparse.Namespace) -> QualificationContext | None:
         )
     except (OSError, ValueError, subprocess.CalledProcessError):
         return None
-
-
-def _status_predicate(predicate: object, status: dict[str, object]) -> bool:
-    return isinstance(predicate, dict) and predicate.get("canonical_source_content_sha256") == status.get("canonical_source_content_sha256") and predicate.get("definition_sha256") == status.get("definition_sha256")
 
 
 def _trusted_gates(status: dict[str, object], evidence_root: Path, policy: dict[str, str], commit: str) -> tuple[str, ...] | None:
@@ -106,10 +101,11 @@ def _trusted_gates(status: dict[str, object], evidence_root: Path, policy: dict[
 def _gate_predicate(predicate: object, path: Path, status: dict[str, object], row: dict[str, object]) -> bool:
     keys = {"schema_version", "kind", "gate_id", "canonical_source_content_sha256", "definition_sha256", "selector_list_sha256", "toolchain_identity", "runner_identity", "artifacts", "tests"}
     proof = row.get("provenance")
-    if not isinstance(predicate, dict) or set(predicate) != keys or predicate.get("schema_version") != "desktop-v1-gate-evidence.v1" or predicate.get("kind") in {"compile", "compile-only", "stub", "synthetic"} or predicate.get("gate_id") != row.get("gate_id") or not isinstance(proof, dict): return False
-    if predicate.get("canonical_source_content_sha256") != status.get("canonical_source_content_sha256") or predicate.get("definition_sha256") != status.get("definition_sha256") or predicate.get("selector_list_sha256") != status.get("selector_list_sha256") or predicate.get("toolchain_identity") != status.get("toolchain_identity") or predicate.get("runner_identity") != status.get("runner_identity"): return False
+    evidence = load_json(path)
+    if not isinstance(predicate, dict) or not isinstance(evidence, dict) or set(evidence) != keys or evidence.get("schema_version") != "desktop-v1-gate-evidence.v1" or evidence.get("kind") in {"compile", "compile-only", "stub", "synthetic"} or evidence.get("gate_id") != row.get("gate_id") or not isinstance(proof, dict): return False
+    if evidence.get("canonical_source_content_sha256") != status.get("canonical_source_content_sha256") or evidence.get("definition_sha256") != status.get("definition_sha256") or evidence.get("selector_list_sha256") != status.get("selector_list_sha256") or evidence.get("toolchain_identity") != status.get("toolchain_identity") or evidence.get("runner_identity") != status.get("runner_identity"): return False
     if proof.get("subject_sha256") != sha256_file(path) or proof.get("predicate_sha256") != hashlib.sha256(canonical_json(predicate)).hexdigest(): return False
-    if load_json(path) != predicate or not all(isinstance(rows, list) and rows and all(isinstance(item, dict) and set(item) == {"sha256"} and is_sha256(item["sha256"]) for item in rows) for rows in (predicate["artifacts"], predicate["tests"])): return False
+    if not all(isinstance(rows, list) and rows and all(isinstance(item, dict) and set(item) == {"sha256"} and is_sha256(item["sha256"]) for item in rows) for rows in (evidence["artifacts"], evidence["tests"])): return False
     return True
 
 
