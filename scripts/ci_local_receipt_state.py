@@ -18,13 +18,12 @@ from scripts.ci_local_receipt_common import (
     digest,
     read_regular,
 )
-from scripts.ci_local_receipt_ledger import repository_identity
+from scripts.ci_local_receipt_git import capture_repository_state
 from scripts.ci_local_receipt_namespace import execution_namespace
 from scripts.ci_local_receipt_runtime import (
     TrustedRuntime,
     resolve_trusted_runtime,
 )
-from scripts.rc0_candidate.git_inspection import GitInspectionError, run_repository_git
 from scripts.rc0_candidate.verify_rust_inventory import (
     InventoryError,
     validate_inventory,
@@ -32,36 +31,8 @@ from scripts.rc0_candidate.verify_rust_inventory import (
 from scripts.rc0_policy.canonical import StrictJSONError, canonical_bytes, loads_canonical
 
 
-def _git(root: Path, *arguments: str) -> bytes:
-    try:
-        return run_repository_git(root, *arguments)
-    except (GitInspectionError, OSError, UnicodeDecodeError) as error:
-        raise LocalInputReceiptError("source identity is unavailable") from error
-
-
-def source_state(root: Path) -> dict[str, str]:
-    first = _git(root, "rev-parse", "HEAD").decode("ascii").strip()
-    tree = _git(root, "rev-parse", "HEAD^{tree}").decode("ascii").strip()
-    status = _git(
-        root,
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignore-submodules=none",
-    )
-    second = _git(root, "rev-parse", "HEAD").decode("ascii").strip()
-    if status or first != second:
-        raise LocalInputReceiptError("source is dirty or changed during receipt capture")
-    return {"source_revision": first, "source_tree": tree}
-
-
 def _tracked_bytes(root: Path, relative: str) -> bytes:
-    actual = read_regular(root / relative)
-    tracked = _git(root, "show", f"HEAD:{relative}")
-    if actual != tracked:
-        raise LocalInputReceiptError(f"canonical tracked input changed: {relative}")
-    return actual
+    return read_regular(root / relative)
 
 
 def inventory_state(root: Path, selected_inventory: Path | None = None) -> dict[str, str]:
@@ -138,10 +109,10 @@ def _validate_reliability(reliability: object) -> None:
 
 def capture_bound_state(root: Path, runtime: TrustedRuntime | None = None) -> dict:
     runtime = resolve_trusted_runtime(root) if runtime is None else runtime
+    repository = capture_repository_state(root, runtime.base_commands["git"])
     script_raw = _tracked_bytes(root, INPUT_SCRIPT)
     return {
-        **source_state(root),
-        "repository_identity": repository_identity(root),
+        **repository,
         "input_script_sha256": digest(script_raw),
         "inventories": inventory_state(root),
         "executables": runtime.executables,

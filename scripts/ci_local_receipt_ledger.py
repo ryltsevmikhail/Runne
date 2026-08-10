@@ -7,7 +7,8 @@ import stat
 from pathlib import Path
 
 from scripts.ci_local_receipt_common import LocalInputReceiptError, file_identity
-from scripts.rc0_candidate.git_inspection import GitInspectionError, run_repository_git
+from scripts.ci_local_receipt_git import repository_location
+from scripts.ci_local_receipt_runtime import resolve_trusted_runtime
 from scripts.rc0_policy.canonical import StrictJSONError, canonical_bytes, loads_canonical
 
 
@@ -24,12 +25,12 @@ def _directory_flags() -> int:
 
 def _repository_location(root: Path) -> tuple[Path, dict[str, int]]:
     try:
-        raw = run_repository_git(root, "rev-parse", "--path-format=absolute", "--git-dir")
-        git_dir = Path(raw.decode("utf-8").strip())
+        runtime = resolve_trusted_runtime()
+        git_dir, identity = repository_location(root, runtime.base_commands["git"])
         canonical = git_dir.resolve(strict=True)
         root_metadata = os.stat(root, follow_symlinks=False)
         git_metadata = os.stat(canonical, follow_symlinks=False)
-    except (GitInspectionError, OSError, UnicodeDecodeError) as error:
+    except (LocalInputReceiptError, OSError) as error:
         raise LocalInputReceiptError("nonce ledger repository identity is unavailable") from error
     if git_dir.absolute() != canonical:
         raise LocalInputReceiptError("nonce ledger Git directory is not canonical")
@@ -41,12 +42,13 @@ def _repository_location(root: Path) -> tuple[Path, dict[str, int]]:
         or stat.S_IMODE(git_metadata.st_mode) & 0o022
     ):
         raise LocalInputReceiptError("nonce ledger Git directory is unsafe")
-    return canonical, {
-        "worktree_dev": root_metadata.st_dev,
-        "worktree_ino": root_metadata.st_ino,
-        "git_dir_dev": git_metadata.st_dev,
-        "git_dir_ino": git_metadata.st_ino,
+    observed = {
+        "worktree_dev": root_metadata.st_dev, "worktree_ino": root_metadata.st_ino,
+        "git_dir_dev": git_metadata.st_dev, "git_dir_ino": git_metadata.st_ino,
     }
+    if observed != identity:
+        raise LocalInputReceiptError("nonce ledger repository identity changed")
+    return canonical, observed
 
 
 def repository_identity(root: Path) -> dict[str, int]:
