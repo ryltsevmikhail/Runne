@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/desktop-v1-capabilities-v1.schema.json",
+  "title": "GOCODE Desktop V1 Immutable Capability Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_id", "score_scale_bps", "foundation_ids", "platforms", "gates", "routes", "capabilities"],
+  "properties": {
+    "schema_version": {"const": "desktop-v1-capabilities.v1"},
+    "manifest_id": {"const": "desktop-v1"},
+    "score_scale_bps": {"const": 10000},
+    "foundation_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^FOUND-[0-9]{2}$"}},
+    "platforms": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/platform"}},
+    "gates": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/gate"}},
+    "routes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/route"}},
+    "capabilities": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/capability"}}
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[A-Z][A-Z0-9-]*$"},
+    "id_list": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+    "platform": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operating_system", "minimum_version", "architecture", "target_triple"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "operating_system": {"enum": ["macos", "windows", "linux"]},
+        "minimum_version": {"type": "string", "minLength": 1},
+        "architecture": {"enum": ["arm64", "x86_64"]},
+        "target_triple": {"type": "string", "minLength": 1}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "platform_ids"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"enum": ["contract", "implementation", "integration", "functional", "recovery", "native_admission", "native_adapter", "native_integration", "native_packaged", "native_qualification"]},
+        "platform_ids": {"$ref": "#/$defs/id_list"}
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "owner"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^ROUTE-[A-Z0-9-]+$"},
+        "path": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "required_gate_ids"],
+      "properties": {
+        "stage": {"enum": [20, 40, 60, 80, 100]},
+        "required_gate_ids": {"$ref": "#/$defs/id_list"}
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "stage_profile", "component_owner", "stages"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+        "stage_profile": {"enum": ["runtime-backed", "renderer-owned", "native-owned"]},
+        "component_owner": {"enum": ["runtime", "apps/desktop", "tauri-host"]},
+        "stages": {
+          "type": "array",
+          "prefixItems": [
+            {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 20}}}]},
+            {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 40}}}]},
+            {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 60}}}]},
+            {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 80}}}]},
+            {"allOf": [{"$ref": "#/$defs/stage"}, {"properties": {"stage": {"const": 100}}}]}
+          ],
+          "items": false
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "priority", "weight_bps", "build_requires", "qualification_requires", "platform_ids", "requirement_ids", "abuse_case_ids", "required_gate_ids", "tracks"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^CAP-[A-Z]{3}$"},
+        "priority": {"const": "P0"},
+        "weight_bps": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "build_requires": {"$ref": "#/$defs/id_list"},
+        "qualification_requires": {"$ref": "#/$defs/id_list"},
+        "platform_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/identifier"}},
+        "requirement_ids": {"$ref": "#/$defs/id_list"},
+        "abuse_case_ids": {"$ref": "#/$defs/id_list"},
+        "required_gate_ids": {"$ref": "#/$defs/id_list"},
+        "tracks": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/track"}}
+      }
+    }
+  }
+}
