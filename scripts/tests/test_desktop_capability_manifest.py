@@ -280,6 +280,11 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         with redirect_stdout(output): self.assertEqual(main(["score", "--status", str(STATUS), "--status-provenance", str(ROOT / "missing-bundle"), "--source-ref", "0d095d26", "--verify-provenance", "--format", "json"]), 1)
         self.assertIn("SOURCE_CONTENT_DIGEST_MISMATCH", output.getvalue())
 
+    def test_qualification_workflow_rejects_unbound_scores(self) -> None:
+        content = (ROOT / ".github/workflows/desktop-qualification.yml").read_text(encoding="utf-8")
+        self.assertIn('"SOURCE_BINDING_NOT_VERIFIED" in value["blockers"]', content)
+        self.assertIn('raise SystemExit("qualification context was not verified")', content)
+
     @staticmethod
     def _policy() -> dict[str, str]:
         return {"repository": "org/repo", "signer_workflow": ".github/workflows/qualify.yml", "source_ref": "refs/heads/release"}
