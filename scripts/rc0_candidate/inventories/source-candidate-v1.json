@@ -1,7 +1,7 @@
 {
   "inventory_version": "source-candidate-v1",
   "inventory_status": "FROZEN",
-  "final_inventory_digest": "283d270f5b818df198ec1054ee2db49342dfa4f67449af76b243d19a97495638",
+  "final_inventory_digest": "be35e388e80d9be94c57ed28188d15630def81fed43d0b80edba59b9461e1da4",
   "records": [
     {"id":"docs.claims","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
     {"id":"schema.golden-api","stage":"SOURCE_CANDIDATE","record_kind":"EXTERNAL_POLICY"},
@@ -17,7 +17,7 @@
     {"id":"phase3.migration-sqlite","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"migration_sqlite","selector_status":"RESOLVED","fully_qualified_test_name":"audit_failure_rolls_back_plan_snapshot_head_and_receipt","list_digest":"0068d3bb1a78b0c8456de45bba54ac95df735024076a2e0567ea7d7c1537e732","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"phase3.migration-routing-sqlite","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"migration_routing_sqlite","selector_status":"RESOLVED","fully_qualified_test_name":"binding_and_pending_dispatch_intent_commit_atomically_and_replay_exactly","list_digest":"496120b42cd4256d36707bb2369a4a1d27d8908b559aeac7d872060c4e894f8f","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"phase3.migration-routing","stage":"SOURCE_CANDIDATE","package":"gocode-runtime","integration_target":"migration_routing","selector_status":"RESOLVED","fully_qualified_test_name":"accepted_binding_stays_source_after_routing_head_switch","list_digest":"5560cf8991238fd7be036c9bd1b8b1a74ff7d6e008348af1ee4ccba5a8ac6629","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
-    {"id":"scanner.withheld-tail","stage":"SOURCE_CANDIDATE","package":"gocode-runtime","integration_target":"provider_redaction_recovery","selector_status":"RESOLVED","fully_qualified_test_name":"sse_split_matrix_withholds_every_cross_boundary_match","list_digest":"241a38a96ee9dfef0a80d5788b99dae8ec47a7bd2bea14d00831ff02eab0a2b0","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
+    {"id":"scanner.withheld-tail","stage":"SOURCE_CANDIDATE","package":"gocode-runtime","integration_target":"provider_redaction_recovery","selector_status":"RESOLVED","fully_qualified_test_name":"sse_split_matrix_withholds_every_cross_boundary_match","list_digest":"849f1fd0281996eac13af504d3adac004c5c293160cbbc2f0c332eb8c48bd3bc","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"scanner.recovery-dispatch","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"provider_dispatch_recovery","selector_status":"RESOLVED","fully_qualified_test_name":"terminal_scanner_failure_has_no_publication","list_digest":"5cef2f8e48ee494087eb89ceef88bfb901b2746da01836f797363cd84c2f7f19","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"credentials.native-store","stage":"SOURCE_CANDIDATE","package":"gocode-secure-store","integration_target":"provider_credential","selector_status":"RESOLVED","fully_qualified_test_name":"versioned::opaque_version_operations_never_expose_secret_bytes","list_digest":"8ea4f0ec3aeab757fe966f2568e2ce506a9154885e2a5fe7cba02d1f9cf8d567","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"credentials.lifecycle","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"provider_credential_lifecycle","selector_status":"RESOLVED","fully_qualified_test_name":"races::one_compare_and_set_active_winner","list_digest":"f91417317700b4fef109c16561633eb4f5965884b14aa5b514feb98d7361fbdd","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
