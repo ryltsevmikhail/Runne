@@ -19,6 +19,7 @@ from scripts.ci_local_receipt_common import (
     read_regular,
 )
 from scripts.ci_local_receipt_ledger import repository_identity
+from scripts.ci_local_receipt_namespace import execution_namespace
 from scripts.ci_local_receipt_runtime import (
     TrustedRuntime,
     resolve_trusted_runtime,
@@ -136,7 +137,7 @@ def _validate_reliability(reliability: object) -> None:
 
 
 def capture_bound_state(root: Path, runtime: TrustedRuntime | None = None) -> dict:
-    runtime = resolve_trusted_runtime() if runtime is None else runtime
+    runtime = resolve_trusted_runtime(root) if runtime is None else runtime
     script_raw = _tracked_bytes(root, INPUT_SCRIPT)
     return {
         **source_state(root),
@@ -150,20 +151,21 @@ def capture_bound_state(root: Path, runtime: TrustedRuntime | None = None) -> di
 
 def run_local_input_gates(root: Path, receipt: Path) -> dict:
     root = root.resolve(strict=True)
-    pre_runtime = resolve_trusted_runtime()
+    pre_runtime = resolve_trusted_runtime(root)
     pre_gate = capture_bound_state(root, pre_runtime)
-    try:
-        completed = subprocess.run(
-            (pre_runtime.bash, root / INPUT_SCRIPT),
-            cwd=root,
-            env=pre_runtime.environment,
-            check=False,
-        )
-    except OSError as error:
-        raise LocalInputReceiptError("canonical local input gate could not run") from error
-    if type(completed.returncode) is not int or completed.returncode != 0:
-        raise LocalInputReceiptError("canonical local input gate did not pass")
-    post_gate = capture_bound_state(root, resolve_trusted_runtime())
+    with execution_namespace(pre_runtime) as namespace:
+        try:
+            completed = subprocess.run(
+                (namespace.bash, root / INPUT_SCRIPT),
+                cwd=root,
+                env=namespace.environment,
+                check=False,
+            )
+        except OSError as error:
+            raise LocalInputReceiptError("canonical local input gate could not run") from error
+        if type(completed.returncode) is not int or completed.returncode != 0:
+            raise LocalInputReceiptError("canonical local input gate did not pass")
+        post_gate = capture_bound_state(root, resolve_trusted_runtime(root))
     if pre_gate != post_gate:
         raise LocalInputReceiptError("bound source or inputs changed during local gate")
     record = {

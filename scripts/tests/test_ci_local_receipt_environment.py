@@ -1,4 +1,5 @@
 import copy
+import contextlib
 import dataclasses
 import importlib
 import os
@@ -6,18 +7,82 @@ import shlex
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from scripts.tests import test_ci_local_receipt_security as security_tests
 
 
 class LocalInputReceiptEnvironmentTests(unittest.TestCase):
+    def test_writable_runtime_directories_cannot_shadow_transitive_commands(self):
+        receipt_module = importlib.import_module("scripts.ci_local_receipt")
+        runtime_module = importlib.import_module("scripts.ci_local_receipt_runtime")
+        for command in ("bash", "python3", "git", "grep"):
+            with self.subTest(command=command), tempfile.TemporaryDirectory() as location:
+                base = Path(location)
+                home, node_bin = self._fake_account_runtime(base)
+                fake_marker = base / "fake-ran"
+                fake = node_bin / command
+                fake.write_text(
+                    "#!/usr/bin/bash\n"
+                    f"printf fake >> {shlex.quote(os.fspath(fake_marker))}\n"
+                    "exit 0\n",
+                    encoding="utf-8",
+                )
+                fake.chmod(0o700)
+                repository = base / "repository"
+                security_tests.LocalInputReceiptSecurityTests._repository(
+                    repository, script=self._transitive_probe_script()
+                )
+                receipt = security_tests.LocalInputReceiptSecurityTests._receipt_path(
+                    base / "receipt"
+                )
+                with self._patched_account_runtime(runtime_module, home, node_bin):
+                    with self.assertRaises(receipt_module.LocalInputReceiptError):
+                        receipt_module.run_local_input_gates(repository, receipt)
+                self.assertFalse(receipt.exists())
+
+    def test_persistent_cargo_and_git_configuration_cannot_enable_gate(self):
+        receipt_module = importlib.import_module("scripts.ci_local_receipt")
+        runtime_module = importlib.import_module("scripts.ci_local_receipt_runtime")
+        cases = {
+            "cargo": (
+                ".cargo/config.toml",
+                '[alias]\nconfigprobe = "!/usr/bin/true"\n',
+                "cargo configprobe >/dev/null\n",
+            ),
+            "git": (
+                ".gitconfig",
+                '[alias]\nconfigprobe = "status --short"\n',
+                "git configprobe >/dev/null\n",
+            ),
+        }
+        for name, (relative, config, command) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as location:
+                base = Path(location)
+                home, node_bin = self._fake_account_runtime(base)
+                config_path = home / relative
+                config_path.parent.mkdir(parents=True, exist_ok=True)
+                config_path.write_text(config, encoding="utf-8")
+                repository = base / "repository"
+                security_tests.LocalInputReceiptSecurityTests._repository(
+                    repository,
+                    script="#!/usr/bin/bash\nset -euo pipefail\n" + command,
+                )
+                receipt = security_tests.LocalInputReceiptSecurityTests._receipt_path(
+                    base / "receipt"
+                )
+                with self._patched_account_runtime(runtime_module, home, node_bin):
+                    with self.assertRaises(receipt_module.LocalInputReceiptError):
+                        receipt_module.run_local_input_gates(repository, receipt)
+                self.assertFalse(receipt.exists())
+
     def test_executable_replacement_between_pre_and_post_state_blocks_receipt(self):
         receipt_module = importlib.import_module("scripts.ci_local_receipt")
         state_module = importlib.import_module("scripts.ci_local_receipt_state")
-        runtime = state_module.resolve_trusted_runtime()
+        runtime = state_module.resolve_trusted_runtime(security_tests.ROOT)
         changed_executables = copy.deepcopy(runtime.executables)
-        changed_executables["bash"]["sha256"] = "0" * 64
+        changed_executables["esbuild"]["sha256"] = "0" * 64
         changed_runtime = dataclasses.replace(
             runtime, executables=changed_executables
         )
@@ -147,10 +212,86 @@ class LocalInputReceiptEnvironmentTests(unittest.TestCase):
             + "bash -c ':'\n"
             + "python3 -c 'pass'\n"
             + "cargo --version >/dev/null\n"
-            + "rustup --version >/dev/null 2>&1\n"
-            + "pnpm --version >/dev/null\n"
+            + "git --version >/dev/null\n"
+            + "grep --version >/dev/null\n"
             + f"printf 'run\\n' >> {shlex.quote(os.fspath(marker))}\n"
         )
+
+    @staticmethod
+    def _transitive_probe_script() -> str:
+        return (
+            "#!/usr/bin/bash\nset -euo pipefail\n"
+            "bash -c ':'\n"
+            "python3 -c 'pass'\n"
+            "git --version >/dev/null\n"
+            "grep --version >/dev/null\n"
+        )
+
+    @staticmethod
+    def _fake_account_runtime(base: Path) -> tuple[Path, Path]:
+        home = base / "home"
+        cargo_bin = home / ".cargo/bin"
+        rustup_home = home / ".rustup"
+        node_bin = home / ".nvm/versions/node/v26.5.0/bin"
+        for directory in (cargo_bin, rustup_home, node_bin):
+            directory.mkdir(parents=True, mode=0o700)
+        tools = {
+            cargo_bin / "rustup": "echo 'rustup 1.29.0 (fixture 2026-01-01)'\n",
+            node_bin / "node": (
+                "if [[ ${1-} == --version ]]; then echo v26.5.0; else "
+                "exec /usr/bin/bash \"$@\"; fi\n"
+            ),
+            node_bin / "pnpm": "echo 11.10.0\n",
+        }
+        for path, body in tools.items():
+            path.write_text("#!/usr/bin/bash\n" + body, encoding="utf-8")
+            path.chmod(0o700)
+        return home, node_bin
+
+    @staticmethod
+    def _patched_account_runtime(runtime_module, home: Path, node_bin: Path):
+        actual_home = Path.home()
+        rust_tools = {
+            (version, tool): next(
+                actual_home.glob(f".rustup/toolchains/{version}-*/bin/{tool}")
+            )
+            for version in ("1.97.1", "1.95.0")
+            for tool in (
+                "rustc", "cargo", "rustdoc", "rustfmt", "cargo-fmt",
+                "cargo-clippy", "clippy-driver",
+            )
+        }
+
+        def rust_tool(_rustup, _rustup_home, version, tool, _environment):
+            return rust_tools[(version, tool)]
+
+        return _RuntimePatches(runtime_module, home, node_bin, rust_tool)
+
+
+class _RuntimePatches:
+    def __init__(self, runtime_module, home, node_bin, rust_tool):
+        self._stack = contextlib.ExitStack()
+        self._patches = (
+            mock.patch.object(
+                runtime_module.pwd,
+                "getpwuid",
+                return_value=SimpleNamespace(pw_dir=os.fspath(home)),
+            ),
+            mock.patch.object(runtime_module, "_rust_tool", side_effect=rust_tool),
+            mock.patch.object(
+                runtime_module,
+                "_node_and_pnpm",
+                return_value=(node_bin / "node", node_bin / "pnpm"),
+            ),
+        )
+
+    def __enter__(self):
+        for patcher in self._patches:
+            self._stack.enter_context(patcher)
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._stack.__exit__(*exc_info)
 
 
 if __name__ == "__main__":
