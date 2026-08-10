@@ -66,8 +66,7 @@ validate_frontend_contracts() {
     typecheck_frontend
     "$trusted_node" "$playwright_target" test tests/desktop/e2e/replay-resume.spec.ts
     "$trusted_python" scripts/desktop/validate_architecture.py
-    "$trusted_python" scripts/validate-docs.py --strict
-    "$trusted_python" scripts/validate_markdown_links.py
+    "$trusted_bash" scripts/ci-local-docs.sh
 }
 
 run_runtime_closure() {
@@ -149,6 +148,5 @@ node_at apps/desktop "$vite_target" build
 node_at apps/site "$vue_tsc_target" -b
 node_at apps/site "$repo_root/apps/site/scripts/build.mjs"
 CI=1 "$trusted_node" "$playwright_target" test
-"$trusted_python" scripts/validate-docs.py --strict
-"$trusted_python" scripts/validate_markdown_links.py
+"$trusted_bash" scripts/ci-local-docs.sh
 "$trusted_python" scripts/desktop/validate_architecture.py
