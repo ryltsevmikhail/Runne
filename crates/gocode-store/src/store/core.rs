@@ -104,6 +104,42 @@ impl StoreTransaction {
         &self.runtime_authority_id
     }
 
+    /// Runs one Project/Workspace mutation under the authoritative writer lock.
+    ///
+    /// Sharing this exact `BEGIN IMMEDIATE` boundary with TaskRun commits is the
+    /// deletion fence; Project/Workspace adapters must not open another writer.
+    pub(crate) fn with_project_workspace_transaction<T>(
+        &self,
+        operation: impl FnOnce(
+            &rusqlite::Transaction<'_>,
+        )
+            -> Result<T, gocode_application::ports::ProjectWorkspaceRepositoryError>,
+    ) -> Result<T, gocode_application::ports::ProjectWorkspaceRepositoryError> {
+        use gocode_application::ports::ProjectWorkspaceRepositoryError as Error;
+
+        let mut connection = self.inner.writer.lock().map_err(|_| Error::Unavailable)?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| Error::Unavailable)?;
+        let result = operation(&transaction)?;
+        transaction.commit().map_err(|_| Error::Unavailable)?;
+        Ok(result)
+    }
+
+    /// Runs a Project/Workspace query against the authoritative connection.
+    pub(crate) fn with_project_workspace_reader<T>(
+        &self,
+        operation: impl FnOnce(
+            &rusqlite::Connection,
+        )
+            -> Result<T, gocode_application::ports::ProjectWorkspaceRepositoryError>,
+    ) -> Result<T, gocode_application::ports::ProjectWorkspaceRepositoryError> {
+        use gocode_application::ports::ProjectWorkspaceRepositoryError as Error;
+
+        let connection = self.inner.reader.lock().map_err(|_| Error::Unavailable)?;
+        operation(&connection)
+    }
+
     /// Generate a UUIDv7 byte array from the monotonic counter.
     pub(super) fn generate_uuid(&self) -> [u8; 16] {
         let ts = SystemTime::now()

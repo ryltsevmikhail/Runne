@@ -16,6 +16,33 @@ impl StoreTransaction {
                 )
             })?;
 
+        let project_fingerprint = tx
+            .query_row(
+                "SELECT semantic_fingerprint FROM project_workspace_command_receipts
+                 WHERE command_id = ?1",
+                params![payload.command_id.as_bytes()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()
+            .map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::CorruptData,
+                )
+            })?;
+        if let Some(stored_fingerprint) = project_fingerprint {
+            let stored_fingerprint = stored_fingerprint.try_into().map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::CorruptData,
+                )
+            })?;
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: payload.command_id,
+                attempted_command_id: payload.command_id,
+                stored_fingerprint: CommandFingerprint::from_bytes(stored_fingerprint),
+                attempted_fingerprint: payload.command_fingerprint,
+            });
+        }
+
         // Dedup by command_id
         let existing: Option<(Vec<u8>, Vec<u8>)> = tx
             .query_row(
@@ -66,6 +93,19 @@ impl StoreTransaction {
                 attempted_fingerprint: payload.command_fingerprint,
             });
         }
+
+        // A new TaskRun cannot race a Project deletion after Project/Workspace
+        // authority has been activated. Exact receipt replay remains independent
+        // of current Workspace lifecycle state.
+        crate::project_workspace::validate_taskrun_workspace_scope(
+            &tx,
+            &payload.idempotency_scope,
+        )
+        .map_err(|_| {
+            CommitError::StorageFailure(
+                gocode_application::ports::StorageFailureKind::IntegrityViolation,
+            )
+        })?;
 
         // Step 2: Version check
         let stream_row = tx

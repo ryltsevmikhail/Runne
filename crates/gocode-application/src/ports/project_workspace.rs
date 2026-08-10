@@ -13,7 +13,15 @@ pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
     fn delete_project(&self, principal: &str, command_id: CommandId, key: &IdempotencyKey, id: ProjectId, expected_version: u64) -> Result<u64, ProjectWorkspaceRepositoryError>;
     fn create_workspace(&self, principal: &str, command_id: CommandId, key: &IdempotencyKey, workspace: Workspace) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
     fn open_workspace(&self, principal: &str, command_id: CommandId, key: &IdempotencyKey, id: WorkspaceId, expected_version: u64) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
-    fn bind_workspace_root(&self, principal: &str, command_id: CommandId, key: &IdempotencyKey, id: WorkspaceId, expected_version: u64) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
+    fn bind_workspace_root(
+        &self,
+        principal: &str,
+        command_id: CommandId,
+        key: &IdempotencyKey,
+        id: WorkspaceId,
+        expected_version: u64,
+        admission_digest: &[u8; 32],
+    ) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
     fn list_projects(&self, principal: &str) -> Result<Vec<Project>, ProjectWorkspaceRepositoryError>;
     fn get_project(&self, principal: &str, id: ProjectId) -> Result<Project, ProjectWorkspaceRepositoryError>;
     fn list_workspaces(&self, principal: &str, project_id: ProjectId) -> Result<Vec<Workspace>, ProjectWorkspaceRepositoryError>;

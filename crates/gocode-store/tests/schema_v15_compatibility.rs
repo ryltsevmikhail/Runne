@@ -65,7 +65,7 @@ fn preflight_accepts_released_v15_shape() {
     preflight_existing_file(&path).unwrap();
     SqliteProviderExecutionStore::open(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 15);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row

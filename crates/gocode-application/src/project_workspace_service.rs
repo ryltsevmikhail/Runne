@@ -155,6 +155,9 @@ impl<R: ProjectWorkspaceRepository> ProjectWorkspaceService<R> {
                 &context.idempotency_key,
                 command.workspace_id,
                 command.expected_version,
+                // Phase B replaces this placeholder with the digest derived
+                // from the verified opaque admission claim.
+                &[0; 32],
             )
             .map_err(map_error)?;
         Ok(workspace_ack(workspace))
