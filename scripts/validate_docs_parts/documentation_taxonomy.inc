@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -27,13 +28,20 @@ CLAIM_PATTERNS = (
     ("NOTARIZATION_PASS", re.compile(r"notarizationpass")),
     ("PUBLICATION_PASS", re.compile(r"publicationpass")),
 )
+EVIDENCE_PROFILE = "gocode.rc0.evidence-profile/3"
+CLAIM_SEMANTICS = {
+    "blocked_status": ("BLOCKED", EVIDENCE_PROFILE),
+    "design_policy": ("NON_PRODUCTION", EVIDENCE_PROFILE),
+    "out_of_scope_status": ("OUT_OF_SCOPE", EVIDENCE_PROFILE),
+    "terminology_reference": ("NON_PRODUCTION", EVIDENCE_PROFILE),
+}
 REQUIRED_CLAIM = {
     "claim_id": "RC0-CANDIDATE-NON-PRODUCTION",
     "path": "docs/superpowers/specs/2026-08-08-rc0-candidate-design.md",
     "subject": "RC0-candidate",
     "claim_kind": "design_policy",
     "disposition": "NON_PRODUCTION",
-    "evidence_binding": "gocode.rc0.evidence-profile/3",
+    "evidence_binding": EVIDENCE_PROFILE,
 }
 
 
@@ -47,11 +55,26 @@ class ClaimRecord:
     evidence_binding: str
 
 
-def tracked_markdown_paths(root: Path) -> tuple[str, ...]:
+def _claim_strings_valid(claim: ClaimRecord) -> bool:
+    return all(isinstance(value, str) and value for value in (
+        claim.claim_id, claim.path, claim.subject, claim.claim_kind,
+        claim.disposition, claim.evidence_binding,
+    ))
+
+
+def _claim_semantics_valid(claim: ClaimRecord) -> bool:
+    return (_claim_strings_valid(claim)
+            and CLAIM_SEMANTICS.get(claim.claim_kind)
+            == (claim.disposition, claim.evidence_binding))
+
+
+def tracked_markdown_paths(root: Path, *, index_file: Path | None = None) -> tuple[str, ...]:
     """Return tracked Markdown paths, rejecting malformed Git output fail-closed."""
+    env = None if index_file is None else {**os.environ, "GIT_INDEX_FILE": str(index_file)}
     result = subprocess.run(
         ["git", "-C", str(root), "ls-files", "-z"],
         check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        env=env,
     )
     if result.returncode:
         raise ValueError("UNIVERSE_GIT_LS_FILES")
@@ -75,6 +98,35 @@ def validate_taxonomy_fields(fields: dict[str, str]) -> list[str]:
         if field in fields and fields[field] not in MIGRATION[field]:
             diagnostics.append(f"TAXONOMY_UNMAPPED_{field.upper()}:{fields[field]}")
     return diagnostics
+
+
+def _parse_governed_front_matter(raw: bytes) -> dict[str, str]:
+    """Apply restricted parsing with exact ADR-0025 legacy scalar migration."""
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        return FRONT_MATTER.parse_restricted_front_matter(raw)
+    if lines and lines[0] == "---":
+        try:
+            end = lines.index("---", 1)
+            lines = lines[:end + 1]
+            raw = ("\n".join(lines) + "\n").encode()
+        except ValueError:
+            pass
+    try:
+        return FRONT_MATTER.parse_restricted_front_matter(raw)
+    except ValueError as error:
+        if str(error) != "FM_UNQUOTED_STRING":
+            raise
+        original_error = error
+    if not lines or lines[0] != "---":
+        raise original_error
+    end = lines.index("---", 1)
+    for index in range(1, end):
+        match = re.fullmatch(r"(status|document_type|source_status): ([^\"']\S*)", lines[index])
+        if match and match.group(2) in MIGRATION[match.group(1)]:
+            lines[index] = f'{match.group(1)}: {json.dumps(match.group(2))}'
+    return FRONT_MATTER.parse_restricted_front_matter(("\n".join(lines) + "\n").encode())
 
 
 def _read_json(path: Path, code: str):
@@ -119,18 +171,20 @@ def validate_status_claims(
 ) -> list[str]:
     """Reject records that are not exact, in-scope members of the universe."""
     diagnostics, seen = [], set()
-    required = {"claim_id", "path", "subject", "claim_kind", "disposition", "evidence_binding"}
     for claim in claims:
-        key = tuple(getattr(claim, field) for field in required)
+        if not _claim_strings_valid(claim):
+            diagnostics.append("CLAIM_INVALID:INVALID")
+            continue
+        key = (claim.path, claim.claim_id)
         if key in seen:
-            diagnostics.append(f"CLAIM_DUPLICATE:{claim.claim_id}")
+            diagnostics.append(f"CLAIM_DUPLICATE:{claim.path}:{claim.claim_id}")
         seen.add(key)
         if claim.path not in universe:
             diagnostics.append(f"CLAIM_PATH_OUTSIDE_UNIVERSE:{claim.path}")
         elif claim.path not in scope:
             diagnostics.append(f"CLAIM_PATH_NOT_GOVERNED:{claim.path}")
-        if not all(isinstance(getattr(claim, field), str) and getattr(claim, field) for field in required):
-            diagnostics.append(f"CLAIM_INVALID:{claim.claim_id}")
+        if not _claim_semantics_valid(claim):
+            diagnostics.append(f"CLAIM_SEMANTICS_INVALID:{claim.path}:{claim.claim_id}")
     return sorted(set(diagnostics))
 
 
@@ -146,11 +200,11 @@ def _claim_records(raw):
     return tuple(claims)
 
 
-def validate_document_universe(root: Path) -> list[str]:
+def validate_document_universe(root: Path, *, index_file: Path | None = None) -> list[str]:
     """Return stable diagnostics; an empty list is the only success result."""
     try:
         inventory_raw, scope_raw, claims_raw = _read_manifests(root)
-        universe = tracked_markdown_paths(root)
+        universe = tracked_markdown_paths(root, index_file=index_file)
         records = _records(inventory_raw)
         scope_records = _scope_paths(scope_raw)
         claims = _claim_records(claims_raw)
@@ -172,7 +226,10 @@ def validate_document_universe(root: Path) -> list[str]:
     diagnostics.extend(f"UNIVERSE_EXTRA_PATH:{path}" for path in sorted(manifest_paths - actual_paths))
     diagnostics.extend(f"UNIVERSE_OMITTED_PATH:{path}" for path in sorted(actual_paths - manifest_paths))
     for path in sorted(actual_paths & manifest_paths):
-        if classifications[path] == "non_governed" and not reasons[path].strip():
+        reason = reasons[path]
+        if classifications[path] == "non_governed" and (
+            not isinstance(reason, str) or not reason.strip()
+        ):
             diagnostics.append(f"UNIVERSE_EXCLUSION_REASON:{path}")
     governed = frozenset(path for path, state in classifications.items() if state == "governed")
     scope = set(scope_records)
@@ -182,25 +239,45 @@ def validate_document_universe(root: Path) -> list[str]:
     diagnostics.extend(f"SCOPE_OMITTED_PATH:{path}" for path in sorted(governed - scope))
     for prefix in RELEASE_PREFIXES:
         for path in sorted(actual_paths):
-            if path.startswith(prefix) and classifications.get(path) == "non_governed" and not str(reasons[path]).strip():
+            reason = reasons.get(path)
+            if (path.startswith(prefix) and classifications.get(path) == "non_governed"
+                    and (not isinstance(reason, str) or not reason.strip())):
                 diagnostics.append(f"UNIVERSE_EXCLUSION_REASON:{path}")
     diagnostics.extend(validate_status_claims(universe, frozenset(scope), claims))
     if REQUIRED_CLAIM not in [claim.__dict__ for claim in claims]:
         diagnostics.append("CLAIM_REQUIRED_MISSING:RC0-CANDIDATE-NON-PRODUCTION")
-    allowed = {(claim.path, claim.claim_id) for claim in claims}
+    allowed = {
+        (claim.path, claim.claim_id) for claim in claims
+        if _claim_semantics_valid(claim)
+    }
+    detected = set()
     for path in universe:
         try:
             raw = (root / path).read_bytes()
-            fields = FRONT_MATTER.parse_restricted_front_matter(raw)
-        except (OSError, ValueError) as error:
-            code = str(error) if isinstance(error, ValueError) else "FM_READ_ERROR"
-            diagnostics.append(f"DOCUMENT_FRONT_MATTER:{path}:{code}")
+        except OSError:
+            diagnostics.append(f"DOCUMENT_FRONT_MATTER:{path}:FM_READ_ERROR")
             continue
-        for diagnostic in validate_taxonomy_fields(fields):
-            diagnostics.append(f"DOCUMENT_TAXONOMY:{path}:{diagnostic}")
-        content = raw.decode("utf-8")
+        if classifications.get(path) == "governed":
+            try:
+                fields = _parse_governed_front_matter(raw)
+                for diagnostic in validate_taxonomy_fields(fields):
+                    diagnostics.append(f"DOCUMENT_TAXONOMY:{path}:{diagnostic}")
+            except ValueError as error:
+                diagnostics.append(f"DOCUMENT_FRONT_MATTER:{path}:{error}")
+        try:
+            content = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            diagnostics.append(f"DOCUMENT_FRONT_MATTER:{path}:FM_INVALID_UTF8")
+            continue
         compact = _compact_claim_text(content)
         for claim_id, pattern in CLAIM_PATTERNS:
-            if pattern.search(compact) and (path, claim_id) not in allowed:
-                diagnostics.append(f"CLAIM_UNLISTED:{path}:{claim_id}")
+            if pattern.search(compact):
+                detected.add((path, claim_id))
+                if (path, claim_id) not in allowed:
+                    diagnostics.append(f"CLAIM_UNLISTED:{path}:{claim_id}")
+    required_key = (REQUIRED_CLAIM["path"], REQUIRED_CLAIM["claim_id"])
+    diagnostics.extend(
+        f"CLAIM_RECORD_UNMATCHED:{path}:{claim_id}"
+        for path, claim_id in sorted(allowed - detected - {required_key})
+    )
     return sorted(set(diagnostics))
