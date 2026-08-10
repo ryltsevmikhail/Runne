@@ -1,5 +1,6 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 set -euo pipefail
+export PATH="/usr/bin"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$repo_root"
@@ -22,7 +23,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-python3 -m scripts.ci_local_receipt run --receipt "$receipt"
-python3 -m scripts.ci_local_receipt validate --receipt "$receipt"
+/usr/bin/python3 -m scripts.ci_local_receipt run --receipt "$receipt"
+/usr/bin/python3 -m scripts.ci_local_receipt validate --receipt "$receipt"
 
 echo "=== Local CI: PASSED ==="

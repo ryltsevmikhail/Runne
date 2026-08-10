@@ -25,8 +25,7 @@ class LocalInputReceiptSecurityTests(unittest.TestCase):
             repository = base / "repository"
             self._repository(repository, marker=marker)
             receipt = self._receipt_path(base / "receipt")
-            with mock.patch.dict(os.environ, {"GOCODE_TEST_GATE_MARKER": str(marker)}):
-                receipt_module.run_local_input_gates(repository, receipt)
+            receipt_module.run_local_input_gates(repository, receipt)
             self.assertEqual(marker.read_text(encoding="utf-8"), "run\n")
             self.assertTrue(receipt.exists())
 
@@ -210,6 +209,8 @@ class LocalInputReceiptSecurityTests(unittest.TestCase):
                 "script": self._changed(valid, "input_script_sha256", 4),
                 "inventories": self._changed(valid, "inventories", []),
                 "inventory-value": self._nested(valid, "inventories", "phase3_sha256", 1),
+                "executables": self._changed(valid, "executables", []),
+                "executable-record": self._nested(valid, "executables", "bash", []),
                 "toolchains": self._changed(valid, "toolchains", []),
                 "toolchain-value": self._nested(valid, "toolchains", "pinned", {}),
                 "toolchain-mapping": self._nested(
@@ -283,7 +284,7 @@ class LocalInputReceiptSecurityTests(unittest.TestCase):
         if script is None:
             script = "#!/bin/sh\nset -eu\n"
             if marker is not None:
-                script += 'printf "run\\n" >> "$GOCODE_TEST_GATE_MARKER"\n'
+                script += f'printf "run\\n" >> "{marker}"\n'
         (root / "scripts/ci-local-inputs.sh").write_text(script, encoding="utf-8")
         if tracked_state:
             (root / "tracked-state").write_text("original", encoding="utf-8")
