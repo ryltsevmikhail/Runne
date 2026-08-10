@@ -1,0 +1,17 @@
+{
+  "artifact_construction": "FIXTURE_LOCAL_INPUTS_SATISFIED",
+  "fixture_only": true,
+  "fixture_policy": "FIXTURE_LOCAL_INPUTS_SATISFIED",
+  "fixture_trust": "FIXTURE_LOCAL_INPUTS_SATISFIED",
+  "local_command_evidence": [
+    {"id": "architecture.boundary", "satisfied": true},
+    {"id": "diff.clean", "satisfied": true},
+    {"id": "docs.strict", "satisfied": true},
+    {"id": "phase3.exact-tuples", "satisfied": true},
+    {"id": "python.focused", "satisfied": true},
+    {"id": "rust.focused", "satisfied": true},
+    {"id": "source-length.max-300", "satisfied": true},
+    {"id": "typescript.focused", "satisfied": true}
+  ],
+  "source_capture": "FIXTURE_LOCAL_INPUTS_SATISFIED"
+}
