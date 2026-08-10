@@ -16,6 +16,30 @@ from scripts.tests.desktop_qualification_fixture import (
 
 
 class DesktopQualificationWorkflowTests(unittest.TestCase):
+    def test_fixture_is_stdlib_only_and_executes_complete_run_blocks(self) -> None:
+        result = subprocess.run(
+            ["/usr/bin/python3", "-S", "-c", "from scripts.tests.desktop_qualification_fixture import workflow; assert len(workflow()['jobs']) == 3"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_runtime_ci_runs_posix_workflow_test_only_on_linux(self) -> None:
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        marker = "python3 -m unittest scripts.tests.test_desktop_qualification_workflow -v"
+        self.assertEqual(ci.count(marker), 1)
+        step_start = ci.rfind("      - name:", 0, ci.index(marker))
+        step = ci[step_start : ci.find("\n      - name:", ci.index(marker))]
+        self.assertIn("if: matrix.mode == 'pinned' && runner.os == 'Linux'", step)
+        manifest = "python3 -m unittest scripts.tests.test_desktop_capability_manifest -v"
+        manifest_start = ci.rfind("      - name:", 0, ci.index(manifest))
+        manifest_step = ci[manifest_start : ci.find("\n      - name:", ci.index(manifest))]
+        self.assertIn("if: matrix.mode == 'pinned'", manifest_step)
+        self.assertNotIn("runner.os", manifest_step)
+        for path in (".github/workflows/desktop-ci.yml", ".github/workflows/desktop-qualification.yml", "scripts/ci-local.sh"):
+            self.assertIn(marker, (ROOT / path).read_text(encoding="utf-8"), path)
+
     def test_isolated_system_python_rejects_workspace_shadows(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT.parent) as temporary:
             workspace = Path(temporary) / "workspace"
@@ -33,12 +57,15 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
         for job_name in ("sign", "verify-publish"):
             steps = data["jobs"][job_name]["steps"]
             for row in steps:
-                if "run" in row and "python3" in row["run"]:
-                    self.assertIn("/usr/bin/python3 -I -S -", row["run"])
+                if "run" in row:
                     self.assertEqual(row.get("working-directory"), "${{ runner.temp }}")
+                    if "python3" in row["run"]:
+                        self.assertIn("/usr/bin/python3 -I -S -", row["run"])
             checkout = next(row for row in steps if str(row.get("uses", "")).startswith("actions/checkout@"))
             self.assertEqual(checkout["with"], {"fetch-depth": 0, "persist-credentials": False})
         sign = data["jobs"]["sign"]["steps"]
+        self.assertEqual(next(row for row in sign if row.get("id") == "gate_attest")["with"], {"subject-path": "${{ runner.temp }}/desktop-v1-signed/desktop-v1-contract-schema.json"})
+        self.assertEqual(next(row for row in sign if row.get("id") == "status_attest")["with"], {"subject-path": "${{ runner.temp }}/desktop-v1-signed/desktop-v1-capability-status-v1.json"})
         self.assertLess(next(i for i, row in enumerate(sign) if row.get("name") == "Construct bounded gate subject before attestation"), next(i for i, row in enumerate(sign) if row.get("id") == "gate_attest"))
         self.assertLess(next(i for i, row in enumerate(sign) if row.get("name") == "Verify gate, then construct status from trusted baseline"), next(i for i, row in enumerate(sign) if row.get("id") == "status_attest"))
         publish = data["jobs"]["verify-publish"]["steps"]
@@ -49,6 +76,73 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
         self.addCleanup(fixture.close)
         result = fixture.final_verification()
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+        required = {
+            ("prepare", "Bind input before executing candidate code"),
+            ("sign", "Construct bounded gate subject before attestation"),
+            ("sign", "Verify gate, then construct status from trusted baseline"),
+            ("sign", "Collect status bundle and close digest manifest"),
+            ("verify-publish", "Bind protected policy and event checkout"),
+            ("verify-publish", "Independently verify signed subjects"),
+            ("verify-publish", "Reject malformed package before publication"),
+        }
+        self.assertTrue(required.issubset(fixture.executed_steps))
+
+    def _reject_package_mutations(self, name, mutations, reclose=True) -> None:
+        fixture = QualificationFixture()
+        self.addCleanup(fixture.close)
+        for label, mutate in mutations.items():
+            with self.subTest(file=name, label=label):
+                fixture.restore_package()
+                fixture.mutate_json(name, mutate)
+                if reclose:
+                    fixture.authenticate_and_reclose()
+                result, sentinel = fixture.publication_attempt()
+                self.assertNotEqual(result.returncode, 0, label)
+                self.assertFalse(sentinel.exists(), label)
+
+    def test_exact_final_verifier_rejects_gate_shape_and_binding_mutations(self) -> None:
+        mutations = {
+            "wrong schema": lambda x: x.update(schema_version="wrong"),
+            "wrong kind": lambda x: x.update(kind="platform"),
+            "root extra": lambda x: x.update(extra=True),
+            "artifact row extra": lambda x: x["artifacts"][0].update(extra=True),
+            "empty artifacts": lambda x: x.update(artifacts=[]),
+            "extra artifacts": lambda x: x["artifacts"].append(copy.deepcopy(x["artifacts"][0])),
+            "reordered artifacts": lambda x: x["artifacts"].reverse(),
+            "misbound artifact": lambda x: x["artifacts"][0].update(sha256="0" * 64),
+            "empty tests": lambda x: x.update(tests=[]),
+            "extra tests": lambda x: x["tests"].append(copy.deepcopy(x["tests"][0])),
+            "extra reordered tests": lambda x: x.update(tests=[{"sha256": "0" * 64}, copy.deepcopy(x["tests"][0])]),
+            "test row extra": lambda x: x["tests"][0].update(extra=True),
+            "misbound test": lambda x: x["tests"][0].update(sha256="0" * 64),
+        }
+        self._reject_package_mutations("desktop-v1-contract-schema.json", mutations)
+
+    def test_exact_final_verifier_rejects_status_gate_mutations(self) -> None:
+        mutations = {
+            "wrong schema": lambda x: x.update(schema_version="wrong"),
+            "root extra": lambda x: x.update(extra=True),
+            "missing gate": lambda x: x["gates"].pop(),
+            "extra gate": lambda x: x["gates"].append(copy.deepcopy(x["gates"][-1])),
+            "reordered gates": lambda x: x["gates"].reverse(),
+            "gate row extra": lambda x: x["gates"][1].update(extra=True),
+            "misbound gate": lambda x: x["gates"][1].update(gate_id="GATE-WRONG"),
+        }
+        self._reject_package_mutations("desktop-v1-capability-status-v1.json", mutations)
+
+    def test_exact_final_verifier_rejects_manifest_closed_world_mutations(self) -> None:
+        mutations = {
+            "wrong schema": lambda x: x.update(schema_version="wrong"),
+            "root extra": lambda x: x.update(extra=True),
+            "row extra": lambda x: x["files"][0].update(extra=True),
+            "missing path": lambda x: x["files"].pop(),
+            "extra path": lambda x: x["files"].append({"path": "extra", "sha256": "0" * 64}),
+            "duplicate path": lambda x: x["files"].append(copy.deepcopy(x["files"][0])),
+            "reordered paths": lambda x: x["files"].reverse(),
+            "wrong digest": lambda x: x["files"][0].update(sha256="0" * 64),
+            "digest alias": lambda x: x["files"][1].update(sha256=x["files"][0]["sha256"]),
+        }
+        self._reject_package_mutations("desktop-v1-package-manifest.json", mutations, reclose=False)
 
     def test_exact_final_verifier_rejects_nested_slsa_mutations_before_upload(self) -> None:
         fixture = QualificationFixture()
@@ -130,44 +224,19 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
                 self.assertFalse(sentinel.exists(), label)
 
     def test_branch_and_annotated_tag_use_exact_ref_binding_commands(self) -> None:
-        prepare_run = step("prepare", "Bind input before executing candidate code")["run"]
-        protected_run = step("verify-publish", "Bind protected policy and event checkout")["run"]
-        with tempfile.TemporaryDirectory(dir=ROOT.parent) as temporary:
-            repository = Path(temporary) / "repository"
-            runner = Path(temporary) / "runner"
-            repository.mkdir()
-            runner.mkdir()
-            subprocess.run(["git", "init", "-q"], cwd=repository, check=True)
-            subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repository, check=True)
-            subprocess.run(["git", "config", "user.name", "Test"], cwd=repository, check=True)
-            (repository / "fixture").write_text("fixture", encoding="utf-8")
-            subprocess.run(["git", "add", "fixture"], cwd=repository, check=True)
-            subprocess.run(["git", "commit", "-qm", "fixture"], cwd=repository, check=True)
-            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repository, text=True).strip()
-            subprocess.run(["git", "branch", "release", commit], cwd=repository, check=True)
-            subprocess.run(["git", "branch", "alias", commit], cwd=repository, check=True)
-            subprocess.run(["git", "tag", "-a", "v1.0.0", "-m", "fixture", commit], cwd=repository, check=True)
-            for protected_ref in ("refs/heads/release", "refs/tags/v1.0.0"):
-                environment = {
-                    **os.environ,
-                    "GITHUB_WORKSPACE": str(repository),
-                    "GITHUB_SHA": commit,
-                    "GITHUB_REF": protected_ref,
-                    "INPUT_SOURCE_REF": protected_ref,
-                    "GITHUB_REPOSITORY": "octo/gocode",
-                    "GOCODE_DESKTOP_ATTEST_REPOSITORY": "octo/gocode",
-                    "GOCODE_DESKTOP_ATTEST_SOURCE_REF": protected_ref,
-                    "GOCODE_DESKTOP_ATTEST_SIGNER_WORKFLOW": "octo/gocode/.github/workflows/desktop-qualification.yml",
-                }
-                result = subprocess.run(["bash", "-c", prepare_run], cwd=repository, env=environment, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                result = subprocess.run(["bash", "-c", protected_run], cwd=runner, env=environment, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                alias = {**environment, "INPUT_SOURCE_REF": "refs/heads/alias"}
-                result = subprocess.run(["bash", "-c", prepare_run], cwd=repository, env=alias, capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0, "prepare accepted the same commit under a different input ref")
-                result = subprocess.run(["bash", "-c", protected_run], cwd=runner, env=alias, capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0, "same commit under a different input ref must fail")
+        binding_steps = (
+            ("prepare", "Bind input before executing candidate code"),
+            ("sign", "Construct bounded gate subject before attestation"),
+            ("verify-publish", "Bind protected policy and event checkout"),
+        )
+        for protected_ref in ("refs/heads/protected", "refs/tags/v1.0.0"):
+            fixture = QualificationFixture(protected_ref)
+            self.addCleanup(fixture.close)
+            for binding in binding_steps:
+                self.assertIn(binding, fixture.executed_steps)
+                alias = {**fixture.env, "INPUT_SOURCE_REF": "refs/heads/alias"}
+                result = fixture.binding_attempt(*binding, env=alias)
+                self.assertNotEqual(result.returncode, 0, f"{binding} accepted alias ref")
 
 
 if __name__ == "__main__":
