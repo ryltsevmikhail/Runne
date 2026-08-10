@@ -179,7 +179,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             bundle = Path(f"{subject}.intoto.jsonl")
             bundle.write_text("bundle", encoding="utf-8")
             statement = {"subject": [{"digest": {"sha256": hashlib.sha256(subject.read_bytes()).hexdigest()}}], "predicate": evidence}
-            cases = ("", "{}", "[]", json.dumps([{"attestation": {}, "verificationResult": {"statement": statement}}, {"attestation": {}, "verificationResult": {"statement": statement}}]), json.dumps([{"attestation": {}}]), json.dumps([{"attestation": {}, "verificationResult": {"statement": {**statement, "subject": []}}}]))
+            cases = ("", "{}", "[]", json.dumps([{"attestation": {}, "verificationResult": {"statement": statement}}, {"attestation": {}, "verificationResult": {"statement": statement}}]), json.dumps([{"attestation": {}}]), json.dumps([{"attestation": {}, "verificationResult": {"statement": {**statement, "subject": []}}}]), *(json.dumps([{"attestation": bad, "verificationResult": {"statement": statement}}]) for bad in (None, "attestation", [], 1, True)))
             for output in cases:
                 with self.subTest(output=output), patch("scripts.desktop.capability_manifest_impl.io.subprocess.run", return_value=CompletedProcess([], 0, output, "")):
                     self.assertIsNone(verify_attestation(subject, bundle, self._policy(), "commit-a"))
