@@ -19,6 +19,7 @@ pub mod migration_router;
 pub mod migration_shadow;
 pub mod opencode_session;
 pub mod plugin_host;
+pub mod project_workspace_host;
 pub mod provider_execution;
 pub mod provider_tool;
 pub mod qualification_matrix;
@@ -30,6 +31,7 @@ mod supervisor;
 mod worker;
 
 mod startup;
+pub use project_workspace_host::RuntimeProjectWorkspaceHost;
 pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };

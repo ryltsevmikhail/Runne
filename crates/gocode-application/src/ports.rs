@@ -22,6 +22,7 @@ include!("ports/event_store.rs");
 include!("ports/unit_of_work.rs");
 include!("ports/runtime.rs");
 include!("ports/idempotency.rs");
+include!("ports/project_workspace.rs");
 include!("ports/reexports.rs");
 
 #[cfg(test)]
