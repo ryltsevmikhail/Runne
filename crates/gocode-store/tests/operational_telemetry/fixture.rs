@@ -152,6 +152,8 @@ fn configured_connection(path: &Path) -> Connection {
          PRAGMA busy_timeout = 5000;",
         )
         .unwrap();
+    #[cfg(target_os = "macos")]
+    connection.execute_batch("PRAGMA fullfsync = ON;").unwrap();
     connection
 }
 
