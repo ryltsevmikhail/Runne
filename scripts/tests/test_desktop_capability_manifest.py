@@ -194,13 +194,15 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             status_value = status(); status_value.update({"canonical_source_content_sha256": "a" * 64, "definition_sha256": "b" * 64, "selector_list_sha256": "c" * 64, "toolchain_identity": evidence["toolchain_identity"], "runner_identity": evidence["runner_identity"]})
             slsa = {"buildDefinition": {"buildType": "https://slsa.dev/test"}}
             row = {"gate_id": "GATE-CONTRACT-SCHEMA", "provenance": {"subject_sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "predicate_sha256": hashlib.sha256(json.dumps(slsa, separators=(",", ":"), sort_keys=True).encode()).hexdigest()}}
-            self.assertTrue(_gate_predicate(slsa, path, status_value, row))
+            self.assertTrue(_gate_predicate(slsa, path, definition(), status_value, row))
             for key in ("canonical_source_content_sha256", "definition_sha256", "gate_id", "selector_list_sha256", "toolchain_identity", "runner_identity", "artifacts", "tests", "kind"):
-                altered = dict(evidence); altered[key] = "wrong" if key not in {"artifacts", "tests"} else []
-                path.write_text(json.dumps(altered), encoding="utf-8")
-                self.assertFalse(_gate_predicate(slsa, path, status_value, row))
-                path.write_text(json.dumps(evidence), encoding="utf-8")
-            self.assertFalse(_gate_predicate({"buildDefinition": {}}, path, status_value, row))
+                mutations = ("wrong", "functional", "Contract", None, 7, "compile-only", "stub", "synthetic") if key == "kind" else (([],) if key in {"artifacts", "tests"} else ("wrong",))
+                for mutation in mutations:
+                    altered = dict(evidence); altered[key] = mutation; path.write_text(json.dumps(altered), encoding="utf-8")
+                    row["provenance"]["subject_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                    with self.subTest(key=key, mutation=mutation): self.assertFalse(_gate_predicate(slsa, path, definition(), status_value, row))
+            path.write_text(json.dumps(evidence), encoding="utf-8"); row["provenance"]["subject_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+            self.assertFalse(_gate_predicate({"buildDefinition": {}}, path, definition(), status_value, row))
 
     def test_qualification_accepts_distinct_slsa_predicates_for_signed_subjects(self) -> None:
         from scripts.desktop import capability_manifest as manifest
@@ -214,7 +216,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             args = SimpleNamespace(verify_provenance=True, source_ref="candidate", status_provenance=status_bundle, status=selected)
             environment = {"GOCODE_DESKTOP_CAPABILITY_TRUSTED_STATUS_SHA256": hashlib.sha256(selected.read_bytes()).hexdigest()}
             with patch.dict("os.environ", environment, clear=False), patch.object(manifest, "protected_policy", return_value=self._policy()), patch.object(manifest, "resolve_commit", return_value="commit"), patch.object(manifest, "evidence_only_difference", return_value=True), patch.object(manifest, "clean_source_paths", return_value=True), patch.object(manifest, "verify_attestation", side_effect=[slsa, slsa]):
-                qualification = manifest._qualification(args)
+                qualification = manifest._qualification(args, definition())
             self.assertIsNotNone(qualification); self.assertEqual(qualification.verified_gate_ids, ("GATE-CONTRACT-SCHEMA",))
 
     def test_verifier_fails_closed_for_missing_or_nonzero_gh(self) -> None:
@@ -259,7 +261,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
 
     @staticmethod
     def _evidence() -> dict[str, object]:
-        return {"schema_version": "desktop-v1-gate-evidence.v1", "kind": "functional", "gate_id": "GATE-CONTRACT-SCHEMA", "canonical_source_content_sha256": "a" * 64, "definition_sha256": "b" * 64, "selector_list_sha256": "c" * 64, "toolchain_identity": {"status": "recorded", "name": "python", "version": "1"}, "runner_identity": {"status": "recorded", "runner_id": "runner", "image_sha256": "d" * 64}, "artifacts": [{"sha256": "e" * 64}], "tests": [{"sha256": "f" * 64}]}
+        return {"schema_version": "desktop-v1-gate-evidence.v1", "kind": "contract", "gate_id": "GATE-CONTRACT-SCHEMA", "canonical_source_content_sha256": "a" * 64, "definition_sha256": "b" * 64, "selector_list_sha256": "c" * 64, "toolchain_identity": {"status": "recorded", "name": "python", "version": "1"}, "runner_identity": {"status": "recorded", "runner_id": "runner", "image_sha256": "d" * 64}, "artifacts": [{"sha256": "e" * 64}], "tests": [{"sha256": "f" * 64}]}
 
 
 if __name__ == "__main__":
