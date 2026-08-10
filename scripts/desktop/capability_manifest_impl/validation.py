@@ -129,14 +129,25 @@ def validate_status(definition: Mapping[str, object], status: object) -> tuple[s
     if value is None: return tuple(errors)
     if value["schema_version"] != "desktop-v1-capability-status.v1" or value["manifest_id"] != definition.get("manifest_id"): _add(errors, "STATUS_IDENTITY")
     if not all(is_sha256(value[key]) for key in ("definition_sha256", "canonical_source_content_sha256", "selector_list_sha256")): _add(errors, "STATUS_SELECTOR_DIGEST")
-    try: datetime.fromisoformat(str(value["recorded_at"]).replace("Z", "+00:00"))
+    recorded_at = value["recorded_at"]
+    try:
+        if not isinstance(recorded_at, str) or not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)", recorded_at): raise ValueError
+        datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
     except ValueError: _add(errors, "STATUS_RECORDED_AT")
     contract = _closed(value["contract"], {"profile_id", "profile_sha256", "bundle_sha256"}, "STATUS_CONTRACT", errors)
     if contract and (contract["profile_id"] != "gocode-ui-client/1" or not is_sha256(contract["profile_sha256"]) or not is_sha256(contract["bundle_sha256"])): _add(errors, "STATUS_CONTRACT")
     toolchain = _closed(value["toolchain_identity"], {"status", "name", "version"}, "STATUS_TOOLCHAIN", errors)
     runner = _closed(value["runner_identity"], {"status", "runner_id", "image_sha256"}, "STATUS_RUNNER", errors)
-    if toolchain and (toolchain["status"] not in {"recorded", "not_recorded"} or not all(isinstance(toolchain[key], str) and toolchain[key] for key in ("name", "version")) if toolchain["status"] == "recorded" else not (toolchain["name"] is None and toolchain["version"] is None)): _add(errors, "STATUS_TOOLCHAIN")
-    if runner and (runner["status"] not in {"recorded", "not_recorded"} or not (isinstance(runner["runner_id"], str) and runner["runner_id"] and is_sha256(runner["image_sha256"])) if runner["status"] == "recorded" else not (runner["runner_id"] is None and runner["image_sha256"] is None)): _add(errors, "STATUS_RUNNER")
+    if toolchain:
+        if toolchain["status"] == "recorded": valid_toolchain = all(isinstance(toolchain[key], str) and toolchain[key] for key in ("name", "version"))
+        elif toolchain["status"] == "not_recorded": valid_toolchain = toolchain["name"] is None and toolchain["version"] is None
+        else: valid_toolchain = False
+        if not valid_toolchain: _add(errors, "STATUS_TOOLCHAIN")
+    if runner:
+        if runner["status"] == "recorded": valid_runner = isinstance(runner["runner_id"], str) and bool(runner["runner_id"]) and is_sha256(runner["image_sha256"])
+        elif runner["status"] == "not_recorded": valid_runner = runner["runner_id"] is None and runner["image_sha256"] is None
+        else: valid_runner = False
+        if not valid_runner: _add(errors, "STATUS_RUNNER")
     evidence = _ids(value["evidence_refs"], "id", "STATUS_EVIDENCE", errors)
     for row in value["evidence_refs"] if isinstance(value["evidence_refs"], list) else []:
         if not _closed(row, {"id", "sha256"}, "STATUS_EVIDENCE", errors) or not is_sha256(row["sha256"]): _add(errors, "STATUS_EVIDENCE")

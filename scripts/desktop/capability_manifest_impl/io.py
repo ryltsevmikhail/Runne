@@ -119,10 +119,10 @@ def verify_attestation(subject: Path, bundle: Path, policy: dict[str, str], sour
         value = json.loads(result.stdout)
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return None
-    if not isinstance(value, dict) or set(value) != {"verificationResult"}:
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict) or "attestation" not in value[0]:
         return None
-    verified = value.get("verificationResult")
-    if not isinstance(verified, dict) or set(verified) != {"statement"}:
+    verified = value[0].get("verificationResult")
+    if not isinstance(verified, dict):
         return None
     statement = verified.get("statement")
     if not isinstance(statement, dict) or not isinstance(statement.get("subject"), list) or len(statement["subject"]) != 1 or not isinstance(statement.get("predicate"), dict):

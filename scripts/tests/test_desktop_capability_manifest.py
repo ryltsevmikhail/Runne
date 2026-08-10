@@ -146,6 +146,11 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         self.assertIn("STATUS_RECORDED_AT", errors)
         self.assertIn("STATUS_SELECTOR_DIGEST", errors)
         self.assertIn("STATUS_CONTRACT", errors)
+        for timestamp in ("2026-08-10", "2026-08-10T01:02:03", "2026-02-30T01:02:03Z"):
+            value = status(); value["recorded_at"] = timestamp
+            self.assertIn("STATUS_RECORDED_AT", validate_status(definition(), value))
+        value = status(); value["toolchain_identity"] = {"status": "unknown", "name": None, "version": None}; value["runner_identity"] = {"status": "unknown", "runner_id": None, "image_sha256": None}
+        errors = validate_status(definition(), value); self.assertIn("STATUS_TOOLCHAIN", errors); self.assertIn("STATUS_RUNNER", errors)
 
     def test_verifier_requires_exact_gh_arguments_and_authenticated_bindings(self) -> None:
         from scripts.desktop.capability_manifest_impl.io import verify_attestation
@@ -158,7 +163,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             bundle.write_text("bundle", encoding="utf-8")
             predicate = dict(evidence)
             statement = {"subject": [{"digest": {"sha256": hashlib.sha256(subject.read_bytes()).hexdigest()}}], "predicate": predicate}
-            output = json.dumps({"verificationResult": {"statement": statement}})
+            output = json.dumps([{"attestation": {"version": 1}, "verificationResult": {"statement": statement, "verified": True}}])
             with patch("scripts.desktop.capability_manifest_impl.io.subprocess.run", return_value=CompletedProcess([], 0, output, "")) as run:
                 result = verify_attestation(subject, bundle, self._policy(), "commit-a")
             self.assertEqual(result, predicate)
@@ -174,7 +179,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             bundle = Path(f"{subject}.intoto.jsonl")
             bundle.write_text("bundle", encoding="utf-8")
             statement = {"subject": [{"digest": {"sha256": hashlib.sha256(subject.read_bytes()).hexdigest()}}], "predicate": evidence}
-            cases = ("", "{}", json.dumps({"verificationResult": {"statement": {**statement, "subject": []}}}))
+            cases = ("", "{}", "[]", json.dumps([{"attestation": {}, "verificationResult": {"statement": statement}}, {"attestation": {}, "verificationResult": {"statement": statement}}]), json.dumps([{"attestation": {}}]), json.dumps([{"attestation": {}, "verificationResult": {"statement": {**statement, "subject": []}}}]))
             for output in cases:
                 with self.subTest(output=output), patch("scripts.desktop.capability_manifest_impl.io.subprocess.run", return_value=CompletedProcess([], 0, output, "")):
                     self.assertIsNone(verify_attestation(subject, bundle, self._policy(), "commit-a"))
@@ -213,7 +218,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             (root / "product.txt").write_text("B", encoding="utf-8"); subprocess.run(("git", "commit", "-am", "B"), cwd=root, check=True, capture_output=True); second = subprocess.check_output(("git", "rev-parse", "HEAD"), cwd=root, text=True).strip()
             self.assertNotEqual(canonical_source_content_digest(root, first), canonical_source_content_digest(root, second)); self.assertFalse(evidence_only_difference(root, first, second))
             (root / "docs/evidence/row.json").write_text("two", encoding="utf-8"); subprocess.run(("git", "commit", "-am", "evidence"), cwd=root, check=True, capture_output=True); third = subprocess.check_output(("git", "rev-parse", "HEAD"), cwd=root, text=True).strip()
-            self.assertEqual(canonical_source_content_digest(root, second), canonical_source_content_digest(root, third)); self.assertTrue(evidence_only_difference(root, second, third)); (root / "dirty.txt").write_text("x", encoding="utf-8"); self.assertFalse(clean_source_paths(root))
+            self.assertEqual(canonical_source_content_digest(root, second), canonical_source_content_digest(root, third)); self.assertTrue(evidence_only_difference(root, second, third)); (root / "product.txt").write_text("dirty", encoding="utf-8"); self.assertFalse(clean_source_paths(root)); subprocess.run(("git", "checkout", "--", "product.txt"), cwd=root, check=True); (root / "dirty.txt").write_text("x", encoding="utf-8"); self.assertFalse(clean_source_paths(root))
 
     def test_cli_rejects_missing_selected_status_and_unresolvable_source_ref(self) -> None:
         from scripts.desktop.capability_manifest import main
@@ -224,6 +229,9 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output): self.assertEqual(main(["validate", "--source-ref", "does-not-exist"]), 1)
         self.assertIn("REPOSITORY_READ_ERROR", output.getvalue())
+        output = io.StringIO()
+        with redirect_stdout(output): self.assertEqual(main(["score", "--status", str(STATUS), "--status-provenance", str(ROOT / "missing-bundle"), "--source-ref", "0d095d26", "--verify-provenance", "--format", "json"]), 1)
+        self.assertIn("SOURCE_CONTENT_DIGEST_MISMATCH", output.getvalue())
 
     @staticmethod
     def _policy() -> dict[str, str]:
