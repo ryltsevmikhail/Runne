@@ -106,6 +106,7 @@ pnpm test
 pnpm typecheck
 pnpm build
 CI=1 pnpm test:e2e
+python3 -m unittest scripts.tests.test_desktop_qualification_workflow -v
 python3 -m unittest scripts.tests.test_desktop_capability_manifest -v
 pnpm validate:docs
 pnpm lint:architecture
