@@ -17,8 +17,12 @@ def unsafe_config(entries: tuple[tuple[str, str], ...]) -> bool:
         if key in (
             "http.proxy", "https.proxy", "http.extraheader", "core.hookspath",
             "core.fsmonitor", "core.sshcommand", "core.excludesfile",
+            "core.attributesfile", "core.untrackedcache",
             "core.alternaterefscommand", "extensions.worktreeconfig",
+            "status.showuntrackedfiles", "diff.ignoresubmodules",
         ):
+            return True
+        if key.startswith("filter.") or (key.startswith("submodule.") and key.endswith(".ignore")):
             return True
         if key.startswith(("http.", "https.")) and key.endswith((".proxy", ".extraheader")):
             return True

@@ -38,6 +38,7 @@ _EXPECTED_FIELDS = {
     "source_revision",
     "source_tree",
     "repository_identity",
+    "git_metadata_sha256",
     "input_script_sha256",
     "inventories",
     "executables",
@@ -75,6 +76,7 @@ def _valid_shape(record: object) -> bool:
         or type(record["issued_at_unix"]) is not int
         or not _hex(record["source_revision"], (40, 64))
         or not _hex(record["source_tree"], (40, 64))
+        or not _hex(record["git_metadata_sha256"], (64,))
         or not _hex(record["input_script_sha256"], (64,))
         or type(record["gate_exit_status"]) is not int
         or record["gate_exit_status"] != 0
