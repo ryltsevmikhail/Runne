@@ -28,7 +28,7 @@ def evaluate(
 ) -> Evaluation:
     """Score the lowest contiguous track stage for each capability."""
 
-    verified = _verified_gates(status)
+    verified = _verified_gates(status, qualification)
     stages: list[tuple[str, int]] = []
     score = 0
     for capability in definition.get("capabilities", []):
@@ -62,12 +62,13 @@ def _track_stage(track: Mapping[str, object], verified: set[object]) -> int:
     return current
 
 
-def _verified_gates(status: Mapping[str, object]) -> set[object]:
+def _verified_gates(status: Mapping[str, object], qualification: QualificationContext | None) -> set[object]:
     evidence = {
         row.get("id")
         for row in status.get("evidence_refs", [])
         if isinstance(row, Mapping) and isinstance(row.get("id"), str)
     }
+    trusted = set(qualification.verified_gate_ids) if qualification is not None else set()
     return {
         row.get("gate_id")
         for row in status.get("gates", [])
@@ -75,6 +76,7 @@ def _verified_gates(status: Mapping[str, object]) -> set[object]:
         and row.get("disposition") == "verified"
         and isinstance(row.get("evidence_ref"), str)
         and row.get("evidence_ref") in evidence
+        and row.get("gate_id") in trusted
         and not any(word in row["evidence_ref"].lower() for word in ("compile", "stub", "synthetic"))
         and isinstance(row.get("provenance"), Mapping)
     }

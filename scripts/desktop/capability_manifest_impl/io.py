@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -22,6 +23,14 @@ def load_json(path: Path) -> object:
 
 def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def canonical_json(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+
+
+def is_sha256(value: object) -> bool:
+    return isinstance(value, str) and len(value) == 64 and all(char in "0123456789abcdef" for char in value)
 
 
 def has_raw_sha256(raw: bytes, sidecar: str) -> bool:
@@ -47,9 +56,19 @@ def git_output(root: Path, *args: str) -> bytes:
 def clean_source_paths(root: Path) -> bool:
     """Evidence-only changes cannot alter the candidate source identity."""
 
-    output = git_output(root, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-    paths = [item[3:].decode("utf-8", "surrogateescape") for item in output.split(b"\0") if item]
+    changed = git_output(root, "diff", "--name-only", "-z", "HEAD").split(b"\0")
+    untracked = git_output(root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0")
+    paths = [item.decode("utf-8", "surrogateescape") for item in (*changed, *untracked) if item]
     return all(path.startswith("docs/evidence/") for path in paths)
+
+
+def resolve_commit(root: Path, source_ref: str) -> str:
+    return git_output(root, "rev-parse", "--verify", f"{source_ref}^{{commit}}").decode("ascii").strip()
+
+
+def evidence_only_difference(root: Path, left: str, right: str) -> bool:
+    paths = git_output(root, "diff", "--name-only", "-z", left, right).split(b"\0")
+    return all(path.startswith(b"docs/evidence/") for path in paths if path)
 
 
 def canonical_source_content_digest(root: Path, source_ref: str) -> str:
@@ -73,3 +92,43 @@ def canonical_source_content_digest(root: Path, source_ref: str) -> str:
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content_digest)
     return digest.hexdigest()
+
+
+def protected_policy() -> dict[str, str] | None:
+    """Read only protected GitHub Actions inputs; local configuration is untrusted."""
+
+    names = {
+        "repository": "GOCODE_DESKTOP_ATTEST_REPOSITORY",
+        "signer_workflow": "GOCODE_DESKTOP_ATTEST_SIGNER_WORKFLOW",
+        "source_ref": "GOCODE_DESKTOP_ATTEST_SOURCE_REF",
+    }
+    values = {key: os.environ.get(name, "") for key, name in names.items()}
+    if os.environ.get("GITHUB_ACTIONS") != "true" or not all(values.values()):
+        return None
+    return values
+
+
+def verify_attestation(subject: Path, bundle: Path, policy: dict[str, str], source_commit: str) -> dict[str, object] | None:
+    """Verify one Sigstore attestation with the fixed GitHub CLI contract."""
+
+    command = ["gh", "attestation", "verify", str(subject), "--bundle", str(bundle), "--repo", policy["repository"], "--signer-workflow", policy["signer_workflow"], "--source-ref", policy["source_ref"], "--source-digest", source_commit, "--predicate-type", "https://slsa.dev/provenance/v1", "--no-public-good", "--format", "json"]
+    try:
+        result = subprocess.run(command, check=False, capture_output=True, text=True)
+        if result.returncode != 0:
+            return None
+        value = json.loads(result.stdout)
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(value, dict) or set(value) != {"verificationResult"}:
+        return None
+    verified = value.get("verificationResult")
+    if not isinstance(verified, dict) or set(verified) != {"statement"}:
+        return None
+    statement = verified.get("statement")
+    if not isinstance(statement, dict) or not isinstance(statement.get("subject"), list) or len(statement["subject"]) != 1 or not isinstance(statement.get("predicate"), dict):
+        return None
+    subject_row = statement["subject"][0]
+    digest = subject_row.get("digest") if isinstance(subject_row, dict) else None
+    if not isinstance(digest, dict) or set(digest) != {"sha256"} or digest["sha256"] != sha256_file(subject):
+        return None
+    return statement["predicate"]
