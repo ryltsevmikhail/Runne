@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import secrets
 import subprocess
 import time
@@ -20,16 +19,16 @@ from scripts.ci_local_receipt_common import (
     read_regular,
 )
 from scripts.ci_local_receipt_ledger import repository_identity
+from scripts.ci_local_receipt_runtime import (
+    TrustedRuntime,
+    resolve_trusted_runtime,
+)
 from scripts.rc0_candidate.git_inspection import GitInspectionError, run_repository_git
 from scripts.rc0_candidate.verify_rust_inventory import (
     InventoryError,
-    _valid_toolchain,
     validate_inventory,
 )
 from scripts.rc0_policy.canonical import StrictJSONError, canonical_bytes, loads_canonical
-
-
-_TOOLCHAIN_VERSIONS = {"pinned": "1.97.1", "msrv": "1.95.0"}
 
 
 def _git(root: Path, *arguments: str) -> bytes:
@@ -136,57 +135,35 @@ def _validate_reliability(reliability: object) -> None:
         raise LocalInputReceiptError("named inventory contains duplicate entries")
 
 
-def _toolchains() -> dict[str, str]:
-    identities: dict[str, str] = {}
-    for lane, version in _TOOLCHAIN_VERSIONS.items():
-        try:
-            located = subprocess.run(
-                ("rustup", "which", "--toolchain", version, "rustc"),
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip()
-            rustc = Path(located).resolve(strict=True)
-            result = subprocess.run(
-                (os.fspath(rustc), "-V"), check=True, capture_output=True, text=True
-            )
-        except (OSError, subprocess.SubprocessError) as error:
-            raise LocalInputReceiptError("canonical toolchain is unavailable") from error
-        identity = result.stdout.strip()
-        if not _valid_toolchain(identity) or identity.split()[1] != version:
-            raise LocalInputReceiptError("canonical toolchain identity changed")
-        identities[lane] = identity
-    return identities
-
-
-def capture_bound_state(root: Path) -> dict:
+def capture_bound_state(root: Path, runtime: TrustedRuntime | None = None) -> dict:
+    runtime = resolve_trusted_runtime() if runtime is None else runtime
     script_raw = _tracked_bytes(root, INPUT_SCRIPT)
     return {
         **source_state(root),
         "repository_identity": repository_identity(root),
         "input_script_sha256": digest(script_raw),
         "inventories": inventory_state(root),
-        "toolchains": _toolchains(),
+        "executables": runtime.executables,
+        "toolchains": runtime.toolchains,
     }
 
 
 def run_local_input_gates(root: Path, receipt: Path) -> dict:
     root = root.resolve(strict=True)
-    pre_gate = capture_bound_state(root)
-    environment = dict(os.environ)
-    environment.pop("GOCODE_CI_INPUT_RECEIPT", None)
+    pre_runtime = resolve_trusted_runtime()
+    pre_gate = capture_bound_state(root, pre_runtime)
     try:
         completed = subprocess.run(
-            ("bash", os.fspath(root / INPUT_SCRIPT)),
+            (pre_runtime.bash, root / INPUT_SCRIPT),
             cwd=root,
-            env=environment,
+            env=pre_runtime.environment,
             check=False,
         )
     except OSError as error:
         raise LocalInputReceiptError("canonical local input gate could not run") from error
     if type(completed.returncode) is not int or completed.returncode != 0:
         raise LocalInputReceiptError("canonical local input gate did not pass")
-    post_gate = capture_bound_state(root)
+    post_gate = capture_bound_state(root, resolve_trusted_runtime())
     if pre_gate != post_gate:
         raise LocalInputReceiptError("bound source or inputs changed during local gate")
     record = {

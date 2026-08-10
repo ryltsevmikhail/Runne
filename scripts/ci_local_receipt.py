@@ -21,6 +21,7 @@ from scripts.ci_local_receipt_common import (
     private_parent,
 )
 from scripts.ci_local_receipt_ledger import claim_consumed_nonce
+from scripts.ci_local_receipt_runtime import valid_executable_shape
 from scripts.ci_local_receipt_state import (
     capture_bound_state,
     run_local_input_gates,
@@ -39,6 +40,7 @@ _EXPECTED_FIELDS = {
     "repository_identity",
     "input_script_sha256",
     "inventories",
+    "executables",
     "toolchains",
     "gate_exit_status",
     "gate_results",
@@ -94,6 +96,8 @@ def _valid_shape(record: object) -> bool:
         return False
     toolchains = record["toolchains"]
     if (
+        not valid_executable_shape(record["executables"])
+        or
         not isinstance(toolchains, dict)
         or set(toolchains) != {"pinned", "msrv"}
         or not all(isinstance(value, str) and _valid_toolchain(value) for value in toolchains.values())
