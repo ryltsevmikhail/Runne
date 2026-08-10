@@ -1,14 +1,10 @@
 """Contract tests for the mutable RC0 Rust reservation inventory."""
-
 from __future__ import annotations
-
 import hashlib
 import importlib.util
 import json
 import unittest
 from pathlib import Path
-
-
 ROOT = Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "scripts/rc0_candidate/verify_rust_inventory.py"
 RUST_RESERVATIONS = (
@@ -36,19 +32,15 @@ RUST_RESERVATIONS = (
     ("pty.process-contract", "gocode-tools", "process_contract"),
     ("mcp.supervision", "gocode-runtime", "plugin_mcp_supervision"),
 )
-
-
 def load_verifier():
     spec = importlib.util.spec_from_file_location("rc0_inventory", VERIFIER)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
     spec.loader.exec_module(module)
     return module
-
-
 def resolved(identifier: str, package: str, target: str) -> dict[str, str]:
     selector = identifier.replace(".", "_").replace("-", "_")
-    listing = f"{selector}: test\n"
+    listing = f"{selector}: test\n\n1 test, 0 benchmarks\n"
     return {
         "id": identifier,
         "stage": "SOURCE_CANDIDATE",
@@ -59,16 +51,12 @@ def resolved(identifier: str, package: str, target: str) -> dict[str, str]:
         "list_digest": hashlib.sha256(listing.encode()).hexdigest(),
         "toolchain": "rustc 1.95.0 (abcdef123 2026-01-02)",
     }
-
-
 def inventory(records: list[dict[str, str]], status: str = "MUTABLE") -> dict:
     return {
         "inventory_version": "source-candidate-v1",
         "inventory_status": status,
         "records": records,
     }
-
-
 def frozen_inventory(verifier, records: list[dict[str, str]]) -> dict:
     records = list(records) + [
         {"id": identifier, "stage": "SOURCE_CANDIDATE", "record_kind": "EXTERNAL_POLICY"}
@@ -77,8 +65,6 @@ def frozen_inventory(verifier, records: list[dict[str, str]]) -> dict:
     document = inventory(records, "FROZEN")
     document["final_inventory_digest"] = verifier.final_inventory_digest(document)
     return document
-
-
 def resolved_reservations() -> list[dict[str, str]]:
     records = [resolved(*reservation) for reservation in RUST_RESERVATIONS]
     listings = {
@@ -86,11 +72,13 @@ def resolved_reservations() -> list[dict[str, str]]:
                         if record["integration_target"] == target)
         for target in {record["integration_target"] for record in records}
     }
+    listings = {
+        target: listing + f"\n{listing.count(': test')} tests, 0 benchmarks\n"
+        for target, listing in listings.items()
+    }
     for record in records:
         record["list_digest"] = hashlib.sha256(listings[record["integration_target"]].encode()).hexdigest()
     return records
-
-
 class Rc0CandidateInventoryTests(unittest.TestCase):
     def test_rejects_missing_required_category(self) -> None:
         verifier = load_verifier()
@@ -166,7 +154,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
             if args == ("rustc", "-V"):
                 return "rustc 1.95.0 (abcdef123 2026-01-02)\n"
             if args[-1] == "--list":
-                return "sqlite_managed_connection: test\n"
+                return "sqlite_managed_connection: test\n\n1 test, 0 benchmarks\n"
             return "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
 
         with self.assertRaisesRegex(verifier.InventoryError, "exact run"):
@@ -183,7 +171,11 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
                 return "rustc 1.95.0 (abcdef123 2026-01-02)\n"
             if args[-1] == "--list":
                 return listing
-            return "running 1 test\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+            return (
+                "running 1 test\ntest sqlite_managed_connection ... ok\n"
+                "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; "
+                "0 filtered out; finished in 0.00s\n"
+            )
 
         verifier.verify_record(record, command)
 
@@ -239,12 +231,15 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
         for listing in ("0 tests, 0 benchmarks\n", "sqlite_managed_connection: test\nsqlite_managed_connection: test\n"):
             with self.subTest(listing=listing):
                 calls: list[tuple[str, ...]] = []
-                with self.assertRaisesRegex(verifier.InventoryError, "selector is not exactly one"):
+                with self.assertRaisesRegex(verifier.InventoryError, "libtest list"):
                     verifier.verify_record(record, lambda args: calls.append(args) or listing)
                 self.assertEqual(len(calls), 1)
         record["list_digest"] = "0" * 64
         with self.assertRaisesRegex(verifier.InventoryError, "list digest changed"):
-            verifier.verify_record(record, lambda args: "sqlite_managed_connection: test\n")
+            verifier.verify_record(
+                record,
+                lambda args: "sqlite_managed_connection: test\n\n1 test, 0 benchmarks\n",
+            )
 
     def test_verify_frozen_all_list_verifies_and_exact_runs_every_rust_record(self) -> None:
         verifier = load_verifier()
@@ -257,6 +252,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
                 for record in records
                 if record["integration_target"] == target
             )
+            listing += f"\n{listing.count(': test')} tests, 0 benchmarks\n"
             listings[target] = listing
         for record in records:
             record["list_digest"] = hashlib.sha256(
@@ -272,7 +268,12 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
                 return "rustc 1.95.0 (abcdef123 2026-01-02)\n"
             if args[-1] == "--list":
                 return listings[args[args.index("--test") + 1]]
-            return "running 1 test\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+            selector = args[args.index("--") - 1]
+            return (
+                f"running 1 test\ntest {selector} ... ok\n"
+                "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; "
+                "0 filtered out; finished in 0.00s\n"
+            )
 
         verifier.verify_frozen_all(document, command)
         cargo_calls = [call for call in calls if call[0] == "cargo"]
