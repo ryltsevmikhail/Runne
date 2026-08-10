@@ -54,13 +54,24 @@ pub fn scan_provider_chunk<M: CredentialMatcher + ?Sized>(
     provider_bytes: &[u8],
     safe_prefix_high_water: u64,
 ) -> Result<ScanStep, ScannerError> {
+    let provider_length =
+        u64::try_from(provider_bytes.len()).map_err(|_| ScannerError::OutputLimitExceeded)?;
     let cursor = binding
         .cursor()
-        .checked_add(
-            u64::try_from(provider_bytes.len()).map_err(|_| ScannerError::OutputLimitExceeded)?,
-        )
+        .checked_add(provider_length)
         .ok_or(ScannerError::OutputLimitExceeded)?;
     let next_binding = binding.at_cursor(cursor);
+    let next_high_water_bound = safe_prefix_high_water
+        .checked_add(
+            u64::try_from(previous_tail.len()).map_err(|_| ScannerError::OutputLimitExceeded)?,
+        )
+        .and_then(|value| value.checked_add(provider_length))
+        .ok_or(ScannerError::OutputLimitExceeded)?;
+    if cursor > MAX_SCANNED_OUTPUT_BYTES as u64
+        || next_high_water_bound > MAX_SCANNED_OUTPUT_BYTES as u64
+    {
+        return Ok(limit_step(next_binding, safe_prefix_high_water));
+    }
     if matcher
         .epoch()
         .map_err(|_| ScannerError::MatcherUnavailable)?
@@ -156,5 +167,84 @@ fn limit_step(binding: TailBinding, high_water: u64) -> ScanStep {
         binding,
         safe_prefix_high_water: high_water,
         disposition: Some(ScannerTerminalDisposition::OutputLimitExceeded),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::DispatchAttemptId;
+
+    struct NoMatch;
+
+    impl CredentialMatcher for NoMatch {
+        fn epoch(&self) -> Result<u64, ScannerError> {
+            Ok(1)
+        }
+        fn maximum_match_len(&self) -> Result<usize, ScannerError> {
+            Ok(1)
+        }
+        fn contains_match(&self, _bytes: &[u8]) -> Result<bool, ScannerError> {
+            Ok(false)
+        }
+    }
+
+    fn binding(cursor: u64) -> TailBinding {
+        TailBinding::new(DispatchAttemptId::from_bytes([1; 16]), 1, 1, 1, 1, cursor).unwrap()
+    }
+
+    #[test]
+    fn many_small_chunks_cannot_exceed_the_cumulative_output_cap() {
+        let mut current = binding(0);
+        for index in 0..1_024 {
+            let step = scan_provider_chunk(
+                &NoMatch,
+                current,
+                Zeroizing::new(Vec::new()),
+                &[0; 4_096],
+                current.cursor(),
+            )
+            .unwrap();
+            if index == 1_023 {
+                assert_eq!(
+                    step.disposition(),
+                    Some(ScannerTerminalDisposition::OutputLimitExceeded)
+                );
+            }
+            current = step.binding();
+        }
+    }
+
+    #[test]
+    fn recovered_cursor_is_included_before_chunk_allocation() {
+        let step = scan_provider_chunk(
+            &NoMatch,
+            binding(4_194_287),
+            Zeroizing::new(Vec::new()),
+            &[0; 2],
+            4_194_287,
+        )
+        .unwrap();
+        assert_eq!(
+            step.disposition(),
+            Some(ScannerTerminalDisposition::OutputLimitExceeded)
+        );
+    }
+
+    #[test]
+    fn recovered_high_water_is_included_before_staging() {
+        let step = scan_provider_chunk(
+            &NoMatch,
+            binding(0),
+            Zeroizing::new(Vec::new()),
+            &[0],
+            4_194_288,
+        )
+        .unwrap();
+        assert_eq!(
+            step.disposition(),
+            Some(ScannerTerminalDisposition::OutputLimitExceeded)
+        );
+        assert_eq!(step.safe_prefix_high_water(), 4_194_288);
     }
 }

@@ -122,6 +122,7 @@ mod tests {
     }
 
     include!("schema/tests/admission.rs");
+    include!("schema/tests/actual_handle_identity.rs");
     include!("schema/tests/migrations.rs");
     include!("schema/tests/released.rs");
     include!("schema/tests/recovery_compatibility.rs");

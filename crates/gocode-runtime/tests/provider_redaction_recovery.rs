@@ -276,3 +276,4 @@ fn four_durable_boundaries_require_checkpoint_before_cursor_and_terminal() {
 }
 
 include!("provider_redaction_recovery/completion.rs");
+include!("provider_redaction_recovery/terminal_authority.rs");

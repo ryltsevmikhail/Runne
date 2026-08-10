@@ -1,7 +1,18 @@
 fn open_connection_for_profile(
     db_path: &Path,
     mode: ConnectionMode,
-) -> SqliteResult<Connection> {
+) -> SqliteResult<(Connection, Option<ConnectionIdentityGuard>)> {
+    open_connection_for_profile_with_hook(db_path, mode, |_| Ok(()))
+}
+
+fn open_connection_for_profile_with_hook<F>(
+    db_path: &Path,
+    mode: ConnectionMode,
+    mut identity_hook: F,
+) -> SqliteResult<(Connection, Option<ConnectionIdentityGuard>)>
+where
+    F: FnMut(IdentityHookStage) -> SqliteResult<()>,
+{
     let is_memory = db_path == Path::new(":memory:");
     let is_new_file = !is_memory && !db_path.exists();
     if !is_memory && !path_is_safe(db_path) {
@@ -11,28 +22,28 @@ fn open_connection_for_profile(
         return Err(rusqlite::Error::InvalidPath(db_path.to_path_buf()));
     }
     if mode == ConnectionMode::Reader && !is_memory && existing_sidecar_present(db_path) {
-        return open_owner_private_hot_reader(db_path);
+        return open_owner_private_hot_reader(db_path, identity_hook)
+            .map(|(connection, guard)| (connection, Some(guard)));
     }
 
-    let existing_identity = if !is_memory && !is_new_file {
+    let identity = if !is_memory && !is_new_file {
         preflight_existing_file(db_path)?;
-        Some(file_identity(db_path).map_err(diagnostic_error)?)
+        Some(ConnectionIdentityGuard::main(db_path).map_err(diagnostic_error)?)
+    } else if is_new_file {
+        Some(create_new_database_file(db_path)?)
     } else {
         None
     };
-    if is_new_file {
-        create_new_database_file(db_path)?;
-    }
+    identity_hook(IdentityHookStage::Retained)?;
 
     let connection = open_profile_connection(db_path, mode, is_memory)?;
-    if let Some(identity) = existing_identity {
+    identity_hook(IdentityHookStage::Opened)?;
+    verify_connection_identity(&connection, identity.as_ref())?;
+    if !is_memory && !is_new_file {
         connection.execute_batch("PRAGMA query_only = ON;")?;
         classify_existing_connection(&connection)?;
-        if file_identity(db_path).map_err(diagnostic_error)? != identity {
-            return Err(diagnostic_error(
-                SchemaOpenDiagnostic::FileIdentityUncertain,
-            ));
-        }
+        identity_hook(IdentityHookStage::Classified)?;
+        verify_connection_identity(&connection, identity.as_ref())?;
         connection.execute_batch("PRAGMA query_only = OFF;")?;
     }
 
@@ -42,46 +53,63 @@ fn open_connection_for_profile(
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     }
     if mode == ConnectionMode::Writer && !is_memory {
+        verify_connection_identity(&connection, identity.as_ref())?;
         initialize_wal_once(&connection)?;
         if is_new_file {
             secure_present_sidecars(db_path)?;
         }
     }
-    Ok(connection)
+    verify_connection_identity(&connection, identity.as_ref())?;
+    Ok((connection, identity))
 }
 
-fn open_owner_private_hot_reader(path: &Path) -> SqliteResult<Connection> {
+fn open_owner_private_hot_reader<F>(
+    path: &Path,
+    mut identity_hook: F,
+) -> SqliteResult<(Connection, ConnectionIdentityGuard)>
+where
+    F: FnMut(IdentityHookStage) -> SqliteResult<()>,
+{
     #[cfg(not(unix))]
     {
-        let _ = path;
+        let _ = (path, identity_hook);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
     #[cfg(unix)]
     {
-        let file_set = owner_private_recovery_file_set(path).map_err(diagnostic_error)?;
+        let mut identity = ConnectionIdentityGuard::owner_private(path).map_err(diagnostic_error)?;
+        identity_hook(IdentityHookStage::Retained)?;
         let connection = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
+        identity_hook(IdentityHookStage::Opened)?;
+        identity.retain_created_sidecars()?;
+        identity.verify(&connection)?;
         connection.execute_batch("PRAGMA query_only = ON;")?;
         classify_existing_connection(&connection)?;
-        if !recovery_file_set_unchanged(path, &file_set).map_err(diagnostic_error)? {
-            return Err(diagnostic_error(
-                SchemaOpenDiagnostic::FileIdentityUncertain,
-            ));
-        }
+        identity_hook(IdentityHookStage::Classified)?;
+        identity.verify_with_sidecar_handle(&connection)?;
         connection.execute_batch("PRAGMA query_only = OFF;")?;
-        Ok(connection)
+        Ok((connection, identity))
     }
 }
 
-fn create_new_database_file(path: &Path) -> SqliteResult<()> {
-    match fs::OpenOptions::new()
+fn create_new_database_file(path: &Path) -> SqliteResult<ConnectionIdentityGuard> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true).write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options
+            .mode(0o600)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    match options
         .write(true)
-        .create_new(true)
         .open(path)
     {
-        Ok(file) => drop(file),
+        Ok(file) => ConnectionIdentityGuard::from_created(path, file).map_err(diagnostic_error),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
             return Err(diagnostic_error(
                 SchemaOpenDiagnostic::FileIdentityUncertain,
@@ -89,7 +117,6 @@ fn create_new_database_file(path: &Path) -> SqliteResult<()> {
         }
         Err(error) => return Err(rusqlite::Error::ToSqlConversionFailure(Box::new(error))),
     }
-    Ok(())
 }
 
 fn open_profile_connection(
