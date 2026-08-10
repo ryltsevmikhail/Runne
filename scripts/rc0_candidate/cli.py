@@ -116,7 +116,6 @@ def main(arguments: Sequence[str] | None = None) -> int:
             validate_local_input_receipt(
                 _ROOT,
                 Path(arguments[2]),
-                _ROOT / "scripts/ci-local-inputs.sh",
                 Path(arguments[4]),
                 consume=True,
             )

@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
+if [[ $# -ne 0 ]]; then
     exit 2
 fi
-receipt="$1"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$repo_root"
 
-pinned_toolchain="${GOCODE_PINNED_TOOLCHAIN:-1.97.1}"
-msrv_toolchain="${GOCODE_MSRV_TOOLCHAIN:-1.95.0}"
+readonly pinned_toolchain="1.97.1"
+readonly msrv_toolchain="1.95.0"
 
 toolchain_bin() {
     local version="$1"
@@ -112,11 +111,3 @@ pnpm build
 CI=1 pnpm test:e2e
 pnpm validate:docs
 pnpm lint:architecture
-
-pinned_rustc="$(run_with_toolchain "$pinned_toolchain" rustc -V)"
-msrv_rustc="$(run_with_toolchain "$msrv_toolchain" rustc -V)"
-python3 -m scripts.ci_local_receipt issue \
-    --receipt "$receipt" \
-    --input-script scripts/ci-local-inputs.sh \
-    --pinned-rustc "$pinned_rustc" \
-    --msrv-rustc "$msrv_rustc"
