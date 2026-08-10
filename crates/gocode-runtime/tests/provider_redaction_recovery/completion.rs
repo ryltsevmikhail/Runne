@@ -209,6 +209,13 @@ impl ScannerRecoveryPersistence for StrongerTerminalRace<'_> {
         self.inner.advance_checkpoint(checkpoint)
     }
 
+    fn advance_final_checkpoint(
+        &self,
+        checkpoint: ScannerCheckpoint,
+    ) -> Result<(), ScannerRecoveryPersistenceError> {
+        self.inner.advance_final_checkpoint(checkpoint)
+    }
+
     fn commit_terminal(
         &self,
         binding: TailBinding,

@@ -11,6 +11,7 @@ pub struct ScannerRecoveryRecord {
     durable_cursor: u64,
     durable_safe_prefix_high_water: u64,
     durable_checkpoint_digest: Option<[u8; 32]>,
+    completion_checkpoint_digest: Option<[u8; 32]>,
     disposition: Option<ScannerTerminalDisposition>,
 }
 
@@ -22,6 +23,7 @@ impl ScannerRecoveryRecord {
         durable_cursor: u64,
         durable_safe_prefix_high_water: u64,
         durable_checkpoint_digest: Option<[u8; 32]>,
+        completion_checkpoint_digest: Option<[u8; 32]>,
         disposition: Option<ScannerTerminalDisposition>,
     ) -> Self {
         Self {
@@ -30,6 +32,7 @@ impl ScannerRecoveryRecord {
             durable_cursor,
             durable_safe_prefix_high_water,
             durable_checkpoint_digest,
+            completion_checkpoint_digest,
             disposition,
         }
     }
@@ -52,6 +55,10 @@ impl ScannerRecoveryRecord {
     /// Returns the exact digest authorizing the durable cursor advance.
     pub const fn durable_checkpoint_digest(self) -> Option<[u8; 32]> {
         self.durable_checkpoint_digest
+    }
+    /// Returns the final empty-tail checkpoint marker, when durably proven.
+    pub const fn completion_checkpoint_digest(self) -> Option<[u8; 32]> {
+        self.completion_checkpoint_digest
     }
     /// Returns the committed terminal disposition, when terminal.
     pub const fn disposition(self) -> Option<ScannerTerminalDisposition> {
@@ -99,6 +106,11 @@ pub trait ScannerRecoveryPersistence: Send + Sync {
     ) -> Result<(), ScannerRecoveryPersistenceError>;
     /// Advances cursor/high-water only when bound to the exact checkpoint digest.
     fn advance_checkpoint(
+        &self,
+        checkpoint: ScannerCheckpoint,
+    ) -> Result<(), ScannerRecoveryPersistenceError>;
+    /// Advances the exact final empty-tail checkpoint and marks completion proof.
+    fn advance_final_checkpoint(
         &self,
         checkpoint: ScannerCheckpoint,
     ) -> Result<(), ScannerRecoveryPersistenceError>;

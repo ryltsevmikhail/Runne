@@ -1,0 +1,9 @@
+[package]
+name = "sqlite-handle-identity"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+rusqlite = { version = "=0.34.0", features = ["bundled"] }
