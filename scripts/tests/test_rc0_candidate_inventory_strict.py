@@ -2,6 +2,8 @@
 
 import hashlib
 import importlib.util
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 
@@ -43,6 +45,17 @@ VALID_RUN = (
 
 
 class StrictFinalInventoryTests(unittest.TestCase):
+    def test_direct_entry_bootstraps_repository_imports(self):
+        inventory = ROOT / "scripts/rc0_candidate/inventories/source-candidate-v1.json"
+        result = subprocess.run(
+            [sys.executable, str(VERIFIER_PATH), "--inventory", str(inventory),
+             "--id", "scanner.withheld-tail"],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, "PASS: Rust inventory evidence verified\n")
+        self.assertEqual(result.stderr, "")
+
     def verify_with(self, listing: bytes, run: bytes):
         def command(args: tuple[str, ...]):
             if args == ("rustc", "-V"):

@@ -9,6 +9,10 @@ MAX_DOCUMENT_CHARS = 262_144
 MAX_TOKENS = 32_768
 MAX_TOKEN_CHARS = 128
 SUBJECTS = {
+    "rc0": "RC0_QUALIFIED",
+    "rc0candidate": "RC0_QUALIFIED",
+    "candidate": "CANDIDATE_PASS",
+    "sourcecandidate": "CANDIDATE_PASS",
     "productionqualification": "PRODUCTION_QUALIFICATION",
     "release": "RELEASE_PASS",
     "signing": "SIGNING_PASS",
@@ -19,6 +23,7 @@ OUTCOMES = frozenset(
     {
         "complete",
         "completed",
+        "qualified",
         "approved",
         "succeeded",
         "authorized",
@@ -29,6 +34,12 @@ OUTCOMES = frozenset(
     }
 )
 CONNECTORS = frozenset({"is", "was", "has", "been", "now"})
+NOUN_PREFIXES = frozenset(
+    {"a", "an", "the", "our", "this", "that", "its", "their", "final", "current", "latest"}
+)
+LEADING_METADATA_KEYS = frozenset(
+    {"title", "status", "document_type", "source_status", "created", "updated", "owners"}
+)
 MENTION_NEEDLES = {
     "RC0_QUALIFIED": "rc0qualified",
     "CANDIDATE_PASS": "candidatepass",
@@ -80,6 +91,29 @@ def _without_code(text: str) -> str:
     return "".join(output)
 
 
+def _without_front_matter(text: str) -> str:
+    """Blank one exact leading YAML block before prose clause parsing."""
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return text
+    if lines[0].strip() == "---":
+        for end in range(1, len(lines)):
+            if lines[end].strip() == "---":
+                blanked = ["\n" if line.endswith("\n") else "" for line in lines[: end + 1]]
+                return "".join(blanked + lines[end + 1 :])
+        return text
+    end = 0
+    while end < min(8, len(lines)):
+        key, separator, value = lines[end].partition(":")
+        if separator != ":" or key.strip() not in LEADING_METADATA_KEYS or not value.strip():
+            break
+        end += 1
+    if end:
+        blanked = ["\n" if line.endswith("\n") else "" for line in lines[:end]]
+        return "".join(blanked + lines[end:])
+    return text
+
+
 def _tokens_normalized(normalized: str) -> tuple[str, ...]:
     if len(normalized) > MAX_DOCUMENT_CHARS:
         raise ClaimParseError("CLAIM_DOCUMENT_TOO_LARGE")
@@ -110,13 +144,14 @@ def _tokens(text: str) -> tuple[str, ...]:
 def _consume_joined(tokens: tuple[str, ...], start: int, choices: set[str] | frozenset[str]):
     """Consume at most three adjacent pieces that concatenate to an exact choice."""
     combined = ""
+    matched = None
     for end in range(start, min(start + 3, len(tokens))):
         combined += tokens[end]
         if combined in choices:
-            return combined, end + 1
+            matched = combined, end + 1
         if not any(choice.startswith(combined) for choice in choices):
             break
-    return None
+    return matched
 
 
 def _positive_outcomes(tokens: tuple[str, ...]) -> frozenset[str]:
@@ -126,15 +161,14 @@ def _positive_outcomes(tokens: tuple[str, ...]) -> frozenset[str]:
         subject = _consume_joined(tokens, start, subject_choices)
         if subject is None:
             continue
-        if subject[0] == "release" and start != 0:
-            continue
         cursor = subject[1]
         connectors = 0
         while cursor < len(tokens) and tokens[cursor] in CONNECTORS and connectors < 3:
             cursor += 1
             connectors += 1
         outcome = _consume_joined(tokens, cursor, OUTCOMES)
-        if outcome is not None:
+        bounded_prefix = start <= 4 and all(token in NOUN_PREFIXES for token in tokens[:start])
+        if outcome is not None and (bounded_prefix or connectors > 0):
             detected.add(SUBJECTS[subject[0]])
     return frozenset(detected)
 
@@ -150,7 +184,8 @@ def _mention_ids(text: str) -> frozenset[str]:
 
 
 def _prose_clauses(text: str) -> tuple[tuple[str, ...], ...]:
-    normalized = unicodedata.normalize("NFKC", _without_code(text)).casefold()
+    prose = _without_code(_without_front_matter(text))
+    normalized = unicodedata.normalize("NFKC", prose).casefold()
     if len(normalized) > MAX_DOCUMENT_CHARS:
         raise ClaimParseError("CLAIM_DOCUMENT_TOO_LARGE")
     clauses, start = [], 0

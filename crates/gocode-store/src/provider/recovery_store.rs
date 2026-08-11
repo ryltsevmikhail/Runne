@@ -156,7 +156,7 @@ impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
         let current = current_head(&transaction, binding.attempt_id())?;
         let authoritative = match current {
             Some(head) => {
-                if head.binding != binding && candidate == ScannerTerminalDisposition::Completed {
+                if head.binding != binding {
                     return Err(ScannerRecoveryPersistenceError::Conflict);
                 }
                 let disposition = head

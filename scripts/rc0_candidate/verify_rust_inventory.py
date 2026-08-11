@@ -6,11 +6,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import stat
 import subprocess
+import sys
+import tempfile
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.phase3_inventory import (
     Phase3InventoryError,
@@ -19,6 +26,7 @@ from scripts.phase3_inventory import (
 )
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RUST_RESERVATIONS = (
     ("sqlite.managed-connection", "gocode-store", "connection_profile"),
     ("sqlite.local-reliability", "gocode-store", "local_reliability_inventory"),
@@ -165,8 +173,25 @@ def validate_inventory(document: dict) -> None:
             raise InventoryError("final inventory digest mismatch")
 
 
+def _cargo_temp_root() -> Path:
+    root = REPOSITORY_ROOT / "target"
+    root.mkdir(mode=0o700, exist_ok=True)
+    metadata = os.lstat(root)
+    if (not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid()
+            or root.resolve(strict=True).parent != REPOSITORY_ROOT):
+        raise InventoryError("Cargo temporary root is not an owned repository directory")
+    return root
+
+
 def subprocess_command(args: tuple[str, ...]) -> bytes:
-    result = subprocess.run(args, check=True, capture_output=True)
+    if args[0] != "cargo":
+        return subprocess.run(args, check=True, capture_output=True).stdout
+    with tempfile.TemporaryDirectory(prefix="rc0-inventory-", dir=_cargo_temp_root()) as temporary:
+        metadata = os.lstat(temporary)
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid() or metadata.st_mode & 0o077:
+            raise InventoryError("Cargo temporary directory is not owner-private")
+        environment = {**os.environ, "TMPDIR": temporary}
+        result = subprocess.run(args, check=True, capture_output=True, env=environment)
     return result.stdout
 
 
