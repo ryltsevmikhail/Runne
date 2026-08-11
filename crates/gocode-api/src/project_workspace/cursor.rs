@@ -192,20 +192,17 @@ fn decode(
     if token.len() != prefix.len() + payload_length * 2 || !token.starts_with(prefix) {
         return Err(PageCursorTokenError::Invalid);
     }
-    let encoded = &token[prefix.len()..];
+    let encoded = &token.as_bytes()[prefix.len()..];
     (0..payload_length)
         .map(|index| {
-            hex_byte(&encoded[index * 2..index * 2 + 2]).ok_or(PageCursorTokenError::Invalid)
+            hex_byte(encoded[index * 2], encoded[index * 2 + 1])
+                .ok_or(PageCursorTokenError::Invalid)
         })
         .collect()
 }
 
-fn hex_byte(value: &str) -> Option<u8> {
-    let bytes = value.as_bytes();
-    match bytes {
-        [high, low] => Some(hex_nibble(*high)? << 4 | hex_nibble(*low)?),
-        _ => None,
-    }
+fn hex_byte(high: u8, low: u8) -> Option<u8> {
+    Some(hex_nibble(high)? << 4 | hex_nibble(low)?)
 }
 
 fn hex_nibble(value: u8) -> Option<u8> {
