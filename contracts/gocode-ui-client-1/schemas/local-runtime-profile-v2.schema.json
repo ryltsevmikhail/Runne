@@ -14,8 +14,8 @@
     },
     "capabilities": {
       "items": false,
-      "maxItems": 10,
-      "minItems": 10,
+      "maxItems": 21,
+      "minItems": 21,
       "prefixItems": [
         {
           "const": "conversation.create.v1",
@@ -55,6 +55,50 @@
         },
         {
           "const": "runtime.operational-telemetry.v1",
+          "type": "string"
+        },
+        {
+          "const": "project.list.v1",
+          "type": "string"
+        },
+        {
+          "const": "project.get.v1",
+          "type": "string"
+        },
+        {
+          "const": "project.create.v1",
+          "type": "string"
+        },
+        {
+          "const": "project.archive.v1",
+          "type": "string"
+        },
+        {
+          "const": "project.restore.v1",
+          "type": "string"
+        },
+        {
+          "const": "project.delete.v1",
+          "type": "string"
+        },
+        {
+          "const": "workspace.list.v1",
+          "type": "string"
+        },
+        {
+          "const": "workspace.get.v1",
+          "type": "string"
+        },
+        {
+          "const": "workspace.create.v1",
+          "type": "string"
+        },
+        {
+          "const": "workspace.open.v1",
+          "type": "string"
+        },
+        {
+          "const": "workspace.bind_root.v2",
           "type": "string"
         }
       ],

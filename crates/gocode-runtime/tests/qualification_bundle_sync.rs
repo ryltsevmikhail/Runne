@@ -17,7 +17,7 @@ const BUNDLE_JSON_PATH: &str = concat!(
 /// at the pinned base SHA; pins reproducibility of `ordered_capability_digest`
 /// without any external source.
 const EXPECTED_CAPABILITY_DIGEST: &str =
-    "ef9ff6a88f441945b2244c98ecd1a41fed11360620b562cb91c9ae76dfd1d2af";
+    "259e7e6a46aa8998ebb93964acd4b616cfe8fade2786fb3fcdd85a3d3546d551";
 
 #[test]
 fn bundle_json_sha256_matches_published_hash() {

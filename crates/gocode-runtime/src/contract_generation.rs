@@ -31,6 +31,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "bundle.sha256",
     "golden/local-session.json",
     "golden/operational-telemetry.json",
+    "golden/project-workspace.json",
     "golden/replay-conversation.json",
     "golden/replay-taskrun.json",
     "golden/sse-delivery.json",
@@ -38,6 +39,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "schemas/local-runtime-profile-v2.schema.json",
     "schemas/local-session-v1.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
+    "schemas/project-workspace-v1.schema.json",
     "schemas/replay-v1.schema.json",
     "schemas/sse-v1.schema.json",
 ];
@@ -65,4 +67,5 @@ include!("contract_generation/payload_schema.rs");
 include!("contract_generation/replay_schema.rs");
 include!("contract_generation/local_schemas.rs");
 include!("contract_generation/operational_telemetry_schema.rs");
+include!("contract_generation/project_workspace_schema.rs");
 include!("contract_generation/openapi.rs");

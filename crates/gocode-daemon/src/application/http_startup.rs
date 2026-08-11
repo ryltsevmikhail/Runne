@@ -2,6 +2,14 @@ use super::replay_authorization::DaemonReplayAuthorization;
 use super::shutdown::map_recovery_state;
 use super::*;
 use crate::operational_telemetry::compose_operational_telemetry_query;
+use gocode_api::{
+    RootAdmissionVerificationContext, RootHandleAdmission, VerifiedRootAdmissionClaims,
+};
+use gocode_application::ports::{
+    CurrentRootAdmissionContext, RootAdmissionLease, RootAdmissionVerifier,
+    RootAdmissionVerifierError,
+};
+use gocode_store::ProjectWorkspaceStore;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
@@ -145,7 +153,12 @@ pub(super) async fn start_http_and_runtime(
         )),
     );
     let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
-    let http_host = LocalRuntimeTlsHost::bind_with_operational_telemetry(
+    let project_workspace_host = gocode_runtime::RuntimeProjectWorkspaceHost::new(
+        ProjectWorkspaceStore::from_store(store.clone()),
+        UnavailableRootAdmission,
+        UnavailableRootAdmission,
+    );
+    let http_host = LocalRuntimeTlsHost::bind_with_project_workspace(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
         HealthState {
@@ -164,6 +177,10 @@ pub(super) async fn start_http_and_runtime(
         ),
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor),
+        gocode_http::project_workspace::ProjectWorkspaceHttpState::new(
+            project_workspace_host,
+            ApiActor::new("gocode-daemon").expect("the built-in daemon actor identity is valid"),
+        ),
         ReplayHttpState::new(
             replay_service,
             replay_binding,
@@ -228,6 +245,31 @@ pub(super) async fn start_http_and_runtime(
         task_supervisor: RuntimeTaskSupervisor::new(),
         shutdown_timeout,
     })
+}
+
+/// Fail-closed Task 5 seam until Task 6 supplies the native authenticated producer.
+/// No verified claims are synthesized; root binding remains unavailable.
+struct UnavailableRootAdmission;
+impl CurrentRootAdmissionContext for UnavailableRootAdmission {
+    type Lease = Self;
+    fn acquire_root_admission_lease(&self) -> Result<Self::Lease, RootAdmissionVerifierError> {
+        Err(RootAdmissionVerifierError::Unavailable)
+    }
+}
+impl RootAdmissionLease for UnavailableRootAdmission {
+    fn current_root_admission_context(
+        &self,
+    ) -> Result<RootAdmissionVerificationContext, RootAdmissionVerifierError> {
+        Err(RootAdmissionVerifierError::Unavailable)
+    }
+}
+impl RootAdmissionVerifier for UnavailableRootAdmission {
+    fn verify_root_admission(
+        &self,
+        _: RootHandleAdmission,
+    ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError> {
+        Err(RootAdmissionVerifierError::Unavailable)
+    }
 }
 
 fn operational_telemetry_state(

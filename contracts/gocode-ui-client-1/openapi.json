@@ -66,6 +66,1088 @@
         }
       }
     },
+    "/v1/projects": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/projectPage"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/projectCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/projectAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}": {
+      "delete": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/existing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/projectAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      },
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/project"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/archive": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/existing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/projectAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/restore": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/existing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/projectAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/workspaces": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/workspacePage"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      },
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/workspaceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/workspaceAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
     "/v1/replay/open-session": {
       "post": {
         "requestBody": {
@@ -344,6 +1426,420 @@
                 "description": "Responses are never stored",
                 "schema": {
                   "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/workspace"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}/open": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/existing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/workspaceAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}/root-bindings": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/project-workspace-v1.schema.json#/$defs/rootBind"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/workspaceAck"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
