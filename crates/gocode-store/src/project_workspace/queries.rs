@@ -1,3 +1,4 @@
+use gocode_api::ProjectWorkspacePageSize;
 use gocode_application::ports::ProjectWorkspaceRepositoryError as Error;
 use gocode_domain::id::{ProjectId, WorkspaceId};
 use gocode_domain::project_workspace::{Project, Workspace};
@@ -10,7 +11,7 @@ use super::records::{project_from_row, workspace_from_row};
 pub(super) fn list_projects(
     store: &StoreTransaction,
     principal: &str,
-    limit: u16,
+    limit: ProjectWorkspacePageSize,
     after: Option<ProjectId>,
 ) -> Result<(Vec<Project>, Option<ProjectId>), Error> {
     store.with_project_workspace_reader(|connection| {
@@ -40,7 +41,7 @@ pub(super) fn list_projects(
                 params![
                     principal,
                     after.map(|id| id.as_bytes().to_vec()),
-                    i64::from(limit) + 1,
+                    i64::from(limit.get()) + 1,
                 ],
                 project_from_row,
             )
@@ -74,7 +75,7 @@ pub(super) fn list_workspaces(
     store: &StoreTransaction,
     principal: &str,
     project_id: ProjectId,
-    limit: u16,
+    limit: ProjectWorkspacePageSize,
     after: Option<WorkspaceId>,
 ) -> Result<(Vec<Workspace>, Option<WorkspaceId>), Error> {
     store.with_project_workspace_reader(|connection| {
@@ -119,7 +120,7 @@ pub(super) fn list_workspaces(
                     project_id.as_bytes(),
                     principal,
                     after.map(|id| id.as_bytes().to_vec()),
-                    i64::from(limit) + 1,
+                    i64::from(limit.get()) + 1,
                 ],
                 workspace_from_row,
             )
@@ -130,11 +131,20 @@ pub(super) fn list_workspaces(
     })
 }
 
-fn page<T: PageId>(items: &mut Vec<T>, limit: u16) -> Result<(Vec<T>, Option<T::Id>), Error> {
-    let has_more = items.len() > usize::from(limit);
-    let cursor = has_more.then(|| items[usize::from(limit) - 1].page_id());
+fn page<T: PageId>(
+    items: &mut Vec<T>,
+    limit: ProjectWorkspacePageSize,
+) -> Result<(Vec<T>, Option<T::Id>), Error> {
+    let limit = usize::from(limit.get());
+    let has_more = items.len() > limit;
+    let cursor = if has_more {
+        let index = limit.checked_sub(1).ok_or(Error::InvariantViolation)?;
+        Some(items.get(index).ok_or(Error::InvariantViolation)?.page_id())
+    } else {
+        None
+    };
     if has_more {
-        items.truncate(usize::from(limit));
+        items.truncate(limit);
     }
     Ok((std::mem::take(items), cursor))
 }

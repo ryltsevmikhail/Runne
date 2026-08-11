@@ -30,30 +30,34 @@ async fn project_pages_are_bounded_stable_and_exclusive() {
             ProjectQueryContext {
                 principal: owner.clone(),
             },
-            ProjectPageRequest::new(2, first.next_cursor).unwrap(),
+            ProjectPageRequest::new(2, first.next_cursor()).unwrap(),
         )
         .await
         .unwrap();
     let third = host
         .list_projects(
             ProjectQueryContext { principal: owner },
-            ProjectPageRequest::new(2, second.next_cursor).unwrap(),
+            ProjectPageRequest::new(2, second.next_cursor()).unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(
-        [first.items.len(), second.items.len(), third.items.len()],
+        [
+            first.items().len(),
+            second.items().len(),
+            third.items().len()
+        ],
         [2, 2, 1]
     );
     let actual = first
-        .items
+        .items()
         .iter()
-        .chain(&second.items)
-        .chain(&third.items)
+        .chain(second.items())
+        .chain(third.items())
         .map(|item| item.project_id)
         .collect::<Vec<_>>();
     assert_eq!(actual, expected);
-    assert!(third.next_cursor.is_none());
+    assert!(third.next_cursor().is_none());
     let empty = host
         .list_projects(
             ProjectQueryContext {
@@ -63,8 +67,8 @@ async fn project_pages_are_bounded_stable_and_exclusive() {
         )
         .await
         .unwrap();
-    assert!(empty.items.is_empty());
-    assert!(empty.next_cursor.is_none());
+    assert!(empty.items().is_empty());
+    assert!(empty.next_cursor().is_none());
     assert_eq!(
         ProjectPageRequest::new(0, None),
         Err(ProjectWorkspaceHostError::Conflict)
@@ -89,8 +93,8 @@ async fn project_pages_are_bounded_stable_and_exclusive() {
         .unwrap();
     assert_eq!(
         reopened_first
-            .items
-            .into_iter()
+            .items()
+            .iter()
             .map(|item| item.project_id)
             .collect::<Vec<_>>(),
         expected[..2]
@@ -150,12 +154,12 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
         )
         .await
         .unwrap();
-    let first_cursor = first.next_cursor;
+    let first_cursor = first.next_cursor();
     let second = host
         .list_workspaces(
             query.clone(),
             project,
-            WorkspacePageRequest::new(2, first.next_cursor).unwrap(),
+            WorkspacePageRequest::new(2, first.next_cursor()).unwrap(),
         )
         .await
         .unwrap();
@@ -163,19 +167,19 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
         .list_workspaces(
             query.clone(),
             project,
-            WorkspacePageRequest::new(2, second.next_cursor).unwrap(),
+            WorkspacePageRequest::new(2, second.next_cursor()).unwrap(),
         )
         .await
         .unwrap();
     let actual = first
-        .items
+        .items()
         .iter()
-        .chain(&second.items)
-        .chain(&third.items)
+        .chain(second.items())
+        .chain(third.items())
         .map(|item| item.workspace_id)
         .collect::<Vec<_>>();
     assert_eq!(actual, expected);
-    assert!(third.next_cursor.is_none());
+    assert!(third.next_cursor().is_none());
 
     let empty = host
         .list_workspaces(
@@ -185,8 +189,8 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
         )
         .await
         .unwrap();
-    assert!(empty.items.is_empty());
-    assert!(empty.next_cursor.is_none());
+    assert!(empty.items().is_empty());
+    assert!(empty.next_cursor().is_none());
     assert_eq!(
         host.list_workspaces(
             query,
@@ -234,8 +238,8 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
         .unwrap();
     assert_eq!(
         reopened_second
-            .items
-            .into_iter()
+            .items()
+            .iter()
             .map(|item| item.workspace_id)
             .collect::<Vec<_>>(),
         expected[2..4]

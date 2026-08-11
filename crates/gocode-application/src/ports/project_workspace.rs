@@ -1,5 +1,6 @@
 use gocode_api::{
-    RootAdmissionVerificationContext, RootHandleAdmission, VerifiedRootAdmissionClaims,
+    ProjectWorkspacePageSize, RootAdmissionVerificationContext, RootHandleAdmission,
+    VerifiedRootAdmissionClaims,
 };
 use gocode_domain::id::ProjectId;
 use gocode_domain::project_workspace::{Project, Workspace};
@@ -80,7 +81,7 @@ pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
     fn list_projects(
         &self,
         principal: &str,
-        limit: u16,
+        limit: ProjectWorkspacePageSize,
         after: Option<ProjectId>,
     ) -> Result<(Vec<Project>, Option<ProjectId>), ProjectWorkspaceRepositoryError>;
     fn get_project(&self, principal: &str, id: ProjectId) -> Result<Project, ProjectWorkspaceRepositoryError>;
@@ -88,7 +89,7 @@ pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
         &self,
         principal: &str,
         project_id: ProjectId,
-        limit: u16,
+        limit: ProjectWorkspacePageSize,
         after: Option<WorkspaceId>,
     ) -> Result<(Vec<Workspace>, Option<WorkspaceId>), ProjectWorkspaceRepositoryError>;
     fn get_workspace(&self, principal: &str, id: WorkspaceId) -> Result<Workspace, ProjectWorkspaceRepositoryError>;

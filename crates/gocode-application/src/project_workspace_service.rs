@@ -200,8 +200,12 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             .list_projects(context.principal.as_str(), limit, after)
             .map_err(map_error)
             .and_then(|(items, cursor)| {
-                ProjectPage::new(items.into_iter().map(project_snapshot).collect(), cursor)
-                    .map_err(|_| ProjectWorkspaceServiceError::InvariantViolation)
+                ProjectPage::new(
+                    limit,
+                    items.into_iter().map(project_snapshot).collect(),
+                    cursor,
+                )
+                .map_err(|_| ProjectWorkspaceServiceError::InvariantViolation)
             })
     }
     pub fn get_project(
@@ -231,6 +235,7 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             .map_err(map_error)
             .and_then(|(items, cursor)| {
                 WorkspacePage::new(
+                    limit,
                     id,
                     items.into_iter().map(workspace_snapshot).collect(),
                     cursor,
