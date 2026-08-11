@@ -1,6 +1,7 @@
 //! Desktop implementations of native capability ports.
 
 mod protected_runtime;
+mod root_handle_broker;
 
 pub use gocode_api::PROTECTED_BUNDLED_SESSION_RENEW_AFTER;
 #[cfg(feature = "test-support")]
@@ -10,6 +11,7 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
+pub use root_handle_broker::{RootHandleBroker, RootHandleBrokerError, VerifiedRootHandle};
 
 use std::collections::VecDeque;
 use std::fmt;
