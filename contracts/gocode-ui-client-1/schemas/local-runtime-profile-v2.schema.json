@@ -85,6 +85,14 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
       "type": "string"
     },
+    "executableSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "launchAuthorityId": {
+      "pattern": "^[0-9a-f]{32}$",
+      "type": "string"
+    },
     "launchGeneration": {
       "minimum": 1,
       "type": "integer"
@@ -105,6 +113,10 @@
       "const": 2,
       "type": "integer"
     },
+    "sessionId": {
+      "pattern": "^[0-9a-f]{32}$",
+      "type": "string"
+    },
     "transportProfileId": {
       "const": "gocode-local-runtime/2",
       "type": "string"
@@ -120,11 +132,14 @@
     "daemonInstanceId",
     "endpoint",
     "eventLogLineageId",
+    "executableSha256",
+    "launchAuthorityId",
     "launchGeneration",
     "principalId",
     "profileId",
     "schemaHash",
     "schemaVersion",
+    "sessionId",
     "transportProfileId"
   ],
   "title": "Local Runtime Profile V2",

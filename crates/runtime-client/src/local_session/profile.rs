@@ -14,7 +14,7 @@ use gocode_api::{
 use hmac::{Hmac, Mac};
 use rand::{RngCore, rngs::OsRng};
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{Deserialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
@@ -38,6 +38,8 @@ struct SessionPeer {
     origin: String,
     certificate_der: Vec<u8>,
     certificate_sha256: [u8; 32],
+    executable_sha256: [u8; 32],
+    launch_authority_id: [u8; 16],
     authority_id: [u8; 16],
     principal_id: String,
     event_log_lineage_id: uuid::Uuid,

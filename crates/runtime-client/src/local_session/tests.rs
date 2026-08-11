@@ -23,6 +23,14 @@ mod tests {
     }
 
     #[test]
+    fn bootstrap_v3_response_decoders_reject_unknown_and_omitted_fields() {
+        let challenge = r#"{"wireVersion":"3","keyVersion":1,"challengeId":"AQEBAQEBAQEBAQEBAQEBAQ","serverNonce":"CAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAg","extra":true}"#;
+        assert!(serde_json::from_str::<ChallengeResponse>(challenge).is_err());
+        let final_response = r#"{"keyVersion":1,"expiresAtMonotonicMillis":1,"sessionId":"018f2e3a700070008000000000000005"}"#;
+        assert!(serde_json::from_str::<AuthenticateResponse>(final_response).is_err());
+    }
+
+    #[test]
     fn exact_session_tuple_mismatches_are_typed_incompatible() {
         let local = session_peer_fixture();
         verify_remote_profile(&local, remote_profile_fixture(&local), [0x22; 16])
@@ -64,6 +72,8 @@ mod tests {
             protected_ready_fixture(PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID);
         let profile = ProtectedBundledRuntimeProfile::from_ready(&ready, &request, &keys)
             .expect("exact protected profile");
+        assert_eq!(profile.peer.executable_sha256, [0x11; 32]);
+        assert_eq!(profile.peer.launch_authority_id, request.launch_authority_id());
         let debug = format!("{profile:?}");
         assert!(debug.contains(PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID));
         assert!(!debug.contains("bootstrap"));
@@ -127,6 +137,8 @@ mod tests {
             origin: "https://127.0.0.1:8443".to_owned(),
             certificate_der: vec![1],
             certificate_sha256,
+            executable_sha256: [0x0e; 32],
+            launch_authority_id: [0x12; 16],
             authority_id,
             principal_id: "local-owner".to_owned(),
             event_log_lineage_id,

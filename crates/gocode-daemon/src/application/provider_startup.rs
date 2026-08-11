@@ -7,6 +7,7 @@ use crate::protected_activation::VerifiedProtectedApplicationStart;
 pub(super) struct StartupProvider {
     activation: ProviderActivation,
     provenance: Option<DaemonActivationProvenance>,
+    launch_authority_id: Option<[u8; 16]>,
     dependencies: Option<ProtectedProviderDependencyCapsule>,
 }
 
@@ -20,6 +21,7 @@ impl StartupProvider {
         Ok(Self {
             activation: config.provider_activation.clone(),
             provenance: None,
+            launch_authority_id: None,
             dependencies: None,
         })
     }
@@ -33,6 +35,7 @@ impl StartupProvider {
             provenance: Some(
                 DaemonActivationProvenance::from_verified_owner_private_config(config),
             ),
+            launch_authority_id: None,
             dependencies: Some(dependencies),
         }
     }
@@ -47,6 +50,7 @@ impl StartupProvider {
             provenance: Some(DaemonActivationProvenance::from_verified_protected_launch(
                 start,
             )),
+            launch_authority_id: Some(start.launch_authority_id()),
             dependencies: Some(dependencies),
         }
     }
@@ -61,6 +65,7 @@ impl StartupProvider {
     ) -> (
         ProviderActivation,
         Option<DaemonActivationProvenance>,
+        Option<[u8; 16]>,
         bool,
         Option<ProtectedProviderDependencyCapsule>,
     ) {
@@ -68,6 +73,7 @@ impl StartupProvider {
         (
             self.activation,
             self.provenance,
+            self.launch_authority_id,
             protected,
             self.dependencies,
         )
@@ -86,6 +92,7 @@ impl DaemonApplication {
         })?;
         let replay_connection = open_runtime_connection(
             &config.db_path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
             bootstrap.authority_id,
             replay_lineage,
             "replay store",
@@ -102,19 +109,18 @@ impl DaemonApplication {
         );
         let store_writer = open_runtime_connection(
             &config.db_path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
             bootstrap.authority_id,
             replay_lineage,
             "runtime writer",
         )?;
         let store_reader = open_runtime_connection(
             &config.db_path,
+            gocode_store::schema::ConnectionMode::Reader,
             bootstrap.authority_id,
             replay_lineage,
             "runtime reader",
         )?;
-        store_reader
-            .execute_batch("PRAGMA query_only = ON;")
-            .map_err(|error| DaemonError::Bootstrap(format!("restrict runtime reader: {error}")))?;
         let store = StoreTransaction::open_with_connections(
             &config.db_path,
             store_writer,
@@ -145,8 +151,15 @@ impl DaemonApplication {
             session_id = *uuid::Uuid::now_v7().as_bytes();
         }
 
-        let (provider_activation, activation_provenance, protected_activation, dependencies) =
-            startup.into_parts();
+        let (
+            provider_activation,
+            activation_provenance,
+            launch_authority_id,
+            protected_activation,
+            dependencies,
+        ) = startup.into_parts();
+        let launch_authority_id =
+            launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
         let provider_profile_digest = *provider_activation.binding().profile_digest();
         let provider_service = match activation_provenance {
             Some(activation_provenance) => {
@@ -154,15 +167,24 @@ impl DaemonApplication {
                     let db_path = config.db_path.clone();
                     let dispatch_connection = open_runtime_connection(
                         &db_path,
+                        gocode_store::schema::ConnectionMode::ValidatedReopen,
                         bootstrap.authority_id,
                         replay_lineage,
                         "provider dispatch store",
                     );
                     let execution_connection = open_runtime_connection(
                         &db_path,
+                        gocode_store::schema::ConnectionMode::ValidatedReopen,
                         bootstrap.authority_id,
                         replay_lineage,
                         "provider execution store",
+                    );
+                    let credential_connection = open_runtime_connection(
+                        &db_path,
+                        gocode_store::schema::ConnectionMode::ValidatedReopen,
+                        bootstrap.authority_id,
+                        replay_lineage,
+                        "provider credential lifecycle store",
                     );
                     let conversation_store = store.clone();
                     let conversation_service = Arc::clone(&conversation_text_service);
@@ -170,6 +192,7 @@ impl DaemonApplication {
                     async move {
                         let dispatch_connection = dispatch_connection?;
                         let execution_connection = execution_connection?;
+                        let credential_connection = credential_connection?;
                         let dependencies = dependencies.ok_or_else(|| {
                             DaemonError::Bootstrap("provider dependencies unavailable".into())
                         })?;
@@ -177,6 +200,7 @@ impl DaemonApplication {
                             db_path,
                             dispatch_connection,
                             execution_connection,
+                            credential_connection,
                             runtime_authority_id: bootstrap.authority_id,
                             runtime_generation: bootstrap.launch_generation,
                             activation_provenance,
@@ -193,6 +217,8 @@ impl DaemonApplication {
             }
             None => None,
         };
+        let executable_sha256 =
+            *super::executable_identity::measure_launched_executable()?.executable_sha256();
         http_startup::start_http_and_runtime(
             config,
             bootstrap,
@@ -208,6 +234,8 @@ impl DaemonApplication {
             provider_activation,
             provider_service,
             protected_activation,
+            launch_authority_id,
+            executable_sha256,
             session_id,
         )
         .await

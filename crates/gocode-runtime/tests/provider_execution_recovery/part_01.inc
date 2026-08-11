@@ -27,6 +27,9 @@ use gocode_runtime::provider_execution::{
     ProviderTerminalPricing, ProviderTerminalPricingError, RuntimeProviderExecution,
     RuntimeProviderExecutionError,
 };
+use gocode_runtime::provider_redaction::{
+    PreJournalProviderEvent, ProviderEventRedaction, ProviderRedactionError,
+};
 use gocode_secure_store::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
@@ -35,6 +38,27 @@ use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
     ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
+
+struct AllowingRedaction;
+
+impl ProviderEventRedaction for AllowingRedaction {
+    fn scan_before_journal(
+        &self,
+        _context: &ProviderEventJournalContext,
+        event: &ProviderStreamEvent,
+    ) -> Result<PreJournalProviderEvent, ProviderRedactionError> {
+        Ok(PreJournalProviderEvent::Append(event.clone()))
+    }
+
+    fn terminal_disposition(
+        &self,
+        _attempt: gocode_provider::DispatchAttemptId,
+    ) -> Result<Option<gocode_provider::ScannerTerminalDisposition>, ProviderRedactionError> {
+        Ok(Some(gocode_provider::ScannerTerminalDisposition::Completed))
+    }
+}
+
+static ALLOWING_REDACTION: AllowingRedaction = AllowingRedaction;
 #[derive(Default)]
 pub(crate) struct MemoryKeyring {
     keys: Mutex<HashMap<ProviderJournalKeyRef, [u8; 32]>>,

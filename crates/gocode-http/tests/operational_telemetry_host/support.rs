@@ -37,7 +37,10 @@ use gocode_http::{
     secure_local_host::{LocalRuntimeTlsHost, LocalRuntimeTlsHostError},
     task_runs::TaskRunHttpState,
 };
-use gocode_store::{replay_store::ReplayStore, schema::apply_migrations};
+use gocode_store::{
+    replay_store::ReplayStore,
+    schema::{ConnectionMode, apply_migrations, open_managed_connection},
+};
 
 pub(super) const BASE_CAPABILITIES: &[&str] = &["conversation.create.v1"];
 pub(super) const TELEMETRY_CAPABILITIES: &[&str] = &[
@@ -211,7 +214,8 @@ fn binding(capabilities: &[&str]) -> RuntimeSessionBinding {
 }
 
 fn replay_state() -> ReplayHttpState {
-    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    let connection =
+        open_managed_connection(std::path::Path::new(":memory:"), ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     let binding = binding(BASE_CAPABILITIES);
     let service = ReplayService::new(

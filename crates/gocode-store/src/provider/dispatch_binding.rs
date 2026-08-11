@@ -1,8 +1,82 @@
 use gocode_provider::{
-    DispatchAttemptId, ProviderCallDigestVersion, ProviderDispatchClaim, ProviderStreamId,
+    CredentialDispatchCapability, CredentialLease, CredentialVersionRef, DispatchAttemptId,
+    ProviderCallDigestVersion, ProviderDispatchClaim, ProviderStreamId,
 };
 
 use super::PreparedProviderRecord;
+use super::SqliteProviderCredentialLifecycleStore;
+
+/// Exact credential authority required by one coordinator instance.
+#[derive(Clone, Copy)]
+pub struct CredentialDispatchAuthority<'a> {
+    pub(super) store: &'a SqliteProviderCredentialLifecycleStore,
+    pub(super) owner: [u8; 16],
+    pub(super) fencing_token: u64,
+}
+
+impl<'a> CredentialDispatchAuthority<'a> {
+    /// Binds the lifecycle store to the runtime owner and monotonic fence.
+    pub const fn new(
+        store: &'a SqliteProviderCredentialLifecycleStore,
+        owner: [u8; 16],
+        fencing_token: u64,
+    ) -> Self {
+        Self {
+            store,
+            owner,
+            fencing_token,
+        }
+    }
+}
+
+/// Non-forgeable store-produced active credential lease/fence tuple.
+#[derive(Debug, Clone)]
+pub struct CredentialDispatchBinding(CredentialDispatchCapability);
+
+impl PartialEq for CredentialDispatchBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.lease() == other.lease()
+    }
+}
+
+impl Eq for CredentialDispatchBinding {}
+
+impl CredentialDispatchBinding {
+    pub(super) const fn from_authoritative_capability(
+        capability: CredentialDispatchCapability,
+    ) -> Self {
+        Self(capability)
+    }
+
+    /// Returns the active version reference.
+    pub const fn version_ref(&self) -> &CredentialVersionRef {
+        self.0.version_ref()
+    }
+
+    /// Returns the active owner identity.
+    pub const fn owner(&self) -> &[u8; 16] {
+        self.0.lease().owner()
+    }
+
+    /// Returns the active lease expiry.
+    pub const fn expires_at(&self) -> i64 {
+        self.0.lease().expires_at()
+    }
+
+    /// Returns the active fencing token.
+    pub const fn fencing_token(&self) -> u64 {
+        self.0.lease().fencing_token()
+    }
+
+    pub(super) const fn lease(&self) -> &CredentialLease {
+        self.0.lease()
+    }
+
+    /// Returns the native-load capability bound to this authoritative lease.
+    pub const fn native_capability(&self) -> &CredentialDispatchCapability {
+        &self.0
+    }
+}
 
 /// Opaque runtime-owned execution and normalized stream binding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,5 +141,57 @@ impl ProviderExecutionBinding {
     /// Returns the normalized adapter stream identity.
     pub const fn stream_id(&self) -> ProviderStreamId {
         self.stream_id
+    }
+
+    /// Adds the authoritative active credential lease/fence required by a
+    /// versioned provider effect.
+    pub fn bind_active_credential(
+        self,
+        credential: CredentialDispatchBinding,
+    ) -> VersionedProviderExecutionBinding {
+        VersionedProviderExecutionBinding {
+            execution: self,
+            credential,
+        }
+    }
+}
+
+/// Provider execution binding that carries only non-secret credential identity
+/// and its authoritative active lease/fence tuple.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionedProviderExecutionBinding {
+    execution: ProviderExecutionBinding,
+    credential: CredentialDispatchBinding,
+}
+
+impl VersionedProviderExecutionBinding {
+    /// Returns credential-free execution metadata.
+    pub const fn execution(&self) -> &ProviderExecutionBinding {
+        &self.execution
+    }
+
+    /// Returns the non-secret binding for mandatory pre-effect revalidation.
+    pub const fn credential_binding(&self) -> &CredentialDispatchBinding {
+        &self.credential
+    }
+
+    /// Returns the sole cross-layer credential identity.
+    pub const fn credential_version_ref(&self) -> &CredentialVersionRef {
+        self.credential.version_ref()
+    }
+
+    /// Returns the authoritative lease owner.
+    pub const fn credential_lease_owner(&self) -> &[u8; 16] {
+        self.credential.owner()
+    }
+
+    /// Returns the authoritative lease expiry.
+    pub const fn credential_lease_expires_at(&self) -> i64 {
+        self.credential.expires_at()
+    }
+
+    /// Returns the authoritative credential fencing token.
+    pub const fn credential_fencing_token(&self) -> u64 {
+        self.credential.fencing_token()
     }
 }

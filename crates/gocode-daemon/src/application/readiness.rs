@@ -27,10 +27,7 @@ impl DaemonApplication {
                 "protected readiness is unavailable".into(),
             ));
         }
-        let executable_path = std::env::current_exe()
-            .map_err(|_| DaemonError::Bootstrap("measure launched executable".into()))?;
-        let executable = ExecutableIdentityV1::measure(&executable_path)
-            .map_err(|_| DaemonError::Bootstrap("measure launched executable".into()))?;
+        let executable = super::executable_identity::measure_launched_executable()?;
         if &executable != request.executable() {
             return Err(DaemonError::Bootstrap(
                 "launched executable identity mismatch".into(),

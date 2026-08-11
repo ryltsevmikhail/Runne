@@ -1,35 +1,17 @@
 use gocode_secure_store::{
     MAX_PROVIDER_CREDENTIAL_BYTES, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
-    SecureStoreError,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt as _;
-
 struct ControlledExecutable {
-    _temporary: tempfile::TempDir,
     access: ProviderCredentialAccessPolicy,
 }
 
 fn controlled_executable() -> ControlledExecutable {
-    let temporary = tempfile::tempdir().expect("temporary executable directory");
-    #[cfg(unix)]
-    std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-        .expect("restrict temporary executable directory");
-
-    let executable = temporary.path().join("gocode-test-executable");
-    let current = std::env::current_exe().expect("current test executable");
-    std::fs::copy(current, &executable).expect("copy test executable");
-    #[cfg(unix)]
-    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
-        .expect("restrict test executable");
-
+    let executable = std::env::current_exe().expect("current test executable");
     let access = ProviderCredentialAccessPolicy::new(&executable, &executable)
         .expect("controlled executable access policy");
-    ControlledExecutable {
-        _temporary: temporary,
-        access,
-    }
+    ControlledExecutable { access }
 }
 
 struct StatusOnlyStore(ProviderCredentialStatus);
@@ -106,6 +88,17 @@ fn credential_material_is_bounded_single_line_and_redacted() {
         maximum.with_bytes(<[u8]>::len),
         MAX_PROVIDER_CREDENTIAL_BYTES
     );
+    assert_eq!(
+        ProviderCredentialSourceRevision::new([0; 16]).unwrap_err(),
+        SecureStoreError::InvalidProviderCredential
+    );
+    let source = ProviderCredentialSource::new(
+        ProviderCredentialMaterial::new(marker).unwrap(),
+        ProviderCredentialSourceRevision::new([0x71; 16]).unwrap(),
+    );
+    let rendered = format!("{source:?} {:?}", source.revision());
+    assert!(!rendered.contains("provider-secret-marker-7f3c"));
+    assert!(!rendered.contains("71717171"));
 }
 
 #[test]
@@ -129,6 +122,12 @@ fn provider_identity_and_status_vocabulary_are_exact() {
             .unwrap(),
         ProviderCredentialStatus::Configured
     );
+    assert_eq!(
+        store
+            .load_provider_credential_source(ProviderCredentialId::OpenAi, &executable.access)
+            .unwrap_err(),
+        SecureStoreError::ProviderCredentialSourceRevisionUnavailable
+    );
 }
 
 #[test]
@@ -145,6 +144,7 @@ fn credential_errors_are_closed_and_never_carry_secret_or_path_context() {
         SecureStoreError::ProviderCredentialOperationFailed,
         SecureStoreError::CredentialEnrollmentIncomplete,
         SecureStoreError::CredentialMigrationIncomplete,
+        SecureStoreError::ProviderCredentialSourceRevisionUnavailable,
         SecureStoreError::ProviderJournalKeyGenerationFailed,
     ] {
         let rendered = format!("{error:?} {error}");
@@ -168,3 +168,6 @@ fn unsupported_platform_has_no_plaintext_fallback() {
     );
     assert!(matches!(store, StubStore { .. }));
 }
+
+#[path = "provider_credential/versioned.rs"]
+mod versioned;

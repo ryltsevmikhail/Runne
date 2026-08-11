@@ -13,6 +13,8 @@ test-support = []
 base64.workspace = true
 dirs = "6"
 gocode-api = { path = "../gocode-api" }
+gocode-pairing-crypto = { path = "../pairing-crypto" }
+chrono.workspace = true
 hex.workspace = true
 hmac = "0.12"
 rand = "0.8"

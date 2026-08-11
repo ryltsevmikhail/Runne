@@ -40,14 +40,11 @@ impl TempDb {
         SqliteMigrationControlStore::open_with_connection(self.database.path(), connection).unwrap()
     }
 
-    fn reader(&self) -> Connection {
-        let connection = validated_reopen::open_validated_connection(self.database.path(), self.identity)
-            .unwrap();
-        connection.execute_batch("PRAGMA query_only = ON;").unwrap();
-        connection
+    fn reader(&self) -> gocode_store::schema::ManagedConnection {
+        validated_reopen::open_validated_reader(self.database.path(), self.identity).unwrap()
     }
 
-    fn writer(&self) -> Connection {
+    fn writer(&self) -> gocode_store::schema::ManagedConnection {
         validated_reopen::open_validated_connection(self.database.path(), self.identity).unwrap()
     }
 }

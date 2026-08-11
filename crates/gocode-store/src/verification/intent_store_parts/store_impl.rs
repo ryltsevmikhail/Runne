@@ -1,9 +1,10 @@
 impl SqliteIntentStore {
     /// Open a durable intent store using the canonical schema migrations.
     pub fn open(db_path: &Path) -> Result<Self, rusqlite::Error> {
-        let conn = schema::open_with_pragmas(&db_path.to_string_lossy())?;
+        let conn = schema::open_managed_connection(db_path, schema::ConnectionMode::Writer)?;
         schema::apply_migrations(&conn)?;
-        schema::run_startup_gates(&conn, &db_path.to_string_lossy())?;
+        schema::readiness_from_managed(&conn)?;
+        schema::publication_from_managed(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
         })
@@ -12,7 +13,10 @@ impl SqliteIntentStore {
     /// Open an in-memory intent store using the canonical schema migrations.
     #[doc(hidden)]
     pub fn open_in_memory() -> Result<Self, rusqlite::Error> {
-        let conn = Connection::open_in_memory()?;
+        let conn = schema::open_managed_connection(
+            Path::new(":memory:"),
+            schema::ConnectionMode::Writer,
+        )?;
         schema::apply_migrations(&conn)?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),

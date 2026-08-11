@@ -55,7 +55,13 @@ pub(crate) fn runtime<'a, S>(
 where
     S: ProviderExecutionStore + ProviderTerminalPersistence,
 {
-    RuntimeProviderExecution::new(keyring, store, &FIXED_PRICING, &ALLOWING_GUARD)
+    RuntimeProviderExecution::new(
+        keyring,
+        store,
+        &FIXED_PRICING,
+        &ALLOWING_GUARD,
+        &ALLOWING_REDACTION,
+    )
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -174,6 +180,7 @@ async fn zero_input_reservation_admits_streams_and_settles_completed_usage() {
         fixture.execution.as_ref(),
         &ZERO_INPUT_PRICING,
         &ALLOWING_GUARD,
+        &ALLOWING_REDACTION,
     );
     runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
     let events = vec![

@@ -40,9 +40,12 @@ fn assert_clean_preflight(path: &Path) {
 
 fn canonical_current_database(name: &str) -> PathBuf {
     let path = current_database(name);
-    let connection = open_with_pragmas(path.to_str().unwrap()).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
-    checkpoint_and_close(connection);
+    connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+    drop(connection);
     assert_clean_preflight(&path);
     path
 }
@@ -50,9 +53,40 @@ fn canonical_current_database(name: &str) -> PathBuf {
 fn released_v8_database(name: &str) -> PathBuf {
     let path = canonical_current_database(name);
     let connection = Connection::open(&path).unwrap();
+    let triggers = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for trigger in triggers {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{trigger}\";"))
+            .unwrap();
+    }
     connection
         .execute_batch(
-            "DROP TABLE provider_effect_authorities;
+            "DROP TABLE bootstrap_reservation_tombstones;
+             DROP TABLE bootstrap_reservations;
+             DROP TABLE bootstrap_last_observed_clock;
+             DROP TABLE provider_credential_effect_bindings;
+             DROP TABLE provider_credential_provisions;
+             DROP TABLE provider_credential_clock_high_water;
+             DROP TABLE provider_credential_versions;
+             DROP TABLE provider_effect_starts;
+             DROP TABLE provider_terminal_outbox;
+             DROP TABLE provider_accounting_settlements;
+             DROP TABLE provider_stream_journal;
+             DROP TABLE provider_poll_flights;
+             DROP TABLE provider_encryption_nonces;
+             DROP TABLE provider_journal_key_refs;
+             DROP TABLE provider_budget_reservations;
+             DROP TABLE provider_execution_admissions;
+             DROP TABLE provider_runtime_authority_state;
+             DROP TABLE schema_upgrade_write_latch;
+             DROP TABLE schema_upgrade_fence;
+             DROP TABLE provider_effect_authorities;
              DROP TABLE provider_dispatch_attempts;
              DROP TABLE provider_prepared_requests;
              DROP TABLE schema_lineage;

@@ -1,5 +1,5 @@
 use std::sync::{
-    Mutex,
+    Arc, Mutex,
     atomic::{AtomicBool, Ordering},
 };
 
@@ -18,14 +18,14 @@ use gocode_runtime::provider_tool::{
 };
 use tokio_util::sync::CancellationToken;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Journal {
     cursor: u64,
     text: String,
     usage: Option<ProviderUsage>,
     usage_unavailable: bool,
-    events: Mutex<Vec<(ProviderStreamId, ProviderStreamEvent)>>,
-    transitions: Mutex<Vec<ProviderToolTransition>>,
+    events: Arc<Mutex<Vec<(ProviderStreamId, ProviderStreamEvent)>>>,
+    transitions: Arc<Mutex<Vec<ProviderToolTransition>>>,
 }
 
 impl ProviderToolJournal for Journal {
@@ -88,6 +88,8 @@ impl ProviderToolJournal for CrashAfterDurableDeltaJournal {
             ProviderStreamEventKind::Started
             | ProviderStreamEventKind::UsageUnavailable
             | ProviderStreamEventKind::ToolCallRequested { .. }
+            | ProviderStreamEventKind::ScannerProgress
+            | ProviderStreamEventKind::ScannerCompleted { .. }
             | ProviderStreamEventKind::Finished { .. } => {}
         }
         if matches!(event.kind(), ProviderStreamEventKind::TextDelta { .. })
@@ -208,6 +210,19 @@ impl ProviderToolJournal for CrashRecoveryJournal {
                 disposition,
                 reason,
             } => {
+                state.status = ProviderToolRecoveryStatus::Terminal {
+                    disposition: *disposition,
+                    reason: reason.clone(),
+                };
+                Some(CrashPoint::TerminalEvent)
+            }
+            ProviderStreamEventKind::ScannerProgress => None,
+            ProviderStreamEventKind::ScannerCompleted {
+                text,
+                disposition,
+                reason,
+            } => {
+                state.text.push_str(text);
                 state.status = ProviderToolRecoveryStatus::Terminal {
                     disposition: *disposition,
                     reason: reason.clone(),

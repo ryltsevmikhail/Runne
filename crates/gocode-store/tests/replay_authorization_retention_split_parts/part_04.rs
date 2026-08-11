@@ -63,8 +63,7 @@ async fn retention_manifest_proves_one_contiguous_snapshot() {
 
 #[tokio::test]
 async fn retention_manifest_measures_actual_hex_transport_payload() {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     connection
         .execute(
             "INSERT INTO aggregate_streams
@@ -102,8 +101,7 @@ async fn retention_manifest_measures_actual_hex_transport_payload() {
 
 #[tokio::test]
 async fn empty_retention_manifest_has_no_floor_and_zero_high_water() {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     let store = ReplayStore::new(connection);
 
     let manifest = store

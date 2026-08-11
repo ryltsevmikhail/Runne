@@ -45,7 +45,7 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
 
     for path in [
         "schemas/local-runtime-profile-v2.schema.json",
-        "schemas/local-session-v1.schema.json",
+        "schemas/local-session-v2.schema.json",
         "schemas/replay-v1.schema.json",
         "schemas/sse-v1.schema.json",
     ] {
@@ -59,8 +59,8 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
 
     for (schema_path, golden_path) in [
         (
-            "schemas/local-session-v1.schema.json",
-            "golden/local-session.json",
+            "schemas/local-session-v2.schema.json",
+            "golden/local-session-v2.json",
         ),
         (
             "schemas/replay-v1.schema.json",

@@ -4,21 +4,20 @@
 
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{
-    Json, Router,
-    extract::{DefaultBodyLimit, State, rejection::JsonRejection},
-    http::StatusCode,
-    response::{IntoResponse, Response},
-    routing::post,
+    Router, extract::DefaultBodyLimit, http::StatusCode, response::Response, routing::post,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use gocode_application::local_session::{BootstrapProof, LocalSessionError, LocalSessionService};
-use serde::{Deserialize, Serialize};
+use gocode_application::local_session::{BootstrapClock, LocalSessionService};
 
 use crate::error::{RequestId, canonical_error_response};
+
+#[path = "local_session/bootstrap_v3_http.rs"]
+mod bootstrap_v3_http;
+use bootstrap_v3_http::{authenticate, challenge};
 
 const MAX_LOCAL_SESSION_BODY_BYTES: usize = 8 * 1024;
 
@@ -26,7 +25,7 @@ const MAX_LOCAL_SESSION_BODY_BYTES: usize = 8 * 1024;
 #[derive(Clone)]
 pub(crate) struct LocalSessionHttpState {
     service: Arc<Mutex<LocalSessionService>>,
-    clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    clock: Arc<dyn Fn() -> Option<BootstrapClock> + Send + Sync>,
     _verified_tls: VerifiedLocalTls,
 }
 
@@ -46,9 +45,19 @@ impl LocalSessionHttpState {
     #[allow(dead_code)] // Constructed by the verified listener in Task 4.
     pub(crate) fn new(
         service: Arc<Mutex<LocalSessionService>>,
-        clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+        monotonic_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
         verified_tls: VerifiedLocalTls,
     ) -> Self {
+        let clock = Arc::new(move || {
+            let micros = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()?
+                .as_micros();
+            Some(BootstrapClock::new(
+                i64::try_from(micros).ok()?,
+                monotonic_clock(),
+            ))
+        });
         Self {
             service,
             clock,
@@ -60,32 +69,19 @@ impl LocalSessionHttpState {
     pub(crate) fn service(&self) -> Arc<Mutex<LocalSessionService>> {
         self.service.clone()
     }
-}
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ChallengeRequest {
-    client_nonce: String,
-    server_nonce: String,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ChallengeResponse {
-    challenge_id: String,
-    server_nonce: String,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AuthenticateRequest {
-    challenge_id: String,
-    proof: String,
-    authority: String,
-}
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthenticateResponse {
-    expires_at_monotonic_millis: u64,
-    session_id: String,
+    #[cfg(test)]
+    fn with_clock(
+        service: Arc<Mutex<LocalSessionService>>,
+        clock: Arc<dyn Fn() -> Option<BootstrapClock> + Send + Sync>,
+        verified_tls: VerifiedLocalTls,
+    ) -> Self {
+        Self {
+            service,
+            clock,
+            _verified_tls: verified_tls,
+        }
+    }
 }
 
 /// Builds the two bounded bootstrap endpoints. The caller must mount this router only on TLS.
@@ -97,126 +93,21 @@ pub(crate) fn local_session_router(state: LocalSessionHttpState) -> Router {
         .with_state(state)
 }
 
-async fn challenge(
-    State(state): State<LocalSessionHttpState>,
-    body: Result<Json<ChallengeRequest>, JsonRejection>,
-) -> Response {
-    let Json(body) = match body {
-        Ok(body) => body,
-        Err(error) => {
-            let response = error.into_response();
-            return if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                payload_too_large()
-            } else {
-                invalid_request()
-            };
-        }
-    };
-    let (Some(client_nonce), Some(server_nonce)) =
-        (decode_32(&body.client_nonce), decode_32(&body.server_nonce))
-    else {
-        return invalid_request();
-    };
-    let result = state
-        .service
-        .lock()
-        .map_err(|_| LocalSessionError::Unavailable)
-        .and_then(|mut service| {
-            service.issue_challenge(client_nonce, server_nonce, (state.clock)())
-        });
-    match result {
-        Ok(value) => Json(ChallengeResponse {
-            challenge_id: URL_SAFE_NO_PAD.encode(value.id.0),
-            server_nonce: URL_SAFE_NO_PAD.encode(value.server_nonce),
-        })
-        .into_response(),
-        Err(LocalSessionError::Unavailable) => unavailable(),
-        Err(LocalSessionError::Unauthorized) => unauthorized(),
-    }
-}
-
-async fn authenticate(
-    State(state): State<LocalSessionHttpState>,
-    body: Result<Json<AuthenticateRequest>, JsonRejection>,
-) -> Response {
-    let Json(body) = match body {
-        Ok(body) => body,
-        Err(error) => {
-            let response = error.into_response();
-            return if response.status() == StatusCode::PAYLOAD_TOO_LARGE {
-                payload_too_large()
-            } else {
-                invalid_request()
-            };
-        }
-    };
-    let (Some(id), Some(proof), Some(authority)) = (
-        decode_16(&body.challenge_id),
-        decode_32(&body.proof),
-        decode_32(&body.authority),
-    ) else {
-        return unauthorized();
-    };
-    let result = state
-        .service
-        .lock()
-        .map_err(|_| LocalSessionError::Unavailable)
-        .and_then(|mut service| {
-            service.authenticate(
-                gocode_application::local_session::LocalSessionChallengeId(id),
-                BootstrapProof::new(proof),
-                authority,
-                (state.clock)(),
-            )
-        });
-    match result {
-        Ok(value) => Json(AuthenticateResponse {
-            expires_at_monotonic_millis: u64::try_from(value.expires_at_monotonic.as_millis())
-                .unwrap_or(u64::MAX),
-            session_id: hex::encode(value.binding.ephemeral().session_id()),
-        })
-        .into_response(),
-        Err(LocalSessionError::Unavailable) => unavailable(),
-        Err(LocalSessionError::Unauthorized) => unauthorized(),
-    }
-}
-
 fn decode_32(value: &str) -> Option<[u8; 32]> {
     URL_SAFE_NO_PAD.decode(value).ok()?.try_into().ok()
 }
 fn decode_16(value: &str) -> Option<[u8; 16]> {
     URL_SAFE_NO_PAD.decode(value).ok()?.try_into().ok()
 }
-fn unauthorized() -> Response {
+fn rejected() -> Response {
     canonical_error_response(
         StatusCode::UNAUTHORIZED,
-        "unauthorized",
-        &RequestId::generate(),
-    )
-}
-fn unavailable() -> Response {
-    canonical_error_response(
-        StatusCode::SERVICE_UNAVAILABLE,
-        "local_session_unavailable",
-        &RequestId::generate(),
-    )
-}
-fn invalid_request() -> Response {
-    canonical_error_response(
-        StatusCode::BAD_REQUEST,
-        "invalid_request",
-        &RequestId::generate(),
-    )
-}
-fn payload_too_large() -> Response {
-    canonical_error_response(
-        StatusCode::PAYLOAD_TOO_LARGE,
-        "invalid_request",
-        &RequestId::generate(),
+        "BOOTSTRAP_REJECTED",
+        &RequestId::bootstrap_rejection(),
     )
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     include!("local_session/tests.rs");
 }

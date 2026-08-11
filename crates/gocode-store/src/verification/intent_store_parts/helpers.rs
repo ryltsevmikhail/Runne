@@ -1,4 +1,4 @@
-fn immediate_transaction(conn: &mut Connection) -> Result<Transaction<'_>, IntentError> {
+fn immediate_transaction(conn: &mut schema::ManagedConnection) -> Result<Transaction<'_>, IntentError> {
     conn.transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| IntentError::CorruptStore)
 }

@@ -22,6 +22,8 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
             13 => is_released_provider_v13(conn, existing_version)?,
             14 => is_released_provider_v14(conn, existing_version)?,
             15 => is_released_provider_v15(conn, existing_version)?,
+            16 => is_released_provider_v16(conn, existing_version)?,
+            17 => is_released_provider_v17(conn, existing_version)?,
             _ => false,
         };
         if !compatible {
@@ -130,9 +132,6 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
     }
 
     if current_version < 12 {
-        if conn.path().is_some_and(|path| !path.is_empty()) {
-            conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL;")?;
-        }
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
         let snapshot = create_v11_upgrade_snapshot(&tx)?;
         tx.execute_batch(MIGRATION_V12)?;
@@ -172,6 +171,14 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
 
     if current_version < 15 {
         provider_schema::apply_v15_migration(conn)?;
+    }
+
+    if current_version < 16 {
+        apply_v16_migration(conn)?;
+    }
+
+    if current_version < 17 {
+        apply_v17_migration(conn)?;
     }
 
     if current_version < CURRENT_SCHEMA_VERSION {

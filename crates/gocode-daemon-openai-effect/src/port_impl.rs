@@ -5,9 +5,14 @@ use gocode_provider::{
     ReconciliationDisposition, StreamCursor, StreamError,
 };
 use gocode_provider_openai::{OpenAiCredentialError, OpenAiCredentialMaterializer};
+use gocode_store::provider::CredentialDispatchBinding;
 use gocode_store::provider::{ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect};
 
 use crate::{Ready, Sender};
+
+mod authorized;
+
+use authorized::AuthorizedReady;
 
 impl<C: OpenAiCredentialMaterializer> ProviderPort for Sender<C> {
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
@@ -82,19 +87,10 @@ impl<C: OpenAiCredentialMaterializer> ProviderEffectPort for Sender<C> {
     fn stage_effect(
         &self,
         request: DispatchRequest,
+        credential: CredentialDispatchBinding,
     ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
         Box::pin(async move {
-            let credential = self
-                .credential
-                .materialize()
-                .await
-                .map_err(map_credential)?;
-            if credential.is_empty() {
-                return Err(DispatchError::RejectedBeforeEffect(
-                    ProviderPreEffectRejection::CredentialUnavailable,
-                ));
-            }
-            Ok(Box::new(Ready {
+            Ok(Box::new(AuthorizedReady {
                 request,
                 credential,
             }) as Box<dyn ProviderReadyEffect>)
@@ -106,11 +102,20 @@ impl<C: OpenAiCredentialMaterializer> ProviderEffectPort for Sender<C> {
         ready: Box<dyn ProviderReadyEffect>,
         receipt: ProviderEffectStartReceipt,
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
-        Box::pin(async move { self.send_ready(ready, receipt).await })
+        Box::pin(async move {
+            let ready = ready.into_any();
+            match ready.downcast::<AuthorizedReady>() {
+                Ok(ready) => self.send_authorized(*ready, receipt).await,
+                Err(ready) => match ready.downcast::<Ready>() {
+                    Ok(ready) => self.send_ready(ready, receipt).await,
+                    Err(_) => Err(DispatchError::MaybeDispatched),
+                },
+            }
+        })
     }
 }
 
-const fn map_credential(error: OpenAiCredentialError) -> DispatchError {
+pub(super) const fn map_credential(error: OpenAiCredentialError) -> DispatchError {
     DispatchError::RejectedBeforeEffect(match error {
         OpenAiCredentialError::Missing => ProviderPreEffectRejection::CredentialUnavailable,
         OpenAiCredentialError::AccessDenied => ProviderPreEffectRejection::CredentialAccessDenied,

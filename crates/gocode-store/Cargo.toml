@@ -9,6 +9,7 @@ gocode-application = { path = "../gocode-application" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-runtime = { path = "../gocode-runtime" }
+sqlite-handle-identity = { path = "../sqlite-handle-identity" }
 rand = "0.8"
 rusqlite = { version = "=0.34.0", features = ["backup", "bundled"] }
 sha2 = "=0.10.8"
@@ -19,6 +20,9 @@ tokio = { workspace = true }
 thiserror.workspace = true
 serde_json.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 same-file = "1"
 
@@ -26,6 +30,8 @@ same-file = "1"
 gocode-api = { path = "../gocode-api" }
 gocode-runtime = { path = "../gocode-runtime", features = ["provider-terminal-test-support"] }
 gocode-security = { path = "../gocode-security" }
+gocode-secure-store = { path = "../secure-store" }
+zeroize.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
 tempfile = "3"

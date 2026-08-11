@@ -89,7 +89,7 @@ fn validate_journal_append(
 ) -> Result<(), ProviderExecutionError> {
     if request.fencing_token == 0
         || request.runtime_generation == 0
-        || !(1..=6).contains(&request.event_kind)
+        || !(1..=7).contains(&request.event_kind)
         || request.encrypted.ciphertext().len() > 2_097_152
         || (request.terminal && request.event_kind != 5)
         || (!request.terminal && request.event_kind == 5)

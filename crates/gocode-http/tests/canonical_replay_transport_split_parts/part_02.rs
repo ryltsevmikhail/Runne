@@ -14,7 +14,7 @@ fn setup_with_events(
         std::fs::set_permissions(&daemon_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let database_path = daemon_dir.join("replay.sqlite");
-    let connection = open_with_pragmas(database_path.to_str().unwrap()).unwrap();
+    let connection = open_managed_connection(&database_path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     ensure_authority_id(&connection, &AUTHORITY).unwrap();
     ensure_exact_event_log_lineage_id(&connection, EventLogLineageId::from_bytes(LINEAGE)).unwrap();
@@ -74,12 +74,9 @@ fn setup_with_events(
     (router, database)
 }
 
-fn replay_connection(database: &ReplayTestDatabase) -> rusqlite::Connection {
-    open_with_pragmas(database.path().to_str().unwrap()).unwrap()
-}
-
 fn subscription_count(database: &ReplayTestDatabase) -> i64 {
-    replay_connection(database)
+    database
+        .open_reader()
         .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |row| {
             row.get(0)
         })

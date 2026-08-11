@@ -108,7 +108,7 @@ async fn text_completion_persists_every_event_before_success() {
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         Journal::default(),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -140,7 +140,7 @@ async fn tool_request_is_persisted_before_handoff_and_result_before_continuation
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         Journal::default(),
         handoff(ToolHandoffDisposition::Completed {
             result_digest: [9; 32],
@@ -166,7 +166,7 @@ async fn cancellation_intent_precedes_adapter_signal() {
     let stream = dispatch(&provider).await;
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         Journal::default(),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -192,7 +192,7 @@ async fn malformed_or_uncertain_effect_freezes_the_loop() {
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         Journal::default(),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -221,7 +221,7 @@ async fn restart_uses_durable_cursor_and_does_not_replay_started() {
     ]);
     let stream = dispatch(&provider).await;
     provider.next(&stream, StreamCursor::new(0)).await.unwrap();
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         Journal {
             cursor: 1,
             ..Journal::default()
@@ -253,7 +253,7 @@ async fn restart_restores_usage_and_rejects_a_second_usage_event() {
         ))
         .unwrap(),
     };
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         Journal {
             cursor: 2,
             usage: Some(ProviderUsage::new(2, 1, 0, 0).unwrap()),

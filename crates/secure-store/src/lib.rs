@@ -11,16 +11,19 @@ use thiserror::Error;
 
 mod provider_credential;
 mod provider_journal_key;
+mod provider_recovery;
 
 pub use provider_credential::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
-    ProviderCredentialStore,
+    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
+    PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
+pub use provider_recovery::NativeWithheldTailStore;
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -66,6 +69,8 @@ pub enum SecureStoreError {
     CredentialEnrollmentIncomplete,
     #[error("provider credential ACL migration is incomplete")]
     CredentialMigrationIncomplete,
+    #[error("provider credential source revision is unavailable")]
+    ProviderCredentialSourceRevisionUnavailable,
 }
 
 // ---------------------------------------------------------------------------
