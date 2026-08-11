@@ -34,6 +34,7 @@ fn audited_shim_exposes_only_safe_windows_handle_primitives() {
     assert!(duplicate.contains("DUPLICATE_CLOSE_SOURCE"));
     assert!(identity.contains("HANDLE_FLAG_INHERIT"));
     assert!(duplicate.contains("impl Drop for RemoteHandleLease"));
+    assert!(duplicate.contains("let remote = self.remote.take()"));
     assert!(duplicate.contains("from_launcher_child"));
     assert!(duplicate.contains("AsRawHandle"));
     assert!(!duplicate.contains("OpenProcess"));
