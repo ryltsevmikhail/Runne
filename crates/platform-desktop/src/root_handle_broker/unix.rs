@@ -219,7 +219,6 @@ fn binding_digest(binding: &RootHandleTransferBinding) -> [u8; 32] {
     hasher.update(binding.peer_uid.to_be_bytes());
     hasher.finalize().into()
 }
-
 fn peer_matches(
     stream: &UnixStream,
     binding: &RootHandleTransferBinding,
@@ -234,6 +233,24 @@ fn peer_matches(
         if peer_pid != expected_pid || peer.uid.as_raw() as u32 != binding.peer_uid {
             return Err(RootHandleBrokerError::Rejected);
         }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let peer_pid =
+            nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::LocalPeerPid)
+                .map_err(|_| RootHandleBrokerError::Rejected)
+                .and_then(|pid| u32::try_from(pid).map_err(|_| RootHandleBrokerError::Rejected))?;
+        let peer_uid =
+            nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::LocalPeerCred)
+                .map_err(|_| RootHandleBrokerError::Rejected)?;
+        if peer_pid != expected_pid || peer_uid.uid() != binding.peer_uid {
+            return Err(RootHandleBrokerError::Rejected);
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (stream, binding, expected_pid);
+        return Err(RootHandleBrokerError::Unavailable);
     }
     let _ = binding;
     Ok(())
