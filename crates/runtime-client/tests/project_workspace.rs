@@ -1,7 +1,8 @@
 use gocode_runtime_client::{
     BindWorkspaceRootRequest, CanonicalId, CommandIdentity, CreateProjectRequest,
-    ExistingProjectRequest, REQUIRED_RUNTIME_CAPABILITIES, RootAdmissionToken, RuntimeApiErrorKind,
-    RuntimeSessionInfo, mock_authenticated_runtime_client,
+    CreateWorkspaceRequest, ExistingProjectRequest, ExistingWorkspaceRequest,
+    REQUIRED_RUNTIME_CAPABILITIES, RootAdmissionToken, RuntimeApiErrorKind, RuntimeSessionInfo,
+    mock_authenticated_runtime_client,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -140,4 +141,102 @@ async fn delete_project_uses_authenticated_delete_body_headers_and_closed_errors
         RuntimeApiErrorKind::NotFound
     );
     server.await.unwrap();
+}
+
+#[tokio::test]
+async fn project_workspace_identity_mismatches_are_invalid_responses() {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let wrong = "018f2e3a-7000-7000-8000-000000000303";
+    let server = tokio::spawn(async move {
+        for _ in 0..10 {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 4096];
+            let count = stream.read(&mut bytes).await.unwrap();
+            let request = String::from_utf8_lossy(&bytes[..count]);
+            let (status, body) = if request.starts_with("GET /v1/projects/") {
+                (
+                    200,
+                    format!(
+                        r#"{{"projectId":"{wrong}","displayName":"name","version":1,"archived":false}}"#
+                    ),
+                )
+            } else if request.starts_with("GET /v1/workspaces/") {
+                (
+                    200,
+                    format!(
+                        r#"{{"workspaceId":"{wrong}","projectId":"{wrong}","displayName":"name","version":1,"open":false}}"#
+                    ),
+                )
+            } else if request.starts_with("GET /v1/projects/") && request.contains("/workspaces") {
+                (
+                    200,
+                    format!(
+                        r#"{{"items":[{{"workspaceId":"{wrong}","projectId":"{wrong}","displayName":"name","version":1,"open":false}}],"nextCursor":null}}"#
+                    ),
+                )
+            } else if request.contains("/v1/projects/") {
+                (202, format!(r#"{{"projectId":"{wrong}","newVersion":2}}"#))
+            } else {
+                (
+                    202,
+                    format!(r#"{{"workspaceId":"{wrong}","newVersion":2}}"#),
+                )
+            };
+            stream.write_all(format!("HTTP/1.1 {status} test\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+    let project = id();
+    let workspace = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000304").unwrap();
+    let command = identity();
+    for result in [
+        client.get_project(project).await.map(|_| ()),
+        client.get_workspace(workspace).await.map(|_| ()),
+        client.list_workspaces(project, 1, None).await.map(|_| ()),
+        client
+            .create_project(CreateProjectRequest::new(command.clone(), project, "name").unwrap())
+            .await
+            .map(|_| ()),
+        client
+            .archive_project(ExistingProjectRequest::new(command.clone(), project, 1).unwrap())
+            .await
+            .map(|_| ()),
+        client
+            .restore_project(ExistingProjectRequest::new(command.clone(), project, 1).unwrap())
+            .await
+            .map(|_| ()),
+        client
+            .delete_project(ExistingProjectRequest::new(command.clone(), project, 1).unwrap())
+            .await
+            .map(|_| ()),
+        client
+            .create_workspace(
+                CreateWorkspaceRequest::new(command.clone(), project, workspace, "name").unwrap(),
+            )
+            .await
+            .map(|_| ()),
+        client
+            .open_workspace(ExistingWorkspaceRequest::new(command.clone(), workspace, 1).unwrap())
+            .await
+            .map(|_| ()),
+        client
+            .bind_workspace_root(
+                BindWorkspaceRootRequest::new(
+                    command,
+                    workspace,
+                    1,
+                    RootAdmissionToken::parse("gocode-root-admission-v2.AA").unwrap(),
+                )
+                .unwrap(),
+            )
+            .await
+            .map(|_| ()),
+    ] {
+        assert_eq!(
+            result.unwrap_err().kind(),
+            RuntimeApiErrorKind::InvalidResponse
+        );
+    }
+    server.abort();
 }

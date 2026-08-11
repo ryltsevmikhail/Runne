@@ -184,3 +184,37 @@ async fn root_bind_is_present_but_fail_closed_without_a_native_admission_produce
     assert!(!body.contains("nonce"));
     assert!(!body.contains("state"));
 }
+
+#[tokio::test]
+async fn project_workspace_router_canonicalizes_wrong_method_and_body_limit() {
+    let response = authorized(Request::builder().method("PUT").uri("/v1/projects"))
+        .body(Body::empty())
+        .unwrap();
+    let response = app().oneshot(response).await.unwrap();
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+    let header = response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["requestId"],
+        header
+    );
+
+    for (size, status) in [
+        (16 * 1024, StatusCode::BAD_REQUEST),
+        (16 * 1024 + 1, StatusCode::PAYLOAD_TOO_LARGE),
+    ] {
+        let response = authorized(Request::builder().method("POST").uri("/v1/projects"))
+            .header("content-type", "application/json")
+            .header("content-length", size)
+            .body(Body::from("x".repeat(size)))
+            .unwrap();
+        let response = app().oneshot(response).await.unwrap();
+        assert_eq!(response.status(), status);
+    }
+}

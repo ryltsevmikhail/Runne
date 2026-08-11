@@ -1,7 +1,7 @@
 pub(super) fn project_workspace_schema() -> Value {
     let id = || json!({"maxLength": 36, "pattern": UUID_V7_PATTERN, "type": "string"});
     let version = || positive_integer_schema();
-    let name = || json!({"maxLength": 256, "minLength": 1, "type": "string", "x-gocode-maxUtf8Bytes": 256});
+    let name = || json!({"maxLength": 256, "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$", "type": "string", "x-gocode-displayNamePolicy": "project-workspace-v1", "x-gocode-maxUtf8Bytes": 256});
     let project = || closed_object(json!({"projectId": id(), "displayName": name(), "version": version(), "archived": {"type": "boolean"}}), &["projectId", "displayName", "version", "archived"]);
     let workspace = || closed_object(json!({"workspaceId": id(), "projectId": id(), "displayName": name(), "version": version(), "open": {"type": "boolean"}}), &["workspaceId", "projectId", "displayName", "version", "open"]);
     let cursor = |prefix: &str, length: usize| json!({"maxLength": length, "minLength": length, "pattern": format!("^{prefix}\\.(?:[0-9a-f]{{2}})+$"), "type": "string"});
@@ -10,7 +10,7 @@ pub(super) fn project_workspace_schema() -> Value {
         "projectCreate": closed_object(json!({"projectId": id(), "displayName": name()}), &["projectId", "displayName"]),
         "workspaceCreate": closed_object(json!({"workspaceId": id(), "displayName": name()}), &["workspaceId", "displayName"]),
         "existing": closed_object(json!({"expectedVersion": version()}), &["expectedVersion"]),
-        "rootBind": closed_object(json!({"expectedVersion": version(), "rootAdmission": {"maxLength": 5487, "minLength": 27, "pattern": "^gocode-root-admission-v2\\.[A-Za-z0-9_-]+$", "type": "string", "x-gocode-maxUtf8Bytes": 5487}}), &["expectedVersion", "rootAdmission"]),
+        "rootBind": closed_object(json!({"expectedVersion": version(), "rootAdmission": {"maxLength": 5487, "minLength": 27, "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3}|(?:[A-Za-z0-9_-]{4})+(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3})?)$", "type": "string", "x-gocode-maxUtf8Bytes": 5487}}), &["expectedVersion", "rootAdmission"]),
         "projectAck": closed_object(json!({"projectId": id(), "newVersion": version()}), &["projectId", "newVersion"]),
         "workspaceAck": closed_object(json!({"workspaceId": id(), "newVersion": version()}), &["workspaceId", "newVersion"]),
         "projectPage": closed_object(json!({"items": {"items": {"$ref": "#/$defs/project"}, "maxItems": 100, "type": "array"}, "nextCursor": {"anyOf": [cursor("gocode-project-page-v1", 119), {"type": "null"}]}}), &["items", "nextCursor"]),
