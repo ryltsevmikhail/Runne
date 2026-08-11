@@ -155,7 +155,7 @@ fn receipt_lookup_rejects_changed_fingerprint_and_corrupt_identity() {
 }
 
 #[test]
-fn concurrent_double_miss_compares_winner_full_identity() {
+fn concurrent_exact_create_double_miss_replays_winner_identity() {
     use std::sync::{Arc, Barrier};
     use std::thread;
 
@@ -170,7 +170,10 @@ fn concurrent_double_miss_compares_winner_full_identity() {
     validated_reopen::seed_canonical_workspace(&seed, "test-principal", make_ws_id());
     drop(seed);
     let command_id = CommandId::from_bytes([0x81; 16]);
-    let taskrun_id = TaskRunId::from_bytes([0x82; 16]);
+    let taskrun_ids = [
+        TaskRunId::from_bytes([0x82; 16]),
+        TaskRunId::from_bytes([0x83; 16]),
+    ];
     let barrier = Arc::new(Barrier::new(2));
     let mut handles = Vec::new();
     for variant in 0..2_u8 {
@@ -184,16 +187,13 @@ fn concurrent_double_miss_compares_winner_full_identity() {
                 available_guard(),
             )
             .unwrap();
-            let mut payload = direct_taskrun_commit(
+            let payload = direct_taskrun_commit(
                 &store,
-                taskrun_id,
+                taskrun_ids[variant as usize],
                 command_id,
-                IdempotencyKey::new(format!("racing-key-{variant}")).unwrap(),
-                0x83 + variant,
+                IdempotencyKey::new("racing-exact-key").unwrap(),
+                0x84 + variant,
             );
-            if variant == 1 {
-                payload.command_fingerprint = CommandFingerprint::from_bytes([0x84; 32]);
-            }
             assert_eq!(
                 store
                     .lookup_receipt(
@@ -223,21 +223,45 @@ fn concurrent_double_miss_compares_winner_full_identity() {
     assert_eq!(
         results
             .iter()
-            .filter(|result| matches!(result, Err(CommitError::IdempotencyConflict { .. })))
+            .filter(|result| matches!(result, Ok(CommitResult::Duplicate { .. })))
             .count(),
         1,
-        "loser must compare the winner, never replay it: {results:?}"
+        "exact loser must replay the winner: {results:?}"
     );
+    let winner_index = results
+        .iter()
+        .position(|result| matches!(result, Ok(CommitResult::Committed { .. })))
+        .unwrap();
+    let winner_taskrun_id = taskrun_ids[winner_index];
+    let duplicate = results
+        .iter()
+        .find_map(|result| match result {
+            Ok(CommitResult::Duplicate {
+                stored_result: CommandOutcome::TaskRunCreated { taskrun_id, .. },
+            }) => Some(*taskrun_id),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(duplicate, winner_taskrun_id);
     let connection = validated_reopen_store::open_validated_reader(&db_path, identity).unwrap();
-    let durable: (i64, i64, i64) = connection
+    let durable: (i64, i64, i64, i64) = connection
         .query_row(
             "SELECT (SELECT COUNT(*) FROM command_receipts WHERE command_id = ?1),
                     (SELECT COUNT(*) FROM events WHERE command_id = ?1),
-                    (SELECT COUNT(*) FROM task_run_workspace_lineage WHERE origin_command_id = ?1)",
+                    (SELECT COUNT(*) FROM task_run_workspace_lineage WHERE origin_command_id = ?1),
+                    (SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 1)",
             [command_id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .unwrap();
-    assert_eq!(durable, (1, 1, 1));
+    assert_eq!(durable, (1, 1, 1, 1));
+    let durable_taskrun: Vec<u8> = connection
+        .query_row(
+            "SELECT aggregate_id FROM events WHERE command_id = ?1",
+            [command_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(durable_taskrun, winner_taskrun_id.as_bytes());
     cleanup_db(&db_path);
 }
