@@ -168,11 +168,13 @@ where
             let mut inner = self.inner.clone();
             Box::pin(async move { inner.call(req).await })
         } else {
-            let response = canonical_error_response(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                &RequestId::generate(),
-            );
+            let request_id = req
+                .extensions()
+                .get::<RequestId>()
+                .cloned()
+                .unwrap_or_else(RequestId::generate);
+            let response =
+                canonical_error_response(StatusCode::UNAUTHORIZED, "unauthorized", &request_id);
             Box::pin(async move { Ok(response) })
         }
     }

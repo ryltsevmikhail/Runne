@@ -9,6 +9,10 @@
     "items": [],
     "nextCursor": null
   },
+  "rootBind": {
+    "expectedVersion": 1,
+    "rootAdmission": "gocode-root-admission-v2.AA"
+  },
   "workspace": {
     "displayName": "Workspace",
     "open": false,

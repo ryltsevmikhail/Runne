@@ -1,7 +1,7 @@
 use super::super::{CanonicalId, CommandIdentity, RuntimeApiError, RuntimeApiErrorKind};
-
-const MAX_NAME_BYTES: usize = 256;
-const MAX_TOKEN_BYTES: usize = 5_500;
+use gocode_api::{
+    MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES, ProjectWorkspaceDisplayNameInput, RootHandleAdmission,
+};
 
 /// Immutable Project snapshot returned by the authoritative runtime.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -225,9 +225,8 @@ impl std::fmt::Debug for RootAdmissionToken {
 impl RootAdmissionToken {
     pub fn parse(value: impl Into<String>) -> Result<Self, RuntimeApiError> {
         let value = value.into();
-        if value.is_ascii()
-            && value.len() <= MAX_TOKEN_BYTES
-            && value.starts_with("gocode-root-admission-v2.")
+        if value.len() <= MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES
+            && RootHandleAdmission::decode_token(&value).is_ok()
         {
             Ok(Self(value))
         } else {
@@ -265,7 +264,7 @@ fn version(value: u64) -> Result<(), RuntimeApiError> {
         .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))
 }
 fn display_name(value: String) -> Result<String, RuntimeApiError> {
-    (!value.is_empty() && value.len() <= MAX_NAME_BYTES && !value.chars().any(char::is_control))
-        .then_some(value)
-        .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))
+    ProjectWorkspaceDisplayNameInput::new(value.clone())
+        .map(|_| value)
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))
 }

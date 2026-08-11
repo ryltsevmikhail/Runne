@@ -11,7 +11,7 @@
     },
     {
       "path": "golden/project-workspace.json",
-      "sha256": "b82c11ad8b3eca8f9cc43ae52132c646bb7a8641fa4b8f9bf658dbbc311b1a66"
+      "sha256": "5ee20d113dc686e7d690efe077c3413065bd364c999330ae3d5372f3740977ab"
     },
     {
       "path": "golden/replay-conversation.json",
@@ -27,15 +27,15 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "5511c949f59a2cebd4a436b9472a5df88149c56e2202f4b91ff994e95c63ee22"
+      "sha256": "776d61f88d23cfe6bb5432e39458c82c4ac996145148b712db4e2f8391b4039a"
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
-      "sha256": "458f4877360753695c93ad57a046bd94a5e81101ab2258580bddddfbfe4132f4"
+      "sha256": "95e165718ddb2a9099a02cfdb8ba05025474b98d4921f718abbf077ecb1d908d"
     },
     {
       "path": "schemas/local-session-v1.schema.json",
-      "sha256": "c897befe17834b965f49e5c3d471253ca77917e67676d15166b1318e85eaf97b"
+      "sha256": "de9a02e3bdb176e0ab326aaa94bf31e1a7cab5b64d44e3e43ce45be866d5a697"
     },
     {
       "path": "schemas/operational-telemetry-v1.schema.json",
@@ -43,15 +43,15 @@
     },
     {
       "path": "schemas/project-workspace-v1.schema.json",
-      "sha256": "9a1716560e34ac0514db3a0f7f12c1c446d5735b91126501b69d504771a4b52d"
+      "sha256": "086e65f7101d7fc1db1051bf30eb0bb619156f16a7bfbd2ea0f3a94f88130af8"
     },
     {
       "path": "schemas/replay-v1.schema.json",
-      "sha256": "c42d124f822bfeca3eeb757598038aeae1fff674c01b22a0642986e011aeb345"
+      "sha256": "63a383316390b383d934179fa0a9fb5d137af3c9271348418231aa4a71f89879"
     },
     {
       "path": "schemas/sse-v1.schema.json",
-      "sha256": "1606ae8610ccfe1d97212a11f5186c7e43001e962a27a2afd4df5c14e4f8ca6e"
+      "sha256": "0211eb00a832ea7e9a7664faff442f56e9e1a0626931d0f2dd29bf51de444738"
     }
   ],
   "capabilityCatalog": [
@@ -74,8 +74,7 @@
     "workspace.list.v1",
     "workspace.get.v1",
     "workspace.create.v1",
-    "workspace.open.v1",
-    "workspace.bind_root.v2"
+    "workspace.open.v1"
   ],
   "generatorSchemaVersion": 1,
   "publishedCapabilities": [
@@ -98,8 +97,7 @@
     "workspace.list.v1",
     "workspace.get.v1",
     "workspace.create.v1",
-    "workspace.open.v1",
-    "workspace.bind_root.v2"
+    "workspace.open.v1"
   ],
   "transportProfileId": "gocode-local-runtime/2"
 }

@@ -161,3 +161,26 @@ async fn root_bind_rejects_non_ascii_opaque_tokens_without_echoing_them() {
     let body = to_bytes(response.into_body(), 4096).await.unwrap();
     assert!(!String::from_utf8_lossy(&body).contains('🔒'));
 }
+
+#[tokio::test]
+async fn root_bind_is_present_but_fail_closed_without_a_native_admission_producer() {
+    let response = authorized(
+        Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workspaces/{ID}/root-bindings")),
+    )
+    .header("x-command-id", ID)
+    .header("idempotency-key", "key")
+    .header("content-type", "application/json")
+    .body(Body::from(
+        r#"{"expectedVersion":1,"rootAdmission":"gocode-root-admission-v2.AA"}"#,
+    ))
+    .unwrap();
+    let response = app().oneshot(response).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert!(body.contains(r#""code":"runtime_unavailable""#));
+    assert!(!body.contains("nonce"));
+    assert!(!body.contains("state"));
+}

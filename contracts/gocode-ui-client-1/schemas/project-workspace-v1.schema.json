@@ -23,6 +23,7 @@
       "additionalProperties": false,
       "properties": {
         "expectedVersion": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         }
@@ -41,7 +42,8 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "type": "string"
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 256
         },
         "projectId": {
           "maxLength": 36,
@@ -49,6 +51,7 @@
           "type": "string"
         },
         "version": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         }
@@ -65,6 +68,7 @@
       "additionalProperties": false,
       "properties": {
         "newVersion": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         },
@@ -86,7 +90,8 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "type": "string"
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 256
         },
         "projectId": {
           "maxLength": 36,
@@ -134,14 +139,16 @@
       "additionalProperties": false,
       "properties": {
         "expectedVersion": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         },
         "rootAdmission": {
-          "maxLength": 5500,
+          "maxLength": 5487,
           "minLength": 27,
           "pattern": "^gocode-root-admission-v2\\.[A-Za-z0-9_-]+$",
-          "type": "string"
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 5487
         }
       },
       "required": [
@@ -156,7 +163,8 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "type": "string"
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 256
         },
         "open": {
           "type": "boolean"
@@ -167,6 +175,7 @@
           "type": "string"
         },
         "version": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         },
@@ -189,6 +198,7 @@
       "additionalProperties": false,
       "properties": {
         "newVersion": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         },
@@ -210,7 +220,8 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "type": "string"
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 256
         },
         "workspaceId": {
           "maxLength": 36,
@@ -258,8 +269,30 @@
   "$id": "gocode://schemas/project-workspace-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "properties": {},
-  "required": [],
+  "properties": {
+    "project": {
+      "$ref": "#/$defs/project"
+    },
+    "projectPage": {
+      "$ref": "#/$defs/projectPage"
+    },
+    "rootBind": {
+      "$ref": "#/$defs/rootBind"
+    },
+    "workspace": {
+      "$ref": "#/$defs/workspace"
+    },
+    "workspacePage": {
+      "$ref": "#/$defs/workspacePage"
+    }
+  },
+  "required": [
+    "project",
+    "workspace",
+    "projectPage",
+    "workspacePage",
+    "rootBind"
+  ],
   "title": "Project Workspace V1",
   "type": "object"
 }

@@ -68,6 +68,27 @@
     },
     "/v1/projects": {
       "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 119,
+              "minLength": 119,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -82,6 +103,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -101,6 +123,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -120,6 +143,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -139,6 +163,27 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -158,6 +203,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -172,6 +218,28 @@
         ]
       },
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -180,7 +248,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -196,6 +265,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -215,6 +285,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -234,6 +305,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -253,6 +325,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -272,13 +345,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -291,6 +365,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -310,6 +385,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -326,6 +402,28 @@
     },
     "/v1/projects/{projectId}": {
       "delete": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -334,7 +432,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -350,6 +449,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -369,6 +469,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -388,6 +489,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -407,6 +509,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -426,13 +529,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -445,6 +549,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -464,6 +569,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -478,6 +584,7 @@
         ]
       },
       "get": {
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -492,6 +599,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -511,6 +619,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -530,6 +639,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -549,6 +659,27 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -568,6 +699,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -580,10 +712,56 @@
             "sessionAuth": []
           }
         ]
-      }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "projectId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/v1/projects/{projectId}/archive": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "projectId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ],
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -592,7 +770,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -608,6 +787,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -627,6 +807,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -646,6 +827,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -665,6 +847,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -684,13 +867,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -703,6 +887,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -722,6 +907,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -737,7 +923,41 @@
       }
     },
     "/v1/projects/{projectId}/restore": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "projectId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ],
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -746,7 +966,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -762,6 +983,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -781,6 +1003,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -800,6 +1023,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -819,6 +1043,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -838,13 +1063,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -857,6 +1083,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -876,6 +1103,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -892,6 +1120,27 @@
     },
     "/v1/projects/{projectId}/workspaces": {
       "get": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 153,
+              "minLength": 153,
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -906,6 +1155,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -925,6 +1175,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -944,6 +1195,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -963,6 +1215,27 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -982,6 +1255,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -995,7 +1269,41 @@
           }
         ]
       },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "projectId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ],
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1004,7 +1312,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -1020,6 +1329,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1039,6 +1349,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1058,6 +1369,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1077,6 +1389,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1096,13 +1409,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1115,6 +1429,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1134,6 +1449,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1441,6 +1757,7 @@
     },
     "/v1/workspaces/{workspaceId}": {
       "get": {
+        "parameters": [],
         "responses": {
           "200": {
             "content": {
@@ -1455,6 +1772,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1474,6 +1792,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1493,6 +1812,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1512,6 +1832,27 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1531,6 +1872,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1543,10 +1885,56 @@
             "sessionAuth": []
           }
         ]
-      }
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "workspaceId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ]
     },
     "/v1/workspaces/{workspaceId}/open": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "workspaceId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ],
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1555,7 +1943,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -1571,6 +1960,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1590,6 +1980,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1609,6 +2000,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1628,6 +2020,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1647,13 +2040,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1666,6 +2060,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1685,6 +2080,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1700,7 +2096,41 @@
       }
     },
     "/v1/workspaces/{workspaceId}/root-bindings": {
+      "parameters": [
+        {
+          "in": "path",
+          "name": "workspaceId",
+          "required": true,
+          "schema": {
+            "maxLength": 36,
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "type": "string"
+          }
+        }
+      ],
       "post": {
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Command-Id",
+            "required": true,
+            "schema": {
+              "maxLength": 36,
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1709,7 +2139,8 @@
               }
             }
           },
-          "required": true
+          "required": true,
+          "x-gocode-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -1725,6 +2156,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1744,6 +2176,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1763,6 +2196,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1782,6 +2216,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1801,13 +2236,14 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
               }
             }
           },
-          "413": {
+          "500": {
             "content": {
               "application/json": {
                 "schema": {
@@ -1820,6 +2256,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
@@ -1839,6 +2276,7 @@
               "X-Request-Id": {
                 "required": true,
                 "schema": {
+                  "maxLength": 36,
                   "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
                   "type": "string"
                 }
