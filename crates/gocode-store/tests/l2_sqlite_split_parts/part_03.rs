@@ -108,6 +108,7 @@ fn test_replay_after_reopen() {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
         let svc = TaskRunService::new(
             store.clone(),
             store.clone(),

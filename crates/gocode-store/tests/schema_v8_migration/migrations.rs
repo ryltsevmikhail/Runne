@@ -7,6 +7,7 @@ fn v6_to_v8_migration() {
         "DROP TRIGGER global_command_id_from_command_receipts;
          DROP TRIGGER global_command_id_from_project_workspace_receipts;
          DROP TABLE task_run_workspace_lineage;
+         DROP TABLE workspace_identity_history;
          DROP TABLE root_admission_nonces;
          DROP TABLE project_workspace_command_receipts;
          DROP TABLE workspaces;

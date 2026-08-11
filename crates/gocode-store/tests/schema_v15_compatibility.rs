@@ -203,6 +203,21 @@ fn preflight_accepts_released_v15_shape() {
         lineage,
         vec![("legacy_unbound".into(), 1), ("legacy_unbound".into(), 18)]
     );
+    let history = connection
+        .query_row(
+            "SELECT classification, project_id, principal_id
+             FROM workspace_identity_history",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(history, ("legacy_unbound".into(), None, None));
 }
 
 #[test]
@@ -221,6 +236,7 @@ fn corrupt_v15_origin_rolls_back_v16_atomically() {
         15
     );
     assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_run_workspace_lineage')", [], |row| row.get::<_, bool>(0)).unwrap());
+    assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_identity_history')", [], |row| row.get::<_, bool>(0)).unwrap());
 }
 
 #[test]

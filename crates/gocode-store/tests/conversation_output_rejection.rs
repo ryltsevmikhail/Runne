@@ -5,10 +5,12 @@ use gocode_application::commands::{
     BeginConversationTextInput, ConversationTextCompletion, FinishConversationTextInput,
 };
 use gocode_application::conversation_service::ConversationService;
-use gocode_application::conversation_text_service::ConversationTextService;
+use gocode_application::conversation_text_service::{
+    ConversationTextService, ConversationTextServiceError,
+};
 use gocode_application::ports::{
-    ApplicationCommandContext, ConversationRepository, EventStore, PrincipalId,
-    ProjectWorkspaceRepository, RuntimeAuthorityId, TextGenerationPhase,
+    ApplicationCommandContext, CommitError, ConversationRepository, EventStore, PrincipalId,
+    ProjectWorkspaceRepository, RuntimeAuthorityId, StorageFailureKind, TextGenerationPhase,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::conversation::{Conversation, GenerationFailureReason};
@@ -18,6 +20,7 @@ use gocode_domain::message::MessageText;
 use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
 use gocode_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use gocode_security::SecretBroker;
+use gocode_store::codec::{StoreCodec, TextGenerationReceiptCodec};
 use gocode_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
@@ -148,12 +151,45 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
     let rejected = service
         .finish(&generation_context, rejected_input.clone())
         .unwrap();
-    let duplicate = service.finish(&generation_context, rejected_input).unwrap();
+    let duplicate = service
+        .finish(&generation_context, rejected_input.clone())
+        .unwrap();
 
     assert_eq!(rejected, duplicate);
     assert_eq!(rejected.phase, TextGenerationPhase::Rejected);
     assert_eq!(rejected.conversation_version, 3);
     assert_eq!(rejected.taskrun_version, 5);
+    let mut invalid = rejected.clone();
+    invalid.phase = TextGenerationPhase::Started;
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    connection
+        .execute(
+            "UPDATE command_receipts SET command_outcome = ?1 WHERE command_id = ?2",
+            rusqlite::params![
+                TextGenerationReceiptCodec.encode(&invalid).unwrap(),
+                generation_context.command_id.as_bytes()
+            ],
+        )
+        .unwrap();
+    assert_eq!(
+        projects.delete_project(
+            "local-owner",
+            "018f2e3a-7000-7000-8000-000000000015".parse().unwrap(),
+            &IdempotencyKey::new("delete-invalid-text-origin").unwrap(),
+            project_id,
+            1,
+        ),
+        Err(gocode_application::ports::ProjectWorkspaceRepositoryError::InvariantViolation)
+    );
+    connection
+        .execute(
+            "UPDATE command_receipts SET command_outcome = ?1 WHERE command_id = ?2",
+            rusqlite::params![
+                TextGenerationReceiptCodec.encode(&rejected).unwrap(),
+                generation_context.command_id.as_bytes()
+            ],
+        )
+        .unwrap();
     assert_eq!(
         projects
             .delete_project(
@@ -182,4 +218,39 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
     let taskrun = TaskRun::replay(&taskrun_stream.events).unwrap();
     assert_eq!(taskrun.state(), TaskRunState::Failed);
     assert_eq!(taskrun.active_attempt(), None);
+
+    let lineage_connection = rusqlite::Connection::open(&database_path).unwrap();
+    lineage_connection
+        .execute(
+            "UPDATE task_run_workspace_lineage SET origin_operation = 1
+             WHERE taskrun_id = ?1",
+            [rejected.taskrun_id.as_bytes()],
+        )
+        .unwrap();
+    assert_eq!(
+        service.finish(&generation_context, rejected_input.clone()),
+        Err(ConversationTextServiceError::Commit(
+            CommitError::StorageFailure(StorageFailureKind::IntegrityViolation)
+        ))
+    );
+    lineage_connection
+        .execute(
+            "UPDATE task_run_workspace_lineage SET origin_operation = 18
+             WHERE taskrun_id = ?1",
+            [rejected.taskrun_id.as_bytes()],
+        )
+        .unwrap();
+    rusqlite::Connection::open(&database_path)
+        .unwrap()
+        .execute(
+            "DELETE FROM task_run_workspace_lineage WHERE taskrun_id = ?1",
+            [rejected.taskrun_id.as_bytes()],
+        )
+        .unwrap();
+    assert_eq!(
+        service.finish(&generation_context, rejected_input),
+        Err(ConversationTextServiceError::Commit(
+            CommitError::StorageFailure(StorageFailureKind::IntegrityViolation)
+        ))
+    );
 }

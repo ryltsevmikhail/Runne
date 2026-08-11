@@ -2,7 +2,7 @@ use gocode_application::ports::{
     AggregateScope, CommitError, IdempotencyScope, OperationTag, StorageFailureKind,
 };
 use gocode_domain::id::{CommandId, TaskRunId, WorkspaceId};
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 pub(crate) fn record_direct_taskrun_lineage(
     transaction: &Transaction<'_>,
@@ -44,7 +44,7 @@ pub(crate) fn record_text_taskrun_lineage(
 }
 
 pub(crate) fn validate_direct_taskrun_lineage(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     scope: &IdempotencyScope,
     taskrun_id: TaskRunId,
     command_id: CommandId,
@@ -53,26 +53,29 @@ pub(crate) fn validate_direct_taskrun_lineage(
         return Err(corrupt(rusqlite::Error::InvalidQuery));
     };
     validate(
-        transaction,
+        connection,
         taskrun_id,
         workspace_id,
         command_id,
         OperationTag::CreateTaskRun as i64,
+        &scope.principal_id.0,
     )
 }
 
 pub(crate) fn validate_text_taskrun_lineage(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     taskrun_id: TaskRunId,
     workspace_id: WorkspaceId,
     command_id: CommandId,
+    scope: &IdempotencyScope,
 ) -> Result<(), CommitError> {
     validate(
-        transaction,
+        connection,
         taskrun_id,
         workspace_id,
         command_id,
         OperationTag::GenerateConversationText as i64,
+        &scope.principal_id.0,
     )
 }
 
@@ -86,32 +89,37 @@ fn record(
 ) -> Result<(), CommitError> {
     let canonical = transaction
         .query_row(
-            "SELECT project_id, principal_id, live FROM workspaces WHERE workspace_id = ?1",
+            "SELECT w.project_id, w.principal_id, w.live,
+                    h.project_id, h.principal_id, h.classification
+             FROM workspaces w
+             LEFT JOIN workspace_identity_history h ON h.workspace_id = w.workspace_id
+             WHERE w.workspace_id = ?1",
             [workspace_id.as_bytes()],
             |row| {
                 Ok((
                     row.get::<_, Vec<u8>>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, i64>(2)?,
+                    row.get::<_, Option<Vec<u8>>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
         .optional()
         .map_err(corrupt)?;
-    let (project_id, classification) = match canonical {
-        Some((project_id, owner, 1)) if project_id.len() == 16 && owner == principal_id => {
-            (Some(project_id), "canonical")
+    let project_id = match canonical {
+        Some((project_id, owner, 1, Some(history_project), Some(history_owner), Some(kind)))
+            if project_id.len() == 16
+                && project_id == history_project
+                && owner == principal_id
+                && owner == history_owner
+                && kind == "canonical" =>
+        {
+            project_id
         }
         Some(_) => return Err(corrupt(rusqlite::Error::InvalidQuery)),
-        None => {
-            if canonical_project_from_lineage(transaction, workspace_id)
-                .map_err(corrupt)?
-                .is_some()
-            {
-                return Err(corrupt(rusqlite::Error::InvalidQuery));
-            }
-            (None, "legacy_unbound")
-        }
+        None => return Err(corrupt(rusqlite::Error::InvalidQuery)),
     };
     transaction
         .execute(
@@ -123,7 +131,7 @@ fn record(
                 taskrun_id.as_bytes(),
                 workspace_id.as_bytes(),
                 project_id,
-                classification,
+                "canonical",
                 command_id.as_bytes(),
                 operation,
             ],
@@ -132,28 +140,15 @@ fn record(
     Ok(())
 }
 
-fn canonical_project_from_lineage(
-    transaction: &Transaction<'_>,
-    workspace_id: WorkspaceId,
-) -> rusqlite::Result<Option<Vec<u8>>> {
-    transaction
-        .query_row(
-            "SELECT project_id FROM task_run_workspace_lineage
-             WHERE workspace_id = ?1 AND classification = 'canonical' LIMIT 1",
-            [workspace_id.as_bytes()],
-            |row| row.get(0),
-        )
-        .optional()
-}
-
 fn validate(
-    transaction: &Transaction<'_>,
+    connection: &Connection,
     taskrun_id: TaskRunId,
     workspace_id: WorkspaceId,
     command_id: CommandId,
     operation: i64,
+    principal_id: &str,
 ) -> Result<(), CommitError> {
-    let row = transaction
+    let row = connection
         .query_row(
             "SELECT workspace_id, project_id, classification,
                     origin_command_id, origin_operation
@@ -172,9 +167,26 @@ fn validate(
         .optional()
         .map_err(corrupt)?
         .ok_or_else(|| corrupt(rusqlite::Error::InvalidQuery))?;
-    let classification_valid = match (row.2.as_str(), row.1.as_ref()) {
-        ("canonical", Some(project)) => project.len() == 16,
-        ("legacy_unbound", None) => true,
+    let history = connection
+        .query_row(
+            "SELECT project_id, principal_id, classification
+             FROM workspace_identity_history WHERE workspace_id = ?1",
+            [workspace_id.as_bytes()],
+            |row| {
+                Ok((
+                    row.get::<_, Option<Vec<u8>>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .optional()
+        .map_err(corrupt)?;
+    let classification_valid = match (row.2.as_str(), row.1.as_ref(), history) {
+        ("canonical", Some(project), Some((Some(bound), Some(owner), kind))) => {
+            project == &bound && owner == principal_id && kind == "canonical"
+        }
+        ("legacy_unbound", None, Some((None, None, kind))) => kind == "legacy_unbound",
         _ => false,
     };
     if row.0 != workspace_id.as_bytes()

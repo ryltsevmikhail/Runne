@@ -31,6 +31,7 @@ fn released_v8_db() -> Connection {
     conn.execute_batch(
         "DROP TRIGGER global_command_id_from_command_receipts;
          DROP TABLE task_run_workspace_lineage;
+         DROP TABLE workspace_identity_history;
          DROP TABLE root_admission_nonces;
          DROP TABLE project_workspace_command_receipts;
          DROP TABLE workspaces;
@@ -97,6 +98,7 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         "workspaces",
         "root_admission_nonces",
         "project_workspace_command_receipts",
+        "workspace_identity_history",
         "task_run_workspace_lineage",
     ] {
         assert!(table_exists(&conn, table), "missing released table {table}");

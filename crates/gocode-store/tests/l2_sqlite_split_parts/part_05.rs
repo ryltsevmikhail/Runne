@@ -78,6 +78,7 @@ fn test_clock_regression() {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
         let svc = TaskRunService::new(
             store.clone(),
             store.clone(),
@@ -177,6 +178,7 @@ fn test_two_competing_writers() {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
         let svc = TaskRunService::new(
             store.clone(),
             store.clone(),

@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+mod workspace;
+#[allow(unused_imports)]
+pub use workspace::seed_canonical_workspace;
+
 use std::path::Path;
 use std::sync::Arc;
 

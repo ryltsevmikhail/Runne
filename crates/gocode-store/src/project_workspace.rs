@@ -14,6 +14,7 @@ mod project_mutations;
 mod queries;
 mod receipts;
 mod records;
+mod taskrun_audit;
 mod taskrun_fence;
 mod taskrun_origins;
 mod taskrun_replay;

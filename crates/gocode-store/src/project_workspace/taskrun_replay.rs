@@ -31,6 +31,7 @@ type StoredEvent = (
 pub(super) fn task_run_is_terminal(
     transaction: &Transaction<'_>,
     taskrun_id: TaskRunId,
+    origin_command_id: CommandId,
 ) -> Result<bool, Error> {
     let head = transaction
         .query_row(
@@ -69,7 +70,8 @@ pub(super) fn task_run_is_terminal(
         events.push(envelope);
     }
     let last = events.last().ok_or(Error::InvariantViolation)?;
-    if head.1.as_deref() != Some(last.event_id().as_bytes().as_slice())
+    if events.first().map(|event| event.command_id()) != Some(&origin_command_id)
+        || head.1.as_deref() != Some(last.event_id().as_bytes().as_slice())
         || head.2 != Some(last.timestamp().as_unix_micros())
     {
         return Err(Error::InvariantViolation);

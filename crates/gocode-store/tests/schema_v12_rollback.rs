@@ -41,6 +41,11 @@ fn rollback_without_atomic_cutover_is_unavailable_to_open_store_handles() {
             .unwrap();
     let provider_store =
         validated_reopen::open_provider_dispatch(database.path(), identity).unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &application_store,
+        "test-principal",
+        "018f2e3a-7000-7000-8000-00000000000b".parse().unwrap(),
+    );
 
     assert_eq!(
         rollback_pre_v12_snapshot(path),

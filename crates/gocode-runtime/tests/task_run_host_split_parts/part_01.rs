@@ -69,6 +69,11 @@ impl TestRuntime {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(
+            &store,
+            "local-owner",
+            WORKSPACE_ID.parse().unwrap(),
+        );
         let (host, controller) = start_runtime(store.clone(), authority.clone());
         Self {
             _database: database,

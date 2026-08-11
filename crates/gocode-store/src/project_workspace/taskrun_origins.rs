@@ -93,7 +93,10 @@ fn direct_target_origin(
     if !workspace_belongs(transaction, workspace_id, project_id)? {
         return Ok(None);
     }
-    let CommandOutcome::TaskRunCreated { taskrun_id, .. } = CommandOutcomeCodec
+    let CommandOutcome::TaskRunCreated {
+        taskrun_id,
+        new_version: 1,
+    } = CommandOutcomeCodec
         .decode(outcome)
         .map_err(|_| Error::InvariantViolation)?
     else {

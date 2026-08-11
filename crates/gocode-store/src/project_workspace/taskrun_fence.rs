@@ -1,8 +1,9 @@
 use gocode_application::commands::CommandOutcome;
 use gocode_application::ports::{
     AggregateScope, IdempotencyScope, OperationTag, ProjectWorkspaceRepositoryError as Error,
+    TextGenerationPhase,
 };
-use gocode_domain::id::{ProjectId, TaskRunId, WorkspaceId};
+use gocode_domain::id::{CommandId, ProjectId, TaskRunId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction};
 
 use crate::codec::{
@@ -15,6 +16,7 @@ pub(super) fn ensure_project_task_runs_terminal(
     transaction: &Transaction<'_>,
     project_id: ProjectId,
 ) -> Result<(), Error> {
+    super::taskrun_audit::ensure_all_taskrun_streams_have_lineage(transaction)?;
     super::taskrun_origins::ensure_target_origins_have_lineage(transaction, project_id)?;
     let mut statement = transaction
         .prepare(
@@ -44,15 +46,16 @@ pub(super) fn ensure_project_task_runs_terminal(
         }
         let taskrun_id = TaskRunId::from_bytes(parse_id(taskrun)?);
         let workspace_id = WorkspaceId::from_bytes(parse_id(workspace)?);
+        let origin_command_id = CommandId::from_bytes(parse_id(command)?);
         validate_unambiguous_workspace(transaction, workspace_id, project_id)?;
         validate_origin(
             transaction,
             taskrun_id,
             workspace_id,
-            parse_id(command)?,
+            origin_command_id.into_bytes(),
             operation,
         )?;
-        if !task_run_is_terminal(transaction, taskrun_id)? {
+        if !task_run_is_terminal(transaction, taskrun_id, origin_command_id)? {
             return Err(Error::Conflict);
         }
     }
@@ -127,7 +130,7 @@ fn validate_direct_origin(
 ) -> Result<(), Error> {
     if scope.operation != OperationTag::CreateTaskRun
         || !matches!(scope.aggregate_scope, AggregateScope::NewTaskRun { workspace_id: value, .. } if value == workspace_id)
-        || !matches!(CommandOutcomeCodec.decode(outcome), Ok(CommandOutcome::TaskRunCreated { taskrun_id: value, .. }) if value == taskrun_id)
+        || !matches!(CommandOutcomeCodec.decode(outcome), Ok(CommandOutcome::TaskRunCreated { taskrun_id: value, new_version: 1 }) if value == taskrun_id)
     {
         return Err(Error::InvariantViolation);
     }
@@ -143,10 +146,17 @@ fn validate_text_origin(
     let receipt = TextGenerationReceiptCodec
         .decode(outcome)
         .map_err(|_| Error::InvariantViolation)?;
+    let version_valid = match receipt.phase {
+        TextGenerationPhase::Started => receipt.taskrun_version == 4,
+        TextGenerationPhase::Completed
+        | TextGenerationPhase::Rejected
+        | TextGenerationPhase::ProhibitedInputRejected => receipt.taskrun_version == 5,
+    };
     if scope.operation != OperationTag::GenerateConversationText
         || !matches!(scope.aggregate_scope, AggregateScope::ExistingConversation { conversation_id } if conversation_id == receipt.conversation_id)
         || receipt.taskrun_id != taskrun_id
         || receipt.workspace_id != workspace_id
+        || !version_valid
     {
         return Err(Error::InvariantViolation);
     }

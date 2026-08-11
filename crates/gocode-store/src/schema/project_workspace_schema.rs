@@ -43,6 +43,14 @@ CREATE TABLE project_workspace_command_receipts (
     UNIQUE(runtime_authority_id, principal_id, operation, aggregate_kind,
            aggregate_id, idempotency_key)
 );
+CREATE TABLE workspace_identity_history (
+    workspace_id BLOB PRIMARY KEY CHECK(length(workspace_id) = 16),
+    project_id BLOB CHECK(project_id IS NULL OR length(project_id) = 16),
+    principal_id TEXT CHECK(principal_id IS NULL OR length(principal_id) BETWEEN 1 AND 256),
+    classification TEXT NOT NULL CHECK(classification IN ('canonical', 'legacy_unbound')),
+    CHECK((classification = 'canonical' AND project_id IS NOT NULL AND principal_id IS NOT NULL)
+       OR (classification = 'legacy_unbound' AND project_id IS NULL AND principal_id IS NULL))
+);
 CREATE TABLE task_run_workspace_lineage (
     taskrun_id BLOB PRIMARY KEY CHECK(length(taskrun_id) = 16),
     workspace_id BLOB NOT NULL CHECK(length(workspace_id) = 16),
@@ -73,6 +81,13 @@ pub(super) fn apply_v16_migration(connection: &Connection) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Exclusive)?;
     transaction.execute_batch(MIGRATION_V16)?;
     super::project_workspace_backfill::backfill_taskrun_lineage(&transaction)?;
+    transaction.execute(
+        "INSERT INTO workspace_identity_history
+         (workspace_id, project_id, principal_id, classification)
+         SELECT DISTINCT workspace_id, NULL, NULL, 'legacy_unbound'
+         FROM task_run_workspace_lineage WHERE classification = 'legacy_unbound'",
+        [],
+    )?;
     transaction.execute_batch(GLOBAL_COMMAND_RECEIPT_TRIGGER)?;
     transaction.execute_batch(GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER)?;
     super::install_missing_v12_fence_triggers(&transaction)?;
@@ -103,6 +118,7 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
         "workspaces",
         "root_admission_nonces",
         "project_workspace_command_receipts",
+        "workspace_identity_history",
         "task_run_workspace_lineage",
     ]
     .into_iter()
@@ -118,6 +134,7 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
         "workspaces",
         "root_admission_nonces",
         "project_workspace_command_receipts",
+        "workspace_identity_history",
         "task_run_workspace_lineage",
     ]);
     Ok(tables_match

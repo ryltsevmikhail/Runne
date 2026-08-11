@@ -34,6 +34,27 @@ pub(super) fn lookup_text_receipt(
             let stored_result = TextGenerationReceiptCodec
                 .decode(&stored_outcome)
                 .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+            let stored_scope = IdempotencyScopeCodec
+                .decode(&stored_scope)
+                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+            let version_valid = match stored_result.phase {
+                TextGenerationPhase::Started => stored_result.taskrun_version == 4,
+                TextGenerationPhase::Completed
+                | TextGenerationPhase::Rejected
+                | TextGenerationPhase::ProhibitedInputRejected => {
+                    stored_result.taskrun_version == 5
+                }
+            };
+            if stored_scope.operation != OperationTag::GenerateConversationText || !version_valid {
+                return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+            }
+            crate::project_workspace::lineage::validate_text_taskrun_lineage(
+                connection,
+                stored_result.taskrun_id,
+                stored_result.workspace_id,
+                command_id,
+                &stored_scope,
+            )?;
             return Ok(TextGenerationReceiptLookup::Duplicate { stored_result });
         }
         return Err(CommitError::IdempotencyConflict {
