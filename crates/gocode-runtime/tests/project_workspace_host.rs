@@ -18,6 +18,8 @@ mod nondisclosure;
 mod paging;
 #[path = "project_workspace_host/worker.rs"]
 mod worker;
+#[path = "project_workspace_host/worker_support.rs"]
+mod worker_support;
 
 const PROJECT_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e1";
 const WORKSPACE_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e2";

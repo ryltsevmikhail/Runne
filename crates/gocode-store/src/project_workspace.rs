@@ -158,7 +158,7 @@ impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
     fn list_projects(
         &self,
         principal: &str,
-        limit: u16,
+        limit: gocode_api::ProjectWorkspacePageSize,
         after: Option<ProjectId>,
     ) -> Result<(Vec<Project>, Option<ProjectId>), Error> {
         list_projects(&self.store, principal, limit, after)
@@ -172,7 +172,7 @@ impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
         &self,
         principal: &str,
         id: ProjectId,
-        limit: u16,
+        limit: gocode_api::ProjectWorkspacePageSize,
         after: Option<WorkspaceId>,
     ) -> Result<(Vec<Workspace>, Option<WorkspaceId>), Error> {
         list_workspaces(&self.store, principal, id, limit, after)

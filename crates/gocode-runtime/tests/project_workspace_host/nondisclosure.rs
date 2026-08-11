@@ -43,8 +43,8 @@ async fn foreign_and_absent_targets_are_indistinguishable_across_lifecycle_surfa
             )
             .await
             .unwrap();
-        assert!(page.items.is_empty());
-        assert!(page.next_cursor.is_none());
+        assert!(page.items().is_empty());
+        assert!(page.next_cursor().is_none());
     }
     assert_not_found(
         host.get_workspace(

@@ -1,3 +1,4 @@
+use gocode_api::ProjectWorkspacePageSize;
 use gocode_application::ports::{
     ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error,
 };
@@ -189,7 +190,7 @@ fn queries_are_ordered_and_hide_foreign_existence() {
     create_project(&repository);
 
     let ids = repository
-        .list_projects("owner", 100, None)
+        .list_projects("owner", ProjectWorkspacePageSize::new(100).unwrap(), None)
         .unwrap()
         .0
         .into_iter()
