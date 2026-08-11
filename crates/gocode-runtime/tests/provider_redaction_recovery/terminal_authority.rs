@@ -49,6 +49,44 @@ fn completed_rejects_every_same_fence_stale_tail_binding_field() {
 }
 
 #[test]
+fn every_terminal_candidate_rejects_every_stale_tail_binding_field() {
+    let current = advanced_binding();
+    let stale_bindings = [
+        TailBinding::new(current.attempt_id(), 8, 11, 13, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 12, 13, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 11, 14, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 11, 13, 2, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 11, 13, 1, 6).unwrap(),
+    ];
+    let terminal_candidates = [
+        ScannerTerminalDisposition::Uncertain(ScannerUncertainReason::SecretDetected),
+        ScannerTerminalDisposition::Uncertain(
+            ScannerUncertainReason::CredentialMatcherUnavailable,
+        ),
+        ScannerTerminalDisposition::Uncertain(
+            ScannerUncertainReason::RedactionScannerUnavailable,
+        ),
+        ScannerTerminalDisposition::Uncertain(
+            ScannerUncertainReason::CheckpointSecretStateUnavailable,
+        ),
+        ScannerTerminalDisposition::OutputLimitExceeded,
+        ScannerTerminalDisposition::Completed,
+    ];
+    for stale in stale_bindings {
+        for candidate in terminal_candidates {
+            let (_directory, durable) = stores();
+            let checkpoint = checkpoint_for(&MemoryTailStore::default(), current);
+            durable.persist_checkpoint(checkpoint).unwrap();
+            assert_eq!(
+                durable.commit_terminal(stale, candidate),
+                Err(ScannerRecoveryPersistenceError::Conflict)
+            );
+            assert_eq!(durable.load(current.attempt_id()).unwrap().unwrap().disposition(), None);
+        }
+    }
+}
+
+#[test]
 fn unproven_completed_record_is_corrupt_and_cannot_publish() {
     let (directory, durable) = stores();
     let tails = MemoryTailStore::default();
