@@ -33,9 +33,9 @@ pub(super) fn ensure_target_origins_have_lineage(
         .map_err(|_| Error::Unavailable)?;
     drop(statement);
     for (command, scope, outcome) in rows {
-        let Ok(scope) = IdempotencyScopeCodec.decode(&scope) else {
-            continue;
-        };
+        let scope = IdempotencyScopeCodec
+            .decode(&scope)
+            .map_err(|_| Error::InvariantViolation)?;
         let Some((taskrun, workspace, operation)) =
             target_origin(transaction, project_id, &scope, &outcome)?
         else {
@@ -111,7 +111,9 @@ fn text_target_origin(
     scope: &IdempotencyScope,
     outcome: &[u8],
 ) -> Result<Option<(TaskRunId, WorkspaceId, i64)>, Error> {
-    let receipt = TextGenerationReceiptCodec.decode(outcome).ok();
+    let receipt = TextGenerationReceiptCodec
+        .decode(outcome)
+        .map_err(|_| Error::InvariantViolation)?;
     let conversation_id = match scope.aggregate_scope {
         AggregateScope::ExistingConversation { conversation_id } => Some(conversation_id),
         _ => None,
@@ -120,19 +122,16 @@ fn text_target_origin(
         .map(|id| conversation_workspace(transaction, id))
         .transpose()?
         .flatten();
-    let targets_project = match (receipt.as_ref(), conversation_workspace) {
-        (Some(value), Some(conversation)) => {
-            workspace_belongs(transaction, value.workspace_id, project_id)?
+    let targets_project = match conversation_workspace {
+        Some(conversation) => {
+            workspace_belongs(transaction, receipt.workspace_id, project_id)?
                 || workspace_belongs(transaction, conversation, project_id)?
         }
-        (Some(value), None) => workspace_belongs(transaction, value.workspace_id, project_id)?,
-        (None, Some(conversation)) => workspace_belongs(transaction, conversation, project_id)?,
-        (None, None) => false,
+        None => workspace_belongs(transaction, receipt.workspace_id, project_id)?,
     };
     if !targets_project {
         return Ok(None);
     }
-    let receipt = receipt.ok_or(Error::InvariantViolation)?;
     let conversation_workspace = conversation_workspace.ok_or(Error::InvariantViolation)?;
     if conversation_id != Some(receipt.conversation_id)
         || conversation_workspace != receipt.workspace_id
@@ -155,12 +154,17 @@ fn conversation_workspace(
         )
         .optional()
         .map_err(|_| Error::Unavailable)?;
-    Ok(
-        payload.and_then(|payload| match ConversationEventCodec.decode(&payload) {
-            Ok(ConversationEvent::ConversationCreated { workspace_id }) => Some(workspace_id),
-            _ => None,
-        }),
-    )
+    payload
+        .map(|payload| {
+            match ConversationEventCodec
+                .decode(&payload)
+                .map_err(|_| Error::InvariantViolation)?
+            {
+                ConversationEvent::ConversationCreated { workspace_id } => Ok(workspace_id),
+                _ => Err(Error::InvariantViolation),
+            }
+        })
+        .transpose()
 }
 
 fn workspace_belongs(

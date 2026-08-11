@@ -26,23 +26,51 @@ impl StoreTransaction {
         let cmd_id_bytes = command_id.as_bytes();
         let ikey_bytes = idempotency_key.as_str().as_bytes();
 
-        // Check by command_id first
-        let by_cmd_id: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = tx
+        let project_fingerprint = tx
             .query_row(
-                "SELECT idempotency_scope_bytes, fingerprint, command_outcome
+                "SELECT semantic_fingerprint FROM project_workspace_command_receipts
+                 WHERE command_id = ?1",
+                params![cmd_id_bytes],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()
+            .map_err(map_commit_read_error)?;
+        if let Some(stored_fingerprint) = project_fingerprint {
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: command_id,
+                attempted_command_id: command_id,
+                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
+                attempted_fingerprint: *fingerprint,
+            });
+        }
+
+        // Check by command_id first.
+        let by_cmd_id = tx
+            .query_row(
+                "SELECT idempotency_scope_bytes, idempotency_key, fingerprint, command_outcome
                  FROM command_receipts
                  WHERE command_id = ?1",
                 params![cmd_id_bytes],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                        row.get::<_, Vec<u8>>(3)?,
+                    ))
+                },
             )
             .optional()
             .map_err(map_commit_read_error)?;
 
-        if let Some((stored_scope, stored_fp, outcome_bytes)) = by_cmd_id {
-            let stored_fp_arr: [u8; 32] = stored_fp.try_into().unwrap_or([0; 32]);
-            let stored_fingerprint = CommandFingerprint::from_bytes(stored_fp_arr);
+        if let Some((stored_scope, stored_key, stored_fp, outcome_bytes)) = by_cmd_id {
+            let stored_key = parse_idempotency_key_for_commit(stored_key)?;
+            let stored_fingerprint = parse_fingerprint(stored_fp)?;
 
-            if stored_scope == scope_bytes && stored_fingerprint == *fingerprint {
+            if stored_scope == scope_bytes
+                && stored_key == *idempotency_key
+                && stored_fingerprint == *fingerprint
+            {
                 let outcome_codec = CommandOutcomeCodec;
                 let stored_result = outcome_codec.decode(&outcome_bytes).map_err(|_| {
                     CommitError::StorageFailure(
@@ -88,9 +116,8 @@ impl StoreTransaction {
             .map_err(map_commit_read_error)?;
 
         if let Some((stored_cmd, stored_fp)) = by_scope {
-            let stored_cmd_id = CommandId::from_bytes(stored_cmd.try_into().unwrap_or([0; 16]));
-            let stored_fp_arr: [u8; 32] = stored_fp.try_into().unwrap_or([0; 32]);
-            let stored_fingerprint = CommandFingerprint::from_bytes(stored_fp_arr);
+            let stored_cmd_id = parse_command_id_for_commit(stored_cmd)?;
+            let stored_fingerprint = parse_fingerprint(stored_fp)?;
             return Err(CommitError::IdempotencyConflict {
                 stored_command_id: stored_cmd_id,
                 attempted_command_id: command_id,

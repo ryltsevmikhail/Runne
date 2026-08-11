@@ -17,9 +17,26 @@ impl StoreTransaction {
         let scope = IdempotencyScopeCodec
             .encode(idempotency_scope)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        if let Some(stored_fingerprint) = conn
+            .query_row(
+                "SELECT semantic_fingerprint FROM project_workspace_command_receipts
+                 WHERE command_id = ?1",
+                params![command_id.as_bytes()],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()
+            .map_err(map_commit_read_error)?
+        {
+            return Err(CommitError::IdempotencyConflict {
+                stored_command_id: command_id,
+                attempted_command_id: command_id,
+                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
+                attempted_fingerprint: *fingerprint,
+            });
+        }
         let by_command = conn
             .query_row(
-                "SELECT idempotency_scope_bytes, fingerprint, command_outcome
+                "SELECT idempotency_scope_bytes, idempotency_key, fingerprint, command_outcome
                  FROM command_receipts WHERE command_id = ?1",
                 params![command_id.as_bytes()],
                 |row| {
@@ -27,14 +44,19 @@ impl StoreTransaction {
                         row.get::<_, Vec<u8>>(0)?,
                         row.get::<_, Vec<u8>>(1)?,
                         row.get::<_, Vec<u8>>(2)?,
+                        row.get::<_, Vec<u8>>(3)?,
                     ))
                 },
             )
             .optional()
             .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-        if let Some((stored_scope, stored_fingerprint, stored_outcome)) = by_command {
+        if let Some((stored_scope, stored_key, stored_fingerprint, stored_outcome)) = by_command {
+            let stored_key = parse_idempotency_key_for_commit(stored_key)?;
             let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
-            if stored_scope == scope && stored_fingerprint == *fingerprint {
+            if stored_scope == scope
+                && stored_key == *idempotency_key
+                && stored_fingerprint == *fingerprint
+            {
                 let stored_result = ConversationReceiptCodec
                     .decode(&stored_outcome)
                     .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
