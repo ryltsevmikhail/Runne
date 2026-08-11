@@ -126,7 +126,9 @@ pub(super) fn send_borrowed(
     binding: &RootHandleTransferBinding,
 ) -> Result<(), RootHandleBrokerError> {
     configure(stream)?;
-    peer_matches(stream, binding, binding.receiver_pid)?;
+    if binding.verify_receiver_kernel_peer {
+        peer_matches(stream, binding, binding.receiver_pid)?;
+    }
     let mut challenge = [0; CHALLENGE_BYTES];
     stream
         .read_exact(&mut challenge)

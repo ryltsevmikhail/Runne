@@ -5,6 +5,7 @@ const ROOT_HANDLE_RESULT_PREFIX: &[u8] = b"gocode/root-handle-result/v2";
 
 /// Authenticates native directory-handle transfers without disclosing an
 /// activation key to a renderer or a transport peer.
+#[derive(Clone)]
 pub struct RootHandleTransferAuthenticator {
     key: Zeroizing<[u8; 32]>,
 }

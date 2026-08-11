@@ -12,6 +12,11 @@ mod platform;
 mod platform;
 #[cfg(not(any(unix, windows)))]
 compile_error!("root-handle broker requires a supported desktop platform");
+#[cfg(unix)]
+#[path = "root_handle_broker/endpoint.rs"]
+mod endpoint;
+#[cfg(unix)]
+pub use endpoint::ProtectedRootHandleEndpoint;
 
 /// Fail-closed errors for native root-handle selection and transfer.
 #[derive(Debug, Error)]
@@ -99,6 +104,7 @@ pub struct RootHandleTransferBinding {
     receiver_pid: u32,
     peer_uid: u32,
     offer_digest: [u8; 32],
+    verify_receiver_kernel_peer: bool,
 }
 
 impl RootHandleTransferBinding {
@@ -121,13 +127,13 @@ impl RootHandleTransferBinding {
             receiver_pid,
             peer_uid,
             offer_digest: [1; 32],
+            verify_receiver_kernel_peer: true,
         })
     }
 }
 
 #[cfg(unix)]
-#[doc(hidden)]
-pub fn binding_for_protected_control(
+fn binding_for_protected_control(
     context: &gocode_api::RootHandleTransferContext,
     offer_digest: [u8; 32],
 ) -> Result<RootHandleTransferBinding, RootHandleBrokerError> {
@@ -141,28 +147,10 @@ pub fn binding_for_protected_control(
         receiver_pid: context.receiver_pid(),
         peer_uid: context.effective_uid(),
         offer_digest,
+        // An inherited socketpair's kernel peer remains its creator (desktop),
+        // not the post-fork daemon child. READY proves the logical child tuple.
+        verify_receiver_kernel_peer: false,
     })
-}
-
-#[cfg(unix)]
-#[doc(hidden)]
-pub fn send_on_protected_channel(
-    channel: &mut std::os::unix::net::UnixStream,
-    root: &VerifiedRootHandle,
-    authenticator: &RootHandleTransferAuthenticator,
-    binding: &RootHandleTransferBinding,
-) -> Result<(), RootHandleBrokerError> {
-    platform::send_borrowed(channel, root, authenticator, binding)
-}
-
-#[cfg(unix)]
-#[doc(hidden)]
-pub fn receive_on_protected_channel(
-    channel: &mut std::os::unix::net::UnixStream,
-    authenticator: &RootHandleTransferAuthenticator,
-    binding: &RootHandleTransferBinding,
-) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
-    platform::receive_borrowed(channel, authenticator, binding)
 }
 
 impl fmt::Debug for RootHandleTransferBinding {

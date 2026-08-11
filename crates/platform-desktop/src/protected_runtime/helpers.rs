@@ -12,6 +12,7 @@ pub struct ProtectedBundledRuntimeProcess {
     activation: ProtectedProcessActivation,
     runtime_profile: Option<ProtectedBundledRuntimeProfile>,
     renewal_sequence: u64,
+    root_control_sequence: u64,
     graceful_requested: bool,
     #[cfg(feature = "test-support")]
     captured_stdout: Option<std::process::ChildStdout>,

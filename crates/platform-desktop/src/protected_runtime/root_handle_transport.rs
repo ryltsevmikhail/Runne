@@ -27,11 +27,16 @@ impl ProtectedBundledRuntimeProcess {
             effective_uid, workspace_id, expected_version, *uuid::Uuid::now_v7().as_bytes(), now, expires,
         )?;
         let authenticator = gocode_api::RootHandleTransferAuthenticator::from_protected_activation(&self.keys);
-        let offer = gocode_api::RootHandleTransferOffer::new(context.clone(), 1, &authenticator)?;
+        let sequence = self.root_control_sequence.checked_add(1)
+            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+        let offer = gocode_api::RootHandleTransferOffer::new(context.clone(), sequence, &authenticator)?;
         let offer_digest = offer.digest();
-        write_frame(&mut self.channel, &gocode_api::RootHandleControlFrame::Offer(offer).encode())?;
+        write_frame(
+            &mut self.channel,
+            &gocode_api::RootHandleControlFrame::Offer(offer).encode_frame(),
+        )?;
         let ready = gocode_api::RootHandleControlFrame::decode_and_verify(
-            &read_frame(&mut self.channel)?, &authenticator, &context, 1, unix_millis()?,
+            &read_frame(&mut self.channel)?, &authenticator, &context, sequence, unix_millis()?,
         )?;
         let gocode_api::RootHandleControlFrame::Ready(ready) = ready else {
             return Err(ProtectedBundledRuntimeError::LaunchAuthority(LaunchAuthorityError::InvalidContract));
@@ -39,20 +44,34 @@ impl ProtectedBundledRuntimeProcess {
         if ready.offer_digest() != &offer_digest {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
-        let binding = crate::root_handle_broker::binding_for_protected_control(&context, *ready.offer_digest())
-            .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        crate::root_handle_broker::send_on_protected_channel(
-            &mut self.channel, root, &authenticator, &binding,
-        ).map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
+        let mut endpoint = crate::ProtectedRootHandleEndpoint::from_owned_protected_channel(
+            self.channel.try_clone().map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?,
+            authenticator.clone(), &context, *ready.offer_digest(),
+        ).map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        if endpoint.send(root).is_err() || endpoint.finish().is_err() {
+            self.poison_root_transport();
+            return Err(ProtectedBundledRuntimeError::ProtectedChannelUnavailable);
+        }
         let result = gocode_api::RootHandleControlFrame::decode_and_verify(
-            &read_frame(&mut self.channel)?, &authenticator, &context, 2, unix_millis()?,
+            &read_frame(&mut self.channel)?, &authenticator, &context, sequence + 1, unix_millis()?,
         )?;
         let gocode_api::RootHandleControlFrame::Result(result) = result else {
             return Err(ProtectedBundledRuntimeError::LaunchAuthority(LaunchAuthorityError::InvalidContract));
         };
-        if result.offer_digest() != ready.offer_digest() || !result.accepted() {
+        if result.offer_digest() != ready.offer_digest() {
+            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        }
+        self.root_control_sequence = sequence + 2;
+        if !result.accepted() {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
         Ok(())
+    }
+
+    fn poison_root_transport(&mut self) {
+        use std::net::Shutdown;
+        let _ = self.channel.shutdown(Shutdown::Both);
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }

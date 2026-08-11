@@ -59,7 +59,11 @@ impl ProtectedActivationChannel {
     }
 
     pub(super) fn write_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
-        if frame.len() < 5 || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4 {
+        if frame.len() < 5
+            || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4
+            || u32::from_be_bytes(frame[..4].try_into().unwrap_or([0; 4])) as usize
+                != frame.len() - 4
+        {
             return Err(LaunchAuthorityError::InvalidContract);
         }
         self.stream
@@ -85,17 +89,49 @@ impl ProtectedActivationChannel {
     }
 
     #[cfg(feature = "desktop-protected")]
-    pub(super) fn native_stream(&mut self) -> &mut std::os::unix::net::UnixStream {
-        &mut self.stream
+    pub(super) fn root_handle_endpoint(
+        &self,
+        authenticator: RootHandleTransferAuthenticator,
+        context: &gocode_api::RootHandleTransferContext,
+        offer_digest: [u8; 32],
+    ) -> Result<gocode_platform_desktop::ProtectedRootHandleEndpoint, LaunchAuthorityError> {
+        gocode_platform_desktop::ProtectedRootHandleEndpoint::from_owned_protected_channel(
+            self.stream
+                .try_clone()
+                .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
+            authenticator,
+            context,
+            offer_digest,
+        )
+        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
     }
 
     #[cfg(feature = "desktop-protected")]
     pub(super) fn peer_identity(&self) -> Result<(u32, u32), LaunchAuthorityError> {
-        let peer = rustix::net::sockopt::socket_peercred(&self.stream)
+        #[cfg(target_os = "linux")]
+        {
+            let peer = rustix::net::sockopt::socket_peercred(&self.stream)
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            let pid = u32::try_from(peer.pid.as_raw_pid())
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            return Ok((pid, peer.uid.as_raw() as u32));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let pid =
+                nix::sys::socket::getsockopt(&self.stream, nix::sys::socket::sockopt::LocalPeerPid)
+                    .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            let credentials = nix::sys::socket::getsockopt(
+                &self.stream,
+                nix::sys::socket::sockopt::LocalPeerCred,
+            )
             .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-        let pid = u32::try_from(peer.pid.as_raw_pid())
-            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-        Ok((pid, peer.uid.as_raw() as u32))
+            return u32::try_from(pid)
+                .map(|pid| (pid, credentials.uid()))
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch);
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        Err(LaunchAuthorityError::UnsupportedPlatformBackend)
     }
 }
 
