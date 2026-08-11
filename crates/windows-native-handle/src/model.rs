@@ -43,27 +43,27 @@ pub(super) enum ControlAction {
 
 pub(super) struct ReceiverModel {
     binding: TargetBinding,
-    entries: BTreeMap<[u8; 16], Entry>,
+    pub(super) entries: BTreeMap<[u8; 16], Entry>,
 }
 
-enum Entry {
+pub(super) enum Entry {
     Staging {
         parts: OfferParts,
-        fence_deadline: u64,
+        replay_fence_deadline: u64,
     },
     Ready {
         parts: OfferParts,
-        fence_deadline: u64,
+        replay_fence_deadline: u64,
     },
     Terminal {
         parts: OfferParts,
         kind: TerminalKind,
-        fence_deadline: u64,
+        replay_fence_deadline: u64,
     },
 }
 
 #[derive(Clone, Copy)]
-enum TerminalKind {
+pub(super) enum TerminalKind {
     Finalize,
     Nack,
 }
@@ -90,10 +90,10 @@ impl ReceiverModel {
         if parts.deadline_millis <= now || parts.deadline_millis - now > MAX_OFFER_MILLIS {
             return Ok(OfferAction::Nack(wire::nack(parts)));
         }
+        self.purge_expired(now);
         if let Some(existing) = self.entries.get_mut(&parts.offer_id) {
             return Ok(replay(existing, parts));
         }
-        self.purge_expired(now);
         if self.entries.len() >= MAX_RECORDS {
             return Ok(OfferAction::Nack(wire::nack(parts)));
         }
@@ -101,7 +101,7 @@ impl ReceiverModel {
             parts.offer_id,
             Entry::Staging {
                 parts,
-                fence_deadline: parts.deadline_millis,
+                replay_fence_deadline: parts.deadline_millis,
             },
         );
         Ok(OfferAction::Clone(parts))
@@ -122,13 +122,16 @@ impl ReceiverModel {
         if staged.transcript != parts.transcript {
             return Err(ProtocolError::Rejected);
         }
-        let fence_deadline =
-            fence_deadline(self.entries.get(&parts.offer_id).expect("staging entry"));
+        let replay_fence_deadline = replay_fence_deadline(
+            self.entries
+                .get(&parts.offer_id)
+                .ok_or(ProtocolError::Rejected)?,
+        );
         self.entries.insert(
             parts.offer_id,
             Entry::Ready {
                 parts,
-                fence_deadline,
+                replay_fence_deadline,
             },
         );
         Ok(wire::ready(parts))
@@ -149,13 +152,15 @@ impl ReceiverModel {
             return ControlAction::Nack(wire::nack_from_control(control));
         }
         match entry {
-            Entry::Ready { .. } if control.kind == ControlKind::Finalize => {
+            Entry::Ready { .. }
+                if control.kind == ControlKind::Finalize && parts.deadline_millis > now =>
+            {
                 self.entries.insert(
                     control.offer_id,
                     Entry::Terminal {
                         parts,
                         kind: TerminalKind::Finalize,
-                        fence_deadline: fence_deadline(entry),
+                        replay_fence_deadline: replay_fence_deadline(entry),
                     },
                 );
                 ControlAction::Commit(control.offer_id)
@@ -166,7 +171,7 @@ impl ReceiverModel {
                     Entry::Terminal {
                         parts,
                         kind: TerminalKind::Nack,
-                        fence_deadline: fence_deadline(entry),
+                        replay_fence_deadline: replay_fence_deadline(entry),
                     },
                 );
                 ControlAction::Drop(control.offer_id)
@@ -177,18 +182,6 @@ impl ReceiverModel {
             } => ControlAction::Finalize(wire::finalize(parts)),
             _ => ControlAction::Nack(wire::nack(parts)),
         }
-    }
-
-    pub(super) fn expire(&mut self, now: u64) -> Vec<[u8; 16]> {
-        let expired = self
-            .entries
-            .iter()
-            .filter_map(|(id, entry)| (fence_deadline(entry) <= now).then_some(*id))
-            .collect::<Vec<_>>();
-        for id in &expired {
-            self.entries.remove(id);
-        }
-        expired
     }
 
     pub(super) fn cancel(&mut self, offer_id: [u8; 16]) -> Option<HandleNack> {
@@ -220,16 +213,16 @@ impl ReceiverModel {
     }
 
     fn terminal(&mut self, parts: OfferParts, kind: TerminalKind) {
-        let fence_deadline = self
+        let replay_fence_deadline = self
             .entries
             .get(&parts.offer_id)
-            .map_or(parts.deadline_millis, fence_deadline);
+            .map_or(parts.deadline_millis, replay_fence_deadline);
         self.entries.insert(
             parts.offer_id,
             Entry::Terminal {
                 parts,
                 kind,
-                fence_deadline,
+                replay_fence_deadline,
             },
         );
     }
@@ -255,20 +248,38 @@ const fn parts(entry: &Entry) -> OfferParts {
     }
 }
 
-const fn fence_deadline(entry: &Entry) -> u64 {
+pub(super) const fn replay_fence_deadline(entry: &Entry) -> u64 {
     match entry {
-        Entry::Staging { fence_deadline, .. }
-        | Entry::Ready { fence_deadline, .. }
-        | Entry::Terminal { fence_deadline, .. } => *fence_deadline,
+        Entry::Staging {
+            replay_fence_deadline,
+            ..
+        }
+        | Entry::Ready {
+            replay_fence_deadline,
+            ..
+        }
+        | Entry::Terminal {
+            replay_fence_deadline,
+            ..
+        } => *replay_fence_deadline,
     }
 }
 
 fn extend_fence(entry: &mut Entry, deadline: u64) {
     match entry {
-        Entry::Staging { fence_deadline, .. }
-        | Entry::Ready { fence_deadline, .. }
-        | Entry::Terminal { fence_deadline, .. } => {
-            *fence_deadline = (*fence_deadline).max(deadline);
+        Entry::Staging {
+            replay_fence_deadline,
+            ..
+        }
+        | Entry::Ready {
+            replay_fence_deadline,
+            ..
+        }
+        | Entry::Terminal {
+            replay_fence_deadline,
+            ..
+        } => {
+            *replay_fence_deadline = (*replay_fence_deadline).max(deadline);
         }
     }
 }
