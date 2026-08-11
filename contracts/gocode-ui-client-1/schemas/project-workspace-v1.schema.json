@@ -42,7 +42,7 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
+          "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
           "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
@@ -92,7 +92,7 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
+          "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
           "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
@@ -124,7 +124,7 @@
             {
               "maxLength": 119,
               "minLength": 119,
-              "pattern": "^gocode-project-page-v1\\.(?:[0-9a-f]{2})+$",
+              "pattern": "^gocode-project-page-v1\\.[0-9a-f]{96}$",
               "type": "string"
             },
             {
@@ -148,9 +148,19 @@
           "type": "integer"
         },
         "rootAdmission": {
+          "anyOf": [
+            {
+              "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})+$"
+            },
+            {
+              "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})*[A-Za-z0-9_-][AQgw]$"
+            },
+            {
+              "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})*[A-Za-z0-9_-]{2}[AEIMQUYcgkosw048]$"
+            }
+          ],
           "maxLength": 5487,
           "minLength": 27,
-          "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3}|(?:[A-Za-z0-9_-]{4})+(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3})?)$",
           "type": "string",
           "x-gocode-maxUtf8Bytes": 5487
         }
@@ -167,7 +177,7 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
+          "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
           "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
@@ -226,7 +236,7 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
-          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
+          "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
           "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
@@ -258,7 +268,7 @@
             {
               "maxLength": 153,
               "minLength": 153,
-              "pattern": "^gocode-workspace-page-v1\\.(?:[0-9a-f]{2})+$",
+              "pattern": "^gocode-workspace-page-v1\\.[0-9a-f]{128}$",
               "type": "string"
             },
             {

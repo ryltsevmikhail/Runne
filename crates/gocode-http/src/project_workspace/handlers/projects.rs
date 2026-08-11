@@ -10,7 +10,7 @@ use gocode_api::{
 };
 use gocode_domain::id::ProjectId;
 
-use super::helpers::{bad_request, context, host_error};
+use super::helpers::{bad_request, context, host_error, json_rejection};
 use crate::{
     auth::AuthenticatedPrincipal,
     error::RequestId,
@@ -32,7 +32,7 @@ where
     };
     let Json(body) = match body {
         Ok(value) => value,
-        Err(_) => return bad_request("invalid_request", &request_id),
+        Err(error) => return json_rejection(error, &request_id),
     };
     let project_id = match body.project_id.parse() {
         Ok(value) => value,
@@ -118,7 +118,7 @@ where
     };
     let Json(body) = match body {
         Ok(value) => value,
-        Err(_) => return bad_request("invalid_request", &request_id),
+        Err(error) => return json_rejection(error, &request_id),
     };
     if body.expected_version == 0 {
         return bad_request("invalid_expected_version", &request_id);

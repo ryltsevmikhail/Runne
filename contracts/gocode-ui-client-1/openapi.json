@@ -85,6 +85,7 @@
             "schema": {
               "maxLength": 119,
               "minLength": 119,
+              "pattern": "^gocode-project-page-v1\\.[0-9a-f]{96}$",
               "type": "string"
             }
           }
@@ -190,6 +191,46 @@
               }
             }
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/json": {
@@ -256,7 +297,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
@@ -482,7 +523,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
@@ -790,6 +831,46 @@
               }
             }
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/json": {
@@ -882,7 +963,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
@@ -1120,7 +1201,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
@@ -1345,6 +1426,7 @@
             "schema": {
               "maxLength": 153,
               "minLength": 153,
+              "pattern": "^gocode-workspace-page-v1\\.[0-9a-f]{128}$",
               "type": "string"
             }
           }
@@ -1450,6 +1532,46 @@
               }
             }
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/json": {
@@ -1528,7 +1650,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
@@ -2129,6 +2251,46 @@
               }
             }
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/project-workspace-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical response",
+            "headers": {
+              "X-Request-Id": {
+                "required": true,
+                "schema": {
+                  "maxLength": 36,
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "type": "string"
+                }
+              }
+            }
+          },
           "500": {
             "content": {
               "application/json": {
@@ -2221,7 +2383,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
@@ -2459,7 +2621,7 @@
             "schema": {
               "maxLength": 256,
               "minLength": 1,
-              "pattern": "^[^\\u0000-\\u001f\\u007f]+$",
+              "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
               "x-gocode-maxUtf8Bytes": 256
             }
