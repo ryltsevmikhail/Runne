@@ -120,6 +120,11 @@ pub trait ScannerRecoveryPersistence: Send + Sync {
         binding: TailBinding,
         disposition: ScannerTerminalDisposition,
     ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError>;
+    /// Terminalizes only an atomically revalidated corrupt checkpoint row.
+    fn terminalize_corrupt_checkpoint(
+        &self,
+        expected_binding: TailBinding,
+    ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError>;
     /// Loads one non-secret recovery projection.
     fn load(
         &self,

@@ -87,6 +87,88 @@ fn every_terminal_candidate_rejects_every_stale_tail_binding_field() {
 }
 
 #[test]
+fn corrupt_terminalization_rejects_healthy_rows_and_stale_stable_authority() {
+    let (directory, durable) = stores();
+    let current = advanced_binding();
+    let checkpoint = checkpoint_for(&MemoryTailStore::default(), current);
+    durable.persist_checkpoint(checkpoint).unwrap();
+    assert_eq!(
+        durable.terminalize_corrupt_checkpoint(current),
+        Err(ScannerRecoveryPersistenceError::Conflict)
+    );
+    let database = directory.path().join("provider.sqlite.scanner-recovery");
+    rusqlite::Connection::open(&database)
+        .unwrap()
+        .execute(
+            "UPDATE provider_scanner_recovery SET checkpoint_digest=zeroblob(32)",
+            [],
+        )
+        .unwrap();
+    let stale = [
+        TailBinding::new(DispatchAttemptId::from_bytes([8; 16]), 9, 11, 13, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 8, 11, 13, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 12, 13, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 11, 14, 1, 7).unwrap(),
+        TailBinding::new(current.attempt_id(), 9, 11, 13, 2, 7).unwrap(),
+    ];
+    for candidate in stale {
+        assert_eq!(
+            durable.terminalize_corrupt_checkpoint(candidate),
+            Err(ScannerRecoveryPersistenceError::Conflict)
+        );
+    }
+    let disposition: Option<i64> = rusqlite::Connection::open(database)
+        .unwrap()
+        .query_row(
+            "SELECT disposition FROM provider_scanner_recovery",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(disposition, None);
+}
+
+#[test]
+fn corrupt_terminalization_is_idempotent_dominant_and_replaces_completed() {
+    let (directory, durable) = stores();
+    let current = advanced_binding();
+    let checkpoint = checkpoint_for(&MemoryTailStore::default(), current);
+    durable.persist_checkpoint(checkpoint).unwrap();
+    let database = directory.path().join("provider.sqlite.scanner-recovery");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE provider_scanner_recovery
+             SET checkpoint_digest=zeroblob(32), disposition=6",
+            [],
+        )
+        .unwrap();
+    let checkpoint_uncertain = ScannerTerminalDisposition::Uncertain(
+        ScannerUncertainReason::CheckpointSecretStateUnavailable,
+    );
+    assert_eq!(
+        durable.terminalize_corrupt_checkpoint(current),
+        Ok(checkpoint_uncertain)
+    );
+    assert_eq!(
+        durable.terminalize_corrupt_checkpoint(current),
+        Ok(checkpoint_uncertain)
+    );
+    connection
+        .execute(
+            "UPDATE provider_scanner_recovery SET disposition=1",
+            [],
+        )
+        .unwrap();
+    assert_eq!(
+        durable.terminalize_corrupt_checkpoint(current),
+        Ok(ScannerTerminalDisposition::Uncertain(
+            ScannerUncertainReason::SecretDetected
+        ))
+    );
+}
+
+#[test]
 fn unproven_completed_record_is_corrupt_and_cannot_publish() {
     let (directory, durable) = stores();
     let tails = MemoryTailStore::default();

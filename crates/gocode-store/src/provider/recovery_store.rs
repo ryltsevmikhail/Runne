@@ -12,6 +12,7 @@ use rusqlite::{OptionalExtension as _, TransactionBehavior, params};
 use crate::schema::{self, ConnectionMode, ManagedConnection};
 
 mod codec;
+mod corrupt_recovery;
 use codec::*;
 
 /// Managed SQLite persistence for opaque scanner checkpoint metadata.
@@ -203,6 +204,17 @@ impl ScannerRecoveryPersistence for SqliteProviderRecoveryStore {
         };
         transaction.commit().map_err(map_sql)?;
         Ok(authoritative)
+    }
+
+    fn terminalize_corrupt_checkpoint(
+        &self,
+        expected_binding: TailBinding,
+    ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
+        let mut connection = self
+            .connection
+            .lock()
+            .map_err(|_| ScannerRecoveryPersistenceError::Unavailable)?;
+        corrupt_recovery::terminalize(&mut connection, expected_binding)
     }
 
     fn load(

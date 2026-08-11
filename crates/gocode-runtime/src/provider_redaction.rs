@@ -96,12 +96,16 @@ where
         };
         let record = match persistence.load(binding.attempt_id()) {
             Ok(Some(record)) => record,
-            Ok(None)
-            | Err(
-                ScannerRecoveryPersistenceError::Corrupt
-                | ScannerRecoveryPersistenceError::Conflict,
-            ) => {
+            Ok(None) | Err(ScannerRecoveryPersistenceError::Conflict) => {
                 session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+                return Ok(session);
+            }
+            Err(ScannerRecoveryPersistenceError::Corrupt) => {
+                let disposition = persistence
+                    .terminalize_corrupt_checkpoint(binding)
+                    .map_err(types::map_persistence_error)?;
+                session.disposition = Some(disposition);
+                session.purge_all_tails()?;
                 return Ok(session);
             }
             Err(ScannerRecoveryPersistenceError::Unavailable) => {

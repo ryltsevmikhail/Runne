@@ -141,8 +141,12 @@ class ClaimOutcomeGrammarTests(unittest.TestCase):
     def test_direct_outcomes_after_bounded_noun_prefixes_are_rejected(self):
         variants = (
             ("The production qualification completed.", "PRODUCTION_QUALIFICATION"),
+            ("The production qualification officially completed.", "PRODUCTION_QUALIFICATION"),
             ("Our candidate passed.", "CANDIDATE_PASS"),
+            ("Our provisional candidate successfully passed.", "CANDIDATE_PASS"),
             ("The final release passed.", "RELEASE_PASS"),
+            ("The official release passed.", "RELEASE_PASS"),
+            ("This RC0 formally qualified.", "RC0_QUALIFIED"),
         )
         for governed in (True, False):
             for prose, claim_id in variants:
@@ -151,9 +155,9 @@ class ClaimOutcomeGrammarTests(unittest.TestCase):
 
     def test_blocked_records_do_not_authorize_bounded_prefix_outcomes(self):
         variants = (
-            ("The production qualification completed.", "PRODUCTION_QUALIFICATION"),
-            ("Our candidate passed.", "CANDIDATE_PASS"),
-            ("The final release passed.", "RELEASE_PASS"),
+            ("The production qualification officially completed.", "PRODUCTION_QUALIFICATION"),
+            ("Our provisional candidate successfully passed.", "CANDIDATE_PASS"),
+            ("The official release passed.", "RELEASE_PASS"),
         )
         for prose, claim_id in variants:
             blocked = {
@@ -168,6 +172,22 @@ class ClaimOutcomeGrammarTests(unittest.TestCase):
                 diagnostics = TAXONOMY.validate_document_universe(root)
                 self.assertIn(
                     f"CLAIM_POSITIVE_OUTCOME:docs/guide.md:{claim_id}", diagnostics
+                )
+
+    def test_undelimited_metadata_value_is_parsed_as_its_own_claim_clause(self):
+        blocked = {
+            "claim_id": "RELEASE_PASS", "path": "docs/guide.md", "subject": "fixture",
+            "claim_kind": "blocked_status", "disposition": "BLOCKED",
+            "evidence_binding": "gocode.rc0.evidence-profile/3",
+        }
+        for governed, claim in ((False, None), (True, blocked)):
+            with self.subTest(governed=governed), self.fixture(
+                governed=governed, extra_claim=claim
+            ) as (root, guide):
+                guide.write_bytes(b"status: Release approved\n")
+                diagnostics = TAXONOMY.validate_document_universe(root)
+                self.assertIn(
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:RELEASE_PASS", diagnostics
                 )
 
     def test_rc0_and_candidate_natural_outcomes_are_rejected(self):

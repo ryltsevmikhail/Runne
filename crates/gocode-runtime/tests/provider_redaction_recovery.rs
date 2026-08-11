@@ -137,20 +137,17 @@ fn corrupt_ref_or_checkpoint_is_checkpoint_secret_state_unavailable() {
         )
         .unwrap();
     drop(connection);
-    assert!(matches!(
-        ProviderRedactionRecovery::restart(binding(), &tails, &durable, &matcher),
-        Err(ProviderRedactionError::PersistenceUnavailable)
-    ));
-    let disposition: Option<i64> =
-        rusqlite::Connection::open(directory.path().join("provider.sqlite.scanner-recovery"))
-            .unwrap()
-            .query_row(
-                "SELECT disposition FROM provider_scanner_recovery",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-    assert_eq!(disposition, None);
+    let restarted =
+        ProviderRedactionRecovery::restart(binding(), &tails, &durable, &matcher).unwrap();
+    assert_eq!(
+        restarted.disposition(),
+        Some(ScannerTerminalDisposition::Uncertain(
+            ScannerUncertainReason::CheckpointSecretStateUnavailable,
+        ))
+    );
+    let replayed =
+        ProviderRedactionRecovery::restart(binding(), &tails, &durable, &matcher).unwrap();
+    assert_eq!(replayed.disposition(), restarted.disposition());
     assert_no_publication(&durable);
 }
 

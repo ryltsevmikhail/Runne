@@ -160,7 +160,7 @@ pub(super) fn encode_disposition(value: ScannerTerminalDisposition) -> i64 {
         ScannerTerminalDisposition::Completed => 6,
     }
 }
-fn decode_optional_disposition(
+pub(super) fn decode_optional_disposition(
     value: Option<i64>,
 ) -> rusqlite::Result<Option<ScannerTerminalDisposition>> {
     value
