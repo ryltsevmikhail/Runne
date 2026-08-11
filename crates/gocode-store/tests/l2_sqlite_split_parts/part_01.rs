@@ -104,6 +104,7 @@ fn open_service(
         available_guard(),
     )
     .unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
     let ra_id = store.runtime_authority_id().clone();
     let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra_id);
     (store, svc)

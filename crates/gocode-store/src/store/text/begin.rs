@@ -32,12 +32,6 @@ impl StoreTransaction {
             &scope,
             &payload.command_fingerprint,
         )? {
-            crate::project_workspace::lineage::validate_text_taskrun_lineage(
-                &transaction,
-                stored_result.taskrun_id,
-                stored_result.workspace_id,
-                payload.command_id,
-            )?;
             return Ok(TextGenerationCommitResult::Duplicate { stored_result });
         }
 

@@ -63,3 +63,66 @@ fn project_delete_committed_first_blocks_a_text_taskrun_origin() {
             .is_err()
     );
 }
+
+#[test]
+fn fresh_v16_rejects_unknown_workspace_without_partial_text_origin() {
+    let database = Database::new("pw-unknown-text-origin");
+    let conversation_id = ConversationId::from_bytes(command(0x76).into_bytes());
+    let create = task_context(53, "create-unknown-workspace-conversation");
+    ConversationService::new(database.store.clone(), database.store.clone(), authority())
+        .create_from_application(
+            &create,
+            CreateConversationInput {
+                conversation_id,
+                workspace_id: gocode_domain::id::WorkspaceId::from_bytes(WORKSPACE),
+                command_id: create.command_id,
+                idempotency_key: create.idempotency_key.clone(),
+            },
+        )
+        .unwrap();
+    let generation = task_context(54, "unknown-workspace-text");
+    let service = ConversationTextService::new(
+        database.store.clone(),
+        database.store.clone(),
+        authority(),
+        guard(),
+    );
+    assert!(
+        service
+            .begin(
+                &generation,
+                BeginConversationTextInput {
+                    conversation_id,
+                    expected_version: 1,
+                    text: MessageText::new("blocked").unwrap(),
+                },
+            )
+            .is_err()
+    );
+    let connection = database.connection();
+    let taskrun_streams: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM aggregate_streams WHERE aggregate_type = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let lineage: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM task_run_workspace_lineage",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let generation_receipt: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM command_receipts WHERE command_id = ?1)",
+            [generation.command_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        (taskrun_streams, lineage, generation_receipt),
+        (0, 0, false)
+    );
+}

@@ -1,18 +1,24 @@
+use gocode_application::commands::CommandOutcome;
+use gocode_application::commands::CreateTaskRunInput;
+use gocode_application::errors::ApplicationError;
 use gocode_application::ports::{
-    ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error,
+    EventStore, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error,
+    StorageFailureKind,
 };
 use gocode_domain::event::{Actor, EventEnvelope, Sensitivity};
-use gocode_domain::id::{AggregateId, EventId, IntegrityDigest, ProjectId};
+use gocode_domain::id::{
+    AggregateId, ConversationId, EventId, IntegrityDigest, ProjectId, WorkspaceId,
+};
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
-use gocode_store::codec::{StoreCodec, TaskRunEventCodec};
+use gocode_store::codec::{CommandOutcomeCodec, StoreCodec, TaskRunEventCodec};
 use gocode_store::integrity::compute_integrity_digest_with_global_position;
 use rusqlite::params;
 
 use super::fence::create_task_run;
 use super::support::*;
 
-fn eligible_project(database: &Database, tail: u8) -> gocode_domain::id::TaskRunId {
+pub(super) fn eligible_project(database: &Database, tail: u8) -> gocode_domain::id::TaskRunId {
     let repository = database.repository();
     create_project(&repository);
     create_workspace(&repository);
@@ -67,6 +73,36 @@ fn missing_authoritative_lineage_fails_closed() {
 }
 
 #[test]
+fn direct_duplicate_lookup_rejects_deleted_lineage() {
+    let database = Database::new("pw-direct-duplicate-missing-lineage");
+    let repository = database.repository();
+    create_project(&repository);
+    create_workspace(&repository);
+    let taskrun_id = create_task_run(&database, 57);
+    database
+        .connection()
+        .execute(
+            "DELETE FROM task_run_workspace_lineage WHERE taskrun_id = ?1",
+            [taskrun_id.as_bytes()],
+        )
+        .unwrap();
+
+    let duplicate = database.task_runs().create_task_run(
+        &task_context(57, "task-create"),
+        CreateTaskRunInput {
+            conversation_id: ConversationId::from_bytes(command(0x31).into_bytes()),
+            workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+        },
+    );
+    assert_eq!(
+        duplicate,
+        Err(ApplicationError::StorageFailed(
+            StorageFailureKind::IntegrityViolation
+        ))
+    );
+}
+
+#[test]
 fn corrupt_direct_origin_cannot_hide_missing_lineage() {
     let database = Database::new("pw-corrupt-origin-missing-lineage");
     let taskrun_id = eligible_project(&database, 55);
@@ -85,6 +121,95 @@ fn corrupt_direct_origin_cannot_hide_missing_lineage() {
         )
         .unwrap();
     assert_eq!(delete(&database, 56), Err(Error::InvariantViolation));
+}
+
+#[test]
+fn corrupt_scope_cannot_hide_a_taskrun_stream_without_lineage() {
+    let database = Database::new("pw-corrupt-scope-missing-lineage");
+    let taskrun_id = eligible_project(&database, 58);
+    let connection = database.connection();
+    connection
+        .execute(
+            "DELETE FROM task_run_workspace_lineage WHERE taskrun_id = ?1",
+            [taskrun_id.as_bytes()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE command_receipts SET idempotency_scope_bytes = x'0001'
+             WHERE command_id = ?1",
+            [command(58).as_bytes()],
+        )
+        .unwrap();
+    assert_eq!(delete(&database, 59), Err(Error::InvariantViolation));
+}
+
+#[test]
+fn direct_origin_requires_exact_initial_outcome_version() {
+    let database = Database::new("pw-direct-origin-version");
+    let taskrun_id = eligible_project(&database, 60);
+    let invalid = CommandOutcomeCodec
+        .encode(&CommandOutcome::TaskRunCreated {
+            taskrun_id,
+            new_version: 2,
+        })
+        .unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE command_receipts SET command_outcome = ?1 WHERE command_id = ?2",
+            rusqlite::params![invalid, command(60).as_bytes()],
+        )
+        .unwrap();
+    assert_eq!(delete(&database, 61), Err(Error::InvariantViolation));
+}
+
+#[test]
+fn lineage_origin_command_must_match_first_taskrun_event() {
+    let database = Database::new("pw-first-event-command");
+    let taskrun_id = eligible_project(&database, 62);
+    let original = database.store.load_task_run(taskrun_id).unwrap().events[0].clone();
+    let replacement = command(0x7a);
+    let payload_bytes = TaskRunEventCodec.encode(original.payload()).unwrap();
+    let position: i64 = database
+        .connection()
+        .query_row(
+            "SELECT global_position FROM events
+             WHERE aggregate_type = 1 AND aggregate_id = ?1 AND sequence = 1",
+            [taskrun_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let changed = EventEnvelope::from_parts(
+        *original.event_id(),
+        original.aggregate_id().clone(),
+        original.correlation_id().clone(),
+        original.causation_id().copied(),
+        replacement,
+        original.idempotency_key().clone(),
+        original.schema_version(),
+        original.actor().clone(),
+        *original.sensitivity(),
+        original.payload().clone(),
+        original.sequence(),
+        *original.timestamp(),
+        IntegrityDigest::from_bytes([0; 32]),
+    );
+    let digest =
+        compute_integrity_digest_with_global_position(&changed, position, &payload_bytes).unwrap();
+    database
+        .connection()
+        .execute(
+            "UPDATE events SET command_id = ?1, integrity_digest = ?2
+             WHERE aggregate_type = 1 AND aggregate_id = ?3 AND sequence = 1",
+            params![
+                replacement.as_bytes(),
+                digest.as_bytes(),
+                taskrun_id.as_bytes()
+            ],
+        )
+        .unwrap();
+    assert_eq!(delete(&database, 63), Err(Error::InvariantViolation));
 }
 
 #[test]

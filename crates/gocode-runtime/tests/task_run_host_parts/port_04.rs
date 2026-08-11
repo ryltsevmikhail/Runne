@@ -11,6 +11,11 @@ async fn uncertain_provider_effect_preserves_started_generation_for_reconciliati
     let authority = RuntimeAuthorityId("provider-uncertain-test".into());
     let store =
         StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &store,
+        "local-owner",
+        WORKSPACE_ID.parse().unwrap(),
+    );
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -103,6 +108,11 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
     let authority = RuntimeAuthorityId("provider-input-rejection-test".into());
     let store =
         StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &store,
+        "local-owner",
+        WORKSPACE_ID.parse().unwrap(),
+    );
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),

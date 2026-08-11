@@ -243,29 +243,33 @@ fn canonical_lineage_rejects_a_foreign_principal_origin() {
 }
 
 #[test]
-fn legacy_unbound_lineage_cannot_be_rebound_or_poison_a_project() {
-    let database = Database::new("pw-unbound-lineage");
-    create_task_run(&database, 35);
-    let repository = database.repository();
-    create_project(&repository);
-
-    assert_eq!(
-        repository.create_workspace(
-            "owner",
-            command(36),
-            &key("rebind-unbound"),
-            workspace(WORKSPACE, PROJECT, "Forbidden reuse"),
-        ),
-        Err(Error::Conflict)
+fn fresh_v16_rejects_unknown_workspace_without_partial_taskrun_origin() {
+    let database = Database::new("pw-unknown-runtime-origin");
+    let result = database.task_runs().create_task_run(
+        &task_context(35, "unknown-task-create"),
+        CreateTaskRunInput {
+            conversation_id: ConversationId::from_bytes(command(0x33).into_bytes()),
+            workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+        },
     );
     assert_eq!(
-        repository.delete_project(
-            "owner",
-            command(37),
-            &key("delete-unrelated"),
-            ProjectId::from_bytes(PROJECT),
-            1,
-        ),
-        Ok(2)
+        result,
+        Err(ApplicationError::StorageFailed(
+            StorageFailureKind::IntegrityViolation
+        ))
     );
+    let connection = database.connection();
+    for table in [
+        "aggregate_streams",
+        "events",
+        "command_receipts",
+        "task_run_workspace_lineage",
+    ] {
+        let count: i64 = connection
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(count, 0, "unexpected partial write in {table}");
+    }
 }

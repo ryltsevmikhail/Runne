@@ -25,6 +25,9 @@ use gocode_runtime::provider_execution::{
 use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
+
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
 }
@@ -53,6 +56,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
     .unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-000000000081".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-000000000082".parse().unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "local-owner", workspace_id);
     let create_context = context(
         "018f2e3a-7000-7000-8000-000000000083",
         "create-provider-conversation",

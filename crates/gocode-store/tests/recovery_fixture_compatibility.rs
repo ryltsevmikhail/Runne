@@ -2,6 +2,8 @@
 mod fixture_readers;
 #[path = "support/recovery/fixtures.rs"]
 mod recovery_fixtures;
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 include!("recovery_fixture_compatibility_parts/reads.rs");
 include!("recovery_fixture_compatibility_parts/loader_safety.rs");

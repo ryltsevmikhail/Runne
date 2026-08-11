@@ -11,6 +11,7 @@ fn taskrun_crash_mid_lifecycle_preserves_all_committed_events() {
         available_guard(),
     )
     .unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
     let svc = TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -118,6 +119,7 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
         let svc = TaskRunService::new(
             store.clone(),
             store.clone(),

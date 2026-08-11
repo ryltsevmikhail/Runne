@@ -37,21 +37,33 @@ pub(super) fn create_workspace(
         if let Some(receipt) = receipts::lookup(transaction, &request)? {
             return receipt_workspace(receipt, workspace.id());
         }
-        let legacy_unbound: bool = transaction
+        let identity_exists: bool = transaction
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM task_run_workspace_lineage
-                 WHERE workspace_id = ?1 AND classification = 'legacy_unbound')",
+                "SELECT EXISTS(SELECT 1 FROM workspace_identity_history
+                 WHERE workspace_id = ?1)",
                 [workspace.id().as_bytes()],
                 |row| row.get(0),
             )
             .map_err(|_| Error::Unavailable)?;
-        if legacy_unbound {
+        if identity_exists {
             return Err(Error::Conflict);
         }
         let project = load_project(transaction, principal, workspace.project_id())?;
         if project.archived() {
             return Err(Error::Conflict);
         }
+        transaction
+            .execute(
+                "INSERT INTO workspace_identity_history
+                 (workspace_id, project_id, principal_id, classification)
+                 VALUES (?1, ?2, ?3, 'canonical')",
+                params![
+                    workspace.id().as_bytes(),
+                    workspace.project_id().as_bytes(),
+                    principal,
+                ],
+            )
+            .map_err(map_state_insert)?;
         transaction
             .execute(
                 "INSERT INTO workspaces

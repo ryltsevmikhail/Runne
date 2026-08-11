@@ -86,6 +86,11 @@ async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_mes
     let authority = RuntimeAuthorityId("provider-output-rejection-test".into());
     let store =
         StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &store,
+        "local-owner",
+        WORKSPACE_ID.parse().unwrap(),
+    );
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),

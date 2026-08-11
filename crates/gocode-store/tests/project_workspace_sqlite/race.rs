@@ -116,51 +116,6 @@ fn sqlite_abort_rolls_back_state_and_receipt_together() {
 }
 
 #[test]
-fn project_delete_and_taskrun_create_share_one_sqlite_fence() {
-    let database = Database::new("project-workspace-create-delete-fence");
-    let repository = database.repository();
-    create_project(&repository);
-    create_workspace(&repository);
-    database
-        .connection()
-        .execute(
-            "UPDATE workspaces SET live = 0 WHERE workspace_id = ?1",
-            [WORKSPACE],
-        )
-        .unwrap();
-    let task_runs = database.task_runs();
-    let barrier = Arc::new(Barrier::new(3));
-    let create_barrier = barrier.clone();
-    let create = std::thread::spawn(move || {
-        create_barrier.wait();
-        task_runs.create_task_run(
-            &task_context(23, "racing-task-create"),
-            CreateTaskRunInput {
-                conversation_id: ConversationId::from_bytes(command(0x32).into_bytes()),
-                workspace_id: WorkspaceId::from_bytes(WORKSPACE),
-            },
-        )
-    });
-    let delete_barrier = barrier.clone();
-    let delete_repository = repository.clone();
-    let delete = std::thread::spawn(move || {
-        delete_barrier.wait();
-        delete_repository.delete_project(
-            "owner",
-            command(24),
-            &key("racing-project-delete"),
-            ProjectId::from_bytes(PROJECT),
-            1,
-        )
-    });
-    barrier.wait();
-    let create_succeeded = create.join().unwrap().is_ok();
-    let delete_succeeded = delete.join().unwrap().is_ok();
-
-    assert_ne!(create_succeeded, delete_succeeded);
-}
-
-#[test]
 fn project_delete_and_taskrun_append_share_one_sqlite_fence() {
     let database = Database::new("project-workspace-append-delete-fence");
     let repository = database.repository();

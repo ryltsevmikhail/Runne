@@ -62,6 +62,7 @@ fn project_command_id_blocks_conversation_and_text_receipt_writers() {
     let database = Database::new("pw-command-conversation-text");
     let repository = database.repository();
     create_project(&repository);
+    create_workspace(&repository);
     let conversation_id = ConversationId::from_bytes(command(0x42).into_bytes());
     let conversation_service =
         ConversationService::new(database.store.clone(), database.store.clone(), authority());
