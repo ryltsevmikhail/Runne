@@ -83,23 +83,18 @@ fn root_admission_schema_matches_canonical_unpadded_codec_boundaries() {
     let output = tempfile::tempdir().unwrap();
     let (schema, golden, _) = generated_project_workspace(output.path());
     let validator = project_workspace_validator(&schema);
-    for bytes in [1_usize, 2, 3, 4093, 4094, 4095, 4096] {
-        let encoded_len = (bytes * 4).div_ceil(3);
-        let token = format!("gocode-root-admission-v2.{}", "A".repeat(encoded_len));
-        let admission = gocode_api::RootHandleAdmission::decode_token(&token).unwrap();
-        assert_eq!(admission.encode_token().unwrap(), token);
+    let encoded_len = (gocode_api::ROOT_HANDLE_ADMISSION_V2_BYTES * 4).div_ceil(3);
+    let prefix = "gocode-root-admission-v2.";
+    for last in "AEIMQUYcgkosw048".chars() {
+        let encoded = format!("{}AA{last}", "A".repeat(encoded_len - 3));
+        assert_canonical_root_token(&validator, &golden, &encoded);
+    }
+    for encoded_len in [encoded_len - 1, encoded_len + 1] {
+        let token = format!("{prefix}{}", "A".repeat(encoded_len));
+        assert!(gocode_api::RootHandleAdmission::decode_token(&token).is_err());
         let mut fixture = golden.clone();
         fixture["rootBind"]["rootAdmission"] = Value::String(token);
-        assert!(
-            validator.is_valid(&fixture),
-            "codec boundary {bytes} rejected"
-        );
-    }
-    for suffix in ["AA", "AQ", "Ag", "Aw"] {
-        assert_canonical_root_token(&validator, &golden, suffix);
-    }
-    for last in "AEIMQUYcgkosw048".chars() {
-        assert_canonical_root_token(&validator, &golden, &format!("AA{last}"));
+        assert!(!validator.is_valid(&fixture));
     }
     for token in [
         "gocode-root-admission-v2.AB",

@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-test-support = ["gocode-platform-desktop?/test-support"]
+test-support = ["gocode-platform-desktop?/test-support", "dep:reqwest"]
 desktop-protected = ["dep:gocode-platform-desktop", "gocode-platform-desktop/protected-channel-integration", "dep:nix"]
 
 [dependencies]
@@ -54,6 +54,7 @@ rusqlite = "=0.34.0"
 rcgen = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
 zeroize = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -72,7 +73,6 @@ gocode-app-core = { path = "../app-core" }
 gocode-platform-desktop = { path = "../platform-desktop", features = ["test-support"] }
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
 tempfile = "3"
-reqwest = { version = "0.12", features = ["json"] }
 
 [[bin]]
 name = "gocode-daemon"

@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 gocode-application = { path = "../gocode-application" }
 gocode-api = { path = "../gocode-api" }
-gocode-daemon = { path = "../gocode-daemon" }
+gocode-daemon = { path = "../gocode-daemon", features = ["desktop-protected", "test-support"] }
 gocode-daemon-openai-effect = { path = "../gocode-daemon-openai-effect" }
 gocode-platform-desktop = { path = "../platform-desktop" }
 gocode-provider = { path = "../gocode-provider" }

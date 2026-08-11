@@ -148,21 +148,11 @@
           "type": "integer"
         },
         "rootAdmission": {
-          "anyOf": [
-            {
-              "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})+$"
-            },
-            {
-              "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})*[A-Za-z0-9_-][AQgw]$"
-            },
-            {
-              "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})*[A-Za-z0-9_-]{2}[AEIMQUYcgkosw048]$"
-            }
-          ],
-          "maxLength": 5487,
-          "minLength": 27,
+          "maxLength": 368,
+          "minLength": 368,
+          "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4}){85}[A-Za-z0-9_-]{2}[AEIMQUYcgkosw048]$",
           "type": "string",
-          "x-gocode-maxUtf8Bytes": 5487
+          "x-gocode-maxUtf8Bytes": 368
         }
       },
       "required": [

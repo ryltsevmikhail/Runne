@@ -1,19 +1,18 @@
-#![cfg(all(unix, feature = "test-support"))]
-
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 
+use crate::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
+use crate::error::DaemonError;
+use crate::protected_activation::ProtectedActivationChannel;
+use crate::protected_activation::launch::ProtectedDaemonLaunch;
+use crate::protected_activation::test_support::run_without_admission;
 use gocode_api::{
     ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError, LaunchSecret,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
     ProtectedReadyV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1, ProtectedRuntimeProfileV1,
     ProtectedShutdownAckV1, ProtectedShutdownV1,
 };
-use gocode_daemon::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
-use gocode_daemon::error::DaemonError;
-use gocode_daemon::protected_activation::test_support::run_without_admission;
-use gocode_daemon::protected_activation::{ProtectedActivationChannel, ProtectedDaemonLaunch};
 
 fn read_frame(stream: &mut UnixStream) -> Vec<u8> {
     let mut prefix = [0; 4];
@@ -149,9 +148,7 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
         let mut channel = ProtectedActivationChannel::new(server).unwrap();
         let mut launch =
             ProtectedDaemonLaunch::accept(&mut channel, &server_path, || Ok(1_001)).unwrap();
-        let start = launch
-            .bootstrap_runtime_start_for_test(|| Ok(1_001))
-            .unwrap();
+        let start = launch.bootstrap_runtime_start(|| Ok(1_001)).unwrap();
         let profile_directory = std::path::Path::new(&launch.config().replay_integrity_key_path)
             .parent()
             .unwrap()

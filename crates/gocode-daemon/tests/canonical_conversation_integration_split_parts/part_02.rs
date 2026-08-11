@@ -44,7 +44,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     );
     assert_eq!(
         runtime_profile["schemaHash"],
-        "8ef76f6b731474f77577cf07f218bcc8364c5eaeb731ef92805f9a59a99ef41c"
+        "e98ae0dc6e6223fe0cfeae27271c5a5db504497cdb588bbc9952691647da39cb"
     );
     assert_eq!(runtime_profile["runtimeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(runtime_profile["launchGeneration"], 1);
