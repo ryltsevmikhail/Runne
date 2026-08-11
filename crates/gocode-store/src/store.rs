@@ -174,6 +174,20 @@ mod tests {
     }
 
     #[test]
+    fn public_store_open_rejects_memory_database() {
+        let result = StoreTransaction::open(
+            ":memory:",
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+        ));
+    }
+
+    #[test]
     fn append_guard_rejects_json_escape_expanded_canonical_event() {
         let conversation_id = ConversationId::from_bytes([0x11; 16]);
         let event = UncommittedEvent::from_parts(
