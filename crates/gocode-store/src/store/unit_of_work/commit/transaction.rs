@@ -54,12 +54,26 @@ impl StoreTransaction {
             .ok();
 
         if let Some((stored_scope, outcome_bytes)) = existing {
-            let _ = tx.commit();
             if stored_scope == scope_bytes {
                 let outcome_codec = CommandOutcomeCodec;
                 let stored_result = outcome_codec.decode(&outcome_bytes).map_err(|_| {
                     CommitError::StorageFailure(
                         gocode_application::ports::StorageFailureKind::CorruptData,
+                    )
+                })?;
+                if payload.idempotency_scope.operation
+                    == gocode_application::ports::OperationTag::CreateTaskRun
+                {
+                    crate::project_workspace::lineage::validate_direct_taskrun_lineage(
+                        &tx,
+                        &payload.idempotency_scope,
+                        taskrun_id,
+                        payload.command_id,
+                    )?;
+                }
+                tx.commit().map_err(|_| {
+                    CommitError::StorageFailure(
+                        gocode_application::ports::StorageFailureKind::IntegrityViolation,
                     )
                 })?;
                 return Ok(CommitResult::Duplicate { stored_result });
@@ -97,15 +111,12 @@ impl StoreTransaction {
         // A new TaskRun cannot race a Project deletion after Project/Workspace
         // authority has been activated. Exact receipt replay remains independent
         // of current Workspace lifecycle state.
-        crate::project_workspace::validate_taskrun_workspace_scope(
+        crate::project_workspace::lineage::record_direct_taskrun_lineage(
             &tx,
             &payload.idempotency_scope,
-        )
-        .map_err(|_| {
-            CommitError::StorageFailure(
-                gocode_application::ports::StorageFailureKind::IntegrityViolation,
-            )
-        })?;
+            taskrun_id,
+            payload.command_id,
+        )?;
 
         // Step 2: Version check
         let stream_row = tx

@@ -1,4 +1,6 @@
-use rusqlite::{Connection, Result as SqliteResult, Transaction, TransactionBehavior};
+use rusqlite::{
+    Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
+};
 
 pub(super) const MIGRATION_V16: &str = r#"
 CREATE TABLE projects (
@@ -10,7 +12,7 @@ CREATE TABLE projects (
 );
 CREATE TABLE workspaces (
     workspace_id BLOB PRIMARY KEY CHECK(length(workspace_id) = 16),
-    project_id BLOB NOT NULL REFERENCES projects(project_id) ON DELETE CASCADE,
+    project_id BLOB NOT NULL CHECK(length(project_id) = 16),
     principal_id TEXT NOT NULL CHECK(length(principal_id) BETWEEN 1 AND 256),
     display_name TEXT NOT NULL CHECK(length(CAST(display_name AS BLOB)) BETWEEN 1 AND 256),
     version INTEGER NOT NULL CHECK(version > 0),
@@ -21,7 +23,7 @@ CREATE TABLE root_admission_nonces (
     runtime_authority_id TEXT NOT NULL CHECK(length(runtime_authority_id) BETWEEN 1 AND 256),
     nonce BLOB NOT NULL CHECK(length(nonce) = 16),
     principal_id TEXT NOT NULL CHECK(length(principal_id) BETWEEN 1 AND 256),
-    workspace_id BLOB NOT NULL REFERENCES workspaces(workspace_id),
+    workspace_id BLOB NOT NULL CHECK(length(workspace_id) = 16),
     expected_version INTEGER NOT NULL CHECK(expected_version > 0),
     admission_digest BLOB NOT NULL UNIQUE CHECK(length(admission_digest) = 32),
     consumed_at INTEGER NOT NULL,
@@ -41,11 +43,38 @@ CREATE TABLE project_workspace_command_receipts (
     UNIQUE(runtime_authority_id, principal_id, operation, aggregate_kind,
            aggregate_id, idempotency_key)
 );
+CREATE TABLE task_run_workspace_lineage (
+    taskrun_id BLOB PRIMARY KEY CHECK(length(taskrun_id) = 16),
+    workspace_id BLOB NOT NULL CHECK(length(workspace_id) = 16),
+    project_id BLOB CHECK(project_id IS NULL OR length(project_id) = 16),
+    classification TEXT NOT NULL CHECK(classification IN ('canonical', 'legacy_unbound')),
+    origin_command_id BLOB NOT NULL UNIQUE CHECK(length(origin_command_id) = 16),
+    origin_operation INTEGER NOT NULL CHECK(origin_operation IN (1, 18)),
+    CHECK((classification = 'canonical' AND project_id IS NOT NULL) OR
+          (classification = 'legacy_unbound' AND project_id IS NULL))
+);
+"#;
+
+const GLOBAL_COMMAND_RECEIPT_TRIGGER: &str = r#"
+CREATE TRIGGER global_command_id_from_command_receipts
+BEFORE INSERT ON command_receipts
+WHEN EXISTS(SELECT 1 FROM project_workspace_command_receipts
+            WHERE command_id = NEW.command_id)
+BEGIN SELECT RAISE(ABORT, 'global command id collision'); END;
+"#;
+const GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER: &str = r#"
+CREATE TRIGGER global_command_id_from_project_workspace_receipts
+BEFORE INSERT ON project_workspace_command_receipts
+WHEN EXISTS(SELECT 1 FROM command_receipts WHERE command_id = NEW.command_id)
+BEGIN SELECT RAISE(ABORT, 'global command id collision'); END;
 "#;
 
 pub(super) fn apply_v16_migration(connection: &Connection) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Exclusive)?;
     transaction.execute_batch(MIGRATION_V16)?;
+    super::project_workspace_backfill::backfill_taskrun_lineage(&transaction)?;
+    transaction.execute_batch(GLOBAL_COMMAND_RECEIPT_TRIGGER)?;
+    transaction.execute_batch(GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER)?;
     super::install_missing_v12_fence_triggers(&transaction)?;
     transaction.execute("INSERT INTO schema_version (version) VALUES (16)", [])?;
     transaction.commit()
@@ -56,7 +85,13 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
         return Ok(false);
     }
     let v12 = super::provider_v12_core_matches(connection)?
-        && super::v12_fence_triggers_match(connection)?;
+        && super::v12_fence_triggers_match_with_additional(
+            connection,
+            &[
+                "global_command_id_from_command_receipts",
+                "global_command_id_from_project_workspace_receipts",
+            ],
+        )?;
     let v13 = super::v13_unchanged_tables_match(connection)?;
     let v14 = super::provider_schema::v14_base_matches(connection, v12, v13)?;
     let v15 = super::provider_schema::v15_matches(connection, 15, v14)?;
@@ -68,6 +103,7 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
         "workspaces",
         "root_admission_nonces",
         "project_workspace_command_receipts",
+        "task_run_workspace_lineage",
     ]
     .into_iter()
     .try_fold(true, |valid, table| {
@@ -82,6 +118,37 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
         "workspaces",
         "root_admission_nonces",
         "project_workspace_command_receipts",
+        "task_run_workspace_lineage",
     ]);
-    Ok(tables_match && super::released_catalog_matches(connection, &tables)?)
+    Ok(tables_match
+        && global_command_triggers_match(connection)?
+        && super::released_catalog_matches(connection, &tables)?)
+}
+
+fn global_command_triggers_match(connection: &Connection) -> SqliteResult<bool> {
+    [
+        (
+            "global_command_id_from_command_receipts",
+            GLOBAL_COMMAND_RECEIPT_TRIGGER,
+        ),
+        (
+            "global_command_id_from_project_workspace_receipts",
+            GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER,
+        ),
+    ]
+    .into_iter()
+    .try_fold(true, |valid, (name, expected)| {
+        let actual: Option<String> = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
+                [name],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(valid
+            && actual.is_some_and(|sql| {
+                super::normalize_sql(expected.trim().trim_end_matches(';'))
+                    == super::normalize_sql(&sql)
+            }))
+    })
 }

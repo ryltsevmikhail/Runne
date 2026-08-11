@@ -3,7 +3,7 @@ use gocode_domain::id::{CommandId, IdempotencyKey, WorkspaceId};
 use gocode_domain::project_workspace::Workspace;
 use rusqlite::{Transaction, params};
 
-use crate::codec::ProjectWorkspaceReceipt;
+use crate::codec::{MAX_REHYDRATED_VERSION, ProjectWorkspaceReceipt};
 use crate::store::StoreTransaction;
 
 use super::mutation_support::{
@@ -36,6 +36,17 @@ pub(super) fn create_workspace(
         );
         if let Some(receipt) = receipts::lookup(transaction, &request)? {
             return receipt_workspace(receipt, workspace.id());
+        }
+        let legacy_unbound: bool = transaction
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM task_run_workspace_lineage
+                 WHERE workspace_id = ?1 AND classification = 'legacy_unbound')",
+                [workspace.id().as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| Error::Unavailable)?;
+        if legacy_unbound {
+            return Err(Error::Conflict);
         }
         let project = load_project(transaction, principal, workspace.project_id())?;
         if project.archived() {
@@ -76,6 +87,9 @@ pub(super) fn change_workspace(
     operation: Operation,
     admission_digest: Option<&[u8; 32]>,
 ) -> Result<Workspace, Error> {
+    if expected_version >= MAX_REHYDRATED_VERSION {
+        return Err(Error::InvariantViolation);
+    }
     let scope = Scope::workspace(operation, id.into_bytes());
     store.with_project_workspace_transaction(|transaction| {
         let request = request(

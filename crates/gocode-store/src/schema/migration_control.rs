@@ -2,6 +2,17 @@
 ///
 /// Idempotent — only runs migrations not yet applied.
 pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, true)
+}
+
+/// Builds the released V15 boundary for compatibility fixtures only.
+#[doc(hidden)]
+#[cfg(debug_assertions)]
+pub fn apply_migrations_through_v15_for_test(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, false)
+}
+
+fn apply_migrations_internal(conn: &Connection, include_v16: bool) -> SqliteResult<()> {
     let has_version_table: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_version')",
         [],
@@ -175,11 +186,12 @@ pub fn apply_migrations(conn: &Connection) -> SqliteResult<()> {
         provider_schema::apply_v15_migration(conn)?;
     }
 
-    if current_version < 16 {
+    if current_version < 16 && include_v16 {
         project_workspace_schema::apply_v16_migration(conn)?;
     }
 
-    if current_version < CURRENT_SCHEMA_VERSION {
+    let target_version = if include_v16 { CURRENT_SCHEMA_VERSION } else { 15 };
+    if current_version < target_version {
         // Preflight classifies the immutable main database without consulting
         // a hot WAL. Publish completed schema migrations before another
         // process or connection attempts admission.

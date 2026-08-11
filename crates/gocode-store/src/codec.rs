@@ -128,6 +128,7 @@ mod tests;
 
 pub use command::CommandOutcomeCodec;
 pub use conversation::ConversationEventCodec;
+pub(crate) use project_workspace::MAX_REHYDRATED_VERSION;
 pub use project_workspace::{ProjectWorkspaceReceipt, ProjectWorkspaceReceiptCodec};
 pub use receipts::{ConversationReceiptCodec, IdempotencyScopeCodec, TextGenerationReceiptCodec};
 pub use task_run::TaskRunEventCodec;

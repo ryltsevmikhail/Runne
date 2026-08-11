@@ -1,60 +1,57 @@
-use std::collections::HashMap;
-
 use gocode_application::commands::CommandOutcome;
 use gocode_application::ports::{
     AggregateScope, IdempotencyScope, OperationTag, ProjectWorkspaceRepositoryError as Error,
 };
 use gocode_domain::id::{ProjectId, TaskRunId, WorkspaceId};
-use gocode_domain::task_run::TaskRunEvent;
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{OptionalExtension, Transaction};
 
-use crate::codec::{CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TaskRunEventCodec};
+use crate::codec::{
+    CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TextGenerationReceiptCodec,
+};
+
+use super::taskrun_replay::task_run_is_terminal;
 
 pub(super) fn ensure_project_task_runs_terminal(
     transaction: &Transaction<'_>,
     project_id: ProjectId,
 ) -> Result<(), Error> {
-    let workspaces = project_workspaces(transaction, project_id)?;
+    super::taskrun_origins::ensure_target_origins_have_lineage(transaction, project_id)?;
     let mut statement = transaction
-        .prepare("SELECT idempotency_scope_bytes, command_outcome FROM command_receipts")
+        .prepare(
+            "SELECT taskrun_id, workspace_id, classification,
+                    origin_command_id, origin_operation
+             FROM task_run_workspace_lineage WHERE project_id = ?1 ORDER BY taskrun_id",
+        )
         .map_err(|_| Error::Unavailable)?;
-    let receipts = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?))
+    let rows = statement
+        .query_map([project_id.as_bytes()], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Vec<u8>>(3)?,
+                row.get::<_, i64>(4)?,
+            ))
         })
+        .map_err(|_| Error::Unavailable)?
+        .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| Error::Unavailable)?;
-    for row in receipts {
-        let (scope_bytes, outcome_bytes) = row.map_err(|_| Error::Unavailable)?;
-        let scope = IdempotencyScopeCodec
-            .decode(&scope_bytes)
-            .map_err(|_| Error::InvariantViolation)?;
-        if scope.operation != OperationTag::CreateTaskRun {
-            continue;
-        }
-        let workspace_id = match scope.aggregate_scope {
-            AggregateScope::NewTaskRun { workspace_id, .. } => workspace_id,
-            _ => return Err(Error::InvariantViolation),
-        };
-        let (linked_project, workspace_principal) = workspaces
-            .get(&workspace_id)
-            .cloned()
-            .ok_or(Error::InvariantViolation)?;
-        if workspace_principal != scope.principal_id.0 {
+    drop(statement);
+
+    for (taskrun, workspace, classification, command, operation) in rows {
+        if classification != "canonical" {
             return Err(Error::InvariantViolation);
         }
-        if linked_project != project_id {
-            continue;
-        }
-        let taskrun_id = match CommandOutcomeCodec
-            .decode(&outcome_bytes)
-            .map_err(|_| Error::InvariantViolation)?
-        {
-            CommandOutcome::TaskRunCreated {
-                taskrun_id,
-                new_version: 1,
-            } => taskrun_id,
-            _ => return Err(Error::InvariantViolation),
-        };
+        let taskrun_id = TaskRunId::from_bytes(parse_id(taskrun)?);
+        let workspace_id = WorkspaceId::from_bytes(parse_id(workspace)?);
+        validate_unambiguous_workspace(transaction, workspace_id, project_id)?;
+        validate_origin(
+            transaction,
+            taskrun_id,
+            workspace_id,
+            parse_id(command)?,
+            operation,
+        )?;
         if !task_run_is_terminal(transaction, taskrun_id)? {
             return Err(Error::Conflict);
         }
@@ -62,130 +59,100 @@ pub(super) fn ensure_project_task_runs_terminal(
     Ok(())
 }
 
-pub(crate) fn validate_taskrun_workspace_scope(
+fn validate_unambiguous_workspace(
     transaction: &Transaction<'_>,
-    scope: &IdempotencyScope,
-) -> Result<(), Error> {
-    let AggregateScope::NewTaskRun { workspace_id, .. } = scope.aggregate_scope else {
-        return Ok(());
-    };
-    if scope.operation != OperationTag::CreateTaskRun {
-        return Ok(());
-    }
-    let project_workspace_active: bool = transaction
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM project_workspace_command_receipts)",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|_| Error::Unavailable)?;
-    if !project_workspace_active {
-        return Ok(());
-    }
-    let exists: bool = transaction
-        .query_row(
-            "SELECT EXISTS(
-                SELECT 1 FROM workspaces
-                WHERE workspace_id = ?1 AND principal_id = ?2 AND live = 1
-             )",
-            params![workspace_id.as_bytes(), scope.principal_id.0],
-            |row| row.get(0),
-        )
-        .map_err(|_| Error::Unavailable)?;
-    if exists { Ok(()) } else { Err(Error::NotFound) }
-}
-
-fn project_workspaces(
-    transaction: &Transaction<'_>,
+    workspace_id: WorkspaceId,
     project_id: ProjectId,
-) -> Result<HashMap<WorkspaceId, (ProjectId, String)>, Error> {
+) -> Result<(), Error> {
     let mut statement = transaction
-        .prepare("SELECT workspace_id, project_id, principal_id FROM workspaces")
+        .prepare(
+            "SELECT DISTINCT project_id FROM task_run_workspace_lineage
+             WHERE workspace_id = ?1 AND classification = 'canonical'",
+        )
         .map_err(|_| Error::Unavailable)?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, Vec<u8>>(0)?,
-                row.get::<_, Vec<u8>>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })
+    let projects = statement
+        .query_map([workspace_id.as_bytes()], |row| row.get::<_, Vec<u8>>(0))
+        .map_err(|_| Error::Unavailable)?
+        .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(|_| Error::Unavailable)?;
-    let mut workspaces = HashMap::new();
-    for row in rows {
-        let (workspace, project, principal) = row.map_err(|_| Error::Unavailable)?;
-        let workspace = WorkspaceId::from_bytes(
-            workspace
-                .try_into()
-                .map_err(|_| Error::InvariantViolation)?,
-        );
-        let project =
-            ProjectId::from_bytes(project.try_into().map_err(|_| Error::InvariantViolation)?);
-        workspaces.insert(workspace, (project, principal));
+    if projects.len() != 1 || parse_id(projects[0].clone())? != project_id.into_bytes() {
+        return Err(Error::InvariantViolation);
     }
-    if !workspaces.values().any(|(value, _)| *value == project_id) {
-        // No Workspace relationship for this Project is valid only when no
-        // TaskRun create receipt references an unknown Workspace; the caller's
-        // receipt scan enforces that fail-closed condition.
-    }
-    Ok(workspaces)
+    Ok(())
 }
 
-fn task_run_is_terminal(
+fn validate_origin(
     transaction: &Transaction<'_>,
     taskrun_id: TaskRunId,
-) -> Result<bool, Error> {
-    let version = transaction
+    workspace_id: WorkspaceId,
+    command_id: [u8; 16],
+    operation: i64,
+) -> Result<(), Error> {
+    let row = transaction
         .query_row(
-            "SELECT current_version FROM aggregate_streams
-             WHERE aggregate_type = 1 AND aggregate_id = ?1",
-            [taskrun_id.as_bytes()],
-            |row| row.get::<_, i64>(0),
+            "SELECT idempotency_scope_bytes, command_outcome FROM command_receipts
+             WHERE command_id = ?1",
+            [command_id],
+            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
         )
         .optional()
         .map_err(|_| Error::Unavailable)?
         .ok_or(Error::InvariantViolation)?;
-    if version <= 0 {
-        return Err(Error::InvariantViolation);
-    }
-    let mut statement = transaction
-        .prepare(
-            "SELECT sequence, payload FROM events
-             WHERE aggregate_type = 1 AND aggregate_id = ?1 ORDER BY sequence ASC",
+    let scope = IdempotencyScopeCodec
+        .decode(&row.0)
+        .map_err(|_| Error::InvariantViolation)?;
+    let owner: Option<String> = transaction
+        .query_row(
+            "SELECT principal_id FROM workspaces WHERE workspace_id = ?1",
+            [workspace_id.as_bytes()],
+            |row| row.get(0),
         )
+        .optional()
         .map_err(|_| Error::Unavailable)?;
-    let rows = statement
-        .query_map([taskrun_id.as_bytes()], |row| {
-            Ok((row.get::<_, i64>(0)?, row.get::<_, Vec<u8>>(1)?))
-        })
-        .map_err(|_| Error::Unavailable)?;
-    let mut terminal = false;
-    let mut count = 0_i64;
-    for row in rows {
-        let (sequence, payload) = row.map_err(|_| Error::Unavailable)?;
-        count += 1;
-        if sequence != count || terminal {
-            return Err(Error::InvariantViolation);
-        }
-        let event = TaskRunEventCodec
-            .decode(&payload)
-            .map_err(|_| Error::InvariantViolation)?;
-        if count == 1 && event != TaskRunEvent::TaskRunCreated {
-            return Err(Error::InvariantViolation);
-        }
-        terminal = matches!(
-            event,
-            TaskRunEvent::CancellationCompleted
-                | TaskRunEvent::TaskRunCompleted { .. }
-                | TaskRunEvent::TaskRunFailed { .. }
-                | TaskRunEvent::BudgetExhausted
-                | TaskRunEvent::PolicyDenied
-                | TaskRunEvent::Unrecoverable
-                | TaskRunEvent::TaskRunCancelled
-        );
-    }
-    if count != version {
+    if owner.as_deref() != Some(scope.principal_id.0.as_str()) {
         return Err(Error::InvariantViolation);
     }
-    Ok(terminal)
+    match operation {
+        1 => validate_direct_origin(scope, &row.1, taskrun_id, workspace_id),
+        18 => validate_text_origin(scope, &row.1, taskrun_id, workspace_id),
+        _ => Err(Error::InvariantViolation),
+    }
+}
+
+fn validate_direct_origin(
+    scope: IdempotencyScope,
+    outcome: &[u8],
+    taskrun_id: TaskRunId,
+    workspace_id: WorkspaceId,
+) -> Result<(), Error> {
+    if scope.operation != OperationTag::CreateTaskRun
+        || !matches!(scope.aggregate_scope, AggregateScope::NewTaskRun { workspace_id: value, .. } if value == workspace_id)
+        || !matches!(CommandOutcomeCodec.decode(outcome), Ok(CommandOutcome::TaskRunCreated { taskrun_id: value, .. }) if value == taskrun_id)
+    {
+        return Err(Error::InvariantViolation);
+    }
+    Ok(())
+}
+
+fn validate_text_origin(
+    scope: IdempotencyScope,
+    outcome: &[u8],
+    taskrun_id: TaskRunId,
+    workspace_id: WorkspaceId,
+) -> Result<(), Error> {
+    let receipt = TextGenerationReceiptCodec
+        .decode(outcome)
+        .map_err(|_| Error::InvariantViolation)?;
+    if scope.operation != OperationTag::GenerateConversationText
+        || !matches!(scope.aggregate_scope, AggregateScope::ExistingConversation { conversation_id } if conversation_id == receipt.conversation_id)
+        || receipt.taskrun_id != taskrun_id
+        || receipt.workspace_id != workspace_id
+    {
+        return Err(Error::InvariantViolation);
+    }
+    Ok(())
+}
+
+fn parse_id(value: Vec<u8>) -> Result<[u8; 16], Error> {
+    value.try_into().map_err(|_| Error::InvariantViolation)
 }

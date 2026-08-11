@@ -2,15 +2,17 @@ use gocode_application::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
     StartAttemptInput,
 };
+use gocode_application::errors::ApplicationError;
 use gocode_application::ports::{
-    ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error,
+    PrincipalId, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error,
+    StorageFailureKind,
 };
 use gocode_domain::command::TerminalResult;
 use gocode_domain::id::{ConversationId, ProjectId, TaskRunId, WorkspaceId};
 
 use super::support::*;
 
-fn create_task_run(database: &Database, tail: u8) -> TaskRunId {
+pub(super) fn create_task_run(database: &Database, tail: u8) -> TaskRunId {
     let outcome = database
         .task_runs()
         .create_task_run(
@@ -187,36 +189,83 @@ fn missing_task_run_stream_fails_closed() {
 }
 
 #[test]
-fn command_id_is_globally_unique_across_project_and_taskrun_receipts() {
-    let database = Database::new("pw-global-command-id");
+fn direct_taskrun_persists_canonical_workspace_lineage() {
+    let database = Database::new("pw-direct-lineage");
     let repository = database.repository();
     create_project(&repository);
     create_workspace(&repository);
-    create_task_run(&database, 26);
-    assert_eq!(
-        repository.create_project(
-            "owner",
-            command(26),
-            &key("cross-table-project"),
-            project(PROJECT_2, "Two"),
-        ),
-        Err(Error::Conflict)
-    );
+    let taskrun_id = create_task_run(&database, 34);
 
-    repository
-        .create_project(
-            "owner",
-            command(27),
-            &key("project-before-task"),
-            project(PROJECT_2, "Two"),
+    let connection = database.connection();
+    let lineage = connection
+        .query_row(
+            "SELECT workspace_id, project_id, classification, origin_operation
+             FROM task_run_workspace_lineage WHERE taskrun_id = ?1",
+            [taskrun_id.as_bytes()],
+            |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            },
         )
         .unwrap();
-    let task_result = database.task_runs().create_task_run(
-        &task_context(27, "task-after-project"),
+    assert_eq!(lineage.0, WORKSPACE);
+    assert_eq!(lineage.1, Some(PROJECT.to_vec()));
+    assert_eq!(lineage.2, "canonical");
+    assert_eq!(lineage.3, 1);
+}
+
+#[test]
+fn canonical_lineage_rejects_a_foreign_principal_origin() {
+    let database = Database::new("pw-foreign-taskrun-origin");
+    let repository = database.repository();
+    create_project(&repository);
+    create_workspace(&repository);
+    let mut context = task_context(38, "foreign-task-create");
+    context.principal_id = PrincipalId("intruder".into());
+
+    let result = database.task_runs().create_task_run(
+        &context,
         CreateTaskRunInput {
-            conversation_id: ConversationId::from_bytes(command(0x33).into_bytes()),
+            conversation_id: ConversationId::from_bytes(command(0x32).into_bytes()),
             workspace_id: WorkspaceId::from_bytes(WORKSPACE),
         },
     );
-    assert!(task_result.is_err());
+    assert_eq!(
+        result,
+        Err(ApplicationError::StorageFailed(
+            StorageFailureKind::IntegrityViolation
+        ))
+    );
+}
+
+#[test]
+fn legacy_unbound_lineage_cannot_be_rebound_or_poison_a_project() {
+    let database = Database::new("pw-unbound-lineage");
+    create_task_run(&database, 35);
+    let repository = database.repository();
+    create_project(&repository);
+
+    assert_eq!(
+        repository.create_workspace(
+            "owner",
+            command(36),
+            &key("rebind-unbound"),
+            workspace(WORKSPACE, PROJECT, "Forbidden reuse"),
+        ),
+        Err(Error::Conflict)
+    );
+    assert_eq!(
+        repository.delete_project(
+            "owner",
+            command(37),
+            &key("delete-unrelated"),
+            ProjectId::from_bytes(PROJECT),
+            1,
+        ),
+        Ok(2)
+    );
 }

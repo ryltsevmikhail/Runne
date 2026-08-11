@@ -3,7 +3,7 @@ use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId};
 use gocode_domain::project_workspace::Project;
 use rusqlite::{Transaction, params};
 
-use crate::codec::ProjectWorkspaceReceipt;
+use crate::codec::{MAX_REHYDRATED_VERSION, ProjectWorkspaceReceipt};
 use crate::store::StoreTransaction;
 
 use super::mutation_support::{load_project, map_state_insert, receipt_project, request};
@@ -69,6 +69,9 @@ pub(super) fn change_project(
     expected_version: u64,
     operation: Operation,
 ) -> Result<Project, Error> {
+    if expected_version >= MAX_REHYDRATED_VERSION {
+        return Err(Error::InvariantViolation);
+    }
     let scope = Scope::project(operation, id.into_bytes());
     store.with_project_workspace_transaction(|transaction| {
         let request = request(
@@ -113,6 +116,9 @@ pub(super) fn delete_project(
     id: ProjectId,
     expected_version: u64,
 ) -> Result<u64, Error> {
+    if expected_version >= MAX_REHYDRATED_VERSION {
+        return Err(Error::InvariantViolation);
+    }
     let scope = Scope::project(Operation::DeleteProject, id.into_bytes());
     store.with_project_workspace_transaction(|transaction| {
         let request = request(
