@@ -1,6 +1,7 @@
-use super::{RuntimeProjectWorkspaceHost, commands::map_error};
+use super::{RuntimeProjectWorkspaceHost, types::WorkItem};
 use gocode_api::{
-    ProjectQueryContext, ProjectSnapshot, ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
+    ProjectPage, ProjectPageRequest, ProjectQueryContext, ProjectSnapshot,
+    ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort, WorkspacePage, WorkspacePageRequest,
     WorkspaceSnapshot,
 };
 use gocode_application::ports::{
@@ -14,28 +15,34 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
     async fn list_projects(
         &self,
         context: ProjectQueryContext,
-    ) -> Result<Vec<ProjectSnapshot>, ProjectWorkspaceHostError> {
-        self.service.list_projects(context).map_err(map_error)
+        request: ProjectPageRequest,
+    ) -> Result<ProjectPage, ProjectWorkspaceHostError> {
+        self.submit(|reply| WorkItem::ListProjects(context, request, reply))
+            .await
     }
     async fn get_project(
         &self,
         context: ProjectQueryContext,
         id: ProjectId,
     ) -> Result<ProjectSnapshot, ProjectWorkspaceHostError> {
-        self.service.get_project(context, id).map_err(map_error)
+        self.submit(|reply| WorkItem::GetProject(context, id, reply))
+            .await
     }
     async fn list_workspaces(
         &self,
         context: ProjectQueryContext,
         id: ProjectId,
-    ) -> Result<Vec<WorkspaceSnapshot>, ProjectWorkspaceHostError> {
-        self.service.list_workspaces(context, id).map_err(map_error)
+        request: WorkspacePageRequest,
+    ) -> Result<WorkspacePage, ProjectWorkspaceHostError> {
+        self.submit(|reply| WorkItem::ListWorkspaces(context, id, request, reply))
+            .await
     }
     async fn get_workspace(
         &self,
         context: ProjectQueryContext,
         id: WorkspaceId,
     ) -> Result<WorkspaceSnapshot, ProjectWorkspaceHostError> {
-        self.service.get_workspace(context, id).map_err(map_error)
+        self.submit(|reply| WorkItem::GetWorkspace(context, id, reply))
+            .await
     }
 }

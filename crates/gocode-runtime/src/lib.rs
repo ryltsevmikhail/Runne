@@ -31,7 +31,7 @@ mod supervisor;
 mod worker;
 
 mod startup;
-pub use project_workspace_host::RuntimeProjectWorkspaceHost;
+pub use project_workspace_host::{PROJECT_WORKSPACE_WORKER_CAPACITY, RuntimeProjectWorkspaceHost};
 pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };

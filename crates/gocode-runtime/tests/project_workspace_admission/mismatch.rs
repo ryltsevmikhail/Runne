@@ -132,7 +132,7 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
         wrong_principal
             .bind_workspace_root(command("other", 21), request)
             .await,
-        Err(ProjectWorkspaceHostError::Forbidden)
+        Err(ProjectWorkspaceHostError::NotFound)
     );
     let wrong_workspace = WorkspaceId::from_bytes([0x71; 16]);
     let foreign_claim = host(

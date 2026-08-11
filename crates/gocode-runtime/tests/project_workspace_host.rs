@@ -1,13 +1,23 @@
 use gocode_api::{
-    ApiActor, ApiPrincipalId, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
-    ProjectCommandContext, ProjectQueryContext, ProjectWorkspaceCommandHostPort,
-    ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
+    ApiActor, ApiPrincipalId, BindWorkspaceRootCommand, CreateProjectCommand,
+    CreateWorkspaceCommand, ExistingProjectCommand, ExistingWorkspaceCommand,
+    ProjectCommandContext, ProjectPageRequest, ProjectQueryContext,
+    ProjectWorkspaceCommandHostPort, ProjectWorkspaceDisplayNameInput, ProjectWorkspaceHostError,
+    ProjectWorkspaceQueryHostPort, WorkspacePageRequest,
 };
 use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
 
 #[path = "support/project_workspace_host.rs"]
 mod support;
 use support::test_host;
+#[path = "project_workspace_host/input.rs"]
+mod input;
+#[path = "project_workspace_host/nondisclosure.rs"]
+mod nondisclosure;
+#[path = "project_workspace_host/paging.rs"]
+mod paging;
+#[path = "project_workspace_host/worker.rs"]
+mod worker;
 
 const PROJECT_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e1";
 const WORKSPACE_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e2";
@@ -29,13 +39,23 @@ fn command_id(tail: u8) -> String {
     format!("018f47a2-4f8c-7b52-8c35-7a3a14c2d9{tail:02x}")
 }
 
+fn project_id(tail: u8) -> ProjectId {
+    format!("018f47a2-4f8c-7b52-8c35-7a3a14c2d9{tail:02x}")
+        .parse()
+        .unwrap()
+}
+
+fn name(value: &str) -> ProjectWorkspaceDisplayNameInput {
+    ProjectWorkspaceDisplayNameInput::new(value.into()).unwrap()
+}
+
 #[tokio::test]
 async fn project_workspace_create_project_replays_the_exact_idempotent_acknowledgement() {
     let (_directory, host) = test_host();
     let owner = principal("owner");
     let request = CreateProjectCommand {
         project_id: PROJECT_ID.parse::<ProjectId>().unwrap(),
-        display_name: "GOCODE".into(),
+        display_name: name("GOCODE"),
     };
 
     let first = host
@@ -63,7 +83,7 @@ async fn project_workspace_queries_fail_closed_for_another_principal() {
         context(owner, &command_id(2), "project-owner"),
         CreateProjectCommand {
             project_id,
-            display_name: "Private".into(),
+            display_name: name("Private"),
         },
     )
     .await
@@ -98,7 +118,7 @@ async fn project_workspace_rejects_workspace_creation_in_another_principals_proj
         context(principal("owner"), &command_id(8), "project-cross-owner"),
         CreateProjectCommand {
             project_id,
-            display_name: "Owner project".into(),
+            display_name: name("Owner project"),
         },
     )
     .await
@@ -114,7 +134,7 @@ async fn project_workspace_rejects_workspace_creation_in_another_principals_proj
             CreateWorkspaceCommand {
                 workspace_id: WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
                 project_id,
-                display_name: "Rejected".into(),
+                display_name: name("Rejected"),
             },
         )
         .await;
@@ -131,7 +151,7 @@ async fn project_workspace_stale_project_version_is_rejected_exactly() {
         context(owner.clone(), &command_id(3), "project-create-stale"),
         CreateProjectCommand {
             project_id,
-            display_name: "Versioned".into(),
+            display_name: name("Versioned"),
         },
     )
     .await
@@ -159,7 +179,7 @@ async fn project_workspace_archives_and_restores_at_exact_versions_idempotently(
         context(owner.clone(), &command_id(10), "restore-create"),
         CreateProjectCommand {
             project_id,
-            display_name: "Restore".into(),
+            display_name: name("Restore"),
         },
     )
     .await
@@ -229,7 +249,7 @@ async fn project_workspace_project_cannot_be_deleted_while_it_owns_a_live_worksp
         context(owner.clone(), &command_id(5), "project-delete-create"),
         CreateProjectCommand {
             project_id,
-            display_name: "Live workspace".into(),
+            display_name: name("Live workspace"),
         },
     )
     .await
@@ -239,7 +259,7 @@ async fn project_workspace_project_cannot_be_deleted_while_it_owns_a_live_worksp
         CreateWorkspaceCommand {
             workspace_id: WORKSPACE_ID.parse::<WorkspaceId>().unwrap(),
             project_id,
-            display_name: "One".into(),
+            display_name: name("One"),
         },
     )
     .await

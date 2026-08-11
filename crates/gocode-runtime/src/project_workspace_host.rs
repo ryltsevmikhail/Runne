@@ -4,4 +4,4 @@ mod commands;
 mod queries;
 mod types;
 
-pub use types::RuntimeProjectWorkspaceHost;
+pub use types::{PROJECT_WORKSPACE_WORKER_CAPACITY, RuntimeProjectWorkspaceHost};

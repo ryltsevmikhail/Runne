@@ -1,4 +1,4 @@
-use super::RuntimeProjectWorkspaceHost;
+use super::{RuntimeProjectWorkspaceHost, types::WorkItem};
 use gocode_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext,
@@ -7,7 +7,6 @@ use gocode_api::{
 use gocode_application::ports::{
     CurrentRootAdmissionContext, ProjectWorkspaceRepository, RootAdmissionVerifier,
 };
-use gocode_application::project_workspace_service::ProjectWorkspaceServiceError;
 
 impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmissionVerifier>
     ProjectWorkspaceCommandHostPort for RuntimeProjectWorkspaceHost<R, C, V>
@@ -17,74 +16,55 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         context: ProjectCommandContext,
         command: CreateProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .create_project(context, command)
-            .map_err(map_error)
+        self.submit(|reply| WorkItem::CreateProject(context, command, reply))
+            .await
     }
     async fn archive_project(
         &self,
         context: ProjectCommandContext,
         command: ExistingProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .archive_project(context, command)
-            .map_err(map_error)
+        self.submit(|reply| WorkItem::ArchiveProject(context, command, reply))
+            .await
     }
     async fn restore_project(
         &self,
         context: ProjectCommandContext,
         command: ExistingProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .restore_project(context, command)
-            .map_err(map_error)
+        self.submit(|reply| WorkItem::RestoreProject(context, command, reply))
+            .await
     }
     async fn delete_project(
         &self,
         context: ProjectCommandContext,
         command: ExistingProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .delete_project(context, command)
-            .map_err(map_error)
+        self.submit(|reply| WorkItem::DeleteProject(context, command, reply))
+            .await
     }
     async fn create_workspace(
         &self,
         context: ProjectCommandContext,
         command: CreateWorkspaceCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .create_workspace(context, command)
-            .map_err(map_error)
+        self.submit(|reply| WorkItem::CreateWorkspace(context, command, reply))
+            .await
     }
     async fn open_workspace(
         &self,
         context: ProjectCommandContext,
         command: ExistingWorkspaceCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .open_workspace(context, command)
-            .map_err(map_error)
+        self.submit(|reply| WorkItem::OpenWorkspace(context, command, reply))
+            .await
     }
     async fn bind_workspace_root(
         &self,
         context: ProjectCommandContext,
         command: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceHostError> {
-        self.service
-            .bind_workspace_root(context, command)
-            .map_err(map_error)
-    }
-}
-
-pub(super) fn map_error(error: ProjectWorkspaceServiceError) -> ProjectWorkspaceHostError {
-    match error {
-        ProjectWorkspaceServiceError::NotFound => ProjectWorkspaceHostError::NotFound,
-        ProjectWorkspaceServiceError::Conflict => ProjectWorkspaceHostError::Conflict,
-        ProjectWorkspaceServiceError::Forbidden => ProjectWorkspaceHostError::Forbidden,
-        ProjectWorkspaceServiceError::Unavailable => ProjectWorkspaceHostError::Unavailable,
-        ProjectWorkspaceServiceError::InvariantViolation => {
-            ProjectWorkspaceHostError::InvariantViolation
-        }
+        self.submit(|reply| WorkItem::BindWorkspaceRoot(context, command, reply))
+            .await
     }
 }
