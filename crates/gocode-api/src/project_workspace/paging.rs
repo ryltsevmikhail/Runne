@@ -1,4 +1,7 @@
-use super::{ProjectSnapshot, ProjectWorkspaceHostError, WorkspaceSnapshot};
+use super::{
+    ApiPrincipalId, ProjectPageCursor, ProjectSnapshot, ProjectWorkspaceHostError,
+    WorkspacePageCursor, WorkspaceSnapshot,
+};
 use gocode_domain::id::{ProjectId, WorkspaceId};
 
 /// Maximum number of snapshots a single Project/Workspace page may expose.
@@ -23,17 +26,6 @@ impl ProjectWorkspacePageSize {
     }
 }
 
-/// Opaque cursor for a stable Project page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProjectPageCursor(ProjectId);
-
-/// Opaque cursor for a stable Workspace page, bound to its Project.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct WorkspacePageCursor {
-    project_id: ProjectId,
-    workspace_id: WorkspaceId,
-}
-
 /// Closed, bounded page request for Projects.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectPageRequest {
@@ -54,8 +46,24 @@ impl ProjectPageRequest {
     }
 
     /// Returns validated page components for a repository adapter.
-    pub fn parts(&self) -> (ProjectWorkspacePageSize, Option<ProjectId>) {
-        (self.size, self.cursor.map(|cursor| cursor.0))
+    pub fn from_token(limit: u16, token: Option<&str>) -> Result<Self, ProjectWorkspaceHostError> {
+        let cursor = token
+            .map(ProjectPageCursor::decode_token)
+            .transpose()
+            .map_err(|_| ProjectWorkspaceHostError::NotFound)?;
+        Self::new(limit, cursor)
+    }
+
+    /// Validates a cursor against the authenticated principal before storage access.
+    pub fn parts_for_principal(
+        &self,
+        principal: &ApiPrincipalId,
+    ) -> Result<(ProjectWorkspacePageSize, Option<ProjectId>), ProjectWorkspaceHostError> {
+        self.cursor
+            .as_ref()
+            .map(|cursor| cursor.parts_for_principal(principal))
+            .transpose()
+            .map(|cursor| (self.size, cursor))
     }
 }
 
@@ -79,17 +87,25 @@ impl WorkspacePageRequest {
     }
 
     /// Returns validated components only for the exact requested Project.
-    pub fn parts_for(
+    pub fn from_token(limit: u16, token: Option<&str>) -> Result<Self, ProjectWorkspaceHostError> {
+        let cursor = token
+            .map(WorkspacePageCursor::decode_token)
+            .transpose()
+            .map_err(|_| ProjectWorkspaceHostError::NotFound)?;
+        Self::new(limit, cursor)
+    }
+
+    /// Validates a cursor against the authenticated principal and exact Project.
+    pub fn parts_for_principal(
         &self,
+        principal: &ApiPrincipalId,
         project_id: ProjectId,
     ) -> Result<(ProjectWorkspacePageSize, Option<WorkspaceId>), ProjectWorkspaceHostError> {
-        match self.cursor {
-            Some(cursor) if cursor.project_id != project_id => {
-                Err(ProjectWorkspaceHostError::NotFound)
-            }
-            Some(cursor) => Ok((self.size, Some(cursor.workspace_id))),
-            None => Ok((self.size, None)),
-        }
+        self.cursor
+            .as_ref()
+            .map(|cursor| cursor.parts_for_principal(principal, project_id))
+            .transpose()
+            .map(|cursor| (self.size, cursor))
     }
 }
 
@@ -104,6 +120,7 @@ impl ProjectPage {
     /// Forms a page after enforcing its exact requested bound and cursor shape.
     pub fn new(
         size: ProjectWorkspacePageSize,
+        principal: ApiPrincipalId,
         items: Vec<ProjectSnapshot>,
         next_cursor: Option<ProjectId>,
     ) -> Result<Self, ProjectWorkspaceHostError> {
@@ -119,7 +136,9 @@ impl ProjectPage {
         }
         Ok(Self {
             items,
-            next_cursor: next_cursor.map(ProjectPageCursor),
+            next_cursor: next_cursor
+                .map(|id| ProjectPageCursor::new(principal, id))
+                .transpose()?,
         })
     }
 
@@ -129,8 +148,8 @@ impl ProjectPage {
     }
 
     /// Returns the opaque exclusive continuation cursor.
-    pub const fn next_cursor(&self) -> Option<ProjectPageCursor> {
-        self.next_cursor
+    pub fn next_cursor(&self) -> Option<ProjectPageCursor> {
+        self.next_cursor.clone()
     }
 }
 
@@ -145,6 +164,7 @@ impl WorkspacePage {
     /// Forms a page after enforcing its exact bound, Project, and cursor shape.
     pub fn new(
         size: ProjectWorkspacePageSize,
+        principal: ApiPrincipalId,
         project_id: ProjectId,
         items: Vec<WorkspaceSnapshot>,
         next_cursor: Option<WorkspaceId>,
@@ -162,10 +182,9 @@ impl WorkspacePage {
         }
         Ok(Self {
             items,
-            next_cursor: next_cursor.map(|workspace_id| WorkspacePageCursor {
-                project_id,
-                workspace_id,
-            }),
+            next_cursor: next_cursor
+                .map(|workspace_id| WorkspacePageCursor::new(principal, project_id, workspace_id))
+                .transpose()?,
         })
     }
 
@@ -175,7 +194,7 @@ impl WorkspacePage {
     }
 
     /// Returns the opaque Project-bound continuation cursor.
-    pub const fn next_cursor(&self) -> Option<WorkspacePageCursor> {
-        self.next_cursor
+    pub fn next_cursor(&self) -> Option<WorkspacePageCursor> {
+        self.next_cursor.clone()
     }
 }

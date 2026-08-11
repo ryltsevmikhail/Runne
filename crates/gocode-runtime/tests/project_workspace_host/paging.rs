@@ -25,19 +25,21 @@ async fn project_pages_are_bounded_stable_and_exclusive() {
         )
         .await
         .unwrap();
+    let first_token = first.next_cursor().unwrap().encode_token();
     let second = host
         .list_projects(
             ProjectQueryContext {
                 principal: owner.clone(),
             },
-            ProjectPageRequest::new(2, first.next_cursor()).unwrap(),
+            ProjectPageRequest::from_token(2, Some(&first_token)).unwrap(),
         )
         .await
         .unwrap();
+    let second_token = second.next_cursor().unwrap().encode_token();
     let third = host
         .list_projects(
             ProjectQueryContext { principal: owner },
-            ProjectPageRequest::new(2, second.next_cursor()).unwrap(),
+            ProjectPageRequest::from_token(2, Some(&second_token)).unwrap(),
         )
         .await
         .unwrap();
@@ -102,7 +104,9 @@ async fn project_pages_are_bounded_stable_and_exclusive() {
 }
 
 fn workspace_id(tail: u8) -> WorkspaceId {
-    WorkspaceId::from_bytes([tail; 16])
+    format!("018f47a2-4f8c-7b52-8c35-7a3a14c2d8{tail:02x}")
+        .parse()
+        .unwrap()
 }
 
 #[tokio::test]
@@ -154,20 +158,21 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
         )
         .await
         .unwrap();
-    let first_cursor = first.next_cursor();
+    let first_token = first.next_cursor().unwrap().encode_token();
     let second = host
         .list_workspaces(
             query.clone(),
             project,
-            WorkspacePageRequest::new(2, first.next_cursor()).unwrap(),
+            WorkspacePageRequest::from_token(2, Some(&first_token)).unwrap(),
         )
         .await
         .unwrap();
+    let second_token = second.next_cursor().unwrap().encode_token();
     let third = host
         .list_workspaces(
             query.clone(),
             project,
-            WorkspacePageRequest::new(2, second.next_cursor()).unwrap(),
+            WorkspacePageRequest::from_token(2, Some(&second_token)).unwrap(),
         )
         .await
         .unwrap();
@@ -195,7 +200,7 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
         host.list_workspaces(
             query,
             other_project,
-            WorkspacePageRequest::new(2, first_cursor).unwrap(),
+            WorkspacePageRequest::from_token(2, Some(&first_token)).unwrap(),
         )
         .await
         .err(),
@@ -207,7 +212,7 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
                 principal: principal("foreign")
             },
             project,
-            WorkspacePageRequest::new(2, first_cursor).unwrap(),
+            WorkspacePageRequest::from_token(2, Some(&first_token)).unwrap(),
         )
         .await
         .err(),
@@ -232,7 +237,7 @@ async fn workspace_pages_are_complete_and_cursors_are_project_and_principal_boun
                 principal: principal("workspace-owner"),
             },
             project,
-            WorkspacePageRequest::new(2, first_cursor).unwrap(),
+            WorkspacePageRequest::from_token(2, Some(&first_token)).unwrap(),
         )
         .await
         .unwrap();

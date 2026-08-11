@@ -7,6 +7,8 @@ use gocode_domain::{
 };
 mod paging;
 pub use paging::*;
+mod cursor;
+pub use cursor::*;
 
 /// Bounded, validated display name accepted at the host transport boundary.
 #[derive(Debug, Clone, PartialEq, Eq)]
