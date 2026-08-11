@@ -1,7 +1,11 @@
 use super::*;
 
 impl StoreTransaction {
-    /// Open a database at `db_path`, apply migrations, run startup gates.
+    /// Open a file-backed database at `db_path`, apply migrations, and run startup gates.
+    ///
+    /// `StoreTransaction` owns separate writer and reader connections, so it
+    /// requires a file-backed SQLite path. The exact `:memory:` path is not
+    /// supported by this public constructor.
     ///
     /// # Errors
     ///
@@ -15,6 +19,12 @@ impl StoreTransaction {
         runtime_authority_id: RuntimeAuthorityId,
         prohibited_content: Arc<dyn ProhibitedContentPort>,
     ) -> Result<Self, CommitError> {
+        if db_path == ":memory:" {
+            return Err(CommitError::StorageFailure(
+                gocode_application::ports::StorageFailureKind::Unavailable,
+            ));
+        }
+
         let writer = open_with_pragmas(db_path).map_err(|_| {
             CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
         })?;
@@ -32,14 +42,12 @@ impl StoreTransaction {
         // The opened writer owns lifecycle classification. A read-only
         // connection cannot mutate WAL state and deliberately avoids a second
         // preflight/classification pass.
-        let reader = if db_path == ":memory:" {
-            Connection::open_in_memory()
-        } else {
-            Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        }
-        .map_err(|_| {
-            CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
-        })?;
+        let reader = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::Unavailable,
+                )
+            })?;
 
         Ok(Self::from_connections(
             writer,
