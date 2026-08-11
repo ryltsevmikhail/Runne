@@ -31,7 +31,7 @@
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
-      "sha256": "9c3f8c4094856a12e57d95ff282eb09459ada03903bd59869a902cc93d918d16"
+      "sha256": "f0332220338af880228390724f34f3083926985c07c72ad429221ba671b95679"
     },
     {
       "path": "schemas/local-session-v1.schema.json",

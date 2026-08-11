@@ -3,9 +3,9 @@
 use std::sync::{Arc, Mutex};
 
 use gocode_api::{
-    BindWorkspaceRootCommand, ProjectCommandContext, ProjectWorkspaceCommandHostPort,
-    ProtectedActivationKeys, RootHandleAdmission, RootHandleTransferOffer,
-    VerifiedRootAdmissionClaims,
+    BindWorkspaceRootCommand, LaunchAuthorityError, ProjectCommandContext,
+    ProjectWorkspaceCommandHostPort, ProtectedActivationKeys, ProtectedOwnedLaunchV1,
+    RootHandleAdmission, RootHandleTransferOffer, VerifiedRootAdmissionClaims,
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::RootAdmissionVerifierError;
@@ -43,10 +43,6 @@ impl RootAdmissionHarness {
         }
     }
 
-    pub fn control(&self) -> Arc<crate::protected_activation::ProtectedRootControl> {
-        crate::protected_activation::ProtectedRootControl::new(Arc::clone(&self.authority))
-    }
-
     pub fn admit(
         &self,
         offer: &RootHandleTransferOffer,
@@ -72,6 +68,51 @@ impl RootAdmissionHarness {
 
     pub fn take_admission(&self) -> Option<RootHandleAdmission> {
         self.authority.take_test_admission()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn dispatch(
+        &self,
+        channel: &mut crate::protected_activation::ProtectedActivationChannel,
+        frame: &[u8],
+        keys: &ProtectedActivationKeys,
+        owned: &ProtectedOwnedLaunchV1,
+        used: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
+        previous: u64,
+        now: u64,
+    ) -> Result<Option<u64>, LaunchAuthorityError> {
+        let control =
+            crate::protected_activation::ProtectedRootControl::new(Arc::clone(&self.authority));
+        crate::protected_activation::dispatch_root_handle_control_frame(
+            channel,
+            frame,
+            keys,
+            owned,
+            used,
+            previous,
+            now,
+            Some(&control),
+        )
+    }
+
+    pub fn run_control(
+        &self,
+        channel: crate::protected_activation::ProtectedActivationChannel,
+        keys: ProtectedActivationKeys,
+        owned: ProtectedOwnedLaunchV1,
+        sessions: Arc<Mutex<LocalSessionService>>,
+        clock: Arc<dyn Fn() -> std::time::Duration + Send + Sync>,
+    ) -> Result<(), LaunchAuthorityError> {
+        let control =
+            crate::protected_activation::ProtectedRootControl::new(Arc::clone(&self.authority));
+        crate::protected_activation::run_control_loop(
+            channel,
+            keys,
+            owned,
+            sessions,
+            clock,
+            Some(control),
+        )
     }
 
     pub async fn bind(

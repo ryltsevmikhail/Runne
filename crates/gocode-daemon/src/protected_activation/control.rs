@@ -6,7 +6,7 @@ use super::*;
 /// terminates the loop fail-closed. The caller uses loop completion as the
 /// daemon application's graceful-shutdown signal.
 #[cfg(unix)]
-pub fn run_control_loop(
+pub(crate) fn run_control_loop(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     mut owned_launch: ProtectedOwnedLaunchV1,
@@ -117,8 +117,8 @@ pub fn run_control_loop(
 
 /// Serves V2 control messages and rejects every V1 frame rather than allowing
 /// a provider-bound launch to downgrade its authenticated transcript.
-#[cfg(unix)]
-pub fn run_control_loop_v2(
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) fn run_control_loop_v2(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     mut owned_launch: ProtectedOwnedLaunchV2,

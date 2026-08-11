@@ -112,6 +112,7 @@ enum ProtectedProcessActivation {
 
 #[cfg(unix)]
 impl ProtectedProcessActivation {
+    #[allow(clippy::missing_const_for_fn)]
     fn compatibility_ready(&self) -> &ProtectedReadyV1 {
         match self {
             Self::V1 { ready, .. } => ready,

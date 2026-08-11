@@ -39,7 +39,7 @@ use gocode_api::{
 };
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, ProtectedBundledRuntimeProfile,
-    REQUIRED_RUNTIME_CAPABILITIES,
+    PROTECTED_RUNTIME_CAPABILITIES,
 };
 #[cfg(unix)]
 use gocode_runtime_client::RuntimeTransportKind;

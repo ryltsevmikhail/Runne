@@ -132,7 +132,7 @@ impl ProtectedBundledRuntimeProcess {
     /// # Errors
     ///
     /// Always returns a closed unsupported-platform failure.
-    pub fn prepare_root_handle(
+    pub const fn prepare_root_handle(
         &mut self,
         _root: &crate::VerifiedRootHandle,
         _workspace_id: gocode_domain::id::WorkspaceId,
@@ -146,7 +146,7 @@ impl ProtectedBundledRuntimeProcess {
     /// # Errors
     ///
     /// Always returns an unsupported-platform failure.
-    pub fn prepare_root_admission(
+    pub const fn prepare_root_admission(
         &mut self,
         _root: &crate::VerifiedRootHandle,
         _workspace_id: gocode_domain::id::WorkspaceId,

@@ -6,7 +6,7 @@ fn expected_profile() -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRunti
         .ok_or(ProtectedBundledRuntimeError::LaunchAuthority(
             LaunchAuthorityError::ProfileHashMismatch,
         ))?;
-    let capabilities = REQUIRED_RUNTIME_CAPABILITIES
+    let capabilities = PROTECTED_RUNTIME_CAPABILITIES
         .iter()
         .map(|capability| (*capability).to_owned())
         .collect::<Vec<_>>();

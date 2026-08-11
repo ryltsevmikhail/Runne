@@ -1,18 +1,20 @@
 fn local_runtime_profile_schema() -> Value {
-    let capability_prefix = PUBLISHED_RUNTIME_CAPABILITIES
-        .iter()
-        .map(|capability| json!({"const": capability, "type": "string"}))
-        .collect::<Vec<_>>();
+    let capability_tuple = |capabilities: &[&str]| json!({
+        "items": false,
+        "maxItems": capabilities.len(),
+        "minItems": capabilities.len(),
+        "prefixItems": capabilities.iter().map(|capability| json!({"const": capability, "type": "string"})).collect::<Vec<_>>(),
+        "type": "array",
+    });
     let mut schema = closed_object(
         json!({
             "authorityId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
             "bootstrapSecretPath": {"maxLength": 4096, "minLength": 1, "type": "string"},
             "capabilities": {
-                "items": false,
-                "maxItems": PUBLISHED_RUNTIME_CAPABILITIES.len(),
-                "minItems": PUBLISHED_RUNTIME_CAPABILITIES.len(),
-                "prefixItems": capability_prefix,
-                "type": "array",
+                "oneOf": [
+                    capability_tuple(BASE_RUNTIME_CAPABILITIES),
+                    capability_tuple(PUBLISHED_RUNTIME_CAPABILITIES),
+                ],
             },
             "capabilityDigest": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
             "certificateDerBase64": {"maxLength": 65536, "pattern": "^[A-Za-z0-9+/]+={0,2}$", "type": "string"},

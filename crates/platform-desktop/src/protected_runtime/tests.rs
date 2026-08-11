@@ -86,7 +86,7 @@ impl ProtectedBundledRuntimeProcess {
                     .capabilities
                     .iter()
                     .map(String::as_str)
-                    .eq(REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
+                    .eq(PROTECTED_RUNTIME_CAPABILITIES.iter().copied())
         }
     }
 

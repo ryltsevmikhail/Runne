@@ -13,96 +13,188 @@
       "type": "string"
     },
     "capabilities": {
-      "items": false,
-      "maxItems": 21,
-      "minItems": 21,
-      "prefixItems": [
+      "oneOf": [
         {
-          "const": "conversation.create.v1",
-          "type": "string"
+          "items": false,
+          "maxItems": 20,
+          "minItems": 20,
+          "prefixItems": [
+            {
+              "const": "conversation.create.v1",
+              "type": "string"
+            },
+            {
+              "const": "conversation.generate_text.v1",
+              "type": "string"
+            },
+            {
+              "const": "conversation.list_messages.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.open.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.read_page.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.acknowledge.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.complete_catch_up.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.continue_live.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.sse.v1",
+              "type": "string"
+            },
+            {
+              "const": "runtime.operational-telemetry.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.list.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.get.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.create.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.archive.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.restore.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.delete.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.list.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.get.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.create.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.open.v1",
+              "type": "string"
+            }
+          ],
+          "type": "array"
         },
         {
-          "const": "conversation.generate_text.v1",
-          "type": "string"
-        },
-        {
-          "const": "conversation.list_messages.v1",
-          "type": "string"
-        },
-        {
-          "const": "replay.aggregate.open.v1",
-          "type": "string"
-        },
-        {
-          "const": "replay.aggregate.read_page.v1",
-          "type": "string"
-        },
-        {
-          "const": "replay.aggregate.acknowledge.v1",
-          "type": "string"
-        },
-        {
-          "const": "replay.aggregate.complete_catch_up.v1",
-          "type": "string"
-        },
-        {
-          "const": "replay.aggregate.continue_live.v1",
-          "type": "string"
-        },
-        {
-          "const": "replay.aggregate.sse.v1",
-          "type": "string"
-        },
-        {
-          "const": "runtime.operational-telemetry.v1",
-          "type": "string"
-        },
-        {
-          "const": "project.list.v1",
-          "type": "string"
-        },
-        {
-          "const": "project.get.v1",
-          "type": "string"
-        },
-        {
-          "const": "project.create.v1",
-          "type": "string"
-        },
-        {
-          "const": "project.archive.v1",
-          "type": "string"
-        },
-        {
-          "const": "project.restore.v1",
-          "type": "string"
-        },
-        {
-          "const": "project.delete.v1",
-          "type": "string"
-        },
-        {
-          "const": "workspace.list.v1",
-          "type": "string"
-        },
-        {
-          "const": "workspace.get.v1",
-          "type": "string"
-        },
-        {
-          "const": "workspace.create.v1",
-          "type": "string"
-        },
-        {
-          "const": "workspace.open.v1",
-          "type": "string"
-        },
-        {
-          "const": "workspace.bind_root.v2",
-          "type": "string"
+          "items": false,
+          "maxItems": 21,
+          "minItems": 21,
+          "prefixItems": [
+            {
+              "const": "conversation.create.v1",
+              "type": "string"
+            },
+            {
+              "const": "conversation.generate_text.v1",
+              "type": "string"
+            },
+            {
+              "const": "conversation.list_messages.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.open.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.read_page.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.acknowledge.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.complete_catch_up.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.continue_live.v1",
+              "type": "string"
+            },
+            {
+              "const": "replay.aggregate.sse.v1",
+              "type": "string"
+            },
+            {
+              "const": "runtime.operational-telemetry.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.list.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.get.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.create.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.archive.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.restore.v1",
+              "type": "string"
+            },
+            {
+              "const": "project.delete.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.list.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.get.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.create.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.open.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.bind_root.v2",
+              "type": "string"
+            }
+          ],
+          "type": "array"
         }
-      ],
-      "type": "array"
+      ]
     },
     "capabilityDigest": {
       "pattern": "^[0-9a-f]{64}$",

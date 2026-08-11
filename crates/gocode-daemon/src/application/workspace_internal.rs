@@ -2,7 +2,7 @@
 
 use super::DaemonApplication;
 use crate::error::DaemonError;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedRuntimeStart;
 
 pub(crate) mod provider_dependencies;
@@ -14,7 +14,7 @@ pub use provider_dependencies::ProtectedProviderDependencyCapsule;
 ///
 /// The verified launch is opaque outside the daemon's protected activation API;
 /// callers cannot select configuration, activation, provenance, or sender internals.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub async fn start_from_verified_protected_launch(
     verified_launch: VerifiedProtectedRuntimeStart,
     dependencies: ProtectedProviderDependencyCapsule,

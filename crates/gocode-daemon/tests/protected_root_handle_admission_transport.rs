@@ -14,9 +14,7 @@ use gocode_api::{
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::{ProjectWorkspaceRepository, RuntimeAuthorityId};
 use gocode_daemon::application::root_admission_test_support::RootAdmissionHarness;
-use gocode_daemon::protected_activation::{
-    ProtectedActivationChannel, dispatch_root_handle_control_frame, run_control_loop,
-};
+use gocode_daemon::protected_activation::ProtectedActivationChannel;
 use gocode_domain::{
     event::Sensitivity,
     id::{CommandId, DaemonInstanceId, EventLogLineageId, IdempotencyKey, ProjectId, WorkspaceId},
@@ -81,21 +79,12 @@ fn child(token_path: &std::ffi::OsStr) {
         .unwrap();
     let (keys, owned) = fixture();
     let (_database, authority) = child_authority(&keys);
-    let control = authority.control();
     let mut used = std::collections::VecDeque::new();
     let first = channel.read_control_frame().unwrap();
-    let sequence = dispatch_root_handle_control_frame(
-        &mut channel,
-        &first,
-        &keys,
-        &owned,
-        &mut used,
-        0,
-        now(),
-        Some(&control),
-    )
-    .unwrap()
-    .unwrap();
+    let sequence = authority
+        .dispatch(&mut channel, &first, &keys, &owned, &mut used, 0, now())
+        .unwrap()
+        .unwrap();
     let token = authority.take_admission().unwrap().encode_token().unwrap();
     std::fs::write(token_path, &token).unwrap();
     let runtime = tokio::runtime::Runtime::new().unwrap();
@@ -118,28 +107,28 @@ fn child(token_path: &std::ffi::OsStr) {
             .is_err()
     );
     let second = channel.read_control_frame().unwrap();
-    dispatch_root_handle_control_frame(
-        &mut channel,
-        &second,
-        &keys,
-        &owned,
-        &mut used,
-        sequence,
-        now(),
-        Some(&control),
-    )
-    .unwrap()
-    .unwrap();
+    authority
+        .dispatch(
+            &mut channel,
+            &second,
+            &keys,
+            &owned,
+            &mut used,
+            sequence,
+            now(),
+        )
+        .unwrap()
+        .unwrap();
     runtime.block_on(authority.shutdown());
-    run_control_loop(
-        channel,
-        keys,
-        owned,
-        Arc::new(Mutex::new(session_service())),
-        Arc::new(|| Duration::from_secs(1)),
-        Some(control),
-    )
-    .unwrap();
+    authority
+        .run_control(
+            channel,
+            keys,
+            owned,
+            Arc::new(Mutex::new(session_service())),
+            Arc::new(|| Duration::from_secs(1)),
+        )
+        .unwrap();
 }
 
 fn child_authority(keys: &ProtectedActivationKeys) -> (tempfile::TempDir, RootAdmissionHarness) {

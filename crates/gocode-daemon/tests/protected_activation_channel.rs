@@ -1,4 +1,4 @@
-#![cfg(unix)]
+#![cfg(all(unix, feature = "test-support"))]
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -12,9 +12,8 @@ use gocode_api::{
 };
 use gocode_daemon::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
 use gocode_daemon::error::DaemonError;
-use gocode_daemon::protected_activation::{
-    ProtectedActivationChannel, ProtectedDaemonLaunch, run_control_loop,
-};
+use gocode_daemon::protected_activation::test_support::run_without_admission;
+use gocode_daemon::protected_activation::{ProtectedActivationChannel, ProtectedDaemonLaunch};
 
 fn read_frame(stream: &mut UnixStream) -> Vec<u8> {
     let mut prefix = [0; 4];
@@ -150,7 +149,9 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
         let mut channel = ProtectedActivationChannel::new(server).unwrap();
         let mut launch =
             ProtectedDaemonLaunch::accept(&mut channel, &server_path, || Ok(1_001)).unwrap();
-        let start = launch.bootstrap_runtime_start(|| Ok(1_001)).unwrap();
+        let start = launch
+            .bootstrap_runtime_start_for_test(|| Ok(1_001))
+            .unwrap();
         let profile_directory = std::path::Path::new(&launch.config().replay_integrity_key_path)
             .parent()
             .unwrap()
@@ -175,14 +176,12 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
                 .write_control_frame(&ready.encode_frame().unwrap())
                 .unwrap();
             let control_loop = tokio::task::spawn_blocking(move || {
-                run_control_loop(
+                run_without_admission(
                     channel,
                     control_keys,
                     owned_launch,
                     local_session_service,
                     session_clock,
-                    #[cfg(feature = "desktop-protected")]
-                    None,
                 )
             });
             application

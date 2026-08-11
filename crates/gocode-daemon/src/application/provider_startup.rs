@@ -1,7 +1,7 @@
 use super::VerifiedOwnerPrivateConfig;
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 pub(super) struct StartupProvider {
@@ -40,7 +40,7 @@ impl StartupProvider {
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) fn verified_protected(
         start: &VerifiedProtectedApplicationStart,
         keys: gocode_api::ProtectedActivationKeys,
@@ -252,7 +252,7 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     #[test]
     fn protected_constructor_derives_the_pair_from_one_token() {
         let directory = tempfile::tempdir().unwrap();

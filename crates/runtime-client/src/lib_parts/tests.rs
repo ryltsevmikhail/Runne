@@ -200,7 +200,7 @@
     }
 
     #[test]
-    fn required_capabilities_are_exactly_ordered() {
+    fn supported_capability_profiles_are_exactly_ordered() {
         assert_eq!(
             REQUIRED_RUNTIME_CAPABILITIES,
             [
@@ -214,6 +214,19 @@
                 "replay.aggregate.continue_live.v1",
                 "replay.aggregate.sse.v1",
                 "runtime.operational-telemetry.v1",
+                "project.list.v1",
+                "project.get.v1",
+                "project.create.v1",
+                "project.archive.v1",
+                "project.restore.v1",
+                "project.delete.v1",
+                "workspace.list.v1",
+                "workspace.get.v1",
+                "workspace.create.v1",
+                "workspace.open.v1",
             ]
         );
+        let mut protected = REQUIRED_RUNTIME_CAPABILITIES.to_vec();
+        protected.push("workspace.bind_root.v2");
+        assert_eq!(PROTECTED_RUNTIME_CAPABILITIES, protected);
     }

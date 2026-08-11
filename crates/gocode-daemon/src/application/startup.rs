@@ -2,7 +2,7 @@ use super::provider_startup::StartupProvider;
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
 use crate::config::{Source, external_config_path, load_external_config};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 pub(crate) struct VerifiedOwnerPrivateConfig {
@@ -109,7 +109,7 @@ impl DaemonApplication {
     }
 
     /// Starts from an already authenticated protected bundled bootstrap.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) async fn start_protected(
         start: VerifiedProtectedApplicationStart,
         keys: ProtectedActivationKeys,
