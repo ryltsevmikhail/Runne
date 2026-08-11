@@ -1,5 +1,5 @@
 use gocode_application::ports::{
-    ProjectWorkspaceRepositoryError as Error, RootAdmissionConsumption,
+    ProjectWorkspaceRepositoryError as Error, RootAdmissionAuthorizer, RootAdmissionStoreBinding,
 };
 use gocode_domain::id::{CommandId, IdempotencyKey, WorkspaceId};
 use gocode_domain::project_workspace::Workspace;
@@ -99,13 +99,23 @@ pub(super) fn change_workspace(
     id: WorkspaceId,
     expected_version: u64,
     operation: Operation,
-    admission: Option<RootAdmissionConsumption>,
+    mut authorizer: Option<&mut dyn RootAdmissionAuthorizer>,
 ) -> Result<Workspace, Error> {
     if expected_version >= MAX_REHYDRATED_VERSION {
         return Err(Error::InvariantViolation);
     }
     let scope = Scope::workspace(operation, id.into_bytes());
     store.with_project_workspace_transaction(|transaction| {
+        // This runs after BEGIN IMMEDIATE while the caller still holds its authority lease.
+        let admission = match authorizer.as_deref_mut() {
+            Some(authorizer) => Some(authorizer.authorize_root_admission()?),
+            None => None,
+        };
+        let binding = admission
+            .and_then(|admission| admission.into_store_binding(&store.runtime_authority_id().0));
+        if authorizer.is_some() && binding.is_none() {
+            return Err(Error::Forbidden);
+        }
         let request = request(
             store,
             principal,
@@ -115,7 +125,7 @@ pub(super) fn change_workspace(
             None,
             Some(expected_version),
             None,
-            admission.as_ref().map(|value| &value.admission_digest),
+            binding.as_ref().map(|value| value.admission_digest()),
         );
         if let Some(receipt) = receipts::lookup(transaction, &request)? {
             return receipt_workspace(receipt, id);
@@ -126,11 +136,11 @@ pub(super) fn change_workspace(
         }
         match operation {
             Operation::OpenWorkspace => workspace.open(),
-            Operation::BindWorkspaceRoot if admission.is_some() => workspace.bind_root(),
+            Operation::BindWorkspaceRoot if binding.is_some() => workspace.bind_root(),
             _ => return Err(Error::InvariantViolation),
         }
         .map_err(|_| Error::Conflict)?;
-        if let Some(admission) = admission {
+        if let Some(admission) = binding {
             consume_nonce(
                 transaction,
                 store,
@@ -156,10 +166,10 @@ fn consume_nonce(
     principal: &str,
     id: WorkspaceId,
     expected_version: u64,
-    admission: &RootAdmissionConsumption,
+    admission: &RootAdmissionStoreBinding,
 ) -> Result<(), Error> {
-    if admission.nonce.iter().all(|value| *value == 0)
-        || admission.admission_digest.iter().all(|value| *value == 0)
+    if admission.nonce().iter().all(|value| *value == 0)
+        || admission.admission_digest().iter().all(|value| *value == 0)
     {
         return Err(Error::InvariantViolation);
     }
@@ -175,11 +185,11 @@ fn consume_nonce(
           admission_digest, consumed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 store.runtime_authority_id().0,
-                admission.nonce,
+                admission.nonce(),
                 principal,
                 id.as_bytes(),
                 expected_version as i64,
-                admission.admission_digest,
+                admission.admission_digest(),
                 consumed_at
             ],
         )

@@ -71,6 +71,15 @@ impl RootAdmissionVerificationContext {
         digest.update(principal.as_bytes());
         digest.finalize().into()
     }
+
+    /// Domain-separated digest for the runtime authority identity.
+    pub fn authority_digest_for(authority: &str) -> [u8; 32] {
+        let mut digest = Sha256::new();
+        digest.update(b"gocode-root-admission-authority\x01");
+        digest.update((authority.len() as u64).to_be_bytes());
+        digest.update(authority.as_bytes());
+        digest.finalize().into()
+    }
 }
 
 /// Fixed action authorized by a root admission.

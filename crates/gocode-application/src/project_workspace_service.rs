@@ -1,15 +1,16 @@
 //! Principal-bound Project and Workspace application service.
 use crate::ports::{
     CurrentRootAdmissionContext, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError,
-    RootAdmissionConsumption, RootAdmissionVerifier, RootAdmissionVerifierError,
+    RootAdmissionVerifier, RootAdmissionVerifierError,
 };
 use gocode_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectQueryContext,
-    ProjectSnapshot, RootAdmissionAction, RootAdmissionVerificationContext,
-    VerifiedRootAdmissionClaims, WorkspaceCommandAck, WorkspaceSnapshot,
+    ProjectSnapshot, WorkspaceCommandAck, WorkspaceSnapshot,
 };
 use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
+mod root_admission;
+use root_admission::VerifiedRootAdmissionAuthorizer;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectWorkspaceServiceError {
     NotFound,
@@ -154,21 +155,23 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         context: ProjectCommandContext,
         command: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceServiceError> {
-        let current = self
+        // Global lock order: authority lease, then SQLite writer. The lease is
+        // retained by `authorizer` until the repository has committed or rolled back.
+        let lease = self
             .current_admission
-            .current_root_admission_context()
+            .acquire_root_admission_lease()
             .map_err(map_admission_error)?;
         let claims = self
             .admission_verifier
             .verify_root_admission(command.root_admission)
             .map_err(map_admission_error)?;
-        validate_root_claims(
-            &current,
+        let mut authorizer = VerifiedRootAdmissionAuthorizer::new(
+            lease,
+            claims,
             &context,
             command.workspace_id,
             command.expected_version,
-            &claims,
-        )?;
+        );
         let workspace = self
             .repository
             .bind_workspace_root(
@@ -177,10 +180,7 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
                 &context.idempotency_key,
                 command.workspace_id,
                 command.expected_version,
-                RootAdmissionConsumption {
-                    nonce: claims.nonce(),
-                    admission_digest: claims.admission_digest(),
-                },
+                &mut authorizer,
             )
             .map_err(map_error)?;
         Ok(workspace_ack(workspace))
@@ -225,36 +225,6 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             .map(workspace_snapshot)
     }
 }
-fn validate_root_claims(
-    current: &RootAdmissionVerificationContext,
-    command: &ProjectCommandContext,
-    workspace_id: gocode_domain::id::WorkspaceId,
-    expected_version: u64,
-    claims: &VerifiedRootAdmissionClaims,
-) -> Result<(), ProjectWorkspaceServiceError> {
-    let claim_context = claims.context();
-    let principal_digest =
-        RootAdmissionVerificationContext::principal_digest_for(command.principal.as_str());
-    let exact_context = claim_context.authority_digest() == current.authority_digest()
-        && claim_context.session_id() == current.session_id()
-        && claim_context.launch_generation() == current.launch_generation()
-        && claim_context.principal_digest() == current.principal_digest()
-        && claim_context.capability_version() == current.capability_version()
-        && claim_context.policy_version() == current.policy_version()
-        && claim_context.gate_epoch() == current.gate_epoch()
-        && claim_context.now_unix_millis() == current.now_unix_millis();
-    if !exact_context
-        || claim_context.principal_digest() != principal_digest
-        || claims.action() != RootAdmissionAction::WorkspaceBindRoot
-        || claims.workspace_id() != workspace_id
-        || claims.expected_version() != expected_version
-        || claims.expires_at_unix_millis() <= current.now_unix_millis()
-    {
-        return Err(ProjectWorkspaceServiceError::Forbidden);
-    }
-    Ok(())
-}
-
 fn map_error(error: ProjectWorkspaceRepositoryError) -> ProjectWorkspaceServiceError {
     match error {
         ProjectWorkspaceRepositoryError::NotFound => ProjectWorkspaceServiceError::NotFound,

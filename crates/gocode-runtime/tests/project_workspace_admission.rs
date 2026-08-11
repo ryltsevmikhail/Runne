@@ -5,8 +5,8 @@ use gocode_api::{
     RootAdmissionVerificationContext,
 };
 use gocode_application::ports::{
-    CurrentRootAdmissionContext, RootAdmissionVerifier, RootAdmissionVerifierError,
-    RuntimeAuthorityId,
+    CurrentRootAdmissionContext, RootAdmissionLease, RootAdmissionVerifier,
+    RootAdmissionVerifierError, RuntimeAuthorityId,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
@@ -24,6 +24,12 @@ const WORKSPACE: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e2";
 #[derive(Clone)]
 struct Current(RootAdmissionVerificationContext);
 impl CurrentRootAdmissionContext for Current {
+    type Lease = Self;
+    fn acquire_root_admission_lease(&self) -> Result<Self::Lease, RootAdmissionVerifierError> {
+        Ok(self.clone())
+    }
+}
+impl RootAdmissionLease for Current {
     fn current_root_admission_context(
         &self,
     ) -> Result<RootAdmissionVerificationContext, RootAdmissionVerifierError> {
@@ -56,7 +62,7 @@ fn command(principal: &str, value: u8) -> ProjectCommandContext {
 
 fn admission_context() -> RootAdmissionVerificationContext {
     RootAdmissionVerificationContext::new(
-        [1; 32],
+        RootAdmissionVerificationContext::authority_digest_for("admission-test"),
         [2; 16],
         1,
         RootAdmissionVerificationContext::principal_digest_for("owner"),
@@ -227,5 +233,57 @@ async fn root_admission_nonce_race_has_one_winner_and_no_partial_loser() {
             .unwrap()
             .version,
         2
+    );
+}
+
+#[tokio::test]
+async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mutation() {
+    let (_directory, store) = store();
+    let workspace = WORKSPACE.parse().unwrap();
+    create_workspace(store.clone(), workspace).await;
+    let foreign = RootAdmissionVerificationContext::new(
+        RootAdmissionVerificationContext::authority_digest_for("foreign-runtime"),
+        [2; 16],
+        1,
+        RootAdmissionVerificationContext::principal_digest_for("owner"),
+        1,
+        1,
+        1,
+        100,
+    )
+    .unwrap();
+    let foreign_host = host(
+        store.clone(),
+        foreign.clone(),
+        claims(foreign, workspace, 71, 200),
+    );
+    let request = BindWorkspaceRootCommand {
+        workspace_id: workspace,
+        expected_version: 1,
+        root_admission: gocode_api::test_support::admission(),
+    };
+    assert_eq!(
+        foreign_host
+            .bind_workspace_root(command("owner", 71), request)
+            .await,
+        Err(ProjectWorkspaceHostError::Forbidden)
+    );
+    let query = host(
+        store,
+        admission_context(),
+        claims(admission_context(), workspace, 72, 200),
+    );
+    assert_eq!(
+        query
+            .get_workspace(
+                ProjectQueryContext {
+                    principal: ApiPrincipalId::new("owner").unwrap(),
+                },
+                workspace
+            )
+            .await
+            .unwrap()
+            .version,
+        1
     );
 }

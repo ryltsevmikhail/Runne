@@ -2,8 +2,8 @@ use gocode_api::{
     RootAdmissionVerificationContext, RootHandleAdmission, VerifiedRootAdmissionClaims,
 };
 use gocode_application::ports::{
-    CurrentRootAdmissionContext, RootAdmissionVerifier, RootAdmissionVerifierError,
-    RuntimeAuthorityId,
+    CurrentRootAdmissionContext, RootAdmissionLease, RootAdmissionVerifier,
+    RootAdmissionVerifierError, RuntimeAuthorityId,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_runtime::RuntimeProjectWorkspaceHost;
@@ -13,6 +13,12 @@ use std::sync::Arc;
 
 pub struct UnavailableAdmission;
 impl CurrentRootAdmissionContext for UnavailableAdmission {
+    type Lease = Self;
+    fn acquire_root_admission_lease(&self) -> Result<Self::Lease, RootAdmissionVerifierError> {
+        Err(RootAdmissionVerifierError::Unavailable)
+    }
+}
+impl RootAdmissionLease for UnavailableAdmission {
     fn current_root_admission_context(
         &self,
     ) -> Result<RootAdmissionVerificationContext, RootAdmissionVerifierError> {
