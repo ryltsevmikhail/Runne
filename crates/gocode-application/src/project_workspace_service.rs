@@ -5,10 +5,11 @@ use crate::ports::{
 };
 use gocode_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
-    ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectQueryContext,
-    ProjectSnapshot, WorkspaceCommandAck, WorkspaceSnapshot,
+    ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectPage,
+    ProjectPageRequest, ProjectQueryContext, ProjectSnapshot, WorkspaceCommandAck, WorkspacePage,
+    WorkspacePageRequest, WorkspaceSnapshot,
 };
-use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
+use gocode_domain::project_workspace::{Project, Workspace};
 mod root_admission;
 use root_admission::VerifiedRootAdmissionAuthorizer;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,8 +40,7 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         context: ProjectCommandContext,
         command: CreateProjectCommand,
     ) -> Result<ProjectCommandAck, ProjectWorkspaceServiceError> {
-        let name = ProjectWorkspaceDisplayName::new(command.display_name)
-            .map_err(|_| ProjectWorkspaceServiceError::Conflict)?;
+        let name = command.display_name.into_domain();
         let project = self
             .repository
             .create_project(
@@ -120,8 +120,7 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         context: ProjectCommandContext,
         command: CreateWorkspaceCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceServiceError> {
-        let name = ProjectWorkspaceDisplayName::new(command.display_name)
-            .map_err(|_| ProjectWorkspaceServiceError::Conflict)?;
+        let name = command.display_name.into_domain();
         let workspace = self
             .repository
             .create_workspace(
@@ -155,6 +154,12 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         context: ProjectCommandContext,
         command: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceServiceError> {
+        // Normalize absent and foreign Workspace identities before touching the
+        // protected admission authority. The transaction below rechecks the
+        // same ownership and version, so this is only a nondisclosure preflight.
+        self.repository
+            .get_workspace(context.principal.as_str(), command.workspace_id)
+            .map_err(map_error)?;
         // Global lock order: authority lease, then SQLite writer. The lease is
         // retained by `authorizer` until the repository has committed or rolled back.
         let lease = self
@@ -188,11 +193,16 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
     pub fn list_projects(
         &self,
         context: ProjectQueryContext,
-    ) -> Result<Vec<ProjectSnapshot>, ProjectWorkspaceServiceError> {
+        request: ProjectPageRequest,
+    ) -> Result<ProjectPage, ProjectWorkspaceServiceError> {
+        let (limit, after) = request.parts();
         self.repository
-            .list_projects(context.principal.as_str())
+            .list_projects(context.principal.as_str(), limit, after)
             .map_err(map_error)
-            .map(|items| items.into_iter().map(project_snapshot).collect())
+            .and_then(|(items, cursor)| {
+                ProjectPage::new(items.into_iter().map(project_snapshot).collect(), cursor)
+                    .map_err(|_| ProjectWorkspaceServiceError::InvariantViolation)
+            })
     }
     pub fn get_project(
         &self,
@@ -208,11 +218,25 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         &self,
         context: ProjectQueryContext,
         id: gocode_domain::id::ProjectId,
-    ) -> Result<Vec<WorkspaceSnapshot>, ProjectWorkspaceServiceError> {
+        request: WorkspacePageRequest,
+    ) -> Result<WorkspacePage, ProjectWorkspaceServiceError> {
+        let (limit, after) = request.parts_for(id).map_err(|error| match error {
+            gocode_api::ProjectWorkspaceHostError::NotFound => {
+                ProjectWorkspaceServiceError::NotFound
+            }
+            _ => ProjectWorkspaceServiceError::Conflict,
+        })?;
         self.repository
-            .list_workspaces(context.principal.as_str(), id)
+            .list_workspaces(context.principal.as_str(), id, limit, after)
             .map_err(map_error)
-            .map(|items| items.into_iter().map(workspace_snapshot).collect())
+            .and_then(|(items, cursor)| {
+                WorkspacePage::new(
+                    id,
+                    items.into_iter().map(workspace_snapshot).collect(),
+                    cursor,
+                )
+                .map_err(|_| ProjectWorkspaceServiceError::InvariantViolation)
+            })
     }
     pub fn get_workspace(
         &self,

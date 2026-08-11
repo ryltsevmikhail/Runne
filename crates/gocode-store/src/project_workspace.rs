@@ -155,16 +155,27 @@ impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
         )
     }
 
-    fn list_projects(&self, principal: &str) -> Result<Vec<Project>, Error> {
-        list_projects(&self.store, principal)
+    fn list_projects(
+        &self,
+        principal: &str,
+        limit: u16,
+        after: Option<ProjectId>,
+    ) -> Result<(Vec<Project>, Option<ProjectId>), Error> {
+        list_projects(&self.store, principal, limit, after)
     }
 
     fn get_project(&self, principal: &str, id: ProjectId) -> Result<Project, Error> {
         get_project(&self.store, principal, id)
     }
 
-    fn list_workspaces(&self, principal: &str, id: ProjectId) -> Result<Vec<Workspace>, Error> {
-        list_workspaces(&self.store, principal, id)
+    fn list_workspaces(
+        &self,
+        principal: &str,
+        id: ProjectId,
+        limit: u16,
+        after: Option<WorkspaceId>,
+    ) -> Result<(Vec<Workspace>, Option<WorkspaceId>), Error> {
+        list_workspaces(&self.store, principal, id, limit, after)
     }
 
     fn get_workspace(&self, principal: &str, id: WorkspaceId) -> Result<Workspace, Error> {

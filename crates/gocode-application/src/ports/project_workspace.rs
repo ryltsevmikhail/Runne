@@ -77,8 +77,19 @@ pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
         expected_version: u64,
         authorizer: &mut dyn RootAdmissionAuthorizer,
     ) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
-    fn list_projects(&self, principal: &str) -> Result<Vec<Project>, ProjectWorkspaceRepositoryError>;
+    fn list_projects(
+        &self,
+        principal: &str,
+        limit: u16,
+        after: Option<ProjectId>,
+    ) -> Result<(Vec<Project>, Option<ProjectId>), ProjectWorkspaceRepositoryError>;
     fn get_project(&self, principal: &str, id: ProjectId) -> Result<Project, ProjectWorkspaceRepositoryError>;
-    fn list_workspaces(&self, principal: &str, project_id: ProjectId) -> Result<Vec<Workspace>, ProjectWorkspaceRepositoryError>;
+    fn list_workspaces(
+        &self,
+        principal: &str,
+        project_id: ProjectId,
+        limit: u16,
+        after: Option<WorkspaceId>,
+    ) -> Result<(Vec<Workspace>, Option<WorkspaceId>), ProjectWorkspaceRepositoryError>;
     fn get_workspace(&self, principal: &str, id: WorkspaceId) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
 }

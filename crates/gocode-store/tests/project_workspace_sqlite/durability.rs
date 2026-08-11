@@ -189,8 +189,9 @@ fn queries_are_ordered_and_hide_foreign_existence() {
     create_project(&repository);
 
     let ids = repository
-        .list_projects("owner")
+        .list_projects("owner", 100, None)
         .unwrap()
+        .0
         .into_iter()
         .map(|value| value.id())
         .collect::<Vec<_>>();

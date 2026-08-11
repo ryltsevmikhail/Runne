@@ -37,7 +37,7 @@ async fn duplicate_nonce_for_a_different_workspace_rolls_back_all_three_admissio
             CreateWorkspaceCommand {
                 workspace_id: second,
                 project_id: PROJECT.parse().unwrap(),
-                display_name: "Other".into(),
+                display_name: super::name("Other"),
             },
         )
         .await

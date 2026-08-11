@@ -7,24 +7,47 @@ use crate::store::StoreTransaction;
 
 use super::records::{project_from_row, workspace_from_row};
 
-const MAX_QUERY_ITEMS: i64 = 1_000;
-
 pub(super) fn list_projects(
     store: &StoreTransaction,
     principal: &str,
-) -> Result<Vec<Project>, Error> {
+    limit: u16,
+    after: Option<ProjectId>,
+) -> Result<(Vec<Project>, Option<ProjectId>), Error> {
     store.with_project_workspace_reader(|connection| {
+        if let Some(cursor) = after {
+            let valid = connection
+                .query_row(
+                    "SELECT 1 FROM projects WHERE project_id = ?1 AND principal_id = ?2",
+                    params![cursor.as_bytes(), principal],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|_| Error::Unavailable)?
+                .is_some();
+            if !valid {
+                return Err(Error::NotFound);
+            }
+        }
         let mut statement = connection
             .prepare(
                 "SELECT project_id, display_name, version, archived FROM projects
-                 WHERE principal_id = ?1 ORDER BY project_id ASC LIMIT ?2",
+                 WHERE principal_id = ?1 AND (?2 IS NULL OR project_id > ?2)
+                 ORDER BY project_id ASC LIMIT ?3",
             )
             .map_err(|_| Error::Unavailable)?;
-        statement
-            .query_map(params![principal, MAX_QUERY_ITEMS], project_from_row)
+        let mut projects = statement
+            .query_map(
+                params![
+                    principal,
+                    after.map(|id| id.as_bytes().to_vec()),
+                    i64::from(limit) + 1,
+                ],
+                project_from_row,
+            )
             .map_err(|_| Error::Unavailable)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::InvariantViolation)
+            .map_err(|_| Error::InvariantViolation)?;
+        page(&mut projects, limit)
     })
 }
 
@@ -51,7 +74,9 @@ pub(super) fn list_workspaces(
     store: &StoreTransaction,
     principal: &str,
     project_id: ProjectId,
-) -> Result<Vec<Workspace>, Error> {
+    limit: u16,
+    after: Option<WorkspaceId>,
+) -> Result<(Vec<Workspace>, Option<WorkspaceId>), Error> {
     store.with_project_workspace_reader(|connection| {
         let owns_project = connection
             .query_row(
@@ -65,22 +90,70 @@ pub(super) fn list_workspaces(
         if !owns_project {
             return Err(Error::NotFound);
         }
+        if let Some(cursor) = after {
+            let valid = connection
+                .query_row(
+                    "SELECT 1 FROM workspaces
+                     WHERE workspace_id = ?1 AND project_id = ?2 AND principal_id = ?3 AND live = 1",
+                    params![cursor.as_bytes(), project_id.as_bytes(), principal],
+                    |_| Ok(()),
+                )
+                .optional()
+                .map_err(|_| Error::Unavailable)?
+                .is_some();
+            if !valid {
+                return Err(Error::NotFound);
+            }
+        }
         let mut statement = connection
             .prepare(
                 "SELECT workspace_id, project_id, display_name, version, open FROM workspaces
                  WHERE project_id = ?1 AND principal_id = ?2 AND live = 1
-                 ORDER BY workspace_id ASC LIMIT ?3",
+                   AND (?3 IS NULL OR workspace_id > ?3)
+                 ORDER BY workspace_id ASC LIMIT ?4",
             )
             .map_err(|_| Error::Unavailable)?;
-        statement
+        let mut workspaces = statement
             .query_map(
-                params![project_id.as_bytes(), principal, MAX_QUERY_ITEMS],
+                params![
+                    project_id.as_bytes(),
+                    principal,
+                    after.map(|id| id.as_bytes().to_vec()),
+                    i64::from(limit) + 1,
+                ],
                 workspace_from_row,
             )
             .map_err(|_| Error::Unavailable)?
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::InvariantViolation)
+            .map_err(|_| Error::InvariantViolation)?;
+        page(&mut workspaces, limit)
     })
+}
+
+fn page<T: PageId>(items: &mut Vec<T>, limit: u16) -> Result<(Vec<T>, Option<T::Id>), Error> {
+    let has_more = items.len() > usize::from(limit);
+    let cursor = has_more.then(|| items[usize::from(limit) - 1].page_id());
+    if has_more {
+        items.truncate(usize::from(limit));
+    }
+    Ok((std::mem::take(items), cursor))
+}
+
+trait PageId {
+    type Id;
+    fn page_id(&self) -> Self::Id;
+}
+impl PageId for Project {
+    type Id = ProjectId;
+    fn page_id(&self) -> Self::Id {
+        self.id()
+    }
+}
+impl PageId for Workspace {
+    type Id = WorkspaceId;
+    fn page_id(&self) -> Self::Id {
+        self.id()
+    }
 }
 
 pub(super) fn get_workspace(

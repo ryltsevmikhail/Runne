@@ -23,7 +23,7 @@ impl ProjectWorkspaceDisplayName {
     pub fn new(value: String) -> Result<Self, ProjectWorkspaceError> {
         if value.is_empty()
             || value.len() > MAX_PROJECT_WORKSPACE_DISPLAY_NAME_BYTES
-            || value.bytes().any(|byte| byte < 0x20 || byte == 0x7f)
+            || value.chars().any(is_disallowed_display_name_character)
         {
             return Err(ProjectWorkspaceError::InvalidDisplayName);
         }
@@ -34,6 +34,19 @@ impl ProjectWorkspaceDisplayName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+fn is_disallowed_display_name_character(character: char) -> bool {
+    character.is_control()
+        || matches!(
+            character,
+            '\u{00AD}' | '\u{0600}'..='\u{0605}' | '\u{061C}' | '\u{06DD}' | '\u{070F}'
+                | '\u{0890}'..='\u{0891}' | '\u{08E2}' | '\u{180E}' | '\u{200B}'..='\u{200F}'
+                | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{2064}' | '\u{2066}'..='\u{206F}'
+                | '\u{FEFF}' | '\u{FFF9}'..='\u{FFFB}' | '\u{110BD}' | '\u{110CD}'
+                | '\u{13430}'..='\u{1343F}' | '\u{1BCA0}'..='\u{1BCA3}'
+                | '\u{1D173}'..='\u{1D17A}' | '\u{E0001}' | '\u{E0020}'..='\u{E007F}'
+        )
 }
 
 /// Canonical Project aggregate projection.
