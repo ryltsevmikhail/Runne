@@ -22,6 +22,8 @@ impl DaemonApplication {
             _secret_broker,
             task_supervisor,
             shutdown_timeout,
+            #[cfg(feature = "desktop-protected")]
+            root_admission_authority,
         } = self;
 
         let http_result = http_host.start().run_until(shutdown).await;
@@ -35,6 +37,10 @@ impl DaemonApplication {
         drop(binding);
         drop(local_session_service);
         drop(session_clock);
+        #[cfg(feature = "desktop-protected")]
+        if let Some(authority) = root_admission_authority {
+            authority.shutdown();
+        }
         let _ = protected_activation;
         drop(provider_activation);
         drop(_secret_broker);

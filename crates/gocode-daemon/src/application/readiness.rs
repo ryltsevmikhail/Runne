@@ -114,4 +114,15 @@ impl DaemonApplication {
         }
         Ok(Arc::clone(&self.session_clock))
     }
+
+    /// Returns the only native-root issuer for a verified desktop-protected launch.
+    #[cfg(feature = "desktop-protected")]
+    pub fn protected_root_admission_authority(
+        &self,
+    ) -> Result<Arc<super::root_handle_admission::RootHandleAdmissionAuthority>, DaemonError> {
+        self.root_admission_authority
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| DaemonError::Bootstrap("root admission authority is unavailable".into()))
+    }
 }

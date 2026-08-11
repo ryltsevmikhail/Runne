@@ -157,8 +157,10 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
             .to_path_buf();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
+            let root_keys = launch.keys().clone();
             let application = workspace_internal::start_from_verified_protected_launch(
                 start,
+                root_keys,
                 ProtectedProviderDependencyCapsule::production(),
             )
             .await
@@ -181,6 +183,8 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
                     owned_launch,
                     local_session_service,
                     session_clock,
+                    #[cfg(feature = "desktop-protected")]
+                    None,
                 )
             });
             application

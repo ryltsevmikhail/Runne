@@ -8,6 +8,7 @@ pub(super) struct StartupProvider {
     activation: ProviderActivation,
     provenance: Option<DaemonActivationProvenance>,
     dependencies: Option<ProtectedProviderDependencyCapsule>,
+    root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
 }
 
 impl StartupProvider {
@@ -21,6 +22,7 @@ impl StartupProvider {
             activation: config.provider_activation.clone(),
             provenance: None,
             dependencies: None,
+            root_admission_keys: None,
         })
     }
 
@@ -34,12 +36,14 @@ impl StartupProvider {
                 DaemonActivationProvenance::from_verified_owner_private_config(config),
             ),
             dependencies: Some(dependencies),
+            root_admission_keys: None,
         }
     }
 
     #[cfg(unix)]
     pub(super) fn verified_protected(
         start: &VerifiedProtectedApplicationStart,
+        keys: gocode_api::ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Self {
         Self {
@@ -48,6 +52,7 @@ impl StartupProvider {
                 start,
             )),
             dependencies: Some(dependencies),
+            root_admission_keys: Some(keys),
         }
     }
 
@@ -63,6 +68,7 @@ impl StartupProvider {
         Option<DaemonActivationProvenance>,
         bool,
         Option<ProtectedProviderDependencyCapsule>,
+        Option<gocode_api::ProtectedActivationKeys>,
     ) {
         let protected = self.is_protected();
         (
@@ -70,6 +76,7 @@ impl StartupProvider {
             self.provenance,
             protected,
             self.dependencies,
+            self.root_admission_keys,
         )
     }
 }
@@ -145,8 +152,13 @@ impl DaemonApplication {
             session_id = *uuid::Uuid::now_v7().as_bytes();
         }
 
-        let (provider_activation, activation_provenance, protected_activation, dependencies) =
-            startup.into_parts();
+        let (
+            provider_activation,
+            activation_provenance,
+            protected_activation,
+            dependencies,
+            root_admission_keys,
+        ) = startup.into_parts();
         let provider_profile_digest = *provider_activation.binding().profile_digest();
         let provider_service = match activation_provenance {
             Some(activation_provenance) => {
@@ -209,6 +221,7 @@ impl DaemonApplication {
             provider_service,
             protected_activation,
             session_id,
+            root_admission_keys,
         )
         .await
     }
@@ -256,6 +269,9 @@ mod tests {
         assert!(
             StartupProvider::verified_protected(
                 &start,
+                gocode_api::LaunchSecret::from_bytes([7; 32])
+                    .unwrap()
+                    .derive_keys(),
                 ProtectedProviderDependencyCapsule::production(),
             )
             .is_protected()

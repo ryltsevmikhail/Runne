@@ -82,6 +82,7 @@ fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejectio
                 &mut used,
                 sequence,
                 unix_millis(),
+                None,
             )
             .unwrap()
             .unwrap();
@@ -92,6 +93,7 @@ fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejectio
             owned,
             Arc::new(Mutex::new(session_service())),
             Arc::new(|| Duration::from_secs(1)),
+            None,
         )
         .unwrap();
         return;
@@ -205,6 +207,7 @@ fn invalid_preflight_keeps_the_inherited_channel_healthy() {
             &mut used,
             0,
             unix_millis(),
+            None,
         )
         .unwrap()
         .unwrap();

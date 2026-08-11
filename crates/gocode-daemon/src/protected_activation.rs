@@ -35,6 +35,8 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(feature = "desktop-protected")]
+use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
 #[cfg(unix)]
 use crate::bootstrap::{
     BootstrapOutcome, bootstrap_protected, preflight_recoverable_first_activation_sidecars,

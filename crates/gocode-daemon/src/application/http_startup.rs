@@ -1,14 +1,9 @@
 use super::replay_authorization::DaemonReplayAuthorization;
+#[cfg(not(feature = "desktop-protected"))]
+use super::root_admission_unavailable::UnavailableRootAdmission;
 use super::shutdown::map_recovery_state;
 use super::*;
 use crate::operational_telemetry::compose_operational_telemetry_query;
-use gocode_api::{
-    RootAdmissionVerificationContext, RootHandleAdmission, VerifiedRootAdmissionClaims,
-};
-use gocode_application::ports::{
-    CurrentRootAdmissionContext, RootAdmissionLease, RootAdmissionVerifier,
-    RootAdmissionVerifierError,
-};
 use gocode_store::ProjectWorkspaceStore;
 
 #[allow(clippy::too_many_arguments)]
@@ -28,7 +23,10 @@ pub(super) async fn start_http_and_runtime(
     provider_service: Option<Arc<DaemonCanonicalOpenAiService>>,
     protected_activation: bool,
     session_id: [u8; 16],
+    root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
 ) -> Result<DaemonApplication, DaemonError> {
+    #[cfg(not(feature = "desktop-protected"))]
+    let _ = &root_admission_keys;
     let runtime_config = RuntimeConfig {
         max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
             DaemonError::Config("max_in_flight does not fit this platform".to_owned())
@@ -153,6 +151,34 @@ pub(super) async fn start_http_and_runtime(
         )),
     );
     let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
+    #[cfg(feature = "desktop-protected")]
+    let (project_workspace_host, root_admission_authority) = {
+        use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority};
+        let authority = root_admission_keys
+            .filter(|_| protected_activation)
+            .map(|keys| {
+                RootHandleAdmissionAuthority::new(
+                    &keys,
+                    ProjectWorkspaceStore::from_store(store.clone()),
+                    store.runtime_authority_id().0.clone(),
+                    Arc::clone(&local_session_service),
+                )
+            });
+        let gateway = authority
+            .as_ref()
+            .map_or_else(RootAdmissionGateway::unavailable, |value| {
+                RootAdmissionGateway::protected(Arc::clone(value))
+            });
+        (
+            gocode_runtime::RuntimeProjectWorkspaceHost::new(
+                ProjectWorkspaceStore::from_store(store.clone()),
+                gateway.clone(),
+                gateway,
+            ),
+            authority,
+        )
+    };
+    #[cfg(not(feature = "desktop-protected"))]
     let project_workspace_host = gocode_runtime::RuntimeProjectWorkspaceHost::new(
         ProjectWorkspaceStore::from_store(store.clone()),
         UnavailableRootAdmission,
@@ -244,32 +270,9 @@ pub(super) async fn start_http_and_runtime(
         _secret_broker: secret_broker,
         task_supervisor: RuntimeTaskSupervisor::new(),
         shutdown_timeout,
+        #[cfg(feature = "desktop-protected")]
+        root_admission_authority,
     })
-}
-
-/// Fail-closed Task 5 seam until Task 6 supplies the native authenticated producer.
-/// No verified claims are synthesized; root binding remains unavailable.
-struct UnavailableRootAdmission;
-impl CurrentRootAdmissionContext for UnavailableRootAdmission {
-    type Lease = Self;
-    fn acquire_root_admission_lease(&self) -> Result<Self::Lease, RootAdmissionVerifierError> {
-        Err(RootAdmissionVerifierError::Unavailable)
-    }
-}
-impl RootAdmissionLease for UnavailableRootAdmission {
-    fn current_root_admission_context(
-        &self,
-    ) -> Result<RootAdmissionVerificationContext, RootAdmissionVerifierError> {
-        Err(RootAdmissionVerifierError::Unavailable)
-    }
-}
-impl RootAdmissionVerifier for UnavailableRootAdmission {
-    fn verify_root_admission(
-        &self,
-        _: RootHandleAdmission,
-    ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError> {
-        Err(RootAdmissionVerifierError::Unavailable)
-    }
 }
 
 fn operational_telemetry_state(

@@ -75,15 +75,22 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
                     unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
                 })
                 .map_err(|_| ())?;
+            let keys = launch.keys().clone();
             let application = workspace_internal::start_from_verified_protected_launch(
                 start,
+                keys.clone(),
                 ProtectedProviderDependencyCapsule::production(),
             )
             .await
             .map_err(|_| ())?;
-            let keys = launch.keys().clone();
             let local_session_service = application.protected_session_service().map_err(|_| ())?;
             let session_clock = application.protected_session_clock().map_err(|_| ())?;
+            #[cfg(feature = "desktop-protected")]
+            let root_admission = Some(
+                application
+                    .protected_root_admission_authority()
+                    .map_err(|_| ())?,
+            );
             let control_loop = if let Some(request) = launch.request_v1() {
                 let ready = application
                     .protected_ready(request, launch.keys())
@@ -99,6 +106,8 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
                         owned_launch,
                         local_session_service,
                         session_clock,
+                        #[cfg(feature = "desktop-protected")]
+                        root_admission,
                     )
                 })
             } else if let Some(request) = launch.request_v2() {
@@ -116,6 +125,8 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
                         owned_launch,
                         local_session_service,
                         session_clock,
+                        #[cfg(feature = "desktop-protected")]
+                        root_admission,
                     )
                 })
             } else {

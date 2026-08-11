@@ -17,9 +17,10 @@ pub use provider_dependencies::ProtectedProviderDependencyCapsule;
 #[cfg(unix)]
 pub async fn start_from_verified_protected_launch(
     verified_launch: VerifiedProtectedApplicationStart,
+    keys: gocode_api::ProtectedActivationKeys,
     dependencies: ProtectedProviderDependencyCapsule,
 ) -> Result<DaemonApplication, DaemonError> {
-    DaemonApplication::start_protected(verified_launch, dependencies).await
+    DaemonApplication::start_protected(verified_launch, keys, dependencies).await
 }
 
 /// Starts the only external production source, selected inside the daemon.

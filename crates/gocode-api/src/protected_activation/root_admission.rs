@@ -1,8 +1,10 @@
 use gocode_domain::id::WorkspaceId;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
+/// Exact serialized size of an authenticated v2 root-admission envelope.
+pub const ROOT_HANDLE_ADMISSION_V2_BYTES: usize = 257;
 /// Maximum serialized size accepted for a verified root admission claim.
-pub const MAX_ROOT_HANDLE_ADMISSION_BYTES: usize = 4096;
+pub const MAX_ROOT_HANDLE_ADMISSION_BYTES: usize = ROOT_HANDLE_ADMISSION_V2_BYTES;
 const ROOT_HANDLE_ADMISSION_TOKEN_PREFIX: &str = "gocode-root-admission-v2.";
 /// Exact maximum byte length of the ASCII v2 root-admission transport token.
 pub const MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES: usize =
@@ -48,7 +50,7 @@ impl RootHandleAdmission {
 
     #[allow(dead_code)]
     pub(crate) fn from_verified_bytes(bytes: Vec<u8>) -> Option<Self> {
-        if bytes.is_empty() || bytes.len() > MAX_ROOT_HANDLE_ADMISSION_BYTES {
+        if bytes.len() != ROOT_HANDLE_ADMISSION_V2_BYTES {
             return None;
         }
         Some(Self { bytes: bytes.into_boxed_slice() })
@@ -171,7 +173,8 @@ pub mod test_support {
     use super::*;
 
     pub fn admission() -> RootHandleAdmission {
-        RootHandleAdmission::from_verified_bytes(vec![1]).expect("fixed test admission")
+        RootHandleAdmission::from_verified_bytes(vec![1; ROOT_HANDLE_ADMISSION_V2_BYTES])
+            .expect("fixed test admission")
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -199,13 +202,13 @@ mod tests {
 
     #[test]
     fn root_admission_debug_never_exposes_opaque_material() {
-        let admission = RootHandleAdmission::from_verified_bytes(vec![0x5a]).unwrap();
+        let admission = RootHandleAdmission::from_verified_bytes(vec![0x5a; ROOT_HANDLE_ADMISSION_V2_BYTES]).unwrap();
         assert_eq!(format!("{admission:?}"), "RootHandleAdmission([REDACTED])");
     }
 
     #[test]
     fn root_admission_v2_codec_is_bounded_ascii_and_round_trips() {
-        let admission = RootHandleAdmission::from_verified_bytes(vec![0x5a; 32]).unwrap();
+        let admission = RootHandleAdmission::from_verified_bytes(vec![0x5a; ROOT_HANDLE_ADMISSION_V2_BYTES]).unwrap();
         let token = admission.encode_token().unwrap();
         assert!(token.is_ascii());
         assert!(token.starts_with("gocode-root-admission-v2."));
@@ -217,7 +220,8 @@ mod tests {
             token
         );
         assert!(RootHandleAdmission::decode_token("gocode-root-admission-v2.\u{80}").is_err());
-        assert!(RootHandleAdmission::decode_token(&"a".repeat(MAX_ROOT_HANDLE_ADMISSION_BYTES * 2)).is_err());
+        assert!(RootHandleAdmission::from_verified_bytes(vec![0x5a; ROOT_HANDLE_ADMISSION_V2_BYTES - 1]).is_none());
+        assert!(RootHandleAdmission::decode_token(&"a".repeat(MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES + 1)).is_err());
     }
 
     #[test]
