@@ -27,9 +27,9 @@
     }
 
     #[test]
-    fn desktop_profile_requires_the_advertised_operational_telemetry_capability() {
+    fn desktop_profile_requires_the_exact_root_admission_capability_tuple() {
         assert_eq!(
-            gocode_runtime_client::REQUIRED_RUNTIME_CAPABILITIES,
+            gocode_runtime_client::PROTECTED_RUNTIME_CAPABILITIES,
             [
                 "conversation.create.v1",
                 "conversation.generate_text.v1",
@@ -41,6 +41,17 @@
                 "replay.aggregate.continue_live.v1",
                 "replay.aggregate.sse.v1",
                 "runtime.operational-telemetry.v1",
+                "project.list.v1",
+                "project.get.v1",
+                "project.create.v1",
+                "project.archive.v1",
+                "project.restore.v1",
+                "project.delete.v1",
+                "workspace.list.v1",
+                "workspace.get.v1",
+                "workspace.create.v1",
+                "workspace.open.v1",
+                "workspace.bind_root.v2",
             ]
         );
     }

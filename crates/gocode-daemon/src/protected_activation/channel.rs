@@ -82,6 +82,7 @@ impl ProtectedActivationChannel {
         self.write_frame(frame)
     }
 
+    #[cfg(any(feature = "desktop-protected", feature = "test-support"))]
     pub(super) fn enter_control_loop(&self) -> Result<(), LaunchAuthorityError> {
         self.stream
             .set_read_timeout(Some(CONTROL_IDLE_TIMEOUT))

@@ -115,9 +115,8 @@ impl DaemonApplication {
         Ok(Arc::clone(&self.session_clock))
     }
 
-    /// Returns the opaque root-control capability for a verified protected launch.
     #[cfg(feature = "desktop-protected")]
-    pub fn protected_root_control(
+    pub(crate) fn protected_root_control(
         &self,
     ) -> Result<Arc<crate::protected_activation::ProtectedRootControl>, DaemonError> {
         self.root_control

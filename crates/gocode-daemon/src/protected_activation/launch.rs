@@ -6,7 +6,7 @@ use super::request::DaemonLaunchRequest;
 use super::*;
 
 /// Validated protected launch retained only by the daemon native host.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub struct VerifiedProtectedApplicationStart {
     config: ConfigurationSnapshot,
     provider_activation: ProviderActivation,
@@ -14,20 +14,20 @@ pub struct VerifiedProtectedApplicationStart {
 }
 
 /// Opaque verified startup package; its admission keys cannot be substituted.
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub struct VerifiedProtectedRuntimeStart {
     application: VerifiedProtectedApplicationStart,
     keys: ProtectedActivationKeys,
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 impl VerifiedProtectedRuntimeStart {
     pub(crate) fn into_parts(self) -> (VerifiedProtectedApplicationStart, ProtectedActivationKeys) {
         (self.application, self.keys)
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 impl VerifiedProtectedApplicationStart {
     pub(crate) const fn provider_activation(&self) -> &ProviderActivation {
         &self.provider_activation
@@ -144,7 +144,8 @@ impl ProtectedDaemonLaunch {
     }
 
     /// Produces the opaque application start only from this authenticated launch.
-    pub fn bootstrap_application_start<F>(
+    #[cfg(feature = "desktop-protected")]
+    pub(crate) fn bootstrap_application_start<F>(
         &mut self,
         now_unix_millis: F,
     ) -> Result<VerifiedProtectedApplicationStart, LaunchAuthorityError>
@@ -163,7 +164,8 @@ impl ProtectedDaemonLaunch {
     }
 
     /// Produces the only sealed daemon startup package for this verified launch.
-    pub fn bootstrap_runtime_start<F>(
+    #[cfg(feature = "desktop-protected")]
+    pub(crate) fn bootstrap_runtime_start<F>(
         &mut self,
         now_unix_millis: F,
     ) -> Result<VerifiedProtectedRuntimeStart, LaunchAuthorityError>
@@ -175,6 +177,18 @@ impl ProtectedDaemonLaunch {
             application,
             keys: self.keys.clone(),
         })
+    }
+
+    #[cfg(all(feature = "test-support", feature = "desktop-protected"))]
+    #[doc(hidden)]
+    pub fn bootstrap_runtime_start_for_test<F>(
+        &mut self,
+        now_unix_millis: F,
+    ) -> Result<VerifiedProtectedRuntimeStart, LaunchAuthorityError>
+    where
+        F: FnMut() -> Result<u64, LaunchAuthorityError>,
+    {
+        self.bootstrap_runtime_start(now_unix_millis)
     }
 
     /// Completes storage bootstrap only after protected admission succeeded.
@@ -262,7 +276,7 @@ impl ProtectedDaemonLaunch {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "desktop-protected"))]
 mod tests {
     use super::*;
     use crate::canonical_provider::DaemonActivationProvenance;

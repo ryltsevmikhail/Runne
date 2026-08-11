@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::bundle::{
-    BUNDLE_ID, GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES,
+    BASE_RUNTIME_CAPABILITIES, BUNDLE_ID, GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES,
     RUNTIME_CAPABILITY_CATALOG, TRANSPORT_PROFILE_ID,
 };
 use gocode_api::{ApiReplayBindingId, CanonicalReplayPayloadV1};

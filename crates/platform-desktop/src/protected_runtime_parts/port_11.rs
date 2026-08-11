@@ -50,6 +50,22 @@ mod tests {
     }
 
     #[test]
+    fn protected_launcher_profile_is_the_exact_extended_capability_tuple() {
+        let profile = expected_profile().expect("expected protected profile");
+        let protected = PROTECTED_RUNTIME_CAPABILITIES
+            .iter()
+            .map(|capability| (*capability).to_owned())
+            .collect::<Vec<_>>();
+        let base = gocode_runtime_client::REQUIRED_RUNTIME_CAPABILITIES
+            .iter()
+            .map(|capability| (*capability).to_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(profile.capability_digest(), &ordered_capability_digest(&protected));
+        assert_ne!(profile.capability_digest(), &ordered_capability_digest(&base));
+    }
+
+    #[test]
     fn launch_spec_rejects_relative_symlink_and_writable_executables() {
         let temporary = owner_private_tempdir();
         let runtime_root = temporary.path().join("runtime");

@@ -13,8 +13,9 @@ use gocode_api::{
     StableRuntimeBinding, StableRuntimeBindingV1,
 };
 use gocode_application::local_session::LocalSessionService;
-use gocode_daemon::protected_activation::{
-    ProtectedActivationChannel, dispatch_root_handle_control_frame, run_control_loop,
+use gocode_daemon::protected_activation::ProtectedActivationChannel;
+use gocode_daemon::protected_activation::test_support::{
+    dispatch_without_admission, run_without_admission,
 };
 use gocode_domain::{
     event::Sensitivity,
@@ -74,7 +75,7 @@ fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejectio
         let mut sequence = 0;
         for _ in 0..2 {
             let frame = channel.read_control_frame().unwrap();
-            sequence = dispatch_root_handle_control_frame(
+            sequence = dispatch_without_admission(
                 &mut channel,
                 &frame,
                 &keys,
@@ -82,18 +83,16 @@ fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejectio
                 &mut used,
                 sequence,
                 unix_millis(),
-                None,
             )
             .unwrap()
             .unwrap();
         }
-        run_control_loop(
+        run_without_admission(
             channel,
             keys,
             owned,
             Arc::new(Mutex::new(session_service())),
             Arc::new(|| Duration::from_secs(1)),
-            None,
         )
         .unwrap();
         return;
@@ -199,7 +198,7 @@ fn invalid_preflight_keeps_the_inherited_channel_healthy() {
         let (keys, owned) = fixture();
         let mut used = std::collections::VecDeque::new();
         let frame = channel.read_control_frame().unwrap();
-        dispatch_root_handle_control_frame(
+        dispatch_without_admission(
             &mut channel,
             &frame,
             &keys,
@@ -207,7 +206,6 @@ fn invalid_preflight_keeps_the_inherited_channel_healthy() {
             &mut used,
             0,
             unix_millis(),
-            None,
         )
         .unwrap()
         .unwrap();

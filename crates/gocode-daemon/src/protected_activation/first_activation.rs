@@ -10,7 +10,9 @@ pub(super) fn expected_profile() -> Result<ProtectedRuntimeProfileV1, LaunchAuth
         1,
         gocode_runtime::bundle::BUNDLE_ID,
         profile_hash,
-        gocode_http::runtime_profile::ordered_capability_digest(protected_capabilities()),
+        gocode_http::runtime_profile::ordered_capability_digest(
+            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+        ),
     )
 }
 
@@ -100,20 +102,15 @@ pub(super) fn validate_existing_connection(
         || expected.profile_id() != gocode_runtime::bundle::BUNDLE_ID
         || expected.profile_hash() != &expected_profile_hash
         || expected.capability_digest()
-            != &gocode_http::runtime_profile::ordered_capability_digest(protected_capabilities())
+            != &gocode_http::runtime_profile::ordered_capability_digest(
+                gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+            )
         || expected_preparation_id
             .is_some_and(|expected_id| preparation.as_ref() != Some(expected_id))
     {
         return Err(LaunchAuthorityError::MissingExpectedStableBinding);
     }
     Ok(())
-}
-
-fn protected_capabilities() -> &'static [&'static str] {
-    if cfg!(feature = "desktop-protected") {
-        return gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES;
-    }
-    gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES
 }
 
 pub(super) fn preflight_resume_first_activation(

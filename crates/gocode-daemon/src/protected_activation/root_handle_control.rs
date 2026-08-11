@@ -3,7 +3,7 @@ use super::*;
 /// Receives one descriptor after an authenticated offer on the already-owned control channel.
 /// A broken native transfer closes the launch; a semantic rejection emits a signed result.
 #[allow(clippy::too_many_arguments)]
-pub fn dispatch_root_handle_control_frame(
+pub(crate) fn dispatch_root_handle_control_frame(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
     keys: &ProtectedActivationKeys,
@@ -30,7 +30,7 @@ pub fn dispatch_root_handle_control_frame(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn receive_root_handle_offer(
+pub(crate) fn receive_root_handle_offer(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
     keys: &ProtectedActivationKeys,
