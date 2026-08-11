@@ -1,10 +1,7 @@
-use std::collections::HashSet;
 use std::fmt;
 use std::path::{Component, Path};
-use std::sync::Mutex;
 
 use gocode_api::RootHandleTransferAuthenticator;
-use rand::RngCore;
 use thiserror::Error;
 
 #[cfg(unix)]
@@ -15,8 +12,6 @@ mod platform;
 mod platform;
 #[cfg(not(any(unix, windows)))]
 compile_error!("root-handle broker requires a supported desktop platform");
-
-const TRANSFER_RECORD_BYTES: usize = 64;
 
 /// Fail-closed errors for native root-handle selection and transfer.
 #[derive(Debug, Error)]
@@ -29,7 +24,10 @@ pub enum RootHandleBrokerError {
 
 /// Stable, native-only filesystem identity for one open directory.
 #[derive(PartialEq, Eq)]
-struct StableFilesystemIdentity([u8; 32]);
+struct StableFilesystemIdentity {
+    digest: [u8; 32],
+    device: u64,
+}
 
 impl fmt::Debug for StableFilesystemIdentity {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -71,13 +69,13 @@ impl VerifiedRootHandle {
     /// Compares native filesystem identities without materializing either path.
     #[must_use]
     pub fn same_filesystem_object(&self, other: &Self) -> bool {
-        self.identity == other.identity
+        self.identity.digest == other.identity.digest
     }
 
     /// Returns the non-secret stable identity digest for protected root admission binding.
     #[must_use]
     pub const fn filesystem_identity_digest(&self) -> [u8; 32] {
-        self.identity.0
+        self.identity.digest
     }
 }
 
@@ -92,88 +90,158 @@ impl fmt::Debug for VerifiedRootHandle {
     }
 }
 
-/// Authenticated broker for one-way native directory-handle transfers.
-pub struct RootHandleBroker {
-    authenticator: RootHandleTransferAuthenticator,
-    used_nonces: Mutex<HashSet<[u8; 32]>>,
+/// Exact native channel and launch context bound into one transfer transcript.
+#[derive(Clone)]
+pub struct RootHandleTransferBinding {
+    channel_id: [u8; 16],
+    launch_generation: u64,
+    sender_pid: u32,
+    receiver_pid: u32,
+    peer_uid: u32,
 }
 
-impl RootHandleBroker {
-    #[must_use]
-    pub fn new(authenticator: RootHandleTransferAuthenticator) -> Self {
-        Self {
-            authenticator,
-            used_nonces: Mutex::new(HashSet::new()),
+impl RootHandleTransferBinding {
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn test_binding(
+        channel_id: [u8; 16],
+        launch_generation: u64,
+        sender_pid: u32,
+        receiver_pid: u32,
+        peer_uid: u32,
+    ) -> Result<Self, RootHandleBrokerError> {
+        if channel_id == [0; 16] || launch_generation == 0 {
+            return Err(RootHandleBrokerError::Rejected);
         }
+        Ok(Self {
+            channel_id,
+            launch_generation,
+            sender_pid,
+            receiver_pid,
+            peer_uid,
+        })
     }
+}
 
-    /// Sends one real directory handle over the platform's authenticated broker.
+impl fmt::Debug for RootHandleTransferBinding {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RootHandleTransferBinding(<redacted>)")
+    }
+}
+
+/// One-shot authenticated sender. It owns and closes its channel after one call.
+pub struct RootHandleTransferSender {
+    channel: Option<platform::NativeTransferChannel>,
+    authenticator: RootHandleTransferAuthenticator,
+    binding: RootHandleTransferBinding,
+}
+
+/// One-shot authenticated receiver. It issues the challenge before accepting an FD.
+pub struct RootHandleTransferReceiver {
+    channel: Option<platform::NativeTransferChannel>,
+    authenticator: RootHandleTransferAuthenticator,
+    binding: RootHandleTransferBinding,
+}
+
+impl RootHandleTransferSender {
+    /// Sends exactly one real directory handle after receiving a receiver challenge.
     ///
     /// # Errors
     ///
     /// Returns a closed error if the platform transport cannot transfer the handle.
-    #[cfg(unix)]
-    pub fn send(
-        &self,
-        stream: &std::os::unix::net::UnixStream,
-        root: &VerifiedRootHandle,
-    ) -> Result<(), RootHandleBrokerError> {
-        let mut nonce = [0; 32];
-        rand::rngs::OsRng.fill_bytes(&mut nonce);
-        self.send_with_nonce(stream, root, nonce)
+    pub fn transfer(mut self, root: &VerifiedRootHandle) -> Result<(), RootHandleBrokerError> {
+        platform::send(
+            self.channel.take().ok_or(RootHandleBrokerError::Rejected)?,
+            root,
+            &self.authenticator,
+            &self.binding,
+        )
     }
+}
 
-    /// Sends a transfer with a caller-owned nonce for a native protocol peer.
-    ///
-    /// Callers should use [`Self::send`] unless a receiver protocol supplies the nonce.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error if the platform transport cannot transfer the handle.
-    #[cfg(unix)]
-    pub fn send_with_nonce(
-        &self,
-        stream: &std::os::unix::net::UnixStream,
-        root: &VerifiedRootHandle,
-        nonce: [u8; 32],
-    ) -> Result<(), RootHandleBrokerError> {
-        platform::send(stream, root, nonce, &self.authenticator)
-    }
-
-    /// Receives and authenticates one real directory handle.
+impl RootHandleTransferReceiver {
+    /// Issues a challenge and receives exactly one authenticated directory handle.
     ///
     /// # Errors
     ///
     /// Returns a closed error for malformed records, proof failures, replay, or handle mismatch.
-    #[cfg(unix)]
-    pub fn receive(
-        &self,
-        stream: &std::os::unix::net::UnixStream,
-    ) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
-        let (root, nonce) = platform::receive(stream, &self.authenticator)?;
-        let mut used = self
-            .used_nonces
-            .lock()
-            .map_err(|_| RootHandleBrokerError::Unavailable)?;
-        if !used.insert(nonce) {
-            return Err(RootHandleBrokerError::Rejected);
-        }
-        drop(used);
-        Ok(root)
+    pub fn receive(mut self) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
+        platform::receive(
+            self.channel.take().ok_or(RootHandleBrokerError::Rejected)?,
+            &self.authenticator,
+            &self.binding,
+        )
     }
 }
 
-impl fmt::Debug for RootHandleBroker {
+#[cfg(feature = "test-support")]
+/// Creates a test-only one-shot local sender/receiver pair.
+///
+/// # Errors
+///
+/// Returns a closed error when the native test transport is unavailable.
+pub fn test_transfer_pair(
+    sender_authenticator: RootHandleTransferAuthenticator,
+    receiver_authenticator: RootHandleTransferAuthenticator,
+    binding: RootHandleTransferBinding,
+) -> Result<(RootHandleTransferSender, RootHandleTransferReceiver), RootHandleBrokerError> {
+    let (sender, receiver) = platform::test_pair()?;
+    Ok((
+        RootHandleTransferSender {
+            channel: Some(sender),
+            authenticator: sender_authenticator,
+            binding: binding.clone(),
+        },
+        RootHandleTransferReceiver {
+            channel: Some(receiver),
+            authenticator: receiver_authenticator,
+            binding,
+        },
+    ))
+}
+
+#[cfg(all(unix, feature = "test-support"))]
+#[doc(hidden)]
+#[must_use]
+pub const fn test_transfer_sender(
+    channel: std::os::unix::net::UnixStream,
+    authenticator: RootHandleTransferAuthenticator,
+    binding: RootHandleTransferBinding,
+) -> RootHandleTransferSender {
+    RootHandleTransferSender {
+        channel: Some(channel),
+        authenticator,
+        binding,
+    }
+}
+
+#[cfg(all(unix, feature = "test-support"))]
+#[doc(hidden)]
+#[must_use]
+pub const fn test_transfer_receiver(
+    channel: std::os::unix::net::UnixStream,
+    authenticator: RootHandleTransferAuthenticator,
+    binding: RootHandleTransferBinding,
+) -> RootHandleTransferReceiver {
+    RootHandleTransferReceiver {
+        channel: Some(channel),
+        authenticator,
+        binding,
+    }
+}
+
+impl fmt::Debug for RootHandleTransferSender {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
-            .debug_struct("RootHandleBroker")
+            .debug_struct("RootHandleTransferSender")
             .field("authentication", &"<redacted>")
             .finish_non_exhaustive()
     }
 }
 
 fn safe_path(path: &Path) -> bool {
-    !path.as_os_str().is_empty()
+    path.is_absolute()
+        && !path.as_os_str().is_empty()
         && !path
             .components()
             .any(|component| matches!(component, Component::ParentDir))
@@ -188,14 +256,4 @@ fn safe_relative_path(path: &Path) -> bool {
                 Component::ParentDir | Component::RootDir | Component::Prefix(_)
             )
         })
-}
-
-fn transfer_record(
-    nonce: &[u8; 32],
-    identity: &StableFilesystemIdentity,
-) -> [u8; TRANSFER_RECORD_BYTES] {
-    let mut record = [0; TRANSFER_RECORD_BYTES];
-    record[..32].copy_from_slice(nonce);
-    record[32..].copy_from_slice(&identity.0);
-    record
 }
