@@ -63,14 +63,18 @@ pub(super) struct WorkspaceAckWire {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct ProjectPageWire {
     items: Vec<ProjectWire>,
-    next_cursor: Option<String>,
+    next_cursor: RequiredNullableToken,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct WorkspacePageWire {
     items: Vec<WorkspaceWire>,
-    next_cursor: Option<String>,
+    next_cursor: RequiredNullableToken,
 }
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+pub(super) struct RequiredNullableToken(Option<String>);
 
 impl TryFrom<ProjectWire> for ProjectSnapshotDto {
     type Error = RuntimeApiError;
@@ -130,7 +134,7 @@ impl TryFrom<ProjectPageWire> for ProjectPageDto {
             .into_iter()
             .map(ProjectSnapshotDto::try_from)
             .collect::<Result<Vec<_>, _>>()?;
-        let next = value.next_cursor.map(project_cursor).transpose()?;
+        let next = value.next_cursor.0.map(project_cursor).transpose()?;
         Ok(Self { items, next })
     }
 }
@@ -145,7 +149,7 @@ impl TryFrom<WorkspacePageWire> for WorkspacePageDto {
             .into_iter()
             .map(WorkspaceSnapshotDto::try_from)
             .collect::<Result<Vec<_>, _>>()?;
-        let next = value.next_cursor.map(workspace_cursor).transpose()?;
+        let next = value.next_cursor.0.map(workspace_cursor).transpose()?;
         Ok(Self { items, next })
     }
 }
@@ -156,19 +160,26 @@ fn version(value: u64) -> Result<(), RuntimeApiError> {
         .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
 }
 fn name(value: &str) -> Result<(), RuntimeApiError> {
-    (!value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control))
-        .then_some(())
-        .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
+    gocode_api::ProjectWorkspaceDisplayNameInput::new(value.to_owned())
+        .map(|_| ())
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
 }
 fn project_cursor(value: String) -> Result<ProjectPageCursor, RuntimeApiError> {
-    (value.len() == 119 && value.starts_with("gocode-project-page-v1.") && value.is_ascii())
+    cursor(&value, "gocode-project-page-v1.", 119)
         .then_some(ProjectPageCursor(value))
         .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
 }
 fn workspace_cursor(value: String) -> Result<WorkspacePageCursor, RuntimeApiError> {
-    (value.len() == 153 && value.starts_with("gocode-workspace-page-v1.") && value.is_ascii())
+    cursor(&value, "gocode-workspace-page-v1.", 153)
         .then_some(WorkspacePageCursor(value))
         .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
+}
+fn cursor(value: &str, prefix: &str, length: usize) -> bool {
+    value.len() == length
+        && value.starts_with(prefix)
+        && value[prefix.len()..]
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 fn invalid<T>() -> Result<T, RuntimeApiError> {
     Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))

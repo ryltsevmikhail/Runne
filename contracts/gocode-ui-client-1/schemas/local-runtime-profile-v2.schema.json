@@ -14,8 +14,8 @@
     },
     "capabilities": {
       "items": false,
-      "maxItems": 21,
-      "minItems": 21,
+      "maxItems": 20,
+      "minItems": 20,
       "prefixItems": [
         {
           "const": "conversation.create.v1",
@@ -96,10 +96,6 @@
         {
           "const": "workspace.open.v1",
           "type": "string"
-        },
-        {
-          "const": "workspace.bind_root.v2",
-          "type": "string"
         }
       ],
       "type": "array"
@@ -130,6 +126,7 @@
       "type": "string"
     },
     "launchGeneration": {
+      "maximum": 18446744073709551615,
       "minimum": 1,
       "type": "integer"
     },

@@ -122,7 +122,8 @@ fn openapi() -> Value {
     document
 }
 
-fn project_workspace_openapi(document: &mut Value) {
+#[allow(dead_code)]
+fn legacy_project_workspace_openapi(document: &mut Value) {
     let schema = "schemas/project-workspace-v1.schema.json#/$defs/";
     let response = |name: &str| json!({"description": "Canonical response", "headers": {"X-Request-Id": {"required": true, "schema": {"pattern": UUID_V7_PATTERN, "type": "string"}}}, "content": {"application/json": {"schema": {"$ref": format!("{schema}{name}")}}}});
     let errors = || json!({"400": response("error"), "401": response("error"), "404": response("error"), "409": response("error"), "413": response("error"), "503": response("error")});

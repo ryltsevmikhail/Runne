@@ -7,6 +7,7 @@ use axum::{
     Router,
     body::{Body, to_bytes},
     http::{Request, StatusCode},
+    middleware,
     routing::get,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -16,6 +17,7 @@ use gocode_application::local_session::{
 };
 use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
 use gocode_http::auth::{SessionAuthLayer, session_authorization_header};
+use gocode_http::middleware::request_id_middleware;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tower::ServiceExt;
@@ -106,7 +108,8 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
             shared,
             binding(),
             clock(Arc::new(Mutex::new(Duration::ZERO))),
-        ));
+        ))
+        .layer(middleware::from_fn(request_id_middleware));
     let response = app
         .clone()
         .oneshot(
@@ -136,7 +139,22 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
     ] {
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let request_id = response
+            .headers()
+            .get("x-request-id")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            uuid::Uuid::parse_str(&request_id)
+                .unwrap()
+                .get_version_num()
+                == 7
+        );
         let body = to_bytes(response.into_body(), 4096).await.unwrap();
-        assert!(std::str::from_utf8(&body).unwrap().contains("unauthorized"));
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], "unauthorized");
+        assert_eq!(body["requestId"], request_id);
     }
 }

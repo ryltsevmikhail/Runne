@@ -4,7 +4,8 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 /// Maximum serialized size accepted for a verified root admission claim.
 pub const MAX_ROOT_HANDLE_ADMISSION_BYTES: usize = 4096;
 const ROOT_HANDLE_ADMISSION_TOKEN_PREFIX: &str = "gocode-root-admission-v2.";
-const MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES: usize =
+/// Exact maximum byte length of the ASCII v2 root-admission transport token.
+pub const MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES: usize =
     ROOT_HANDLE_ADMISSION_TOKEN_PREFIX.len() + (MAX_ROOT_HANDLE_ADMISSION_BYTES * 4).div_ceil(3);
 
 /// Stable failure for malformed opaque root-admission transport tokens.

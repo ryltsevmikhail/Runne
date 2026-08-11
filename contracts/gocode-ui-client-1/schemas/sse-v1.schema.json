@@ -441,6 +441,7 @@
               ]
             },
             "sequence": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -470,6 +471,7 @@
               "type": "string"
             },
             "revision": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -506,6 +508,7 @@
               "type": "string"
             },
             "revision": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -607,6 +610,7 @@
               "type": "string"
             },
             "sequence": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -651,6 +655,7 @@
               "type": "string"
             },
             "ordinal": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -681,6 +686,7 @@
               "type": "string"
             },
             "ordinal": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -716,6 +722,7 @@
               "type": "string"
             },
             "newGeneration": {
+              "maximum": 18446744073709551615,
               "minimum": 1,
               "type": "integer"
             },
@@ -896,6 +903,7 @@
           "type": "string"
         },
         "sequence": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         },
@@ -922,6 +930,7 @@
       "type": "object"
     },
     "deliverySequence": {
+      "maximum": 18446744073709551615,
       "minimum": 1,
       "type": "integer"
     },

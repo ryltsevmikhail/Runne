@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "7324ddd01519650b47685424f802ee514256cef3c210202dbdd18a56b54e636a";
+    "ada4749e39ff90bec855e0bdf44921e30b0f430babb841761f5c283ef9b6f17a";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -41,7 +41,6 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "workspace.get.v1",
     "workspace.create.v1",
     "workspace.open.v1",
-    "workspace.bind_root.v2",
 ];
 
 /// Ordered capability catalog described by the generated API contract.
@@ -66,7 +65,6 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "workspace.get.v1",
     "workspace.create.v1",
     "workspace.open.v1",
-    "workspace.bind_root.v2",
 ];
 
 #[cfg(test)]
@@ -96,7 +94,6 @@ mod tests {
             "workspace.get.v1",
             "workspace.create.v1",
             "workspace.open.v1",
-            "workspace.bind_root.v2",
         ];
         assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
         assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);

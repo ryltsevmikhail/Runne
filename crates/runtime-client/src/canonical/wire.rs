@@ -158,6 +158,12 @@ where
 
 async fn read_error(response: reqwest::Response) -> RuntimeApiError {
     let status = response.status().as_u16();
+    let request_id_header = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| CanonicalId::parse(value).is_ok())
+        .map(str::to_owned);
     let body = match read_bounded(response, MAXIMUM_ERROR_RESPONSE_BYTES).await {
         Ok(body) => body,
         Err(error) => return error,
@@ -165,7 +171,9 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
     let Ok(envelope) = serde_json::from_slice::<ErrorEnvelope>(&body) else {
         return RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse);
     };
-    if CanonicalId::parse(&envelope.request_id).is_err() {
+    if CanonicalId::parse(&envelope.request_id).is_err()
+        || request_id_header.as_deref() != Some(envelope.request_id.as_str())
+    {
         return RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse);
     }
     let kind = match (status, envelope.code.as_str()) {

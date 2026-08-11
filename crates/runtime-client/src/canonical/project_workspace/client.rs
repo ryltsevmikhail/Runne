@@ -1,4 +1,4 @@
-use reqwest::header::CONTENT_TYPE;
+use reqwest::{Method, header::CONTENT_TYPE};
 
 use super::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
@@ -46,7 +46,12 @@ impl AuthenticatedRuntimeClient {
             .send()
             .await
             .map_err(map_transport)?;
-        ProjectSnapshotDto::try_from(read_success_json::<ProjectWire>(response, &[200]).await?)
+        let snapshot = ProjectSnapshotDto::try_from(
+            read_success_json::<ProjectWire>(response, &[200]).await?,
+        )?;
+        (snapshot.id() == id)
+            .then_some(snapshot)
+            .ok_or_else(invalid)
     }
     /// Creates one Project under authenticated command identity.
     pub async fn create_project(
@@ -73,21 +78,21 @@ impl AuthenticatedRuntimeClient {
         &self,
         request: ExistingProjectRequest,
     ) -> Result<ProjectCommandAcknowledgement, RuntimeApiError> {
-        self.project_mutation(request, "archive").await
+        self.project_mutation(request, Some("archive")).await
     }
     /// Restores one archived Project at its exact expected version.
     pub async fn restore_project(
         &self,
         request: ExistingProjectRequest,
     ) -> Result<ProjectCommandAcknowledgement, RuntimeApiError> {
-        self.project_mutation(request, "restore").await
+        self.project_mutation(request, Some("restore")).await
     }
     /// Deletes one Project at its exact expected version.
     pub async fn delete_project(
         &self,
         request: ExistingProjectRequest,
     ) -> Result<ProjectCommandAcknowledgement, RuntimeApiError> {
-        self.project_mutation(request, "").await
+        self.project_mutation(request, None).await
     }
     /// Reads one Project-bound, bounded Workspace page.
     pub async fn list_workspaces(
@@ -202,16 +207,18 @@ impl AuthenticatedRuntimeClient {
     async fn project_mutation(
         &self,
         request: ExistingProjectRequest,
-        operation: &str,
+        operation: Option<&str>,
     ) -> Result<ProjectCommandAcknowledgement, RuntimeApiError> {
         let expected = request.id;
-        let suffix = if operation.is_empty() {
-            String::new()
+        let suffix = operation.map_or_else(String::new, |operation| format!("/{operation}"));
+        let method = if operation.is_some() {
+            Method::POST
         } else {
-            format!("/{operation}")
+            Method::DELETE
         };
         let response = self
-            .send_command(
+            .send_command_with_method(
+                method,
                 &format!("/v1/projects/{expected}{suffix}"),
                 &request.identity,
                 &ExistingWire {
@@ -232,8 +239,19 @@ impl AuthenticatedRuntimeClient {
         identity: &crate::canonical::CommandIdentity,
         wire: &T,
     ) -> Result<reqwest::Response, RuntimeApiError> {
+        self.send_command_with_method(Method::POST, path, identity, wire)
+            .await
+    }
+    async fn send_command_with_method<T: serde::Serialize>(
+        &self,
+        method: Method,
+        path: &str,
+        identity: &crate::canonical::CommandIdentity,
+        wire: &T,
+    ) -> Result<reqwest::Response, RuntimeApiError> {
+        let request = self.http_client().request(method, self.url(path));
         let body = serde_json::to_vec(wire).map_err(|_| invalid())?;
-        self.command_request(self.http_client().post(self.url(path)), identity)?
+        self.command_request(request, identity)?
             .header(CONTENT_TYPE, "application/json")
             .body(body)
             .send()

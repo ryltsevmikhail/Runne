@@ -33,6 +33,7 @@
       "additionalProperties": false,
       "properties": {
         "expiresAtMonotonicMillis": {
+          "maximum": 18446744073709551615,
           "minimum": 1,
           "type": "integer"
         },

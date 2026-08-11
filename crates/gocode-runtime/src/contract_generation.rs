@@ -68,4 +68,5 @@ include!("contract_generation/replay_schema.rs");
 include!("contract_generation/local_schemas.rs");
 include!("contract_generation/operational_telemetry_schema.rs");
 include!("contract_generation/project_workspace_schema.rs");
+include!("contract_generation/project_workspace_openapi.rs");
 include!("contract_generation/openapi.rs");
