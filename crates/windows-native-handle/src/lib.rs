@@ -8,7 +8,13 @@
 
 pub(crate) mod duplicate;
 pub(crate) mod identity;
+pub(crate) mod path;
+pub(crate) mod receiver;
 pub(crate) mod relative;
 
-pub use duplicate::{ExactTargetProcess, RemoteHandleLease};
+pub use duplicate::{ExactTargetProcess, LauncherProcessBinding, RemoteHandleLease};
 pub use identity::{DirectoryHandle, DirectoryIdentity, NativeHandleError};
+pub use receiver::{
+    AcceptedDirectory, HandleOfferAck, ProtectedHandleOffer, ReceiverDisposition,
+    StagedHandleReceiver,
+};

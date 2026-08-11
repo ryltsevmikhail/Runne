@@ -1,6 +1,6 @@
 use std::fmt;
 use std::os::windows::ffi::OsStrExt;
-use std::path::{Component, Path, Prefix};
+use std::path::Path;
 use std::ptr;
 
 use sha2::{Digest, Sha256};
@@ -14,6 +14,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     GetFileInformationByHandleEx, OPEN_EXISTING,
 };
 
+use crate::path::ValidatedWindowsPath;
 use crate::relative::open_relative_component;
 
 /// Fail-closed native-handle failures. OS details are intentionally not exposed.
@@ -58,6 +59,23 @@ impl DirectoryIdentity {
         hasher.update(self.file_id);
         hasher.finalize().into()
     }
+
+    pub(crate) const fn wire_parts(self) -> (u64, [u8; 16]) {
+        (self.volume_serial, self.file_id)
+    }
+
+    pub(crate) fn from_wire(
+        volume_serial: u64,
+        file_id: [u8; 16],
+    ) -> Result<Self, NativeHandleError> {
+        if volume_serial == 0 || file_id == [0; 16] {
+            return Err(NativeHandleError::Rejected);
+        }
+        Ok(Self {
+            volume_serial,
+            file_id,
+        })
+    }
 }
 
 /// Move-only directory handle with verified identity and no path retention.
@@ -74,10 +92,12 @@ impl DirectoryHandle {
     /// Returns a closed error for relative, reparse-point, non-directory, or
     /// identity-query failures.
     pub fn open(path: &Path) -> Result<Self, NativeHandleError> {
-        let (anchor, components) = split_absolute_path(path)?;
-        let mut current = open_anchor(&anchor)?;
-        for component in components {
+        let path = ValidatedWindowsPath::absolute(path)?;
+        let mut current = open_anchor(path.anchor())?;
+        verify_directory(&current)?;
+        for component in path.components() {
             current = open_relative_component(&current, component)?;
+            verify_directory(&current)?;
         }
         Self::from_owned(current)
     }
@@ -89,18 +109,12 @@ impl DirectoryHandle {
     /// Returns a closed error for traversal, reparse-point, non-directory, or
     /// identity-query failures.
     pub fn open_relative_directory(&self, path: &Path) -> Result<Self, NativeHandleError> {
+        let components = ValidatedWindowsPath::relative(path)?;
         let mut current = self.handle.try_clone()?;
-        let mut count = 0_u16;
-        for component in path.components() {
-            let Component::Normal(component) = component else {
-                return Err(NativeHandleError::Rejected);
-            };
-            count = count.checked_add(1).ok_or(NativeHandleError::Rejected)?;
-            current = open_relative_component(&current, component)?;
+        for component in components {
+            current = open_relative_component(&current, &component)?;
+            verify_directory(&current)?;
         }
-        (count > 0)
-            .then_some(())
-            .ok_or(NativeHandleError::Rejected)?;
         Self::from_owned(current)
     }
 
@@ -177,29 +191,6 @@ impl Drop for OwnedHandle {
     }
 }
 
-fn split_absolute_path(
-    path: &Path,
-) -> Result<(std::path::PathBuf, Vec<&std::ffi::OsStr>), NativeHandleError> {
-    let mut parts = path.components();
-    let Some(Component::Prefix(prefix)) = parts.next() else {
-        return Err(NativeHandleError::Rejected);
-    };
-    if !matches!(prefix.kind(), Prefix::Disk(_) | Prefix::UNC(_, _))
-        || !matches!(parts.next(), Some(Component::RootDir))
-    {
-        return Err(NativeHandleError::Rejected);
-    }
-    let components = parts
-        .map(|part| match part {
-            Component::Normal(value) => Ok(value),
-            _ => Err(NativeHandleError::Rejected),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let mut anchor = prefix.as_os_str().to_os_string();
-    anchor.push("\\");
-    Ok((std::path::PathBuf::from(anchor), components))
-}
-
 fn open_anchor(path: &Path) -> Result<OwnedHandle, NativeHandleError> {
     let wide = path
         .as_os_str()
@@ -219,6 +210,10 @@ fn open_anchor(path: &Path) -> Result<OwnedHandle, NativeHandleError> {
         )
     };
     OwnedHandle::new(handle)
+}
+
+pub fn verify_directory(handle: &OwnedHandle) -> Result<DirectoryIdentity, NativeHandleError> {
+    identity_for(handle.raw())
 }
 
 fn identity_for(handle: HANDLE) -> Result<DirectoryIdentity, NativeHandleError> {
@@ -246,6 +241,7 @@ fn identity_for(handle: HANDLE) -> Result<DirectoryIdentity, NativeHandleError> 
         || identity_ok == 0
         || attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY == 0
         || attributes.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || unsupported_file_id(&file_id)
     {
         return Err(NativeHandleError::Rejected);
     }
@@ -253,4 +249,8 @@ fn identity_for(handle: HANDLE) -> Result<DirectoryIdentity, NativeHandleError> 
         volume_serial: file_id.VolumeSerialNumber,
         file_id: file_id.FileId.Identifier,
     })
+}
+
+fn unsupported_file_id(file_id: &FILE_ID_INFO) -> bool {
+    file_id.VolumeSerialNumber == 0 || file_id.FileId.Identifier == [0; 16]
 }
