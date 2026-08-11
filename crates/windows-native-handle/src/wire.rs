@@ -67,7 +67,7 @@ pub struct HandleFinalize([u8; CONTROL_BYTES]);
 pub struct HandleNack([u8; CONTROL_BYTES]);
 
 macro_rules! protected_control {
-    ($type_name:ident) => {
+    ($type_name:ident, $expected_kind:expr) => {
         impl $type_name {
             #[must_use]
             pub const fn into_protected_bytes(self) -> [u8; CONTROL_BYTES] {
@@ -78,8 +78,9 @@ macro_rules! protected_control {
             ///
             /// Rejects a frame with the wrong tag, transcript, or reserved bytes.
             pub fn from_protected_bytes(bytes: [u8; CONTROL_BYTES]) -> Result<Self, ProtocolError> {
-                let _ = decode_control(bytes)?;
-                Ok(Self(bytes))
+                (decode_control(bytes)?.kind == $expected_kind)
+                    .then_some(Self(bytes))
+                    .ok_or(ProtocolError::Rejected)
             }
 
             #[allow(dead_code)]
@@ -96,9 +97,9 @@ macro_rules! protected_control {
     };
 }
 
-protected_control!(HandleAckReady);
-protected_control!(HandleFinalize);
-protected_control!(HandleNack);
+protected_control!(HandleAckReady, ControlKind::Ready);
+protected_control!(HandleFinalize, ControlKind::Finalize);
+protected_control!(HandleNack, ControlKind::Nack);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ControlKind {

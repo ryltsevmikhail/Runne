@@ -1,5 +1,5 @@
 use crate::wire::{self, CONTROL_BYTES, IdentityWire, OFFER_BYTES, OfferParts};
-use crate::{HandleAckReady, ProtectedHandleOffer, ProtocolError};
+use crate::{HandleAckReady, HandleFinalize, HandleNack, ProtectedHandleOffer, ProtocolError};
 
 fn offer() -> ProtectedHandleOffer {
     wire::encode_offer(OfferParts {
@@ -47,6 +47,21 @@ fn fixed_frame_corpus_is_structural_before_time_validation() {
     reserved[63] = 1;
     assert!(matches!(
         HandleAckReady::from_protected_bytes(reserved),
+        Err(ProtocolError::Rejected)
+    ));
+    let parts = offer().parts().unwrap();
+    let final_bytes = wire::finalize(parts).into_protected_bytes();
+    let nack_bytes = wire::nack(parts).into_protected_bytes();
+    assert!(matches!(
+        HandleAckReady::from_protected_bytes(final_bytes),
+        Err(ProtocolError::Rejected)
+    ));
+    assert!(matches!(
+        HandleFinalize::from_protected_bytes(nack_bytes),
+        Err(ProtocolError::Rejected)
+    ));
+    assert!(matches!(
+        HandleNack::from_protected_bytes(ready),
         Err(ProtocolError::Rejected)
     ));
 }

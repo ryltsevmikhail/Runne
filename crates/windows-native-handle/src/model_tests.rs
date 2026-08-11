@@ -90,7 +90,7 @@ fn expiry_cancel_close_and_capacity_are_bounded() {
     };
     let _ = state.ready(parts, 102).unwrap();
     assert!(state.cancel(parts.offer_id).is_some());
-    assert_eq!(state.close().len(), 1);
+    assert!(state.close().is_empty());
 }
 
 #[test]
@@ -120,6 +120,54 @@ fn absolute_deadline_is_rejected_during_time_validation() {
     ));
     assert!(matches!(
         state.begin(&offer(9, 1), 1).unwrap(),
+        OfferAction::Nack(_)
+    ));
+}
+
+#[test]
+fn conflicting_id_fence_survives_original_deadline_without_reclone() {
+    let mut state = model();
+    let frame = offer(10, 20);
+    let OfferAction::Clone(parts) = state.begin(&frame, 10).unwrap() else {
+        panic!()
+    };
+    let conflicting = wire::encode_offer(OfferParts {
+        deadline_millis: 40,
+        remote_token: 8,
+        ..parts
+    });
+    assert!(matches!(
+        state.begin(&conflicting, 10).unwrap(),
+        OfferAction::Nack(_)
+    ));
+    assert!(matches!(
+        state.begin(&conflicting, 21).unwrap(),
+        OfferAction::Nack(_)
+    ));
+}
+
+#[test]
+fn finalize_survives_cancel_close_expire_and_replay() {
+    let mut state = model();
+    let frame = offer(11, 100);
+    let OfferAction::Clone(parts) = state.begin(&frame, 10).unwrap() else {
+        panic!()
+    };
+    let _ = state.ready(parts, 11).unwrap();
+    let finalize = wire::finalize(parts).parts().unwrap();
+    assert!(matches!(
+        state.control(finalize, 12),
+        ControlAction::Commit(_)
+    ));
+    assert!(state.cancel(parts.offer_id).is_none());
+    assert!(state.close().is_empty());
+    assert!(state.expire(50).is_empty());
+    assert!(matches!(
+        state.control(finalize, 51),
+        ControlAction::Finalize(_)
+    ));
+    assert!(matches!(
+        state.begin(&frame, 52).unwrap(),
         OfferAction::Nack(_)
     ));
 }
