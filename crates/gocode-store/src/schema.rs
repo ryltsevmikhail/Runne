@@ -89,6 +89,7 @@ include!("schema/migrations/v9.rs");
 include!("schema/migrations/v10_v11.rs");
 include!("schema/migrations/v12.rs");
 include!("schema/migrations/v13.rs");
+mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;
 include!("schema/open.rs");

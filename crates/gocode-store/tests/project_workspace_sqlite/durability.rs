@@ -162,6 +162,49 @@ fn admission_digest_is_part_of_the_bind_receipt_fingerprint() {
 }
 
 #[test]
+fn consumed_root_nonce_history_survives_project_deletion() {
+    let database = Database::new("project-workspace-nonce-history");
+    let repository = database.repository();
+    create_project(&repository);
+    create_workspace(&repository);
+    let connection = database.connection();
+    connection
+        .execute(
+            "INSERT INTO root_admission_nonces
+             (runtime_authority_id, nonce, principal_id, workspace_id,
+              expected_version, admission_digest, consumed_at)
+             VALUES ('authority', ?1, 'owner', ?2, 1, ?3, 1)",
+            rusqlite::params![[0x51_u8; 16], WORKSPACE, [0x52_u8; 32]],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE workspaces SET live = 0 WHERE workspace_id = ?1",
+            [WORKSPACE],
+        )
+        .unwrap();
+    assert_eq!(
+        repository.delete_project(
+            "owner",
+            command(49),
+            &key("delete-with-nonce"),
+            ProjectId::from_bytes(PROJECT),
+            1,
+        ),
+        Ok(2)
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT COUNT(*) FROM root_admission_nonces", [], |row| row
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn queries_are_ordered_and_hide_foreign_existence() {
     let database = Database::new("project-workspace-queries");
     let repository = database.repository();
@@ -226,6 +269,13 @@ fn project_workspace_receipt_codec_rejects_unknown_trailing_and_corrupt_bytes() 
     corrupt[27] = 1;
     assert!(matches!(
         codec.decode(&corrupt),
+        Err(StoreCodecError::InvalidValue { .. })
+    ));
+    assert!(matches!(
+        codec.encode(&ProjectWorkspaceReceipt::ProjectDeleted {
+            project_id: ProjectId::from_bytes(PROJECT),
+            new_version: 1_000_001,
+        }),
         Err(StoreCodecError::InvalidValue { .. })
     ));
 }

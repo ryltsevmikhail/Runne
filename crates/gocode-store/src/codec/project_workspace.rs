@@ -5,7 +5,7 @@ use super::{StoreCodec, StoreCodecError};
 use gocode_domain::id::{ProjectId, WorkspaceId};
 use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
 
-const MAX_REHYDRATED_VERSION: u64 = 1_000_000;
+pub(crate) const MAX_REHYDRATED_VERSION: u64 = 1_000_000;
 
 /// Original successful value retained for exact idempotent replay.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +34,7 @@ impl StoreCodec<ProjectWorkspaceReceipt> for ProjectWorkspaceReceiptCodec {
         write_u16_be(&mut bytes, Self::CODEC_VERSION);
         match value {
             ProjectWorkspaceReceipt::Project(project) => {
+                valid_version(project.version())?;
                 bytes.push(1);
                 write_uuid(&mut bytes, project.id().as_bytes());
                 write_u64_be(&mut bytes, project.version());
@@ -41,6 +42,7 @@ impl StoreCodec<ProjectWorkspaceReceipt> for ProjectWorkspaceReceiptCodec {
                 write_name(&mut bytes, project.display_name())?;
             }
             ProjectWorkspaceReceipt::Workspace(workspace) => {
+                valid_version(workspace.version())?;
                 bytes.push(2);
                 write_uuid(&mut bytes, workspace.id().as_bytes());
                 write_uuid(&mut bytes, workspace.project_id().as_bytes());
@@ -52,6 +54,7 @@ impl StoreCodec<ProjectWorkspaceReceipt> for ProjectWorkspaceReceiptCodec {
                 project_id,
                 new_version,
             } => {
+                valid_version(*new_version)?;
                 bytes.push(3);
                 write_uuid(&mut bytes, project_id.as_bytes());
                 write_u64_be(&mut bytes, *new_version);

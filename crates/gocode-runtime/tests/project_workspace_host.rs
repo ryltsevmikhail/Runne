@@ -3,9 +3,13 @@ use gocode_api::{
     ProjectCommandContext, ProjectQueryContext, ProjectWorkspaceCommandHostPort,
     ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
 };
+use gocode_application::ports::RuntimeAuthorityId;
+use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
 use gocode_runtime::RuntimeProjectWorkspaceHost;
-use gocode_store::ProjectWorkspaceStore;
+use gocode_security::SecretBroker;
+use gocode_store::{ProjectWorkspaceStore, store::StoreTransaction};
+use std::sync::Arc;
 
 const PROJECT_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e1";
 const WORKSPACE_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e2";
@@ -27,9 +31,29 @@ fn command_id(tail: u8) -> String {
     format!("018f47a2-4f8c-7b52-8c35-7a3a14c2d9{tail:02x}")
 }
 
+fn test_host() -> (
+    tempfile::TempDir,
+    RuntimeProjectWorkspaceHost<ProjectWorkspaceStore>,
+) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("project-workspace.sqlite");
+    let guard: Arc<dyn ProhibitedContentPort> =
+        Arc::new(SecretBroker::new().prohibited_content_guard());
+    let store = StoreTransaction::open(
+        path.to_str().unwrap(),
+        RuntimeAuthorityId("project-workspace-host-test".into()),
+        guard,
+    )
+    .unwrap();
+    (
+        directory,
+        RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::from_store(store)),
+    )
+}
+
 #[tokio::test]
 async fn project_workspace_create_project_replays_the_exact_idempotent_acknowledgement() {
-    let host = RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::new());
+    let (_directory, host) = test_host();
     let owner = principal("owner");
     let request = CreateProjectCommand {
         project_id: PROJECT_ID.parse::<ProjectId>().unwrap(),
@@ -54,7 +78,7 @@ async fn project_workspace_create_project_replays_the_exact_idempotent_acknowled
 
 #[tokio::test]
 async fn project_workspace_queries_fail_closed_for_another_principal() {
-    let host = RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::new());
+    let (_directory, host) = test_host();
     let owner = principal("owner");
     let project_id = PROJECT_ID.parse::<ProjectId>().unwrap();
     host.create_project(
@@ -76,12 +100,21 @@ async fn project_workspace_queries_fail_closed_for_another_principal() {
         )
         .await;
 
-    assert_eq!(result, Err(ProjectWorkspaceHostError::Forbidden));
+    assert_eq!(result, Err(ProjectWorkspaceHostError::NotFound));
+    let absent = host
+        .get_project(
+            ProjectQueryContext {
+                principal: principal("other"),
+            },
+            command_id(0xee).parse().unwrap(),
+        )
+        .await;
+    assert_eq!(result, absent);
 }
 
 #[tokio::test]
 async fn project_workspace_rejects_workspace_creation_in_another_principals_project() {
-    let host = RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::new());
+    let (_directory, host) = test_host();
     let project_id = PROJECT_ID.parse::<ProjectId>().unwrap();
     host.create_project(
         context(principal("owner"), &command_id(8), "project-cross-owner"),
@@ -108,12 +141,12 @@ async fn project_workspace_rejects_workspace_creation_in_another_principals_proj
         )
         .await;
 
-    assert_eq!(result, Err(ProjectWorkspaceHostError::Forbidden));
+    assert_eq!(result, Err(ProjectWorkspaceHostError::NotFound));
 }
 
 #[tokio::test]
 async fn project_workspace_stale_project_version_is_rejected_exactly() {
-    let host = RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::new());
+    let (_directory, host) = test_host();
     let owner = principal("owner");
     let project_id = PROJECT_ID.parse::<ProjectId>().unwrap();
     host.create_project(
@@ -141,7 +174,7 @@ async fn project_workspace_stale_project_version_is_rejected_exactly() {
 
 #[tokio::test]
 async fn project_workspace_archives_and_restores_at_exact_versions_idempotently() {
-    let host = RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::new());
+    let (_directory, host) = test_host();
     let owner = principal("owner");
     let project_id = PROJECT_ID.parse::<ProjectId>().unwrap();
     host.create_project(
@@ -211,7 +244,7 @@ async fn project_workspace_archives_and_restores_at_exact_versions_idempotently(
 
 #[tokio::test]
 async fn project_workspace_project_cannot_be_deleted_while_it_owns_a_live_workspace() {
-    let host = RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::new());
+    let (_directory, host) = test_host();
     let owner = principal("owner");
     let project_id = PROJECT_ID.parse::<ProjectId>().unwrap();
     host.create_project(
