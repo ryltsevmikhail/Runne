@@ -7,8 +7,10 @@ pub fn receive_root_handle_offer(
     frame: &[u8],
     keys: &ProtectedActivationKeys,
     owned: &ProtectedOwnedLaunchV1,
+    used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
+    previous_sequence: u64,
     now_unix_millis: u64,
-) -> Result<(), LaunchAuthorityError> {
+) -> Result<u64, LaunchAuthorityError> {
     let (sender_pid, effective_uid) = channel.peer_identity()?;
     let receiver_pid = std::process::id();
     let authenticator = RootHandleTransferAuthenticator::from_protected_activation(keys);
@@ -21,25 +23,44 @@ pub fn receive_root_handle_offer(
         sender_pid,
         receiver_pid,
         effective_uid,
+        previous_sequence,
         now_unix_millis,
     )?;
+    retain_transfer(used_transfers, &offer, now_unix_millis)?;
     let ready = RootHandleTransferReady::new(&offer, &authenticator);
-    channel.write_control_frame(&RootHandleControlFrame::Ready(ready).encode())?;
-    let binding =
-        gocode_platform_desktop::binding_for_protected_control(offer.context(), offer.digest())
-            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
-    let root = gocode_platform_desktop::receive_on_protected_channel(
-        channel.native_stream(),
-        &authenticator,
-        &binding,
-    )
-    .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
+    channel.write_control_frame(&RootHandleControlFrame::Ready(ready).encode_frame())?;
+    let mut endpoint =
+        channel.root_handle_endpoint(authenticator.clone(), offer.context(), offer.digest())?;
+    let root = endpoint
+        .receive()
+        .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
+    endpoint
+        .finish()
+        .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
     let result = gocode_api::RootHandleTransferResult::new(
         &RootHandleTransferReady::new(&offer, &authenticator),
         false,
         &authenticator,
     );
-    channel.write_control_frame(&RootHandleControlFrame::Result(result).encode())?;
+    channel.write_control_frame(&RootHandleControlFrame::Result(result).encode_frame())?;
     drop(root);
+    previous_sequence
+        .checked_add(3)
+        .ok_or(LaunchAuthorityError::RenewalReplay)
+}
+
+fn retain_transfer(
+    used: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
+    offer: &gocode_api::RootHandleTransferOffer,
+    now: u64,
+) -> Result<(), LaunchAuthorityError> {
+    while used.front().is_some_and(|entry| entry.2 < now) {
+        used.pop_front();
+    }
+    let id = *offer.context().transfer_id();
+    if used.iter().any(|entry| entry.0 == id) || used.len() >= 64 {
+        return Err(LaunchAuthorityError::RenewalReplay);
+    }
+    used.push_back((id, offer.digest(), offer.context().expires_at_unix_millis()));
     Ok(())
 }

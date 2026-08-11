@@ -63,6 +63,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 libc = "0.2"
 rustix = { version = "=1.1.4", features = ["process"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["socket"] }
+
 [dev-dependencies]
 aho-corasick = { workspace = true }
 gocode-app-core = { path = "../app-core" }

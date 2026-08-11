@@ -8,6 +8,7 @@ pub enum RootHandleControlFrame {
 const ROOT_CONTROL_MAGIC: &[u8; 8] = b"GCRHCTL2";
 const ROOT_CONTROL_UNSIGNED_BYTES: usize = 158;
 const ROOT_CONTROL_BYTES: usize = ROOT_CONTROL_UNSIGNED_BYTES + 32;
+const ROOT_CONTROL_FRAME_BYTES: usize = ROOT_CONTROL_BYTES + 4;
 const ROOT_CONTROL_OFFER: u8 = 1;
 const ROOT_CONTROL_READY: u8 = 2;
 const ROOT_CONTROL_RESULT: u8 = 3;
@@ -51,6 +52,7 @@ impl RootHandleTransferContext {
     #[must_use] pub const fn workspace_id(&self) -> WorkspaceId { self.workspace_id }
     #[must_use] pub const fn expected_version(&self) -> u64 { self.expected_version }
     #[must_use] pub const fn transfer_id(&self) -> &[u8; 16] { &self.transfer_id }
+    #[must_use] pub const fn expires_at_unix_millis(&self) -> u64 { self.expires_at_unix_millis }
 }
 
 /// Authenticated offer that precedes the native descriptor transfer.
@@ -62,7 +64,7 @@ pub struct RootHandleTransferResult { context: RootHandleTransferContext, sequen
 
 impl RootHandleTransferOffer {
     pub fn new(context: RootHandleTransferContext, sequence: u64, keys: &RootHandleTransferAuthenticator) -> Result<Self, LaunchAuthorityError> {
-        if sequence != 1 { return Err(LaunchAuthorityError::RenewalReplay); }
+        if sequence == 0 { return Err(LaunchAuthorityError::RenewalReplay); }
         let mut value = Self { context, sequence, proof: [0; 32] };
         value.proof = keys.authenticate_root_offer(&value.unsigned()); Ok(value)
     }
@@ -90,21 +92,25 @@ impl RootHandleTransferResult {
 }
 
 impl RootHandleControlFrame {
-    pub fn encode(&self) -> Vec<u8> {
+    /// Encodes one ordinary protected-channel frame, including its length prefix.
+    #[must_use]
+    pub fn encode_frame(&self) -> Vec<u8> {
         let (unsigned, proof) = match self {
             Self::Offer(value) => (value.unsigned(), value.proof),
             Self::Ready(value) => (value.unsigned(), value.proof),
             Self::Result(value) => (value.unsigned(), value.proof),
         };
-        let mut bytes = Vec::with_capacity(ROOT_CONTROL_BYTES); bytes.extend_from_slice(&unsigned); bytes.extend_from_slice(&proof); bytes
+        let mut bytes = Vec::with_capacity(ROOT_CONTROL_FRAME_BYTES);
+        bytes.extend_from_slice(&(ROOT_CONTROL_BYTES as u32).to_be_bytes());
+        bytes.extend_from_slice(&unsigned); bytes.extend_from_slice(&proof); bytes
     }
     pub fn decode_and_verify(
         bytes: &[u8], keys: &RootHandleTransferAuthenticator, expected: &RootHandleTransferContext,
         previous_sequence: u64, now_unix_millis: u64,
     ) -> Result<Self, LaunchAuthorityError> {
-        if bytes.len() != ROOT_CONTROL_BYTES || now_unix_millis == 0 { return Err(LaunchAuthorityError::InvalidContract); }
-        let unsigned: [u8; ROOT_CONTROL_UNSIGNED_BYTES] = bytes[..ROOT_CONTROL_UNSIGNED_BYTES].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
-        let proof: [u8; 32] = bytes[ROOT_CONTROL_UNSIGNED_BYTES..].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        if !valid_frame(bytes) || now_unix_millis == 0 { return Err(LaunchAuthorityError::InvalidContract); }
+        let unsigned: [u8; ROOT_CONTROL_UNSIGNED_BYTES] = bytes[4..4 + ROOT_CONTROL_UNSIGNED_BYTES].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        let proof: [u8; 32] = bytes[4 + ROOT_CONTROL_UNSIGNED_BYTES..].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
         let (phase, context, sequence, digest, accepted) = decode_unsigned(&unsigned)?;
         if &context != expected || sequence != previous_sequence.checked_add(1).ok_or(LaunchAuthorityError::RenewalReplay)?
             || now_unix_millis < context.issued_at_unix_millis || now_unix_millis > context.expires_at_unix_millis { return Err(LaunchAuthorityError::OwnershipMismatch); }
@@ -121,13 +127,13 @@ impl RootHandleControlFrame {
     pub fn decode_offer_for_receiver(
         bytes: &[u8], keys: &RootHandleTransferAuthenticator, authority_id: &[u8; 16],
         session_id: &[u8; 16], launch_generation: u64, sender_pid: u32, receiver_pid: u32,
-        effective_uid: u32, now_unix_millis: u64,
+        effective_uid: u32, previous_sequence: u64, now_unix_millis: u64,
     ) -> Result<RootHandleTransferOffer, LaunchAuthorityError> {
-        if bytes.len() != ROOT_CONTROL_BYTES || now_unix_millis == 0 { return Err(LaunchAuthorityError::InvalidContract); }
-        let unsigned: [u8; ROOT_CONTROL_UNSIGNED_BYTES] = bytes[..ROOT_CONTROL_UNSIGNED_BYTES].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
-        let proof: [u8; 32] = bytes[ROOT_CONTROL_UNSIGNED_BYTES..].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        if !valid_frame(bytes) || now_unix_millis == 0 { return Err(LaunchAuthorityError::InvalidContract); }
+        let unsigned: [u8; ROOT_CONTROL_UNSIGNED_BYTES] = bytes[4..4 + ROOT_CONTROL_UNSIGNED_BYTES].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
+        let proof: [u8; 32] = bytes[4 + ROOT_CONTROL_UNSIGNED_BYTES..].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
         let (phase, context, sequence, digest, accepted) = decode_unsigned(&unsigned)?;
-        if phase != ROOT_CONTROL_OFFER || sequence != 1 || digest != [0; 32] || accepted != 0
+        if phase != ROOT_CONTROL_OFFER || sequence != previous_sequence.checked_add(1).ok_or(LaunchAuthorityError::RenewalReplay)? || digest != [0; 32] || accepted != 0
             || context.authority_id != *authority_id || context.session_id != *session_id
             || context.launch_generation != launch_generation || context.sender_pid != sender_pid
             || context.receiver_pid != receiver_pid || context.effective_uid != effective_uid
@@ -136,6 +142,15 @@ impl RootHandleControlFrame {
         { return Err(LaunchAuthorityError::OwnershipMismatch); }
         Ok(RootHandleTransferOffer { context, sequence, proof })
     }
+}
+
+/// Returns whether one ordinary protected-channel frame is a root control frame.
+#[must_use]
+pub fn is_root_handle_control_frame(bytes: &[u8]) -> bool { valid_frame(bytes) && bytes[4..12] == *ROOT_CONTROL_MAGIC }
+
+fn valid_frame(bytes: &[u8]) -> bool {
+    bytes.len() == ROOT_CONTROL_FRAME_BYTES
+        && u32::from_be_bytes(bytes[..4].try_into().unwrap_or([0; 4])) as usize == ROOT_CONTROL_BYTES
 }
 
 fn encode_unsigned(phase: u8, context: &RootHandleTransferContext, sequence: u64, digest: [u8; 32], accepted: u8) -> [u8; ROOT_CONTROL_UNSIGNED_BYTES] {
@@ -158,7 +173,8 @@ impl std::fmt::Debug for RootHandleControlFrame { fn fmt(&self, formatter: &mut 
 mod root_handle_control_tests {
     use super::*;
     fn context() -> RootHandleTransferContext { RootHandleTransferContext::new([0,0,0,0,0,0,0x70,0,0x80,0,0,0,0,0,0,1], [0,0,0,0,0,0,0x70,0,0x80,0,0,0,0,0,0,2], 1, 10, 11, 1000, WorkspaceId::from_bytes([0,0,0,0,0,0,0x70,0,0x80,0,0,0,0,0,0,3]), 1, [4;16], 100, 30_100).unwrap() }
-    #[test] fn root_control_offer_is_authenticated_and_strictly_sequenced() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([7;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode(); assert!(matches!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).unwrap(), RootHandleControlFrame::Offer(_))); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 1, 100).is_err()); }
-    #[test] fn root_control_binds_ready_and_result_to_the_offer_digest() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let ready = RootHandleTransferReady::new(&offer, &keys); let result = RootHandleTransferResult::new(&ready, true, &keys); assert_eq!(offer.digest(), *ready.offer_digest()); assert_eq!(*ready.offer_digest(), *result.offer_digest()); assert!(matches!(RootHandleControlFrame::decode_and_verify(&RootHandleControlFrame::Result(result).encode(), &keys, &context(), 2, 100).unwrap(), RootHandleControlFrame::Result(_))); }
-    #[test] fn root_control_rejects_tampering_expiry_and_peer_substitution() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([9;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let mut encoded = RootHandleControlFrame::Offer(offer).encode(); encoded[20] ^= 1; assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).is_err()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode(); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 30_101).is_err()); assert!(RootHandleControlFrame::decode_offer_for_receiver(&encoded, &keys, context().authority_id(), context().session_id(), 1, 99, 11, 1000, 100).is_err()); }
+    #[test] fn root_control_offer_is_framed_authenticated_and_strictly_sequenced() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([7;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode_frame(); assert!(is_root_handle_control_frame(&encoded)); assert!(matches!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).unwrap(), RootHandleControlFrame::Offer(_))); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 1, 100).is_err()); }
+    #[test] fn root_control_binds_ready_and_result_to_the_offer_digest() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let ready = RootHandleTransferReady::new(&offer, &keys); let result = RootHandleTransferResult::new(&ready, true, &keys); assert_eq!(offer.digest(), *ready.offer_digest()); assert_eq!(*ready.offer_digest(), *result.offer_digest()); assert!(matches!(RootHandleControlFrame::decode_and_verify(&RootHandleControlFrame::Result(result).encode_frame(), &keys, &context(), 2, 100).unwrap(), RootHandleControlFrame::Result(_))); }
+    #[test] fn root_control_rejects_tampering_expiry_and_peer_substitution() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([9;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let mut encoded = RootHandleControlFrame::Offer(offer).encode_frame(); encoded[24] ^= 1; assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).is_err()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode_frame(); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 30_101).is_err()); assert!(RootHandleControlFrame::decode_offer_for_receiver(&encoded, &keys, context().authority_id(), context().session_id(), 1, 99, 11, 1000, 0, 100).is_err()); }
+    #[test] fn root_control_rejects_bad_length_prefix_before_magic() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([10;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let mut frame = RootHandleControlFrame::Offer(offer).encode_frame(); frame[..4].copy_from_slice(&1_u32.to_be_bytes()); assert!(!is_root_handle_control_frame(&frame)); }
 }

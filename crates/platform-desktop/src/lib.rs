@@ -11,15 +11,14 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
+#[cfg(unix)]
+pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
 pub use root_handle_broker::test_transfer_pair;
 pub use root_handle_broker::{
     RootHandleBrokerError, RootHandleTransferBinding, RootHandleTransferReceiver,
     RootHandleTransferSender, VerifiedRootHandle,
 };
-#[cfg(unix)]
-#[doc(hidden)]
-pub use root_handle_broker::{binding_for_protected_control, receive_on_protected_channel};
 #[cfg(all(unix, feature = "test-support"))]
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 
