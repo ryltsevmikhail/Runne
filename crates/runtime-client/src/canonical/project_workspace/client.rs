@@ -51,7 +51,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (snapshot.id() == id)
             .then_some(snapshot)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     /// Creates one Project under authenticated command identity.
     pub async fn create_project(
@@ -71,7 +71,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (ack.project_id() == expected)
             .then_some(ack)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     /// Archives one Project at its exact expected version.
     pub async fn archive_project(
@@ -121,7 +121,7 @@ impl AuthenticatedRuntimeClient {
             .iter()
             .all(|item| item.project_id() == project_id)
             .then_some(page)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     /// Creates one Workspace below an existing Project.
     pub async fn create_workspace(
@@ -140,7 +140,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (ack.workspace_id() == expected)
             .then_some(ack)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     /// Reads one Workspace.
     pub async fn get_workspace(
@@ -160,7 +160,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (snapshot.id() == id)
             .then_some(snapshot)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     /// Opens one Workspace at its exact expected version.
     pub async fn open_workspace(
@@ -183,7 +183,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (ack.workspace_id() == expected)
             .then_some(ack)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     /// Binds only an opaque native-admission token at the exact Workspace version.
     pub async fn bind_workspace_root(
@@ -202,7 +202,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (ack.workspace_id() == expected)
             .then_some(ack)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     async fn project_mutation(
         &self,
@@ -231,7 +231,7 @@ impl AuthenticatedRuntimeClient {
         )?;
         (ack.project_id() == expected)
             .then_some(ack)
-            .ok_or_else(invalid)
+            .ok_or_else(invalid_response)
     }
     async fn send_command<T: serde::Serialize>(
         &self,
@@ -250,7 +250,7 @@ impl AuthenticatedRuntimeClient {
         wire: &T,
     ) -> Result<reqwest::Response, RuntimeApiError> {
         let request = self.http_client().request(method, self.url(path));
-        let body = serde_json::to_vec(wire).map_err(|_| invalid())?;
+        let body = serde_json::to_vec(wire).map_err(|_| invalid_request())?;
         self.command_request(request, identity)?
             .header(CONTENT_TYPE, "application/json")
             .body(body)
@@ -262,10 +262,13 @@ impl AuthenticatedRuntimeClient {
 fn page_limit(limit: u16) -> Result<(), RuntimeApiError> {
     (limit != 0 && limit <= 100)
         .then_some(())
-        .ok_or_else(invalid)
+        .ok_or_else(invalid_request)
 }
-fn invalid() -> RuntimeApiError {
+fn invalid_request() -> RuntimeApiError {
     RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest)
+}
+fn invalid_response() -> RuntimeApiError {
+    RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse)
 }
 fn map_transport(_: reqwest::Error) -> RuntimeApiError {
     RuntimeApiError::new(RuntimeApiErrorKind::Unavailable)

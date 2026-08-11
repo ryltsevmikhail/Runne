@@ -122,22 +122,6 @@ fn openapi() -> Value {
     document
 }
 
-#[allow(dead_code)]
-fn legacy_project_workspace_openapi(document: &mut Value) {
-    let schema = "schemas/project-workspace-v1.schema.json#/$defs/";
-    let response = |name: &str| json!({"description": "Canonical response", "headers": {"X-Request-Id": {"required": true, "schema": {"pattern": UUID_V7_PATTERN, "type": "string"}}}, "content": {"application/json": {"schema": {"$ref": format!("{schema}{name}")}}}});
-    let errors = || json!({"400": response("error"), "401": response("error"), "404": response("error"), "409": response("error"), "413": response("error"), "503": response("error")});
-    let operation = |request: Option<&str>, success: &str| { let mut item = json!({"security": [{"sessionAuth": []}], "responses": errors()}); item["responses"]["202"] = response(success); if let Some(request) = request { item["requestBody"] = json!({"required": true, "content": {"application/json": {"schema": {"$ref": format!("{schema}{request}")}}}}); } item };
-    let paths = document["paths"].as_object_mut().expect("OpenAPI paths object");
-    paths.insert("/v1/projects".into(), json!({"get": {"security": [{"sessionAuth": []}], "responses": {"200": response("projectPage"), "400": response("error"), "401": response("error"), "404": response("error"), "503": response("error")}}, "post": operation(Some("projectCreate"), "projectAck")}));
-    paths.insert("/v1/projects/{projectId}".into(), json!({"get": {"security": [{"sessionAuth": []}], "responses": {"200": response("project"), "400": response("error"), "401": response("error"), "404": response("error"), "503": response("error")}}, "delete": operation(Some("existing"), "projectAck")}));
-    for operation_name in ["archive", "restore"] { paths.insert(format!("/v1/projects/{{projectId}}/{operation_name}"), json!({"post": operation(Some("existing"), "projectAck")})); }
-    paths.insert("/v1/projects/{projectId}/workspaces".into(), json!({"get": {"security": [{"sessionAuth": []}], "responses": {"200": response("workspacePage"), "400": response("error"), "401": response("error"), "404": response("error"), "503": response("error")}}, "post": operation(Some("workspaceCreate"), "workspaceAck")}));
-    paths.insert("/v1/workspaces/{workspaceId}".into(), json!({"get": {"security": [{"sessionAuth": []}], "responses": {"200": response("workspace"), "400": response("error"), "401": response("error"), "404": response("error"), "503": response("error")}}}));
-    paths.insert("/v1/workspaces/{workspaceId}/open".into(), json!({"post": operation(Some("existing"), "workspaceAck")}));
-    paths.insert("/v1/workspaces/{workspaceId}/root-bindings".into(), json!({"post": operation(Some("rootBind"), "workspaceAck")}));
-}
-
 fn local_session_golden() -> Value {
     json!({
         "authenticateRequest": {

@@ -165,21 +165,14 @@ fn name(value: &str) -> Result<(), RuntimeApiError> {
         .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
 }
 fn project_cursor(value: String) -> Result<ProjectPageCursor, RuntimeApiError> {
-    cursor(&value, "gocode-project-page-v1.", 119)
-        .then_some(ProjectPageCursor(value))
-        .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
+    gocode_api::ProjectPageCursor::decode_token(&value)
+        .map(|_| ProjectPageCursor(value))
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
 }
 fn workspace_cursor(value: String) -> Result<WorkspacePageCursor, RuntimeApiError> {
-    cursor(&value, "gocode-workspace-page-v1.", 153)
-        .then_some(WorkspacePageCursor(value))
-        .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
-}
-fn cursor(value: &str, prefix: &str, length: usize) -> bool {
-    value.len() == length
-        && value.starts_with(prefix)
-        && value[prefix.len()..]
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    gocode_api::WorkspacePageCursor::decode_token(&value)
+        .map(|_| WorkspacePageCursor(value))
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))
 }
 fn invalid<T>() -> Result<T, RuntimeApiError> {
     Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))

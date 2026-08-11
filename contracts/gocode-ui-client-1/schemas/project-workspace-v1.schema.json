@@ -42,7 +42,9 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
           "type": "string",
+          "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
         },
         "projectId": {
@@ -90,7 +92,9 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
           "type": "string",
+          "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
         },
         "projectId": {
@@ -146,7 +150,7 @@
         "rootAdmission": {
           "maxLength": 5487,
           "minLength": 27,
-          "pattern": "^gocode-root-admission-v2\\.[A-Za-z0-9_-]+$",
+          "pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3}|(?:[A-Za-z0-9_-]{4})+(?:[A-Za-z0-9_-]{2}|[A-Za-z0-9_-]{3})?)$",
           "type": "string",
           "x-gocode-maxUtf8Bytes": 5487
         }
@@ -163,7 +167,9 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
           "type": "string",
+          "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
         },
         "open": {
@@ -220,7 +226,9 @@
         "displayName": {
           "maxLength": 256,
           "minLength": 1,
+          "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u00ad\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u206f\\ufeff\\ufff9-\\ufffb]*$",
           "type": "string",
+          "x-gocode-displayNamePolicy": "project-workspace-v1",
           "x-gocode-maxUtf8Bytes": 256
         },
         "workspaceId": {
