@@ -12,7 +12,7 @@ pub fn run_control_loop(
     mut owned_launch: ProtectedOwnedLaunchV1,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
-    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<RootHandleAdmissionAuthority>>,
+    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
@@ -124,7 +124,7 @@ pub fn run_control_loop_v2(
     mut owned_launch: ProtectedOwnedLaunchV2,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
-    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<RootHandleAdmissionAuthority>>,
+    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;

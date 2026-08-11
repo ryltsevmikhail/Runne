@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gocode_runtime_client::{
     EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, LocalProfileError, LocalRuntimeProfile,
-    REQUIRED_RUNTIME_CAPABILITIES,
+    PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES,
 };
 use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256, SanType};
 use sha2::{Digest, Sha256};
@@ -68,6 +68,22 @@ fn loads_profile_v2_without_reading_the_bootstrap_secret() {
 
     assert_eq!(profile.endpoint().address(), endpoint);
     assert!(!format!("{profile:?}").contains("bootstrap"));
+}
+
+#[cfg(unix)]
+#[test]
+fn accepts_the_closed_base_and_protected_capability_profiles() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
+    assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
+    assert!(!REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
+    rewrite_profile(&profile_path, |profile| {
+        profile["capabilities"] = serde_json::json!(PROTECTED_RUNTIME_CAPABILITIES);
+        profile["capabilityDigest"] = serde_json::json!(hex::encode(ordered_capability_digest(
+            PROTECTED_RUNTIME_CAPABILITIES
+        )));
+    });
+    assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
 }
 
 #[cfg(unix)]
@@ -191,7 +207,7 @@ fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
         .iter()
         .map(|capability| capability.as_str().expect("capability string"))
         .collect::<Vec<_>>();
-    assert_eq!(published_capabilities, REQUIRED_RUNTIME_CAPABILITIES);
+    assert_eq!(published_capabilities, PROTECTED_RUNTIME_CAPABILITIES);
     assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"runtime.operational-telemetry.v1"));
 }
 

@@ -78,8 +78,8 @@ pub struct DaemonApplication {
     pub(super) task_supervisor: Arc<RuntimeTaskSupervisor>,
     pub(super) shutdown_timeout: Duration,
     #[cfg(feature = "desktop-protected")]
-    pub(super) root_admission_authority:
-        Option<Arc<super::root_handle_admission::RootHandleAdmissionAuthority>>,
+    pub(super) root_control: Option<Arc<crate::protected_activation::ProtectedRootControl>>,
+    pub(super) runtime_capabilities: &'static [&'static str],
 }
 
 impl DaemonApplication {

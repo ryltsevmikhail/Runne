@@ -18,8 +18,9 @@ mod sse;
 pub use canonical::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationCreated,
     ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
-    CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
-    RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind,
+    CreateConversationRequest, GenerateTextRequest, PROTECTED_RUNTIME_CAPABILITIES,
+    REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError, RuntimeApiErrorKind, RuntimeSessionAuthority,
+    RuntimeSessionInfo, RuntimeTransportKind,
 };
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,

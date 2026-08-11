@@ -150,17 +150,15 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
         let mut channel = ProtectedActivationChannel::new(server).unwrap();
         let mut launch =
             ProtectedDaemonLaunch::accept(&mut channel, &server_path, || Ok(1_001)).unwrap();
-        let start = launch.bootstrap_application_start(|| Ok(1_001)).unwrap();
+        let start = launch.bootstrap_runtime_start(|| Ok(1_001)).unwrap();
         let profile_directory = std::path::Path::new(&launch.config().replay_integrity_key_path)
             .parent()
             .unwrap()
             .to_path_buf();
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            let root_keys = launch.keys().clone();
             let application = workspace_internal::start_from_verified_protected_launch(
                 start,
-                root_keys,
                 ProtectedProviderDependencyCapsule::production(),
             )
             .await

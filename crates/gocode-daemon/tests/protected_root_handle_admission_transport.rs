@@ -8,15 +8,12 @@ use std::time::Duration;
 
 use gocode_api::{
     ApiActor, ApiPrincipalId, BindWorkspaceRootCommand, ExecutableIdentityV1, LaunchSecret,
-    ProjectCommandContext, ProjectWorkspaceCommandHostPort, ProtectedActivationKeys,
-    ProtectedOwnedLaunchV1, ProtectedReadyV1, ProtectedRuntimeProfileV1, RuntimeSessionBinding,
-    StableRuntimeBinding, StableRuntimeBindingV1,
+    ProjectCommandContext, ProtectedActivationKeys, ProtectedOwnedLaunchV1, ProtectedReadyV1,
+    ProtectedRuntimeProfileV1, RuntimeSessionBinding, StableRuntimeBinding, StableRuntimeBindingV1,
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::{ProjectWorkspaceRepository, RuntimeAuthorityId};
-use gocode_daemon::application::root_handle_admission::{
-    RootAdmissionGateway, RootHandleAdmissionAuthority,
-};
+use gocode_daemon::application::root_admission_test_support::RootAdmissionHarness;
 use gocode_daemon::protected_activation::{
     ProtectedActivationChannel, dispatch_root_handle_control_frame, run_control_loop,
 };
@@ -29,7 +26,6 @@ use gocode_platform_desktop::{
     BundledRuntimeProcessStatus, ProtectedBundledRuntimeError, ProtectedBundledRuntimeProcess,
     VerifiedRootHandle,
 };
-use gocode_runtime::RuntimeProjectWorkspaceHost;
 use gocode_security::SecretBroker;
 use gocode_store::{ProjectWorkspaceStore, schema, store::StoreTransaction};
 
@@ -84,8 +80,8 @@ fn child(token_path: &std::ffi::OsStr) {
         .unwrap()
         .unwrap();
     let (keys, owned) = fixture();
-    let (_database, repository, authority) = child_authority(&keys);
-    let gateway = RootAdmissionGateway::protected(Arc::clone(&authority));
+    let (_database, authority) = child_authority(&keys);
+    let control = authority.control();
     let mut used = std::collections::VecDeque::new();
     let first = channel.read_control_frame().unwrap();
     let sequence = dispatch_root_handle_control_frame(
@@ -96,37 +92,30 @@ fn child(token_path: &std::ffi::OsStr) {
         &mut used,
         0,
         now(),
-        Some(&authority),
+        Some(&control),
     )
     .unwrap()
     .unwrap();
-    let token = authority
-        .take_test_admission()
-        .unwrap()
-        .encode_token()
-        .unwrap();
+    let token = authority.take_admission().unwrap().encode_token().unwrap();
     std::fs::write(token_path, &token).unwrap();
-    let host = RuntimeProjectWorkspaceHost::new(repository, gateway.clone(), gateway.clone());
     let runtime = tokio::runtime::Runtime::new().unwrap();
     assert_eq!(
         runtime
-            .block_on(host.bind_workspace_root(command("bind-1"), bind(&token)))
+            .block_on(authority.bind(command("bind-1"), bind(&token)))
             .unwrap()
             .new_version,
         2
     );
     assert!(
         runtime
-            .block_on(host.bind_workspace_root(command("bind-2"), bind(&token)))
+            .block_on(authority.bind(command("bind-2"), bind(&token)))
             .is_err()
     );
     authority.fence().unwrap();
     assert!(
-        gocode_application::ports::RootAdmissionVerifier::verify_root_admission(
-            &gateway,
-            gocode_api::RootHandleAdmission::decode_token(&token).unwrap()
-        )
-        .is_err()
+        authority
+            .verify(gocode_api::RootHandleAdmission::decode_token(&token).unwrap())
+            .is_err()
     );
     let second = channel.read_control_frame().unwrap();
     dispatch_root_handle_control_frame(
@@ -137,29 +126,23 @@ fn child(token_path: &std::ffi::OsStr) {
         &mut used,
         sequence,
         now(),
-        Some(&authority),
+        Some(&control),
     )
     .unwrap()
     .unwrap();
-    runtime.block_on(host.shutdown());
+    runtime.block_on(authority.shutdown());
     run_control_loop(
         channel,
         keys,
         owned,
         Arc::new(Mutex::new(session_service())),
         Arc::new(|| Duration::from_secs(1)),
-        Some(authority),
+        Some(control),
     )
     .unwrap();
 }
 
-fn child_authority(
-    keys: &ProtectedActivationKeys,
-) -> (
-    tempfile::TempDir,
-    ProjectWorkspaceStore,
-    Arc<RootHandleAdmissionAuthority>,
-) {
+fn child_authority(keys: &ProtectedActivationKeys) -> (tempfile::TempDir, RootAdmissionHarness) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("event-log.db");
     let writer = schema::open_with_pragmas(path.to_str().unwrap()).unwrap();
@@ -198,13 +181,13 @@ fn child_authority(
             ),
         )
         .unwrap();
-    let authority = RootHandleAdmissionAuthority::new(
+    let authority = RootAdmissionHarness::new(
         keys,
         repository.clone(),
         "b1b-transport".into(),
         Arc::new(Mutex::new(session_service())),
     );
-    (directory, repository, authority)
+    (directory, authority)
 }
 
 fn bind(token: &str) -> BindWorkspaceRootCommand {

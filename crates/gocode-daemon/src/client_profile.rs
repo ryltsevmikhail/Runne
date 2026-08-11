@@ -46,6 +46,7 @@ impl ClientProfileV2Wire {
         event_log_lineage_id: uuid::Uuid,
         daemon_instance_id: uuid::Uuid,
         launch_generation: u64,
+        capabilities: &[&str],
     ) -> Result<Self, DaemonError> {
         if !bootstrap_secret_path.is_absolute() || launch_generation == 0 {
             return Err(DaemonError::Bootstrap("invalid profile-v2 identity".into()));
@@ -55,14 +56,12 @@ impl ClientProfileV2Wire {
             transport_profile_id: LOCAL_RUNTIME_PROFILE_V2.to_owned(),
             profile_id: gocode_runtime::bundle::BUNDLE_ID.to_owned(),
             schema_hash: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
-            capabilities: gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+            capabilities: capabilities
                 .iter()
                 .map(|capability| (*capability).to_owned())
                 .collect(),
             capability_digest: hex::encode(
-                gocode_http::runtime_profile::ordered_capability_digest(
-                    gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
-                ),
+                gocode_http::runtime_profile::ordered_capability_digest(capabilities),
             ),
             endpoint: format!("https://{endpoint}"),
             certificate_der_base64,
@@ -92,6 +91,7 @@ impl PublishedClientProfileV2 {
         identity: &LaunchIdentity,
         authority_id: [u8; 16],
         lineage_id: uuid::Uuid,
+        capabilities: &[&str],
     ) -> Result<Self, DaemonError> {
         let directory = std::fs::canonicalize(directory)
             .map_err(|_| DaemonError::Bootstrap("canonicalize v2 profile directory".into()))?;
@@ -115,6 +115,7 @@ impl PublishedClientProfileV2 {
             lineage_id,
             uuid::Uuid::from_bytes(identity.daemon_instance_id().into_bytes()),
             identity.launch_generation(),
+            capabilities,
         )?;
         let profile_bytes = serde_json::to_vec(&wire)
             .map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
@@ -220,12 +221,21 @@ mod tests {
             &identity,
             [1; 16],
             uuid::Uuid::now_v7(),
+            gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES,
         )
         .unwrap();
         for entry in std::fs::read_dir(directory.path()).unwrap() {
             let bytes = std::fs::read(entry.unwrap().path()).unwrap();
             assert!(!bytes.windows(marker.len()).any(|part| part == marker));
         }
+        let profile: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("client-profile.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            profile["capabilities"],
+            serde_json::json!(gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES)
+        );
         drop(published);
     }
 }

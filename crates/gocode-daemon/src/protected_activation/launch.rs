@@ -13,6 +13,20 @@ pub struct VerifiedProtectedApplicationStart {
     bootstrap: BootstrapOutcome,
 }
 
+/// Opaque verified startup package; its admission keys cannot be substituted.
+#[cfg(unix)]
+pub struct VerifiedProtectedRuntimeStart {
+    application: VerifiedProtectedApplicationStart,
+    keys: ProtectedActivationKeys,
+}
+
+#[cfg(unix)]
+impl VerifiedProtectedRuntimeStart {
+    pub(crate) fn into_parts(self) -> (VerifiedProtectedApplicationStart, ProtectedActivationKeys) {
+        (self.application, self.keys)
+    }
+}
+
 #[cfg(unix)]
 impl VerifiedProtectedApplicationStart {
     pub(crate) const fn provider_activation(&self) -> &ProviderActivation {
@@ -145,6 +159,21 @@ impl ProtectedDaemonLaunch {
             config: self.config.clone(),
             provider_activation: self.provider_activation.clone(),
             bootstrap,
+        })
+    }
+
+    /// Produces the only sealed daemon startup package for this verified launch.
+    pub fn bootstrap_runtime_start<F>(
+        &mut self,
+        now_unix_millis: F,
+    ) -> Result<VerifiedProtectedRuntimeStart, LaunchAuthorityError>
+    where
+        F: FnMut() -> Result<u64, LaunchAuthorityError>,
+    {
+        let application = self.bootstrap_application_start(now_unix_millis)?;
+        Ok(VerifiedProtectedRuntimeStart {
+            application,
+            keys: self.keys.clone(),
         })
     }
 

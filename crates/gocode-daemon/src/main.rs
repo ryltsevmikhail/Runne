@@ -71,14 +71,12 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
     runtime
         .block_on(async move {
             let start = launch
-                .bootstrap_application_start(|| {
+                .bootstrap_runtime_start(|| {
                     unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
                 })
                 .map_err(|_| ())?;
-            let keys = launch.keys().clone();
             let application = workspace_internal::start_from_verified_protected_launch(
                 start,
-                keys.clone(),
                 ProtectedProviderDependencyCapsule::production(),
             )
             .await
@@ -86,12 +84,9 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
             let local_session_service = application.protected_session_service().map_err(|_| ())?;
             let session_clock = application.protected_session_clock().map_err(|_| ())?;
             #[cfg(feature = "desktop-protected")]
-            let root_admission = Some(
-                application
-                    .protected_root_admission_authority()
-                    .map_err(|_| ())?,
-            );
+            let root_admission = Some(application.protected_root_control().map_err(|_| ())?);
             let control_loop = if let Some(request) = launch.request_v1() {
+                let keys = launch.keys().clone();
                 let ready = application
                     .protected_ready(request, launch.keys())
                     .map_err(|_| ())?;
@@ -111,6 +106,7 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
                     )
                 })
             } else if let Some(request) = launch.request_v2() {
+                let keys = launch.keys().clone();
                 let ready = application
                     .protected_ready_v2(request, launch.keys())
                     .map_err(|_| ())?;

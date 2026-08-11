@@ -11,7 +11,7 @@ pub fn dispatch_root_handle_control_frame(
     used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
     previous_sequence: u64,
     now_unix_millis: u64,
-    authority: Option<&RootHandleAdmissionAuthority>,
+    authority: Option<&ProtectedRootControl>,
 ) -> Result<Option<u64>, LaunchAuthorityError> {
     if !gocode_api::is_root_handle_control_frame(frame) {
         return Ok(None);
@@ -38,7 +38,7 @@ pub fn receive_root_handle_offer(
     used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
     previous_sequence: u64,
     now_unix_millis: u64,
-    authority: Option<&RootHandleAdmissionAuthority>,
+    authority: Option<&ProtectedRootControl>,
 ) -> Result<u64, LaunchAuthorityError> {
     let (sender_pid, effective_uid) = channel.peer_identity()?;
     let receiver_pid = std::process::id();
@@ -67,7 +67,11 @@ pub fn receive_root_handle_offer(
         .finish()
         .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
     let ready = RootHandleTransferReady::new(&offer, &authenticator);
-    let result = match authority.and_then(|value| value.admit(&offer, root, now_unix_millis).ok()) {
+    let result = match authority.and_then(|value| {
+        value
+            .admit_verified_offer(&offer, root, now_unix_millis)
+            .ok()
+    }) {
         Some(admission) => {
             gocode_api::RootHandleTransferResult::admitted(&ready, admission, &authenticator)
         }

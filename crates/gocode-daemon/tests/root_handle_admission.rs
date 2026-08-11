@@ -1,27 +1,23 @@
-#![cfg(all(unix, feature = "desktop-protected"))]
+#![cfg(all(unix, feature = "desktop-protected", feature = "test-support"))]
 
 use std::sync::{Arc, Mutex};
 
 use gocode_api::{
     ApiPrincipalId, BindWorkspaceRootCommand, LaunchSecret, ProjectCommandContext,
-    ProjectWorkspaceCommandHostPort, RootHandleTransferAuthenticator, RootHandleTransferContext,
-    RootHandleTransferOffer, RuntimeSessionBinding, StableRuntimeBinding,
+    RootHandleTransferAuthenticator, RootHandleTransferContext, RootHandleTransferOffer,
+    RuntimeSessionBinding, StableRuntimeBinding,
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::{
-    ProjectWorkspaceRepository, RootAdmissionVerifier, RootAdmissionVerifierError,
-    RuntimeAuthorityId,
+    ProjectWorkspaceRepository, RootAdmissionVerifierError, RuntimeAuthorityId,
 };
-use gocode_daemon::application::root_handle_admission::{
-    RootAdmissionGateway, RootHandleAdmissionAuthority,
-};
+use gocode_daemon::application::root_admission_test_support::RootAdmissionHarness;
 use gocode_domain::{
     event::Sensitivity,
     id::{CommandId, DaemonInstanceId, EventLogLineageId, IdempotencyKey, ProjectId, WorkspaceId},
     project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace},
 };
 use gocode_platform_desktop::VerifiedRootHandle;
-use gocode_runtime::RuntimeProjectWorkspaceHost;
 use gocode_security::SecretBroker;
 use gocode_store::{ProjectWorkspaceStore, schema, store::StoreTransaction};
 
@@ -90,13 +86,12 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
     .unwrap();
     let sessions = Arc::new(Mutex::new(LocalSessionService::new(binding, [4; 32])));
     let keys = LaunchSecret::from_bytes([5; 32]).unwrap().derive_keys();
-    let issuer = RootHandleAdmissionAuthority::new(
+    let issuer = RootAdmissionHarness::new(
         &keys,
         repository.clone(),
         runtime_authority,
         Arc::clone(&sessions),
     );
-    let gateway = RootAdmissionGateway::protected(Arc::clone(&issuer));
     let now = unix_millis();
     let context = RootHandleTransferContext::new(
         authority_id,
@@ -120,13 +115,7 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
     .unwrap();
     let root = VerifiedRootHandle::open(directory.path()).unwrap();
     let admission = issuer.admit(&transfer, root, now).unwrap();
-    assert_eq!(
-        gateway
-            .verify_root_admission(admission)
-            .unwrap()
-            .workspace_id(),
-        workspace
-    );
+    assert_eq!(issuer.verify(admission).unwrap().workspace_id(), workspace);
     let token = issuer
         .admit(
             &transfer,
@@ -136,18 +125,17 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
         .unwrap()
         .encode_token()
         .unwrap();
-    let unregistered = RootAdmissionGateway::protected(RootHandleAdmissionAuthority::new(
+    let unregistered = RootAdmissionHarness::new(
         &keys,
         repository.clone(),
         "root-admission-test-authority".into(),
         Arc::clone(&sessions),
-    ));
+    );
     assert!(
         unregistered
-            .verify_root_admission(gocode_api::RootHandleAdmission::decode_token(&token).unwrap())
+            .verify(gocode_api::RootHandleAdmission::decode_token(&token).unwrap())
             .is_err()
     );
-    let host = RuntimeProjectWorkspaceHost::new(repository, gateway.clone(), gateway.clone());
     let runtime = tokio::runtime::Runtime::new().unwrap();
     let command = |key: &str| ProjectCommandContext {
         command_id: CommandId::from_bytes(*uuid::Uuid::now_v7().as_bytes()),
@@ -162,7 +150,7 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
     };
     assert_eq!(
         runtime
-            .block_on(host.bind_workspace_root(command("root-bind-1"), first))
+            .block_on(issuer.bind(command("root-bind-1"), first))
             .unwrap()
             .new_version,
         2
@@ -174,7 +162,7 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
     };
     assert!(
         runtime
-            .block_on(host.bind_workspace_root(command("root-bind-2"), replay))
+            .block_on(issuer.bind(command("root-bind-2"), replay))
             .is_err()
     );
     issuer.fence().unwrap();
@@ -207,7 +195,7 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
         .unwrap();
     issuer.fence().unwrap();
     assert!(matches!(
-        gateway.verify_root_admission(fenced),
+        issuer.verify(fenced),
         Err(RootAdmissionVerifierError::Rejected)
     ));
     let expired = RootHandleTransferOffer::new(
@@ -237,7 +225,7 @@ fn retained_native_root_issues_only_current_owned_workspace_admission() {
         )
         .unwrap();
     assert!(matches!(
-        gateway.verify_root_admission(expired),
+        issuer.verify(expired),
         Err(RootAdmissionVerifierError::Rejected)
     ));
 }
