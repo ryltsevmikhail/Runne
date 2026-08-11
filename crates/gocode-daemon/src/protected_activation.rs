@@ -56,6 +56,40 @@ const CONTROL_IDLE_TIMEOUT: Duration =
 #[cfg(unix)]
 const LOCAL_PRINCIPAL: &str = "local-owner";
 
+/// Opaque daemon-owned capability for protected root-control dispatch.
+#[cfg(feature = "desktop-protected")]
+#[doc(hidden)]
+pub struct ProtectedRootControl(Arc<RootHandleAdmissionAuthority>);
+
+#[cfg(feature = "desktop-protected")]
+impl ProtectedRootControl {
+    pub(crate) fn new(authority: Arc<RootHandleAdmissionAuthority>) -> Arc<Self> {
+        Arc::new(Self(authority))
+    }
+
+    pub(crate) fn admit_verified_offer(
+        &self,
+        offer: &gocode_api::RootHandleTransferOffer,
+        root: gocode_platform_desktop::VerifiedRootHandle,
+        now: u64,
+    ) -> Result<
+        gocode_api::RootHandleAdmission,
+        gocode_application::ports::RootAdmissionVerifierError,
+    > {
+        self.0.admit(offer, root, now)
+    }
+
+    pub(crate) fn fence(
+        &self,
+    ) -> Result<(), gocode_application::ports::RootAdmissionVerifierError> {
+        self.0.fence()
+    }
+
+    pub(crate) fn shutdown(&self) {
+        self.0.shutdown();
+    }
+}
+
 #[cfg(unix)]
 mod channel;
 #[cfg(unix)]
@@ -76,7 +110,9 @@ pub use control::{run_control_loop, run_control_loop_v2};
 #[cfg(unix)]
 pub use first_activation::random_control_secret;
 #[cfg(unix)]
-pub use launch::{ProtectedDaemonLaunch, VerifiedProtectedApplicationStart};
+pub use launch::{
+    ProtectedDaemonLaunch, VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart,
+};
 #[cfg(all(unix, feature = "desktop-protected"))]
 pub use root_handle_control::{dispatch_root_handle_control_frame, receive_root_handle_offer};
 

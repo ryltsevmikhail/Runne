@@ -115,7 +115,7 @@ mod tests {
             uuid::Uuid::parse_str("018f2e3a-7000-7000-8000-000000000003").expect("lineage UUID");
         let daemon_instance_id =
             uuid::Uuid::parse_str("018f2e3a-7000-7000-8000-000000000002").expect("daemon UUID");
-        let capabilities = crate::REQUIRED_RUNTIME_CAPABILITIES
+        let capabilities = crate::PROTECTED_RUNTIME_CAPABILITIES
             .iter()
             .map(|capability| (*capability).to_owned())
             .collect::<Vec<_>>();
@@ -190,7 +190,7 @@ mod tests {
             .expect("schema hash")
             .try_into()
             .expect("32 byte schema hash");
-        let capabilities = crate::REQUIRED_RUNTIME_CAPABILITIES
+        let capabilities = crate::PROTECTED_RUNTIME_CAPABILITIES
             .iter()
             .map(|capability| (*capability).to_owned())
             .collect::<Vec<_>>();

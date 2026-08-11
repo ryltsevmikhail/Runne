@@ -11,8 +11,7 @@ const MAXIMUM_ERROR_RESPONSE_BYTES: usize = 8 * 1024;
 const MAXIMUM_IDEMPOTENCY_KEY_BYTES: usize = 256;
 const MAXIMUM_MESSAGE_TEXT_BYTES: usize = 64 * 1024;
 
-/// Exact command/query and Aggregate replay capabilities required by this
-/// client build. Ordering is canonical and authenticated.
+/// Exact external/deterministic runtime capabilities. Ordering is canonical.
 pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.create.v1",
     "conversation.generate_text.v1",
@@ -26,8 +25,24 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "runtime.operational-telemetry.v1",
     "project.list.v1", "project.get.v1", "project.create.v1", "project.archive.v1",
     "project.restore.v1", "project.delete.v1", "workspace.list.v1", "workspace.get.v1",
-    "workspace.create.v1", "workspace.open.v1", "workspace.bind_root.v2",
+    "workspace.create.v1", "workspace.open.v1",
 ];
+
+/// Exact protected-desktop extension, enabled only with native root authority.
+pub const PROTECTED_RUNTIME_CAPABILITIES: &[&str] = &[
+    "conversation.create.v1", "conversation.generate_text.v1", "conversation.list_messages.v1",
+    "replay.aggregate.open.v1", "replay.aggregate.read_page.v1", "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1", "replay.aggregate.continue_live.v1", "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1", "project.list.v1", "project.get.v1", "project.create.v1",
+    "project.archive.v1", "project.restore.v1", "project.delete.v1", "workspace.list.v1",
+    "workspace.get.v1", "workspace.create.v1", "workspace.open.v1", "workspace.bind_root.v2",
+];
+
+pub fn is_supported_capability_profile(values: &[String]) -> bool {
+    [REQUIRED_RUNTIME_CAPABILITIES, PROTECTED_RUNTIME_CAPABILITIES]
+        .iter()
+        .any(|expected| values.iter().map(String::as_str).eq(expected.iter().copied()))
+}
 
 /// Strict `UUIDv7` identity used by the canonical client contract.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -1,8 +1,8 @@
 use gocode_runtime_client::{
     BindWorkspaceRootRequest, CanonicalId, CommandIdentity, CreateProjectRequest,
     CreateWorkspaceRequest, ExistingProjectRequest, ExistingWorkspaceRequest,
-    REQUIRED_RUNTIME_CAPABILITIES, RootAdmissionToken, RuntimeApiErrorKind, RuntimeSessionInfo,
-    mock_authenticated_runtime_client,
+    PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES, RootAdmissionToken,
+    RuntimeApiErrorKind, RuntimeSessionInfo, mock_authenticated_runtime_client,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -56,7 +56,7 @@ fn capability_wave_is_exactly_required_by_the_client() {
     for capability in ["project.list.v1", "project.restore.v1"] {
         assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&capability));
     }
-    assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
+    assert!(PROTECTED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
 }
 
 fn session() -> RuntimeSessionInfo {
@@ -64,7 +64,7 @@ fn session() -> RuntimeSessionInfo {
         profile_id: "gocode-ui-client/1".into(),
         schema_hash: "test".into(),
         runtime_version: "test".into(),
-        capabilities: REQUIRED_RUNTIME_CAPABILITIES
+        capabilities: PROTECTED_RUNTIME_CAPABILITIES
             .iter()
             .map(|value| (*value).into())
             .collect(),

@@ -63,7 +63,7 @@ impl DaemonApplication {
                 .certificate_der()
                 .as_ref()
                 .to_vec(),
-            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+            self.runtime_capabilities
                 .iter()
                 .map(|capability| (*capability).to_owned())
                 .collect(),
@@ -115,14 +115,14 @@ impl DaemonApplication {
         Ok(Arc::clone(&self.session_clock))
     }
 
-    /// Returns the only native-root issuer for a verified desktop-protected launch.
+    /// Returns the opaque root-control capability for a verified protected launch.
     #[cfg(feature = "desktop-protected")]
-    pub fn protected_root_admission_authority(
+    pub fn protected_root_control(
         &self,
-    ) -> Result<Arc<super::root_handle_admission::RootHandleAdmissionAuthority>, DaemonError> {
-        self.root_admission_authority
+    ) -> Result<Arc<crate::protected_activation::ProtectedRootControl>, DaemonError> {
+        self.root_control
             .as_ref()
             .cloned()
-            .ok_or_else(|| DaemonError::Bootstrap("root admission authority is unavailable".into()))
+            .ok_or_else(|| DaemonError::Bootstrap("protected root control is unavailable".into()))
     }
 }

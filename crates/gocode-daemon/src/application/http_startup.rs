@@ -27,6 +27,8 @@ pub(super) async fn start_http_and_runtime(
 ) -> Result<DaemonApplication, DaemonError> {
     #[cfg(not(feature = "desktop-protected"))]
     let _ = &root_admission_keys;
+    let runtime_capabilities =
+        runtime_capabilities(protected_activation, root_admission_keys.is_some());
     let runtime_config = RuntimeConfig {
         max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
             DaemonError::Config("max_in_flight does not fit this platform".to_owned())
@@ -109,9 +111,7 @@ pub(super) async fn start_http_and_runtime(
         replay_lineage,
         gocode_runtime::bundle::BUNDLE_ID,
         schema_hash,
-        gocode_http::runtime_profile::ordered_capability_digest(
-            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
-        ),
+        gocode_http::runtime_profile::ordered_capability_digest(runtime_capabilities),
     )
     .map_err(|_| DaemonError::Bootstrap("build stable local session binding".into()))?;
     let binding = RuntimeSessionBinding::new(
@@ -152,8 +152,9 @@ pub(super) async fn start_http_and_runtime(
     );
     let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
     #[cfg(feature = "desktop-protected")]
-    let (project_workspace_host, root_admission_authority) = {
+    let (project_workspace_host, root_control) = {
         use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority};
+        use crate::protected_activation::ProtectedRootControl;
         let authority = root_admission_keys
             .filter(|_| protected_activation)
             .map(|keys| {
@@ -175,7 +176,7 @@ pub(super) async fn start_http_and_runtime(
                 gateway.clone(),
                 gateway,
             ),
-            authority,
+            authority.map(ProtectedRootControl::new),
         )
     };
     #[cfg(not(feature = "desktop-protected"))]
@@ -199,7 +200,7 @@ pub(super) async fn start_http_and_runtime(
             gocode_runtime::bundle::BUNDLE_ID,
             gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH,
             env!("CARGO_PKG_VERSION"),
-            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+            runtime_capabilities,
         ),
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor),
@@ -238,6 +239,7 @@ pub(super) async fn start_http_and_runtime(
                     &bootstrap.launch_identity,
                     bootstrap.local_session_authority_id,
                     uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
+                    runtime_capabilities,
                 )
             });
         match result {
@@ -271,8 +273,16 @@ pub(super) async fn start_http_and_runtime(
         task_supervisor: RuntimeTaskSupervisor::new(),
         shutdown_timeout,
         #[cfg(feature = "desktop-protected")]
-        root_admission_authority,
+        root_control,
+        runtime_capabilities,
     })
+}
+
+fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static str] {
+    if cfg!(feature = "desktop-protected") && protected && has_keys {
+        return gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES;
+    }
+    gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES
 }
 
 fn operational_telemetry_state(
@@ -284,3 +294,6 @@ fn operational_telemetry_state(
         binding.ephemeral().launch_generation(),
     ))
 }
+
+#[cfg(test)]
+mod tests;

@@ -20,19 +20,17 @@ const MAX_PENDING: usize = 64;
 const TTL_MILLIS: u64 = 30_000;
 const PRINCIPAL: &str = "local-owner";
 #[derive(Clone)]
-#[doc(hidden)]
-pub struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);
+pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);
 impl RootAdmissionGateway {
-    pub fn unavailable() -> Self {
+    pub(crate) fn unavailable() -> Self {
         Self(None)
     }
-    pub fn protected(value: Arc<RootHandleAdmissionAuthority>) -> Self {
+    pub(crate) fn protected(value: Arc<RootHandleAdmissionAuthority>) -> Self {
         Self(Some(value))
     }
 }
 #[derive(Clone)]
-#[doc(hidden)]
-pub struct RootHandleAdmissionAuthority {
+pub(crate) struct RootHandleAdmissionAuthority {
     state: Arc<Mutex<State>>,
     authenticator: Arc<RootAdmissionAuthenticator>,
     sessions: Arc<Mutex<LocalSessionService>>,
@@ -63,8 +61,7 @@ impl Drop for Lease {
     }
 }
 impl RootHandleAdmissionAuthority {
-    #[doc(hidden)]
-    pub fn new(
+    pub(crate) fn new(
         keys: &ProtectedActivationKeys,
         store: ProjectWorkspaceStore,
         runtime_authority: String,
@@ -85,8 +82,7 @@ impl RootHandleAdmissionAuthority {
         })
     }
     /// Retains the verified descriptor and issues a claim only for a current owned Workspace.
-    #[doc(hidden)]
-    pub fn admit(
+    pub(crate) fn admit(
         &self,
         offer: &RootHandleTransferOffer,
         root: VerifiedRootHandle,
@@ -155,8 +151,7 @@ impl RootHandleAdmissionAuthority {
         Ok(admission)
     }
     /// Fences every native admission before session renewal or shutdown.
-    #[doc(hidden)]
-    pub fn fence(&self) -> Result<(), RootAdmissionVerifierError> {
+    pub(crate) fn fence(&self) -> Result<(), RootAdmissionVerifierError> {
         let mut state = self
             .state
             .lock()
@@ -218,8 +213,7 @@ impl CurrentRootAdmissionContext for RootAdmissionGateway {
         Ok(GatewayLease(Some(Lease(Arc::clone(authority)))))
     }
 }
-#[doc(hidden)]
-pub struct GatewayLease(Option<Lease>);
+pub(crate) struct GatewayLease(Option<Lease>);
 impl RootAdmissionLease for GatewayLease {
     fn current_root_admission_context(
         &self,

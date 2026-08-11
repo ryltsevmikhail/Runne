@@ -44,6 +44,30 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "workspace.bind_root.v2",
 ];
 
+/// Exact base profile for external and deterministic daemon modes.
+pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+];
+
 /// Ordered capability catalog described by the generated API contract.
 pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "conversation.create.v1",

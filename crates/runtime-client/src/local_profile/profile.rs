@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 use crate::{
-    AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, REQUIRED_RUNTIME_CAPABILITIES, RuntimeEndpoint,
+    AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, RuntimeEndpoint,
 };
 
 const LOCAL_PROFILE_SCHEMA_VERSION: u32 = 2;
@@ -137,12 +137,7 @@ impl LocalRuntimeProfile {
         }
         let event_log_lineage_id = parse_uuid_v7(&wire.event_log_lineage_id)?;
         let daemon_instance_id = parse_uuid_v7(&wire.daemon_instance_id)?;
-        if !wire
-            .capabilities
-            .iter()
-            .map(String::as_str)
-            .eq(REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
-        {
+        if !crate::canonical::is_supported_capability_profile(&wire.capabilities) {
             return Err(LocalProfileError::InvalidProfile);
         }
 

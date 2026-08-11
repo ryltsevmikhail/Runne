@@ -3,7 +3,7 @@
 use super::DaemonApplication;
 use crate::error::DaemonError;
 #[cfg(unix)]
-use crate::protected_activation::VerifiedProtectedApplicationStart;
+use crate::protected_activation::VerifiedProtectedRuntimeStart;
 
 pub(crate) mod provider_dependencies;
 
@@ -16,10 +16,10 @@ pub use provider_dependencies::ProtectedProviderDependencyCapsule;
 /// callers cannot select configuration, activation, provenance, or sender internals.
 #[cfg(unix)]
 pub async fn start_from_verified_protected_launch(
-    verified_launch: VerifiedProtectedApplicationStart,
-    keys: gocode_api::ProtectedActivationKeys,
+    verified_launch: VerifiedProtectedRuntimeStart,
     dependencies: ProtectedProviderDependencyCapsule,
 ) -> Result<DaemonApplication, DaemonError> {
+    let (verified_launch, keys) = verified_launch.into_parts();
     DaemonApplication::start_protected(verified_launch, keys, dependencies).await
 }
 
