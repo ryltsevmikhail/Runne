@@ -58,7 +58,7 @@ impl VerifiedProtectedApplicationStart {
 }
 
 /// Validated protected launch retained only by the daemon native host.
-pub struct ProtectedDaemonLaunch {
+pub(crate) struct ProtectedDaemonLaunch {
     request: DaemonLaunchRequest,
     keys: ProtectedActivationKeys,
     config: ConfigurationSnapshot,
@@ -69,7 +69,7 @@ pub struct ProtectedDaemonLaunch {
 #[cfg(unix)]
 impl ProtectedDaemonLaunch {
     /// Reads, validates, and—when needed—two-phase commits first activation.
-    pub fn accept<F>(
+    pub(crate) fn accept<F>(
         channel: &mut ProtectedActivationChannel,
         executable_path: &Path,
         mut now_unix_millis: F,
@@ -179,20 +179,8 @@ impl ProtectedDaemonLaunch {
         })
     }
 
-    #[cfg(all(feature = "test-support", feature = "desktop-protected"))]
-    #[doc(hidden)]
-    pub fn bootstrap_runtime_start_for_test<F>(
-        &mut self,
-        now_unix_millis: F,
-    ) -> Result<VerifiedProtectedRuntimeStart, LaunchAuthorityError>
-    where
-        F: FnMut() -> Result<u64, LaunchAuthorityError>,
-    {
-        self.bootstrap_runtime_start(now_unix_millis)
-    }
-
     /// Completes storage bootstrap only after protected admission succeeded.
-    pub fn bootstrap<F>(
+    pub(crate) fn bootstrap<F>(
         &mut self,
         mut now_unix_millis: F,
     ) -> Result<BootstrapOutcome, LaunchAuthorityError>
@@ -243,35 +231,31 @@ impl ProtectedDaemonLaunch {
         })
     }
 
-    pub const fn request_v1(&self) -> Option<&ProtectedLaunchRequestV1> {
+    pub(crate) const fn request_v1(&self) -> Option<&ProtectedLaunchRequestV1> {
         match &self.request {
             DaemonLaunchRequest::V1(request) => Some(request),
             DaemonLaunchRequest::V2(_) => None,
         }
     }
 
-    /// Returns the read-only V1 compatibility identity used by existing
-    /// first-activation recovery code. It never carries or selects a provider.
-    pub const fn request(&self) -> &ProtectedLaunchRequestV1 {
+    /// Returns the test-only V1 compatibility identity.
+    #[cfg(test)]
+    pub(crate) const fn request(&self) -> &ProtectedLaunchRequestV1 {
         self.request.compatibility()
     }
 
-    pub const fn request_v2(&self) -> Option<&ProtectedLaunchRequestV2> {
+    pub(crate) const fn request_v2(&self) -> Option<&ProtectedLaunchRequestV2> {
         match &self.request {
             DaemonLaunchRequest::V1(_) => None,
             DaemonLaunchRequest::V2(request) => Some(request),
         }
     }
 
-    pub const fn provider_activation(&self) -> &ProviderActivation {
-        &self.provider_activation
-    }
-
-    pub const fn keys(&self) -> &ProtectedActivationKeys {
+    pub(crate) const fn keys(&self) -> &ProtectedActivationKeys {
         &self.keys
     }
 
-    pub const fn config(&self) -> &ConfigurationSnapshot {
+    pub(crate) const fn config(&self) -> &ConfigurationSnapshot {
         &self.config
     }
 }

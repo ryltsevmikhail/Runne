@@ -107,6 +107,8 @@ mod first_activation;
 mod host;
 #[cfg(unix)]
 mod launch;
+#[cfg(all(unix, feature = "test-support", feature = "desktop-protected"))]
+mod loopback_fixture;
 #[cfg(unix)]
 mod request;
 #[cfg(all(unix, feature = "desktop-protected"))]
@@ -122,12 +124,16 @@ pub(crate) use control::{run_control_loop, run_control_loop_v2};
 pub use first_activation::random_control_secret;
 #[cfg(unix)]
 pub use host::run_verified_protected_channel;
-#[cfg(unix)]
-pub use launch::ProtectedDaemonLaunch;
 #[cfg(all(unix, feature = "desktop-protected"))]
 pub(crate) use launch::{VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart};
 #[cfg(all(unix, feature = "desktop-protected"))]
 pub(crate) use root_handle_control::dispatch_root_handle_control_frame;
+#[cfg(all(test, unix, feature = "test-support"))]
+mod launch_channel_tests;
+#[cfg(all(test, unix, feature = "desktop-protected", feature = "test-support"))]
+mod root_handle_control_tests;
+#[cfg(all(unix, feature = "test-support", feature = "desktop-protected"))]
+mod test_root_admission_fixture;
 #[cfg(all(unix, feature = "test-support"))]
 pub mod test_support;
 

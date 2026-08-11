@@ -2,13 +2,12 @@ use super::projection::{derived_identity, policy_binding_digest};
 use super::readiness::{credential_access_policy, native_journal_keyring};
 use super::*;
 use crate::application::workspace_internal::{
-    ProtectedProviderDependencyCapsule, provider_dependencies::ProviderDependencyState,
+    ProtectedProviderDependencyCapsule, ProviderDependencyState,
 };
 use crate::operational_telemetry::{
     DaemonOperationalTelemetryCompositionError, DaemonTelemetryLaunchContext,
 };
 use gocode_observability::operational::RecoveryObservationRegistry;
-
 /// Normative cumulative provider token budget for development/ad-hoc policy V1.
 pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
 /// Normative cumulative provider cost budget in micro-USD.
@@ -19,7 +18,6 @@ pub(super) const PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS: u64 = 120;
 pub(super) const PROVIDER_POLICY_V1_LEASE_SECONDS: u64 = 600;
 /// Normative policy revision and revocation epoch.
 pub(super) const PROVIDER_POLICY_V1_REVISION: u64 = 1;
-
 /// Runs concrete OpenAI composition only for the exact selected activation.
 /// Deterministic mode returns without evaluating the probe future.
 pub async fn compose_selected_provider<T, F, Fut>(
@@ -36,7 +34,6 @@ where
         Ok(None)
     }
 }
-
 /// Fully composed canonical OpenAI service. Concrete adapters remain here.
 pub struct DaemonCanonicalOpenAiService {
     pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,

@@ -65,8 +65,7 @@ mod provider_startup;
 mod readiness;
 mod replay_authorization;
 #[cfg(all(feature = "test-support", feature = "desktop-protected"))]
-#[doc(hidden)]
-pub mod root_admission_test_support;
+pub(crate) mod root_admission_test_support;
 #[cfg(not(feature = "desktop-protected"))]
 mod root_admission_unavailable;
 #[cfg(feature = "desktop-protected")]
@@ -77,8 +76,7 @@ mod shutdown;
 mod startup;
 #[cfg(test)]
 mod tests;
-#[doc(hidden)]
-pub mod workspace_internal;
+pub(crate) mod workspace_internal;
 
 use runtime_connection::open_runtime_connection;
 pub use startup::DaemonApplication;

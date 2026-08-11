@@ -1,4 +1,9 @@
 pub(super) fn project_workspace_schema() -> Value {
+    let encoded_len = (gocode_api::ROOT_HANDLE_ADMISSION_V2_BYTES * 4).div_ceil(3);
+    let full_groups = (encoded_len - 3) / 4;
+    let root_admission_pattern = format!(
+        "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{{4}}){{{full_groups}}}[A-Za-z0-9_-]{{2}}[AEIMQUYcgkosw048]$"
+    );
     let id = || json!({"maxLength": 36, "pattern": UUID_V7_PATTERN, "type": "string"});
     let version = || positive_integer_schema();
     let name = || json!({
@@ -18,15 +23,11 @@ pub(super) fn project_workspace_schema() -> Value {
         "type": "string",
     });
     let root_admission = json!({
-        "anyOf": [
-            {"pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})+$"},
-            {"pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})*[A-Za-z0-9_-][AQgw]$"},
-            {"pattern": "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{4})*[A-Za-z0-9_-]{2}[AEIMQUYcgkosw048]$"}
-        ],
-        "maxLength": 5487,
-        "minLength": 27,
+        "maxLength": gocode_api::MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES,
+        "minLength": gocode_api::MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES,
+        "pattern": root_admission_pattern,
         "type": "string",
-        "x-gocode-maxUtf8Bytes": 5487,
+        "x-gocode-maxUtf8Bytes": gocode_api::MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES,
     });
     let defs = json!({
         "project": project(), "workspace": workspace(),
@@ -47,5 +48,9 @@ pub(super) fn project_workspace_schema() -> Value {
 }
 
 pub(super) fn project_workspace_golden() -> Value {
-    json!({"project": {"projectId": "018f2e3a-7000-7000-8000-000000000201", "displayName": "Project", "version": 1, "archived": false}, "workspace": {"workspaceId": "018f2e3a-7000-7000-8000-000000000202", "projectId": "018f2e3a-7000-7000-8000-000000000201", "displayName": "Workspace", "version": 1, "open": false}, "projectPage": {"items": [], "nextCursor": null}, "workspacePage": {"items": [], "nextCursor": null}, "rootBind": {"expectedVersion": 1, "rootAdmission": "gocode-root-admission-v2.AA"}})
+    let root_admission = format!(
+        "gocode-root-admission-v2.{}",
+        "A".repeat((gocode_api::ROOT_HANDLE_ADMISSION_V2_BYTES * 4).div_ceil(3)),
+    );
+    json!({"project": {"projectId": "018f2e3a-7000-7000-8000-000000000201", "displayName": "Project", "version": 1, "archived": false}, "workspace": {"workspaceId": "018f2e3a-7000-7000-8000-000000000202", "projectId": "018f2e3a-7000-7000-8000-000000000201", "displayName": "Workspace", "version": 1, "open": false}, "projectPage": {"items": [], "nextCursor": null}, "workspacePage": {"items": [], "nextCursor": null}, "rootBind": {"expectedVersion": 1, "rootAdmission": root_admission}})
 }

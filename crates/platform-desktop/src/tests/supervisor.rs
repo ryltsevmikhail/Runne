@@ -210,7 +210,6 @@
         supervisor
             .record_authenticated_ready(&authenticated_handshake())
             .expect("prove current owned launch");
-
         assert_eq!(
             supervisor.stop(
                 &authenticated_handshake(),
@@ -237,7 +236,6 @@
         supervisor
             .record_authenticated_ready(&authenticated_handshake())
             .expect("prove current owned launch");
-
         assert_eq!(
             supervisor.stop(
                 &authenticated_handshake(),

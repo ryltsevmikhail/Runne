@@ -1,0 +1,236 @@
+//! Sealed inherited-root integration fixture, compiled only for test support.
+
+use std::ffi::OsStr;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use gocode_api::{
+    ApiActor, ApiPrincipalId, BindWorkspaceRootCommand, DaemonInstanceId, LaunchSecret,
+    ProjectCommandContext, ProtectedActivationKeys, ProtectedOwnedLaunchV1, ProtectedReadyV1,
+    ProtectedRuntimeProfileV1, RuntimeSessionBinding, StableRuntimeBinding, StableRuntimeBindingV1,
+};
+use gocode_application::local_session::LocalSessionService;
+use gocode_application::ports::{ProjectWorkspaceRepository, RuntimeAuthorityId};
+use gocode_domain::{
+    event::Sensitivity,
+    id::{CommandId, EventLogLineageId, IdempotencyKey, ProjectId, WorkspaceId},
+    project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace},
+};
+use gocode_security::SecretBroker;
+use gocode_store::{ProjectWorkspaceStore, schema, store::StoreTransaction};
+
+use crate::application::root_admission_test_support::RootAdmissionHarness;
+
+use super::ProtectedActivationChannel;
+
+const AUTHORITY: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
+const LINEAGE: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 2];
+const DAEMON: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 3];
+const SESSION: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 4];
+const PROJECT: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 5];
+const WORKSPACE: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 6];
+
+pub fn run_inherited_root_admission_fixture(token_path: &OsStr) {
+    let mut channel = ProtectedActivationChannel::from_inherited_stdin()
+        .expect("open inherited channel")
+        .expect("inherited channel");
+    let (keys, owned) = fixture();
+    let authority = child_authority(
+        &keys,
+        std::path::Path::new(token_path)
+            .parent()
+            .expect("fixture directory"),
+    );
+    let mut used = std::collections::VecDeque::new();
+    let first = channel.read_control_frame().expect("read offer");
+    let sequence = authority
+        .dispatch(&mut channel, &first, &keys, &owned, &mut used, 0, now())
+        .expect("dispatch offer")
+        .expect("root frame");
+    let token = authority
+        .take_admission()
+        .expect("retained admission")
+        .encode_token()
+        .expect("encode admission");
+    std::fs::write(token_path, &token).expect("write admission");
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
+    assert_eq!(
+        runtime
+            .block_on(authority.bind(command("bind-1"), bind(&token)))
+            .expect("bind once")
+            .new_version,
+        2
+    );
+    assert!(
+        runtime
+            .block_on(authority.bind(command("bind-2"), bind(&token)))
+            .is_err()
+    );
+    authority.fence().expect("fence");
+    assert!(
+        authority
+            .verify(gocode_api::RootHandleAdmission::decode_token(&token).expect("decode"))
+            .is_err()
+    );
+    let second = channel.read_control_frame().expect("read shutdown");
+    authority
+        .dispatch(
+            &mut channel,
+            &second,
+            &keys,
+            &owned,
+            &mut used,
+            sequence,
+            now(),
+        )
+        .expect("dispatch shutdown")
+        .expect("shutdown frame");
+    runtime.block_on(authority.shutdown());
+    authority
+        .run_control(
+            channel,
+            keys,
+            owned,
+            Arc::new(Mutex::new(session_service())),
+            Arc::new(|| Duration::from_secs(1)),
+        )
+        .expect("control loop");
+}
+
+fn child_authority(
+    keys: &ProtectedActivationKeys,
+    directory: &std::path::Path,
+) -> RootAdmissionHarness {
+    let path = directory.join("event-log.db");
+    let writer = schema::open_with_pragmas(path.to_str().expect("database path")).expect("writer");
+    schema::apply_migrations(&writer).expect("migrations");
+    let reader = rusqlite::Connection::open(&path).expect("reader");
+    reader
+        .execute_batch("PRAGMA query_only = ON;")
+        .expect("reader only");
+    let store = StoreTransaction::open_with_connections(
+        path.to_str().expect("database path"),
+        writer,
+        reader,
+        RuntimeAuthorityId("b1b-transport".into()),
+        Arc::new(SecretBroker::new().prohibited_content_guard()),
+    )
+    .expect("store");
+    let repository = ProjectWorkspaceStore::from_store(store);
+    repository
+        .create_project(
+            "local-owner",
+            CommandId::from_bytes(PROJECT),
+            &IdempotencyKey::new("project").expect("key"),
+            Project::create(
+                ProjectId::from_bytes(PROJECT),
+                ProjectWorkspaceDisplayName::new("Project".into()).expect("name"),
+            ),
+        )
+        .expect("project");
+    repository
+        .create_workspace(
+            "local-owner",
+            CommandId::from_bytes(WORKSPACE),
+            &IdempotencyKey::new("workspace").expect("key"),
+            Workspace::create(
+                workspace(),
+                ProjectId::from_bytes(PROJECT),
+                ProjectWorkspaceDisplayName::new("Workspace".into()).expect("name"),
+            ),
+        )
+        .expect("workspace");
+    RootAdmissionHarness::new(
+        keys,
+        repository.clone(),
+        "b1b-transport".into(),
+        Arc::new(Mutex::new(session_service())),
+    )
+}
+
+fn bind(token: &str) -> BindWorkspaceRootCommand {
+    BindWorkspaceRootCommand {
+        workspace_id: workspace(),
+        expected_version: 1,
+        root_admission: gocode_api::RootHandleAdmission::decode_token(token).expect("decode"),
+    }
+}
+
+fn command(key: &str) -> ProjectCommandContext {
+    ProjectCommandContext {
+        command_id: CommandId::from_bytes(*uuid::Uuid::now_v7().as_bytes()),
+        idempotency_key: IdempotencyKey::new(key).expect("key"),
+        principal: ApiPrincipalId::new("local-owner").expect("principal"),
+        actor: ApiActor::new("desktop").expect("actor"),
+    }
+}
+
+const fn workspace() -> WorkspaceId {
+    WorkspaceId::from_bytes(WORKSPACE)
+}
+
+fn fixture() -> (ProtectedActivationKeys, ProtectedOwnedLaunchV1) {
+    let keys = LaunchSecret::from_bytes([9; 32])
+        .expect("secret")
+        .derive_keys();
+    let executable = gocode_api::ExecutableIdentityV1::new([1; 32], [2; 32], 1).expect("exe");
+    let profile =
+        ProtectedRuntimeProfileV1::new("fixture", 1, "fixture", [3; 32], [4; 32]).expect("profile");
+    let stable = StableRuntimeBindingV1::new(
+        AUTHORITY,
+        "local-owner",
+        LINEAGE,
+        "fixture",
+        [3; 32],
+        [4; 32],
+    )
+    .expect("stable");
+    let ready = ProtectedReadyV1::new(
+        AUTHORITY,
+        AUTHORITY,
+        executable,
+        profile,
+        stable,
+        DAEMON,
+        1,
+        SESSION,
+        "https://127.0.0.1",
+        [5; 32],
+        vec![1],
+        vec!["fixture".into()],
+    )
+    .expect("ready");
+    (keys, ready.owned_launch())
+}
+
+fn session_service() -> LocalSessionService {
+    let stable = StableRuntimeBinding::new(
+        AUTHORITY,
+        ApiPrincipalId::new("local-owner").expect("principal"),
+        EventLogLineageId::from_bytes(LINEAGE),
+        "fixture",
+        [3; 32],
+        [4; 32],
+    )
+    .expect("stable");
+    let binding = RuntimeSessionBinding::new(
+        stable,
+        DaemonInstanceId::from_bytes(DAEMON),
+        1,
+        SESSION,
+        0,
+        Sensitivity::Public,
+        [5; 32],
+    )
+    .expect("binding");
+    LocalSessionService::new(binding, [7; 32])
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("time")
+        .as_millis()
+        .try_into()
+        .expect("millis")
+}

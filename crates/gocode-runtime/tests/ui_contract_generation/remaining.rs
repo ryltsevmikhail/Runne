@@ -114,6 +114,7 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "workspace.get.v1",
         "workspace.create.v1",
         "workspace.open.v1",
+        "workspace.bind_root.v2",
     ]);
     assert_eq!(bundle["publishedCapabilities"], expected_capabilities);
     assert_eq!(bundle["capabilityCatalog"], expected_capabilities);

@@ -5,17 +5,16 @@ use std::sync::{Arc, Mutex};
 use gocode_api::{
     BindWorkspaceRootCommand, LaunchAuthorityError, ProjectCommandContext,
     ProjectWorkspaceCommandHostPort, ProtectedActivationKeys, ProtectedOwnedLaunchV1,
-    RootHandleAdmission, RootHandleTransferOffer, VerifiedRootAdmissionClaims,
+    RootHandleAdmission, VerifiedRootAdmissionClaims,
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::RootAdmissionVerifierError;
-use gocode_platform_desktop::VerifiedRootHandle;
 use gocode_runtime::RuntimeProjectWorkspaceHost;
 use gocode_store::ProjectWorkspaceStore;
 
 use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority};
 
-pub struct RootAdmissionHarness {
+pub(crate) struct RootAdmissionHarness {
     authority: Arc<RootHandleAdmissionAuthority>,
     gateway: RootAdmissionGateway,
     host: RuntimeProjectWorkspaceHost<
@@ -26,7 +25,7 @@ pub struct RootAdmissionHarness {
 }
 
 impl RootAdmissionHarness {
-    pub fn new(
+    pub(crate) fn new(
         keys: &ProtectedActivationKeys,
         store: ProjectWorkspaceStore,
         runtime_authority: String,
@@ -43,16 +42,7 @@ impl RootAdmissionHarness {
         }
     }
 
-    pub fn admit(
-        &self,
-        offer: &RootHandleTransferOffer,
-        root: VerifiedRootHandle,
-        now: u64,
-    ) -> Result<RootHandleAdmission, RootAdmissionVerifierError> {
-        self.authority.admit(offer, root, now)
-    }
-
-    pub fn verify(
+    pub(crate) fn verify(
         &self,
         admission: RootHandleAdmission,
     ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError> {
@@ -62,16 +52,16 @@ impl RootAdmissionHarness {
         )
     }
 
-    pub fn fence(&self) -> Result<(), RootAdmissionVerifierError> {
+    pub(crate) fn fence(&self) -> Result<(), RootAdmissionVerifierError> {
         self.authority.fence()
     }
 
-    pub fn take_admission(&self) -> Option<RootHandleAdmission> {
+    pub(crate) fn take_admission(&self) -> Option<RootHandleAdmission> {
         self.authority.take_test_admission()
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn dispatch(
+    pub(crate) fn dispatch(
         &self,
         channel: &mut crate::protected_activation::ProtectedActivationChannel,
         frame: &[u8],
@@ -95,7 +85,7 @@ impl RootAdmissionHarness {
         )
     }
 
-    pub fn run_control(
+    pub(crate) fn run_control(
         &self,
         channel: crate::protected_activation::ProtectedActivationChannel,
         keys: ProtectedActivationKeys,
@@ -115,7 +105,7 @@ impl RootAdmissionHarness {
         )
     }
 
-    pub async fn bind(
+    pub(crate) async fn bind(
         &self,
         context: ProjectCommandContext,
         command: BindWorkspaceRootCommand,
@@ -123,7 +113,7 @@ impl RootAdmissionHarness {
         self.host.bind_workspace_root(context, command).await
     }
 
-    pub async fn shutdown(&self) {
+    pub(crate) async fn shutdown(&self) {
         self.host.shutdown().await;
     }
 }

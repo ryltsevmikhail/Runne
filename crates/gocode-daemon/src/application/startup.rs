@@ -83,11 +83,10 @@ pub struct DaemonApplication {
 }
 
 impl DaemonApplication {
-    pub(super) async fn start_external_from_fixed_source(
-        dependencies: ProtectedProviderDependencyCapsule,
-    ) -> Result<Self, DaemonError> {
+    pub async fn start_external_from_fixed_source() -> Result<Self, DaemonError> {
         let verified = VerifiedOwnerPrivateConfig::load_fixed_source()?;
-        Self::start_verified_external(verified, dependencies).await
+        Self::start_verified_external(verified, ProtectedProviderDependencyCapsule::production())
+            .await
     }
 
     async fn start_verified_external(

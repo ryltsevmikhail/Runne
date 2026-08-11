@@ -1,6 +1,6 @@
 //! GOCODE Runtime Daemon.
 
-use gocode_daemon::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
+use gocode_daemon::application::DaemonApplication;
 #[cfg(unix)]
 use gocode_daemon::protected_activation::{
     ProtectedActivationChannel, run_verified_protected_channel,
@@ -31,14 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run_external() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
-        let application = workspace_internal::start_external_from_fixed_source(
-            ProtectedProviderDependencyCapsule::production(),
-        )
-        .await
-        .map_err(|error| {
-            eprintln!("fatal: bootstrap error: {error}");
-            std::process::exit(2);
-        })?;
+        let application = DaemonApplication::start_external_from_fixed_source()
+            .await
+            .map_err(|error| {
+                eprintln!("fatal: bootstrap error: {error}");
+                std::process::exit(2);
+            })?;
         tracing::info!(
             authority_id = hex::encode(application.authority_id()),
             db_existed = application.db_existed(),

@@ -8,8 +8,7 @@ use gocode_secure_store::ProviderJournalKeyring;
 ///
 /// This capsule intentionally has no raw accessors: provider composition is the
 /// sole consumer that may select its complete production or fixture state.
-#[doc(hidden)]
-pub struct ProtectedProviderDependencyCapsule(ProviderDependencyState);
+pub(crate) struct ProtectedProviderDependencyCapsule(ProviderDependencyState);
 
 pub(crate) enum ProviderDependencyState {
     Production,
@@ -21,13 +20,11 @@ pub(crate) enum ProviderDependencyState {
 }
 
 impl ProtectedProviderDependencyCapsule {
-    #[doc(hidden)]
-    pub const fn production() -> Self {
+    pub(crate) const fn production() -> Self {
         Self(ProviderDependencyState::Production)
     }
 
-    #[doc(hidden)]
-    pub fn from_loopback_fixture(
+    pub(crate) fn from_loopback_fixture(
         effect: Arc<dyn OpenAiEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,

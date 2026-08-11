@@ -1,5 +1,3 @@
-#![cfg(all(unix, feature = "desktop-protected", feature = "test-support"))]
-
 use std::io::Read as _;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
@@ -7,16 +5,16 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::protected_activation::ProtectedActivationChannel;
+use crate::protected_activation::test_support::{
+    dispatch_without_admission, run_without_admission,
+};
 use gocode_api::{
     ApiPrincipalId, ExecutableIdentityV1, LaunchSecret, ProtectedActivationKeys,
     ProtectedOwnedLaunchV1, ProtectedReadyV1, ProtectedRuntimeProfileV1, RuntimeSessionBinding,
     StableRuntimeBinding, StableRuntimeBindingV1,
 };
 use gocode_application::local_session::LocalSessionService;
-use gocode_daemon::protected_activation::ProtectedActivationChannel;
-use gocode_daemon::protected_activation::test_support::{
-    dispatch_without_admission, run_without_admission,
-};
 use gocode_domain::{
     event::Sensitivity,
     id::{DaemonInstanceId, EventLogLineageId, WorkspaceId},
@@ -103,7 +101,7 @@ fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejectio
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejections",
+            "protected_activation::root_handle_control_tests::inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejections",
         ])
         .env("GOCODE_B1A_ROOT_CHILD", "1")
         .stdin(Stdio::from(OwnedFd::from(child_channel)))
@@ -167,7 +165,7 @@ fn peer_close_after_offer_poison_reaps_the_exact_child() {
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "peer_close_after_offer_poison_reaps_the_exact_child",
+            "protected_activation::root_handle_control_tests::peer_close_after_offer_poison_reaps_the_exact_child",
         ])
         .env("GOCODE_B1A_PARTIAL_CHILD", "1")
         .stdin(Stdio::from(OwnedFd::from(child_channel)))
@@ -217,7 +215,7 @@ fn invalid_preflight_keeps_the_inherited_channel_healthy() {
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "invalid_preflight_keeps_the_inherited_channel_healthy",
+            "protected_activation::root_handle_control_tests::invalid_preflight_keeps_the_inherited_channel_healthy",
         ])
         .env("GOCODE_B1A_PREFLIGHT_CHILD", "1")
         .stdin(Stdio::from(OwnedFd::from(child_channel)))

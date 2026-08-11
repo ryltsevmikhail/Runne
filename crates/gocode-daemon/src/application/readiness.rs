@@ -17,7 +17,7 @@ impl DaemonApplication {
     }
 
     /// Builds exact authenticated readiness without exposing legacy profile files.
-    pub fn protected_ready(
+    pub(crate) fn protected_ready(
         &self,
         request: &ProtectedLaunchRequestV1,
         keys: &ProtectedActivationKeys,
@@ -74,7 +74,7 @@ impl DaemonApplication {
     }
 
     /// Builds V2 readiness only for the exact protected provider binding.
-    pub fn protected_ready_v2(
+    pub(crate) fn protected_ready_v2(
         &self,
         request: &ProtectedLaunchRequestV2,
         keys: &ProtectedActivationKeys,
@@ -92,7 +92,7 @@ impl DaemonApplication {
     }
 
     /// Shares the in-memory protected session service with the control loop.
-    pub fn protected_session_service(
+    pub(crate) fn protected_session_service(
         &self,
     ) -> Result<Arc<Mutex<LocalSessionService>>, DaemonError> {
         if !self.protected_activation {
@@ -104,7 +104,7 @@ impl DaemonApplication {
     }
 
     /// Shares the daemon monotonic clock used to enforce bootstrap deadlines.
-    pub fn protected_session_clock(
+    pub(crate) fn protected_session_clock(
         &self,
     ) -> Result<Arc<dyn Fn() -> Duration + Send + Sync>, DaemonError> {
         if !self.protected_activation {

@@ -11,7 +11,7 @@
     },
     {
       "path": "golden/project-workspace.json",
-      "sha256": "5ee20d113dc686e7d690efe077c3413065bd364c999330ae3d5372f3740977ab"
+      "sha256": "4ea29e5d1da785ebde17bffa8685c488cc42e0654ccc86239738c16494763994"
     },
     {
       "path": "golden/replay-conversation.json",
@@ -43,7 +43,7 @@
     },
     {
       "path": "schemas/project-workspace-v1.schema.json",
-      "sha256": "5f87860b8a00fe66d689a3b1158500f06966616d3b3e09c995a97d4408793042"
+      "sha256": "0df3be6a8fbe210dd3daa8e4535f463806713b3759e84d0e62f1930bbb41b1fb"
     },
     {
       "path": "schemas/replay-v1.schema.json",

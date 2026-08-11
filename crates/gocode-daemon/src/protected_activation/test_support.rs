@@ -1,10 +1,21 @@
 //! Test-only control helpers that cannot construct a root admission issuer.
 
+#[cfg(test)]
 use super::*;
 
 #[cfg(feature = "desktop-protected")]
+pub use super::test_root_admission_fixture::run_inherited_root_admission_fixture;
+
+/// Runs the closed OpenAI loopback process fixture over inherited stdin.
+#[cfg(feature = "desktop-protected")]
+pub fn run_loopback_inherited_fixture() -> Result<(), crate::error::DaemonError> {
+    super::loopback_fixture::run_inherited_channel()
+}
+
+#[cfg(feature = "desktop-protected")]
 #[allow(clippy::too_many_arguments)]
-pub fn dispatch_without_admission(
+#[cfg(test)]
+pub(crate) fn dispatch_without_admission(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
     keys: &ProtectedActivationKeys,
@@ -17,7 +28,8 @@ pub fn dispatch_without_admission(
 }
 
 #[cfg(feature = "desktop-protected")]
-pub fn run_without_admission(
+#[cfg(test)]
+pub(crate) fn run_without_admission(
     channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     owned: ProtectedOwnedLaunchV1,
@@ -28,7 +40,8 @@ pub fn run_without_admission(
 }
 
 #[cfg(not(feature = "desktop-protected"))]
-pub fn run_without_admission(
+#[cfg(test)]
+pub(crate) fn run_without_admission(
     channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     owned: ProtectedOwnedLaunchV1,
