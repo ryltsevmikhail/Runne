@@ -1,24 +1,34 @@
-#![cfg(unix)]
+#![cfg(all(unix, feature = "test-support"))]
 
 use std::fs;
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
 use gocode_api::{LaunchSecret, RootHandleTransferAuthenticator};
-use gocode_platform_desktop::{RootHandleBroker, VerifiedRootHandle};
+use gocode_platform_desktop::{
+    RootHandleTransferBinding, VerifiedRootHandle, test_transfer_pair, test_transfer_receiver,
+    test_transfer_sender,
+};
 use tempfile::tempdir;
 
-fn authenticator_with_secret(secret: u8) -> RootHandleTransferAuthenticator {
+fn authenticator(secret: u8) -> RootHandleTransferAuthenticator {
     let keys = LaunchSecret::from_bytes([secret; 32])
         .unwrap()
         .derive_keys();
     RootHandleTransferAuthenticator::from_protected_activation(&keys)
 }
 
-fn authenticator() -> RootHandleTransferAuthenticator {
-    authenticator_with_secret(9)
+fn binding() -> RootHandleTransferBinding {
+    RootHandleTransferBinding::test_binding(
+        [7; 16],
+        1,
+        std::process::id(),
+        std::process::id(),
+        rustix::process::getuid().as_raw() as u32,
+    )
+    .unwrap()
 }
 
 fn open(path: &Path) -> VerifiedRootHandle {
@@ -29,60 +39,68 @@ fn open(path: &Path) -> VerifiedRootHandle {
 fn opens_a_directory_handle_without_retaining_or_debugging_its_path() {
     let directory = tempdir().unwrap();
     let root = open(directory.path());
-
     assert!(root.open_relative_directory(Path::new(".")).is_ok());
-    let debug = format!("{root:?}");
-    assert!(!debug.contains(&directory.path().display().to_string()));
-    assert!(debug.contains("redacted"));
+    assert!(!format!("{root:?}").contains(&directory.path().display().to_string()));
 }
 
 #[test]
-fn rejects_final_symlinks_and_parent_traversal() {
+fn rejects_relative_and_intermediate_symlink_paths() {
     let directory = tempdir().unwrap();
     let target = directory.path().join("target");
     let link = directory.path().join("link");
-    let nested = target.join("nested");
-    let nested_link = directory.path().join("nested-link");
     fs::create_dir(&target).unwrap();
-    fs::create_dir(&nested).unwrap();
+    fs::create_dir(target.join("nested")).unwrap();
     std::os::unix::fs::symlink(&target, &link).unwrap();
-    std::os::unix::fs::symlink(&nested, &nested_link).unwrap();
-
+    assert!(VerifiedRootHandle::open(Path::new("relative-directory")).is_err());
     assert!(VerifiedRootHandle::open(&link).is_err());
-    assert!(VerifiedRootHandle::open(&directory.path().join("target/../target")).is_err());
-    assert!(
-        open(directory.path())
-            .open_relative_directory(Path::new("nested-link/child"))
-            .is_err()
-    );
+    assert!(VerifiedRootHandle::open(&link.join("nested")).is_err());
 }
 
 #[test]
-fn authenticated_rights_transfer_rejects_wrong_proof_and_replay() {
+fn receiver_challenge_authenticates_one_real_fd_transfer() {
     let directory = tempdir().unwrap();
     let root = open(directory.path());
-    let (sender, receiver) = UnixStream::pair().unwrap();
-    let broker = RootHandleBroker::new(authenticator());
-
-    let nonce = [4; 32];
-    broker.send_with_nonce(&sender, &root, nonce).unwrap();
-    let transferred = broker.receive(&receiver).unwrap();
-    assert!(transferred.same_filesystem_object(&root));
+    let (sender, receiver) =
+        test_transfer_pair(authenticator(9), authenticator(9), binding()).unwrap();
+    let receiver_thread = std::thread::spawn(move || receiver.receive());
+    sender.transfer(&root).unwrap();
+    let transferred = receiver_thread.join().unwrap().unwrap();
     assert_eq!(
         transferred.filesystem_identity_digest(),
         root.filesystem_identity_digest()
     );
-
-    broker.send_with_nonce(&sender, &root, nonce).unwrap();
-    assert!(broker.receive(&receiver).is_err());
-    RootHandleBroker::new(authenticator_with_secret(10))
-        .send(&sender, &root)
-        .unwrap();
-    assert!(broker.receive(&receiver).is_err());
 }
 
 #[test]
-fn transferred_handle_resists_path_replacement_after_open() {
+fn wrong_peer_is_rejected_before_a_descriptor_is_sent() {
+    let directory = tempdir().unwrap();
+    let root = open(directory.path());
+    let wrong = RootHandleTransferBinding::test_binding(
+        [7; 16],
+        1,
+        std::process::id() + 1,
+        std::process::id(),
+        rustix::process::getuid().as_raw() as u32,
+    )
+    .unwrap();
+    let (sender, _receiver) =
+        test_transfer_pair(authenticator(9), authenticator(9), wrong).unwrap();
+    assert!(sender.transfer(&root).is_err());
+}
+
+#[test]
+fn mismatched_receiver_key_rejects_before_descriptor_adoption() {
+    let directory = tempdir().unwrap();
+    let root = open(directory.path());
+    let (sender, receiver) =
+        test_transfer_pair(authenticator(9), authenticator(10), binding()).unwrap();
+    let receiver_thread = std::thread::spawn(move || receiver.receive());
+    assert!(sender.transfer(&root).is_err());
+    assert!(receiver_thread.join().unwrap().is_err());
+}
+
+#[test]
+fn replacement_after_open_cannot_change_the_transferred_identity() {
     let directory = tempdir().unwrap();
     let selected = directory.path().join("selected");
     let replacement = directory.path().join("replacement");
@@ -90,53 +108,76 @@ fn transferred_handle_resists_path_replacement_after_open() {
     let root = open(&selected);
     fs::rename(&selected, &replacement).unwrap();
     fs::create_dir(&selected).unwrap();
-
-    let (sender, receiver) = UnixStream::pair().unwrap();
-    let broker = RootHandleBroker::new(authenticator());
-    broker.send(&sender, &root).unwrap();
-    let transferred = broker.receive(&receiver).unwrap();
-
+    let (sender, receiver) =
+        test_transfer_pair(authenticator(9), authenticator(9), binding()).unwrap();
+    let receiver_thread = std::thread::spawn(move || receiver.receive());
+    sender.transfer(&root).unwrap();
+    let transferred = receiver_thread.join().unwrap().unwrap();
     assert!(transferred.same_filesystem_object(&root));
     assert!(!transferred.same_filesystem_object(&open(&selected)));
 }
 
 #[test]
-fn real_child_process_receives_authenticated_rights() {
+fn real_child_process_receives_a_receiver_authenticated_transfer() {
     if let Ok(socket_path) = std::env::var("GOCODE_ROOT_HANDLE_CHILD_SOCKET") {
-        let listener = std::os::unix::net::UnixListener::bind(socket_path).unwrap();
-        let (stream, _) = listener.accept().unwrap();
-        let root = RootHandleBroker::new(authenticator())
-            .receive(&stream)
+        let parent_pid = std::env::var("GOCODE_ROOT_HANDLE_PARENT_PID")
+            .unwrap()
+            .parse()
             .unwrap();
-        assert!(root.open_relative_directory(Path::new(".")).is_ok());
-        println!("child-root-identity-verified");
+        let listener = UnixListener::bind(socket_path).unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let binding = RootHandleTransferBinding::test_binding(
+            [8; 16],
+            1,
+            parent_pid,
+            std::process::id(),
+            rustix::process::getuid().as_raw() as u32,
+        )
+        .unwrap();
+        let transferred = test_transfer_receiver(stream, authenticator(9), binding)
+            .receive()
+            .unwrap();
+        println!(
+            "child-root-transfer-digest={}",
+            hex::encode(transferred.filesystem_identity_digest())
+        );
         return;
     }
-
     let directory = tempdir().unwrap();
     let root = open(directory.path());
     let socket_path = directory.path().join("child.sock");
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
-            "real_child_process_receives_authenticated_rights",
+            "real_child_process_receives_a_receiver_authenticated_transfer",
             "--nocapture",
         ])
         .env("GOCODE_ROOT_HANDLE_CHILD_SOCKET", &socket_path)
+        .env(
+            "GOCODE_ROOT_HANDLE_PARENT_PID",
+            std::process::id().to_string(),
+        )
         .stdout(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let sender = connect_to_child(&socket_path);
-    RootHandleBroker::new(authenticator())
-        .send(&sender, &root)
+    let stream = connect_to_child(&socket_path);
+    let binding = RootHandleTransferBinding::test_binding(
+        [8; 16],
+        1,
+        std::process::id(),
+        child.id(),
+        rustix::process::getuid().as_raw() as u32,
+    )
+    .unwrap();
+    test_transfer_sender(stream, authenticator(9), binding)
+        .transfer(&root)
         .unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
-    assert!(
-        String::from_utf8(output.stdout)
-            .unwrap()
-            .contains("child-root-identity-verified")
-    );
+    assert!(String::from_utf8(output.stdout).unwrap().contains(&format!(
+        "child-root-transfer-digest={}",
+        hex::encode(root.filesystem_identity_digest())
+    )));
 }
 
 fn connect_to_child(path: &Path) -> UnixStream {

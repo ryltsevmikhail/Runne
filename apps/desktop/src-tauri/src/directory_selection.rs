@@ -1,14 +1,16 @@
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
+use std::collections::{HashMap, hash_map::Entry};
 use std::fmt;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use gocode_platform_desktop::VerifiedRootHandle;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use crate::renderer_generation::{
+    DirectorySelectionState, RendererGenerationManager, SharedSelectionState,
+};
 
 const MAX_BINDING_BYTES: usize = 128;
 const MAX_SELECTIONS: usize = 64;
@@ -54,178 +56,220 @@ impl DirectorySelectionRef {
 #[error("directory selection rejected")]
 pub struct SelectionError;
 
-struct SelectionEntry {
-    window: String,
+pub struct SelectionEntry {
+    pub(super) window: String,
     generation: u64,
     request: String,
     root: VerifiedRootHandle,
     expires_at: Instant,
 }
 
-/// Native owner of directory handles selected by a renderer request.
+/// Native owner of handles and their authoritative renderer generations.
 pub struct DirectorySelectionManager {
     ttl: Duration,
-    invalidated: AtomicBool,
-    selections: Mutex<HashMap<String, SelectionEntry>>,
+    state: SharedSelectionState,
 }
 
 impl DirectorySelectionManager {
-    #[must_use]
-    pub fn new(ttl: Duration) -> Self {
-        Self {
-            ttl,
-            invalidated: AtomicBool::new(false),
-            selections: Mutex::new(HashMap::new()),
-        }
-    }
-
-    /// Retains a verified native handle behind one random, bounded reference.
+    /// Creates a bounded native selection manager.
     ///
     /// # Errors
     ///
-    /// Returns a closed error for invalid bindings, expired TTLs, or capacity exhaustion.
+    /// Returns a closed error for a zero or overlong reference lifetime.
+    pub fn new(ttl: Duration) -> Result<Self, SelectionError> {
+        if ttl.is_zero() || ttl > MAX_SELECTION_TTL {
+            return Err(SelectionError);
+        }
+        Ok(Self {
+            ttl,
+            state: Arc::new(Mutex::new(DirectorySelectionState {
+                generations: HashMap::default(),
+                selections: HashMap::default(),
+            })),
+        })
+    }
+
+    /// Returns the only generation manager associated with this selection state.
+    #[must_use]
+    pub fn renderer_generations(&self) -> RendererGenerationManager {
+        RendererGenerationManager::from_shared_state(Arc::clone(&self.state))
+    }
+
+    /// Retains a verified handle at the authoritative current generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for invalid bindings, unavailable native state, TTL, or capacity.
     pub fn issue(
         &self,
         window: &str,
-        generation: u64,
+        expected_generation: u64,
         request: &str,
         root: VerifiedRootHandle,
         now: Instant,
     ) -> Result<DirectorySelectionRef, SelectionError> {
-        if !valid_binding(window)
-            || !valid_binding(request)
-            || self.ttl.is_zero()
-            || self.ttl > MAX_SELECTION_TTL
-        {
-            return Err(SelectionError);
-        }
-        let expires_at = now.checked_add(self.ttl).ok_or(SelectionError)?;
-        if self.invalidated.load(Ordering::Acquire) {
-            return Err(SelectionError);
-        }
-        let mut selections = self.selections.lock().map_err(|_| SelectionError)?;
-        selections.retain(|_, entry| entry.expires_at > now);
-        if selections.len() >= MAX_SELECTIONS {
-            return Err(SelectionError);
-        }
-        let mut root = Some(root);
-        for _ in 0..4 {
-            let reference = random_reference();
-            if let Entry::Vacant(slot) = selections.entry(reference.clone()) {
-                slot.insert(new_entry(
-                    window,
-                    generation,
-                    request,
-                    root.take().ok_or(SelectionError)?,
-                    expires_at,
-                ));
-                return Ok(DirectorySelectionRef(reference));
-            }
-        }
-        Err(SelectionError)
+        self.issue_inner(window, expected_generation, request, root, now, None)
     }
 
-    /// Consumes a matching reference exactly once and returns only its handle.
+    /// Consumes only an entry matching the same authoritative generation.
     ///
     /// # Errors
     ///
-    /// Returns a closed error for expired, invalid, or mismatched bindings.
+    /// Returns a closed error for expired, stale, invalid, or mismatched entries.
     pub fn consume(
         &self,
         reference: &DirectorySelectionRef,
         window: &str,
-        generation: u64,
+        expected_generation: u64,
         request: &str,
         now: Instant,
     ) -> Result<VerifiedRootHandle, SelectionError> {
-        if self.invalidated.load(Ordering::Acquire)
-            || !valid_binding(window)
-            || !valid_binding(request)
+        if !valid_binding(window) || !valid_binding(request) {
+            return Err(SelectionError);
+        }
+        let mut state = self.state.lock().map_err(|_| SelectionError)?;
+        let generation = state
+            .existing_generation(window)
+            .map_err(|_| SelectionError)?;
+        let entry = state.selections.get(&reference.0).ok_or(SelectionError)?;
+        if entry.expires_at <= now {
+            state.selections.remove(&reference.0);
+            return Err(SelectionError);
+        }
+        if generation != expected_generation
+            || entry.window != window
+            || entry.generation != generation
+            || entry.request != request
         {
             return Err(SelectionError);
         }
-        let mut selections = self.selections.lock().map_err(|_| SelectionError)?;
-        let entry = selections.get(&reference.0).ok_or(SelectionError)?;
-        if entry.expires_at <= now {
-            selections.remove(&reference.0);
-            return Err(SelectionError);
-        }
-        if entry.window != window || entry.generation != generation || entry.request != request {
-            return Err(SelectionError);
-        }
-        selections
+        state
+            .selections
             .remove(&reference.0)
             .map(|entry| entry.root)
             .ok_or(SelectionError)
     }
 
-    /// Invalidates all pending selections for a destroyed or cancelled window.
+    /// Atomically fences a window and removes all of its pending selections.
     ///
     /// # Errors
     ///
-    /// Returns a closed error and fences all selections if native state is poisoned.
+    /// Returns a closed error for invalid labels, poisoned state, or overflow.
     pub fn invalidate_window(&self, window: &str) -> Result<(), SelectionError> {
-        if !valid_binding(window) {
-            return Err(SelectionError);
-        }
-        self.selections
+        self.state
             .lock()
-            .map_err(|_| {
-                self.invalidated.store(true, Ordering::Release);
-                SelectionError
-            })?
-            .retain(|_, entry| entry.window != window);
-        Ok(())
+            .map_err(|_| SelectionError)?
+            .advance(window)
+            .map(|_| ())
+            .map_err(|_| SelectionError)
     }
 
     #[cfg(feature = "test-support")]
-    #[allow(clippy::too_many_arguments)]
+    /// Issues a deterministic reference for collision tests only.
+    ///
+    /// # Errors
+    ///
+    /// Returns the same closed validation errors as [`Self::issue`].
     pub fn issue_with_reference_for_test(
         &self,
         window: &str,
-        generation: u64,
+        expected_generation: u64,
         request: &str,
         root: VerifiedRootHandle,
         now: Instant,
         reference: String,
     ) -> Result<DirectorySelectionRef, SelectionError> {
-        if self.invalidated.load(Ordering::Acquire)
-            || !valid_binding(window)
-            || !valid_binding(request)
-            || self.ttl.is_zero()
-            || self.ttl > MAX_SELECTION_TTL
-        {
-            return Err(SelectionError);
-        }
-        let reference = DirectorySelectionRef::parse(&reference)?;
-        let expires_at = now.checked_add(self.ttl).ok_or(SelectionError)?;
-        let mut selections = self.selections.lock().map_err(|_| SelectionError)?;
-        if selections.len() >= MAX_SELECTIONS || selections.contains_key(&reference.0) {
-            return Err(SelectionError);
-        }
-        selections.insert(
-            reference.0.clone(),
-            new_entry(window, generation, request, root, expires_at),
-        );
-        Ok(reference)
+        self.issue_inner(
+            window,
+            expected_generation,
+            request,
+            root,
+            now,
+            Some(reference),
+        )
     }
 
     #[cfg(feature = "test-support")]
+    /// Deliberately poisons the shared state for fail-closed tests.
+    ///
+    /// # Panics
+    ///
+    /// The generated panic is caught internally after it has poisoned the mutex.
     pub fn poison_for_test(&self) {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _lock = self.selections.lock().unwrap();
+            let _lock = self.state.lock().unwrap();
             panic!("test mutex poison");
         }));
+    }
+
+    fn issue_inner(
+        &self,
+        window: &str,
+        expected_generation: u64,
+        request: &str,
+        root: VerifiedRootHandle,
+        now: Instant,
+        requested_reference: Option<String>,
+    ) -> Result<DirectorySelectionRef, SelectionError> {
+        if !valid_binding(window) || !valid_binding(request) {
+            return Err(SelectionError);
+        }
+        let expires_at = now.checked_add(self.ttl).ok_or(SelectionError)?;
+        let mut state = self.state.lock().map_err(|_| SelectionError)?;
+        state.selections.retain(|_, entry| entry.expires_at > now);
+        if state.selections.len() >= MAX_SELECTIONS {
+            return Err(SelectionError);
+        }
+        let generation = state
+            .register_generation(window)
+            .map_err(|_| SelectionError)?;
+        if generation != expected_generation {
+            return Err(SelectionError);
+        }
+        let mut root = Some(root);
+        for reference in references(requested_reference) {
+            if let Entry::Vacant(slot) = state.selections.entry(reference.clone()) {
+                slot.insert(SelectionEntry {
+                    window: window.to_owned(),
+                    generation,
+                    request: request.to_owned(),
+                    root: root.take().ok_or(SelectionError)?,
+                    expires_at,
+                });
+                return Ok(DirectorySelectionRef(reference));
+            }
+        }
+        Err(SelectionError)
     }
 }
 
 impl fmt::Debug for DirectorySelectionManager {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("DirectorySelectionManager")
-            .field("selections", &"<native-only>")
-            .finish()
+        formatter.write_str("DirectorySelectionManager(<native-only>)")
     }
+}
+
+pub fn valid_binding(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_BINDING_BYTES
+        && value.is_ascii()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
+}
+
+fn references(requested: Option<String>) -> impl Iterator<Item = String> {
+    let mut values = Vec::with_capacity(4);
+    if let Some(reference) = requested {
+        if valid_reference(&reference) {
+            values.push(reference);
+        }
+    } else {
+        for _ in 0..4 {
+            values.push(random_reference());
+        }
+    }
+    values.into_iter()
 }
 
 fn random_reference() -> String {
@@ -234,34 +278,11 @@ fn random_reference() -> String {
     hex::encode(bytes)
 }
 
-fn valid_binding(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= MAX_BINDING_BYTES
-        && value.is_ascii()
-        && !value.chars().any(char::is_control)
-}
-
 fn valid_reference(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}
-
-fn new_entry(
-    window: &str,
-    generation: u64,
-    request: &str,
-    root: VerifiedRootHandle,
-    expires_at: Instant,
-) -> SelectionEntry {
-    SelectionEntry {
-        window: window.to_owned(),
-        generation,
-        request: request.to_owned(),
-        root,
-        expires_at,
-    }
 }
 
 #[cfg(test)]

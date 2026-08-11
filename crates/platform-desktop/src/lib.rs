@@ -11,7 +11,14 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
-pub use root_handle_broker::{RootHandleBroker, RootHandleBrokerError, VerifiedRootHandle};
+#[cfg(feature = "test-support")]
+pub use root_handle_broker::test_transfer_pair;
+pub use root_handle_broker::{
+    RootHandleBrokerError, RootHandleTransferBinding, RootHandleTransferReceiver,
+    RootHandleTransferSender, VerifiedRootHandle,
+};
+#[cfg(all(unix, feature = "test-support"))]
+pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 
 use std::collections::VecDeque;
 use std::fmt;
