@@ -2,7 +2,7 @@
 
 use crate::store::StoreTransaction;
 use gocode_application::ports::{
-    ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error, RootAdmissionConsumption,
+    ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error, RootAdmissionAuthorizer,
 };
 use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
 use gocode_domain::project_workspace::{Project, Workspace};
@@ -141,7 +141,7 @@ impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
         key: &IdempotencyKey,
         id: WorkspaceId,
         expected_version: u64,
-        admission: RootAdmissionConsumption,
+        authorizer: &mut dyn RootAdmissionAuthorizer,
     ) -> Result<Workspace, Error> {
         change_workspace(
             &self.store,
@@ -151,7 +151,7 @@ impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
             id,
             expected_version,
             receipts::Operation::BindWorkspaceRoot,
-            Some(admission),
+            Some(authorizer),
         )
     }
 
