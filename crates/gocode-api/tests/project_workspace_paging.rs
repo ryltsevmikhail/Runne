@@ -200,3 +200,44 @@ fn continuation_tokens_are_versioned_canonical_and_principal_bound() {
         );
     }
 }
+
+#[test]
+fn exact_length_unicode_tokens_fail_closed_without_panicking() {
+    let owner = principal();
+    let project_token = ProjectPageCursor::new(owner.clone(), project_id(2))
+        .unwrap()
+        .encode_token();
+    let workspace_token = WorkspacePageCursor::new(owner, project_id(2), workspace_id(3))
+        .unwrap()
+        .encode_token();
+    for replacement in ["€", "💣"] {
+        let invalid_project = unicode_token(&project_token, replacement);
+        assert_eq!(invalid_project.len(), project_token.len());
+        assert_eq!(
+            ProjectPageCursor::decode_token(&invalid_project),
+            Err(PageCursorTokenError::Invalid)
+        );
+        assert_eq!(
+            ProjectPageRequest::from_token(2, Some(&invalid_project)),
+            Err(ProjectWorkspaceHostError::NotFound)
+        );
+
+        let invalid_workspace = unicode_token(&workspace_token, replacement);
+        assert_eq!(invalid_workspace.len(), workspace_token.len());
+        assert_eq!(
+            WorkspacePageCursor::decode_token(&invalid_workspace),
+            Err(PageCursorTokenError::Invalid)
+        );
+        assert_eq!(
+            WorkspacePageRequest::from_token(2, Some(&invalid_workspace)),
+            Err(ProjectWorkspaceHostError::NotFound)
+        );
+    }
+}
+
+fn unicode_token(token: &str, replacement: &str) -> String {
+    let start = token.find('.').unwrap() + 1;
+    let mut invalid = token.to_owned();
+    invalid.replace_range(start..start + replacement.len(), replacement);
+    invalid
+}
