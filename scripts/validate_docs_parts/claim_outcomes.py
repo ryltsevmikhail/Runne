@@ -35,7 +35,13 @@ OUTCOMES = frozenset(
 )
 CONNECTORS = frozenset({"is", "was", "has", "been", "now"})
 NOUN_PREFIXES = frozenset(
-    {"a", "an", "the", "our", "this", "that", "its", "their", "final", "current", "latest"}
+    {
+        "a", "an", "the", "our", "this", "that", "its", "their", "final", "current",
+        "latest", "official", "provisional", "proposed", "planned", "selected",
+    }
+)
+OUTCOME_LINKS = CONNECTORS | frozenset(
+    {"finally", "formally", "fully", "officially", "successfully"}
 )
 LEADING_METADATA_KEYS = frozenset(
     {"title", "status", "document_type", "source_status", "created", "updated", "owners"}
@@ -91,27 +97,20 @@ def _without_code(text: str) -> str:
     return "".join(output)
 
 
-def _without_front_matter(text: str) -> str:
-    """Blank one exact leading YAML block before prose clause parsing."""
-    lines = text.splitlines(keepends=True)
-    if not lines:
-        return text
-    if lines[0].strip() == "---":
-        for end in range(1, len(lines)):
-            if lines[end].strip() == "---":
-                blanked = ["\n" if line.endswith("\n") else "" for line in lines[: end + 1]]
-                return "".join(blanked + lines[end + 1 :])
-        return text
-    end = 0
-    while end < min(8, len(lines)):
-        key, separator, value = lines[end].partition(":")
-        if separator != ":" or key.strip() not in LEADING_METADATA_KEYS or not value.strip():
-            break
-        end += 1
-    if end:
-        blanked = ["\n" if line.endswith("\n") else "" for line in lines[:end]]
-        return "".join(blanked + lines[end:])
-    return text
+def _metadata_boundaries(text: str) -> str:
+    """Make exact Markdown/YAML metadata values bounded claim clauses."""
+    output: list[str] = []
+    for line in text.splitlines(keepends=True):
+        content = line.strip()
+        if content == "---":
+            output.append(".\n")
+            continue
+        key, separator, value = line.lstrip().partition(":")
+        if separator == ":" and key.strip() in LEADING_METADATA_KEYS:
+            output.append(f".{value.strip()}.\n")
+        else:
+            output.append(line)
+    return "".join(output)
 
 
 def _tokens_normalized(normalized: str) -> tuple[str, ...]:
@@ -162,13 +161,13 @@ def _positive_outcomes(tokens: tuple[str, ...]) -> frozenset[str]:
         if subject is None:
             continue
         cursor = subject[1]
-        connectors = 0
-        while cursor < len(tokens) and tokens[cursor] in CONNECTORS and connectors < 3:
+        links = 0
+        while cursor < len(tokens) and tokens[cursor] in OUTCOME_LINKS and links < 4:
             cursor += 1
-            connectors += 1
+            links += 1
         outcome = _consume_joined(tokens, cursor, OUTCOMES)
         bounded_prefix = start <= 4 and all(token in NOUN_PREFIXES for token in tokens[:start])
-        if outcome is not None and (bounded_prefix or connectors > 0):
+        if outcome is not None and (bounded_prefix or links > 0):
             detected.add(SUBJECTS[subject[0]])
     return frozenset(detected)
 
@@ -184,7 +183,7 @@ def _mention_ids(text: str) -> frozenset[str]:
 
 
 def _prose_clauses(text: str) -> tuple[tuple[str, ...], ...]:
-    prose = _without_code(_without_front_matter(text))
+    prose = _metadata_boundaries(_without_code(text))
     normalized = unicodedata.normalize("NFKC", prose).casefold()
     if len(normalized) > MAX_DOCUMENT_CHARS:
         raise ClaimParseError("CLAIM_DOCUMENT_TOO_LARGE")

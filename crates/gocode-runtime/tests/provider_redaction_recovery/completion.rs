@@ -234,6 +234,13 @@ impl ScannerRecoveryPersistence for StrongerTerminalRace<'_> {
         self.inner.commit_terminal(binding, disposition)
     }
 
+    fn terminalize_corrupt_checkpoint(
+        &self,
+        binding: TailBinding,
+    ) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
+        self.inner.terminalize_corrupt_checkpoint(binding)
+    }
+
     fn load(
         &self,
         attempt: DispatchAttemptId,
