@@ -48,6 +48,15 @@ pub(super) fn parse_fingerprint(bytes: Vec<u8>) -> Result<CommandFingerprint, Co
     )?))
 }
 
+pub(super) fn parse_idempotency_key_for_commit(
+    bytes: Vec<u8>,
+) -> Result<gocode_domain::id::IdempotencyKey, CommitError> {
+    let value =
+        String::from_utf8(bytes).map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+    gocode_domain::id::IdempotencyKey::new(value)
+        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))
+}
+
 pub(super) const fn storage_failure(kind: StorageFailureKind) -> CommitError {
     CommitError::StorageFailure(kind)
 }

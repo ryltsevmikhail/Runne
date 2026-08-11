@@ -2,7 +2,9 @@ use gocode_application::ports::ProjectWorkspaceRepositoryError as Error;
 use gocode_domain::id::{CommandId, IdempotencyKey};
 use rusqlite::{OptionalExtension, Transaction, params};
 
-use crate::codec::{ProjectWorkspaceReceipt, ProjectWorkspaceReceiptCodec, StoreCodec};
+use crate::codec::{
+    IdempotencyScopeCodec, ProjectWorkspaceReceipt, ProjectWorkspaceReceiptCodec, StoreCodec,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -56,14 +58,28 @@ pub(super) fn lookup(
 ) -> Result<Option<ProjectWorkspaceReceipt>, Error> {
     let taskrun_collision = transaction
         .query_row(
-            "SELECT 1 FROM command_receipts WHERE command_id = ?1",
+            "SELECT idempotency_scope_bytes, idempotency_key, fingerprint
+             FROM command_receipts WHERE command_id = ?1",
             params![request.command_id.as_bytes()],
-            |_| Ok(()),
+            |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                ))
+            },
         )
         .optional()
-        .map_err(|_| Error::Unavailable)?
-        .is_some();
-    if taskrun_collision {
+        .map_err(|_| Error::Unavailable)?;
+    if let Some((scope, key, fingerprint)) = taskrun_collision {
+        IdempotencyScopeCodec
+            .decode(&scope)
+            .map_err(|_| Error::InvariantViolation)?;
+        let key = String::from_utf8(key).map_err(|_| Error::InvariantViolation)?;
+        IdempotencyKey::new(key).map_err(|_| Error::InvariantViolation)?;
+        let _: [u8; 32] = fingerprint
+            .try_into()
+            .map_err(|_| Error::InvariantViolation)?;
         return Err(Error::Conflict);
     }
     let by_command = transaction

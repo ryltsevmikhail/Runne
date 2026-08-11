@@ -44,17 +44,30 @@ impl StoreTransaction {
         }
 
         // Dedup by command_id
-        let existing: Option<(Vec<u8>, Vec<u8>)> = tx
+        let existing = tx
             .query_row(
-                "SELECT idempotency_scope_bytes, command_outcome
+                "SELECT idempotency_scope_bytes, idempotency_key, fingerprint, command_outcome
                  FROM command_receipts WHERE command_id = ?1",
                 params![payload.command_id.as_bytes()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, Vec<u8>>(0)?,
+                        row.get::<_, Vec<u8>>(1)?,
+                        row.get::<_, Vec<u8>>(2)?,
+                        row.get::<_, Vec<u8>>(3)?,
+                    ))
+                },
             )
-            .ok();
+            .optional()
+            .map_err(map_commit_read_error)?;
 
-        if let Some((stored_scope, outcome_bytes)) = existing {
-            if stored_scope == scope_bytes {
+        if let Some((stored_scope, stored_key, stored_fingerprint, outcome_bytes)) = existing {
+            let stored_key = parse_idempotency_key_for_commit(stored_key)?;
+            let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
+            if stored_scope == scope_bytes
+                && stored_key == payload.idempotency_key
+                && stored_fingerprint == payload.command_fingerprint
+            {
                 let outcome_codec = CommandOutcomeCodec;
                 let stored_result = outcome_codec.decode(&outcome_bytes).map_err(|_| {
                     CommitError::StorageFailure(
@@ -81,29 +94,29 @@ impl StoreTransaction {
                 return Err(CommitError::IdempotencyConflict {
                     stored_command_id: payload.command_id,
                     attempted_command_id: payload.command_id,
-                    stored_fingerprint: payload.command_fingerprint,
+                    stored_fingerprint,
                     attempted_fingerprint: payload.command_fingerprint,
                 });
             }
         }
 
         // Check scope+key collision
-        let scope_key_exists: bool = tx
+        let scope_key_collision = tx
             .query_row(
-                "SELECT COUNT(*) FROM command_receipts
+                "SELECT command_id, fingerprint FROM command_receipts
                  WHERE idempotency_scope_bytes = ?1 AND idempotency_key = ?2",
                 params![scope_bytes, payload.idempotency_key.as_str().as_bytes(),],
-                |row| row.get::<_, i64>(0),
+                |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, Vec<u8>>(1)?)),
             )
-            .map(|c| c > 0)
-            .unwrap_or(false);
+            .optional()
+            .map_err(map_commit_read_error)?;
 
-        if scope_key_exists {
+        if let Some((stored_command, stored_fingerprint)) = scope_key_collision {
             let _ = tx.rollback();
             return Err(CommitError::IdempotencyConflict {
-                stored_command_id: payload.command_id,
+                stored_command_id: parse_command_id_for_commit(stored_command)?,
                 attempted_command_id: payload.command_id,
-                stored_fingerprint: payload.command_fingerprint,
+                stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
                 attempted_fingerprint: payload.command_fingerprint,
             });
         }

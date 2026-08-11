@@ -14,17 +14,18 @@ use gocode_application::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
     StartAttemptInput,
 };
-use gocode_application::conversation_service::ConversationService;
+use gocode_application::conversation_service::{ConversationService, ConversationServiceError};
 use gocode_application::errors::ApplicationError;
 use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
-    AggregateScope, ApplicationCommandContext, CommitError, ConversationCommit,
-    ConversationRepository, EventStore, EventStoreError, IdempotencyScope, LoadedStream,
-    OperationTag, PrincipalId, RuntimeAuthorityId, StorageFailureKind,
+    AggregateScope, ApplicationCommandContext, CommandCommit, CommitError, CommitResult,
+    ConversationCommit, ConversationRepository, EventStore, EventStoreError, IdempotencyScope,
+    LoadedStream, OperationTag, PrincipalId, ReceiptLookup, RuntimeAuthorityId,
+    StorageFailureKind, UnitOfWork,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::service::TaskRunService;
-use gocode_domain::command::TerminalResult;
+use gocode_domain::command::{CreateTaskRun, TerminalResult};
 use gocode_domain::conversation::{Conversation, ConversationEvent, ConversationState};
 use gocode_domain::event::{
     Actor, CommandContext, Sensitivity, UncommittedEvent, materialize_batch,
@@ -162,6 +163,53 @@ fn direct_conversation_commit(
         expected_version: 0,
         events,
         workspace_id,
+    }
+}
+
+fn direct_taskrun_commit(
+    store: &StoreTransaction,
+    taskrun_id: TaskRunId,
+    command_id: CommandId,
+    idempotency_key: IdempotencyKey,
+    event_byte: u8,
+) -> CommandCommit {
+    let conversation_id = make_conv_id();
+    let workspace_id = make_ws_id();
+    let events = materialize_batch(
+        vec![TaskRun::decide_create(CreateTaskRun {
+            taskrun_id,
+            conversation_id,
+            workspace_id,
+        })
+        .unwrap()],
+        &[EventId::from_bytes([event_byte; 16])],
+        None,
+        &CommandContext {
+            command_id,
+            idempotency_key: idempotency_key.clone(),
+            actor: Actor::new("direct-taskrun-test").unwrap(),
+        },
+    )
+    .unwrap();
+    CommandCommit {
+        command_id,
+        idempotency_key,
+        idempotency_scope: IdempotencyScope {
+            runtime_authority_id: store.runtime_authority_id().clone(),
+            principal_id: PrincipalId("test-principal".into()),
+            operation: OperationTag::CreateTaskRun,
+            aggregate_scope: AggregateScope::NewTaskRun {
+                conversation_id,
+                workspace_id,
+            },
+        },
+        command_fingerprint: CommandFingerprint::for_create(&conversation_id, &workspace_id),
+        expected_version: 0,
+        events,
+        command_result: CommandOutcome::TaskRunCreated {
+            taskrun_id,
+            new_version: 1,
+        },
     }
 }
 
