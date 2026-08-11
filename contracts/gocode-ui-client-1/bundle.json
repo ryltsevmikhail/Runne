@@ -27,7 +27,7 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "056087d28fef4fcf09c2fd1c74584fbf38d785ce618d1bca4bcd30fd62515220"
+      "sha256": "164e7337c34aff9edc03caaec1921922638f31e41cf8a5a701690259c8994c8a"
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
@@ -43,7 +43,7 @@
     },
     {
       "path": "schemas/project-workspace-v1.schema.json",
-      "sha256": "492b048ac5efe6ab787907d3f521032702703aa0bfd31b3aeda7e40524eb6223"
+      "sha256": "f8a65f617f0091520dafce74d8168dde1efdbad7cf4ef46cc1346e3e8bc0ba04"
     },
     {
       "path": "schemas/replay-v1.schema.json",

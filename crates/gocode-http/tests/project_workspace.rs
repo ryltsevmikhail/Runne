@@ -209,12 +209,57 @@ async fn project_workspace_router_canonicalizes_wrong_method_and_body_limit() {
         (16 * 1024, StatusCode::BAD_REQUEST),
         (16 * 1024 + 1, StatusCode::PAYLOAD_TOO_LARGE),
     ] {
+        let json = format!(r#"{{"extra":"{}"}}"#, "x".repeat(size - 12));
+        assert_eq!(json.len(), size);
         let response = authorized(Request::builder().method("POST").uri("/v1/projects"))
+            .header("x-command-id", ID)
+            .header("idempotency-key", "body-limit")
             .header("content-type", "application/json")
             .header("content-length", size)
-            .body(Body::from("x".repeat(size)))
+            .body(Body::from(json))
             .unwrap();
         let response = app().oneshot(response).await.unwrap();
         assert_eq!(response.status(), status);
+        if status == StatusCode::PAYLOAD_TOO_LARGE {
+            assert_canonical_payload_too_large(response).await;
+        }
     }
+
+    let json = format!(r#"{{"extra":"{}"}}"#, "x".repeat(16 * 1024 + 1 - 12));
+    let chunks = json
+        .as_bytes()
+        .chunks(1024)
+        .map(|chunk| Ok::<_, std::convert::Infallible>(bytes::Bytes::copy_from_slice(chunk)))
+        .collect::<Vec<_>>();
+    let response = authorized(Request::builder().method("POST").uri("/v1/projects"))
+        .header("x-command-id", ID)
+        .header("idempotency-key", "body-limit-stream")
+        .header("content-type", "application/json")
+        .body(Body::from_stream(futures::stream::iter(chunks)))
+        .unwrap();
+    let response = app().oneshot(response).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_canonical_payload_too_large(response).await;
+
+    let response = authorized(Request::builder().uri("/v1/projects"))
+        .header("content-length", 16 * 1024 + 1)
+        .body(Body::empty())
+        .unwrap();
+    let response = app().oneshot(response).await.unwrap();
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_canonical_payload_too_large(response).await;
+}
+
+async fn assert_canonical_payload_too_large(response: axum::response::Response) {
+    let header = response
+        .headers()
+        .get("x-request-id")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "payload_too_large");
+    assert_eq!(body["requestId"], header);
 }

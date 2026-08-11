@@ -1,4 +1,5 @@
 use axum::{
+    extract::rejection::JsonRejection,
     http::{HeaderMap, StatusCode},
     response::Response,
 };
@@ -58,6 +59,17 @@ pub(super) fn host_error(error: ProjectWorkspaceHostError, request_id: &RequestI
 }
 pub(super) fn bad_request(code: &'static str, request_id: &RequestId) -> Response {
     canonical_error_response(StatusCode::BAD_REQUEST, code, request_id)
+}
+pub(super) fn json_rejection(rejection: JsonRejection, request_id: &RequestId) -> Response {
+    if rejection.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        canonical_error_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "payload_too_large",
+            request_id,
+        )
+    } else {
+        bad_request("invalid_request", request_id)
+    }
 }
 pub(super) fn not_found(request_id: &RequestId) -> Response {
     canonical_error_response(
