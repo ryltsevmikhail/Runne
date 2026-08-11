@@ -77,10 +77,17 @@ impl StoreTransaction {
                 if payload.idempotency_scope.operation
                     == gocode_application::ports::OperationTag::CreateTaskRun
                 {
+                    let gocode_application::commands::CommandOutcome::TaskRunCreated {
+                        taskrun_id: stored_taskrun_id,
+                        new_version: 1,
+                    } = &stored_result
+                    else {
+                        return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                    };
                     crate::project_workspace::lineage::validate_direct_taskrun_lineage(
                         &tx,
                         &payload.idempotency_scope,
-                        taskrun_id,
+                        *stored_taskrun_id,
                         payload.command_id,
                     )?;
                 }
