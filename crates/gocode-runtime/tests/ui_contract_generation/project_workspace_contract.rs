@@ -117,6 +117,76 @@ fn root_admission_schema_matches_canonical_unpadded_codec_boundaries() {
     }
 }
 
+#[test]
+fn page_cursor_schema_matches_the_public_uuidv7_codecs() {
+    let output = tempfile::tempdir().unwrap();
+    let (schema, golden, _) = generated_project_workspace(output.path());
+    let validator = project_workspace_validator(&schema);
+    let principal = gocode_api::ApiPrincipalId::new("owner").unwrap();
+    let project = "018f47a2-4f8c-7b52-8c35-7a3a14c2d901".parse().unwrap();
+    let workspace = "018f47a2-4f8c-7b52-8c35-7a3a14c2d801".parse().unwrap();
+    let cursors = [
+        (
+            "projectPage",
+            gocode_api::ProjectPageCursor::new(principal.clone(), project)
+                .unwrap()
+                .encode_token(),
+        ),
+        (
+            "workspacePage",
+            gocode_api::WorkspacePageCursor::new(principal, project, workspace)
+                .unwrap()
+                .encode_token(),
+        ),
+    ];
+    for (page, token) in cursors {
+        let codec_valid = if page == "projectPage" {
+            gocode_api::ProjectPageCursor::decode_token(&token).is_ok()
+        } else {
+            gocode_api::WorkspacePageCursor::decode_token(&token).is_ok()
+        };
+        assert!(codec_valid);
+        let mut fixture = golden.clone();
+        fixture[page]["nextCursor"] = Value::String(token.clone());
+        assert!(validator.is_valid(&fixture));
+        for invalid in cursor_invalid_corpus(&token, page == "workspacePage") {
+            let codec_valid = if page == "projectPage" {
+                gocode_api::ProjectPageCursor::decode_token(&invalid).is_ok()
+            } else {
+                gocode_api::WorkspacePageCursor::decode_token(&invalid).is_ok()
+            };
+            assert!(!codec_valid, "public codec accepted {invalid}");
+            fixture[page]["nextCursor"] = Value::String(invalid.clone());
+            assert!(!validator.is_valid(&fixture), "schema accepted {invalid}");
+        }
+    }
+}
+
+fn cursor_invalid_corpus(token: &str, workspace: bool) -> Vec<String> {
+    let (prefix, payload) = token.split_once('.').unwrap();
+    let mut wrong_version = payload.to_owned();
+    wrong_version.replace_range(64 + 12..64 + 13, "6");
+    let mut wrong_variant = payload.to_owned();
+    wrong_variant.replace_range(64 + 16..64 + 17, "7");
+    let mut corpus = vec![
+        format!("{prefix}.{}", "0".repeat(payload.len())),
+        format!("{prefix}.{}", "a".repeat(payload.len())),
+        format!("{prefix}.{wrong_version}"),
+        format!("{prefix}.{wrong_variant}"),
+    ];
+    if workspace {
+        let mut wrong_version = payload.to_owned();
+        wrong_version.replace_range(96 + 12..96 + 13, "6");
+        let mut wrong_variant = payload.to_owned();
+        wrong_variant.replace_range(96 + 16..96 + 17, "7");
+        corpus.extend([
+            format!("{prefix}.{wrong_version}"),
+            format!("{prefix}.{wrong_variant}"),
+        ]);
+    }
+    corpus
+}
+
 fn assert_canonical_root_token(validator: &JSONSchema, golden: &Value, encoded: &str) {
     let token = format!("gocode-root-admission-v2.{encoded}");
     let admission = gocode_api::RootHandleAdmission::decode_token(&token).unwrap();

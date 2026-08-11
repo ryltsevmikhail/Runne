@@ -136,12 +136,22 @@ fn assert_template_parameters(path: &str, path_item: &Value, operation: &Value) 
 fn openapi_cursor_and_idempotency_parameters_are_exact_wire_languages() {
     let output = tempfile::tempdir().unwrap();
     let openapi = generated_project_workspace_openapi(output.path());
-    for (path, prefix, hex, length) in [
-        ("/v1/projects", "gocode-project-page-v1", 96, 119),
+    let principal = gocode_api::ApiPrincipalId::new("owner").unwrap();
+    let project = "018f47a2-4f8c-7b52-8c35-7a3a14c2d901".parse().unwrap();
+    let workspace = "018f47a2-4f8c-7b52-8c35-7a3a14c2d801".parse().unwrap();
+    for (path, token, length) in [
+        (
+            "/v1/projects",
+            gocode_api::ProjectPageCursor::new(principal.clone(), project)
+                .unwrap()
+                .encode_token(),
+            119,
+        ),
         (
             "/v1/projects/{projectId}/workspaces",
-            "gocode-workspace-page-v1",
-            128,
+            gocode_api::WorkspacePageCursor::new(principal.clone(), project, workspace)
+                .unwrap()
+                .encode_token(),
             153,
         ),
     ] {
@@ -154,18 +164,9 @@ fn openapi_cursor_and_idempotency_parameters_are_exact_wire_languages() {
             .unwrap();
         assert_eq!(cursor["schema"]["minLength"], length);
         assert_eq!(cursor["schema"]["maxLength"], length);
-        assert_eq!(
-            cursor["schema"]["pattern"],
-            format!("^{prefix}\\.[0-9a-f]{{{hex}}}$")
-        );
         let cursor_validator = JSONSchema::options().compile(&cursor["schema"]).unwrap();
-        assert!(cursor_validator.is_valid(&Value::String(format!("{prefix}.{}", "a".repeat(hex)))));
-        for invalid in [
-            format!("{prefix}.{}", "a".repeat(hex - 1)),
-            format!("{prefix}.{}", "a".repeat(hex + 1)),
-            format!("{prefix}.{}A", "a".repeat(hex - 1)),
-            format!("wrong.{}", "a".repeat(hex)),
-        ] {
+        assert!(cursor_validator.is_valid(&Value::String(token.clone())));
+        for invalid in openapi_cursor_invalid_corpus(&token, path.contains("workspaces")) {
             assert!(!cursor_validator.is_valid(&Value::String(invalid)));
         }
     }
@@ -192,4 +193,29 @@ fn openapi_cursor_and_idempotency_parameters_are_exact_wire_languages() {
             assert!(!key_validator.is_valid(&Value::String(invalid)));
         }
     }
+}
+
+fn openapi_cursor_invalid_corpus(token: &str, workspace: bool) -> Vec<String> {
+    let (prefix, payload) = token.split_once('.').unwrap();
+    let mut wrong_version = payload.to_owned();
+    wrong_version.replace_range(64 + 12..64 + 13, "6");
+    let mut wrong_variant = payload.to_owned();
+    wrong_variant.replace_range(64 + 16..64 + 17, "7");
+    let mut corpus = vec![
+        format!("{prefix}.{}", "0".repeat(payload.len())),
+        format!("{prefix}.{}", "a".repeat(payload.len())),
+        format!("{prefix}.{wrong_version}"),
+        format!("{prefix}.{wrong_variant}"),
+    ];
+    if workspace {
+        let mut wrong_version = payload.to_owned();
+        wrong_version.replace_range(96 + 12..96 + 13, "6");
+        let mut wrong_variant = payload.to_owned();
+        wrong_variant.replace_range(96 + 16..96 + 17, "7");
+        corpus.extend([
+            format!("{prefix}.{wrong_version}"),
+            format!("{prefix}.{wrong_variant}"),
+        ]);
+    }
+    corpus
 }

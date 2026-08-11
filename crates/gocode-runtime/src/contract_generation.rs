@@ -20,6 +20,14 @@ use gocode_domain::task_run::TaskRunEvent;
 const DRAFT_2020_12: &str = "https://json-schema.org/draft/2020-12/schema";
 const UUID_V7_PATTERN: &str =
     "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+const PROJECT_PAGE_CURSOR_LENGTH: usize = 119;
+const WORKSPACE_PAGE_CURSOR_LENGTH: usize = 153;
+const PROJECT_PAGE_CURSOR_PATTERN: &str =
+    "^gocode-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$";
+const WORKSPACE_PAGE_CURSOR_PATTERN: &str = concat!(
+    "^gocode-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}",
+    "[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+);
 const LOWER_HEX_16_PATTERN: &str = "^[0-9a-f]{32}$";
 const LOWER_HEX_32_PATTERN: &str = "^[0-9a-f]{64}$";
 const BASE64_URL_PATTERN: &str = "^[A-Za-z0-9_-]+$";

@@ -31,7 +31,12 @@ impl AuthenticatedRuntimeClient {
             .send()
             .await
             .map_err(map_transport)?;
-        ProjectPageDto::try_from(read_success_json::<ProjectPageWire>(response, &[200]).await?)
+        project_page(
+            read_success_json::<ProjectPageWire>(response, &[200]).await?,
+            limit,
+            &gocode_api::ApiPrincipalId::new(self.session_info().principal_id.clone())
+                .map_err(|_| invalid_response())?,
+        )
     }
     /// Reads one Project without exposing a raw transport escape hatch.
     pub async fn get_project(
@@ -114,8 +119,12 @@ impl AuthenticatedRuntimeClient {
             .send()
             .await
             .map_err(map_transport)?;
-        let page = WorkspacePageDto::try_from(
+        let page = workspace_page(
             read_success_json::<WorkspacePageWire>(response, &[200]).await?,
+            limit,
+            &gocode_api::ApiPrincipalId::new(self.session_info().principal_id.clone())
+                .map_err(|_| invalid_response())?,
+            project_id,
         )?;
         page.items()
             .iter()
