@@ -147,6 +147,64 @@ fn conflicting_id_fence_survives_original_deadline_without_reclone() {
 }
 
 #[test]
+fn delayed_finalize_cannot_use_a_conflict_extended_replay_fence() {
+    let mut state = model();
+    let frame = offer(12, 20);
+    let OfferAction::Clone(parts) = state.begin(&frame, 10).unwrap() else {
+        panic!()
+    };
+    let _ = state.ready(parts, 11).unwrap();
+    let conflicting = wire::encode_offer(OfferParts {
+        deadline_millis: 40,
+        remote_token: 8,
+        ..parts
+    });
+    assert!(matches!(
+        state.begin(&conflicting, 12).unwrap(),
+        OfferAction::Nack(_)
+    ));
+    let finalize = wire::finalize(parts).parts().unwrap();
+    assert!(matches!(
+        state.control(finalize, 21),
+        ControlAction::Nack(_)
+    ));
+    assert!(matches!(
+        state.begin(&conflicting, 21).unwrap(),
+        OfferAction::Nack(_)
+    ));
+}
+
+#[test]
+fn cancel_and_close_preserve_a_conflict_tombstone_after_live_expiry() {
+    for close in [false, true] {
+        let mut state = model();
+        let frame = offer(if close { 13 } else { 14 }, 20);
+        let OfferAction::Clone(parts) = state.begin(&frame, 10).unwrap() else {
+            panic!()
+        };
+        let _ = state.ready(parts, 11).unwrap();
+        let conflicting = wire::encode_offer(OfferParts {
+            deadline_millis: 40,
+            remote_token: 8,
+            ..parts
+        });
+        assert!(matches!(
+            state.begin(&conflicting, 12).unwrap(),
+            OfferAction::Nack(_)
+        ));
+        if close {
+            assert_eq!(state.close(), vec![parts.offer_id]);
+        } else {
+            assert!(state.cancel(parts.offer_id).is_some());
+        }
+        assert!(matches!(
+            state.begin(&conflicting, 21).unwrap(),
+            OfferAction::Nack(_)
+        ));
+    }
+}
+
+#[test]
 fn finalize_survives_cancel_close_expire_and_replay() {
     let mut state = model();
     let frame = offer(11, 100);

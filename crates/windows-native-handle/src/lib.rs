@@ -7,6 +7,8 @@
 mod clock;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod model;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod model_expiry;
 mod protocol;
 #[cfg_attr(not(windows), allow(dead_code))]
 mod wire;
