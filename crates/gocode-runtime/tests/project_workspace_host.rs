@@ -3,13 +3,11 @@ use gocode_api::{
     ProjectCommandContext, ProjectQueryContext, ProjectWorkspaceCommandHostPort,
     ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
 };
-use gocode_application::ports::RuntimeAuthorityId;
-use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
-use gocode_runtime::RuntimeProjectWorkspaceHost;
-use gocode_security::SecretBroker;
-use gocode_store::{ProjectWorkspaceStore, store::StoreTransaction};
-use std::sync::Arc;
+
+#[path = "support/project_workspace_host.rs"]
+mod support;
+use support::test_host;
 
 const PROJECT_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e1";
 const WORKSPACE_ID: &str = "018f47a2-4f8c-7b52-8c35-7a3a14c2d9e2";
@@ -29,26 +27,6 @@ fn context(principal: ApiPrincipalId, command: &str, key: &str) -> ProjectComman
 
 fn command_id(tail: u8) -> String {
     format!("018f47a2-4f8c-7b52-8c35-7a3a14c2d9{tail:02x}")
-}
-
-fn test_host() -> (
-    tempfile::TempDir,
-    RuntimeProjectWorkspaceHost<ProjectWorkspaceStore>,
-) {
-    let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("project-workspace.sqlite");
-    let guard: Arc<dyn ProhibitedContentPort> =
-        Arc::new(SecretBroker::new().prohibited_content_guard());
-    let store = StoreTransaction::open(
-        path.to_str().unwrap(),
-        RuntimeAuthorityId("project-workspace-host-test".into()),
-        guard,
-    )
-    .unwrap();
-    (
-        directory,
-        RuntimeProjectWorkspaceHost::new(ProjectWorkspaceStore::from_store(store)),
-    )
 }
 
 #[tokio::test]

@@ -1,13 +1,15 @@
 //! Principal-bound Project and Workspace application service.
-
-use crate::ports::{ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError};
+use crate::ports::{
+    CurrentRootAdmissionContext, ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError,
+    RootAdmissionConsumption, RootAdmissionVerifier, RootAdmissionVerifierError,
+};
 use gocode_api::{
     BindWorkspaceRootCommand, CreateProjectCommand, CreateWorkspaceCommand, ExistingProjectCommand,
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext, ProjectQueryContext,
-    ProjectSnapshot, WorkspaceCommandAck, WorkspaceSnapshot,
+    ProjectSnapshot, RootAdmissionAction, RootAdmissionVerificationContext,
+    VerifiedRootAdmissionClaims, WorkspaceCommandAck, WorkspaceSnapshot,
 };
 use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectWorkspaceServiceError {
     NotFound,
@@ -16,14 +18,20 @@ pub enum ProjectWorkspaceServiceError {
     Unavailable,
     InvariantViolation,
 }
-
-pub struct ProjectWorkspaceService<R> {
+pub struct ProjectWorkspaceService<R, C, V> {
     repository: R,
+    current_admission: C,
+    admission_verifier: V,
 }
-
-impl<R: ProjectWorkspaceRepository> ProjectWorkspaceService<R> {
-    pub fn new(repository: R) -> Self {
-        Self { repository }
+impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmissionVerifier>
+    ProjectWorkspaceService<R, C, V>
+{
+    pub fn new(repository: R, current_admission: C, admission_verifier: V) -> Self {
+        Self {
+            repository,
+            current_admission,
+            admission_verifier,
+        }
     }
     pub fn create_project(
         &self,
@@ -146,7 +154,21 @@ impl<R: ProjectWorkspaceRepository> ProjectWorkspaceService<R> {
         context: ProjectCommandContext,
         command: BindWorkspaceRootCommand,
     ) -> Result<WorkspaceCommandAck, ProjectWorkspaceServiceError> {
-        command.root_admission.consume();
+        let current = self
+            .current_admission
+            .current_root_admission_context()
+            .map_err(map_admission_error)?;
+        let claims = self
+            .admission_verifier
+            .verify_root_admission(command.root_admission)
+            .map_err(map_admission_error)?;
+        validate_root_claims(
+            &current,
+            &context,
+            command.workspace_id,
+            command.expected_version,
+            &claims,
+        )?;
         let workspace = self
             .repository
             .bind_workspace_root(
@@ -155,9 +177,10 @@ impl<R: ProjectWorkspaceRepository> ProjectWorkspaceService<R> {
                 &context.idempotency_key,
                 command.workspace_id,
                 command.expected_version,
-                // Phase B replaces this placeholder with the digest derived
-                // from the verified opaque admission claim.
-                &[0; 32],
+                RootAdmissionConsumption {
+                    nonce: claims.nonce(),
+                    admission_digest: claims.admission_digest(),
+                },
             )
             .map_err(map_error)?;
         Ok(workspace_ack(workspace))
@@ -202,6 +225,35 @@ impl<R: ProjectWorkspaceRepository> ProjectWorkspaceService<R> {
             .map(workspace_snapshot)
     }
 }
+fn validate_root_claims(
+    current: &RootAdmissionVerificationContext,
+    command: &ProjectCommandContext,
+    workspace_id: gocode_domain::id::WorkspaceId,
+    expected_version: u64,
+    claims: &VerifiedRootAdmissionClaims,
+) -> Result<(), ProjectWorkspaceServiceError> {
+    let claim_context = claims.context();
+    let principal_digest =
+        RootAdmissionVerificationContext::principal_digest_for(command.principal.as_str());
+    let exact_context = claim_context.authority_digest() == current.authority_digest()
+        && claim_context.session_id() == current.session_id()
+        && claim_context.launch_generation() == current.launch_generation()
+        && claim_context.principal_digest() == current.principal_digest()
+        && claim_context.capability_version() == current.capability_version()
+        && claim_context.policy_version() == current.policy_version()
+        && claim_context.gate_epoch() == current.gate_epoch()
+        && claim_context.now_unix_millis() == current.now_unix_millis();
+    if !exact_context
+        || claim_context.principal_digest() != principal_digest
+        || claims.action() != RootAdmissionAction::WorkspaceBindRoot
+        || claims.workspace_id() != workspace_id
+        || claims.expected_version() != expected_version
+        || claims.expires_at_unix_millis() <= current.now_unix_millis()
+    {
+        return Err(ProjectWorkspaceServiceError::Forbidden);
+    }
+    Ok(())
+}
 
 fn map_error(error: ProjectWorkspaceRepositoryError) -> ProjectWorkspaceServiceError {
     match error {
@@ -212,6 +264,12 @@ fn map_error(error: ProjectWorkspaceRepositoryError) -> ProjectWorkspaceServiceE
         ProjectWorkspaceRepositoryError::InvariantViolation => {
             ProjectWorkspaceServiceError::InvariantViolation
         }
+    }
+}
+fn map_admission_error(error: RootAdmissionVerifierError) -> ProjectWorkspaceServiceError {
+    match error {
+        RootAdmissionVerifierError::Rejected => ProjectWorkspaceServiceError::Forbidden,
+        RootAdmissionVerifierError::Unavailable => ProjectWorkspaceServiceError::Unavailable,
     }
 }
 fn project_snapshot(project: Project) -> ProjectSnapshot {

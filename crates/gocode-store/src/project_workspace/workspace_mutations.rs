@@ -1,4 +1,6 @@
-use gocode_application::ports::ProjectWorkspaceRepositoryError as Error;
+use gocode_application::ports::{
+    ProjectWorkspaceRepositoryError as Error, RootAdmissionConsumption,
+};
 use gocode_domain::id::{CommandId, IdempotencyKey, WorkspaceId};
 use gocode_domain::project_workspace::Workspace;
 use rusqlite::{Transaction, params};
@@ -97,7 +99,7 @@ pub(super) fn change_workspace(
     id: WorkspaceId,
     expected_version: u64,
     operation: Operation,
-    admission_digest: Option<&[u8; 32]>,
+    admission: Option<RootAdmissionConsumption>,
 ) -> Result<Workspace, Error> {
     if expected_version >= MAX_REHYDRATED_VERSION {
         return Err(Error::InvariantViolation);
@@ -113,7 +115,7 @@ pub(super) fn change_workspace(
             None,
             Some(expected_version),
             None,
-            admission_digest,
+            admission.as_ref().map(|value| &value.admission_digest),
         );
         if let Some(receipt) = receipts::lookup(transaction, &request)? {
             return receipt_workspace(receipt, id);
@@ -124,10 +126,20 @@ pub(super) fn change_workspace(
         }
         match operation {
             Operation::OpenWorkspace => workspace.open(),
-            Operation::BindWorkspaceRoot if admission_digest.is_some() => workspace.bind_root(),
+            Operation::BindWorkspaceRoot if admission.is_some() => workspace.bind_root(),
             _ => return Err(Error::InvariantViolation),
         }
         .map_err(|_| Error::Conflict)?;
+        if let Some(admission) = admission {
+            consume_nonce(
+                transaction,
+                store,
+                principal,
+                id,
+                expected_version,
+                &admission,
+            )?;
+        }
         update_workspace(transaction, principal, expected_version, &workspace)?;
         receipts::insert(
             transaction,
@@ -136,6 +148,43 @@ pub(super) fn change_workspace(
         )?;
         Ok(workspace)
     })
+}
+
+fn consume_nonce(
+    transaction: &Transaction<'_>,
+    store: &StoreTransaction,
+    principal: &str,
+    id: WorkspaceId,
+    expected_version: u64,
+    admission: &RootAdmissionConsumption,
+) -> Result<(), Error> {
+    if admission.nonce.iter().all(|value| *value == 0)
+        || admission.admission_digest.iter().all(|value| *value == 0)
+    {
+        return Err(Error::InvariantViolation);
+    }
+    let consumed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| Error::Unavailable)?
+        .as_micros();
+    let consumed_at = i64::try_from(consumed_at).map_err(|_| Error::Unavailable)?;
+    transaction
+        .execute(
+            "INSERT INTO root_admission_nonces
+         (runtime_authority_id, nonce, principal_id, workspace_id, expected_version,
+          admission_digest, consumed_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                store.runtime_authority_id().0,
+                admission.nonce,
+                principal,
+                id.as_bytes(),
+                expected_version as i64,
+                admission.admission_digest,
+                consumed_at
+            ],
+        )
+        .map_err(super::mutation_support::map_state_insert)?;
+    Ok(())
 }
 
 fn update_workspace(

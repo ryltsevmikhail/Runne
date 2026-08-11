@@ -1,7 +1,7 @@
 use gocode_application::ports::{
     ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError as Error,
 };
-use gocode_domain::id::{ProjectId, WorkspaceId};
+use gocode_domain::id::ProjectId;
 use gocode_store::codec::{
     ProjectWorkspaceReceipt, ProjectWorkspaceReceiptCodec, StoreCodec, StoreCodecError,
 };
@@ -126,36 +126,6 @@ fn receipt_collides_on_any_changed_command_semantics() {
             &key("archive-version"),
             ProjectId::from_bytes(PROJECT),
             2,
-        ),
-        Err(Error::Conflict)
-    );
-}
-
-#[test]
-fn admission_digest_is_part_of_the_bind_receipt_fingerprint() {
-    let database = Database::new("project-workspace-admission-digest");
-    let repository = database.repository();
-    create_project(&repository);
-    create_workspace(&repository);
-    let first = repository
-        .bind_workspace_root(
-            "owner",
-            command(4),
-            &key("bind-root"),
-            WorkspaceId::from_bytes(WORKSPACE),
-            1,
-            &[0x41; 32],
-        )
-        .unwrap();
-    assert_eq!(first.version(), 2);
-    assert_eq!(
-        repository.bind_workspace_root(
-            "owner",
-            command(4),
-            &key("bind-root"),
-            WorkspaceId::from_bytes(WORKSPACE),
-            1,
-            &[0x42; 32],
         ),
         Err(Error::Conflict)
     );

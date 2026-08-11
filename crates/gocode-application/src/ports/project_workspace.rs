@@ -1,9 +1,37 @@
+use gocode_api::{
+    RootAdmissionVerificationContext, RootHandleAdmission, VerifiedRootAdmissionClaims,
+};
 use gocode_domain::id::ProjectId;
 use gocode_domain::project_workspace::{Project, Workspace};
 
 /// Closed storage failures for Project and Workspace authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectWorkspaceRepositoryError { NotFound, Conflict, Forbidden, Unavailable, InvariantViolation }
+
+/// Closed error from root-admission context retrieval or verification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootAdmissionVerifierError { Rejected, Unavailable }
+
+/// Provides the authoritative current protected-runtime bindings.
+pub trait CurrentRootAdmissionContext: Send + Sync + 'static {
+    fn current_root_admission_context(
+        &self,
+    ) -> Result<RootAdmissionVerificationContext, RootAdmissionVerifierError>;
+}
+
+/// Verifies opaque root admissions without consuming their durable nonce.
+pub trait RootAdmissionVerifier: Send + Sync + 'static {
+    fn verify_root_admission(
+        &self,
+        admission: RootHandleAdmission,
+    ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError>;
+}
+
+/// Durable single-use values derived exclusively from verified claims.
+pub struct RootAdmissionConsumption {
+    pub nonce: [u8; 16],
+    pub admission_digest: [u8; 32],
+}
 
 /// Principal-bound, versioned repository for canonical Project and Workspace state.
 pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
@@ -20,7 +48,7 @@ pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
         key: &IdempotencyKey,
         id: WorkspaceId,
         expected_version: u64,
-        admission_digest: &[u8; 32],
+        admission: RootAdmissionConsumption,
     ) -> Result<Workspace, ProjectWorkspaceRepositoryError>;
     fn list_projects(&self, principal: &str) -> Result<Vec<Project>, ProjectWorkspaceRepositoryError>;
     fn get_project(&self, principal: &str, id: ProjectId) -> Result<Project, ProjectWorkspaceRepositoryError>;

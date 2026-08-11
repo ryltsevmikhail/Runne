@@ -4,11 +4,13 @@ use gocode_api::{
     ExistingWorkspaceCommand, ProjectCommandAck, ProjectCommandContext,
     ProjectWorkspaceCommandHostPort, ProjectWorkspaceHostError, WorkspaceCommandAck,
 };
-use gocode_application::ports::ProjectWorkspaceRepository;
+use gocode_application::ports::{
+    CurrentRootAdmissionContext, ProjectWorkspaceRepository, RootAdmissionVerifier,
+};
 use gocode_application::project_workspace_service::ProjectWorkspaceServiceError;
 
-impl<R: ProjectWorkspaceRepository> ProjectWorkspaceCommandHostPort
-    for RuntimeProjectWorkspaceHost<R>
+impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmissionVerifier>
+    ProjectWorkspaceCommandHostPort for RuntimeProjectWorkspaceHost<R, C, V>
 {
     async fn create_project(
         &self,
