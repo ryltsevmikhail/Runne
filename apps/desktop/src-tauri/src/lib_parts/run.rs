@@ -1,10 +1,33 @@
+fn fence_page_load<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    payload: &tauri::webview::PageLoadPayload<'_>,
+) {
+    if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+        let _ = webview
+            .try_state::<DirectorySelectionManager>()
+            .ok_or(())
+            .and_then(|selections| {
+                selections
+                    .renderer_generations()
+                    .page_loaded(webview.label())
+                    .map_err(|_| ())
+            });
+    }
+}
+
 /// Starts the native desktop application.
 ///
 /// # Panics
 ///
-/// Panics when Tauri cannot initialize or run the application event loop.
+/// Panics when native desktop initialization or the event loop fails.
+#[allow(clippy::significant_drop_tightening, clippy::too_many_lines)]
 pub fn run() {
+    let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
+        .expect("fixed directory selection lifetime is valid");
+    let prepared = selections.prepared_workspaces();
     let app = tauri::Builder::default()
+        .manage(selections)
+        .manage(prepared)
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -13,11 +36,20 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .on_page_load(fence_page_load)
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::Destroyed) {
                 window
                     .state::<ConversationSubscriptionManager>()
                     .cancel_window(window.label());
+                let _ = window
+                    .try_state::<DirectorySelectionManager>()
+                    .and_then(|selections| {
+                        selections
+                            .renderer_generations()
+                            .fence_destroyed(window.label())
+                            .ok()
+                    });
             }
         })
         .setup(|app| {
@@ -44,7 +76,7 @@ pub fn run() {
                     match controller {
                         Ok(controller) => {
                             controller.spawn_monitor();
-                            RuntimeLifecycleManager::bundled(controller)
+                            RuntimeLifecycleManager::bundled_with_native_root(controller)
                         }
                         Err(failure) => {
                             tauri::async_runtime::block_on(
@@ -66,7 +98,9 @@ pub fn run() {
             set_theme,
             list_projects,
             get_project,
-            open_local_project,
+            acquire_renderer_generation,
+            request_directory_selection,
+            prepare_selected_workspace,
             get_diagnostics,
             connect_runtime,
             open_project_conversation,
@@ -82,6 +116,8 @@ pub fn run() {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
             let lifecycle = app.state::<RuntimeLifecycleManager>();
             if lifecycle.begin_explicit_quit() {
+                app.state::<DirectorySelectionManager>()
+                    .clear_pending_authority();
                 app.state::<ConversationSubscriptionManager>().shutdown();
                 lifecycle.stop_owned_runtime();
             }

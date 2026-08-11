@@ -1,9 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use thiserror::Error;
 
 use crate::directory_selection::{SelectionEntry, valid_binding};
+use crate::prepared_workspace::{PreparedWorkspaceEntry, PreparedWorkspaceReservation};
 
 const MAX_TRACKED_WINDOWS: usize = 64;
 
@@ -17,6 +19,12 @@ pub type SharedSelectionState = Arc<Mutex<DirectorySelectionState>>;
 pub struct DirectorySelectionState {
     pub(super) generations: HashMap<String, u64>,
     pub(super) selections: HashMap<String, SelectionEntry>,
+    pub(super) prepared: HashMap<String, PreparedWorkspaceEntry>,
+    pub(super) reservations: HashMap<String, PreparedWorkspaceReservation>,
+    pub(super) prepared_ttl: Duration,
+    pub(super) expiry_sweeper_running: bool,
+    #[cfg(test)]
+    pub(super) expiry_sweeper_start_fails_for_test: bool,
 }
 
 impl DirectorySelectionState {
@@ -45,7 +53,23 @@ impl DirectorySelectionState {
         let next = generation.checked_add(1).ok_or(RendererGenerationError)?;
         self.generations.insert(window.to_owned(), next);
         self.selections.retain(|_, entry| entry.window != window);
+        self.prepared.retain(|_, entry| entry.window != window);
+        self.reservations.retain(|_, entry| entry.window != window);
         Ok(next)
+    }
+
+    pub(super) fn page_loaded(&mut self, window: &str) -> Result<u64, RendererGenerationError> {
+        if !valid_binding(window) {
+            return Err(RendererGenerationError);
+        }
+        if self.generations.contains_key(window) {
+            return self.advance(window);
+        }
+        if self.generations.len() >= MAX_TRACKED_WINDOWS {
+            return Err(RendererGenerationError);
+        }
+        self.generations.insert(window.to_owned(), 1);
+        Ok(1)
     }
 }
 
@@ -59,16 +83,28 @@ impl RendererGenerationManager {
         Self { state }
     }
 
-    /// Returns the active generation, registering a host window only once.
+    /// Returns an already host-issued active generation.
     ///
     /// # Errors
     ///
-    /// Returns a closed error for invalid labels, poisoned state, or capacity exhaustion.
+    /// Returns a closed error for invalid, unregistered, or poisoned host state.
     pub fn current(&self, window: &str) -> Result<u64, RendererGenerationError> {
         self.state
             .lock()
             .map_err(|_| RendererGenerationError)?
-            .register_generation(window)
+            .existing_generation(window)
+    }
+
+    /// Fences prior renderer-owned values for a native page load or navigation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for invalid labels, overflow, or poisoned host state.
+    pub fn page_loaded(&self, window: &str) -> Result<u64, RendererGenerationError> {
+        self.state
+            .lock()
+            .map_err(|_| RendererGenerationError)?
+            .page_loaded(window)
     }
 
     /// Atomically advances a renderer generation and invalidates its selections.
@@ -76,6 +112,8 @@ impl RendererGenerationManager {
     /// # Errors
     ///
     /// Returns a closed error for invalid labels, poisoned state, or overflow.
+    #[cfg(test)]
+    #[allow(dead_code)] // Unit test lifecycle hook.
     pub fn fence_reload(&self, window: &str) -> Result<u64, RendererGenerationError> {
         self.state
             .lock()
@@ -89,10 +127,14 @@ impl RendererGenerationManager {
     ///
     /// Returns a closed error for invalid labels, poisoned state, or overflow.
     pub fn fence_destroyed(&self, window: &str) -> Result<u64, RendererGenerationError> {
-        self.fence_reload(window)
+        let mut state = self.state.lock().map_err(|_| RendererGenerationError)?;
+        let next = state.advance(window)?;
+        drop(state);
+        Ok(next)
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(test)]
+    #[allow(dead_code)] // Unit test overflow hook.
     /// Sets an exact generation solely for overflow coverage.
     ///
     /// # Errors

@@ -3,7 +3,8 @@
 mod protected_runtime;
 mod root_handle_broker;
 
-pub use gocode_api::PROTECTED_BUNDLED_SESSION_RENEW_AFTER;
+pub use gocode_api::WorkspaceId;
+pub use gocode_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, RootHandleAdmission};
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
 pub use protected_runtime::{

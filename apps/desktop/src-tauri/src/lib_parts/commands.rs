@@ -44,15 +44,101 @@ fn get_project(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
-fn open_local_project(
-    state: State<'_, Arc<AppCore>>,
-    path: String,
-) -> Result<ProjectSummary, IpcError> {
-    state
-        .open_local_project(Path::new(&path))
-        .map_err(|_| IpcError {
-            code: "project_open_rejected",
-        })
+fn acquire_renderer_generation(
+    window: WebviewWindow,
+    selections: State<'_, DirectorySelectionManager>,
+) -> Result<u64, IpcError> {
+    if !window.is_focused().map_err(|_| IpcError { code: "renderer_generation_rejected" })? {
+        return Err(IpcError { code: "renderer_generation_rejected" });
+    }
+    selections
+        .renderer_generations()
+        .current(window.label())
+        .map_err(|_| IpcError { code: "renderer_generation_rejected" })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn request_directory_selection(
+    window: WebviewWindow,
+    selections: State<'_, DirectorySelectionManager>,
+    renderer_generation: u64,
+    request_id: String,
+) -> Result<Option<DirectorySelectionResponse>, IpcError> {
+    let label = window.label();
+    if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })?
+        || selections.renderer_generations().current(label).ok() != Some(renderer_generation)
+    {
+        return Err(IpcError { code: "directory_selection_rejected" });
+    }
+    let selected = window
+        .app_handle()
+        .dialog()
+        .file()
+        .set_parent(&window)
+        .set_title("Open local project")
+        .blocking_pick_folder();
+    let Some(selected) = selected else { return Ok(None) };
+    if !window.is_focused().map_err(|_| IpcError { code: "directory_selection_rejected" })?
+        || selections.renderer_generations().current(label).ok() != Some(renderer_generation)
+    {
+        return Err(IpcError { code: "directory_selection_rejected" });
+    }
+    let path = selected.into_path().map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    let root = VerifiedRootHandle::open(&path)
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    selections
+        .issue(label, renderer_generation, &request_id, root, std::time::Instant::now())
+        .map(DirectorySelectionResponse::new)
+        .map(Some)
+        .map_err(|_| IpcError { code: "directory_selection_rejected" })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn prepare_selected_workspace(
+    window: WebviewWindow,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
+    selections: State<'_, DirectorySelectionManager>,
+    prepared: State<'_, PreparedWorkspaceManager>,
+    request: PrepareSelectedWorkspaceRequest,
+) -> Result<PreparedWorkspaceResponse, IpcError> {
+    let label = window.label();
+    if !window.is_focused().map_err(|_| IpcError { code: "prepared_workspace_rejected" })? {
+        return Err(IpcError { code: "prepared_workspace_rejected" });
+    }
+    let workspace_id = request
+        .workspace_id
+        .parse()
+        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    let now = std::time::Instant::now();
+    let binding = PreparedWorkspaceBinding::new(
+        label,
+        request.renderer_generation,
+        &request.request_id,
+        workspace_id,
+        request.expected_version,
+    )
+    .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    let reservation = prepared
+        .reserve_guard(binding, now)
+        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    let root = selections
+        .consume(
+            &request.selection,
+            label,
+            request.renderer_generation,
+            &request.request_id,
+            now,
+        )
+        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    let native_admission = lifecycle
+        .prepare_root_admission(root, workspace_id, request.expected_version)
+        .await
+        .map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    commit_prepared_admission(&prepared, reservation, native_admission, &lifecycle)
+        .await
+        .map_err(|()| IpcError { code: "prepared_workspace_rejected" })
 }
 
 #[tauri::command]

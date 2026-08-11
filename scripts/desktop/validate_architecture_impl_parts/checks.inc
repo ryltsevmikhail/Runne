@@ -37,6 +37,7 @@ PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
     Path("crates/gocode-store/src/provider/execution_store/decomposition/part_09.rs"),
     Path("crates/gocode-daemon/src/canonical_provider/runtime_store.rs"),
     Path("crates/gocode-daemon-loopback-fixture/src/ack_failure_store.rs"),
+    Path("crates/gocode-daemon/src/protected_activation/loopback_fixture/ack_failure_store.rs"),
 }
 PROVIDER_TERMINAL_TEST_FEATURE = "provider-terminal-test-support"
 RAW_PROVIDER_TERMINAL_TYPE = re.compile(r"\bProviderTerminalCommitRequest\b")
@@ -58,6 +59,14 @@ def find_rust_dependency_violations(dependencies: dict[str, set[str]]) -> list[s
             if dependency.startswith("gocode-") and dependency not in allowed:
                 violations.append(f"{package} -> {dependency} is forbidden")
     return violations
+
+
+def _tracked_dependency(package: str, dependency: dict) -> bool:
+    if not dependency["name"].startswith("gocode-"):
+        return False
+    if dependency["name"] == "gocode-windows-native-handle" and package == "gocode-platform-desktop":
+        return dependency.get("target") != "cfg(windows)"
+    return True
 
 
 def find_renderer_conversation_violations(root: Path) -> list[str]:

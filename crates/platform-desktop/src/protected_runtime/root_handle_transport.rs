@@ -11,7 +11,7 @@ impl ProtectedBundledRuntimeProcess {
     pub fn prepare_root_handle(
         &mut self,
         root: &crate::VerifiedRootHandle,
-        workspace_id: gocode_domain::id::WorkspaceId,
+        workspace_id: gocode_api::WorkspaceId,
         expected_version: u64,
     ) -> Result<(), ProtectedBundledRuntimeError> {
         self.prepare_root_admission(root, workspace_id, expected_version)
@@ -29,7 +29,7 @@ impl ProtectedBundledRuntimeProcess {
     pub fn prepare_root_admission(
         &mut self,
         root: &crate::VerifiedRootHandle,
-        workspace_id: gocode_domain::id::WorkspaceId,
+        workspace_id: gocode_api::WorkspaceId,
         expected_version: u64,
     ) -> Result<gocode_api::RootHandleAdmission, ProtectedBundledRuntimeError> {
         let transaction = self.root_handle_preflight(workspace_id, expected_version)?;
@@ -42,7 +42,7 @@ impl ProtectedBundledRuntimeProcess {
 
     fn root_handle_preflight(
         &self,
-        workspace_id: gocode_domain::id::WorkspaceId,
+        workspace_id: gocode_api::WorkspaceId,
         expected_version: u64,
     ) -> Result<RootHandleTransaction, ProtectedBundledRuntimeError> {
         if self.graceful_requested { return Err(ProtectedBundledRuntimeError::InvalidState); }
@@ -135,7 +135,7 @@ impl ProtectedBundledRuntimeProcess {
     pub const fn prepare_root_handle(
         &mut self,
         _root: &crate::VerifiedRootHandle,
-        _workspace_id: gocode_domain::id::WorkspaceId,
+        _workspace_id: gocode_api::WorkspaceId,
         _expected_version: u64,
     ) -> Result<(), ProtectedBundledRuntimeError> {
         Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
@@ -149,7 +149,7 @@ impl ProtectedBundledRuntimeProcess {
     pub const fn prepare_root_admission(
         &mut self,
         _root: &crate::VerifiedRootHandle,
-        _workspace_id: gocode_domain::id::WorkspaceId,
+        _workspace_id: gocode_api::WorkspaceId,
         _expected_version: u64,
     ) -> Result<gocode_api::RootHandleAdmission, ProtectedBundledRuntimeError> {
         Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)

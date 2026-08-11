@@ -8,12 +8,12 @@ use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::prepared_workspace::PreparedWorkspaceManager;
 use crate::renderer_generation::{
     DirectorySelectionState, RendererGenerationManager, SharedSelectionState,
 };
-
 const MAX_BINDING_BYTES: usize = 128;
-const MAX_SELECTIONS: usize = 64;
+pub const MAX_SELECTIONS: usize = 64;
 const MAX_SELECTION_TTL: Duration = Duration::from_secs(30);
 
 /// Opaque, renderer-safe reference to one host-retained directory handle.
@@ -55,7 +55,6 @@ impl DirectorySelectionRef {
 #[derive(Debug, Error)]
 #[error("directory selection rejected")]
 pub struct SelectionError;
-
 pub struct SelectionEntry {
     pub(super) window: String,
     generation: u64,
@@ -85,6 +84,12 @@ impl DirectorySelectionManager {
             state: Arc::new(Mutex::new(DirectorySelectionState {
                 generations: HashMap::default(),
                 selections: HashMap::default(),
+                prepared: HashMap::default(),
+                reservations: HashMap::default(),
+                prepared_ttl: ttl,
+                expiry_sweeper_running: false,
+                #[cfg(test)]
+                expiry_sweeper_start_fails_for_test: false,
             })),
         })
     }
@@ -93,6 +98,10 @@ impl DirectorySelectionManager {
     #[must_use]
     pub fn renderer_generations(&self) -> RendererGenerationManager {
         RendererGenerationManager::from_shared_state(Arc::clone(&self.state))
+    }
+
+    pub fn prepared_workspaces(&self) -> PreparedWorkspaceManager {
+        PreparedWorkspaceManager::from_shared_state(Arc::clone(&self.state))
     }
 
     /// Retains a verified handle at the authoritative current generation.
@@ -155,6 +164,7 @@ impl DirectorySelectionManager {
     /// # Errors
     ///
     /// Returns a closed error for invalid labels, poisoned state, or overflow.
+    #[cfg(test)]
     pub fn invalidate_window(&self, window: &str) -> Result<(), SelectionError> {
         self.state
             .lock()
@@ -164,7 +174,7 @@ impl DirectorySelectionManager {
             .map_err(|_| SelectionError)
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(test)]
     /// Issues a deterministic reference for collision tests only.
     ///
     /// # Errors
@@ -189,7 +199,7 @@ impl DirectorySelectionManager {
         )
     }
 
-    #[cfg(feature = "test-support")]
+    #[cfg(test)]
     /// Deliberately poisons the shared state for fail-closed tests.
     ///
     /// # Panics
@@ -221,7 +231,7 @@ impl DirectorySelectionManager {
             return Err(SelectionError);
         }
         let generation = state
-            .register_generation(window)
+            .existing_generation(window)
             .map_err(|_| SelectionError)?;
         if generation != expected_generation {
             return Err(SelectionError);
@@ -242,13 +252,11 @@ impl DirectorySelectionManager {
         Err(SelectionError)
     }
 }
-
 impl fmt::Debug for DirectorySelectionManager {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str("DirectorySelectionManager(<native-only>)")
     }
 }
-
 pub fn valid_binding(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= MAX_BINDING_BYTES
@@ -257,7 +265,6 @@ pub fn valid_binding(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':'))
 }
-
 fn references(requested: Option<String>) -> impl Iterator<Item = String> {
     let mut values = Vec::with_capacity(4);
     if let Some(reference) = requested {
@@ -272,20 +279,22 @@ fn references(requested: Option<String>) -> impl Iterator<Item = String> {
     values.into_iter()
 }
 
-fn random_reference() -> String {
+pub fn random_reference() -> String {
     let mut bytes = [0; 32];
     rand::rngs::OsRng.fill_bytes(&mut bytes);
     hex::encode(bytes)
 }
 
-fn valid_reference(value: &str) -> bool {
+pub fn valid_reference(value: &str) -> bool {
     value.len() == 64
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
+include!("directory_selection_parts/lifecycle.rs");
 
 #[cfg(test)]
+#[allow(clippy::significant_drop_tightening)]
 mod tests {
     include!("directory_selection_parts/tests.rs");
 }

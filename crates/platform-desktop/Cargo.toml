@@ -12,7 +12,6 @@ test-support = ["gocode-api/test-support", "gocode-runtime-client/test-support"]
 
 [dependencies]
 gocode-api = { path = "../gocode-api" }
-gocode-domain = { path = "../gocode-domain" }
 gocode-platform-ports = { path = "../platform-ports" }
 gocode-runtime-client = { path = "../runtime-client" }
 hex.workspace = true

@@ -8,7 +8,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::{OwnedRuntimeLifecycle, RuntimeConnectionFuture};
+use crate::{
+    NativeRootAdmission, NativeRootAdmissionLifecycle, OwnedRuntimeLifecycle, RootAdmissionFuture,
+    RootAdmissionReapFuture, RuntimeConnectionFuture,
+};
 use gocode_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
 };
@@ -51,23 +54,23 @@ pub enum BundledShutdownOutcome {
 
 struct RuntimeOperationFence {
     stopping: AtomicBool,
-    operation: tokio::sync::Mutex<()>,
+    operation: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl RuntimeOperationFence {
     #[cfg(any(test, feature = "test-support"))]
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             stopping: AtomicBool::new(false),
-            operation: tokio::sync::Mutex::const_new(()),
+            operation: Arc::new(tokio::sync::Mutex::const_new(())),
         }
     }
 
-    async fn enter(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+    async fn enter(&self) -> Option<tokio::sync::OwnedMutexGuard<()>> {
         if self.is_stopping() {
             return None;
         }
-        let guard = self.operation.lock().await;
+        let guard = Arc::clone(&self.operation).lock_owned().await;
         if self.is_stopping() {
             return None;
         }
@@ -119,7 +122,7 @@ impl ProtectedSessionRenewalSchedule {
 pub struct BundledRuntimeController {
     core: Arc<AppCore>,
     supervisor: Arc<Mutex<ProtectedBundledRuntimeSupervisor>>,
-    operation_fence: RuntimeOperationFence,
+    operation_fence: Arc<RuntimeOperationFence>,
     renewal_schedule: Mutex<ProtectedSessionRenewalSchedule>,
     shutdown_outcome: Mutex<Option<BundledShutdownOutcome>>,
 }
