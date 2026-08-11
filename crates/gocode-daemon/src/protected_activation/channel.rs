@@ -83,6 +83,20 @@ impl ProtectedActivationChannel {
             .set_read_timeout(Some(CONTROL_IDLE_TIMEOUT))
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
     }
+
+    #[cfg(feature = "desktop-protected")]
+    pub(super) fn native_stream(&mut self) -> &mut std::os::unix::net::UnixStream {
+        &mut self.stream
+    }
+
+    #[cfg(feature = "desktop-protected")]
+    pub(super) fn peer_identity(&self) -> Result<(u32, u32), LaunchAuthorityError> {
+        let peer = rustix::net::sockopt::socket_peercred(&self.stream)
+            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+        let pid = u32::try_from(peer.pid.as_raw_pid())
+            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+        Ok((pid, peer.uid.as_raw() as u32))
+    }
 }
 
 #[cfg(not(unix))]

@@ -8,6 +8,7 @@ publish = false
 [features]
 default = []
 test-support = []
+desktop-protected = ["dep:gocode-platform-desktop"]
 
 [dependencies]
 gocode-api = { path = "../gocode-api" }
@@ -21,6 +22,7 @@ gocode-secure-store = { path = "../secure-store" }
 gocode-provider-openai = { path = "../gocode-provider-openai" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-platform = { path = "../gocode-platform" }
+gocode-platform-desktop = { path = "../platform-desktop", optional = true }
 gocode-http = { path = "../gocode-http" }
 gocode-daemon-openai-effect = { path = "../gocode-daemon-openai-effect" }
 axum = "0.8"

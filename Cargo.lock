@@ -1966,6 +1966,7 @@ name = "gocode-platform-desktop"
 version = "0.1.0"
 dependencies = [
  "gocode-api",
+ "gocode-domain",
  "gocode-platform-ports",
  "gocode-runtime-client",
  "gocode-windows-native-handle",

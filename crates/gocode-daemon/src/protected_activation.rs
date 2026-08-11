@@ -20,6 +20,10 @@ use gocode_api::{
     ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationModeV1,
     RuntimeSessionBinding, StableRuntimeBindingV1,
 };
+#[cfg(all(unix, feature = "desktop-protected"))]
+use gocode_api::{
+    RootHandleControlFrame, RootHandleTransferAuthenticator, RootHandleTransferReady,
+};
 #[cfg(unix)]
 use gocode_application::local_session::LocalSessionService;
 #[cfg(unix)]
@@ -60,6 +64,8 @@ mod first_activation;
 mod launch;
 #[cfg(unix)]
 mod request;
+#[cfg(feature = "desktop-protected")]
+mod root_handle_control;
 
 #[cfg(unix)]
 pub use channel::ProtectedActivationChannel;
@@ -69,6 +75,8 @@ pub use control::{run_control_loop, run_control_loop_v2};
 pub use first_activation::random_control_secret;
 #[cfg(unix)]
 pub use launch::{ProtectedDaemonLaunch, VerifiedProtectedApplicationStart};
+#[cfg(feature = "desktop-protected")]
+pub use root_handle_control::receive_root_handle_offer;
 
 #[cfg(unix)]
 pub(crate) fn validate_protected_bootstrap_connection(

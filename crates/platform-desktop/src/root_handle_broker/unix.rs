@@ -116,8 +116,17 @@ pub(super) fn send(
     authenticator: &RootHandleTransferAuthenticator,
     binding: &RootHandleTransferBinding,
 ) -> Result<(), RootHandleBrokerError> {
-    configure(&stream)?;
-    peer_matches(&stream, binding, binding.receiver_pid)?;
+    send_borrowed(&mut stream, root, authenticator, binding)
+}
+
+pub(super) fn send_borrowed(
+    stream: &mut NativeTransferChannel,
+    root: &VerifiedRootHandle,
+    authenticator: &RootHandleTransferAuthenticator,
+    binding: &RootHandleTransferBinding,
+) -> Result<(), RootHandleBrokerError> {
+    configure(stream)?;
+    peer_matches(stream, binding, binding.receiver_pid)?;
     let mut challenge = [0; CHALLENGE_BYTES];
     stream
         .read_exact(&mut challenge)
@@ -160,8 +169,16 @@ pub(super) fn receive(
     authenticator: &RootHandleTransferAuthenticator,
     binding: &RootHandleTransferBinding,
 ) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
-    configure(&stream)?;
-    peer_matches(&stream, binding, binding.sender_pid)?;
+    receive_borrowed(&mut stream, authenticator, binding)
+}
+
+pub(super) fn receive_borrowed(
+    stream: &mut NativeTransferChannel,
+    authenticator: &RootHandleTransferAuthenticator,
+    binding: &RootHandleTransferBinding,
+) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
+    configure(stream)?;
+    peer_matches(stream, binding, binding.sender_pid)?;
     let mut challenge = [0; CHALLENGE_BYTES];
     challenge[..32].copy_from_slice(&binding_digest(binding));
     rand::rngs::OsRng.fill_bytes(&mut challenge[32..64]);
@@ -181,8 +198,7 @@ pub(super) fn receive(
     }
     let descriptor = received_descriptor(&mut control)?;
     if received.bytes < frame.len() {
-        let mut remaining = stream;
-        remaining
+        stream
             .read_exact(&mut frame[received.bytes..])
             .map_err(|_| RootHandleBrokerError::Unavailable)?;
     }
@@ -217,6 +233,7 @@ fn binding_digest(binding: &RootHandleTransferBinding) -> [u8; 32] {
     hasher.update(binding.sender_pid.to_be_bytes());
     hasher.update(binding.receiver_pid.to_be_bytes());
     hasher.update(binding.peer_uid.to_be_bytes());
+    hasher.update(binding.offer_digest);
     hasher.finalize().into()
 }
 fn peer_matches(
