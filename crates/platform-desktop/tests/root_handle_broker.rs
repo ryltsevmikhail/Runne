@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gocode_api::{LaunchSecret, RootHandleTransferAuthenticator};
 use gocode_platform_desktop::{
@@ -72,10 +72,30 @@ fn receiver_challenge_authenticates_one_real_fd_transfer() {
 }
 
 #[test]
-fn wrong_peer_is_rejected_before_a_descriptor_is_sent() {
+fn sender_rejects_a_wrong_receiver_pid_before_the_challenge() {
     let directory = tempdir().unwrap();
     let root = open(directory.path());
-    let wrong = RootHandleTransferBinding::test_binding(
+    let binding = RootHandleTransferBinding::test_binding(
+        [7; 16],
+        1,
+        std::process::id(),
+        std::process::id() + 1,
+        rustix::process::getuid().as_raw() as u32,
+    )
+    .unwrap();
+    let (stream, _peer) = UnixStream::pair().unwrap();
+    let started = Instant::now();
+    assert!(
+        test_transfer_sender(stream, authenticator(9), binding)
+            .transfer(&root)
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_millis(200));
+}
+
+#[test]
+fn receiver_rejects_a_wrong_sender_pid_before_the_challenge() {
+    let binding = RootHandleTransferBinding::test_binding(
         [7; 16],
         1,
         std::process::id() + 1,
@@ -83,9 +103,38 @@ fn wrong_peer_is_rejected_before_a_descriptor_is_sent() {
         rustix::process::getuid().as_raw() as u32,
     )
     .unwrap();
-    let (sender, _receiver) =
-        test_transfer_pair(authenticator(9), authenticator(9), wrong).unwrap();
-    assert!(sender.transfer(&root).is_err());
+    let (_peer, stream) = UnixStream::pair().unwrap();
+    let started = Instant::now();
+    assert!(
+        test_transfer_receiver(stream, authenticator(9), binding)
+            .receive()
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_millis(200));
+}
+
+#[test]
+fn sender_rejects_a_wrong_effective_uid_before_the_challenge() {
+    let directory = tempdir().unwrap();
+    let root = open(directory.path());
+    let uid = rustix::process::getuid().as_raw() as u32;
+    let wrong_uid = uid.checked_add(1).unwrap_or(uid - 1);
+    let binding = RootHandleTransferBinding::test_binding(
+        [7; 16],
+        1,
+        std::process::id(),
+        std::process::id(),
+        wrong_uid,
+    )
+    .unwrap();
+    let (stream, _peer) = UnixStream::pair().unwrap();
+    let started = Instant::now();
+    assert!(
+        test_transfer_sender(stream, authenticator(9), binding)
+            .transfer(&root)
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_millis(200));
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
