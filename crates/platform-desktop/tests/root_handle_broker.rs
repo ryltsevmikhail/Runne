@@ -88,6 +88,18 @@ fn wrong_peer_is_rejected_before_a_descriptor_is_sent() {
     assert!(sender.transfer(&root).is_err());
 }
 
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[test]
+fn unix_without_exact_peer_credentials_rejects_the_transfer() {
+    let directory = tempdir().unwrap();
+    let root = open(directory.path());
+    let (sender, receiver) =
+        test_transfer_pair(authenticator(9), authenticator(9), binding()).unwrap();
+    let receiver_thread = std::thread::spawn(move || receiver.receive());
+    assert!(sender.transfer(&root).is_err());
+    assert!(receiver_thread.join().unwrap().is_err());
+}
+
 #[test]
 fn mismatched_receiver_key_rejects_before_descriptor_adoption() {
     let directory = tempdir().unwrap();
