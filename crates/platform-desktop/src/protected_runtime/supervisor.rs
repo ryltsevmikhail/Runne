@@ -255,6 +255,7 @@ impl DevelopmentBundledRuntimeLauncher {
                 activation,
                 runtime_profile: Some(runtime_profile),
                 renewal_sequence: 0,
+                #[cfg(all(unix, feature = "protected-channel-integration"))]
                 root_control_sequence: 0,
                 graceful_requested: false,
                 #[cfg(feature = "test-support")]

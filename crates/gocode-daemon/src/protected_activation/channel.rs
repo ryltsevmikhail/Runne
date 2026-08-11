@@ -88,7 +88,7 @@ impl ProtectedActivationChannel {
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
     }
 
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) fn root_handle_endpoint(
         &self,
         authenticator: RootHandleTransferAuthenticator,
@@ -106,7 +106,8 @@ impl ProtectedActivationChannel {
         .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
     }
 
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[allow(clippy::needless_return)]
     pub(super) fn peer_identity(&self) -> Result<(u32, u32), LaunchAuthorityError> {
         #[cfg(target_os = "linux")]
         {

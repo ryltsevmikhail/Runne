@@ -1,4 +1,4 @@
-#[cfg(unix)]
+#[cfg(all(unix, feature = "protected-channel-integration"))]
 impl ProtectedBundledRuntimeProcess {
     /// Transfers one verified root only over this process' authenticated inherited channel.
     ///
@@ -14,6 +14,19 @@ impl ProtectedBundledRuntimeProcess {
         workspace_id: gocode_domain::id::WorkspaceId,
         expected_version: u64,
     ) -> Result<(), ProtectedBundledRuntimeError> {
+        let transaction = self.root_handle_preflight(workspace_id, expected_version)?;
+        match self.prepare_root_handle_transaction(root, transaction) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(ProtectedBundledRuntimeError::OwnershipMismatch),
+            Err(error) => { self.poison_root_transport(); Err(error) }
+        }
+    }
+
+    fn root_handle_preflight(
+        &self,
+        workspace_id: gocode_domain::id::WorkspaceId,
+        expected_version: u64,
+    ) -> Result<RootHandleTransaction, ProtectedBundledRuntimeError> {
         if self.graceful_requested { return Err(ProtectedBundledRuntimeError::InvalidState); }
         let receiver_pid = self.child.id();
         let sender_pid = std::process::id();
@@ -30,6 +43,15 @@ impl ProtectedBundledRuntimeProcess {
         let sequence = self.root_control_sequence.checked_add(1)
             .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
         let offer = gocode_api::RootHandleTransferOffer::new(context.clone(), sequence, &authenticator)?;
+        Ok(RootHandleTransaction { authenticator, context, sequence, offer })
+    }
+
+    fn prepare_root_handle_transaction(
+        &mut self,
+        root: &crate::VerifiedRootHandle,
+        transaction: RootHandleTransaction,
+    ) -> Result<bool, ProtectedBundledRuntimeError> {
+        let RootHandleTransaction { authenticator, context, sequence, offer } = transaction;
         let offer_digest = offer.digest();
         write_frame(
             &mut self.channel,
@@ -48,10 +70,8 @@ impl ProtectedBundledRuntimeProcess {
             self.channel.try_clone().map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?,
             authenticator.clone(), &context, *ready.offer_digest(),
         ).map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
-        if endpoint.send(root).is_err() || endpoint.finish().is_err() {
-            self.poison_root_transport();
-            return Err(ProtectedBundledRuntimeError::ProtectedChannelUnavailable);
-        }
+        endpoint.send(root).map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
+        endpoint.finish().map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         let result = gocode_api::RootHandleControlFrame::decode_and_verify(
             &read_frame(&mut self.channel)?, &authenticator, &context, sequence + 1, unix_millis()?,
         )?;
@@ -61,11 +81,11 @@ impl ProtectedBundledRuntimeProcess {
         if result.offer_digest() != ready.offer_digest() {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
-        self.root_control_sequence = sequence + 2;
-        if !result.accepted() {
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
+        if result.accepted() {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
         }
-        Ok(())
+        self.root_control_sequence = sequence + 2;
+        Ok(false)
     }
 
     fn poison_root_transport(&mut self) {
@@ -73,5 +93,30 @@ impl ProtectedBundledRuntimeProcess {
         let _ = self.channel.shutdown(Shutdown::Both);
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+
+#[cfg(all(unix, feature = "protected-channel-integration"))]
+struct RootHandleTransaction {
+    authenticator: gocode_api::RootHandleTransferAuthenticator,
+    context: gocode_api::RootHandleTransferContext,
+    sequence: u64,
+    offer: gocode_api::RootHandleTransferOffer,
+}
+
+#[cfg(not(all(unix, feature = "protected-channel-integration")))]
+impl ProtectedBundledRuntimeProcess {
+    /// Protected root-handle transport is unavailable without its native integration feature.
+    ///
+    /// # Errors
+    ///
+    /// Always returns a closed unsupported-platform failure.
+    pub fn prepare_root_handle(
+        &mut self,
+        _root: &crate::VerifiedRootHandle,
+        _workspace_id: gocode_domain::id::WorkspaceId,
+        _expected_version: u64,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
     }
 }

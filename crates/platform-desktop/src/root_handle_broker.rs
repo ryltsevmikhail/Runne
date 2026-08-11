@@ -12,10 +12,10 @@ mod platform;
 mod platform;
 #[cfg(not(any(unix, windows)))]
 compile_error!("root-handle broker requires a supported desktop platform");
-#[cfg(unix)]
+#[cfg(all(unix, feature = "protected-channel-integration"))]
 #[path = "root_handle_broker/endpoint.rs"]
 mod endpoint;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "protected-channel-integration"))]
 pub use endpoint::ProtectedRootHandleEndpoint;
 
 /// Fail-closed errors for native root-handle selection and transfer.
@@ -132,7 +132,7 @@ impl RootHandleTransferBinding {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "protected-channel-integration"))]
 fn binding_for_protected_control(
     context: &gocode_api::RootHandleTransferContext,
     offer_digest: [u8; 32],

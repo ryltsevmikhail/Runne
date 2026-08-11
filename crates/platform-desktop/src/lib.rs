@@ -11,7 +11,7 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
-#[cfg(unix)]
+#[cfg(all(unix, feature = "protected-channel-integration"))]
 pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
 pub use root_handle_broker::test_transfer_pair;
