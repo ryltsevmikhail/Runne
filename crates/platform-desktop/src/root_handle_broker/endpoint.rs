@@ -15,7 +15,14 @@ pub struct ProtectedRootHandleEndpoint {
     binding: RootHandleTransferBinding,
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
-    complete: bool,
+    phase: EndpointPhase,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EndpointPhase {
+    Fresh,
+    Sent,
+    Received,
+    Finished,
 }
 
 impl ProtectedRootHandleEndpoint {
@@ -42,7 +49,7 @@ impl ProtectedRootHandleEndpoint {
             binding: binding_for_protected_control(context, offer_digest)?,
             read_timeout,
             write_timeout,
-            complete: false,
+            phase: EndpointPhase::Fresh,
         })
     }
     /// Sends exactly one verified descriptor.
@@ -51,6 +58,10 @@ impl ProtectedRootHandleEndpoint {
     ///
     /// Returns a closed error when the endpoint is already consumed or native transfer fails.
     pub fn send(&mut self, root: &VerifiedRootHandle) -> Result<(), RootHandleBrokerError> {
+        if self.phase != EndpointPhase::Fresh {
+            return Err(RootHandleBrokerError::Rejected);
+        }
+        self.phase = EndpointPhase::Sent;
         platform::send_borrowed(
             self.channel
                 .as_mut()
@@ -66,6 +77,10 @@ impl ProtectedRootHandleEndpoint {
     ///
     /// Returns a closed error when the endpoint is already consumed or native transfer fails.
     pub fn receive(&mut self) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
+        if self.phase != EndpointPhase::Fresh {
+            return Err(RootHandleBrokerError::Rejected);
+        }
+        self.phase = EndpointPhase::Received;
         platform::receive_borrowed(
             self.channel
                 .as_mut()
@@ -80,6 +95,9 @@ impl ProtectedRootHandleEndpoint {
     ///
     /// Returns a closed error if the endpoint is consumed or timeout restoration fails.
     pub fn finish(mut self) -> Result<(), RootHandleBrokerError> {
+        if !matches!(self.phase, EndpointPhase::Sent | EndpointPhase::Received) {
+            return Err(RootHandleBrokerError::Rejected);
+        }
         let channel = self.channel.take().ok_or(RootHandleBrokerError::Rejected)?;
         channel
             .set_read_timeout(self.read_timeout)
@@ -87,15 +105,23 @@ impl ProtectedRootHandleEndpoint {
         channel
             .set_write_timeout(self.write_timeout)
             .map_err(|_| RootHandleBrokerError::Unavailable)?;
-        self.complete = true;
+        self.phase = EndpointPhase::Finished;
         Ok(())
     }
 }
 
 impl Drop for ProtectedRootHandleEndpoint {
     fn drop(&mut self) {
-        if !self.complete {
-            self.channel.take();
+        if self.phase == EndpointPhase::Fresh {
+            if let Some(channel) = self.channel.take() {
+                let _ = channel.set_read_timeout(self.read_timeout);
+                let _ = channel.set_write_timeout(self.write_timeout);
+            }
+        } else if self.phase != EndpointPhase::Finished
+            && let Some(channel) = self.channel.take()
+        {
+            use std::net::Shutdown;
+            let _ = channel.shutdown(Shutdown::Both);
         }
     }
 }

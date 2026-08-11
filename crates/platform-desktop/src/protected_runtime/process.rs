@@ -105,14 +105,19 @@ enum ProtectedProcessActivation {
         ready: ProtectedReadyV2,
         owned: ProtectedOwnedLaunchV2,
     },
+    #[cfg(feature = "test-support")]
+    #[allow(dead_code)]
+    Test { owned: ProtectedOwnedLaunchV1 },
 }
 
 #[cfg(unix)]
 impl ProtectedProcessActivation {
-    const fn compatibility_ready(&self) -> &ProtectedReadyV1 {
+    fn compatibility_ready(&self) -> &ProtectedReadyV1 {
         match self {
             Self::V1 { ready, .. } => ready,
             Self::V2 { ready, .. } => ready.compatibility_ready(),
+            #[cfg(feature = "test-support")]
+            Self::Test { .. } => unreachable!("transport-only test process has no readiness"),
         }
     }
 
@@ -120,6 +125,8 @@ impl ProtectedProcessActivation {
         match self {
             Self::V1 { owned, .. } => owned,
             Self::V2 { owned, .. } => owned.compatibility_owned_launch(),
+            #[cfg(feature = "test-support")]
+            Self::Test { owned } => owned,
         }
     }
 
@@ -127,6 +134,8 @@ impl ProtectedProcessActivation {
         match self {
             Self::V1 { .. } => None,
             Self::V2 { request, .. } => Some(request.provider_binding()),
+            #[cfg(feature = "test-support")]
+            Self::Test { .. } => None,
         }
     }
 }

@@ -64,7 +64,7 @@ mod first_activation;
 mod launch;
 #[cfg(unix)]
 mod request;
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod root_handle_control;
 
 #[cfg(unix)]
@@ -75,8 +75,8 @@ pub use control::{run_control_loop, run_control_loop_v2};
 pub use first_activation::random_control_secret;
 #[cfg(unix)]
 pub use launch::{ProtectedDaemonLaunch, VerifiedProtectedApplicationStart};
-#[cfg(feature = "desktop-protected")]
-pub use root_handle_control::receive_root_handle_offer;
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub use root_handle_control::{dispatch_root_handle_control_frame, receive_root_handle_offer};
 
 #[cfg(unix)]
 pub(crate) fn validate_protected_bootstrap_connection(

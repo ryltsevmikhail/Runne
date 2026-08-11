@@ -15,23 +15,23 @@ pub fn run_control_loop(
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
-        #[cfg(feature = "desktop-protected")]
-        if gocode_api::is_root_handle_control_frame(&frame) {
-            last_root_sequence = receive_root_handle_offer(
-                &mut channel,
-                &frame,
-                &keys,
-                &owned_launch,
-                &mut used_root_transfers,
-                last_root_sequence,
-                unix_millis()?,
-            )?;
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        if let Some(sequence) = dispatch_root_handle_control_frame(
+            &mut channel,
+            &frame,
+            &keys,
+            &owned_launch,
+            &mut used_root_transfers,
+            last_root_sequence,
+            unix_millis()?,
+        )? {
+            last_root_sequence = sequence;
             continue;
         }
         if let Ok(renewal) = ProtectedRenewRequestV1::decode_frame(&frame) {
@@ -119,23 +119,23 @@ pub fn run_control_loop_v2(
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
-        #[cfg(feature = "desktop-protected")]
-        if gocode_api::is_root_handle_control_frame(&frame) {
-            last_root_sequence = receive_root_handle_offer(
-                &mut channel,
-                &frame,
-                &keys,
-                owned_launch.compatibility_owned_launch(),
-                &mut used_root_transfers,
-                last_root_sequence,
-                unix_millis()?,
-            )?;
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        if let Some(sequence) = dispatch_root_handle_control_frame(
+            &mut channel,
+            &frame,
+            &keys,
+            owned_launch.compatibility_owned_launch(),
+            &mut used_root_transfers,
+            last_root_sequence,
+            unix_millis()?,
+        )? {
+            last_root_sequence = sequence;
             continue;
         }
         if let Ok(renewal) = ProtectedRenewRequestV2::decode_frame(&frame) {
@@ -205,7 +205,7 @@ pub fn run_control_loop_v2(
     }
 }
 
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(unix, feature = "desktop-protected"))]
 fn unix_millis() -> Result<u64, LaunchAuthorityError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -2,6 +2,30 @@ use super::*;
 
 /// Receives one descriptor after an authenticated offer on the already-owned control channel.
 /// A broken native transfer closes the launch; a semantic rejection emits a signed result.
+pub fn dispatch_root_handle_control_frame(
+    channel: &mut ProtectedActivationChannel,
+    frame: &[u8],
+    keys: &ProtectedActivationKeys,
+    owned: &ProtectedOwnedLaunchV1,
+    used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
+    previous_sequence: u64,
+    now_unix_millis: u64,
+) -> Result<Option<u64>, LaunchAuthorityError> {
+    if !gocode_api::is_root_handle_control_frame(frame) {
+        return Ok(None);
+    }
+    receive_root_handle_offer(
+        channel,
+        frame,
+        keys,
+        owned,
+        used_transfers,
+        previous_sequence,
+        now_unix_millis,
+    )
+    .map(Some)
+}
+
 pub fn receive_root_handle_offer(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
