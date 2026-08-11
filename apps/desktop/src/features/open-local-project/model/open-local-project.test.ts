@@ -1,39 +1,50 @@
 import { describe, expect, it } from 'vitest'
 
-import { selectAndOpenLocalProject } from './open-local-project'
+import { selectAndOpenLocalProject, selectAndPrepareLocalProject } from './open-local-project'
 
-const project = {
-  id: 7,
-  name: 'gocode-ui',
-  path: '/workspace/gocode-ui',
-  lastOpenedAt: 1_753_500_000_000,
-} as const
+const selection = { reference: 'a'.repeat(64) } as const
 
 describe('open local project', () => {
-  it('persists the directory selected by the native picker', async () => {
-    const opened = await selectAndOpenLocalProject(
-      async () => '/workspace/gocode-ui',
-      async path => ({
-        ...project,
-        path,
-      }),
-    )
+  it('gets a host-issued generation before requesting an opaque selection', async () => {
+    const opened = await selectAndOpenLocalProject(async () => {
+      return 7
+    }, async (_requestId, rendererGeneration) => {
+      expect(rendererGeneration).toBe(7)
+      return selection
+    })
 
-    expect(opened).toEqual(project)
+    expect(opened).toEqual(selection)
   })
 
-  it('does not mutate project state when the native picker is cancelled', async () => {
-    let mutationAttempted = false
+  it('returns null when the host picker is cancelled', async () => {
+    const opened = await selectAndOpenLocalProject(async () => 99, async () => null)
 
-    const opened = await selectAndOpenLocalProject(
-      async () => null,
-      async () => {
-        mutationAttempted = true
-        return project
+    expect(opened).toBeNull()
+  })
+
+  it('passes an opaque selection through the strict preparation adapter', async () => {
+    const prepared = await selectAndPrepareLocalProject(
+      '01890e00-0000-7000-8000-000000000001',
+      3,
+      async () => 99,
+      async (_requestId, rendererGeneration) => {
+        expect(rendererGeneration).toBe(7)
+        return selection
+      },
+      async request => {
+        expect(request).toMatchObject({
+          selection: selection.reference,
+          rendererGeneration: 7,
+          workspaceId: '01890e00-0000-7000-8000-000000000001',
+          expectedVersion: 3,
+        })
+        return { reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' } }
       },
     )
 
-    expect(opened).toBeNull()
-    expect(mutationAttempted).toBe(false)
+    expect(prepared).toEqual({
+      reference: 'b'.repeat(64),
+      summary: { displayName: 'Selected folder' },
+    })
   })
 })

@@ -14,7 +14,7 @@ tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 gocode-app-core = { path = "../../../crates/app-core" }
-gocode-platform-desktop = { path = "../../../crates/platform-desktop" }
+gocode-platform-desktop = { path = "../../../crates/platform-desktop", features = ["protected-channel-integration"] }
 hex.workspace = true
 rand = "0.8"
 serde.workspace = true

@@ -25,6 +25,9 @@ pub mod task_run;
 /// API data transfer objects.
 pub mod types;
 
+/// Stable workspace identifier transported across the public host boundary.
+pub use gocode_domain::id::WorkspaceId;
+
 pub use conversation::*;
 pub use host_port::*;
 pub use local_session::*;

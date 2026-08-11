@@ -9,6 +9,7 @@ fn zero_ttl_is_rejected_before_the_native_handle_is_retained() {
 #[test]
 fn a_reference_collision_does_not_replace_the_original_handle() {
     let manager = DirectorySelectionManager::new(Duration::from_secs(1)).unwrap();
+    assert_eq!(manager.renderer_generations().page_loaded("main").unwrap(), 1);
     let first = tempfile::tempdir().unwrap();
     let second = tempfile::tempdir().unwrap();
     let now = Instant::now();
@@ -16,7 +17,7 @@ fn a_reference_collision_does_not_replace_the_original_handle() {
     let original = manager
         .issue_with_reference_for_test(
             "main",
-            0,
+            1,
             "request",
             VerifiedRootHandle::open(first.path()).unwrap(),
             now,
@@ -26,14 +27,14 @@ fn a_reference_collision_does_not_replace_the_original_handle() {
     assert!(manager
         .issue_with_reference_for_test(
             "main",
-            0,
+            1,
             "request-2",
             VerifiedRootHandle::open(second.path()).unwrap(),
             now,
             reference,
         )
         .is_err());
-    assert!(manager.consume(&original, "main", 0, "request", now).is_ok());
+    assert!(manager.consume(&original, "main", 1, "request", now).is_ok());
 }
 
 #[cfg(feature = "test-support")]

@@ -1,26 +1,49 @@
-import { open } from '@tauri-apps/plugin-dialog'
+import {
+  acquireRendererGeneration,
+  prepareSelectedWorkspace,
+  requestDirectorySelection,
+  type DirectorySelection,
+  type PreparedWorkspace,
+  type WorkspacePreparation,
+} from '@/entities/project'
 
-import { openLocalProject, type Project } from '@/entities/project'
+type AcquireGeneration = () => Promise<number>
+type SelectDirectory = (requestId: string, rendererGeneration: number) => Promise<DirectorySelection | null>
+type PrepareWorkspace = (request: WorkspacePreparation) => Promise<PreparedWorkspace>
 
-type SelectDirectory = () => Promise<string | null>
-type PersistProject = (path: string) => Promise<Project>
+let rendererGeneration: number | null = null
 
-async function selectDirectory(): Promise<string | null> {
-  const selection = await open({
-    directory: true,
-    multiple: false,
-    title: 'Open local project',
-  })
-  return typeof selection === 'string' ? selection : null
+async function currentRendererGeneration(acquire: AcquireGeneration): Promise<number> {
+  rendererGeneration ??= await acquire()
+  return rendererGeneration
 }
 
 export async function selectAndOpenLocalProject(
-  select: SelectDirectory = selectDirectory,
-  persist: PersistProject = openLocalProject,
-): Promise<Project | null> {
-  const path = await select()
-  if (path === null) {
+  acquire: AcquireGeneration = acquireRendererGeneration,
+  select: SelectDirectory = requestDirectorySelection,
+): Promise<DirectorySelection | null> {
+  const generation = await currentRendererGeneration(acquire)
+  return select(crypto.randomUUID(), generation)
+}
+
+export async function selectAndPrepareLocalProject(
+  workspaceId: string,
+  expectedVersion: number,
+  acquire: AcquireGeneration = acquireRendererGeneration,
+  select: SelectDirectory = requestDirectorySelection,
+  prepare: PrepareWorkspace = prepareSelectedWorkspace,
+): Promise<PreparedWorkspace | null> {
+  const generation = await currentRendererGeneration(acquire)
+  const requestId = crypto.randomUUID()
+  const selection = await select(requestId, generation)
+  if (selection === null) {
     return null
   }
-  return persist(path)
+  return prepare({
+    selection: selection.reference,
+    rendererGeneration: generation,
+    requestId,
+    workspaceId,
+    expectedVersion,
+  })
 }
