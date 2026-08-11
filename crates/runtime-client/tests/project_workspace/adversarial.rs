@@ -142,7 +142,11 @@ async fn exact_project_workspace_branches_reject_only_identity_mismatches() {
                     command,
                     workspace,
                     1,
-                    RootAdmissionToken::parse("gocode-root-admission-v2.AA").unwrap(),
+                    RootAdmissionToken::parse(format!(
+                        "gocode-root-admission-v2.{}",
+                        "A".repeat(343)
+                    ))
+                    .unwrap(),
                 )
                 .unwrap(),
             )

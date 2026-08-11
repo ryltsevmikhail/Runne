@@ -2,6 +2,7 @@ use super::*;
 
 /// Receives one descriptor after an authenticated offer on the already-owned control channel.
 /// A broken native transfer closes the launch; a semantic rejection emits a signed result.
+#[allow(clippy::too_many_arguments)]
 pub fn dispatch_root_handle_control_frame(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
@@ -10,6 +11,7 @@ pub fn dispatch_root_handle_control_frame(
     used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
     previous_sequence: u64,
     now_unix_millis: u64,
+    authority: Option<&RootHandleAdmissionAuthority>,
 ) -> Result<Option<u64>, LaunchAuthorityError> {
     if !gocode_api::is_root_handle_control_frame(frame) {
         return Ok(None);
@@ -22,10 +24,12 @@ pub fn dispatch_root_handle_control_frame(
         used_transfers,
         previous_sequence,
         now_unix_millis,
+        authority,
     )
     .map(Some)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn receive_root_handle_offer(
     channel: &mut ProtectedActivationChannel,
     frame: &[u8],
@@ -34,6 +38,7 @@ pub fn receive_root_handle_offer(
     used_transfers: &mut std::collections::VecDeque<([u8; 16], [u8; 32], u64)>,
     previous_sequence: u64,
     now_unix_millis: u64,
+    authority: Option<&RootHandleAdmissionAuthority>,
 ) -> Result<u64, LaunchAuthorityError> {
     let (sender_pid, effective_uid) = channel.peer_identity()?;
     let receiver_pid = std::process::id();
@@ -61,13 +66,14 @@ pub fn receive_root_handle_offer(
     endpoint
         .finish()
         .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
-    let result = gocode_api::RootHandleTransferResult::new(
-        &RootHandleTransferReady::new(&offer, &authenticator),
-        false,
-        &authenticator,
-    );
+    let ready = RootHandleTransferReady::new(&offer, &authenticator);
+    let result = match authority.and_then(|value| value.admit(&offer, root, now_unix_millis).ok()) {
+        Some(admission) => {
+            gocode_api::RootHandleTransferResult::admitted(&ready, admission, &authenticator)
+        }
+        None => gocode_api::RootHandleTransferResult::rejected(&ready, &authenticator),
+    };
     channel.write_control_frame(&RootHandleControlFrame::Result(result).encode_frame())?;
-    drop(root);
     previous_sequence
         .checked_add(3)
         .ok_or(LaunchAuthorityError::RenewalReplay)

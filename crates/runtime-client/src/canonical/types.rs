@@ -26,7 +26,7 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "runtime.operational-telemetry.v1",
     "project.list.v1", "project.get.v1", "project.create.v1", "project.archive.v1",
     "project.restore.v1", "project.delete.v1", "workspace.list.v1", "workspace.get.v1",
-    "workspace.create.v1", "workspace.open.v1",
+    "workspace.create.v1", "workspace.open.v1", "workspace.bind_root.v2",
 ];
 
 /// Strict `UUIDv7` identity used by the canonical client contract.

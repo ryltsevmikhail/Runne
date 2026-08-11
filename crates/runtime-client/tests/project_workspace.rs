@@ -39,7 +39,8 @@ fn project_workspace_requests_reject_invalid_names_and_versions() {
 
 #[test]
 fn root_admission_token_is_opaque_redacted_and_v2_only() {
-    let token = RootAdmissionToken::parse("gocode-root-admission-v2.AA").unwrap();
+    let token =
+        RootAdmissionToken::parse(format!("gocode-root-admission-v2.{}", "A".repeat(343))).unwrap();
     assert_eq!(format!("{token:?}"), "RootAdmissionToken([REDACTED])");
     assert_eq!(
         RootAdmissionToken::parse("gocode-root-admission-v1.abc")
@@ -55,7 +56,7 @@ fn capability_wave_is_exactly_required_by_the_client() {
     for capability in ["project.list.v1", "project.restore.v1"] {
         assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&capability));
     }
-    assert!(!REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
+    assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
 }
 
 fn session() -> RuntimeSessionInfo {

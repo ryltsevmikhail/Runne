@@ -12,6 +12,7 @@ pub fn run_control_loop(
     mut owned_launch: ProtectedOwnedLaunchV1,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<RootHandleAdmissionAuthority>>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
@@ -30,12 +31,19 @@ pub fn run_control_loop(
             &mut used_root_transfers,
             last_root_sequence,
             unix_millis()?,
+            root_admission.as_deref(),
         )? {
             last_root_sequence = sequence;
             continue;
         }
         if let Ok(renewal) = ProtectedRenewRequestV1::decode_frame(&frame) {
             renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
+            #[cfg(feature = "desktop-protected")]
+            if let Some(authority) = &root_admission {
+                authority
+                    .fence()
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            }
 
             let current = local_session_service
                 .lock()
@@ -116,6 +124,7 @@ pub fn run_control_loop_v2(
     mut owned_launch: ProtectedOwnedLaunchV2,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<RootHandleAdmissionAuthority>>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
@@ -134,12 +143,19 @@ pub fn run_control_loop_v2(
             &mut used_root_transfers,
             last_root_sequence,
             unix_millis()?,
+            root_admission.as_deref(),
         )? {
             last_root_sequence = sequence;
             continue;
         }
         if let Ok(renewal) = ProtectedRenewRequestV2::decode_frame(&frame) {
             renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
+            #[cfg(feature = "desktop-protected")]
+            if let Some(authority) = &root_admission {
+                authority
+                    .fence()
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            }
             let current = local_session_service
                 .lock()
                 .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?

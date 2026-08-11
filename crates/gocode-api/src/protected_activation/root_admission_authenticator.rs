@@ -120,9 +120,7 @@ mod root_admission_authenticator_tests {
         let proof = authenticated_mac(&key, V1_DOMAIN, &envelope);
         envelope.extend(proof);
         assert_eq!(envelope.len(), 265);
-        let v1_admission = RootHandleAdmission::from_verified_bytes(envelope).unwrap();
-        let v2 = RootAdmissionAuthenticator::from_protected_activation(&keys);
-        assert!(v2.verify(v1_admission).is_err());
+        assert!(RootHandleAdmission::from_verified_bytes(envelope).is_none());
     }
 
     #[test]

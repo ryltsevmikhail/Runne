@@ -31,7 +31,7 @@
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
-      "sha256": "95e165718ddb2a9099a02cfdb8ba05025474b98d4921f718abbf077ecb1d908d"
+      "sha256": "9c3f8c4094856a12e57d95ff282eb09459ada03903bd59869a902cc93d918d16"
     },
     {
       "path": "schemas/local-session-v1.schema.json",
@@ -74,7 +74,8 @@
     "workspace.list.v1",
     "workspace.get.v1",
     "workspace.create.v1",
-    "workspace.open.v1"
+    "workspace.open.v1",
+    "workspace.bind_root.v2"
   ],
   "generatorSchemaVersion": 1,
   "publishedCapabilities": [
@@ -97,7 +98,8 @@
     "workspace.list.v1",
     "workspace.get.v1",
     "workspace.create.v1",
-    "workspace.open.v1"
+    "workspace.open.v1",
+    "workspace.bind_root.v2"
   ],
   "transportProfileId": "gocode-local-runtime/2"
 }

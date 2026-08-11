@@ -14,10 +14,28 @@ impl ProtectedBundledRuntimeProcess {
         workspace_id: gocode_domain::id::WorkspaceId,
         expected_version: u64,
     ) -> Result<(), ProtectedBundledRuntimeError> {
+        self.prepare_root_admission(root, workspace_id, expected_version)
+            .map(|_| ())
+    }
+
+    /// Transfers one verified root and returns only the signed opaque admission.
+    ///
+    /// Paths, descriptor values, and transfer references remain native-host-only.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when the protected channel, transfer, or daemon
+    /// admission authority rejects the exact root context.
+    pub fn prepare_root_admission(
+        &mut self,
+        root: &crate::VerifiedRootHandle,
+        workspace_id: gocode_domain::id::WorkspaceId,
+        expected_version: u64,
+    ) -> Result<gocode_api::RootHandleAdmission, ProtectedBundledRuntimeError> {
         let transaction = self.root_handle_preflight(workspace_id, expected_version)?;
         match self.prepare_root_handle_transaction(root, transaction) {
-            Ok(true) => Ok(()),
-            Ok(false) => Err(ProtectedBundledRuntimeError::OwnershipMismatch),
+            Ok(Some(admission)) => Ok(admission),
+            Ok(None) => Err(ProtectedBundledRuntimeError::OwnershipMismatch),
             Err(error) => { self.poison_root_transport(); Err(error) }
         }
     }
@@ -50,7 +68,7 @@ impl ProtectedBundledRuntimeProcess {
         &mut self,
         root: &crate::VerifiedRootHandle,
         transaction: RootHandleTransaction,
-    ) -> Result<bool, ProtectedBundledRuntimeError> {
+    ) -> Result<Option<gocode_api::RootHandleAdmission>, ProtectedBundledRuntimeError> {
         let RootHandleTransaction { authenticator, context, sequence, offer } = transaction;
         let offer_digest = offer.digest();
         write_frame(
@@ -81,11 +99,14 @@ impl ProtectedBundledRuntimeProcess {
         if result.offer_digest() != ready.offer_digest() {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
-        if result.accepted() {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
+        let accepted = result.accepted();
+        let admission = result.into_admission();
+        if !accepted || admission.is_none() {
+            self.root_control_sequence = sequence + 2;
+            return Ok(None);
         }
         self.root_control_sequence = sequence + 2;
-        Ok(false)
+        Ok(admission)
     }
 
     fn poison_root_transport(&mut self) {
@@ -117,6 +138,20 @@ impl ProtectedBundledRuntimeProcess {
         _workspace_id: gocode_domain::id::WorkspaceId,
         _expected_version: u64,
     ) -> Result<(), ProtectedBundledRuntimeError> {
+        Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
+    }
+
+    /// Protected root admission is unavailable without native channel support.
+    ///
+    /// # Errors
+    ///
+    /// Always returns an unsupported-platform failure.
+    pub fn prepare_root_admission(
+        &mut self,
+        _root: &crate::VerifiedRootHandle,
+        _workspace_id: gocode_domain::id::WorkspaceId,
+        _expected_version: u64,
+    ) -> Result<gocode_api::RootHandleAdmission, ProtectedBundledRuntimeError> {
         Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
     }
 }

@@ -77,6 +77,9 @@ pub struct DaemonApplication {
     pub(super) _secret_broker: Arc<Mutex<SecretBroker>>,
     pub(super) task_supervisor: Arc<RuntimeTaskSupervisor>,
     pub(super) shutdown_timeout: Duration,
+    #[cfg(feature = "desktop-protected")]
+    pub(super) root_admission_authority:
+        Option<Arc<super::root_handle_admission::RootHandleAdmissionAuthority>>,
 }
 
 impl DaemonApplication {
@@ -109,9 +112,10 @@ impl DaemonApplication {
     #[cfg(unix)]
     pub(super) async fn start_protected(
         start: VerifiedProtectedApplicationStart,
+        keys: ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Result<Self, DaemonError> {
-        let startup = StartupProvider::verified_protected(&start, dependencies);
+        let startup = StartupProvider::verified_protected(&start, keys, dependencies);
         let (config, bootstrap, _) = start.into_parts();
         Self::validate_config(&config)?;
         Self::start_with_bootstrap(&config, bootstrap, startup).await
