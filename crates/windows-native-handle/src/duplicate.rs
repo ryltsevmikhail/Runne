@@ -1,47 +1,94 @@
 use std::fmt;
+use std::os::windows::io::AsRawHandle;
+use std::process::Child;
 use std::ptr;
+use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE,
 };
-use windows_sys::Win32::System::Threading::{
-    GetCurrentProcess, GetProcessId, OpenProcess, PROCESS_DUP_HANDLE,
-    PROCESS_QUERY_LIMITED_INFORMATION,
-};
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessId};
 
-use crate::identity::{DirectoryHandle, NativeHandleError, OwnedHandle};
+use crate::identity::{DirectoryHandle, DirectoryIdentity, NativeHandleError, OwnedHandle};
+use crate::receiver::{HandleOfferAck, ProtectedHandleOffer, ReceivedHandleOffer};
 
-/// A verified process opened for a single native handle transfer.
-pub struct ExactTargetProcess(OwnedHandle);
+/// Non-reusable launcher facts bound into one protected child transfer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LauncherProcessBinding {
+    expected_pid: u32,
+    launch_generation: u64,
+}
 
-impl ExactTargetProcess {
-    /// Opens the current process instance for duplication and verifies its PID.
+impl LauncherProcessBinding {
+    /// Creates a bounded binding from launcher-owned child facts.
     ///
     /// # Errors
     ///
-    /// Returns a closed error when the process cannot be opened with exactly the
-    /// requested process identifier and duplication rights.
-    pub fn open(pid: u32) -> Result<Self, NativeHandleError> {
-        (pid != 0)
-            .then_some(())
-            .ok_or(NativeHandleError::TargetMismatch)?;
-        // SAFETY: this requests only duplication/query rights for the supplied PID.
-        let handle = unsafe {
-            OpenProcess(
-                PROCESS_DUP_HANDLE | PROCESS_QUERY_LIMITED_INFORMATION,
+    /// Returns a closed error for zero PID or launch generation.
+    pub const fn new(expected_pid: u32, launch_generation: u64) -> Result<Self, NativeHandleError> {
+        if expected_pid == 0 || launch_generation == 0 {
+            return Err(NativeHandleError::TargetMismatch);
+        }
+        Ok(Self {
+            expected_pid,
+            launch_generation,
+        })
+    }
+
+    pub(crate) const fn expected_pid(self) -> u32 {
+        self.expected_pid
+    }
+
+    pub(crate) const fn launch_generation(self) -> u64 {
+        self.launch_generation
+    }
+}
+
+/// A duplicated, exact process instance that originated from the launcher child.
+pub struct ExactTargetProcess {
+    process: OwnedHandle,
+    binding: LauncherProcessBinding,
+}
+
+impl ExactTargetProcess {
+    /// Duplicates a launcher-owned child handle and binds it to launch facts.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error if `child` is not the expected live child or its
+    /// owned handle cannot be duplicated with the required identity.
+    pub fn from_launcher_child(
+        child: &Child,
+        binding: LauncherProcessBinding,
+    ) -> Result<Self, NativeHandleError> {
+        if child.id() != binding.expected_pid {
+            return Err(NativeHandleError::TargetMismatch);
+        }
+        let mut owned = ptr::null_mut();
+        // SAFETY: `child` owns this current-process handle for the call duration.
+        let copied = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                child.as_raw_handle().cast(),
+                GetCurrentProcess(),
+                &raw mut owned,
                 0,
-                pid,
+                0,
+                DUPLICATE_SAME_ACCESS,
             )
         };
-        let process = OwnedHandle::new(handle)?;
-        // SAFETY: `process` owns a valid process handle.
-        (unsafe { GetProcessId(process.raw()) } == pid)
-            .then_some(Self(process))
+        (copied != 0 && !owned.is_null())
+            .then_some(())
+            .ok_or(NativeHandleError::Unavailable)?;
+        let process = OwnedHandle::new(owned)?;
+        // SAFETY: `process` is the owned duplicate of the launcher child handle.
+        (unsafe { GetProcessId(process.raw()) } == binding.expected_pid)
+            .then_some(Self { process, binding })
             .ok_or(NativeHandleError::TargetMismatch)
     }
 
     const fn raw(&self) -> HANDLE {
-        self.0.raw()
+        self.process.raw()
     }
 }
 
@@ -51,14 +98,16 @@ impl fmt::Debug for ExactTargetProcess {
     }
 }
 
-/// Owns a duplicate in the exact target process and revokes it on drop.
+/// Owns a target duplicate until an authenticated ACK or bounded cleanup.
 pub struct RemoteHandleLease {
     target: ExactTargetProcess,
+    identity: DirectoryIdentity,
     remote: Option<HANDLE>,
+    issued_offer: Option<[u8; 16]>,
 }
 
 impl RemoteHandleLease {
-    /// Duplicates a directory only into the pre-verified target process.
+    /// Duplicates a directory only into the exact launcher-owned target process.
     ///
     /// # Errors
     ///
@@ -69,8 +118,8 @@ impl RemoteHandleLease {
         target: ExactTargetProcess,
     ) -> Result<Self, NativeHandleError> {
         let mut remote = ptr::null_mut();
-        // SAFETY: the source is owned locally and the destination process was verified above.
-        let ok = unsafe {
+        // SAFETY: source ownership and the duplicated target process are both verified.
+        let copied = unsafe {
             DuplicateHandle(
                 GetCurrentProcess(),
                 directory.raw(),
@@ -81,28 +130,56 @@ impl RemoteHandleLease {
                 DUPLICATE_SAME_ACCESS,
             )
         };
-        (ok != 0 && !remote.is_null())
+        (copied != 0 && !remote.is_null())
             .then_some(Self {
                 target,
+                identity: directory.identity(),
                 remote: Some(remote),
+                issued_offer: None,
             })
             .ok_or(NativeHandleError::Unavailable)
     }
-}
 
-impl fmt::Debug for RemoteHandleLease {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("RemoteHandleLease(<redacted>)")
+    /// Creates one opaque offer for an already-authenticated protected channel.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for reused identifiers, empty IDs, or TTL outside
+    /// the receiver's bounded acceptance window.
+    pub fn issue_offer(
+        &mut self,
+        offer_id: [u8; 16],
+        ttl: Duration,
+    ) -> Result<ProtectedHandleOffer, NativeHandleError> {
+        if offer_id == [0; 16] || self.issued_offer.is_some() {
+            return Err(NativeHandleError::Rejected);
+        }
+        let remote = self.remote.ok_or(NativeHandleError::Unavailable)?;
+        let offer =
+            ReceivedHandleOffer::new(offer_id, self.target.binding, self.identity, remote, ttl)?
+                .encode()?;
+        self.issued_offer = Some(offer_id);
+        Ok(offer)
     }
-}
 
-impl Drop for RemoteHandleLease {
-    fn drop(&mut self) {
-        let Some(remote) = self.remote.take() else {
-            return;
-        };
+    /// Verifies a receiver ACK and immediately revokes the target-side original.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for an ACK that does not match this one-shot lease
+    /// or when Windows cannot complete source-side revocation. Missing ACKs are
+    /// revoked by `Drop` when the bounded source operation ends.
+    pub fn acknowledge(mut self, ack: HandleOfferAck) -> Result<(), NativeHandleError> {
+        match self.issued_offer {
+            Some(offer_id) if ack.matches(offer_id) => self.revoke(),
+            _ => Err(NativeHandleError::Rejected),
+        }
+    }
+
+    fn revoke(&mut self) -> Result<(), NativeHandleError> {
+        let remote = self.remote.ok_or(NativeHandleError::Unavailable)?;
         let mut local_copy = ptr::null_mut();
-        // SAFETY: this moves the target-owned duplicate into this process and closes the source.
+        // SAFETY: this revokes the target duplicate and produces only a temporary local copy.
         let copied = unsafe {
             DuplicateHandle(
                 self.target.raw(),
@@ -114,17 +191,32 @@ impl Drop for RemoteHandleLease {
                 DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE,
             )
         };
-        if copied != 0 && !local_copy.is_null() {
-            // SAFETY: `local_copy` is an owned handle produced by DuplicateHandle.
-            let _ = unsafe { CloseHandle(local_copy) };
+        if copied == 0 || local_copy.is_null() {
+            return Err(NativeHandleError::Unavailable);
         }
+        self.remote = None;
+        // SAFETY: `local_copy` is owned locally after revoking the remote original.
+        let _ = unsafe { CloseHandle(local_copy) };
+        Ok(())
+    }
+}
+
+impl fmt::Debug for RemoteHandleLease {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RemoteHandleLease(<redacted>)")
+    }
+}
+
+impl Drop for RemoteHandleLease {
+    fn drop(&mut self) {
+        let _ = self.revoke();
     }
 }
 
 pub fn duplicate_local(handle: HANDLE) -> Result<OwnedHandle, NativeHandleError> {
     let mut copy = ptr::null_mut();
-    // SAFETY: this duplicates one current-process owned handle with inheritance disabled.
-    let ok = unsafe {
+    // SAFETY: this clones but never adopts or closes the borrowed current-process value.
+    let copied = unsafe {
         DuplicateHandle(
             GetCurrentProcess(),
             handle,
@@ -135,7 +227,7 @@ pub fn duplicate_local(handle: HANDLE) -> Result<OwnedHandle, NativeHandleError>
             DUPLICATE_SAME_ACCESS,
         )
     };
-    (ok != 0 && !copy.is_null())
+    (copied != 0 && !copy.is_null())
         .then_some(())
         .ok_or(NativeHandleError::Unavailable)?;
     OwnedHandle::new(copy)
