@@ -98,6 +98,7 @@ pub struct RootHandleTransferBinding {
     sender_pid: u32,
     receiver_pid: u32,
     peer_uid: u32,
+    offer_digest: [u8; 32],
 }
 
 impl RootHandleTransferBinding {
@@ -119,8 +120,49 @@ impl RootHandleTransferBinding {
             sender_pid,
             receiver_pid,
             peer_uid,
+            offer_digest: [1; 32],
         })
     }
+}
+
+#[cfg(unix)]
+#[doc(hidden)]
+pub fn binding_for_protected_control(
+    context: &gocode_api::RootHandleTransferContext,
+    offer_digest: [u8; 32],
+) -> Result<RootHandleTransferBinding, RootHandleBrokerError> {
+    if offer_digest == [0; 32] {
+        return Err(RootHandleBrokerError::Rejected);
+    }
+    Ok(RootHandleTransferBinding {
+        channel_id: *context.transfer_id(),
+        launch_generation: context.launch_generation(),
+        sender_pid: context.sender_pid(),
+        receiver_pid: context.receiver_pid(),
+        peer_uid: context.effective_uid(),
+        offer_digest,
+    })
+}
+
+#[cfg(unix)]
+#[doc(hidden)]
+pub fn send_on_protected_channel(
+    channel: &mut std::os::unix::net::UnixStream,
+    root: &VerifiedRootHandle,
+    authenticator: &RootHandleTransferAuthenticator,
+    binding: &RootHandleTransferBinding,
+) -> Result<(), RootHandleBrokerError> {
+    platform::send_borrowed(channel, root, authenticator, binding)
+}
+
+#[cfg(unix)]
+#[doc(hidden)]
+pub fn receive_on_protected_channel(
+    channel: &mut std::os::unix::net::UnixStream,
+    authenticator: &RootHandleTransferAuthenticator,
+    binding: &RootHandleTransferBinding,
+) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
+    platform::receive_borrowed(channel, authenticator, binding)
 }
 
 impl fmt::Debug for RootHandleTransferBinding {

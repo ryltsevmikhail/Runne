@@ -17,6 +17,9 @@ pub use root_handle_broker::{
     RootHandleBrokerError, RootHandleTransferBinding, RootHandleTransferReceiver,
     RootHandleTransferSender, VerifiedRootHandle,
 };
+#[cfg(unix)]
+#[doc(hidden)]
+pub use root_handle_broker::{binding_for_protected_control, receive_on_protected_channel};
 #[cfg(all(unix, feature = "test-support"))]
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 

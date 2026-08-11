@@ -17,6 +17,11 @@ pub fn run_control_loop(
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(feature = "desktop-protected")]
+        if frame.starts_with(b"GCRHCTL2") {
+            receive_root_handle_offer(&mut channel, &frame, &keys, &owned_launch, unix_millis()?)?;
+            continue;
+        }
         if let Ok(renewal) = ProtectedRenewRequestV1::decode_frame(&frame) {
             renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
 
@@ -104,6 +109,17 @@ pub fn run_control_loop_v2(
     let mut last_renew_sequence = 0_u64;
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(feature = "desktop-protected")]
+        if frame.starts_with(b"GCRHCTL2") {
+            receive_root_handle_offer(
+                &mut channel,
+                &frame,
+                &keys,
+                owned_launch.compatibility_owned_launch(),
+                unix_millis()?,
+            )?;
+            continue;
+        }
         if let Ok(renewal) = ProtectedRenewRequestV2::decode_frame(&frame) {
             renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
             let current = local_session_service
@@ -169,4 +185,13 @@ pub fn run_control_loop_v2(
         )?;
         return Ok(());
     }
+}
+
+#[cfg(feature = "desktop-protected")]
+fn unix_millis() -> Result<u64, LaunchAuthorityError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|value| u64::try_from(value.as_millis()).ok())
+        .ok_or(LaunchAuthorityError::StaleLaunchAuthority)
 }
