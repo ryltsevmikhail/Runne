@@ -241,10 +241,23 @@ fn migrated_database_keeps_different_local_session_authority() {
     let directory = tempfile::tempdir().unwrap();
     secure_runtime_root(directory.path());
     let config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
-    drop(bootstrap(&config).expect("create pre-migration database"));
+    let initial = bootstrap(&config).expect("create pre-migration database");
+    let initial_authority = initial.authority_id;
+    drop(initial);
 
     let legacy_authority = [0x42; 16];
-    let connection = gocode_store::schema::open_with_pragmas(&config.db_path).unwrap();
+    let connection = gocode_store::schema::reopen_managed_connection_validated(
+        std::path::Path::new(&config.db_path),
+        gocode_store::schema::ConnectionMode::ValidatedReopen,
+        |connection| {
+            if gocode_store::schema::read_authority_id(connection)? == Some(initial_authority) {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .unwrap();
     connection
         .execute(
             "UPDATE _authority SET authority_id = ?1 WHERE id = 1",

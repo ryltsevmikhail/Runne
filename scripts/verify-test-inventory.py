@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Verify that a Rust test inventory contains every required test name."""
+"""Verify that a strict Rust test inventory contains required test names."""
 
 import pathlib
 import sys
 import unittest
 
 
-TEST_SUFFIX = ": test"
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+from phase3_inventory import Phase3InventoryError, parse_libtest_list
 
 
 def verify_inventory(output: str, required: list[str]) -> list[str]:
@@ -22,13 +23,11 @@ def verify_inventory(output: str, required: list[str]) -> list[str]:
             errors.append(f"duplicate required test name: {name}")
         seen_required.add(name)
 
-    inventory = {
-        line[: -len(TEST_SUFFIX)]
-        for line in output.splitlines()
-        if line.endswith(TEST_SUFFIX)
-    }
-    if not inventory:
-        errors.append("missing Rust test inventory entries")
+    try:
+        inventory = set(parse_libtest_list(output.encode("utf-8")))
+    except Phase3InventoryError as error:
+        errors.append(str(error))
+        inventory = set()
 
     for name in required:
         if name not in inventory:

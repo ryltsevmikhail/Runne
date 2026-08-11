@@ -1,7 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use gocode_store::schema::{
-    open_existing_with_pragmas_validated, read_authority_id, read_event_log_lineage_id,
+    ConnectionMode, ManagedConnection, read_authority_id, read_event_log_lineage_id,
+    reopen_managed_connection_validated,
 };
 use rusqlite::{Connection, Error as SqliteError};
 use tempfile::TempDir;
@@ -27,26 +28,22 @@ impl ReplayTestDatabase {
         }
     }
 
-    pub(super) fn path(&self) -> &Path {
-        &self.path
+    pub(super) fn open_writer(&self) -> ManagedConnection {
+        self.open_validated_connection(ConnectionMode::ValidatedReopen)
     }
 
-    pub(super) fn open_writer(&self) -> Connection {
-        self.open_validated_connection()
+    pub(super) fn open_reader(&self) -> ManagedConnection {
+        self.open_validated_connection(ConnectionMode::Reader)
     }
 
-    pub(super) fn open_reader(&self) -> Connection {
-        let reader = self.open_validated_connection();
-        reader.execute_batch("PRAGMA query_only = ON;").unwrap();
-        reader
-    }
-
-    pub(super) fn replay_store(connection: Connection) -> gocode_store::replay_store::ReplayStore {
+    pub(super) fn replay_store(
+        connection: ManagedConnection,
+    ) -> gocode_store::replay_store::ReplayStore {
         gocode_store::replay_store::ReplayStore::new(connection)
     }
 
-    fn open_validated_connection(&self) -> Connection {
-        open_existing_with_pragmas_validated(&self.path, |connection| {
+    fn open_validated_connection(&self, mode: ConnectionMode) -> ManagedConnection {
+        reopen_managed_connection_validated(&self.path, mode, |connection| {
             if read_main_database_identity(connection)? == self.identity {
                 Ok(())
             } else {

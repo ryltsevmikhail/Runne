@@ -1,82 +1,34 @@
 use gocode_application::provider::ProviderAdmissionError;
 use std::time::{Duration, Instant};
 
+use super::CredentialDispatchBinding;
+use crate::schema::ManagedConnection;
 use gocode_provider::ProviderDispatchClaim;
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
-/// Durable result of the one-shot pre-effect compare-and-swap.
-///
-/// ```compile_fail
-/// use gocode_store::provider::ProviderEffectStartReceipt;
-///
-/// fn duplicate(receipt: ProviderEffectStartReceipt) {
-///     let _ = receipt.clone();
-/// }
-/// ```
-#[derive(PartialEq, Eq)]
-pub struct ProviderEffectStartReceipt {
-    expires_at: i64,
-    attempt_id: [u8; 16],
-    permit_id: [u8; 16],
-    provider_idempotency_key: String,
-    prepared_digest: [u8; 32],
-    render_digest: [u8; 32],
-    profile_digest: [u8; 32],
-    fencing_token: u64,
-    token_reservation_id: [u8; 16],
-    cost_reservation_id: [u8; 16],
-    deadline: Instant,
-}
-
-impl std::fmt::Debug for ProviderEffectStartReceipt {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("ProviderEffectStartReceipt")
-            .field("expires_at", &self.expires_at)
-            .field("binding", &"<redacted>")
-            .field("deadline", &"<monotonic>")
-            .finish()
-    }
-}
-
-impl ProviderEffectStartReceipt {
-    /// Absolute Unix-second effect expiry loaded after the committed CAS.
-    pub const fn expires_at(&self) -> i64 {
-        self.expires_at
-    }
-
-    /// Returns the single monotonic deadline captured after durable readback.
-    pub const fn deadline(&self) -> Instant {
-        self.deadline
-    }
-
-    /// Returns whether this receipt is bound to the exact admitted claim.
-    pub fn matches_claim(&self, claim: &ProviderDispatchClaim) -> bool {
-        self.attempt_id == *claim.attempt_id.as_bytes()
-            && self.permit_id == claim.permit_id
-            && self.provider_idempotency_key == claim.provider_idempotency_key
-            && self.prepared_digest == claim.prepared_digest
-            && self.render_digest == claim.render_digest
-            && self.profile_digest == claim.profile_digest
-            && self.fencing_token == claim.fencing_token
-            && self.token_reservation_id == claim.token_reservation_id
-            && self.cost_reservation_id == claim.cost_reservation_id
-    }
-}
+include!("effect_start/receipt.rs");
 
 pub(super) fn start_effect(
-    connection: &mut Connection,
+    connection: &mut ManagedConnection,
     claim: &ProviderDispatchClaim,
-    wall_before: i64,
-    wall_after: impl FnOnce() -> i64,
+    credential: &CredentialDispatchBinding,
+    now: impl Fn() -> i64,
+    before_receipt_lock: impl FnOnce(),
     fail_readback: bool,
 ) -> Result<ProviderEffectStartReceipt, ProviderAdmissionError> {
-    let expires_at = wall_before
-        .checked_add(120)
-        .ok_or(ProviderAdmissionError::AuthorityDenied)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+    let wall_before = now();
+    if super::credential_lifecycle::advance_provider_clock(
+        &transaction,
+        credential.version_ref().provider(),
+        wall_before,
+    )
+    .is_err()
+    {
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
     let valid = transaction.query_row(
         "SELECT EXISTS(
             SELECT 1
@@ -140,6 +92,16 @@ pub(super) fn start_effect(
                          WHERE b.provider_idempotency_key = admission.provider_idempotency_key
                            AND b.dimension = 2 AND b.reservation_id = admission.cost_reservation_id
                            AND b.state = 1)
+              AND EXISTS(SELECT 1 FROM provider_credential_versions credential
+                         WHERE credential.provider_id = ?11
+                           AND credential.credential_version = ?12
+                           AND credential.ref_digest = ?13
+                           AND credential.lifecycle_state = 'ACTIVE'
+                           AND credential.lease_owner = ?14
+                           AND credential.lease_expires_at = ?15
+                           AND credential.lease_fencing_token = ?16
+                           AND credential.lease_expires_at > ?8
+                           AND credential.revocation_fence < credential.lease_fencing_token)
         )",
         params![
             claim.attempt_id.as_bytes().as_slice(), claim.permit_id.as_slice(),
@@ -147,11 +109,41 @@ pub(super) fn start_effect(
             claim.render_digest.as_slice(), claim.profile_digest.as_slice(),
             i64::try_from(claim.fencing_token).map_err(|_| ProviderAdmissionError::StaleFencingToken)?, wall_before,
             claim.token_reservation_id.as_slice(), claim.cost_reservation_id.as_slice(),
+            credential.version_ref().provider().as_str(),
+            i64::try_from(credential.version_ref().version()).map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
+            credential.version_ref().ref_digest().as_slice(), credential.owner().as_slice(),
+            credential.expires_at(),
+            i64::try_from(credential.fencing_token()).map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
         ], |row| row.get::<_, bool>(0),
     ).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
     if !valid {
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         return Err(ProviderAdmissionError::AuthorityDenied);
     }
+    let effect_started_at = now();
+    if super::credential_lifecycle::advance_provider_clock(
+        &transaction,
+        credential.version_ref().provider(),
+        effect_started_at,
+    )
+    .is_err()
+    {
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
+    if credential.expires_at() <= effect_started_at {
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
+    let Some(expires_at) = effect_started_at.checked_add(120) else {
+        transaction
+            .commit()
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    };
     let changed = transaction
         .execute(
             "INSERT INTO provider_effect_starts (
@@ -162,7 +154,7 @@ pub(super) fn start_effect(
                 claim.attempt_id.as_bytes().as_slice(),
                 claim.provider_idempotency_key,
                 claim.permit_id.as_slice(),
-                wall_before,
+                effect_started_at,
                 expires_at
             ],
         )
@@ -170,6 +162,25 @@ pub(super) fn start_effect(
     if changed != 1 {
         return Err(ProviderAdmissionError::AuthorityDenied);
     }
+    transaction
+        .execute(
+            "INSERT INTO provider_credential_effect_bindings (
+                dispatch_attempt_id, provider_id, credential_version, ref_digest,
+                lease_owner, lease_expires_at, lease_fencing_token
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                claim.attempt_id.as_bytes().as_slice(),
+                credential.version_ref().provider().as_str(),
+                i64::try_from(credential.version_ref().version())
+                    .map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
+                credential.version_ref().ref_digest().as_slice(),
+                credential.owner().as_slice(),
+                credential.expires_at(),
+                i64::try_from(credential.fencing_token())
+                    .map_err(|_| ProviderAdmissionError::AuthorityDenied)?,
+            ],
+        )
+        .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
     let intent_id = format!("provider:{}", encode_hex(claim.attempt_id.as_bytes()));
     transaction
         .execute(
@@ -183,20 +194,36 @@ pub(super) fn start_effect(
     if fail_readback {
         return Err(ProviderAdmissionError::PostClaimUncertain);
     }
-    let wall_after = wall_after();
+    before_receipt_lock();
+    let clock_transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    let wall_after = now();
+    super::credential_lifecycle::advance_provider_clock(
+        &clock_transaction,
+        credential.version_ref().provider(),
+        wall_after,
+    )
+    .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    clock_transaction
+        .commit()
+        .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?;
+    if credential.expires_at() <= effect_started_at.max(wall_after) {
+        return Err(ProviderAdmissionError::AuthorityDenied);
+    }
     connection
         .query_row(
             "SELECT effect_started_at, effect_expires_at FROM provider_effect_starts
-         WHERE dispatch_attempt_id = ?1 AND permit_id = ?2 AND effect_started_at = ?3
+             WHERE dispatch_attempt_id = ?1 AND permit_id = ?2 AND effect_started_at = ?3
            AND effect_expires_at = ?4 AND state = 1",
             params![
                 claim.attempt_id.as_bytes().as_slice(),
                 claim.permit_id.as_slice(),
-                wall_before,
+                effect_started_at,
                 expires_at
             ],
             |row| {
-                let effective_wall = wall_before.max(wall_after).max(row.get::<_, i64>(0)?);
+                let effective_wall = effect_started_at.max(wall_after).max(row.get::<_, i64>(0)?);
                 let effect_expires_at = row.get::<_, i64>(1)?;
                 let remaining = effect_expires_at
                     .checked_sub(effective_wall)
@@ -215,6 +242,12 @@ pub(super) fn start_effect(
                     token_reservation_id: claim.token_reservation_id,
                     cost_reservation_id: claim.cost_reservation_id,
                     deadline: Instant::now() + Duration::from_secs(remaining.min(120)),
+                    credential_provider: credential.version_ref().provider().as_str().to_owned(),
+                    credential_version: credential.version_ref().version(),
+                    credential_ref_digest: *credential.version_ref().ref_digest(),
+                    credential_owner: *credential.owner(),
+                    credential_expires_at: credential.expires_at(),
+                    credential_fencing_token: credential.fencing_token(),
                 })
             },
         )

@@ -6,11 +6,25 @@
 
         // Bootstrap once to create the DB
         let o1 = bootstrap(&config).unwrap();
+        let authority_id = o1.authority_id;
         drop(o1);
 
         // Insert a synthetic event directly into the DB
         {
-            let conn = schema::open_with_pragmas(&config.db_path).unwrap();
+            let conn = schema::reopen_managed_connection_validated(
+                Path::new(&config.db_path),
+                schema::ConnectionMode::ValidatedReopen,
+                |connection| {
+                    if schema::read_authority_id(connection)? == Some(authority_id) {
+                        Ok(())
+                    } else {
+                        Err(rusqlite::Error::InvalidQuery)
+                    }
+                },
+            )
+            .unwrap();
+            schema::readiness_from_managed(&conn).unwrap();
+            schema::publication_from_managed(&conn).unwrap();
             // Insert into aggregate_streams so FK is satisfied
             conn.execute(
                 "INSERT OR IGNORE INTO aggregate_streams
@@ -33,12 +47,24 @@
                 [],
             )
             .unwrap();
-            conn.close().unwrap();
         }
 
         // Now call enumerate_recovery_tasks — should be RecoveryBlocked
         use crate::recovery::enumerate_recovery_tasks;
-        let conn = schema::open_with_pragmas(&config.db_path).unwrap();
+        let conn = schema::reopen_managed_connection_validated(
+            Path::new(&config.db_path),
+            schema::ConnectionMode::Reader,
+            |connection| {
+                if schema::read_authority_id(connection)? == Some(authority_id) {
+                    Ok(())
+                } else {
+                    Err(rusqlite::Error::InvalidQuery)
+                }
+            },
+        )
+        .unwrap();
+        schema::readiness_from_managed(&conn).unwrap();
+        schema::publication_from_managed(&conn).unwrap();
         let state = enumerate_recovery_tasks(&conn).unwrap();
         assert_eq!(state, crate::recovery::RecoveryState::RecoveryBlocked);
     }
@@ -109,8 +135,9 @@
             .to_string()
             .parse()
             .unwrap();
-        let connection = schema::open_existing_with_pragmas_validated(
+        let connection = schema::reopen_managed_connection_validated(
             Path::new(&config.db_path),
+            schema::ConnectionMode::ValidatedReopen,
             |connection| {
                 schema::preflight_first_activation_resume(
                     connection,

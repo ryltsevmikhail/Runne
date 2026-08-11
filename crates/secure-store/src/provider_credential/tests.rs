@@ -55,3 +55,46 @@ fn complete_metadata_preserves_v1_upgrade_and_rollback_layout() {
     );
     assert_ne!(&metadata.encode_incomplete()[..8], b"GCPMDV1\0");
 }
+
+#[test]
+fn source_revision_v2_roundtrips_and_v1_is_unavailable() {
+    let current = std::env::current_exe().unwrap();
+    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+    let material = ProviderCredentialMaterial::new(b"source-revision-fixture".to_vec()).unwrap();
+    let revision = ProviderCredentialSourceRevision::new([0x91; 16]).unwrap();
+    let metadata = ProviderCredentialMetadata::from_access_revision(&access, [7; 32], revision);
+    let encoded =
+        StoredProviderCredential::encode_with_revision(&material, &access, [7; 32], revision)
+            .unwrap();
+    let decoded_metadata = ProviderCredentialMetadata::decode(&metadata.encode()).unwrap();
+    let stored = StoredProviderCredential::decode(&encoded).unwrap();
+    assert!(decoded_metadata.validate_writer_current().is_ok());
+    assert!(decoded_metadata.access_matches(&access));
+    assert_eq!(decoded_metadata.acl_set_digest(), [7; 32]);
+    assert_eq!(decoded_metadata.source_revision(), Some(revision));
+    assert!(stored.access_matches(&access));
+    assert_eq!(stored.acl_set_digest(), [7; 32]);
+    assert!(stored.metadata_matches(&decoded_metadata));
+    let source = stored.into_source().unwrap();
+    assert_eq!(source.revision(), revision);
+    assert_eq!(
+        source.material().with_bytes(<[u8]>::to_vec),
+        b"source-revision-fixture"
+    );
+    assert_eq!(
+        StoredProviderCredential::decode(&encoded)
+            .unwrap()
+            .into_material()
+            .with_bytes(<[u8]>::to_vec),
+        b"source-revision-fixture"
+    );
+
+    let legacy = StoredProviderCredential::encode(&material, &access, [7; 32]).unwrap();
+    assert_eq!(
+        StoredProviderCredential::decode(&legacy)
+            .unwrap()
+            .into_source()
+            .unwrap_err(),
+        SecureStoreError::ProviderCredentialSourceRevisionUnavailable
+    );
+}

@@ -2,6 +2,9 @@ use gocode_application::provider::{ProviderExecutionError, ProviderExecutionStor
 use gocode_runtime::provider_execution::{
     ProviderTerminalOutboxApplication, RuntimeProviderExecution,
 };
+use gocode_runtime::provider_redaction::{
+    ProhibitedContentCredentialMatcher, ProviderEventRedactionBoundary,
+};
 use gocode_store::provider::SqliteProviderExecutionStore;
 
 use super::fixture::*;
@@ -19,25 +22,33 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
     let prohibited = harness.prohibited();
     let store_a = SqliteProviderExecutionStore::open_with_connection(
         &harness.db_path,
-        harness.open_runtime_connection(),
+        managed_test_connection(&harness.db_path),
     )
     .unwrap();
     let store_b = SqliteProviderExecutionStore::open_with_connection(
         &harness.db_path,
-        harness.open_runtime_connection(),
+        managed_test_connection(&harness.db_path),
     )
     .unwrap();
+    let matcher = ProhibitedContentCredentialMatcher::new(prohibited.as_ref());
+    let redaction = ProviderEventRedactionBoundary::new(
+        service.tail_store.as_ref(),
+        service.scanner_store.as_ref(),
+        &matcher,
+    );
     let runtime_a = RuntimeProviderExecution::new(
         keyring.as_ref(),
         &store_a,
         service.profile.as_ref(),
         prohibited.as_ref(),
+        &redaction,
     );
     let runtime_b = RuntimeProviderExecution::new(
         keyring.as_ref(),
         &store_b,
         service.profile.as_ref(),
         prohibited.as_ref(),
+        &redaction,
     );
     runtime_a
         .preflight_existing_active_key(service.runtime_authority_id, service.database_generation)
@@ -75,6 +86,7 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
         &harness.db_path,
         begin.command_id,
         &started,
+        false,
         false,
     );
     let receipt = harness

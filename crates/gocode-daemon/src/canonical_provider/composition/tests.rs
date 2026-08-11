@@ -19,7 +19,7 @@ use gocode_application::provider::ProviderExecutionStore;
 use gocode_domain::timestamp::Timestamp;
 use gocode_domain::{
     event::Actor,
-    id::{EventLogLineageId, IdempotencyKey, WorkspaceId},
+    id::{IdempotencyKey, WorkspaceId},
     message::MessageText,
 };
 use gocode_runtime::provider_execution::ProviderTerminalPersistence;
@@ -41,13 +41,22 @@ use crate::provider_activation::ProviderActivation;
 mod pending;
 mod recovery_audit;
 
-fn open_test_runtime_connection(
-    db_path: &str,
-    authority: [u8; 16],
-    lineage: EventLogLineageId,
-) -> rusqlite::Connection {
-    gocode_store::schema::open_existing_with_pragmas_validated(
-        std::path::Path::new(db_path),
+fn managed_test_connection(path: &str) -> gocode_store::schema::ManagedConnection {
+    let observer = rusqlite::Connection::open_with_flags(
+        path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .unwrap();
+    let authority = gocode_store::schema::read_authority_id(&observer)
+        .unwrap()
+        .unwrap();
+    let lineage = gocode_store::schema::read_event_log_lineage_id(&observer)
+        .unwrap()
+        .unwrap();
+    drop(observer);
+    gocode_store::schema::reopen_managed_connection_validated(
+        std::path::Path::new(path),
+        gocode_store::schema::ConnectionMode::ValidatedReopen,
         |connection| {
             if gocode_store::schema::read_authority_id(connection)? == Some(authority)
                 && gocode_store::schema::read_event_log_lineage_id(connection)? == Some(lineage)
@@ -133,8 +142,8 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     let profile_digest = *config.provider_activation.binding().profile_digest();
     let db_path = config.db_path.clone();
     let bootstrap = bootstrap(&config).unwrap();
+    gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
     let authority = bootstrap.authority_id;
-    let lineage = gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
     let generation = bootstrap.launch_generation;
     let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
         &VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap),
@@ -194,8 +203,9 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     });
     let service = DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
         db_path: db_path.clone(),
-        dispatch_connection: open_test_runtime_connection(&db_path, authority, lineage),
-        execution_connection: open_test_runtime_connection(&db_path, authority, lineage),
+        dispatch_connection: managed_test_connection(&db_path),
+        execution_connection: managed_test_connection(&db_path),
+        credential_connection: managed_test_connection(&db_path),
         runtime_authority_id: authority,
         runtime_generation: generation,
         activation_provenance: provenance,
@@ -204,7 +214,10 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         conversation_service,
         prohibited_content: prohibited,
         dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
-            effect, keyring, decorator,
+            effect,
+            keyring,
+            decorator,
+            Arc::new(crate::canonical_provider::credential_versions::fixture_native),
         ),
     })
     .await

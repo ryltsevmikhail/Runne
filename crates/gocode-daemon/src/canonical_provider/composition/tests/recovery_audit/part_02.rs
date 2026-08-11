@@ -53,6 +53,7 @@ async fn recovery_completes_before_compose_returns() {
         begin.command_id,
         &started,
         true,
+        false,
     );
     assert_authority_renewal(&before, &after, &harness.db_path, harness.generation());
     assert_eq!(

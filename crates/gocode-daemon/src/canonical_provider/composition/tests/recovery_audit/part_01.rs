@@ -33,6 +33,7 @@ async fn reopen_with_pending_outbox_changes_only_lifecycle_columns() {
         begin.command_id,
         &started,
         false,
+        false,
     );
     let receipt = harness
         .store

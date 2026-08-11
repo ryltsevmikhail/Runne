@@ -2,7 +2,7 @@
 fn immutable_preflight_does_not_create_wal_sidecars() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("event log.db");
-    let connection = Connection::open(&path).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     drop(connection);
     assert!(!sidecar_path(&path, "-wal").exists());
@@ -26,20 +26,20 @@ fn validated_open_supports_owner_private_database_without_sidecars() {
     fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o777)).unwrap();
     fs::set_permissions(&daemon_dir, fs::Permissions::from_mode(0o700)).unwrap();
     let path = daemon_dir.join("event-log.db");
-    let connection = Connection::open(&path).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     drop(connection);
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
 
     assert!(
-        open_existing_with_pragmas_validated(&path, |_| Ok(())).is_err(),
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| Ok(())).is_err(),
         "a group/world-writable runtime parent must fail closed"
     );
     fs::set_permissions(&runtime_root, fs::Permissions::from_mode(0o755)).unwrap();
 
     let unsafe_wal = sidecar_path(&path, "-wal");
     assert!(
-        open_existing_with_pragmas_validated(&path, |_| {
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| {
             fs::write(&unsafe_wal, [1]).unwrap();
             fs::set_permissions(&unsafe_wal, fs::Permissions::from_mode(0o644)).unwrap();
             Ok(())
@@ -51,7 +51,7 @@ fn validated_open_supports_owner_private_database_without_sidecars() {
         fs::remove_file(&unsafe_wal).unwrap();
     }
 
-    let validated = open_existing_with_pragmas_validated(&path, |connection| {
+    let validated = reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |connection| {
         let query_only: i64 =
             connection.pragma_query_value(None, "query_only", |row| row.get(0))?;
         assert_eq!(query_only, 1);
@@ -98,7 +98,7 @@ fn validated_hot_wal_open_is_connection_scoped_and_writable_after_validation() {
     }
 
     assert!(preflight_existing_file(&path).is_err());
-    let validated = open_existing_with_pragmas_validated(&path, |connection| {
+    let validated = reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |connection| {
         let query_only: i64 =
             connection.pragma_query_value(None, "query_only", |row| row.get(0))?;
         assert_eq!(query_only, 1);
@@ -134,7 +134,7 @@ fn validated_hot_wal_open_is_connection_scoped_and_writable_after_validation() {
         .unwrap();
     assert!(preflight_existing_file(&path).is_err());
     assert!(open_existing_read_only(&path).is_err());
-    assert!(open_with_pragmas(path.to_str().unwrap()).is_err());
+    assert!(open_managed_connection(&path, ConnectionMode::Writer).is_err());
 }
 
 #[cfg(unix)]
@@ -169,7 +169,7 @@ fn rejected_validated_open_leaves_default_openers_fail_closed() {
     }
 
     assert!(
-        open_existing_with_pragmas_validated(&path, |connection| {
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |connection| {
             let query_only: i64 =
                 connection.pragma_query_value(None, "query_only", |row| row.get(0))?;
             assert_eq!(query_only, 1);
@@ -192,7 +192,7 @@ fn rejected_validated_open_leaves_default_openers_fail_closed() {
     assert!(!rejected_table);
     assert!(preflight_existing_file(&path).is_err());
     assert!(open_existing_read_only(&path).is_err());
-    assert!(open_with_pragmas(path.to_str().unwrap()).is_err());
+    assert!(open_managed_connection(&path, ConnectionMode::Writer).is_err());
 }
 
 #[cfg(unix)]
@@ -228,7 +228,7 @@ fn validated_open_rejects_path_replacement_during_validation() {
 
     let original = daemon_dir.join("original-event-log.db");
     assert!(
-        open_existing_with_pragmas_validated(&path, |_| {
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| {
             fs::rename(&path, &original).unwrap();
             fs::write(&path, [1]).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
@@ -256,7 +256,7 @@ fn protected_recovery_rejects_non_private_or_linked_file_sets() {
     std::os::unix::fs::symlink(&unrelated, sidecar_path(&path, "-wal")).unwrap();
 
     assert!(
-        open_existing_with_pragmas_validated(&path, |_| Ok(())).is_err(),
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| Ok(())).is_err(),
         "a linked WAL must fail before SQLite admission"
     );
     fs::remove_file(sidecar_path(&path, "-wal")).unwrap();
@@ -268,7 +268,7 @@ fn protected_recovery_rejects_non_private_or_linked_file_sets() {
     )
     .unwrap();
     assert!(
-        open_existing_with_pragmas_validated(&path, |_| Ok(())).is_err(),
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| Ok(())).is_err(),
         "a dangling sidecar link must fail before SQLite admission"
     );
     fs::remove_file(sidecar_path(&path, "-wal")).unwrap();
@@ -280,7 +280,7 @@ fn protected_recovery_rejects_non_private_or_linked_file_sets() {
     )
     .unwrap();
     assert!(
-        open_existing_with_pragmas_validated(&path, |_| Ok(())).is_err(),
+        reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |_| Ok(())).is_err(),
         "a group/world-readable WAL must fail before SQLite admission"
     );
 }

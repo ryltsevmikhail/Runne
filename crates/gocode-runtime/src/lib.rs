@@ -20,6 +20,7 @@ pub mod migration_shadow;
 pub mod opencode_session;
 pub mod plugin_host;
 pub mod provider_execution;
+pub mod provider_redaction;
 pub mod provider_tool;
 pub mod qualification_matrix;
 pub mod session_host;

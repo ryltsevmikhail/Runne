@@ -10,6 +10,7 @@ use super::*;
 pub struct VerifiedProtectedApplicationStart {
     config: ConfigurationSnapshot,
     provider_activation: ProviderActivation,
+    launch_authority_id: [u8; 16],
     bootstrap: BootstrapOutcome,
 }
 
@@ -21,6 +22,10 @@ impl VerifiedProtectedApplicationStart {
 
     pub(crate) const fn authority_id(&self) -> [u8; 16] {
         self.bootstrap.authority_id
+    }
+
+    pub(crate) const fn launch_authority_id(&self) -> [u8; 16] {
+        self.launch_authority_id
     }
 
     pub(crate) fn into_parts(
@@ -35,9 +40,11 @@ impl VerifiedProtectedApplicationStart {
         provider_activation: ProviderActivation,
         bootstrap: BootstrapOutcome,
     ) -> Self {
+        let launch_authority_id = bootstrap.local_session_authority_id;
         Self {
             config,
             provider_activation,
+            launch_authority_id,
             bootstrap,
         }
     }
@@ -144,6 +151,7 @@ impl ProtectedDaemonLaunch {
         Ok(VerifiedProtectedApplicationStart {
             config: self.config.clone(),
             provider_activation: self.provider_activation.clone(),
+            launch_authority_id: self.request.compatibility().launch_authority_id(),
             bootstrap,
         })
     }
@@ -246,6 +254,7 @@ mod tests {
         let start = VerifiedProtectedApplicationStart {
             config,
             provider_activation: ProviderActivation::deterministic_v1(),
+            launch_authority_id: bootstrap.local_session_authority_id,
             bootstrap,
         };
 

@@ -5,8 +5,9 @@ use gocode_provider::{
     ProviderCall, ProviderCallId, ProviderDispatchClaim, ProviderId,
 };
 use gocode_store::provider::{
-    PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderDispatchState,
-    ProviderRuntimeAuthorityConfig,
+    CredentialDispatchBinding, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
+    ProviderDispatchState, ProviderRuntimeAuthorityConfig,
+    SqliteProviderCredentialLifecycleStore,
 };
 use rusqlite::{Connection, params};
 
@@ -140,6 +141,30 @@ fn issue_winner(
         panic!("first exact issue must win");
     };
     admission.claim().clone()
+}
+
+fn credential(
+    database: &validated_reopen::ProviderTestDatabase,
+) -> (
+    SqliteProviderCredentialLifecycleStore,
+    CredentialDispatchBinding,
+) {
+    let store = crate::provider_credential_fixture::credential(
+        database,
+        "fixture-provider",
+        [1; 16],
+        13,
+        100,
+    );
+    let binding = store
+        .authorize_active(
+            &ProviderId::new("fixture-provider").unwrap(),
+            [1; 16],
+            13,
+            100,
+        )
+        .unwrap();
+    (store, binding)
 }
 
 fn table_count(connection: &Connection, table: &str) -> i64 {

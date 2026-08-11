@@ -9,19 +9,32 @@ use gocode_macos_keychain_acl::{
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 
-use crate::provider_credential::{ProviderCredentialMetadata, StoredProviderCredential};
+use crate::provider_credential::{
+    ProviderCredentialMetadata, StoredProviderCredential,
+    generate_provider_credential_source_revision,
+    source_update::{
+        ProviderCredentialSourceSlot, ProviderCredentialSourceSlotBackend,
+        commit_provider_credential_source_update, committed_provider_credential_source_slot,
+        recover_provider_credential_record,
+    },
+};
 use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
+    ProviderCredentialSource, ProviderCredentialStatus, ProviderCredentialStore,
+    NativeProviderCredentialVersionStore, ProviderJournalKeyDeletionProof,
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
     ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
+use gocode_provider::{CredentialDispatchCapability, CredentialGcClaim,
+    CredentialNativeCreateClaim, CredentialVersionRef, NativeCredentialAuthority,
+    NativeCredentialDeletionProof};
 use zeroize::Zeroizing;
 
 const SERVICE_NAME: &str = "gocode-ui";
 const ACCOUNT_PREFIX: &str = "db_generation";
 const PROVIDER_JOURNAL_KEY_MAGIC: &[u8; 8] = b"GCPJKV1\0";
 const PROVIDER_CREDENTIAL_MIGRATION_SUFFIX: &str = ".migration-backup";
+const PROVIDER_CREDENTIAL_SOURCE_ALTERNATE_SUFFIX: &str = ".source-alternate";
 const ERR_SEC_AUTH_FAILED: i32 = -25_293;
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25_300;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
@@ -61,6 +74,7 @@ pub struct MacOsKeychainStore {
 pub struct MacOsProviderCredentialStore {
     service: String,
     account: String,
+    version_authority: Option<NativeCredentialAuthority>,
 }
 
 impl MacOsProviderCredentialStore {
@@ -70,12 +84,23 @@ impl MacOsProviderCredentialStore {
         Self {
             service: crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
             account: ProviderCredentialId::OpenAi.account().to_owned(),
+            version_authority: None,
+        }
+    }
+
+    /// Constructs the production versioned store bound to native capability verification.
+    #[must_use]
+    pub fn new_versioned(authority: NativeCredentialAuthority) -> Self {
+        Self {
+            service: crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
+            account: ProviderCredentialId::OpenAi.account().to_owned(),
+            version_authority: Some(authority),
         }
     }
 
     #[cfg(test)]
     const fn with_test_item(service: String, account: String) -> Self {
-        Self { service, account }
+        Self { service, account, version_authority: None }
     }
 }
 impl Default for MacOsProviderCredentialStore {
@@ -89,6 +114,10 @@ impl MacOsKeychainStore {
         Self {
             account_name: format!("{ACCOUNT_PREFIX}:{}", profile_id.as_ref()),
         }
+    }
+
+    pub(crate) fn provider_recovery_profile_scope(&self) -> &str {
+        &self.account_name
     }
 }
 

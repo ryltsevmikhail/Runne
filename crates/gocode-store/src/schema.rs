@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 15;
+pub const CURRENT_SCHEMA_VERSION: i64 = 17;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +81,8 @@ include!("schema/v12_snapshot.rs");
 include!("schema/v12_fence.rs");
 include!("schema/v12_rollback.rs");
 include!("schema/startup.rs");
+include!("schema/connection_profile.rs");
+include!("schema/scanner_recovery_sidecar.rs");
 include!("schema/migrations/v1_v3.rs");
 include!("schema/migrations/v4.rs");
 include!("schema/migrations/v5_v6.rs");
@@ -89,6 +91,8 @@ include!("schema/migrations/v9.rs");
 include!("schema/migrations/v10_v11.rs");
 include!("schema/migrations/v12.rs");
 include!("schema/migrations/v13.rs");
+include!("schema/migrations/v16.rs");
+include!("schema/migrations/v17_bootstrap_reservations.rs");
 pub(crate) mod provider_schema;
 include!("schema/open.rs");
 include!("schema/authority_identity.rs");
@@ -118,6 +122,7 @@ mod tests {
     }
 
     include!("schema/tests/admission.rs");
+    include!("schema/tests/actual_handle_identity.rs");
     include!("schema/tests/migrations.rs");
     include!("schema/tests/released.rs");
     include!("schema/tests/recovery_compatibility.rs");

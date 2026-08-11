@@ -7,7 +7,7 @@ pub fn rollback_pre_v12_snapshot(db_path: &Path) -> Result<(), SchemaRollbackErr
         return Err(SchemaRollbackError::UnsafePath);
     }
     let original_identity = file_identity(db_path).map_err(|_| SchemaRollbackError::UnsafePath)?;
-    let connection = open_with_pragmas(db_path.to_str().ok_or(SchemaRollbackError::UnsafePath)?)
+    let connection = open_managed_connection(db_path, ConnectionMode::Writer)
         .map_err(|_| SchemaRollbackError::StoreUnavailable)?;
     let version: i64 = connection
         .query_row(

@@ -27,6 +27,11 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
             let coordinator = SqliteProviderDispatchCoordinator::new(
                 self.dispatch_store.as_ref(),
                 self.execution_store.as_ref(),
+                gocode_store::provider::CredentialDispatchAuthority::new(
+                    self.credential_store.as_ref(),
+                    self.runtime_authority_id,
+                    self.runtime_generation,
+                ),
                 self.adapter.as_ref(),
                 self.adapter.as_ref(),
                 self.prohibited_content.as_ref(),
@@ -61,17 +66,24 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                 });
             };
             let context = ProviderEventJournalContext {
-                attempt_id: binding.attempt_id(),
-                fencing_token: binding.fencing_token(),
-                call_digest_version: binding.call_digest_version(),
-                profile_digest: *binding.profile_digest(),
-                runtime_generation: binding.runtime_generation(),
+                attempt_id: binding.execution().attempt_id(),
+                fencing_token: binding.execution().fencing_token(),
+                call_digest_version: binding.execution().call_digest_version(),
+                profile_digest: *binding.execution().profile_digest(),
+                runtime_generation: binding.execution().runtime_generation(),
             };
+            let matcher = ProhibitedContentCredentialMatcher::new(self.prohibited_content.as_ref());
+            let redaction = ProviderEventRedactionBoundary::new(
+                self.tail_store.as_ref(),
+                self.scanner_store.as_ref(),
+                &matcher,
+            );
             let execution = RuntimeProviderExecution::new(
                 self.keyring.as_ref(),
                 self.runtime_store.as_ref(),
                 self.profile.as_ref(),
                 self.prohibited_content.as_ref(),
+                &redaction,
             );
             execution
                 .preflight_existing_active_key(self.runtime_authority_id, self.database_generation)
@@ -82,15 +94,19 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                 let item = execution
                     .next_and_commit(
                         self.adapter.as_ref(),
-                        &binding.stream_id(),
+                        &binding.execution().stream_id(),
                         StreamCursor::new(cursor),
                         &context,
                     )
                     .await
                     .map_err(map_execution_error)?;
-                if let ProviderStreamEventKind::Finished { disposition, .. } = item.event().kind() {
-                    terminal_disposition = *disposition;
-                    break;
+                match item.event().kind() {
+                    ProviderStreamEventKind::Finished { disposition, .. }
+                    | ProviderStreamEventKind::ScannerCompleted { disposition, .. } => {
+                        terminal_disposition = *disposition;
+                        break;
+                    }
+                    _ => {}
                 }
                 cursor = cursor
                     .checked_add(1)
@@ -115,19 +131,28 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
             let profile = Arc::clone(&self.profile);
             let keyring = Arc::clone(&self.keyring);
             let prohibited = Arc::clone(&self.prohibited_content);
+            let scanner_store = Arc::clone(&self.scanner_store);
+            let tail_store = Arc::clone(&self.tail_store);
             let application = ConversationProviderTerminalApplication::new(
                 self.conversation_store.clone(),
                 Arc::clone(&self.conversation_service),
             );
-            let attempt_id = binding.attempt_id();
+            let attempt_id = binding.execution().attempt_id();
             let authority = self.runtime_authority_id;
             let generation = self.database_generation;
             let applied = tokio::task::spawn_blocking(move || {
+                let matcher = ProhibitedContentCredentialMatcher::new(prohibited.as_ref());
+                let redaction = ProviderEventRedactionBoundary::new(
+                    tail_store.as_ref(),
+                    scanner_store.as_ref(),
+                    &matcher,
+                );
                 let execution = RuntimeProviderExecution::new(
                     keyring.as_ref(),
                     runtime_store.as_ref(),
                     profile.as_ref(),
                     prohibited.as_ref(),
+                    &redaction,
                 );
                 execution.preflight_existing_active_key(authority, generation)?;
                 execution.apply_terminal_output_for_attempt(attempt_id, &application)

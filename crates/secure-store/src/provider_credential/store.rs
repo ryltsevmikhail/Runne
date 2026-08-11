@@ -28,6 +28,19 @@ pub trait ProviderCredentialStore: Send + Sync {
         expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
 
+    /// Atomically loads credential material and its stable source revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when source revision metadata is unavailable.
+    fn load_provider_credential_source(
+        &self,
+        _provider: ProviderCredentialId,
+        _expected_access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSource, SecureStoreError> {
+        Err(SecureStoreError::ProviderCredentialSourceRevisionUnavailable)
+    }
+
     /// # Errors
     ///
     /// Returns a typed identity, access, corruption or backend failure.

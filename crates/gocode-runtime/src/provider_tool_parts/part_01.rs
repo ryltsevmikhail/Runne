@@ -3,10 +3,13 @@ use core::fmt;
 use gocode_provider::{
     CancelRequest, ProviderFinishReason, ProviderPort, ProviderStreamEvent,
     ProviderStreamEventKind, ProviderStreamId, ProviderStreamValidator,
-    ProviderTerminalDisposition, ProviderUsage, StreamCursor,
+    ProviderTerminalDisposition, ProviderUsage, ScannerTerminalDisposition, StreamCursor,
 };
 use thiserror::Error;
 use tokio_util::sync::CancellationToken;
+
+use crate::provider_execution::ProviderEventJournalContext;
+use crate::provider_redaction::{PreJournalProviderEvent, ProviderEventRedaction};
 
 /// Exact provider-requested tool call.
 #[derive(Clone, PartialEq, Eq)]

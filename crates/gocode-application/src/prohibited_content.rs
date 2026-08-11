@@ -36,6 +36,11 @@ pub enum ContentGuardError {
 
 /// Application port for inspecting bytes before canonical mutation or delivery.
 pub trait ProhibitedContentPort: Send + Sync {
+    /// Returns the longest active representation required for boundary withholding.
+    fn maximum_match_len(&self) -> Result<usize, ContentGuardError> {
+        Err(ContentGuardError::Unavailable)
+    }
+
     /// Returns a non-sensitive disposition for the supplied bytes.
     fn inspect(
         &self,

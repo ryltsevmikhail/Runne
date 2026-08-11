@@ -47,32 +47,6 @@ fn verify_remote_profile(
     })
 }
 
-fn proof_transcript(
-    profile: &SessionPeer,
-    server_nonce: [u8; 32],
-    client_nonce: [u8; 32],
-) -> Vec<u8> {
-    let mut output = b"gocode/local-runtime/bootstrap-proof/v2\0".to_vec();
-    output.extend_from_slice(&2_u32.to_be_bytes());
-    output.extend_from_slice(&profile.certificate_sha256);
-    output.extend_from_slice(&server_nonce);
-    output.extend_from_slice(&client_nonce);
-    output.extend_from_slice(&profile.authority_id);
-    append_string(&mut output, &profile.principal_id);
-    output.extend_from_slice(profile.event_log_lineage_id.as_bytes());
-    output.extend_from_slice(profile.daemon_instance_id.as_bytes());
-    output.extend_from_slice(&profile.launch_generation.to_be_bytes());
-    append_string(&mut output, crate::EXPECTED_BUNDLE_ID);
-    output.extend_from_slice(&profile.schema_hash);
-    output.extend_from_slice(&profile.capability_digest);
-    output
-}
-
-fn append_string(output: &mut Vec<u8>, value: &str) {
-    output.extend_from_slice(&u16::try_from(value.len()).unwrap_or(u16::MAX).to_be_bytes());
-    output.extend_from_slice(value.as_bytes());
-}
-
 async fn read_json<T: DeserializeOwned>(
     response: reqwest::Response,
 ) -> Result<T, LocalRuntimeConnectError> {
@@ -103,6 +77,33 @@ async fn read_json<T: DeserializeOwned>(
         )));
     }
     serde_json::from_slice(&bytes).map_err(|_| incompatible())
+}
+
+async fn verify_pinned_peer(
+    client: &reqwest::Client,
+    origin: &str,
+) -> Result<(), LocalRuntimeConnectError> {
+    let response = client
+        .get(format!("{origin}/health"))
+        .header(ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(|_| RuntimeTransportError::PeerIdentityMismatch)?;
+    if response.status().as_u16() != 200
+        || response.content_length().is_some_and(|length| {
+            length > u64::try_from(MAXIMUM_BOOTSTRAP_RESPONSE_BYTES).unwrap_or(u64::MAX)
+        })
+    {
+        return Err(incompatible());
+    }
+    let body = response
+        .bytes()
+        .await
+        .map_err(|_| RuntimeTransportError::Unavailable)?;
+    if body.len() > MAXIMUM_BOOTSTRAP_RESPONSE_BYTES {
+        return Err(incompatible());
+    }
+    Ok(())
 }
 
 fn decode_32(value: &str) -> Result<[u8; 32], LocalRuntimeConnectError> {
@@ -136,35 +137,6 @@ fn decode_lower_hex_16(value: &str) -> Result<[u8; 16], LocalRuntimeConnectError
 
 const fn incompatible() -> LocalRuntimeConnectError {
     LocalRuntimeConnectError::Api(RuntimeApiError::new(RuntimeApiErrorKind::Incompatible))
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ChallengeRequest {
-    client_nonce: String,
-    server_nonce: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ChallengeResponse {
-    challenge_id: String,
-    server_nonce: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AuthenticateRequest {
-    challenge_id: String,
-    proof: String,
-    authority: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AuthenticateResponse {
-    expires_at_monotonic_millis: u64,
-    session_id: String,
 }
 
 #[derive(Deserialize)]

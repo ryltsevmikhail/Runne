@@ -45,6 +45,17 @@ impl ProhibitedContentGuard {
 }
 
 impl ProhibitedContentPort for ProhibitedContentGuard {
+    fn maximum_match_len(&self) -> Result<usize, ContentGuardError> {
+        let state = self
+            .registry
+            .read()
+            .map_err(|_| ContentGuardError::Unavailable)?;
+        if !state.is_available() {
+            return Err(ContentGuardError::Unavailable);
+        }
+        Ok(state.maximum_active_representation_len())
+    }
+
     fn inspect(
         &self,
         _boundary: CanonicalContentBoundary,

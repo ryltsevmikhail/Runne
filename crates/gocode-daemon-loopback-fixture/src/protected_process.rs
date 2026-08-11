@@ -46,6 +46,7 @@ fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
                 effect,
                 keyring,
                 ack_failure_decorator(),
+                crate::credential_versions::factory(),
             ),
         )
         .await

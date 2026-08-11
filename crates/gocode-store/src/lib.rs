@@ -15,6 +15,7 @@
 pub mod atomic_pre_effect;
 pub mod codec;
 pub mod integrity;
+pub mod local_session;
 pub mod migration_codec;
 pub mod migration_store;
 pub mod provider;

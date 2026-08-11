@@ -1,0 +1,8 @@
+{
+  "evidence_construction": "FIXTURE_LOCAL_INPUTS_SATISFIED",
+  "fixture_only": true,
+  "local_command_evidence": [
+    {"id": "fixture.unit-tests", "satisfied": false}
+  ],
+  "source_capture": "FIXTURE_LOCAL_INPUTS_SATISFIED"
+}

@@ -6,15 +6,18 @@ use gocode_application::provider::{
 };
 use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
 use gocode_provider::{
-    ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
-    ProviderCall, ProviderCallId, ProviderId,
+    CredentialLease, CredentialVersionRef, ModelRef, PrepareCredentialVersion,
+    PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
+    ProviderCallId, ProviderCredentialVersionStore, ProviderId,
 };
 use gocode_store::provider::{
     PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchStore,
+    SqliteProviderExecutionStore,
 };
-use rusqlite::Connection;
-
+use gocode_store::schema::{
+    ConnectionMode, ManagedConnection, open_managed_connection, reopen_managed_connection_validated,
+};
 const OBSERVED_AT: u64 = 1_000_000;
 
 pub(super) struct Fixture {
@@ -30,7 +33,16 @@ impl Fixture {
 
     pub(super) fn new_with_name(file_name: &str) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join(file_name);
+        let daemon = directory.path().join("gocode-daemon");
+        std::fs::create_dir(&daemon).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = daemon.join(file_name);
         let store = SqliteProviderExecutionStore::open(&path).unwrap();
         store.install_runtime_authority(&config()).unwrap();
         Self {
@@ -40,13 +52,9 @@ impl Fixture {
         }
     }
 
-    pub(super) fn connection(&self) -> Connection {
+    pub(super) fn connection(&self) -> ManagedConnection {
         let _ = &self.directory;
-        let connection = Connection::open(&self.path).unwrap();
-        connection
-            .execute_batch("PRAGMA foreign_keys = ON;")
-            .unwrap();
-        connection
+        configured_connection(&self.path)
     }
 
     pub(super) fn issue(&self, discriminator: u8) {
@@ -65,7 +73,22 @@ impl Fixture {
         else {
             panic!("expected a new admission");
         };
-        self.store.start_effect(admission.claim()).unwrap();
+        let credential = SqliteProviderCredentialLifecycleStore::open_connection_at(
+            configured_connection(&self.path),
+            100,
+        )
+        .unwrap();
+        let reference =
+            CredentialVersionRef::new(ProviderId::new("fixture-provider").unwrap(), 1).unwrap();
+        let _ = credential.create_prepared(PrepareCredentialVersion::new(reference.clone()));
+        let _ = credential
+            .activate(CredentialLease::new(reference.clone(), [1; 16], i64::MAX, 13).unwrap());
+        let binding = credential
+            .authorize_active(reference.provider(), [1; 16], 13, 100)
+            .unwrap();
+        self.store
+            .start_effect(admission.claim(), &binding)
+            .unwrap();
     }
 
     pub(super) fn read(
@@ -142,19 +165,29 @@ fn record(path: &Path, discriminator: u8) -> PreparedProviderRecord {
     record
 }
 
-fn configured_connection(path: &Path) -> Connection {
-    let connection = Connection::open(path).unwrap();
-    connection
-        .execute_batch(
-            "PRAGMA journal_mode = WAL;
-         PRAGMA synchronous = FULL;
-         PRAGMA foreign_keys = ON;
-         PRAGMA busy_timeout = 5000;",
-        )
-        .unwrap();
-    #[cfg(target_os = "macos")]
-    connection.execute_batch("PRAGMA fullfsync = ON;").unwrap();
-    connection
+fn configured_connection(path: &Path) -> ManagedConnection {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    if path.exists() {
+        reopen_managed_connection_validated(path, ConnectionMode::ValidatedReopen, |connection| {
+            let version: i64 = connection.query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )?;
+            if version == gocode_store::schema::CURRENT_SCHEMA_VERSION {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        })
+        .unwrap()
+    } else {
+        open_managed_connection(path, ConnectionMode::Writer).unwrap()
+    }
 }
 
 fn request(record: PreparedProviderRecord, discriminator: u8) -> ProviderAuthorityIssueRequest {

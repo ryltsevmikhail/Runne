@@ -2,7 +2,14 @@ use std::sync::Arc;
 
 use crate::canonical_provider::RuntimeStoreDecorator;
 use gocode_daemon_openai_effect::OpenAiEffect;
-use gocode_secure_store::ProviderJournalKeyring;
+use gocode_provider::NativeCredentialAuthority;
+use gocode_secure_store::{NativeProviderCredentialVersionStore, ProviderJournalKeyring};
+
+/// Fixture-only constructor for an authority-bound native credential store.
+#[doc(hidden)]
+pub type LoopbackCredentialVersionStoreFactory = dyn Fn(NativeCredentialAuthority) -> Arc<dyn NativeProviderCredentialVersionStore>
+    + Send
+    + Sync;
 
 /// Complete provider dependencies selected by a workspace-only startup caller.
 ///
@@ -17,6 +24,7 @@ pub(crate) enum ProviderDependencyState {
         effect: Arc<dyn OpenAiEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,
+        credential_versions: Arc<LoopbackCredentialVersionStoreFactory>,
     },
 }
 
@@ -31,11 +39,13 @@ impl ProtectedProviderDependencyCapsule {
         effect: Arc<dyn OpenAiEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,
+        credential_versions: Arc<LoopbackCredentialVersionStoreFactory>,
     ) -> Self {
         Self(ProviderDependencyState::LoopbackFixture {
             effect,
             keyring,
             decorator,
+            credential_versions,
         })
     }
 

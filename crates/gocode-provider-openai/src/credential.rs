@@ -1,4 +1,4 @@
-use gocode_provider::ProviderFuture;
+use gocode_provider::{CredentialDispatchCapability, ProviderFuture};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
@@ -23,5 +23,8 @@ pub trait OpenAiCredentialMaterializer: Send + Sync {
     /// # Errors
     ///
     /// Returns a typed pre-effect error without secret material.
-    fn materialize(&self) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>>;
+    fn materialize(
+        &self,
+        capability: &CredentialDispatchCapability,
+    ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, OpenAiCredentialError>>;
 }

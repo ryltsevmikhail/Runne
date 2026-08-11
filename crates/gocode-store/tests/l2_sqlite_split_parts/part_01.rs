@@ -39,9 +39,19 @@ use gocode_store::store::StoreTransaction;
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 fn temp_db_path(name: &str) -> String {
-    let mut dir = std::env::temp_dir();
-    dir.push(format!("gocode-test-l2i-{}.sqlite", name));
-    dir.to_str().unwrap().to_string()
+    let runtime_root = std::env::temp_dir().join(format!("gocode-test-l2i-{name}"));
+    let daemon = runtime_root.join("gocode-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&runtime_root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    daemon
+        .join("event-log.sqlite")
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn cleanup_db(db_path: &str) {
@@ -186,7 +196,25 @@ fn replace_conversation_event_metadata(
 }
 
 fn assert_no_conversation_commit_rows(db_path: &str) {
-    let conn = gocode_store::schema::open_with_pragmas(db_path).unwrap();
+    let conn = gocode_store::schema::reopen_managed_connection_validated(
+        std::path::Path::new(db_path),
+        gocode_store::schema::ConnectionMode::Reader,
+        |connection| {
+            let version: i64 = connection.query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+                [],
+                |row| row.get(0),
+            )?;
+            if version == gocode_store::schema::CURRENT_SCHEMA_VERSION {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .unwrap();
+    gocode_store::schema::readiness_from_managed(&conn).unwrap();
+    gocode_store::schema::publication_from_managed(&conn).unwrap();
     let counts: (i64, i64, i64) = conn
         .query_row(
             "SELECT

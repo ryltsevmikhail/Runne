@@ -8,7 +8,7 @@ pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
     bootstrap: BootstrapOutcome,
     recovery_state: RecoveryState,
-    replay_connection: rusqlite::Connection,
+    replay_connection: gocode_store::schema::ManagedConnection,
     replay_lineage: gocode_domain::id::EventLogLineageId,
     store: StoreTransaction,
     service: Arc<SqliteTaskRunService>,
@@ -19,8 +19,20 @@ pub(super) async fn start_http_and_runtime(
     provider_activation: ProviderActivation,
     provider_service: Option<Arc<DaemonCanonicalOpenAiService>>,
     protected_activation: bool,
+    launch_authority_id: [u8; 16],
+    executable_sha256: [u8; 32],
     session_id: [u8; 16],
 ) -> Result<DaemonApplication, DaemonError> {
+    let bootstrap_reservation_connection = open_runtime_connection(
+        &config.db_path,
+        gocode_store::schema::ConnectionMode::ValidatedReopen,
+        bootstrap.authority_id,
+        replay_lineage,
+        "bootstrap reservation store",
+    )?;
+    let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
+        bootstrap_reservation_connection,
+    ));
     let runtime_config = RuntimeConfig {
         max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
             DaemonError::Config("max_in_flight does not fit this platform".to_owned())
@@ -122,17 +134,23 @@ pub(super) async fn start_http_and_runtime(
     let session_clock: Arc<dyn Fn() -> Duration + Send + Sync> =
         Arc::new(move || launched_at.elapsed());
     let local_session_service = Arc::new(Mutex::new(if protected_activation {
-        LocalSessionService::new_protected(
+        LocalSessionService::new_protected_with_store(
             binding.clone(),
+            launch_authority_id,
+            executable_sha256,
             bootstrap.launch_identity.bootstrap_secret(),
+            bootstrap_reservation_store.clone(),
             Duration::ZERO,
             Duration::from_secs(30),
         )
         .map_err(|_| DaemonError::Bootstrap("initialize protected session".into()))?
     } else {
-        LocalSessionService::new(
+        LocalSessionService::with_reservation_store(
             binding.clone(),
+            launch_authority_id,
+            executable_sha256,
             bootstrap.launch_identity.bootstrap_secret(),
+            bootstrap_reservation_store.clone(),
         )
     }));
     let replay_service = ReplayService::new(
@@ -193,8 +211,11 @@ pub(super) async fn start_http_and_runtime(
                     directory,
                     address,
                     &bootstrap.launch_identity,
+                    launch_authority_id,
+                    executable_sha256,
                     bootstrap.local_session_authority_id,
                     uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
+                    session_id,
                 )
             });
         match result {
@@ -219,6 +240,7 @@ pub(super) async fn start_http_and_runtime(
         client_profile,
         binding,
         local_session_service,
+        _bootstrap_reservation_store: bootstrap_reservation_store,
         session_clock,
         protected_activation,
         provider_activation,

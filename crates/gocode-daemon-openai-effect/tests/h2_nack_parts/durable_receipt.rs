@@ -3,18 +3,20 @@ use std::path::Path;
 use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
 use gocode_domain::id::{AttemptId, ConversationId, EventLogLineageId, TaskRunId};
 use gocode_provider::{
-    DispatchRequest, ModelRef, PreparedRequest, ProviderCall, ProviderCallId, ProviderCapability,
-    ProviderId, ProviderInputRole, ProviderTextInput,
+    CredentialLease, CredentialVersionRef, DispatchRequest, ModelRef, PrepareCredentialVersion,
+    PreparedRequest, ProviderCall, ProviderCallId, ProviderCapability,
+    ProviderCredentialVersionStore, ProviderId, ProviderInputRole, ProviderTextInput,
 };
 use gocode_provider_openai::{OPENAI_MODEL_ID, OPENAI_MODEL_REVISION};
 use gocode_store::provider::{
     DurableProviderAdmission, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    ProviderRuntimeAuthorityConfig, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use gocode_store::schema::{
-    apply_migrations, ensure_authority_id, ensure_event_log_lineage_id, generate_authority_id,
-    open_existing_with_pragmas_validated, open_with_pragmas, read_authority_id,
-    read_event_log_lineage_id, run_startup_gates,
+    ConnectionMode, ManagedConnection, apply_migrations, ensure_authority_id,
+    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection,
+    read_authority_id, read_event_log_lineage_id, reopen_managed_connection_validated,
 };
 use rusqlite::{Connection, Error as SqliteError, OpenFlags};
 
@@ -30,6 +32,7 @@ fn durable_dispatch(
 ) -> (
     DispatchRequest,
     gocode_store::provider::ProviderEffectStartReceipt,
+    gocode_store::provider::CredentialDispatchBinding,
 ) {
     let runtime_root = tempfile::tempdir().expect("temporary runtime root");
     let daemon_directory = runtime_root.path().join("gocode-daemon");
@@ -48,11 +51,11 @@ fn durable_dispatch(
     let prepared = effect
         .prepare(&openai_call(profile))
         .expect("prepared OpenAI request");
-    let dispatch_connection = open_with_pragmas(path_str).expect("dispatch connection");
+    let dispatch_connection =
+        open_managed_connection(&path, ConnectionMode::Writer).expect("dispatch connection");
     apply_migrations(&dispatch_connection).expect("dispatch migrations");
     ensure_authority_id(&dispatch_connection, &generate_authority_id()).expect("authority ID");
     ensure_event_log_lineage_id(&dispatch_connection).expect("event-log lineage ID");
-    run_startup_gates(&dispatch_connection, path_str).expect("dispatch startup gates");
     let identity = capture_main_database_identity(&dispatch_connection).expect("main DB identity");
     let dispatch_store =
         SqliteProviderDispatchStore::open_with_connection(path_str, dispatch_connection)
@@ -76,10 +79,7 @@ fn durable_dispatch(
         .expect("hold hot WAL");
     let execution_connection =
         open_validated_connection(&path, identity).expect("validated execution connection");
-    let reader = open_validated_connection(&path, identity).expect("validated reader connection");
-    reader
-        .execute_batch("PRAGMA query_only = ON;")
-        .expect("restrict reader");
+    let _reader = open_validated_reader(&path, identity).expect("validated reader connection");
     let execution_store =
         SqliteProviderExecutionStore::open_with_connection(path_str, execution_connection)
             .expect("execution store");
@@ -93,7 +93,21 @@ fn durable_dispatch(
         ProviderAuthorityIssueOutcome::Winner(admission) => admission,
         ProviderAuthorityIssueOutcome::Existing { .. } => panic!("new durable provider authority"),
     };
-    receipt_from_admission(execution_store, prepared, admission)
+    let credential_store = SqliteProviderCredentialLifecycleStore::open_with_connection(
+        open_validated_connection(&path, identity).expect("credential lifecycle connection"),
+    )
+    .expect("credential lifecycle store");
+    let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap();
+    credential_store
+        .create_prepared(PrepareCredentialVersion::new(reference.clone()))
+        .unwrap();
+    credential_store
+        .activate(CredentialLease::new(reference.clone(), [1; 16], i64::MAX, 13).unwrap())
+        .unwrap();
+    let binding = credential_store
+        .authorize_active(reference.provider(), [1; 16], 13, 100)
+        .unwrap();
+    receipt_from_admission(execution_store, prepared, admission, binding)
 }
 
 fn capture_main_database_identity(
@@ -108,8 +122,21 @@ fn capture_main_database_identity(
 fn open_validated_connection(
     path: &Path,
     identity: MainDatabaseIdentity,
-) -> Result<Connection, SqliteError> {
-    open_existing_with_pragmas_validated(path, |connection| {
+) -> Result<ManagedConnection, SqliteError> {
+    reopen_managed_connection_validated(path, ConnectionMode::ValidatedReopen, |connection| {
+        if capture_main_database_identity(connection)? == identity {
+            Ok(())
+        } else {
+            Err(SqliteError::InvalidQuery)
+        }
+    })
+}
+
+fn open_validated_reader(
+    path: &Path,
+    identity: MainDatabaseIdentity,
+) -> Result<ManagedConnection, SqliteError> {
+    reopen_managed_connection_validated(path, ConnectionMode::Reader, |connection| {
         if capture_main_database_identity(connection)? == identity {
             Ok(())
         } else {
@@ -122,16 +149,18 @@ fn receipt_from_admission(
     execution_store: SqliteProviderExecutionStore,
     prepared: PreparedRequest,
     admission: Box<DurableProviderAdmission>,
+    credential: gocode_store::provider::CredentialDispatchBinding,
 ) -> (
     DispatchRequest,
     gocode_store::provider::ProviderEffectStartReceipt,
+    gocode_store::provider::CredentialDispatchBinding,
 ) {
     let claim = admission.into_claim();
     let request = DispatchRequest::new(prepared, claim.clone()).expect("dispatch claim binding");
     let receipt = execution_store
-        .start_effect(&claim)
+        .start_effect(&claim, &credential)
         .expect("durable effect-start receipt");
-    (request, receipt)
+    (request, receipt, credential)
 }
 
 fn openai_call(profile: &OpenAiResponsesTextProfile) -> ProviderCall {

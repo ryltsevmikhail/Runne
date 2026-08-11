@@ -2,8 +2,8 @@
   "apiProfileId": "gocode-ui-client/1",
   "artifactDigests": [
     {
-      "path": "golden/local-session.json",
-      "sha256": "779211a081c21bd8bbfca6613f94629ceb9f941988f7bcace5c1d4664ada4669"
+      "path": "golden/local-session-v2.json",
+      "sha256": "e86c3006bf42d5f6914b4c09759bdce6ea91450ae7fb8444a92cb738cc843c2c"
     },
     {
       "path": "golden/operational-telemetry.json",
@@ -23,15 +23,15 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "61813fbc121048d53e80c064c9b6b5b7653aa4ad231a33e61d018de282822398"
+      "sha256": "f4062dc6702c6f4ba23364b664e0cf3a283cd78d0b1a505a25bfb01e74d2eabf"
     },
     {
       "path": "schemas/local-runtime-profile-v2.schema.json",
-      "sha256": "483a50f229461b665cec418ad7fc9129181ded2ede95f666200dd529cb8bdd58"
+      "sha256": "2c4c4544c1d3fbbad00d4a09dbfe120a925a538b2decd51b6f6bfcb73af6702d"
     },
     {
-      "path": "schemas/local-session-v1.schema.json",
-      "sha256": "c897befe17834b965f49e5c3d471253ca77917e67676d15166b1318e85eaf97b"
+      "path": "schemas/local-session-v2.schema.json",
+      "sha256": "fa081a1b5850026541e8a4877df7d2356185dbf8e30fa9374ac2d7e8452dce7c"
     },
     {
       "path": "schemas/operational-telemetry-v1.schema.json",

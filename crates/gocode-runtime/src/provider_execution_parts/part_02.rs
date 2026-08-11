@@ -205,6 +205,7 @@ pub struct RuntimeProviderExecution<'a, K: ?Sized, S, P> {
     store: &'a S,
     pricing: &'a P,
     prohibited_content: &'a dyn ProhibitedContentPort,
+    redaction: &'a dyn ProviderEventRedaction,
     random: SystemRandom,
     active_key: Mutex<Option<ProviderJournalKeyBinding>>,
 }
@@ -222,12 +223,14 @@ where
         store: &'a S,
         pricing: &'a P,
         prohibited_content: &'a dyn ProhibitedContentPort,
+        redaction: &'a dyn ProviderEventRedaction,
     ) -> Self {
         Self {
             keyring,
             store,
             pricing,
             prohibited_content,
+            redaction,
             random: SystemRandom::new(),
             active_key: Mutex::new(None),
         }
