@@ -9,7 +9,7 @@ fn protected_activation_keys_issue_and_verify_a_root_admission_without_test_supp
     let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
     let authenticator = RootAdmissionAuthenticator::from_protected_activation(&keys);
     let context =
-        RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 1, 1, 1, 10).unwrap();
+        RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 1, 1, 10).unwrap();
     let request = RootAdmissionRequest::new(
         context,
         WorkspaceId::from_bytes([4; 16]),
@@ -33,7 +33,7 @@ fn admissions_from_another_protected_activation_key_are_rejected() {
     let issuer = RootAdmissionAuthenticator::from_protected_activation(&issuer_keys);
     let verifier = RootAdmissionAuthenticator::from_protected_activation(&verifier_keys);
     let context =
-        RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 1, 1, 1, 10).unwrap();
+        RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 1, 1, 10).unwrap();
     let admission = issuer
         .issue(
             RootAdmissionRequest::new(
