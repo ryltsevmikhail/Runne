@@ -2,7 +2,6 @@ use std::fmt;
 use std::os::windows::io::AsRawHandle;
 use std::process::Child;
 use std::ptr;
-use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{
     CloseHandle, DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE,
@@ -103,7 +102,7 @@ pub struct RemoteHandleLease {
     target: ExactTargetProcess,
     identity: DirectoryIdentity,
     remote: Option<HANDLE>,
-    issued_offer: Option<[u8; 16]>,
+    issued_offer: Option<([u8; 16], [u8; 32])>,
 }
 
 impl RemoteHandleLease {
@@ -144,21 +143,28 @@ impl RemoteHandleLease {
     ///
     /// # Errors
     ///
-    /// Returns a closed error for reused identifiers, empty IDs, or TTL outside
-    /// the receiver's bounded acceptance window.
+    /// Returns a closed error for reused identifiers or an absolute deadline
+    /// outside the receiver's bounded shared-clock acceptance window.
     pub fn issue_offer(
         &mut self,
         offer_id: [u8; 16],
-        ttl: Duration,
+        deadline_millis: u64,
+        now_millis: u64,
     ) -> Result<ProtectedHandleOffer, NativeHandleError> {
         if offer_id == [0; 16] || self.issued_offer.is_some() {
             return Err(NativeHandleError::Rejected);
         }
         let remote = self.remote.ok_or(NativeHandleError::Unavailable)?;
-        let offer =
-            ReceivedHandleOffer::new(offer_id, self.target.binding, self.identity, remote, ttl)?
-                .encode()?;
-        self.issued_offer = Some(offer_id);
+        let offer = ReceivedHandleOffer::new(
+            offer_id,
+            self.target.binding,
+            self.identity,
+            remote,
+            deadline_millis,
+            now_millis,
+        )?
+        .encode();
+        self.issued_offer = Some((offer_id, offer.transcript()));
         Ok(offer)
     }
 
@@ -171,13 +177,15 @@ impl RemoteHandleLease {
     /// revoked by `Drop` when the bounded source operation ends.
     pub fn acknowledge(mut self, ack: HandleOfferAck) -> Result<(), NativeHandleError> {
         match self.issued_offer {
-            Some(offer_id) if ack.matches(offer_id) => self.revoke(),
+            Some((offer_id, transcript)) if ack.matches(offer_id, transcript) => self.revoke(),
             _ => Err(NativeHandleError::Rejected),
         }
     }
 
     fn revoke(&mut self) -> Result<(), NativeHandleError> {
-        let remote = self.remote.ok_or(NativeHandleError::Unavailable)?;
+        // `DUPLICATE_CLOSE_SOURCE` may close the source even when it reports an
+        // error. Disarm before issuing it: a recycled target value is never retried.
+        let remote = self.remote.take().ok_or(NativeHandleError::Unavailable)?;
         let mut local_copy = ptr::null_mut();
         // SAFETY: this revokes the target duplicate and produces only a temporary local copy.
         let copied = unsafe {
