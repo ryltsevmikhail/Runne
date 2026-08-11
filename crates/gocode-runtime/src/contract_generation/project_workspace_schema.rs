@@ -11,10 +11,10 @@ pub(super) fn project_workspace_schema() -> Value {
     });
     let project = || closed_object(json!({"projectId": id(), "displayName": name(), "version": version(), "archived": {"type": "boolean"}}), &["projectId", "displayName", "version", "archived"]);
     let workspace = || closed_object(json!({"workspaceId": id(), "projectId": id(), "displayName": name(), "version": version(), "open": {"type": "boolean"}}), &["workspaceId", "projectId", "displayName", "version", "open"]);
-    let cursor = |prefix: &str, hex_length: usize| json!({
-        "maxLength": prefix.len() + 1 + hex_length,
-        "minLength": prefix.len() + 1 + hex_length,
-        "pattern": format!("^{prefix}\\.[0-9a-f]{{{hex_length}}}$"),
+    let cursor = |length: usize, pattern: &str| json!({
+        "maxLength": length,
+        "minLength": length,
+        "pattern": pattern,
         "type": "string",
     });
     let root_admission = json!({
@@ -36,8 +36,8 @@ pub(super) fn project_workspace_schema() -> Value {
         "rootBind": closed_object(json!({"expectedVersion": version(), "rootAdmission": root_admission}), &["expectedVersion", "rootAdmission"]),
         "projectAck": closed_object(json!({"projectId": id(), "newVersion": version()}), &["projectId", "newVersion"]),
         "workspaceAck": closed_object(json!({"workspaceId": id(), "newVersion": version()}), &["workspaceId", "newVersion"]),
-        "projectPage": closed_object(json!({"items": {"items": {"$ref": "#/$defs/project"}, "maxItems": 100, "type": "array"}, "nextCursor": {"anyOf": [cursor("gocode-project-page-v1", 96), {"type": "null"}]}}), &["items", "nextCursor"]),
-        "workspacePage": closed_object(json!({"items": {"items": {"$ref": "#/$defs/workspace"}, "maxItems": 100, "type": "array"}, "nextCursor": {"anyOf": [cursor("gocode-workspace-page-v1", 128), {"type": "null"}]}}), &["items", "nextCursor"]),
+        "projectPage": closed_object(json!({"items": {"items": {"$ref": "#/$defs/project"}, "maxItems": 100, "type": "array"}, "nextCursor": {"anyOf": [cursor(PROJECT_PAGE_CURSOR_LENGTH, PROJECT_PAGE_CURSOR_PATTERN), {"type": "null"}]}}), &["items", "nextCursor"]),
+        "workspacePage": closed_object(json!({"items": {"items": {"$ref": "#/$defs/workspace"}, "maxItems": 100, "type": "array"}, "nextCursor": {"anyOf": [cursor(WORKSPACE_PAGE_CURSOR_LENGTH, WORKSPACE_PAGE_CURSOR_PATTERN), {"type": "null"}]}}), &["items", "nextCursor"]),
         "error": closed_object(json!({"code": {"maxLength": 128, "type": "string"}, "requestId": id()}), &["code", "requestId"]),
     });
     let mut schema = closed_object(json!({"project": {"$ref": "#/$defs/project"}, "workspace": {"$ref": "#/$defs/workspace"}, "projectPage": {"$ref": "#/$defs/projectPage"}, "workspacePage": {"$ref": "#/$defs/workspacePage"}, "rootBind": {"$ref": "#/$defs/rootBind"}}), &["project", "workspace", "projectPage", "workspacePage", "rootBind"]);

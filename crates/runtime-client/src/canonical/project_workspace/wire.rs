@@ -123,35 +123,76 @@ impl TryFrom<WorkspaceAckWire> for WorkspaceCommandAcknowledgement {
         })
     }
 }
-impl TryFrom<ProjectPageWire> for ProjectPageDto {
-    type Error = RuntimeApiError;
-    fn try_from(value: ProjectPageWire) -> Result<Self, Self::Error> {
-        if value.items.len() > 100 {
-            return invalid();
-        }
-        let items = value
-            .items
-            .into_iter()
-            .map(ProjectSnapshotDto::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        let next = value.next_cursor.0.map(project_cursor).transpose()?;
-        Ok(Self { items, next })
+pub(super) fn project_page(
+    value: ProjectPageWire,
+    limit: u16,
+    principal: &gocode_api::ApiPrincipalId,
+) -> Result<ProjectPageDto, RuntimeApiError> {
+    if value.items.len() > usize::from(limit)
+        || (value.next_cursor.0.is_some() && value.items.len() != usize::from(limit))
+    {
+        return invalid();
     }
+    let items = value
+        .items
+        .into_iter()
+        .map(ProjectSnapshotDto::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    let next = value.next_cursor.0.map(project_cursor).transpose()?;
+    if let Some(cursor) = next.as_ref() {
+        let cursor = gocode_api::ProjectPageCursor::decode_token(cursor.as_str())
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        let item = items
+            .last()
+            .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        let item_id = item
+            .id()
+            .to_string()
+            .parse()
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        (cursor.parts_for_principal(principal).ok() == Some(item_id))
+            .then_some(())
+            .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+    }
+    Ok(ProjectPageDto { items, next })
 }
-impl TryFrom<WorkspacePageWire> for WorkspacePageDto {
-    type Error = RuntimeApiError;
-    fn try_from(value: WorkspacePageWire) -> Result<Self, Self::Error> {
-        if value.items.len() > 100 {
-            return invalid();
-        }
-        let items = value
-            .items
-            .into_iter()
-            .map(WorkspaceSnapshotDto::try_from)
-            .collect::<Result<Vec<_>, _>>()?;
-        let next = value.next_cursor.0.map(workspace_cursor).transpose()?;
-        Ok(Self { items, next })
+pub(super) fn workspace_page(
+    value: WorkspacePageWire,
+    limit: u16,
+    principal: &gocode_api::ApiPrincipalId,
+    project_id: CanonicalId,
+) -> Result<WorkspacePageDto, RuntimeApiError> {
+    if value.items.len() > usize::from(limit)
+        || (value.next_cursor.0.is_some() && value.items.len() != usize::from(limit))
+    {
+        return invalid();
     }
+    let items = value
+        .items
+        .into_iter()
+        .map(WorkspaceSnapshotDto::try_from)
+        .collect::<Result<Vec<_>, _>>()?;
+    let next = value.next_cursor.0.map(workspace_cursor).transpose()?;
+    if let Some(cursor) = next.as_ref() {
+        let cursor = gocode_api::WorkspacePageCursor::decode_token(cursor.as_str())
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        let item = items
+            .last()
+            .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        let project = project_id
+            .to_string()
+            .parse()
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        let item_id = item
+            .id()
+            .to_string()
+            .parse()
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+        (cursor.parts_for_principal(principal, project).ok() == Some(item_id))
+            .then_some(())
+            .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse))?;
+    }
+    Ok(WorkspacePageDto { items, next })
 }
 
 fn version(value: u64) -> Result<(), RuntimeApiError> {

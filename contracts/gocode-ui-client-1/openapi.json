@@ -85,7 +85,7 @@
             "schema": {
               "maxLength": 119,
               "minLength": 119,
-              "pattern": "^gocode-project-page-v1\\.[0-9a-f]{96}$",
+              "pattern": "^gocode-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             }
           }
@@ -1426,7 +1426,7 @@
             "schema": {
               "maxLength": 153,
               "minLength": 153,
-              "pattern": "^gocode-workspace-page-v1\\.[0-9a-f]{128}$",
+              "pattern": "^gocode-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             }
           }

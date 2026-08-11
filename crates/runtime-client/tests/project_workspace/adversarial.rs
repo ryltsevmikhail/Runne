@@ -172,3 +172,110 @@ async fn page_responses_reject_lower_hex_cursors_with_non_uuidv7_payloads() {
         Some(&1)
     );
 }
+
+async fn page_server(listener: TcpListener, bodies: Vec<String>) {
+    for body in bodies {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = [0; 8192];
+        assert!(stream.read(&mut request).await.unwrap() > 0);
+        let response = format!(
+            "HTTP/1.1 200 test\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn pages_enforce_the_requested_bound_and_continuation_shape() {
+    let principal = gocode_api::ApiPrincipalId::new("principal").unwrap();
+    let project_cursor =
+        gocode_api::ProjectPageCursor::new(principal.clone(), PROJECT.parse().unwrap())
+            .unwrap()
+            .encode_token();
+    let workspace_cursor = gocode_api::WorkspacePageCursor::new(
+        principal,
+        PROJECT.parse().unwrap(),
+        WORKSPACE.parse().unwrap(),
+    )
+    .unwrap()
+    .encode_token();
+    let mismatch_project_cursor = gocode_api::ProjectPageCursor::new(
+        gocode_api::ApiPrincipalId::new("principal").unwrap(),
+        "018f2e3a-7000-7000-8000-000000000303".parse().unwrap(),
+    )
+    .unwrap()
+    .encode_token();
+    let mismatch_workspace_cursor = gocode_api::WorkspacePageCursor::new(
+        gocode_api::ApiPrincipalId::new("principal").unwrap(),
+        PROJECT.parse().unwrap(),
+        "018f2e3a-7000-7000-8000-000000000303".parse().unwrap(),
+    )
+    .unwrap()
+    .encode_token();
+    let project_item =
+        format!(r#"{{"projectId":"{PROJECT}","displayName":"name","version":1,"archived":false}}"#);
+    let workspace_item = format!(
+        r#"{{"workspaceId":"{WORKSPACE}","projectId":"{PROJECT}","displayName":"name","version":1,"open":false}}"#
+    );
+    let hundred_projects = vec![project_item.as_str(); 100].join(",");
+    let hundred_workspaces = vec![workspace_item.as_str(); 100].join(",");
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(page_server(
+        listener,
+        vec![
+            format!(r#"{{"items":[{hundred_projects}],"nextCursor":null}}"#),
+            format!(r#"{{"items":[],"nextCursor":"{project_cursor}"}}"#),
+            r#"{"items":[],"nextCursor":null}"#.into(),
+            format!(r#"{{"items":[{project_item}],"nextCursor":"{project_cursor}"}}"#),
+            format!(r#"{{"items":[{hundred_workspaces}],"nextCursor":null}}"#),
+            format!(r#"{{"items":[],"nextCursor":"{workspace_cursor}"}}"#),
+            r#"{"items":[],"nextCursor":null}"#.into(),
+            format!(r#"{{"items":[{workspace_item}],"nextCursor":"{workspace_cursor}"}}"#),
+            format!(r#"{{"items":[{project_item}],"nextCursor":"{mismatch_project_cursor}"}}"#),
+            format!(r#"{{"items":[{workspace_item}],"nextCursor":"{mismatch_workspace_cursor}"}}"#),
+        ],
+    ));
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+
+    assert_invalid(client.list_projects(1, None).await.map(|_| ()));
+    assert_invalid(client.list_projects(1, None).await.map(|_| ()));
+    assert!(
+        client
+            .list_projects(1, None)
+            .await
+            .unwrap()
+            .next_cursor()
+            .is_none()
+    );
+    assert!(
+        client
+            .list_projects(1, None)
+            .await
+            .unwrap()
+            .next_cursor()
+            .is_some()
+    );
+    assert_invalid(client.list_workspaces(id(), 1, None).await.map(|_| ()));
+    assert_invalid(client.list_workspaces(id(), 1, None).await.map(|_| ()));
+    assert!(
+        client
+            .list_workspaces(id(), 1, None)
+            .await
+            .unwrap()
+            .next_cursor()
+            .is_none()
+    );
+    assert!(
+        client
+            .list_workspaces(id(), 1, None)
+            .await
+            .unwrap()
+            .next_cursor()
+            .is_some()
+    );
+    assert_invalid(client.list_projects(1, None).await.map(|_| ()));
+    assert_invalid(client.list_workspaces(id(), 1, None).await.map(|_| ()));
+    server.await.unwrap();
+}
