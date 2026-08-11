@@ -1,24 +1,29 @@
 use std::path::Path;
 
 use gocode_api::RootHandleTransferAuthenticator;
+use gocode_windows_native_handle::DirectoryHandle;
 
-use super::{RootHandleBrokerError, RootHandleTransferBinding, VerifiedRootHandle};
+use super::{
+    RootHandleBrokerError, RootHandleTransferBinding, StableFilesystemIdentity, VerifiedRootHandle,
+};
 
-/// Windows transfer requires a brokered `DuplicateHandle` receiver tied to an
-/// authenticated daemon process. Until that receiver is linked, reject every
-/// operation rather than falling back to paths or inheritable handles.
-pub(super) struct NativeDirectoryHandle;
+/// Windows handles live behind the audited target-gated native shim.
+pub(super) type NativeDirectoryHandle = DirectoryHandle;
+
+/// The protected launcher channel is introduced with the daemon receiver in Slice B.
 pub(super) struct NativeTransferChannel;
 
-pub(super) fn open_directory(_path: &Path) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
-    Err(RootHandleBrokerError::Unavailable)
+pub(super) fn open_directory(path: &Path) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
+    verified_from_handle(DirectoryHandle::open(path).map_err(|_| RootHandleBrokerError::Rejected)?)
 }
 
 pub(super) fn open_relative_directory(
-    _root: &NativeDirectoryHandle,
-    _path: &Path,
+    root: &NativeDirectoryHandle,
+    path: &Path,
 ) -> Result<(), RootHandleBrokerError> {
-    Err(RootHandleBrokerError::Unavailable)
+    root.open_relative_directory(path)
+        .map(|_| ())
+        .map_err(|_| RootHandleBrokerError::Rejected)
 }
 
 pub(super) fn send(
@@ -27,6 +32,7 @@ pub(super) fn send(
     _authenticator: &RootHandleTransferAuthenticator,
     _binding: &RootHandleTransferBinding,
 ) -> Result<(), RootHandleBrokerError> {
+    // No token is emitted until Slice B binds the exact protected daemon child.
     Err(RootHandleBrokerError::Unavailable)
 }
 
@@ -44,9 +50,12 @@ pub(super) fn test_pair()
     Err(RootHandleBrokerError::Unavailable)
 }
 
-#[allow(dead_code)]
-pub(super) fn requires_brokered_duplicate_handle(
-    _authenticator: &RootHandleTransferAuthenticator,
-) -> Result<(), RootHandleBrokerError> {
-    Err(RootHandleBrokerError::Unavailable)
+fn verified_from_handle(
+    handle: DirectoryHandle,
+) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
+    let identity = StableFilesystemIdentity {
+        digest: handle.identity().digest(),
+        device: 0,
+    };
+    Ok(VerifiedRootHandle { handle, identity })
 }
