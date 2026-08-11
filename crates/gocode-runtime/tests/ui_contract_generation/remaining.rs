@@ -104,6 +104,17 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "replay.aggregate.continue_live.v1",
         "replay.aggregate.sse.v1",
         "runtime.operational-telemetry.v1",
+        "project.list.v1",
+        "project.get.v1",
+        "project.create.v1",
+        "project.archive.v1",
+        "project.restore.v1",
+        "project.delete.v1",
+        "workspace.list.v1",
+        "workspace.get.v1",
+        "workspace.create.v1",
+        "workspace.open.v1",
+        "workspace.bind_root.v2",
     ]);
     assert_eq!(bundle["publishedCapabilities"], expected_capabilities);
     assert_eq!(bundle["capabilityCatalog"], expected_capabilities);
@@ -133,10 +144,7 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
 fn operational_telemetry_contract_is_closed_safe_and_advertised() {
     let output = tempfile::tempdir().unwrap();
     generate_ui_contract(output.path()).unwrap();
-    assert_eq!(
-        RUNTIME_CAPABILITY_CATALOG.last(),
-        Some(&"runtime.operational-telemetry.v1")
-    );
+    assert!(RUNTIME_CAPABILITY_CATALOG.contains(&"runtime.operational-telemetry.v1"));
     assert!(GENERATED_ARTIFACT_PATHS.contains(&"golden/operational-telemetry.json"));
     assert!(GENERATED_ARTIFACT_PATHS.contains(&"schemas/operational-telemetry-v1.schema.json"));
 

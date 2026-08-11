@@ -108,6 +108,10 @@ fn token_policy_accepts_exact_io_exceptions() {
             "use tokio::net::TcpListener;",
         ),
         (
+            "crates/gocode-http/src/secure_local_host/project_workspace.rs",
+            "use tokio::net::TcpListener;",
+        ),
+        (
             "crates/gocode-runtime/src/provider_execution_parts/part_01.rs",
             "use core::fmt::{self, Write as _};",
         ),

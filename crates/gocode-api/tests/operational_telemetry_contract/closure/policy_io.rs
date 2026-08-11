@@ -11,6 +11,7 @@ const PART_01: &str = "crates/gocode-runtime/src/provider_execution_parts/part_0
 const SECURE_HOSTS: &[&str] = &[
     HTTP_HOST,
     "crates/gocode-http/src/secure_local_host/operational_telemetry.rs",
+    "crates/gocode-http/src/secure_local_host/project_workspace.rs",
 ];
 
 pub(super) fn audit_tokens(path: &str, tokens: &[Token]) -> Result<(), String> {

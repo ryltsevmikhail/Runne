@@ -14,6 +14,7 @@ pub mod local_session;
 pub mod middleware;
 pub mod opencode;
 pub mod operational_telemetry;
+pub mod project_workspace;
 pub mod queries;
 pub mod replay;
 pub mod router;

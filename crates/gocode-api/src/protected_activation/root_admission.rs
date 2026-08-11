@@ -1,7 +1,15 @@
 use gocode_domain::id::WorkspaceId;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 
 /// Maximum serialized size accepted for a verified root admission claim.
 pub const MAX_ROOT_HANDLE_ADMISSION_BYTES: usize = 4096;
+const ROOT_HANDLE_ADMISSION_TOKEN_PREFIX: &str = "gocode-root-admission-v2.";
+const MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES: usize =
+    ROOT_HANDLE_ADMISSION_TOKEN_PREFIX.len() + (MAX_ROOT_HANDLE_ADMISSION_BYTES * 4).div_ceil(3);
+
+/// Stable failure for malformed opaque root-admission transport tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootHandleAdmissionTokenError { Invalid }
 
 /// Opaque admission for a transferred native directory handle.
 pub struct RootHandleAdmission {
@@ -9,6 +17,34 @@ pub struct RootHandleAdmission {
 }
 
 impl RootHandleAdmission {
+    /// Encodes the opaque authenticated claim in the fixed ASCII v2 transport form.
+    pub fn encode_token(&self) -> Result<String, RootHandleAdmissionTokenError> {
+        let encoded = URL_SAFE_NO_PAD.encode(&self.bytes);
+        let token = format!("{ROOT_HANDLE_ADMISSION_TOKEN_PREFIX}{encoded}");
+        (token.len() <= MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES)
+            .then_some(token)
+            .ok_or(RootHandleAdmissionTokenError::Invalid)
+    }
+
+    /// Decodes a bounded opaque v2 token without authenticating its contents.
+    ///
+    /// Authentication is deliberately performed only by the protected verifier.
+    pub fn decode_token(token: &str) -> Result<Self, RootHandleAdmissionTokenError> {
+        if !token.is_ascii() || token.len() > MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES {
+            return Err(RootHandleAdmissionTokenError::Invalid);
+        }
+        let encoded = token
+            .strip_prefix(ROOT_HANDLE_ADMISSION_TOKEN_PREFIX)
+            .ok_or(RootHandleAdmissionTokenError::Invalid)?;
+        if encoded.is_empty() {
+            return Err(RootHandleAdmissionTokenError::Invalid);
+        }
+        let bytes = URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| RootHandleAdmissionTokenError::Invalid)?;
+        Self::from_verified_bytes(bytes).ok_or(RootHandleAdmissionTokenError::Invalid)
+    }
+
     #[allow(dead_code)]
     pub(crate) fn from_verified_bytes(bytes: Vec<u8>) -> Option<Self> {
         if bytes.is_empty() || bytes.len() > MAX_ROOT_HANDLE_ADMISSION_BYTES {
@@ -164,6 +200,23 @@ mod tests {
     fn root_admission_debug_never_exposes_opaque_material() {
         let admission = RootHandleAdmission::from_verified_bytes(vec![0x5a]).unwrap();
         assert_eq!(format!("{admission:?}"), "RootHandleAdmission([REDACTED])");
+    }
+
+    #[test]
+    fn root_admission_v2_codec_is_bounded_ascii_and_round_trips() {
+        let admission = RootHandleAdmission::from_verified_bytes(vec![0x5a; 32]).unwrap();
+        let token = admission.encode_token().unwrap();
+        assert!(token.is_ascii());
+        assert!(token.starts_with("gocode-root-admission-v2."));
+        assert_eq!(
+            RootHandleAdmission::decode_token(&token)
+                .unwrap()
+                .encode_token()
+                .unwrap(),
+            token
+        );
+        assert!(RootHandleAdmission::decode_token("gocode-root-admission-v2.\u{80}").is_err());
+        assert!(RootHandleAdmission::decode_token(&"a".repeat(MAX_ROOT_HANDLE_ADMISSION_BYTES * 2)).is_err());
     }
 
     #[test]

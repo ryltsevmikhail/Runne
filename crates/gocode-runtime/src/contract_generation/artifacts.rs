@@ -71,6 +71,7 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             "golden/operational-telemetry.json",
             canonical_json(&operational_telemetry_golden())?,
         ),
+        ("golden/project-workspace.json", canonical_json(&project_workspace_golden())?),
         (
             "golden/replay-conversation.json",
             canonical_json(&replay_conversation_golden())?,
@@ -96,6 +97,7 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             "schemas/operational-telemetry-v1.schema.json",
             canonical_json(&operational_telemetry_schema())?,
         ),
+        ("schemas/project-workspace-v1.schema.json", canonical_json(&project_workspace_schema())?),
         (
             "schemas/replay-v1.schema.json",
             canonical_json(&replay_schema())?,

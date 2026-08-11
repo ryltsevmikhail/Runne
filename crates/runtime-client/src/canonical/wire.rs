@@ -174,14 +174,19 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
             "invalid_request"
             | "invalid_conversation_id"
             | "invalid_workspace_id"
+            | "invalid_project_id"
+            | "invalid_display_name"
+            | "invalid_expected_version"
+            | "invalid_page"
+            | "invalid_root_admission"
             | "invalid_command_id"
             | "invalid_idempotency_key"
             | "message_text_empty"
             | "message_text_too_large",
         ) => RuntimeApiErrorKind::InvalidRequest,
         (401, "unauthorized") => RuntimeApiErrorKind::Unauthorized,
-        (404, "conversation_not_found") => RuntimeApiErrorKind::NotFound,
-        (409, "conversation_conflict") => RuntimeApiErrorKind::Conflict,
+        (404, "conversation_not_found" | "project_workspace_not_found") => RuntimeApiErrorKind::NotFound,
+        (409, "conversation_conflict" | "project_workspace_conflict") => RuntimeApiErrorKind::Conflict,
         (429 | 503, "runtime_backpressure") => RuntimeApiErrorKind::Backpressure,
         (503, "runtime_unavailable") => RuntimeApiErrorKind::Unavailable,
         _ => RuntimeApiErrorKind::InvalidResponse,

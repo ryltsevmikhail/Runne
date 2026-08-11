@@ -21,6 +21,12 @@ pub use canonical::{
     CreateConversationRequest, GenerateTextRequest, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError,
     RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind,
 };
+pub use canonical::{
+    BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
+    ExistingWorkspaceRequest, ProjectCommandAcknowledgement, ProjectPageCursor, ProjectPageDto,
+    ProjectSnapshotDto, RootAdmissionToken, WorkspaceCommandAcknowledgement, WorkspacePageCursor,
+    WorkspacePageDto, WorkspaceSnapshotDto,
+};
 pub use gocode_api::{
     ExpiryAggregateV1, MAX_OPERATIONAL_TELEMETRY_WIRE_BYTES_V1,
     OPERATIONAL_TELEMETRY_CAPABILITY_V1, OPERATIONAL_TELEMETRY_SCHEMA_VERSION_V1,
