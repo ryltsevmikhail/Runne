@@ -15,6 +15,10 @@ use gocode_security::SecretBroker;
 use gocode_store::{ProjectWorkspaceStore, store::StoreTransaction};
 use std::sync::{Arc, Mutex};
 
+#[path = "project_workspace_admission/barrier.rs"]
+mod barrier;
+#[path = "project_workspace_admission/invariants.rs"]
+mod invariants;
 #[path = "project_workspace_admission/mismatch.rs"]
 mod mismatch;
 
@@ -238,7 +242,8 @@ async fn root_admission_nonce_race_has_one_winner_and_no_partial_loser() {
 
 #[tokio::test]
 async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mutation() {
-    let (_directory, store) = store();
+    let (directory, store) = store();
+    let path = directory.path().join("admission.sqlite");
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let foreign = RootAdmissionVerificationContext::new(
@@ -252,15 +257,19 @@ async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mu
         100,
     )
     .unwrap();
-    let foreign_host = host(
+    let keys = barrier::keys();
+    let admission = barrier::issue(&keys, foreign.clone(), workspace, 71, 200, 71);
+    let foreign_host = barrier::authenticated_host(
         store.clone(),
-        foreign.clone(),
-        claims(foreign, workspace, 71, 200),
+        barrier::MutableAuthority::new(foreign),
+        &keys,
+        None,
     );
+    let before = barrier::database_state(&path);
     let request = BindWorkspaceRootCommand {
         workspace_id: workspace,
         expected_version: 1,
-        root_admission: gocode_api::test_support::admission(),
+        root_admission: admission,
     };
     assert_eq!(
         foreign_host
@@ -269,7 +278,7 @@ async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mu
         Err(ProjectWorkspaceHostError::Forbidden)
     );
     let query = host(
-        store,
+        store.clone(),
         admission_context(),
         claims(admission_context(), workspace, 72, 200),
     );
@@ -286,4 +295,5 @@ async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mu
             .version,
         1
     );
+    assert_eq!(barrier::database_state(&path), before);
 }
