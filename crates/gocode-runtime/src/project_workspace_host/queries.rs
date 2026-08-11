@@ -3,11 +3,13 @@ use gocode_api::{
     ProjectQueryContext, ProjectSnapshot, ProjectWorkspaceHostError, ProjectWorkspaceQueryHostPort,
     WorkspaceSnapshot,
 };
-use gocode_application::ports::ProjectWorkspaceRepository;
+use gocode_application::ports::{
+    CurrentRootAdmissionContext, ProjectWorkspaceRepository, RootAdmissionVerifier,
+};
 use gocode_domain::id::{ProjectId, WorkspaceId};
 
-impl<R: ProjectWorkspaceRepository> ProjectWorkspaceQueryHostPort
-    for RuntimeProjectWorkspaceHost<R>
+impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmissionVerifier>
+    ProjectWorkspaceQueryHostPort for RuntimeProjectWorkspaceHost<R, C, V>
 {
     async fn list_projects(
         &self,
