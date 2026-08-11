@@ -1808,6 +1808,8 @@ version = "0.1.0"
 dependencies = [
  "gocode-app-core",
  "gocode-platform-desktop",
+ "hex",
+ "rand 0.8.7",
  "serde",
  "serde_json",
  "tauri",
@@ -1815,6 +1817,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
  "tempfile",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
 ]

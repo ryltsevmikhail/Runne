@@ -1,5 +1,7 @@
 mod bundled_runtime;
 pub mod conversation_channel;
+mod directory_selection;
+mod renderer_generation;
 
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
@@ -14,11 +16,14 @@ pub use bundled_runtime::{BundledRuntimeController, BundledShutdownOutcome};
 use conversation_channel::{
     ConversationChannelError, ConversationChannelEvent, ConversationSubscriptionManager,
 };
+pub use directory_selection::{DirectorySelectionManager, DirectorySelectionRef, SelectionError};
 use gocode_app_core::{
     AppCore, AppCoreError, BootstrapState, ConversationSnapshot, DiagnosticsSnapshot,
     ProjectSummary, RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
 };
 use gocode_platform_desktop::ProfileLock;
+pub use gocode_platform_desktop::VerifiedRootHandle;
+pub use renderer_generation::{RendererGenerationError, RendererGenerationManager};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{Manager, RunEvent, State, WebviewWindow, WindowEvent};
