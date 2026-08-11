@@ -52,7 +52,6 @@ impl<L: RootAdmissionLease> RootAdmissionAuthorizer for VerifiedRootAdmissionAut
             && claim.principal_digest() == self.principal_digest
             && claim.capability_version() == current.capability_version()
             && claim.policy_version() == current.policy_version()
-            && claim.gate_epoch() == current.gate_epoch()
             && claim.now_unix_millis() <= current.now_unix_millis()
             && self.claims.expires_at_unix_millis() > current.now_unix_millis()
             && self.claims.action() == RootAdmissionAction::WorkspaceBindRoot

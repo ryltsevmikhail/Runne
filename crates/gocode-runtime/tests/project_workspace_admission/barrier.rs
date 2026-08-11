@@ -28,7 +28,6 @@ impl MutableAuthority {
             value.principal_digest(),
             value.capability_version(),
             value.policy_version(),
-            value.gate_epoch(),
             now,
         )
         .unwrap();

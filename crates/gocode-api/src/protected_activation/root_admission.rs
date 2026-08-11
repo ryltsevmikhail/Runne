@@ -34,7 +34,6 @@ pub struct RootAdmissionVerificationContext {
     principal_digest: [u8; 32],
     capability_version: u64,
     policy_version: u64,
-    gate_epoch: u64,
     now_unix_millis: u64,
 }
 
@@ -43,15 +42,15 @@ impl RootAdmissionVerificationContext {
     pub fn new(
         authority_digest: [u8; 32], session_id: [u8; 16], launch_generation: u64,
         principal_digest: [u8; 32], capability_version: u64, policy_version: u64,
-        gate_epoch: u64, now_unix_millis: u64,
+        now_unix_millis: u64,
     ) -> Result<Self, RootAdmissionValidationError> {
         if is_zero(&authority_digest) || is_zero(&session_id) || launch_generation == 0
             || is_zero(&principal_digest) || capability_version == 0 || policy_version == 0
-            || gate_epoch == 0 || now_unix_millis == 0 {
+            || now_unix_millis == 0 {
             return Err(RootAdmissionValidationError::ZeroBinding);
         }
         Ok(Self { authority_digest, session_id, launch_generation, principal_digest,
-            capability_version, policy_version, gate_epoch, now_unix_millis })
+            capability_version, policy_version, now_unix_millis })
     }
 
     pub fn authority_digest(&self) -> [u8; 32] { self.authority_digest }
@@ -60,7 +59,6 @@ impl RootAdmissionVerificationContext {
     pub fn principal_digest(&self) -> [u8; 32] { self.principal_digest }
     pub fn capability_version(&self) -> u64 { self.capability_version }
     pub fn policy_version(&self) -> u64 { self.policy_version }
-    pub fn gate_epoch(&self) -> u64 { self.gate_epoch }
     pub fn now_unix_millis(&self) -> u64 { self.now_unix_millis }
 
     /// Domain-separated digest for the authenticated API principal.
@@ -157,7 +155,7 @@ mod tests {
     #[test]
     fn root_admission_context_rejects_zero_security_bindings() {
         let result = RootAdmissionVerificationContext::new(
-            [0; 32], [1; 16], 1, [2; 32], 1, 1, 1, 1,
+            [0; 32], [1; 16], 1, [2; 32], 1, 1, 1,
         );
         assert!(matches!(result, Err(RootAdmissionValidationError::ZeroBinding)));
     }
@@ -171,7 +169,7 @@ mod tests {
     #[test]
     fn verified_claims_reject_zero_nonce_and_digest() {
         let context = RootAdmissionVerificationContext::new(
-            [1; 32], [2; 16], 1, [3; 32], 1, 1, 1, 1,
+            [1; 32], [2; 16], 1, [3; 32], 1, 1, 1,
         ).unwrap();
         let result = VerifiedRootAdmissionClaims::new(
             context, RootAdmissionAction::WorkspaceBindRoot,

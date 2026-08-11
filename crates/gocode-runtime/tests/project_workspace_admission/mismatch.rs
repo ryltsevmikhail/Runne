@@ -14,7 +14,6 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             current.principal_digest(),
             1,
             1,
-            1,
             100,
         )
         .unwrap(),
@@ -25,7 +24,6 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             current.principal_digest(),
             1,
             1,
-            1,
             100,
         )
         .unwrap(),
@@ -34,7 +32,6 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             [2; 16],
             2,
             current.principal_digest(),
-            1,
             1,
             1,
             100,
@@ -47,7 +44,6 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             current.principal_digest(),
             2,
             1,
-            1,
             100,
         )
         .unwrap(),
@@ -58,7 +54,6 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             current.principal_digest(),
             1,
             2,
-            1,
             100,
         )
         .unwrap(),
@@ -67,18 +62,6 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             [2; 16],
             1,
             current.principal_digest(),
-            1,
-            1,
-            2,
-            100,
-        )
-        .unwrap(),
-        RootAdmissionVerificationContext::new(
-            [1; 32],
-            [2; 16],
-            1,
-            current.principal_digest(),
-            1,
             1,
             1,
             101,
