@@ -126,14 +126,17 @@ mod root_admission_authenticator_tests {
     }
 
     #[test]
-    fn v2_envelope_has_the_gate_free_fixed_wire_length() {
+    fn v2_envelope_has_the_gate_free_fixed_wire_length_and_rejects_tampering() {
         let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
         let request = RootAdmissionRequest::new(
             RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 1, 1, 10).unwrap(),
             WorkspaceId::from_bytes([4; 16]), 1, [5; 32], [6; 16], 20, [8; 32],
         ).unwrap();
-        let admission = RootAdmissionAuthenticator::from_protected_activation(&keys).issue(request).unwrap();
+        let authenticator = RootAdmissionAuthenticator::from_protected_activation(&keys);
+        let mut admission = authenticator.issue(request).unwrap();
         assert_eq!(admission.bytes.len(), ROOT_ADMISSION_BODY_BYTES + 32);
         assert_eq!(ROOT_ADMISSION_BODY_BYTES, 225);
+        admission.bytes[0] ^= 1;
+        assert!(authenticator.verify(admission).is_err());
     }
 }
