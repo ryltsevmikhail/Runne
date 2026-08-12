@@ -1,14 +1,7 @@
 """Regression tests for the pre-authority documentation staging validator."""
-import hashlib
-import types
-import json
-import os
+import hashlib, json, os, types
 from pathlib import Path
-import subprocess
-import tempfile
-import unittest
-
-
+import subprocess, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[2]
 TEST_TMP = Path("/srv/data")
 MODULE = ROOT / "scripts" / "validate_docs_parts" / "pre_authority_document_delta.inc"
@@ -17,27 +10,19 @@ BASE_HASHES = {
     "governed-scope-v1.json": "18d80090ecc15ed0da8a935cbde1dfcc72308d96eb28cd0c0f9c0b6315daa5a4",
     "status-claims-v1.json": "d0dbbe23dbb553d090751a4f43537fd50ea46c298bdc9008f4ef80896067e77b",
 }
-
-
 def load_module():
     module = types.ModuleType("pre_authority_document_delta")
     module.__file__ = str(MODULE)
     exec(MODULE.read_text(encoding="utf-8"), module.__dict__)
     return module
-
-
 def git(repo, *args, index=None, stdin=None):
     env = None if index is None else {"GIT_INDEX_FILE": str(index)}
     return subprocess.run(("git", "-C", str(repo), *args), input=stdin, check=True, env=env,
                           stdout=subprocess.PIPE).stdout
-
-
 def write(repo, path, content):
     target = repo / path
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(content.read_bytes() if isinstance(content, Path) else content)
-
-
 def fixture_repo():
     directory = tempfile.TemporaryDirectory(dir=TEST_TMP)
     repo = Path(directory.name)
@@ -54,8 +39,6 @@ def fixture_repo():
     git(repo, "add", "docs")
     git(repo, "commit", "-m", "legacy")
     return directory, repo
-
-
 def reviewed(repo, changes):
     result = {}
     for path, content in changes.items():
@@ -63,8 +46,6 @@ def reviewed(repo, changes):
         oid = git(repo, "hash-object", "--stdin", stdin=content).decode().strip()
         result[path] = {"operation": "modify" if existing else "add", "mode": "100644", "blob_oid": oid, "blob_sha256": hashlib.sha256(content).hexdigest()}
     return result
-
-
 def admission(module, repo, changes):
     candidate = {path: (ROOT / path).read_bytes() for path in module.TASK1_LITERAL_ALLOWLIST}
     candidate.update(changes)
@@ -73,8 +54,6 @@ def admission(module, repo, changes):
         record["sha256"] = hashlib.sha256(candidate[record["path"]]).hexdigest()
     candidate[module.ARTIFACT_PATH] = json.dumps(artifact).encode()
     return module.prepare_pre_authority_admission(repo, candidate, reviewed(repo, candidate), repo.with_suffix(".review.json"))
-
-
 def pre_authority_candidate(repo, index, documents):
     schema = ROOT / "docs/schemas/pre-authority-document-delta-v1.schema.json"
     write(repo, "docs/schemas/pre-authority-document-delta-v1.schema.json", schema)
@@ -93,8 +72,6 @@ def pre_authority_candidate(repo, index, documents):
     }
     write(repo, "docs/authority/PRE_AUTHORITY_DOCUMENT_DELTA_V1.json", json.dumps(value).encode())
     git(repo, "add", "docs/schemas/pre-authority-document-delta-v1.schema.json", "docs/authority/PRE_AUTHORITY_DOCUMENT_DELTA_V1.json", *documents, index=index)
-
-
 class PreAuthorityDocumentDeltaTests(unittest.TestCase):
     def test_selector_uses_real_index_not_ambient_or_checkout_artifact(self):
         module = load_module()
@@ -147,9 +124,6 @@ class PreAuthorityDocumentDeltaTests(unittest.TestCase):
         self.assertTrue(module.protected_claim_diagnostics("app**rov**ed"))
         self.assertTrue(module.protected_claim_diagnostics("appro<!--x-->ved"))
         self.assertTrue(module.protected_claim_diagnostics("app\u200broved"))
-
-
-
     def test_rejects_delta_executable_and_confusable_claim(self):
         module = load_module()
         temp, repo = fixture_repo()
@@ -209,6 +183,65 @@ class PreAuthorityDocumentDeltaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "PRE_AUTHORITY_ARTIFACT"):
             module.validate_pre_authority_document_delta(repo, index_file=index)
 
+    def test_cumulative_delta_membership_survives_head_advance(self):
+        module = load_module()
+        temp, repo = fixture_repo()
+        self.addCleanup(temp.cleanup)
+        write(repo, "docs/new.md", b"ordinary\n")
+        pre_authority_candidate(repo, None, ("docs/new.md",))
+        module.validate_pre_authority_document_delta(repo)
+        git(repo, "commit", "-m", "pre-authority")
+        snapshot = module.CandidateSnapshot.capture(repo)
+        self.assertEqual(module._document_paths(snapshot, module._base_paths(snapshot)), {"docs/new.md"})
+        module.validate_pre_authority_document_delta(repo)
+        def candidate(name):
+            index = repo / f"{name}.index"
+            git(repo, "read-tree", "HEAD", index=index)
+            write(repo, module.ARTIFACT_PATH, git(repo, "show", f"HEAD:{module.ARTIFACT_PATH}"))
+            return index
+        index = candidate("missing")
+        write(repo, "docs/missing.md", b"missing\n")
+        git(repo, "add", "docs/missing.md", index=index)
+        self.assertRaisesRegex(ValueError, "DOCS_DELTA_EXACTNESS", module.validate_pre_authority_document_delta, repo, index_file=index)
+        index = candidate("extra")
+        artifact = json.loads((repo / module.ARTIFACT_PATH).read_text())
+        artifact["documents"].append({**artifact["documents"][0], "path": "docs/extra.md"})
+        write(repo, module.ARTIFACT_PATH, json.dumps(artifact).encode())
+        git(repo, "add", module.ARTIFACT_PATH, index=index)
+        self.assertRaisesRegex(ValueError, "PRE_AUTHORITY_ARTIFACT", module.validate_pre_authority_document_delta, repo, index_file=index)
+        index = candidate("stale")
+        write(repo, "docs/new.md", b"stale\n")
+        git(repo, "add", "docs/new.md", index=index)
+        self.assertRaisesRegex(ValueError, "PRE_AUTHORITY_ARTIFACT", module.validate_pre_authority_document_delta, repo, index_file=index)
+        index = candidate("updated")
+        artifact = json.loads((repo / module.ARTIFACT_PATH).read_text())
+        write(repo, "docs/new.md", b"updated\n")
+        artifact["documents"][0]["sha256"] = hashlib.sha256(b"updated\n").hexdigest()
+        write(repo, module.ARTIFACT_PATH, json.dumps(artifact).encode())
+        git(repo, "add", "docs/new.md", module.ARTIFACT_PATH, index=index)
+        module.validate_pre_authority_document_delta(repo, index_file=index)
+        index = candidate("delete")
+        git(repo, "update-index", "--force-remove", "docs/new.md", index=index)
+        artifact = json.loads((repo / module.ARTIFACT_PATH).read_text())
+        artifact["documents"] = []
+        write(repo, module.ARTIFACT_PATH, json.dumps(artifact).encode())
+        git(repo, "add", module.ARTIFACT_PATH, index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_DELTA_(DELETION|EXACTNESS)"):
+            module.validate_pre_authority_document_delta(repo, index_file=index)
+        index = candidate("rename")
+        git(repo, "update-index", "--force-remove", "docs/new.md", index=index)
+        write(repo, "docs/renamed.md", b"ordinary\n")
+        artifact = json.loads((repo / module.ARTIFACT_PATH).read_text())
+        artifact["documents"][0]["path"] = "docs/renamed.md"
+        write(repo, module.ARTIFACT_PATH, json.dumps(artifact).encode())
+        git(repo, "add", module.ARTIFACT_PATH, "docs/renamed.md", index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_DELTA_(DELETION|EXACTNESS)"):
+            module.validate_pre_authority_document_delta(repo, index_file=index)
+        index = candidate("mode")
+        git(repo, "update-index", "--chmod=+x", "docs/new.md", index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_DELTA_ENTRY_INVALID"):
+            module.validate_pre_authority_document_delta(repo, index_file=index)
+
     def test_snapshot_json_path_and_claim_closure_are_fail_closed(self):
         module = load_module()
         self.assertRaisesRegex(ValueError, "DUP", module.strict_json, b'{"x":{"y":1,"y":2}}', "DUP")
@@ -252,9 +285,6 @@ class PreAuthorityDocumentDeltaTests(unittest.TestCase):
         module = load_module()
         temp, repo = fixture_repo()
         self.addCleanup(temp.cleanup)
-        write(repo, "docs/ordinary.md", b"base\n")
-        git(repo, "add", "docs/ordinary.md")
-        git(repo, "commit", "-m", "ordinary")
         changes = {"scripts/rc0_policy/fixtures/platform_claim_migration/v1/invalid/README.md": b"new\n"}
         prepared = admission(module, repo, changes)
         self.addCleanup(prepared["temporary_directory"].cleanup)
@@ -263,7 +293,5 @@ class PreAuthorityDocumentDeltaTests(unittest.TestCase):
         self.assertEqual(paths["docs/00-foundation/DOCUMENTATION_RULES.md"]["operation"], "modify")
         with self.assertRaisesRegex(ValueError, "DOCS_ADMISSION_COMMIT_REQUIRES_PHASE_C"):
             module.commit_pre_authority_admission(repo, prepared, "no", prepared["manifest_sha256"])
-
-
 if __name__ == "__main__":
     unittest.main()

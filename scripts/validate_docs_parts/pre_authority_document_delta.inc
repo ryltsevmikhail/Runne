@@ -93,8 +93,14 @@ def _base_paths(snapshot):
 
 
 def _document_paths(snapshot, base):
-    head = snapshot.head_entries()
-    return {path for path, entry in snapshot.entries.items() if path.endswith((".md", ".markdown")) and path not in base and entry.mode == "100644" and head.get(path, (None, None))[1] != entry.oid}
+    return {path for path, entry in snapshot.entries.items() if path.endswith((".md", ".markdown")) and path not in base and entry.mode == "100644"}
+
+
+def _validate_retained_documents(snapshot, base, head):
+    for path, (mode, _) in head.items():
+        entry = snapshot.entries.get(path)
+        if path.endswith((".md", ".markdown")) and path not in base and mode == "100644" and (entry is None or entry.mode != "100644"):
+            raise ValueError("DOCS_DELTA_DELETION")
 
 
 def _record_classification(path):
@@ -196,6 +202,7 @@ def _validate_pre(snapshot):
         raise ValueError("DOCS_BASE_MUTATION")
     if any(path.endswith((".md", ".markdown")) and path not in base and entry.mode != "100644" for path, entry in snapshot.entries.items()):
         raise ValueError("DOCS_DELTA_ENTRY_INVALID")
+    _validate_retained_documents(snapshot, base, head)
     _validate_documents(snapshot, value["documents"], base)
     _validate_claims(snapshot, value["status_claims"], _document_paths(snapshot, base))
 
