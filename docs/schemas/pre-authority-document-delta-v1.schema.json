@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.project-owner.pre-authority-document-delta/1",
+  "title": "Pre-authority document delta",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "mode", "base_universe_bytes_sha256", "base_governed_scope_bytes_sha256", "base_status_claims_bytes_sha256", "documents", "status_claims"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository_id": {"type": "string", "minLength": 1},
+    "mode": {"const": "pre_authority"},
+    "base_universe_bytes_sha256": {"const": "efeb9eabdfb03084a8cdc10c33acc4f8008dd73e1f750acb24513d19d1ab66b1"},
+    "base_governed_scope_bytes_sha256": {"const": "18d80090ecc15ed0da8a935cbde1dfcc72308d96eb28cd0c0f9c0b6315daa5a4"},
+    "base_status_claims_bytes_sha256": {"const": "d0dbbe23dbb553d090751a4f43537fd50ea46c298bdc9008f4ef80896067e77b"},
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "classification", "sha256", "reason"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "classification": {"enum": ["governed", "non_governed"]},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "reason": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "status_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "claim_kind", "disposition", "evidence_binding"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "claim_kind": {"enum": ["blocked_status", "design_policy", "terminology_reference", "out_of_scope_status"]},
+          "disposition": {"enum": ["BLOCKED", "NON_PRODUCTION", "OUT_OF_SCOPE"]},
+          "evidence_binding": {"const": "gocode.rc0.evidence-profile/3"}
+        }
+      }
+    }
+  }
+}

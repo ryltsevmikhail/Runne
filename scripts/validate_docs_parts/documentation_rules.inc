@@ -2,9 +2,8 @@
 
 # Task 2 intentionally leaves the three canonical manifests absent.  Once
 # Task 10a commits all of them, closed-world validation becomes mandatory.
-if all(os.path.isfile(path) for path in DOCS_TAXONOMY_MANIFESTS):
-    for diagnostic in validate_document_universe(Path(BASE)):
-        err(f"Documentation taxonomy: {diagnostic}")
+for diagnostic in validate_documentation_mode(Path(BASE)):
+    err(f"Documentation mode: {diagnostic}")
 
 for file_path in walk_files(DOCS_DIR, ".md"):
     if is_implementation_plan(file_path):
