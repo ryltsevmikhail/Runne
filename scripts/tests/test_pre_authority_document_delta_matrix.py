@@ -121,8 +121,8 @@ class PreAuthorityDocumentDeltaMatrixTests(unittest.TestCase):
         module = load_module()
         temp, repo = fixture_repo()
         self.addCleanup(temp.cleanup)
-        write(repo, "docs/ordinary.md", b"base\n")
-        git(repo, "add", "docs/ordinary.md")
+        write(repo, "docs/ordinary.txt", b"base\n")
+        git(repo, "add", "docs/ordinary.txt")
         git(repo, "commit", "-m", "ordinary")
         for mutation in ("delete", "content", "rename"):
             with self.subTest(mutation=mutation):
@@ -130,7 +130,7 @@ class PreAuthorityDocumentDeltaMatrixTests(unittest.TestCase):
                 prepared = admission(module, repo, changes)
                 self.addCleanup(prepared["temporary_directory"].cleanup)
                 if mutation == "delete":
-                    git(repo, "update-index", "--force-remove", "docs/ordinary.md", index=prepared["index_file"])
+                    git(repo, "update-index", "--force-remove", "docs/ordinary.txt", index=prepared["index_file"])
                 else:
                     manifest = module.strict_json(prepared["manifest_path"].read_bytes(), "bad")
                     oid = manifest["paths"]["scripts/rc0_policy/fixtures/platform_claim_migration/v1/invalid/README.md"]["blob_oid"] if mutation == "rename" else module.git_bytes(repo, ["hash-object", "-w", "--stdin"], stdin=b"changed\n").decode().strip()
