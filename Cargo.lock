@@ -1879,6 +1879,7 @@ dependencies = [
 name = "gocode-local-store"
 version = "0.1.0"
 dependencies = [
+ "gocode-domain",
  "gocode-secure-store",
  "gocode-windows-native-handle",
  "rusqlite",
@@ -2122,6 +2123,7 @@ dependencies = [
  "hex",
  "rand 0.8.7",
  "security-framework",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "zeroize",

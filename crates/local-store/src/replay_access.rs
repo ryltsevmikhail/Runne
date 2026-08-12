@@ -41,6 +41,9 @@ impl LocalStore {
     /// Returns a typed validation or storage error without partially deleting
     /// journal, projection, or checkpoint state.
     pub fn reset_replay_scope(&mut self, scope: &ReplayScopeKey) -> Result<bool, ReplayStoreError> {
+        if self.security.is_some() {
+            return Err(ReplayStoreError::AnchoredAdmissionRequired);
+        }
         validate_replay_scope(scope)?;
         let transaction = self
             .connection
@@ -97,16 +100,7 @@ impl LocalStore {
             hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
             hasher.update(value);
         }
-        transaction.execute(
-            "
-            UPDATE meta
-            SET db_generation = db_generation + 1,
-                last_transaction_digest = ?1,
-                commit_marker = 1
-            WHERE singleton = 1
-            ",
-            params![format!("{:x}", hasher.finalize())],
-        )?;
+        transaction.execute("UPDATE meta SET db_generation=db_generation+1,last_transaction_digest=?1,commit_marker=1 WHERE singleton=1", params![format!("{:x}", hasher.finalize())])?;
         transaction.commit()?;
         Ok(true)
     }

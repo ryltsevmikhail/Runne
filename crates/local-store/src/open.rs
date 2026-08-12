@@ -18,7 +18,10 @@ impl LocalStore {
             PRAGMA synchronous = FULL;
             ",
         )?;
-        let mut store = Self { connection };
+        let mut store = Self {
+            connection,
+            security: None,
+        };
         store.apply_migrations()?;
         Ok(store)
     }

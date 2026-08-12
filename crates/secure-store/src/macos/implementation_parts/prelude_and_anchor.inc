@@ -14,12 +14,24 @@ use crate::{
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
     ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
-    ProviderJournalKeyring, SecureStore, SecureStoreError,
+    ProviderJournalKeyring, SecureStore, SecureStoreError, SecurityAnchorV1, SecurityProfileLock,
+    StoredSecurityAnchor, SealedTransactionTag,
 };
 use zeroize::Zeroizing;
 
+struct NativeSecurityLock { profile: [u8; 32], lock: gocode_macos_keychain_acl::SecurityProfileProcessLock }
+
+impl crate::security_anchor::SecurityProfileLockBackend for NativeSecurityLock {
+    fn seal(&self, database: [u8; 32], generation: u64, transaction: [u8; 32], previous: [u8; 32]) -> Result<SealedTransactionTag, SecureStoreError> {
+        let seal = self.lock.seal(self.profile, database, generation, transaction, previous).map_err(|_| SecureStoreError::Unavailable)?;
+        SealedTransactionTag::from_storage(seal.as_bytes().to_vec())
+    }
+    fn verify(&self, database: [u8; 32], generation: u64, transaction: [u8; 32], previous: [u8; 32], seal: &[u8]) -> Result<(), SecureStoreError> { self.lock.verify(self.profile, database, generation, transaction, previous, seal).map_err(|_| SecureStoreError::InvalidSeal) }
+}
+
 const SERVICE_NAME: &str = "gocode-ui";
 const ACCOUNT_PREFIX: &str = "db_generation";
+const SECURITY_ANCHOR_MAGIC: &[u8; 8] = b"GCSA1\0\0\0";
 const PROVIDER_JOURNAL_KEY_MAGIC: &[u8; 8] = b"GCPJKV1\0";
 const PROVIDER_CREDENTIAL_MIGRATION_SUFFIX: &str = ".migration-backup";
 const ERR_SEC_AUTH_FAILED: i32 = -25_293;
@@ -51,6 +63,7 @@ enum CredentialPopulationFailpoint {
 
 pub struct MacOsKeychainStore {
     account_name: String,
+    anchor_profile: Option<[u8; 32]>,
 }
 
 /// macOS Keychain provider-credential backend with explicit executable ACLs.
@@ -88,52 +101,83 @@ impl MacOsKeychainStore {
     pub fn new(profile_id: impl AsRef<str>) -> Self {
         Self {
             account_name: format!("{ACCOUNT_PREFIX}:{}", profile_id.as_ref()),
+            anchor_profile: None,
         }
+    }
+
+    /// Constructs an anchor backend bound to exactly one profile digest.
+    #[must_use]
+    pub fn for_security_profile(profile_id: impl AsRef<str>, profile: [u8; 32]) -> Self {
+        Self {
+            account_name: format!("{ACCOUNT_PREFIX}:{}", profile_id.as_ref()),
+            anchor_profile: Some(profile),
+        }
+    }
+
+    fn require_anchor_lock(&self, lock: &SecurityProfileLock<'_>) -> Result<[u8; 32], SecureStoreError> {
+        let profile = self.anchor_profile.ok_or(SecureStoreError::LockMismatch)?;
+        if lock.matches(profile) { Ok(profile) } else { Err(SecureStoreError::LockMismatch) }
+    }
+
+    fn load_security_anchor(&self) -> Result<StoredSecurityAnchor, SecureStoreError> {
+        match security_framework::passwords::get_generic_password(SERVICE_NAME, &self.account_name) {
+            Ok(value) if value.len() == 8 => {
+                let generation = decode_anchor(&value)?;
+                if generation == 0 { Err(SecureStoreError::CorruptAnchor) } else { Ok(StoredSecurityAnchor::LegacyGeneration(generation)) }
+            }
+            Ok(value) => decode_security_anchor(&value).map(StoredSecurityAnchor::V1),
+            Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(StoredSecurityAnchor::Missing),
+            Err(_) => Err(SecureStoreError::Unavailable),
+        }
+    }
+
+    fn save_security_anchor(&self, anchor: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let encoded = encode_security_anchor(anchor);
+        security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
+            .map_err(|_| SecureStoreError::OperationFailed("security anchor keychain write".into()))
     }
 }
 
 impl SecureStore for MacOsKeychainStore {
-    fn store_anchor(&self, generation: u64) -> Result<(), SecureStoreError> {
-        let value = generation.to_le_bytes();
-        security_framework::passwords::set_generic_password(
-            SERVICE_NAME,
-            &self.account_name,
-            &value,
-        )
-        .map_err(|e| SecureStoreError::OperationFailed(format!("keychain set: {e}")))
+    fn acquire_security_profile_lock(&self, profile: [u8; 32]) -> Result<SecurityProfileLock<'_>, SecureStoreError> {
+        if self.anchor_profile != Some(profile) { return Err(SecureStoreError::LockMismatch); }
+        let lock = gocode_macos_keychain_acl::SecurityProfileProcessLock::acquire(profile).map_err(|_| SecureStoreError::Unavailable)?;
+        Ok(SecurityProfileLock::new(profile, NativeSecurityLock { profile, lock }))
     }
-
-    fn read_anchor(&self) -> Result<Option<u64>, SecureStoreError> {
-        match security_framework::passwords::get_generic_password(SERVICE_NAME, &self.account_name)
-        {
-            Ok(bytes) => decode_anchor(&bytes).map(Some),
-            Err(e) => {
-                // errSecItemNotFound (-25300) means no anchor exists — that's normal.
-                if e.code() == -25300 {
-                    return Ok(None);
-                }
-                Err(SecureStoreError::OperationFailed(format!(
-                    "keychain read: {e}"
-                )))
-            }
-        }
+    fn read_security_anchor(&self, lock: &SecurityProfileLock<'_>) -> Result<StoredSecurityAnchor, SecureStoreError> {
+        self.require_anchor_lock(lock)?;
+        self.load_security_anchor()
     }
-
-    fn delete_anchor(&self) -> Result<(), SecureStoreError> {
-        match security_framework::passwords::delete_generic_password(
-            SERVICE_NAME,
-            &self.account_name,
-        ) {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                if e.code() == -25300 {
-                    // Not found is fine for delete
-                    return Ok(());
-                }
-                Err(SecureStoreError::OperationFailed(format!(
-                    "keychain delete: {e}"
-                )))
-            }
-        }
+    fn compare_and_advance_anchor(&self, lock: &SecurityProfileLock<'_>, expected: &SecurityAnchorV1, next: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let profile = self.require_anchor_lock(lock)?;
+        if expected.profile_identity_digest != profile || next.profile_identity_digest != profile || !next.is_valid() || next.database_identity != expected.database_identity || expected.generation.checked_add(1) != Some(next.generation) || next.previous_anchor_digest != expected.digest() { return Err(SecureStoreError::InvalidTransition); }
+        self.verify_security_transaction(lock, next)?;
+        if self.load_security_anchor()? != StoredSecurityAnchor::V1(expected.clone()) { return Err(SecureStoreError::AnchorConflict); }
+        self.save_security_anchor(next)?;
+        if self.load_security_anchor()? != StoredSecurityAnchor::V1(next.clone()) { return Err(SecureStoreError::AnchorConflict); }
+        Ok(())
+    }
+    fn initialize_security_anchor(&self, lock: &SecurityProfileLock<'_>, next: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let profile = self.require_anchor_lock(lock)?;
+        if next.profile_identity_digest != profile || !next.is_valid() || next.generation != 1 || next.previous_anchor_digest != [0; 32] { return Err(SecureStoreError::InvalidTransition); }
+        self.verify_security_transaction(lock, next)?;
+        if self.load_security_anchor()? != StoredSecurityAnchor::Missing { return Err(SecureStoreError::AnchorConflict); }
+        self.save_security_anchor(next)
+    }
+    fn compare_and_migrate_legacy_anchor(&self, lock: &SecurityProfileLock<'_>, expected: u64, next: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let profile = self.require_anchor_lock(lock)?;
+        if next.profile_identity_digest != profile || !next.is_valid() || expected.checked_add(1) != Some(next.generation) { return Err(SecureStoreError::InvalidTransition); }
+        self.verify_security_transaction(lock, next)?;
+        if self.load_security_anchor()? != StoredSecurityAnchor::LegacyGeneration(expected) { return Err(SecureStoreError::AnchorConflict); }
+        self.save_security_anchor(next)
+    }
+    fn seal_security_transaction(&self, lock: &SecurityProfileLock<'_>, database: [u8; 32], generation: u64, digest: [u8; 32], previous: [u8; 32]) -> Result<SealedTransactionTag, SecureStoreError> {
+        self.require_anchor_lock(lock)?;
+        lock.seal(database, generation, digest, previous)
+    }
+    fn verify_security_transaction(&self, lock: &SecurityProfileLock<'_>, anchor: &SecurityAnchorV1) -> Result<(), SecureStoreError> {
+        let profile = self.require_anchor_lock(lock)?;
+        if anchor.profile_identity_digest != profile || !anchor.is_valid() { return Err(SecureStoreError::InvalidTransition); }
+        lock.verify(anchor.database_identity, anchor.generation, anchor.transaction_digest, anchor.previous_anchor_digest, anchor.sealed_transaction.bytes())
     }
 }
