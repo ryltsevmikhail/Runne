@@ -76,11 +76,11 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
     let project = core
         .open_local_project(&project_directory)
         .expect("open audit project");
-    core.open_project_conversation(project.id)
+    core.open_project_conversation(project)
         .await
         .expect("open audited conversation");
     let timeline = core
-        .send_project_message(project.id, "safe protected audit message")
+        .send_project_message(project, "safe protected audit message")
         .await
         .expect("send audited message");
     let renderer_frames = [

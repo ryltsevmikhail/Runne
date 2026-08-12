@@ -1,9 +1,9 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
 
 export interface Project {
-  readonly id: number
-  readonly name: string
-  readonly path: string
+  readonly projectId: string
+  readonly workspaceId: string
+  readonly displayName: string
   readonly lastOpenedAt: number
 }
 
@@ -76,12 +76,29 @@ export async function requestDirectorySelection(
 }
 
 export async function getProject(
-  id: number,
+  projectId: string,
+  invoke: Invoke = tauriInvoke,
+): Promise<readonly Project[]> {
+  if (!isCanonicalId(projectId)) {
+    throw new Error('Invalid project identifier')
+  }
+  const value = await invoke('get_project', { projectId })
+  if (!Array.isArray(value) || !value.every(isProject)) {
+    throw new Error('Invalid project response')
+  }
+  return value
+}
+
+export async function getWorkspace(
+  workspaceId: string,
   invoke: Invoke = tauriInvoke,
 ): Promise<Project | null> {
-  const value = await invoke('get_project', { id })
+  if (!isCanonicalId(workspaceId)) {
+    throw new Error('Invalid workspace identifier')
+  }
+  const value = await invoke('get_workspace', { workspaceId })
   if (value !== null && !isProject(value)) {
-    throw new Error('Invalid project response')
+    throw new Error('Invalid workspace response')
   }
   return value
 }
@@ -122,11 +139,19 @@ function isProject(value: unknown): value is Project {
   const record = value as Record<string, unknown>
   return (
     Object.keys(record).length === 4
-    && Number.isSafeInteger(record.id)
-    && typeof record.name === 'string'
-    && record.name.length > 0
-    && typeof record.path === 'string'
-    && record.path.length > 0
+    && isCanonicalId(record.projectId)
+    && isCanonicalId(record.workspaceId)
+    && typeof record.displayName === 'string'
+    && record.displayName.length > 0
+    && record.displayName.length <= 256
+    && !/[\p{Cc}\p{Cf}]/u.test(record.displayName)
+    && typeof record.lastOpenedAt === 'number'
     && Number.isSafeInteger(record.lastOpenedAt)
+    && record.lastOpenedAt >= 0
   )
+}
+
+function isCanonicalId(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
 }

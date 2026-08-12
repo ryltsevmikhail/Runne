@@ -39,7 +39,7 @@ async function openProjectPicker() {
 async function openProjectDetails(project: Project) {
   await router.push({
     name: 'project-details',
-    params: { id: project.id },
+    params: { projectId: project.projectId },
   })
 }
 </script>
@@ -92,14 +92,14 @@ async function openProjectDetails(project: Project) {
         </button>
         <GcProjectCard
           v-for="project in projects"
-          :key="project.id"
+          :key="project.workspaceId"
           :project="{
-            name: project.name,
-            path: project.path,
-            slug: String(project.id),
+            name: project.displayName,
+            path: 'Local root',
+            slug: project.workspaceId,
             modifiedAt: new Date(project.lastOpenedAt).toLocaleDateString(),
           }"
-          :aria-label="`Open project ${project.name}`"
+          :aria-label="`Open project ${project.displayName}`"
           @click="openProjectDetails(project)"
         />
       </div>

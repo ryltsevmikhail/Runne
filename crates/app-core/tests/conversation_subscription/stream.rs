@@ -140,8 +140,7 @@ async fn explicit_resync_rejects_unaffected_project_scope_without_resetting_it()
     let other_project_id = fixture
         .core
         .open_local_project(&other_project_path)
-        .expect("open other project")
-        .id;
+        .expect("open other project");
     fixture
         .core
         .open_project_conversation(other_project_id)
@@ -221,8 +220,7 @@ async fn pending_resync_scope_survives_unrelated_live_reconnect_state() {
     let other_project_id = fixture
         .core
         .open_local_project(&other_project_path)
-        .expect("open other project")
-        .id;
+        .expect("open other project");
     fixture
         .core
         .open_project_conversation(other_project_id)

@@ -17,7 +17,7 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     },
     "gocode-platform-desktop": {"gocode-api", "gocode-platform-ports", "gocode-runtime-client"},
     "gocode-platform-mobile": {"gocode-platform-ports"},
-    "gocode-local-store": {"gocode-secure-store"},
+    "gocode-local-store": {"gocode-secure-store", "gocode-windows-native-handle"},
     "gocode-platform-ports": set(),
     "gocode-pairing-crypto": set(),
     "gocode-runtime-client": {"gocode-api"},
@@ -64,7 +64,7 @@ def find_rust_dependency_violations(dependencies: dict[str, set[str]]) -> list[s
 def _tracked_dependency(package: str, dependency: dict) -> bool:
     if not dependency["name"].startswith("gocode-"):
         return False
-    if dependency["name"] == "gocode-windows-native-handle" and package == "gocode-platform-desktop":
+    if dependency["name"] == "gocode-windows-native-handle" and package in {"gocode-local-store", "gocode-platform-desktop"}:
         return dependency.get("target") != "cfg(windows)"
     return True
 

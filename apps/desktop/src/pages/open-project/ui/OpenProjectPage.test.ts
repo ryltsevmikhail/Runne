@@ -12,7 +12,7 @@ function createTestRouter() {
     routes: [
       { path: '/projects/open', component: OpenProjectPage },
       {
-        path: '/projects/:id',
+        path: '/projects/:projectId',
         name: 'project-details',
         component: { template: '<div>Project details</div>' },
       },

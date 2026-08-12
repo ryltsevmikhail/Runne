@@ -146,14 +146,14 @@ fn create_base_v4_database(path: &Path, with_replay_state: bool) -> Connection {
 }
 
 #[test]
-fn empty_v3_replay_tables_migrate_to_v4_without_touching_settings_or_projects() {
+fn empty_v3_replay_tables_migrate_to_v5_without_touching_settings_or_legacy_roots() {
     let directory = tempfile::tempdir().expect("temp directory");
     let path = directory.path().join("profile.sqlite3");
     drop(create_v3_database(&path));
 
     let store = LocalStore::open(&path).expect("migrate empty v3 replay state");
 
-    assert_eq!(store.diagnostics().expect("diagnostics").schema_version, 4);
+    assert_eq!(store.diagnostics().expect("diagnostics").schema_version, 5);
     assert_eq!(
         store.get_setting("appearance.theme").expect("read setting"),
         Some("light".into())
@@ -164,11 +164,11 @@ fn empty_v3_replay_tables_migrate_to_v4_without_touching_settings_or_projects() 
     assert_eq!(projects[0].name, "preserved");
 
     drop(store);
-    let connection = Connection::open(path).expect("inspect v4 schema");
+    let connection = Connection::open(path).expect("inspect v5 schema");
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
     for (table, column) in [
         ("event_journal", "binding_digest"),
         ("event_journal", "event_sequence"),

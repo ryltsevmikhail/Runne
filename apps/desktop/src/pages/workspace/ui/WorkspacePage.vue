@@ -6,15 +6,14 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import type { Project } from '@/entities/project'
-import { getProject } from '@/entities/project'
-import { ConversationChat } from '@/widgets/conversation-chat'
+import { getWorkspace } from '@/entities/project'
 
-type LoadProject = (id: number) => Promise<Project | null>
+type LoadProject = (id: string) => Promise<Project | null>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
 }>(), {
-  loadProject: async (id: number) => isTauri() ? getProject(id) : null,
+  loadProject: async (id: string) => isTauri() ? getWorkspace(id) : null,
 })
 
 const route = useRoute()
@@ -24,8 +23,8 @@ const loading = ref(true)
 const error = ref(false)
 
 onMounted(async () => {
-  const id = Number(route.params.id)
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  const id = typeof route.params.workspaceId === 'string' ? route.params.workspaceId : ''
+  if (id === '') {
     error.value = true
     loading.value = false
     return
@@ -84,9 +83,9 @@ async function returnToProjects() {
       <div>
         <span class="workspace-kicker">Local workspace</span>
         <h1 id="workspace-title">
-          {{ project.name }}
+          {{ project.displayName }}
         </h1>
-        <p>{{ project.path }}</p>
+        <p>Local root</p>
       </div>
       <span class="workspace-status">Ready locally</span>
     </header>
@@ -100,11 +99,11 @@ async function returnToProjects() {
           />
           <strong>Project</strong>
         </div>
-        <p>{{ project.name }}</p>
+        <p>{{ project.displayName }}</p>
       </aside>
 
       <div class="workspace-panel workspace-panel--main workspace-panel--chat">
-        <ConversationChat :project-id="project.id" />
+        <p>Workspace binding is prepared by the desktop host.</p>
       </div>
 
       <aside class="workspace-panel workspace-panel--details">
@@ -116,8 +115,8 @@ async function returnToProjects() {
           <strong>Details</strong>
         </div>
         <dl>
-          <dt>Location</dt>
-          <dd>{{ project.path }}</dd>
+          <dt>Root</dt>
+          <dd>Local root</dd>
           <dt>Runtime</dt>
           <dd>Canonical Conversation API</dd>
         </dl>

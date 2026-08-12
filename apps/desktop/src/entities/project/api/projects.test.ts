@@ -9,9 +9,9 @@ import {
 } from './projects'
 
 const project = {
-  id: 7,
-  name: 'gocode-ui',
-  path: '/workspace/gocode-ui',
+  projectId: '01890e00-0000-7000-8000-000000000001',
+  workspaceId: '01890e00-0000-7000-8000-000000000002',
+  displayName: 'gocode-ui',
   lastOpenedAt: 1_753_500_000_000,
 } as const
 
@@ -69,10 +69,17 @@ describe('project IPC adapter', () => {
 
   it('rejects malformed project data at the renderer boundary', async () => {
     await expect(
-      getProject(7, async () => ({
+      getProject(project.projectId, async () => ({
         ...project,
-        path: null,
+        workspaceId: '7',
       })),
     ).rejects.toThrow('Invalid project response')
+  })
+
+  it('rejects numeric IDs and raw paths at the renderer boundary', async () => {
+    await expect(getProject('7', async () => null)).rejects.toThrow('Invalid project identifier')
+    await expect(listProjects(async () => [{ ...project, path: '/private/root' }])).rejects.toThrow(
+      'Invalid projects response',
+    )
   })
 })

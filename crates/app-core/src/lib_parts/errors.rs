@@ -6,6 +6,8 @@ pub enum AppCoreError {
     StoreOpen(#[from] StoreOpenError),
     #[error("local project rejected")]
     Project(#[from] ProjectOpenError),
+    #[error("recent root unavailable")]
+    RecentRoot(#[from] RecentRootError),
     #[error("stored theme is invalid")]
     InvalidTheme,
     #[error("application state unavailable")]

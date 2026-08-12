@@ -90,6 +90,25 @@ fn create_v3_database(path: &Path) -> Connection {
             ) STRICT;
             INSERT INTO meta (singleton, schema_version, db_generation) VALUES (1, 3, 9);
 
+            CREATE TABLE drafts (
+                runtime_authority TEXT NOT NULL, principal TEXT NOT NULL, project_id TEXT NOT NULL,
+                run_id TEXT NOT NULL, body TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision >= 1),
+                updated_at INTEGER NOT NULL CHECK (updated_at >= 0), PRIMARY KEY (runtime_authority, principal, project_id, run_id)
+            ) STRICT;
+
+            CREATE TABLE mutation_ledger (
+                runtime_authority TEXT NOT NULL, principal TEXT NOT NULL, operation_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL, target TEXT NOT NULL, disposition TEXT NOT NULL,
+                PRIMARY KEY (runtime_authority, principal, operation_id),
+                UNIQUE (runtime_authority, principal, idempotency_key)
+            ) STRICT;
+
+            CREATE TABLE window_layout (
+                profile TEXT NOT NULL, display_topology TEXT NOT NULL, geometry TEXT NOT NULL,
+                revision INTEGER NOT NULL CHECK (revision >= 1),
+                PRIMARY KEY (profile, display_topology)
+            ) STRICT;
+
             CREATE TABLE projections (
                 runtime_authority TEXT NOT NULL,
                 principal TEXT NOT NULL,

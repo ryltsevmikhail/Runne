@@ -5,21 +5,21 @@ import { describe, expect, it } from 'vitest'
 import WorkspacePage from './WorkspacePage.vue'
 
 const project = {
-  id: 7,
-  name: 'gocode-ui',
-  path: '/workspace/gocode-ui',
+  projectId: '01890e00-0000-7000-8000-000000000001',
+  workspaceId: '01890e00-0000-7000-8000-000000000002',
+  displayName: 'gocode-ui',
   lastOpenedAt: 1_753_500_000_000,
 } as const
 
-async function mountWorkspace(loadProject: (id: number) => Promise<typeof project | null>) {
+async function mountWorkspace(loadProject: (id: string) => Promise<typeof project | null>) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div>Projects</div>' } },
-      { path: '/workspaces/:id', name: 'workspace', component: WorkspacePage },
+      { path: '/workspaces/:workspaceId', name: 'workspace', component: WorkspacePage },
     ],
   })
-  await router.push('/workspaces/7')
+  await router.push(`/workspaces/${project.workspaceId}`)
   await router.isReady()
   const wrapper = mount(WorkspacePage, {
     props: { loadProject },
@@ -31,17 +31,18 @@ async function mountWorkspace(loadProject: (id: number) => Promise<typeof projec
 
 describe('workspace page', () => {
   it('restores the persisted project identified by the route', async () => {
-    const requestedIds: number[] = []
+    const requestedIds: string[] = []
     const wrapper = await mountWorkspace(async (id) => {
       requestedIds.push(id)
       return project
     })
 
-    expect(requestedIds).toEqual([7])
+    expect(project.projectId).not.toBe(project.workspaceId)
+    expect(requestedIds).toEqual([project.workspaceId])
     expect(wrapper.get('h1').text()).toBe('gocode-ui')
-    expect(wrapper.text()).toContain('/workspace/gocode-ui')
+    expect(wrapper.text()).not.toContain('/workspace/gocode-ui')
     expect(wrapper.text()).toContain('Local workspace')
-    expect(wrapper.text()).toContain('Coding agent')
+    expect(wrapper.text()).toContain('Workspace binding is prepared by the desktop host.')
     expect(wrapper.text()).not.toContain('Nothing here yet')
   })
 
