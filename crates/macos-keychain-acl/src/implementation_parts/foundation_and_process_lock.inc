@@ -107,6 +107,10 @@ pub enum KeychainAclError {
     InvalidItemIdentity,
     /// The requested or observed ACL is absent or broader than expected.
     AccessDenied,
+    /// A profile digest does not match the guard that protects it.
+    InvalidProfileBinding,
+    /// A transaction seal is malformed or cannot be verified.
+    InvalidSeal,
     /// Security.framework returned another closed operation failure.
     OperationFailed,
 }
