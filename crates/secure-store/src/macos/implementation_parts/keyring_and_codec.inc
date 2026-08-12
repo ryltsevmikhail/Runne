@@ -58,7 +58,9 @@ const fn map_acl_error(error: KeychainAclError) -> SecureStoreError {
         KeychainAclError::InvalidItemIdentity => {
             SecureStoreError::ProviderCredentialOperationFailed
         }
-        KeychainAclError::OperationFailed => SecureStoreError::ProviderCredentialOperationFailed,
+        KeychainAclError::OperationFailed
+        | KeychainAclError::InvalidProfileBinding
+        | KeychainAclError::InvalidSeal => SecureStoreError::ProviderCredentialOperationFailed,
     }
 }
 
@@ -186,6 +188,40 @@ fn decode_anchor(bytes: &[u8]) -> Result<u64, SecureStoreError> {
         .try_into()
         .map_err(|_| SecureStoreError::CorruptAnchor)?;
     Ok(u64::from_le_bytes(bytes))
+}
+
+fn encode_security_anchor(anchor: &SecurityAnchorV1) -> Vec<u8> {
+    let seal = anchor.sealed_transaction.as_bytes();
+    let mut encoded = Vec::with_capacity(145 + seal.len());
+    encoded.extend_from_slice(SECURITY_ANCHOR_MAGIC);
+    encoded.extend_from_slice(&anchor.profile_identity_digest);
+    encoded.extend_from_slice(&anchor.database_identity);
+    encoded.extend_from_slice(&anchor.generation.to_be_bytes());
+    encoded.extend_from_slice(&anchor.transaction_digest);
+    encoded.extend_from_slice(&anchor.previous_anchor_digest);
+    encoded.push(u8::try_from(seal.len()).expect("bounded seal"));
+    encoded.extend_from_slice(seal);
+    encoded
+}
+
+fn decode_security_anchor(bytes: &[u8]) -> Result<SecurityAnchorV1, SecureStoreError> {
+    if bytes.len() < 145 || bytes.get(..8) != Some(SECURITY_ANCHOR_MAGIC) { return Err(SecureStoreError::CorruptAnchor); }
+    let mut offset = 8;
+    let take = |offset: &mut usize, length: usize| -> Result<&[u8], SecureStoreError> {
+        let end = offset.checked_add(length).ok_or(SecureStoreError::CorruptAnchor)?;
+        let value = bytes.get(*offset..end).ok_or(SecureStoreError::CorruptAnchor)?;
+        *offset = end;
+        Ok(value)
+    };
+    let profile: [u8; 32] = take(&mut offset, 32)?.try_into().map_err(|_| SecureStoreError::CorruptAnchor)?;
+    let database: [u8; 32] = take(&mut offset, 32)?.try_into().map_err(|_| SecureStoreError::CorruptAnchor)?;
+    let generation = u64::from_be_bytes(take(&mut offset, 8)?.try_into().map_err(|_| SecureStoreError::CorruptAnchor)?);
+    let digest: [u8; 32] = take(&mut offset, 32)?.try_into().map_err(|_| SecureStoreError::CorruptAnchor)?;
+    let previous: [u8; 32] = take(&mut offset, 32)?.try_into().map_err(|_| SecureStoreError::CorruptAnchor)?;
+    let seal_length = usize::from(*take(&mut offset, 1)?.first().ok_or(SecureStoreError::CorruptAnchor)?);
+    if offset.checked_add(seal_length) != Some(bytes.len()) { return Err(SecureStoreError::CorruptAnchor); }
+    let seal = SealedTransactionTag::from_storage(take(&mut offset, seal_length)?.to_vec()).map_err(|_| SecureStoreError::CorruptAnchor)?;
+    SecurityAnchorV1::new(profile, database, generation, digest, previous, seal).map_err(|_| SecureStoreError::CorruptAnchor)
 }
 
 fn encode_provider_journal_key(key: &ProviderJournalKeyMaterial) -> Zeroizing<Vec<u8>> {

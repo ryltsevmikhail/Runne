@@ -11,6 +11,9 @@ use thiserror::Error;
 
 mod provider_credential;
 mod provider_journal_key;
+pub(crate) mod security_anchor;
+#[cfg(feature = "test-support")]
+pub mod test_support;
 
 pub use provider_credential::{
     MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
@@ -20,6 +23,10 @@ pub use provider_credential::{
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring,
+};
+pub use security_anchor::{
+    MAX_SEALED_TRANSACTION_TAG_BYTES, SealedTransactionTag, SecurityAnchorV1, SecurityProfileLock,
+    StoredSecurityAnchor,
 };
 
 // ---------------------------------------------------------------------------
@@ -34,6 +41,14 @@ pub enum SecureStoreError {
     OperationFailed(String),
     #[error("secure-store anchor is corrupt")]
     CorruptAnchor,
+    #[error("security profile lock does not match the requested anchor")]
+    LockMismatch,
+    #[error("security anchor compare-and-advance conflict")]
+    AnchorConflict,
+    #[error("security anchor transition is invalid")]
+    InvalidTransition,
+    #[error("security transaction seal is invalid")]
+    InvalidSeal,
     #[error("anchor not found")]
     NotFound,
     #[error("provider journal key is corrupt or has the wrong authority binding")]
@@ -127,28 +142,73 @@ impl fmt::Display for AnchorStatus {
 ///
 /// The service name and account are fixed per profile; the implementation
 /// chooses the concrete OS facility.
+#[allow(clippy::missing_errors_doc)]
 pub trait SecureStore: Send + Sync {
-    /// Persist the anchor.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the platform secure store cannot persist the anchor.
-    fn store_anchor(&self, generation: u64) -> Result<(), SecureStoreError>;
+    /// Acquires the non-forgeable process/profile guard used for security state.
+    fn acquire_security_profile_lock(
+        &self,
+        _profile_identity_digest: [u8; 32],
+    ) -> Result<SecurityProfileLock<'_>, SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
 
-    /// Read the current anchor, if any.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the platform secure store is unavailable or the
-    /// stored anchor is corrupt.
-    fn read_anchor(&self) -> Result<Option<u64>, SecureStoreError>;
+    /// Reads the exact stored anchor representation while holding its profile lock.
+    fn read_security_anchor(
+        &self,
+        _lock: &SecurityProfileLock<'_>,
+    ) -> Result<StoredSecurityAnchor, SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
 
-    /// Delete the anchor (used during profile reset).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the platform secure store cannot delete the anchor.
-    fn delete_anchor(&self) -> Result<(), SecureStoreError>;
+    /// Advances the immutable V1 anchor chain only from an exact expected record.
+    fn compare_and_advance_anchor(
+        &self,
+        _lock: &SecurityProfileLock<'_>,
+        _expected: &SecurityAnchorV1,
+        _next: &SecurityAnchorV1,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
+
+    /// Creates only the generation-one root from a verified missing slot.
+    fn initialize_security_anchor(
+        &self,
+        _lock: &SecurityProfileLock<'_>,
+        _next: &SecurityAnchorV1,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
+
+    /// Replaces a verified legacy generation with exactly one V1 migration root.
+    fn compare_and_migrate_legacy_anchor(
+        &self,
+        _lock: &SecurityProfileLock<'_>,
+        _expected_generation: u64,
+        _next: &SecurityAnchorV1,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
+
+    /// Seals a prospective transaction with the platform-owned key material.
+    fn seal_security_transaction(
+        &self,
+        _lock: &SecurityProfileLock<'_>,
+        _database_identity: [u8; 32],
+        _generation: u64,
+        _transaction_digest: [u8; 32],
+        _previous_anchor_digest: [u8; 32],
+    ) -> Result<SealedTransactionTag, SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
+
+    /// Verifies an already persisted seal; recovery never creates a replacement.
+    fn verify_security_transaction(
+        &self,
+        _lock: &SecurityProfileLock<'_>,
+        _anchor: &SecurityAnchorV1,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::Unavailable)
+    }
 }
 
 // ---------------------------------------------------------------------------

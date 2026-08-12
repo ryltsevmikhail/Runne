@@ -110,10 +110,6 @@ pub enum ProjectOpenError {
 
 #[derive(Debug, Error)]
 pub enum SecurityTransactionError {
-    #[error("event identity conflict")]
-    EventIdentityConflict,
-    #[error("mutation identity conflict")]
-    MutationIdentityConflict,
     #[error("event generation is out of range")]
     GenerationOutOfRange,
     #[error("client storage unavailable")]
@@ -192,6 +188,8 @@ pub enum ReplayApplyOutcome {
 
 #[derive(Debug, Error)]
 pub enum ReplayStoreError {
+    #[error("anchored replay admission is required for this database")]
+    AnchoredAdmissionRequired,
     #[error("replay scope is invalid")]
     InvalidScope,
     #[error("replay digest must be 32-byte lower hex")]
@@ -220,15 +218,8 @@ pub enum ReplayStoreError {
     IntegerOutOfRange,
     #[error("client storage unavailable")]
     Storage(#[from] rusqlite::Error),
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct PreparedMutation<'a> {
-    pub runtime_authority: &'a str,
-    pub principal: &'a str,
-    pub operation_id: &'a str,
-    pub idempotency_key: &'a str,
-    pub target: &'a str,
+    #[error("security state transition failed")]
+    Security(#[from] SecurityStateError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -255,7 +246,7 @@ pub const fn classify_database_recovery(
             DatabaseRecoveryState::RollbackDetected
         }
         (Some(database), Some(anchor))
-            if database == anchor.saturating_add(1) && valid_commit_marker =>
+            if database > anchor && database - anchor == 1 && valid_commit_marker =>
         {
             DatabaseRecoveryState::AdvanceAnchor
         }
@@ -267,4 +258,5 @@ pub const fn classify_database_recovery(
 
 pub struct LocalStore {
     connection: Connection,
+    security: Option<SecurityContext>,
 }
