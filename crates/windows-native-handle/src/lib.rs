@@ -31,6 +31,8 @@ mod path;
 #[cfg(windows)]
 mod receiver;
 #[cfg(windows)]
+mod regular_file;
+#[cfg(windows)]
 mod relative;
 
 #[cfg(windows)]
@@ -41,3 +43,8 @@ pub use duplicate::{
 pub use identity::{DirectoryHandle, DirectoryIdentity, NativeHandleError};
 #[cfg(windows)]
 pub use receiver::{CommittedDirectory, ReceiverDisposition, StagedHandleReceiver};
+#[cfg(windows)]
+pub use regular_file::{
+    NativeFileError, RegularFileId, RegularFileSnapshot, inspect_regular_file,
+    move_regular_file_no_replace_write_through, sync_regular_file,
+};

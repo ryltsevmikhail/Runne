@@ -70,11 +70,11 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
     let project = core
         .open_local_project(&project_directory)
         .expect("open local project");
-    core.open_project_conversation(project.id)
+    core.open_project_conversation(project)
         .await
         .expect("open runtime conversation");
     let before_restart = core
-        .send_project_message(project.id, "first protected message")
+        .send_project_message(project, "first protected message")
         .await
         .expect("send before restart");
     assert_eq!(before_restart.messages.len(), 2);
@@ -163,7 +163,7 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
         .expect("install restarted protected client");
 
     let resumed = core
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("resume conversation after restart");
     assert_eq!(
@@ -175,7 +175,7 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
         before_ids.iter().map(String::as_str).collect::<Vec<_>>()
     );
     let after_restart = core
-        .send_project_message(project.id, "second protected message")
+        .send_project_message(project, "second protected message")
         .await
         .expect("send after restart");
     assert_eq!(after_restart.messages.len(), 4);

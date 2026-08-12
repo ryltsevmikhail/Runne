@@ -21,6 +21,18 @@ pub enum StoreOpenError {
     LegacyReplayState,
     #[error("pre-v4 migration backup is unavailable")]
     MigrationBackupUnavailable,
+    #[error("pre-v5 migration backup recovery requires operator action")]
+    PreV5BackupRecoveryRequired,
+    #[error("pre-v5 migration backup artifacts conflict")]
+    PreV5BackupConflict,
+    #[error("pre-v5 migration backup is unsafe or invalid")]
+    PreV5BackupInvalid,
+    #[error("pre-v5 migration backup does not match the admitted source")]
+    PreV5BackupSourceMismatch,
+    #[error("recent root migration cannot be completed safely")]
+    RecentRootMigrationCorrupt,
+    #[error("local schema does not match the admitted version")]
+    SchemaCorrupt,
     #[error("client storage unavailable")]
     Storage(#[from] rusqlite::Error),
 }
@@ -37,12 +49,25 @@ pub struct PreV4MigrationBackup {
 ///
 /// Returns a redacted error when the database has no concrete file name.
 pub fn pre_v4_migration_backup_path(database_path: &Path) -> Result<PathBuf, StoreOpenError> {
+    migration_backup_path(database_path, "pre-v4")
+}
+
+/// Returns the stable side-by-side rollback backup path for a v4 database.
+///
+/// # Errors
+///
+/// Returns a redacted error when the database has no concrete file name.
+pub fn pre_v5_migration_backup_path(database_path: &Path) -> Result<PathBuf, StoreOpenError> {
+    migration_backup_path(database_path, "pre-v5")
+}
+
+fn migration_backup_path(database_path: &Path, label: &str) -> Result<PathBuf, StoreOpenError> {
     let file_name = database_path
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or(StoreOpenError::MigrationBackupUnavailable)?;
-    Ok(database_path.with_file_name(format!("{file_name}.pre-v4-backup.sqlite3")))
+    Ok(database_path.with_file_name(format!("{file_name}.{label}-backup.sqlite3")))
 }
 
 /// Reopens and integrity-checks the immutable pre-v4 rollback backup.
@@ -55,6 +80,18 @@ pub fn verify_pre_v4_migration_backup(
 ) -> Result<PreV4MigrationBackup, StoreOpenError> {
     let backup_path = pre_v4_migration_backup_path(database_path)?;
     verify_pre_v4_backup_path(&backup_path)
+}
+
+/// Reopens and integrity-checks the immutable pre-v5 rollback backup.
+///
+/// # Errors
+///
+/// Rejects missing, symlinked, corrupt, or non-v4 backup artifacts.
+pub fn verify_pre_v5_migration_backup(
+    database_path: &Path,
+) -> Result<PreV4MigrationBackup, StoreOpenError> {
+    let backup_path = pre_v5_migration_backup_path(database_path)?;
+    verify_pre_v5_backup_path(&backup_path)
 }
 
 #[derive(Debug, Error)]

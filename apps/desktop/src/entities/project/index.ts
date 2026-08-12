@@ -1,5 +1,6 @@
 export {
   getProject,
+  getWorkspace,
   listProjects,
   acquireRendererGeneration,
   prepareSelectedWorkspace,

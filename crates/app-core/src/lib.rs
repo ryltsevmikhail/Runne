@@ -7,8 +7,8 @@ use std::sync::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use gocode_local_store::{
-    LocalProject, LocalStore, ProjectOpenError, ReplayScopeKey, SecurityTransactionError,
-    StoreOpenError,
+    LocalStore, ProjectOpenError, RecentRoot, RecentRootError, ReplayScopeKey,
+    SecurityTransactionError, StoreOpenError,
 };
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, CreateConversationRequest,

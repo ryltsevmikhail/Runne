@@ -8,14 +8,12 @@ mod renderer_generation;
 #[cfg(feature = "test-support")]
 pub use bundled_runtime::NativeOpenAiActivationTestGate;
 pub use bundled_runtime::{BundledRuntimeController, BundledShutdownOutcome};
-use conversation_channel::{
-    ConversationChannelError, ConversationChannelEvent, ConversationSubscriptionManager,
-};
+use conversation_channel::ConversationSubscriptionManager;
 use directory_selection::{DirectorySelectionManager, DirectorySelectionRef};
 pub use directory_selection_response::DirectorySelectionResponse;
 use gocode_app_core::{
-    AppCore, AppCoreError, BootstrapState, ConversationSnapshot, DiagnosticsSnapshot,
-    ProjectSummary, RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
+    AppCore, AppCoreError, BootstrapState, DiagnosticsSnapshot, ProjectSummary,
+    RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
 };
 use gocode_platform_desktop::ProfileLock;
 use gocode_platform_desktop::{RootHandleAdmission, VerifiedRootHandle, WorkspaceId};
@@ -30,7 +28,6 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tauri::ipc::Channel;
 use tauri::{Manager, RunEvent, State, WebviewWindow, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
 

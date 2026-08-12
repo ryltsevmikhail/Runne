@@ -45,7 +45,7 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         RuntimeAvailability::Live
     );
     let opened = first_core
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("create conversation");
     assert_eq!(opened.stream_version, 1);
@@ -53,7 +53,7 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
 
     install_ack_failure_after_inclusive_duplicate(&daemon_database);
     let error = first_core
-        .send_project_message(project.id, "hello")
+        .send_project_message(project, "hello")
         .await
         .expect_err("server acknowledgement is forced to fail");
     assert_eq!(error.to_string(), "runtime is unavailable");
@@ -158,7 +158,7 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         RuntimeAvailability::Live
     );
     let restored = reopened
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("resume conversation");
     assert_eq!(restored.stream_version, 3);

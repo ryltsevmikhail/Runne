@@ -21,9 +21,31 @@ include!("anchor.rs");
 mod mutation;
 mod open;
 mod projects;
+mod recent_root_backup;
+mod recent_root_backup_compare;
+mod recent_root_backup_failpoint;
+mod recent_root_backup_files;
+mod recent_root_backup_identity;
+mod recent_root_migration;
+mod recent_root_pre_v4_backup;
+mod recent_root_schema;
+mod recent_root_schema_indices;
+mod recent_root_schema_normalize;
+mod recent_root_schema_tables;
+mod recent_roots;
 mod replay_access;
 mod replay_apply;
 mod replay_confirm;
+
+pub use recent_roots::{RecentRoot, RecentRootError};
+
+#[cfg(feature = "test-support")]
+pub mod recent_root_backup_test_support {
+    pub use crate::recent_root_backup_failpoint::{
+        AFTER_FILE_DURABLE, AFTER_PRIVATE_CREATE, AFTER_PUBLISH, AFTER_PUBLISH_DURABLE,
+        AFTER_SNAPSHOT, BEFORE_MIGRATION, INSIDE_MIGRATION, set_failpoint,
+    };
+}
 
 #[cfg(test)]
 mod tests;

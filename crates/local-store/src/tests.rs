@@ -171,7 +171,7 @@ fn rejects_a_future_schema_version_without_rewriting_it() {
 }
 
 #[test]
-fn migration_v4_creates_the_normative_recovery_schema() {
+fn migration_v5_creates_the_normative_recovery_schema() {
     let directory = tempfile::tempdir().expect("temp directory");
     let path = directory.path().join("profile.sqlite3");
 
@@ -181,7 +181,7 @@ fn migration_v4_creates_the_normative_recovery_schema() {
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 4);
+    assert_eq!(version, 5);
 
     for table in [
         "meta",
@@ -191,6 +191,7 @@ fn migration_v4_creates_the_normative_recovery_schema() {
         "replay_cursors",
         "mutation_ledger",
         "window_layout",
+        "recent_roots",
     ] {
         let exists: bool = connection
             .query_row(

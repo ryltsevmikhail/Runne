@@ -48,14 +48,14 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
     );
 
     let opened = first
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("open conversation");
     assert_eq!(opened.stream_version, 1);
     assert!(opened.messages.is_empty());
 
     let generated = first
-        .send_project_message(project.id, "hello")
+        .send_project_message(project, "hello")
         .await
         .expect("send message");
     assert_eq!(generated.conversation_id, opened.conversation_id);
@@ -74,7 +74,7 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
         RuntimeAvailability::Live
     );
     let restored = reopened
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("restore conversation");
     assert_eq!(restored, generated);

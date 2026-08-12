@@ -120,8 +120,7 @@ impl ProcessFaultFixture {
         );
         let project_id = core
             .open_local_project(&project_path)
-            .expect("open project")
-            .id;
+            .expect("open project");
         assert_eq!(
             core.connect_runtime().await.expect("connect runtime"),
             RuntimeAvailability::Live

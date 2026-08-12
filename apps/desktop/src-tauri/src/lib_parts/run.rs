@@ -98,17 +98,12 @@ pub fn run() {
             set_theme,
             list_projects,
             get_project,
+            get_workspace,
             acquire_renderer_generation,
             request_directory_selection,
             prepare_selected_workspace,
             get_diagnostics,
             connect_runtime,
-            open_project_conversation,
-            resync_project_conversation,
-            send_project_message,
-            subscribe_project_conversation,
-            ack_conversation_update,
-            cancel_conversation_subscription
         ])
         .build(tauri::generate_context!())
         .expect("failed to initialize GOCODE desktop application");

@@ -25,9 +25,9 @@ pub struct DiagnosticsSnapshot {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
-    pub id: i64,
-    pub name: String,
-    pub path: String,
+    pub project_id: String,
+    pub workspace_id: String,
+    pub display_name: String,
     pub last_opened_at: i64,
 }
 
@@ -73,13 +73,13 @@ pub struct ConversationTimelineUpdate {
     pub recovery: ConversationRecoveryDisposition,
 }
 
-impl From<LocalProject> for ProjectSummary {
-    fn from(project: LocalProject) -> Self {
+impl From<RecentRoot> for ProjectSummary {
+    fn from(project: RecentRoot) -> Self {
         Self {
-            id: project.id,
-            name: project.name,
-            path: project.path.to_string_lossy().into_owned(),
-            last_opened_at: project.last_opened_at,
+            project_id: project.project_id().to_owned(),
+            workspace_id: project.workspace_id().to_owned(),
+            display_name: project.display_name().to_owned(),
+            last_opened_at: project.last_opened_at(),
         }
     }
 }

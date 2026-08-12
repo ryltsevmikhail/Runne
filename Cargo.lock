@@ -1880,6 +1880,7 @@ name = "gocode-local-store"
 version = "0.1.0"
 dependencies = [
  "gocode-secure-store",
+ "gocode-windows-native-handle",
  "rusqlite",
  "sha2",
  "tempfile",
@@ -2193,6 +2194,7 @@ name = "gocode-windows-native-handle"
 version = "0.1.0"
 dependencies = [
  "sha2",
+ "tempfile",
  "windows-sys 0.61.2",
 ]
 

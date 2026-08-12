@@ -8,30 +8,30 @@ import { useRoute, useRouter } from 'vue-router'
 import type { Project } from '@/entities/project'
 import { getProject } from '@/entities/project'
 
-type LoadProject = (id: number) => Promise<Project | null>
+type LoadProject = (id: string) => Promise<readonly Project[]>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
 }>(), {
-  loadProject: async (id: number) => isTauri() ? getProject(id) : null,
+  loadProject: async (id: string) => isTauri() ? getProject(id) : [],
 })
 
 const route = useRoute()
 const router = useRouter()
-const project = ref<Project | null>(null)
+const projects = ref<readonly Project[]>([])
 const loading = ref(true)
 const error = ref(false)
 
 onMounted(async () => {
-  const id = Number(route.params.id)
-  if (!Number.isSafeInteger(id) || id <= 0) {
+  const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
+  if (id === '') {
     error.value = true
     loading.value = false
     return
   }
   try {
-    project.value = await props.loadProject(id)
-    error.value = project.value === null
+    projects.value = await props.loadProject(id)
+    error.value = projects.value.length === 0
   }
   catch {
     error.value = true
@@ -41,13 +41,10 @@ onMounted(async () => {
   }
 })
 
-async function openWorkspace() {
-  if (project.value === null) {
-    return
-  }
+async function openWorkspace(workspaceId: string) {
   await router.push({
     name: 'workspace',
-    params: { id: project.value.id },
+    params: { workspaceId },
   })
 }
 
@@ -66,7 +63,7 @@ async function returnToProjects() {
   </section>
 
   <section
-    v-else-if="error || project === null"
+    v-else-if="error || projects.length === 0"
     class="empty-state"
     role="alert"
   >
@@ -89,9 +86,9 @@ async function returnToProjects() {
       <div>
         <span class="workspace-kicker">Local project</span>
         <h1 id="project-title">
-          {{ project.name }}
+          {{ projects[0]?.displayName }}
         </h1>
-        <p>{{ project.path }}</p>
+        <p>Local root</p>
       </div>
     </header>
 
@@ -103,8 +100,10 @@ async function returnToProjects() {
       <button
         class="project-card project-card--workspace"
         type="button"
-        :aria-label="`Open workspace ${project.name}`"
-        @click="openWorkspace"
+        v-for="project in projects"
+        :key="project.workspaceId"
+        :aria-label="`Open workspace ${project.displayName}`"
+        @click="openWorkspace(project.workspaceId)"
       >
         <span class="project-icon">
           <FolderOpen
@@ -113,8 +112,8 @@ async function returnToProjects() {
           />
         </span>
         <span class="project-copy">
-          <strong>{{ project.name }}</strong>
-          <small>{{ project.path }}</small>
+          <strong>{{ project.displayName }}</strong>
+          <small>Local root</small>
         </span>
         <ArrowRight
           class="project-arrow"

@@ -229,8 +229,7 @@ impl Fixture {
         );
         let project_id = core
             .open_local_project(&project_path)
-            .expect("open project")
-            .id;
+            .expect("open project");
         core.open_project_conversation(project_id)
             .await
             .expect("open conversation");

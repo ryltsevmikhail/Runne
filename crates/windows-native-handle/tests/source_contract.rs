@@ -11,6 +11,7 @@ fn audited_shim_keeps_v2_protocol_and_native_ownership_bounded() {
     let model = fs::read_to_string(root.join("src/model.rs")).unwrap();
     let path = fs::read_to_string(root.join("src/path.rs")).unwrap();
     let receiver = fs::read_to_string(root.join("src/receiver.rs")).unwrap();
+    let regular_file = fs::read_to_string(root.join("src/regular_file.rs")).unwrap();
     let relative = fs::read_to_string(root.join("src/relative.rs")).unwrap();
     let wire = fs::read_to_string(root.join("src/wire.rs")).unwrap();
 
@@ -47,4 +48,10 @@ fn audited_shim_keeps_v2_protocol_and_native_ownership_bounded() {
     assert!(!lib.contains("AcceptedDirectory"));
     assert!(!receiver.contains("clone_received_and_verify"));
     assert!(!lib.contains("pub fn raw_handle"));
+    assert!(lib.contains("mod regular_file"));
+    assert!(regular_file.contains("FILE_ID_INFO"));
+    assert!(regular_file.contains("FileAttributeTagInfo"));
+    assert!(regular_file.contains("FileStandardInfo"));
+    assert!(regular_file.contains("MOVEFILE_WRITE_THROUGH"));
+    assert!(!regular_file.contains("MOVEFILE_REPLACE_EXISTING"));
 }
