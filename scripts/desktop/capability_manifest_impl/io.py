@@ -80,10 +80,15 @@ def canonical_source_content_digest(root: Path, source_ref: str) -> str:
         if not entry:
             continue
         metadata, path = entry.split(b"\t", 1)
-        mode, kind, _object_id = metadata.split(b" ", 2)
-        if kind != b"blob" or path.startswith(b"docs/evidence/"):
+        mode, kind, object_id = metadata.split(b" ", 2)
+        if path.startswith(b"docs/evidence/"):
             continue
-        content = git_output(root, "show", f"{source_ref}:{path.decode('utf-8', 'surrogateescape')}")
+        if kind == b"blob":
+            content = git_output(root, "show", f"{source_ref}:{path.decode('utf-8', 'surrogateescape')}")
+        elif kind == b"commit" and mode == b"160000":
+            content = object_id
+        else:
+            raise ValueError(f"unsupported Git tree entry: {mode!r} {kind!r}")
         content_digest = hashlib.sha256(content).digest()
         digest.update(len(path).to_bytes(8, "big"))
         digest.update(path)
