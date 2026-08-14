@@ -130,6 +130,23 @@ async fn assert_unauthenticated_no_store(daemon: &RunningDaemon, body: Vec<u8>) 
         .send()
         .await
         .unwrap();
+    assert_unauthenticated_response(response).await;
+}
+
+async fn assert_unauthenticated_declared_oversized(daemon: &RunningDaemon, length: usize) {
+    let response = daemon
+        .client
+        .post(format!("{}/v1/commands/reconcile", daemon.endpoint))
+        .header("content-type", "application/json")
+        .header("content-length", length)
+        .body(Vec::new())
+        .send()
+        .await
+        .unwrap();
+    assert_unauthenticated_response(response).await;
+}
+
+async fn assert_unauthenticated_response(response: reqwest::Response) {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert_eq!(response.headers()["cache-control"], "no-store");
     let request_id = response.headers()["x-request-id"]
@@ -146,9 +163,9 @@ async fn assert_unauthenticated_no_store(daemon: &RunningDaemon, body: Vec<u8>) 
 async fn production_tls_reconciles_shared_project_and_conversation_receipts_without_writes() {
     let daemon = RunningDaemon::start().await;
     assert_unauthenticated_no_store(&daemon, b"{".to_vec()).await;
-    assert_unauthenticated_no_store(
+    assert_unauthenticated_declared_oversized(
         &daemon,
-        vec![b'x'; gocode_api::max_message_text_bytes() + 4 * 1024 + 1],
+        gocode_api::max_message_text_bytes() + 4 * 1024 + 1,
     )
     .await;
     assert_eq!(
