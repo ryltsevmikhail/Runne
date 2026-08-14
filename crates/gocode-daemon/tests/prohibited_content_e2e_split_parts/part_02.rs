@@ -42,6 +42,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
         Arc::clone(&guard),
     )
     .unwrap();
+    seed_canonical_workspace(&store);
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -139,7 +140,6 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     assert_absent("receipt query", &receipt_bytes, &representations);
     drop(statement);
 
-    let authenticated = authenticated_runtime_session(lineage);
     let replay_service = ReplayService::new(
         Arc::new(ReplayStore::new(connection)),
         [0x77; 32],
@@ -153,15 +153,21 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
         Arc::clone(&guard),
     );
     let replay = replay_router(replay_state)
-        .layer(axum::Extension(authenticated))
-        .layer(AuthLayer::new(TOKEN))
+        .layer(session_layer(lineage))
         .layer(axum::middleware::from_fn(request_id_middleware));
     let response = replay
         .oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/v1/replay/open-session")
-                .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+                .header(
+                    "authorization",
+                    session_authorization_header(
+                        &base64::engine::general_purpose::URL_SAFE_NO_PAD
+                            .encode(SESSION_AUTHORITY),
+                    )
+                    .unwrap(),
+                )
                 .header("content-type", "application/json")
                 .body(Body::from(
                     serde_json::to_vec(&json!({
