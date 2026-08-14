@@ -23,7 +23,7 @@ zeroize.workspace = true
 
 [dev-dependencies]
 ed25519-dalek.workspace = true
-gocode-daemon = { path = "../gocode-daemon" }
+gocode-daemon = { path = "../gocode-daemon", features = ["test-support"] }
 tempfile = "=3.27.0"
 
 [[bin]]
