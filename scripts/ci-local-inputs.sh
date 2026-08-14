@@ -139,6 +139,7 @@ run_runtime_closure "$msrv_toolchain" msrv
 echo "=== Local frontend closure ==="
 pnpm_run install --frozen-lockfile --offline --ignore-scripts \
     --verify-store-integrity --store-dir "$PNPM_STORE_DIR"
+"$trusted_bash" scripts/verify-secure-replay-desktop.sh frontend
 validate_frontend_contracts
 "$trusted_node" "$eslint_target" .
 test_frontend
@@ -148,5 +149,7 @@ node_at apps/desktop "$vite_target" build
 node_at apps/site "$vue_tsc_target" -b
 node_at apps/site "$repo_root/apps/site/scripts/build.mjs"
 CI=1 "$trusted_node" "$playwright_target" test
+"$trusted_python" -m unittest scripts.tests.test_desktop_qualification_workflow -v
+"$trusted_python" -m unittest scripts.tests.test_desktop_capability_manifest -v
 "$trusted_bash" scripts/ci-local-docs.sh
 "$trusted_python" scripts/desktop/validate_architecture.py
