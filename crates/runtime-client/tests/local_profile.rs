@@ -10,6 +10,7 @@ use gocode_runtime_client::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "local_profile/support.rs"]
 mod local_profile_support;
 
 use local_profile_support::{certificate_der, ordered_capability_digest, secure};
