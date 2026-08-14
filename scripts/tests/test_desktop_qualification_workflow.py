@@ -71,6 +71,11 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
         publish = data["jobs"]["verify-publish"]["steps"]
         self.assertLess(next(i for i, row in enumerate(publish) if row.get("name") == "Reject malformed package before publication"), next(i for i, row in enumerate(publish) if str(row.get("uses", "")).startswith("actions/upload-artifact@")))
 
+    def test_signer_uses_a_stable_template_not_the_source_bound_status(self) -> None:
+        command = step("sign", "Construct bounded gate subject before attestation")["run"]
+        self.assertIn('baseline=root/"docs/evidence/desktop-v1-capability-status-baseline-v2.json"', command)
+        self.assertNotIn('baseline=root/"docs/evidence/desktop-v1-capability-status-v2.json"', command)
+
     def test_exact_final_verifier_accepts_pinned_action_statement(self) -> None:
         fixture = QualificationFixture()
         self.addCleanup(fixture.close)
