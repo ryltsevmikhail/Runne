@@ -15,10 +15,13 @@ use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextService,
 };
-use gocode_application::local_session::AuthenticatedRuntimeSession;
+use gocode_application::local_session::{
+    AuthenticatedRuntimeSession, BootstrapProof, LocalSessionService,
+    bootstrap_proof_transcript,
+};
 use gocode_application::ports::{
-    ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
-    RuntimeAuthorityId,
+    ProjectWorkspaceRepository, ReplayAuthorizationLease, ReplayAuthorizationPort,
+    ReplayAuthorizationRequest, ReplayError, RuntimeAuthorityId,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::replay_service::ReplayService;
@@ -26,12 +29,13 @@ use gocode_application::service::TaskRunService;
 use gocode_application::verification::export_port::VerificationExporter;
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{
-    CommandId, ConversationId, EventLogLineageId, IdempotencyKey, WorkspaceId,
+    CommandId, ConversationId, EventLogLineageId, IdempotencyKey, ProjectId, WorkspaceId,
 };
 use gocode_domain::message::MessageText;
+use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
 use gocode_domain::verification::backup::StreamInventory;
 use gocode_domain::verification::digest::VerificationDigest;
-use gocode_http::auth::AuthLayer;
+use gocode_http::auth::{SessionAuthLayer, session_authorization_header};
 use gocode_http::error::{RequestId, canonical_error_response};
 use gocode_http::limits::LimitsConfig;
 use gocode_http::middleware::request_id_middleware;
@@ -50,7 +54,9 @@ use gocode_store::schema::{
     reopen_managed_connection_validated,
 };
 use gocode_store::store::StoreTransaction;
+use gocode_store::ProjectWorkspaceStore;
 use gocode_store::verification::backup_store::InMemoryBackupStore;
+use hmac::{Hmac, Mac};
 use serde_json::json;
 use tower::ServiceExt;
 
@@ -58,6 +64,7 @@ const MARKER: &str = "task-seven-e2e-inert-marker";
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000771";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000772";
 const TOKEN: [u8; 32] = [0x77; 32];
+const SESSION_AUTHORITY: [u8; 32] = [0x76; 32];
 const AUTHORITY: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0x77,
 ];
@@ -102,6 +109,40 @@ fn conversation_context(sequence: u8, key: &str) -> ConversationCommandContext {
     }
 }
 
+fn seed_canonical_workspace(store: &StoreTransaction) {
+    let repository = ProjectWorkspaceStore::from_store(store.clone());
+    let project_id: ProjectId = "018f2e3a-7000-7000-8000-000000000773"
+        .parse()
+        .unwrap();
+    repository
+        .create_project(
+            "local-owner",
+            "018f2e3a-7000-7000-8000-000000000774"
+                .parse()
+                .unwrap(),
+            &IdempotencyKey::new("prohibited-content-project").unwrap(),
+            Project::create(
+                project_id,
+                ProjectWorkspaceDisplayName::new("Prohibited content project".into()).unwrap(),
+            ),
+        )
+        .unwrap();
+    repository
+        .create_workspace(
+            "local-owner",
+            "018f2e3a-7000-7000-8000-000000000775"
+                .parse()
+                .unwrap(),
+            &IdempotencyKey::new("prohibited-content-workspace").unwrap(),
+            Workspace::create(
+                WORKSPACE_ID.parse().unwrap(),
+                project_id,
+                ProjectWorkspaceDisplayName::new("Prohibited content workspace".into()).unwrap(),
+            ),
+        )
+        .unwrap();
+}
+
 fn authenticated_runtime_session(lineage: EventLogLineageId) -> AuthenticatedRuntimeSession {
     AuthenticatedRuntimeSession {
         binding: RuntimeSessionBinding::new(
@@ -128,6 +169,32 @@ fn authenticated_runtime_session(lineage: EventLogLineageId) -> AuthenticatedRun
         .unwrap(),
         expires_at_monotonic: Duration::from_secs(600),
     }
+}
+
+fn session_layer(lineage: EventLogLineageId) -> SessionAuthLayer {
+    let authenticated = authenticated_runtime_session(lineage);
+    let binding = authenticated.binding;
+    let mut service = LocalSessionService::new(binding.clone(), TOKEN);
+    let challenge = service
+        .issue_challenge([0x61; 32], [0x62; 32], Duration::ZERO)
+        .unwrap();
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&TOKEN).unwrap();
+    mac.update(&bootstrap_proof_transcript(
+        &binding, [0x62; 32], [0x61; 32],
+    ));
+    service
+        .authenticate(
+            challenge.id,
+            BootstrapProof::new(mac.finalize().into_bytes().into()),
+            SESSION_AUTHORITY,
+            Duration::ZERO,
+        )
+        .unwrap();
+    SessionAuthLayer::new(
+        Arc::new(Mutex::new(service)),
+        binding,
+        Arc::new(|| Duration::ZERO),
+    )
 }
 
 fn open_admitted_fixture_connection(
