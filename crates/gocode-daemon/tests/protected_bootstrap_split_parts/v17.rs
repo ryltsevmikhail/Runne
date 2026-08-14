@@ -71,7 +71,8 @@ fn seed_snapshot_backed_conversation(config: &ConfigurationSnapshot) -> Snapshot
         .query_row(
             "SELECT aggregate_type, aggregate_id, codec_version, aggregate_version,
                     event_sequence, head_event_id, head_integrity_digest, projection_bytes,
-                    projection_digest, head_global_position, snapshot_integrity_digest
+                    projection_digest, promotion_codec_version, promotion_projection_bytes,
+                    promotion_projection_digest, head_global_position, snapshot_integrity_digest
              FROM aggregate_state_snapshots WHERE aggregate_type = 2 AND aggregate_id = ?1",
             [conversation_id.as_bytes()],
             |row| {
@@ -85,8 +86,11 @@ fn seed_snapshot_backed_conversation(config: &ConfigurationSnapshot) -> Snapshot
                     head_integrity_digest: row.get(6)?,
                     projection_bytes: row.get(7)?,
                     projection_digest: row.get(8)?,
-                    head_global_position: row.get(9)?,
-                    snapshot_integrity_digest: row.get(10)?,
+                    promotion_codec_version: row.get(9)?,
+                    promotion_projection_bytes: row.get(10)?,
+                    promotion_projection_digest: row.get(11)?,
+                    head_global_position: row.get(12)?,
+                    snapshot_integrity_digest: row.get(13)?,
                 })
             },
         )
@@ -110,6 +114,9 @@ struct SnapshotRow {
     head_integrity_digest: Vec<u8>,
     projection_bytes: Vec<u8>,
     projection_digest: Vec<u8>,
+    promotion_codec_version: i64,
+    promotion_projection_bytes: Vec<u8>,
+    promotion_projection_digest: Vec<u8>,
     head_global_position: i64,
     snapshot_integrity_digest: Vec<u8>,
 }
@@ -121,8 +128,9 @@ impl SnapshotRow {
                 "INSERT INTO aggregate_state_snapshots
                  (aggregate_type, aggregate_id, codec_version, aggregate_version, event_sequence,
                   head_event_id, head_integrity_digest, projection_bytes, projection_digest,
-                  head_global_position, snapshot_integrity_digest)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                  promotion_codec_version, promotion_projection_bytes,
+                  promotion_projection_digest, head_global_position, snapshot_integrity_digest)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 rusqlite::params![
                     self.aggregate_type,
                     self.aggregate_id,
@@ -133,6 +141,9 @@ impl SnapshotRow {
                     self.head_integrity_digest,
                     self.projection_bytes,
                     self.projection_digest,
+                    self.promotion_codec_version,
+                    self.promotion_projection_bytes,
+                    self.promotion_projection_digest,
                     self.head_global_position,
                     self.snapshot_integrity_digest,
                 ],
