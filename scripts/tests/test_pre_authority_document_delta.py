@@ -5,6 +5,7 @@ import subprocess, tempfile, unittest
 ROOT = Path(__file__).resolve().parents[2]
 TEST_TMP = Path("/srv/data")
 MODULE = ROOT / "scripts" / "validate_docs_parts" / "pre_authority_document_delta.inc"
+V1_ANCHOR = "f6d0b2d6a5ccdda83ed80f9d0daefa785b622266"
 BASE_HASHES = {
     "document-universe-v1.json": "efeb9eabdfb03084a8cdc10c33acc4f8008dd73e1f750acb24513d19d1ab66b1",
     "governed-scope-v1.json": "18d80090ecc15ed0da8a935cbde1dfcc72308d96eb28cd0c0f9c0b6315daa5a4",
@@ -47,7 +48,7 @@ def reviewed(repo, changes):
         result[path] = {"operation": "modify" if existing else "add", "mode": "100644", "blob_oid": oid, "blob_sha256": hashlib.sha256(content).hexdigest()}
     return result
 def admission(module, repo, changes):
-    candidate = {path: (ROOT / path).read_bytes() for path in module.TASK1_LITERAL_ALLOWLIST}
+    candidate = {path: git(ROOT, "cat-file", "blob", f"{V1_ANCHOR}:{path}") if path == module.ARTIFACT_PATH else (ROOT / path).read_bytes() for path in module.TASK1_LITERAL_ALLOWLIST}
     candidate.update(changes)
     artifact = json.loads(candidate[module.ARTIFACT_PATH])
     for record in artifact["documents"]:

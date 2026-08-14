@@ -13,6 +13,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 DELTA = ROOT / "scripts/validate_docs_parts/pre_authority_document_delta.inc"
 ANCHOR = "f6d0b2d6a5ccdda83ed80f9d0daefa785b622266"
+MIXED = "1ea5dec17c36488819194b1d6aa443d932593966"
 
 
 def git(repo, *args):
@@ -27,18 +28,18 @@ def module():
 
 
 class OverlayAdmissionTests(unittest.TestCase):
-    def repo(self):
+    def repo(self, revision=ANCHOR):
         directory = tempfile.TemporaryDirectory(dir="/srv/data")
         self.addCleanup(directory.cleanup)
         repo = Path(directory.name) / "repo"
         subprocess.run(("git", "clone", "-q", "--shared", str(ROOT), str(repo)), check=True)
-        git(repo, "checkout", "-q", "-B", "admission-test", ANCHOR)
+        git(repo, "checkout", "-q", "-B", "admission-test", revision)
         git(repo, "config", "user.email", "test@example.invalid")
         git(repo, "config", "user.name", "Test")
         return repo
 
     def changes(self, value, transaction):
-        changes = {path: (ROOT / path).read_bytes() for path in value.OVERLAY_TRANSACTION_PATHS[transaction] if path != value.ARTIFACT_PATH}
+        changes = {path: (ROOT / path).read_bytes() for path in value.OVERLAY_TRANSACTION_PATHS[transaction] if path not in value.OVERLAY_DELETIONS[transaction]}
         if transaction == "TASK_2":
             path, content = "docs/schemas/README.md", changes["docs/schemas/README.md"]
             oid = hashlib.sha1(f"blob {len(content)}\0".encode() + content).hexdigest()
@@ -63,7 +64,7 @@ class OverlayAdmissionTests(unittest.TestCase):
         value = module()
         for transaction in value.OVERLAY_TRANSACTION_PATHS:
             with self.subTest(transaction=transaction):
-                repo = self.repo()
+                repo = self.repo(MIXED if transaction == "OVERLAY_V3_REPAIR" else ANCHOR)
                 if transaction == "TASK_2":
                     self.bootstrap(value, repo)
                 prepared = self.prepare(value, repo, transaction)
@@ -71,6 +72,15 @@ class OverlayAdmissionTests(unittest.TestCase):
                 manifest = value.strict_json(prepared["manifest_path"].read_bytes(), "bad")
                 self.assertEqual(git(repo, "rev-parse", f"{candidate['candidate_commit_oid']}^{{tree}}").decode().strip(), manifest["candidate_tree_oid"])
                 self.assertEqual(candidate["status"], "BLOCKED_AT_MANUAL_REF_ADMISSION")
+                if transaction == "OVERLAY_V3_REPAIR":
+                    self.assertEqual(value.admit_pre_authority_overlay_candidate(repo, prepared, candidate, prepared["manifest_sha256"], candidate["candidate_receipt_sha256"], manual_ref_admission=True), candidate["candidate_commit_oid"])
+                    directory = tempfile.TemporaryDirectory(dir="/srv/data")
+                    self.addCleanup(directory.cleanup)
+                    clean = Path(directory.name) / "clean"
+                    subprocess.run(("git", "clone", "-q", "--shared", str(repo), str(clean)), check=True)
+                    for command in (("python3", "scripts/validate-docs.py", "--strict"), ("python3", "scripts/desktop/validate-docs.py", "--strict")):
+                        result = subprocess.run(command, cwd=clean, text=True, capture_output=True)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_prepare_rejects_partial_extra_operation_mode_and_content(self):
         value, repo = module(), self.repo()
@@ -83,6 +93,15 @@ class OverlayAdmissionTests(unittest.TestCase):
         changes = self.changes(value, "OVERLAY_V2_BOOTSTRAP")
         changes["docs/schemas/pre-authority-document-overlay-v2.schema.json"] = b"{}"
         self.assertRaisesRegex(ValueError, "OVERLAY_ADMISSION_VALIDATION", value.prepare_pre_authority_overlay_admission, repo, "OVERLAY_V2_BOOTSTRAP", changes, repo.with_suffix(".m"))
+
+    def test_v3_repair_requires_exact_atomic_diff(self):
+        value, repo = module(), self.repo(MIXED)
+        changes = self.changes(value, "OVERLAY_V3_REPAIR")
+        changes.pop(next(iter(changes)))
+        self.assertRaisesRegex(ValueError, "OVERLAY_ADMISSION_PATHS", value.prepare_pre_authority_overlay_admission, repo, "OVERLAY_V3_REPAIR", changes, repo.with_suffix(".m"))
+        changes = self.changes(value, "OVERLAY_V3_REPAIR")
+        changes["docs/extra.md"] = b"extra\n"
+        self.assertRaisesRegex(ValueError, "OVERLAY_ADMISSION_PATHS", value.prepare_pre_authority_overlay_admission, repo, "OVERLAY_V3_REPAIR", changes, repo.with_suffix(".m"))
 
     def test_commit_and_admit_reject_mutation_flags_and_substitution(self):
         value, repo = module(), self.repo()

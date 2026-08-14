@@ -102,6 +102,8 @@ def _raw_parents(snapshot, oid):
 
 def _overlay_lineage(snapshot):
     previous = _predecessor_mode(snapshot)
+    if previous == "repair":
+        return
     if previous == "pre_authority" and snapshot.head_oid != OVERLAY_ANCHOR_COMMIT:
         raise ValueError("OVERLAY_ANCHOR_PIN")
     if previous == "overlay":

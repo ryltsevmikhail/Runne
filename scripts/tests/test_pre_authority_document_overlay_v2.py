@@ -16,6 +16,7 @@ V2 = "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V2.json"
 SCHEMA = "docs/schemas/pre-authority-document-overlay-v2.schema.json"
 COMPOSED = "docs/rc0/POST_RC0_PLATFORM_QUALIFICATION_COMPOSED_UNIVERSE_V1.json"
 ANCHOR = "f6d0b2d6a5ccdda83ed80f9d0daefa785b622266"
+MIXED_PREDECESSOR = "1ea5dec17c36488819194b1d6aa443d932593966"
 
 
 def git(repo, *args, index=None):
@@ -33,12 +34,12 @@ def module():
 
 
 class PreAuthorityDocumentOverlayV2Tests(unittest.TestCase):
-    def clone(self):
+    def clone(self, revision=ANCHOR):
         directory = tempfile.TemporaryDirectory(dir="/srv/data")
         self.addCleanup(directory.cleanup)
         repo = Path(directory.name) / "repo"
         subprocess.run(("git", "clone", "-q", "--shared", str(ROOT), str(repo)), check=True)
-        git(repo, "checkout", "-q", ANCHOR)
+        git(repo, "checkout", "-q", revision)
         return repo
 
     def candidate(self, repo):
@@ -50,6 +51,12 @@ class PreAuthorityDocumentOverlayV2Tests(unittest.TestCase):
             shutil.copyfile(ROOT / path, target)
         git(repo, "update-index", "--force-remove", V1, index=index)
         git(repo, "add", SCHEMA, V2, index=index)
+        return index
+
+    def repair_candidate(self, repo):
+        index = repo / "repair.index"
+        git(repo, "read-tree", "HEAD", index=index)
+        git(repo, "update-index", "--force-remove", V1, index=index)
         return index
 
     def artifact(self, repo, index, mutate):
@@ -73,6 +80,47 @@ class PreAuthorityDocumentOverlayV2Tests(unittest.TestCase):
         git(repo, "update-ref", "HEAD", commit)
         git(repo, "read-tree", "HEAD")
         value.validate_pre_authority_document_overlay_v2(repo)
+
+    def test_exact_mixed_predecessor_requires_the_v3_successor(self):
+        value, repo = module(), self.clone(MIXED_PREDECESSOR)
+        index = self.repair_candidate(repo)
+        with self.assertRaisesRegex(ValueError, "DOCS_MODE_DOWNGRADE"):
+            value.select_documentation_mode(repo, index_file=index)
+        git(repo, "update-index", "--add", "--cacheinfo", f"100644,{git(repo, 'rev-parse', f'HEAD:{V1}').decode().strip()},{V1}", index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_MODE_CONFLICT"):
+            value.select_documentation_mode(repo, index_file=index)
+
+    def test_mixed_predecessor_repair_rejects_downgrade_composed_and_forgery(self):
+        value, repo = module(), self.clone(MIXED_PREDECESSOR)
+        index = self.repair_candidate(repo)
+        git(repo, "update-index", "--force-remove", V2, index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_MODE_DOWNGRADE"):
+            value.select_documentation_mode(repo, index_file=index)
+        index = self.repair_candidate(repo)
+        git(repo, "update-index", "--force-remove", V2, index=index)
+        (repo / COMPOSED).parent.mkdir(parents=True, exist_ok=True)
+        (repo / COMPOSED).write_text("{}", encoding="utf-8")
+        git(repo, "add", COMPOSED, index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_MODE_DOWNGRADE"):
+            value.select_documentation_mode(repo, index_file=index)
+        repo = self.clone()
+        index = repo / "forged-mixed.index"
+        git(repo, "read-tree", "HEAD", index=index)
+        (repo / V2).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / V2, repo / V2)
+        git(repo, "add", V2, index=index)
+        tree = git(repo, "write-tree", index=index).decode().strip()
+        forged = git(repo, "commit-tree", tree, "-p", "HEAD", "-m", "forged mixed").decode().strip()
+        git(repo, "update-ref", "HEAD", forged)
+        git(repo, "read-tree", "HEAD")
+        with self.assertRaisesRegex(ValueError, "DOCS_MODE_CONFLICT"):
+            value.select_documentation_mode(repo, index_file=self.repair_candidate(repo))
+        repo = self.clone(MIXED_PREDECESSOR)
+        index = self.repair_candidate(repo)
+        (repo / V2).write_text("{}", encoding="utf-8")
+        git(repo, "add", V2, index=index)
+        with self.assertRaisesRegex(ValueError, "DOCS_MODE_DOWNGRADE"):
+            value.validate_pre_authority_document_overlay_v2(repo, index_file=index)
 
     def test_overlay_rejects_state_and_record_mutations(self):
         value, repo = module(), self.clone()

@@ -32,3 +32,6 @@ __pycache__/
 
 # Named target directories
 target-*/
+
+# Agent scratch space; tracked policy records remain explicitly force-added.
+.superpowers/

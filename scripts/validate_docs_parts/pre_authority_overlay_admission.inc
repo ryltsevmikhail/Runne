@@ -108,10 +108,11 @@ def prepare_pre_authority_overlay_admission(repo: Path, transaction: str, change
         paths = {path: _admission_record(repo, record, width) for path, record in _overlay_raw_diff(repo, index, parent).items()}
         _admission_expected(transaction, paths, width)
         snapshot = CandidateSnapshot.capture(repo, index_file=index)
-        if snapshot.head_oid != parent or _overlay_ref(repo) != (ref, parent) or _select(snapshot) != "overlay":
+        expected_mode = "overlay_v3" if transaction == "OVERLAY_V3_REPAIR" else "overlay"
+        if snapshot.head_oid != parent or _overlay_ref(repo) != (ref, parent) or _select(snapshot) != expected_mode:
             raise ValueError("OVERLAY_ADMISSION_HEAD")
         try:
-            _validate_pre_authority_document_overlay_v2(snapshot)
+            (_validate_pre_authority_document_overlay_v3 if expected_mode == "overlay_v3" else _validate_pre_authority_document_overlay_v2)(snapshot)
         except ValueError as error:
             raise ValueError("OVERLAY_ADMISSION_VALIDATION") from error
         tree = git_bytes(repo, ["write-tree"], index).decode().strip()
@@ -144,6 +145,14 @@ def _overlay_checked(repo, prepared, digest_value):
         raise ValueError("OVERLAY_ADMISSION_MANIFEST") from error
     if _overlay_ref(repo) != (value["ref"], value["parent_head_oid"]) or paths != value["paths"] or git_bytes(repo, ["write-tree"], prepared["index_file"]).decode().strip() != value["candidate_tree_oid"]:
         raise ValueError("OVERLAY_ADMISSION_HEAD")
+    if value["transaction_id"] == "OVERLAY_V3_REPAIR":
+        snapshot = CandidateSnapshot.capture(repo, index_file=prepared["index_file"])
+        if _select(snapshot) != "overlay_v3":
+            raise ValueError("OVERLAY_ADMISSION_VALIDATION")
+        try:
+            _validate_pre_authority_document_overlay_v3(snapshot)
+        except ValueError as error:
+            raise ValueError("OVERLAY_ADMISSION_VALIDATION") from error
     return value
 
 

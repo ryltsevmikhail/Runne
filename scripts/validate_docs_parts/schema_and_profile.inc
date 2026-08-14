@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+from validate_docs_parts.repository_walk import walk_repository_files
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -16,7 +17,6 @@ UPSTREAM_DIR = os.path.join(BASE, "upstream", "opencode")
 DOCS_DIR = os.path.join(BASE, "docs")
 IMPLEMENTATION_PLANS_DIR = os.path.join(DOCS_DIR, "superpowers", "plans")
 BASELINE_SHA = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
-IGNORED_TREE_NAMES = {".git", ".worktrees", "node_modules", "target"}
 EXCLUDED_ROOTS = {
     os.path.join(DOCS_DIR, "desktop"),
     os.path.join(BASE, "upstream", "desktop"),
@@ -43,17 +43,7 @@ def warn(message):
 
 def walk_files(root, suffixes=None):
     """Yield repository files while excluding generated and pinned source trees."""
-    for current_root, directories, files in os.walk(root):
-        directories[:] = [
-            directory
-            for directory in directories
-            if directory not in IGNORED_TREE_NAMES
-            and os.path.join(current_root, directory) != UPSTREAM_DIR
-            and os.path.join(current_root, directory) not in EXCLUDED_ROOTS
-        ]
-        for filename in files:
-            if suffixes is None or filename.endswith(suffixes):
-                yield os.path.join(current_root, filename)
+    yield from walk_repository_files(root, BASE, suffixes, EXCLUDED_ROOTS | {UPSTREAM_DIR})
 
 
 def is_implementation_plan(path):
