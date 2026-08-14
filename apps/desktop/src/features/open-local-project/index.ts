@@ -1,1 +1,1 @@
-export { selectAndOpenLocalProject } from './model/open-local-project'
+export { selectAndOpenLocalProject, selectAndPrepareLocalProject } from './model/open-local-project'

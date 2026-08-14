@@ -92,6 +92,9 @@ impl LocalSessionService {
                 authority: RuntimeSessionAuthority(Zeroizing::new(authority_bytes)),
                 epoch: self.authorization_epoch,
                 generation: self.binding.ephemeral().launch_generation(),
+                issuer_state: Arc::new(ReplayBaselineIssuerState {
+                    revoked: AtomicBool::new(false),
+                }),
             },
         );
         if self.bootstrap_policy == BootstrapPolicy::OneTimeProtected {
@@ -134,6 +137,9 @@ impl LocalSessionService {
         self.bootstrap_secret = Some(Zeroizing::new(bootstrap_secret));
         self.bootstrap_expires_at = Some(expires_at);
         self.challenges.clear();
+        for session in self.sessions.values() {
+            session.issuer_state.revoked.store(true, Ordering::Release);
+        }
         self.sessions.clear();
         Ok(())
     }
@@ -154,12 +160,22 @@ impl LocalSessionService {
     /// Revokes all authorities from an earlier authorization epoch.
     pub fn set_authorization_epoch(&mut self, epoch: u64) {
         self.authorization_epoch = epoch;
-        self.sessions.retain(|_, session| session.epoch == epoch);
+        self.sessions.retain(|_, session| {
+            let keep = session.epoch == epoch;
+            if !keep {
+                session.issuer_state.revoked.store(true, Ordering::Release);
+            }
+            keep
+        });
     }
 
-    /// Updates the replay sensitivity ceiling observed by current delivery
-    /// leases without minting a replacement transport authority.
+    /// Updates the replay ceiling and revokes issuers bound to the prior ceiling.
     pub fn set_sensitivity_ceiling(&mut self, ceiling: Sensitivity) {
+        if self.sensitivity_ceiling != ceiling {
+            self.sessions
+                .values()
+                .for_each(|session| session.issuer_state.revoked.store(true, Ordering::Release));
+        }
         self.sensitivity_ceiling = ceiling;
     }
 
@@ -210,7 +226,6 @@ impl LocalSessionService {
         }
         Ok(session.authenticated.clone())
     }
-
     fn prune(&mut self, now: Duration) {
         self.challenges
             .retain(|_, challenge| now.saturating_sub(challenge.issued_at) <= CHALLENGE_TTL);
@@ -221,7 +236,12 @@ impl LocalSessionService {
         {
             self.issued.pop_front();
         }
-        self.sessions
-            .retain(|_, session| now < session.authenticated.expires_at_monotonic);
+        self.sessions.retain(|_, session| {
+            let keep = now < session.authenticated.expires_at_monotonic;
+            if !keep {
+                session.issuer_state.revoked.store(true, Ordering::Release);
+            }
+            keep
+        });
     }
 }

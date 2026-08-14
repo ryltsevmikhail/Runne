@@ -80,7 +80,6 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             TAXONOMY.validate_taxonomy_fields({"document_type": "unknown"}),
             ["TAXONOMY_UNMAPPED_DOCUMENT_TYPE:unknown"],
         )
-
     def test_applies_restricted_front_matter_before_taxonomy(self):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
@@ -96,7 +95,6 @@ class DocumentationTaxonomyTests(unittest.TestCase):
                 TAXONOMY.validate_document_universe(root),
                 ["DOCUMENT_TAXONOMY:docs/guide.md:TAXONOMY_UNMAPPED_STATUS:retired"],
             )
-
     def test_rejects_omitted_and_extra_universe_path(self):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
@@ -105,7 +103,6 @@ class DocumentationTaxonomyTests(unittest.TestCase):
                 TAXONOMY.validate_document_universe(root),
                 ["UNIVERSE_EXTRA_PATH:docs/extra.md", "UNIVERSE_OMITTED_PATH:docs/late.md"],
             )
-
     def test_late_tracked_markdown_requires_all_final_records(self):
         with self.fixture_root() as root:
             base = [("docs/guide.md", "governed", None),
@@ -136,7 +133,8 @@ class DocumentationTaxonomyTests(unittest.TestCase):
                            stdout=subprocess.PIPE)
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root, index_file=index),
-                ["CLAIM_UNLISTED:docs/adr/ADR-9999-late.md:RC0_QUALIFIED",
+                ["CLAIM_POSITIVE_OUTCOME:docs/adr/ADR-9999-late.md:RC0_QUALIFIED",
+                 "CLAIM_UNLISTED:docs/adr/ADR-9999-late.md:RC0_QUALIFIED",
                  "UNIVERSE_OMITTED_PATH:docs/adr/ADR-9999-late.md",
                  "UNIVERSE_OMITTED_PATH:docs/rc0/LATE.md",
                  "UNIVERSE_OMITTED_PATH:docs/release/LATE.md",
@@ -150,9 +148,11 @@ class DocumentationTaxonomyTests(unittest.TestCase):
                 "disposition": "BLOCKED",
                 "evidence_binding": "gocode.rc0.evidence-profile/3"})
             claims_path.write_text(json.dumps(claims), encoding="utf-8")
+            (root / late[0][0]).write_bytes(
+                valid_document(body="`RC0_QUALIFIED` remains `BLOCKED`.\n")
+            )
             subprocess.run(["git", "-C", str(root), "add", "docs/rc0"], check=True, env=env)
             self.assertEqual(TAXONOMY.validate_document_universe(root, index_file=index), [])
-
     def test_rejects_unsafe_or_unlisted_claim_inside_governed_document(self):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
@@ -160,7 +160,8 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             (root / "docs" / "guide.md").write_bytes(valid_document(body="RC0-qualified now.\n"))
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
-                ["CLAIM_UNLISTED:docs/guide.md:RC0_QUALIFIED"],
+                ["CLAIM_POSITIVE_OUTCOME:docs/guide.md:RC0_QUALIFIED",
+                 "CLAIM_UNLISTED:docs/guide.md:RC0_QUALIFIED"],
             )
             claims_path = root / "docs/rc0/status-claims-v1.json"
             claims = json.loads(claims_path.read_text(encoding="utf-8"))
@@ -180,10 +181,10 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             self.assertEqual(TAXONOMY.validate_document_universe(root), [
                 "CLAIM_DUPLICATE:docs/guide.md:RC0_QUALIFIED",
                 "CLAIM_INVALID:INVALID",
+                "CLAIM_POSITIVE_OUTCOME:docs/guide.md:RC0_QUALIFIED",
                 "CLAIM_RECORD_UNMATCHED:docs/late.md:CANDIDATE_PASS",
                 "CLAIM_SEMANTICS_INVALID:docs/guide.md:RC0_QUALIFIED",
             ])
-
     def test_rejects_unlisted_claim_inside_non_governed_document(self):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
@@ -191,9 +192,9 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             (root / "docs" / "late.md").write_bytes(b"title: bad\nRC0-qualified now.\n")
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
-                ["CLAIM_UNLISTED:docs/late.md:RC0_QUALIFIED"],
+                ["CLAIM_POSITIVE_OUTCOME:docs/late.md:RC0_QUALIFIED",
+                 "CLAIM_UNLISTED:docs/late.md:RC0_QUALIFIED"],
             )
-
     def test_requires_reason_for_release_directory_exclusion(self):
         with self.fixture_root(extras=("docs/release/notes.md", "docs/desktop/09-release/guide.md",
                                        "docs/desktop/03-desktop/guide.md")) as root:
@@ -215,7 +216,6 @@ class DocumentationTaxonomyTests(unittest.TestCase):
                 ("docs/desktop/03-desktop/guide.md", "governed", None)])
             self.assertEqual(TAXONOMY.validate_document_universe(root),
                              ["UNIVERSE_EXCLUSION_REASON:docs/late.md"])
-
     def test_rejects_unicode_case_and_line_wrap_claim_variants(self):
         with self.fixture_root() as root:
             self.write_manifests(root, [("docs/guide.md", "governed", None),
@@ -229,6 +229,11 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             self.assertEqual(
                 TAXONOMY.validate_document_universe(root),
                 [
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:CANDIDATE_PASS",
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:NOTARIZATION_PASS", "CLAIM_POSITIVE_OUTCOME:docs/guide.md:PRODUCTION_QUALIFICATION",
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:PUBLICATION_PASS",
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:RC0_QUALIFIED", "CLAIM_POSITIVE_OUTCOME:docs/guide.md:RELEASE_PASS",
+                    "CLAIM_POSITIVE_OUTCOME:docs/guide.md:SIGNING_PASS",
                     "CLAIM_UNLISTED:docs/guide.md:CANDIDATE_PASS",
                     "CLAIM_UNLISTED:docs/guide.md:NOTARIZATION_PASS",
                     "CLAIM_UNLISTED:docs/guide.md:PRODUCTION_QUALIFICATION",
@@ -238,7 +243,6 @@ class DocumentationTaxonomyTests(unittest.TestCase):
                     "CLAIM_UNLISTED:docs/guide.md:SIGNING_PASS",
                 ],
             )
-
     def test_rejects_invalid_utf8_tracked_path(self):
         with self.fixture_root() as root:
             bad = os.fsencode(root) + b"/docs/bad-\xff.md"
@@ -246,20 +250,15 @@ class DocumentationTaxonomyTests(unittest.TestCase):
             os.close(descriptor)
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             self.assert_code(lambda: TAXONOMY.tracked_markdown_paths(root), "UNIVERSE_INVALID_UTF8_PATH")
-
     def test_docs_manifest_has_no_release_overclaim(self):
         manifest = ROOT / "docs/rc0/RC0_CANDIDATE_MANIFEST.md"
         raw = manifest.read_text(encoding="utf-8")
-        compact = TAXONOMY._compact_claim_text(raw)
-        prohibited = {
-            claim_id for claim_id, pattern in TAXONOMY.CLAIM_PATTERNS
-            if pattern.search(compact)
-        }
+        parsed = TAXONOMY.CLAIM_OUTCOMES.parse_claims(raw)
+        prohibited = parsed.mentions | parsed.positive_outcomes
         self.assertEqual(prohibited, set())
         self.assertIn("PRODUCTION_QUALIFICATION` | `BLOCKED", raw)
         self.assertIn("RELEASE_APPROVAL` | `OUT_OF_SCOPE", raw)
         self.assertIn("PUBLICATION_AUTHORIZATION` | `OUT_OF_SCOPE", raw)
-
     def fixture_root(self, extras=()):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)

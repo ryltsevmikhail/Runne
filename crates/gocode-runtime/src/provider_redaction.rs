@@ -96,12 +96,16 @@ where
         };
         let record = match persistence.load(binding.attempt_id()) {
             Ok(Some(record)) => record,
-            Ok(None)
-            | Err(
-                ScannerRecoveryPersistenceError::Corrupt
-                | ScannerRecoveryPersistenceError::Conflict,
-            ) => {
+            Ok(None) | Err(ScannerRecoveryPersistenceError::Conflict) => {
                 session.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
+                return Ok(session);
+            }
+            Err(ScannerRecoveryPersistenceError::Corrupt) => {
+                let disposition = persistence
+                    .terminalize_corrupt_checkpoint(binding)
+                    .map_err(types::map_persistence_error)?;
+                session.disposition = Some(disposition);
+                session.purge_all_tails()?;
                 return Ok(session);
             }
             Err(ScannerRecoveryPersistenceError::Unavailable) => {
@@ -264,13 +268,13 @@ where
             self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
             return Err(ProviderRedactionError::PersistenceUnavailable);
         }
+        self.binding = next_binding;
         if self.persistence.advance_checkpoint(checkpoint).is_err() {
             let terminal = self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable);
             let _ = self.tail_store.delete_tail(&reference);
             terminal?;
             return Err(ProviderRedactionError::PersistenceUnavailable);
         }
-        self.binding = next_binding;
         self.checkpoint = Some(checkpoint);
         staged_safe_material.extend_from_slice(&safe_prefix);
         if let Some(previous) = previous_reference {

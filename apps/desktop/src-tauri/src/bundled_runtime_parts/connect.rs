@@ -40,7 +40,7 @@ impl BundledRuntimeController {
         Ok(Arc::new(Self {
             core,
             supervisor: Arc::new(Mutex::new(supervisor)),
-            operation_fence: RuntimeOperationFence::new(),
+            operation_fence: Arc::new(RuntimeOperationFence::new()),
             renewal_schedule: Mutex::new(ProtectedSessionRenewalSchedule::new(
                 PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
             )),

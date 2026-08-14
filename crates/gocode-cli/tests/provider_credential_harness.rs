@@ -1,3 +1,7 @@
+#[path = "provider_credential_support/cases.rs"]
+mod provider_credential_cases;
+use provider_credential_cases::CHILD_CASES;
+
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::Write as _;
@@ -11,16 +15,35 @@ use gocode_secure_store::{
 };
 use zeroize::Zeroize as _;
 
-const USAGE: &str = "\
+const TEST_USAGE: &str = "\
+GOCODE command-line interface.
+
 Usage:
-  gocode [--profile PATH] conversation create [--workspace-id UUID]
-  gocode [--profile PATH] conversation send --conversation-id UUID --expected-version N --text TEXT
-  gocode [--profile PATH] conversation messages --conversation-id UUID
+  gocode [options] <command> [<args>]
+  gocode help [<command>]
   gocode authority --help
-  gocode release --help";
-#[path = "provider_credential_support/cases.rs"]
-mod provider_credential_cases;
-use provider_credential_cases::CHILD_CASES;
+  gocode release --help
+
+Options:
+  -h, --help       Show this help message
+  -V, --version    Show version information
+
+Commands:
+  conversation     Manage conversations
+  provider         Manage provider credentials
+  status           Show runtime connection status
+  health           Check runtime health status
+  doctor           Run comprehensive system diagnostics
+  completion       Generate shell completion scripts
+  authority        Manage project-owner authority
+  release          Manage release authority
+
+Run 'gocode help <command>' for more information on a command.";
+
+#[derive(Clone, Copy)]
+enum OutputFormat {
+    Text,
+}
 
 struct ProcessOutcome {
     stdout: String,
@@ -28,7 +51,7 @@ struct ProcessOutcome {
     exit_code: i32,
 }
 
-fn process_outcome(result: Result<String, CliError>) -> ProcessOutcome {
+fn process_outcome(result: Result<String, CliError>, _: OutputFormat) -> ProcessOutcome {
     match result {
         Ok(stdout) => ProcessOutcome {
             stdout: format!("{stdout}\n"),
@@ -44,10 +67,12 @@ fn process_outcome(result: Result<String, CliError>) -> ProcessOutcome {
 }
 
 include!("../src/cli/token_parsing.rs");
+include!("../src/cli/help.rs");
 include!("../src/cli/provider_credential.rs");
 
 #[derive(Debug)]
 enum CliError {
+    Help(String),
     Usage,
     CredentialInput,
     CredentialOperation,
@@ -56,14 +81,21 @@ enum CliError {
 
 impl CliError {
     const fn exit_code(&self) -> i32 {
-        if matches!(self, Self::Usage) { 2 } else { 1 }
+        match self {
+            Self::Help(_) => 0,
+            Self::Usage => 2,
+            Self::CredentialInput
+            | Self::CredentialOperation
+            | Self::UnsupportedCredentialBackend => 4,
+        }
     }
 }
 
 impl std::fmt::Display for CliError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
-            Self::Usage => USAGE,
+            Self::Help(text) => text,
+            Self::Usage => TEST_USAGE,
             Self::CredentialInput => "provider credential input is invalid",
             Self::CredentialOperation => "provider credential operation failed",
             Self::UnsupportedCredentialBackend => "provider credential backend is unsupported",
@@ -75,11 +107,6 @@ impl std::fmt::Display for CliError {
 mod credential_test_support;
 
 fn main() {
-    direct_scenarios();
-    subprocess_scenarios();
-}
-
-fn direct_scenarios() {
     assert_eq!(peek(&VecDeque::new()), None);
     let _ = NativeCredentialIdentityResolver;
     let _ = run_provider_credential;
@@ -147,6 +174,7 @@ fn direct_scenarios() {
         assert_eq!(failed_set.resolver_calls, 1);
         assert_eq!(failed_set.store_calls, expected_store_calls);
     }
+    subprocess_scenarios();
 }
 
 fn subprocess_scenarios() {
@@ -185,7 +213,7 @@ fn expected_stderr(scenario: &str, code: i32) -> &'static str {
         (_, 0) => "",
         ("tty", _) => "provider credential input is invalid\n",
         ("missing-stdin", _) => {
-            "Usage:\n  gocode [--profile PATH] conversation create [--workspace-id UUID]\n  gocode [--profile PATH] conversation send --conversation-id UUID --expected-version N --text TEXT\n  gocode [--profile PATH] conversation messages --conversation-id UUID\n  gocode authority --help\n  gocode release --help\n"
+            "GOCODE command-line interface.\n\nUsage:\n  gocode [options] <command> [<args>]\n  gocode help [<command>]\n  gocode authority --help\n  gocode release --help\n\nOptions:\n  -h, --help       Show this help message\n  -V, --version    Show version information\n\nCommands:\n  conversation     Manage conversations\n  provider         Manage provider credentials\n  status           Show runtime connection status\n  health           Check runtime health status\n  doctor           Run comprehensive system diagnostics\n  completion       Generate shell completion scripts\n  authority        Manage project-owner authority\n  release          Manage release authority\n\nRun 'gocode help <command>' for more information on a command.\n"
         }
         _ => "provider credential operation failed\n",
     }

@@ -9,7 +9,7 @@ mod tests {
     use gocode_api::{
         ActivationDispositionV1, ExecutableIdentityV1, LaunchSecret, ProtectedLaunchRequestV1,
         ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2, ProtectedRuntimeProfileV1,
-        ProviderActivationBindingV1, StableRuntimeBindingV1,
+        ProviderActivationBindingV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
     };
 
     #[test]
@@ -98,7 +98,7 @@ mod tests {
             protected_ready_fixture(PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID);
         let binding = ProviderActivationBindingV1::openai_responses_text_v1();
         let request = ProtectedLaunchRequestV2::new(request_v1, binding.clone()).unwrap();
-        let mut ready = ProtectedReadyV2::new(ready_v1, binding).unwrap();
+        let mut ready = ProtectedReadyV2::new(ready_v1, binding, ProviderActivationReadinessV1::Ready).unwrap();
         ready.sign(&keys);
 
         ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &request, &keys)
@@ -125,7 +125,7 @@ mod tests {
             uuid::Uuid::parse_str("018f2e3a-7000-7000-8000-000000000003").expect("lineage UUID");
         let daemon_instance_id =
             uuid::Uuid::parse_str("018f2e3a-7000-7000-8000-000000000002").expect("daemon UUID");
-        let capabilities = crate::REQUIRED_RUNTIME_CAPABILITIES
+        let capabilities = crate::PROTECTED_RUNTIME_CAPABILITIES
             .iter()
             .map(|capability| (*capability).to_owned())
             .collect::<Vec<_>>();
@@ -202,7 +202,7 @@ mod tests {
             .expect("schema hash")
             .try_into()
             .expect("32 byte schema hash");
-        let capabilities = crate::REQUIRED_RUNTIME_CAPABILITIES
+        let capabilities = crate::PROTECTED_RUNTIME_CAPABILITIES
             .iter()
             .map(|capability| (*capability).to_owned())
             .collect::<Vec<_>>();

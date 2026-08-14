@@ -14,17 +14,18 @@ use gocode_application::commands::{
     AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
     StartAttemptInput,
 };
-use gocode_application::conversation_service::ConversationService;
+use gocode_application::conversation_service::{ConversationService, ConversationServiceError};
 use gocode_application::errors::ApplicationError;
 use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
-    AggregateScope, ApplicationCommandContext, CommitError, ConversationCommit,
-    ConversationRepository, EventStore, EventStoreError, IdempotencyScope, LoadedStream,
-    OperationTag, PrincipalId, RuntimeAuthorityId, StorageFailureKind,
+    AggregateScope, ApplicationCommandContext, CommandCommit, CommitError, CommitResult,
+    ConversationCommit, ConversationRepository, EventStore, EventStoreError, IdempotencyScope,
+    LoadedStream, OperationTag, PrincipalId, ReceiptLookup, RuntimeAuthorityId, StorageFailureKind,
+    UnitOfWork,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::service::TaskRunService;
-use gocode_domain::command::TerminalResult;
+use gocode_domain::command::{CreateTaskRun, TerminalResult};
 use gocode_domain::conversation::{Conversation, ConversationEvent, ConversationState};
 use gocode_domain::event::{
     Actor, CommandContext, Sensitivity, UncommittedEvent, materialize_batch,
@@ -114,6 +115,7 @@ fn open_service(
         available_guard(),
     )
     .unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
     let ra_id = store.runtime_authority_id().clone();
     let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra_id);
     (store, svc)
@@ -174,6 +176,59 @@ fn direct_conversation_commit(
     }
 }
 
+fn direct_taskrun_commit(
+    store: &StoreTransaction,
+    taskrun_id: TaskRunId,
+    command_id: CommandId,
+    idempotency_key: IdempotencyKey,
+    event_byte: u8,
+) -> CommandCommit {
+    let conversation_id = make_conv_id();
+    let workspace_id = make_ws_id();
+    let events = materialize_batch(
+        vec![
+            TaskRun::decide_create(CreateTaskRun {
+                taskrun_id,
+                conversation_id,
+                workspace_id,
+            })
+            .unwrap(),
+        ],
+        &[
+            format!("018f2e3a-7000-7000-8000-0000000000{event_byte:02x}")
+                .parse()
+                .unwrap(),
+        ],
+        None,
+        &CommandContext {
+            command_id,
+            idempotency_key: idempotency_key.clone(),
+            actor: Actor::new("direct-taskrun-test").unwrap(),
+        },
+    )
+    .unwrap();
+    CommandCommit {
+        command_id,
+        idempotency_key,
+        idempotency_scope: IdempotencyScope {
+            runtime_authority_id: store.runtime_authority_id().clone(),
+            principal_id: PrincipalId("test-principal".into()),
+            operation: OperationTag::CreateTaskRun,
+            aggregate_scope: AggregateScope::NewTaskRun {
+                conversation_id,
+                workspace_id,
+            },
+        },
+        command_fingerprint: CommandFingerprint::for_create(&conversation_id, &workspace_id),
+        expected_version: 0,
+        events,
+        command_result: CommandOutcome::TaskRunCreated {
+            taskrun_id,
+            new_version: 1,
+        },
+    }
+}
+
 fn replace_conversation_event_metadata(
     event: &UncommittedEvent<ConversationEvent>,
     command_id: CommandId,
@@ -226,49 +281,4 @@ fn assert_no_conversation_commit_rows(db_path: &str) {
         )
         .unwrap();
     assert_eq!(counts, (0, 0, 0));
-}
-
-// ── Test 1: PRAGMA profile ───────────────────────────────────────────────
-
-#[test]
-fn test_pragma_profile() {
-    let database = validated_reopen::ValidatedTestDatabase::new("pragma");
-    let db_path = database.path().to_owned();
-    cleanup_db(&db_path);
-
-    let (_store, identity) = validated_reopen::initialize_store(
-        &db_path,
-        RuntimeAuthorityId("test-host".into()),
-        available_guard(),
-    )
-    .unwrap();
-
-    // Verify PRAGMAs via direct rusqlite connection
-    let conn = validated_reopen_store::open_validated_reader(&db_path, identity).unwrap();
-
-    let journal_mode: String = conn
-        .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(journal_mode, "wal", "expected WAL journal mode");
-
-    let synchronous: i32 = conn
-        .query_row("PRAGMA synchronous;", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(synchronous, 2, "expected FULL synchronous (2)");
-
-    let fk: i32 = conn
-        .query_row("PRAGMA foreign_keys;", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(fk, 1, "expected foreign_keys = ON");
-
-    // fullfsync is macOS-only
-    #[cfg(target_os = "macos")]
-    {
-        let fullfsync: i32 = conn
-            .query_row("PRAGMA fullfsync;", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(fullfsync, 1, "expected fullfsync = 1 on macOS");
-    }
-
-    cleanup_db(&db_path);
 }

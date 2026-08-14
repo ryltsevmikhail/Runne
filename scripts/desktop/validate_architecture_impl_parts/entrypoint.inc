@@ -25,7 +25,7 @@ def load_workspace_dependencies(root: Path) -> dict[str, set[str]]:
         package["name"]: {
             dependency["name"]
             for dependency in package["dependencies"]
-            if dependency["name"].startswith("gocode-")
+            if _tracked_dependency(package["name"], dependency)
         }
         for package in metadata["packages"]
         if package["name"] in ALLOWED_RUST_DEPENDENCIES
@@ -50,7 +50,7 @@ def main() -> int:
         package["name"]: {
             dependency["name"]
             for dependency in package["dependencies"]
-            if dependency["name"].startswith("gocode-")
+            if _tracked_dependency(package["name"], dependency)
         }
         for package in metadata["packages"]
         if package["name"] in ALLOWED_RUST_DEPENDENCIES
@@ -59,6 +59,7 @@ def main() -> int:
     violations += find_renderer_conversation_violations(root)
     violations += find_provider_terminal_persistence_violations(root)
     violations += find_provider_terminal_test_feature_violations(metadata["packages"])
+    violations += find_protected_admission_surface_violations(root)
     if violations:
         for violation in violations:
             print(f"ERROR: {violation}")

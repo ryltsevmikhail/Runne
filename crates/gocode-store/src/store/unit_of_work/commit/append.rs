@@ -174,6 +174,12 @@ impl StoreTransaction {
             })?;
         }
 
+        crate::store::snapshot::refresh_aggregate_snapshot(
+            &tx,
+            CORRELATION_TYPE_TASK_RUN,
+            taskrun_bytes,
+        )?;
+
         // Update global position
         tx.execute(
             "UPDATE event_log_state SET next_global_position = ?1 WHERE singleton = 1",

@@ -7,19 +7,54 @@ rust-version.workspace = true
 
 [dependencies]
 gocode-local-store = { path = "../local-store" }
+gocode-api = { path = "../gocode-api" }
 gocode-runtime-client = { path = "../runtime-client" }
+gocode-secure-store = { path = "../secure-store" }
+hex.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 
+[features]
+test-support = [
+    "gocode-api/test-support",
+    "gocode-runtime-client/test-support",
+    "gocode-secure-store/test-support",
+]
+
 [dev-dependencies]
 axum = "0.8"
+base64.workspace = true
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
-hex.workspace = true
+gocode-secure-store = { path = "../secure-store", features = ["test-support"] }
+hmac = "0.12"
+sha2.workspace = true
 tempfile = "=3.27.0"
 tokio-stream = "0.1"
+uuid.workspace = true
+
+[[test]]
+name = "conversation_replay"
+path = "tests/conversation_replay.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "conversation_subscription"
+path = "tests/conversation_subscription.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "conversation_v2_promotion"
+path = "tests/conversation_v2_promotion.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "operational_telemetry"
+path = "tests/operational_telemetry.rs"
+required-features = ["test-support"]
 
 [lints]
 workspace = true

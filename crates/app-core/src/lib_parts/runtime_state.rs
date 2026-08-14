@@ -100,10 +100,22 @@ impl AppCore {
         &self,
         availability: RuntimeAvailability,
     ) -> Result<(), AppCoreError> {
-        *self
+        let mut state = self
             .runtime_state
             .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = availability;
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        if matches!(
+            (*state, availability),
+            (
+                RuntimeAvailability::Live | RuntimeAvailability::Reconciling,
+                availability
+            ) if !matches!(availability, RuntimeAvailability::Live | RuntimeAvailability::Reconciling)
+        )
+        {
+            self.rotate_mutation_gate_epoch()?;
+        }
+        *state = availability;
+        drop(state);
         Ok(())
     }
 
@@ -179,17 +191,66 @@ impl AppCore {
             .map_err(|_| AppCoreError::StateUnavailable)
     }
 
-    fn runtime_client_is_current(
+    fn replace_runtime_client(
         &self,
-        expected: &AuthenticatedRuntimeClient,
-    ) -> Result<bool, AppCoreError> {
-        Ok(self.runtime_client()?.is_some_and(|current| {
-            current.session_info().session_id == expected.session_info().session_id
-                && current.session_info().daemon_instance_id
-                    == expected.session_info().daemon_instance_id
-                && current.session_info().launch_generation
-                    == expected.session_info().launch_generation
-        }))
+        client: Option<AuthenticatedRuntimeClient>,
+    ) -> Result<(), AppCoreError> {
+        *self
+            .runtime_client
+            .write()
+            .map_err(|_| AppCoreError::StateUnavailable)? = client;
+        self.rotate_mutation_gate_epoch()
+    }
+
+    fn fence_cancelled_runtime_recovery(&self) {
+        let _ = self.replace_runtime_client(None);
+        let _ = self.set_runtime_availability(RuntimeAvailability::Reconnecting);
+        if self.runtime_mode == RuntimeMode::Bundled {
+            let _ = self.set_runtime_lifecycle(RuntimeLifecycleStatus::Degraded);
+        }
+    }
+
+    fn rotate_mutation_gate_epoch(&self) -> Result<(), AppCoreError> {
+        self.mutation_gate_epoch
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| epoch.checked_add(1))
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        Ok(())
+    }
+
+    fn live_runtime_operation_context(&self) -> Result<RuntimeOperationContext, AppCoreError> {
+        if !self.runtime_availability()?.allows_mutations() {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        self.runtime_operation_context()
+    }
+
+    fn resync_runtime_operation_context(&self) -> Result<RuntimeOperationContext, AppCoreError> {
+        (self.runtime_availability()? == RuntimeAvailability::ResyncRequired)
+            .then_some(())
+            .ok_or(AppCoreError::RuntimeUnavailable)?;
+        self.runtime_operation_context()
+    }
+
+    fn runtime_operation_context(&self) -> Result<RuntimeOperationContext, AppCoreError> {
+        let client = self.runtime_client()?.ok_or(AppCoreError::RuntimeUnavailable)?;
+        Ok(RuntimeOperationContext {
+            identity: replay::StableRuntimeIdentity::from_client(&client),
+            gate_epoch: self.mutation_gate_epoch.load(Ordering::Acquire),
+            client,
+        })
+    }
+
+    fn require_current_operation_context(
+        &self,
+        expected: &RuntimeOperationContext,
+    ) -> Result<(), AppCoreError> {
+        if self.mutation_gate_epoch.load(Ordering::Acquire) != expected.gate_epoch {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
+        let current = self.runtime_client()?.ok_or(AppCoreError::RuntimeUnavailable)?;
+        (replay::StableRuntimeIdentity::from_client(&current) == expected.identity)
+            .then_some(())
+            .ok_or(AppCoreError::RuntimeUnavailable)
     }
 
     fn live_runtime_client(&self) -> Result<AuthenticatedRuntimeClient, AppCoreError> {

@@ -121,6 +121,7 @@ fn assert_denied_without_mutation(mode: GuardMode) {
     .unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-000000000071".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-000000000072".parse().unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "local-owner", workspace_id);
     let create = context(
         "018f2e3a-7000-7000-8000-000000000073",
         "create-before-denial",

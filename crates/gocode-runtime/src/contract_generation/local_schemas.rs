@@ -1,18 +1,22 @@
 fn local_runtime_profile_schema() -> Value {
-    let capability_prefix = PUBLISHED_RUNTIME_CAPABILITIES
-        .iter()
-        .map(|capability| json!({"const": capability, "type": "string"}))
-        .collect::<Vec<_>>();
+    let capability_tuple = |capabilities: &[&str]| {
+        json!({
+            "items": false,
+            "maxItems": capabilities.len(),
+            "minItems": capabilities.len(),
+            "prefixItems": capabilities.iter().map(|capability| json!({"const": capability, "type": "string"})).collect::<Vec<_>>(),
+            "type": "array",
+        })
+    };
     let mut schema = closed_object(
         json!({
             "authorityId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
             "bootstrapSecretPath": {"maxLength": 4096, "minLength": 1, "type": "string"},
             "capabilities": {
-                "items": false,
-                "maxItems": PUBLISHED_RUNTIME_CAPABILITIES.len(),
-                "minItems": PUBLISHED_RUNTIME_CAPABILITIES.len(),
-                "prefixItems": capability_prefix,
-                "type": "array",
+                "oneOf": [
+                    capability_tuple(BASE_RUNTIME_CAPABILITIES),
+                    capability_tuple(PUBLISHED_RUNTIME_CAPABILITIES),
+                ],
             },
             "capabilityDigest": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
             "certificateDerBase64": {"maxLength": 65536, "pattern": "^[A-Za-z0-9+/]+={0,2}$", "type": "string"},
@@ -26,7 +30,7 @@ fn local_runtime_profile_schema() -> Value {
             "principalId": {"const": "local-owner", "type": "string"},
             "profileId": {"const": BUNDLE_ID, "type": "string"},
             "schemaHash": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
-            "schemaVersion": {"const": 2, "type": "integer"},
+            "schemaVersion": {"const": 3, "type": "integer"},
             "sessionId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
             "transportProfileId": {"const": TRANSPORT_PROFILE_ID, "type": "string"},
         }),
@@ -54,10 +58,10 @@ fn local_runtime_profile_schema() -> Value {
     let object = schema.as_object_mut().unwrap();
     object.insert(
         "$id".to_owned(),
-        json!("gocode://schemas/local-runtime-profile-v2"),
+        json!("gocode://schemas/local-runtime-profile-v3"),
     );
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
-    object.insert("title".to_owned(), json!("Local Runtime Profile V2"));
+    object.insert("title".to_owned(), json!("Local Runtime Profile V3"));
     schema
 }
 

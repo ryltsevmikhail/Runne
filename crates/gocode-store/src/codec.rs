@@ -63,6 +63,11 @@ pub enum StoreCodecError {
         /// The actual size.
         actual: usize,
     },
+    /// Structurally present bytes violate a closed domain invariant.
+    InvalidValue {
+        /// Non-sensitive decoding context.
+        context: &'static str,
+    },
 }
 
 impl fmt::Display for StoreCodecError {
@@ -89,6 +94,7 @@ impl fmt::Display for StoreCodecError {
                     field, max, actual
                 )
             }
+            Self::InvalidValue { context } => write!(f, "invalid value in {context}"),
         }
     }
 }
@@ -113,6 +119,7 @@ mod command;
 mod conversation;
 mod loop_refs;
 mod primitives;
+mod project_workspace;
 mod receipts;
 mod refs;
 mod task_run;
@@ -121,5 +128,7 @@ mod tests;
 
 pub use command::CommandOutcomeCodec;
 pub use conversation::ConversationEventCodec;
+pub(crate) use project_workspace::MAX_REHYDRATED_VERSION;
+pub use project_workspace::{ProjectWorkspaceReceipt, ProjectWorkspaceReceiptCodec};
 pub use receipts::{ConversationReceiptCodec, IdempotencyScopeCodec, TextGenerationReceiptCodec};
 pub use task_run::TaskRunEventCodec;

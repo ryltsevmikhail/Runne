@@ -3,6 +3,9 @@ use super::shutdown::map_recovery_state;
 use super::*;
 use crate::operational_telemetry::compose_operational_telemetry_query;
 
+mod command_hosts;
+mod session;
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
@@ -22,16 +25,19 @@ pub(super) async fn start_http_and_runtime(
     launch_authority_id: [u8; 16],
     executable_sha256: [u8; 32],
     session_id: [u8; 16],
+    root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
+    provider_readiness: gocode_api::ProviderActivationReadinessV1,
 ) -> Result<DaemonApplication, DaemonError> {
-    let bootstrap_reservation_connection = open_runtime_connection(
-        &config.db_path,
-        gocode_store::schema::ConnectionMode::ValidatedReopen,
-        bootstrap.authority_id,
-        replay_lineage,
-        "bootstrap reservation store",
-    )?;
+    let runtime_capabilities =
+        runtime_capabilities(protected_activation, root_admission_keys.is_some());
     let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
-        bootstrap_reservation_connection,
+        open_runtime_connection(
+            &config.db_path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+            bootstrap.authority_id,
+            replay_lineage,
+            "bootstrap reservation store",
+        )?,
     ));
     let runtime_config = RuntimeConfig {
         max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
@@ -115,9 +121,7 @@ pub(super) async fn start_http_and_runtime(
         replay_lineage,
         gocode_runtime::bundle::BUNDLE_ID,
         schema_hash,
-        gocode_http::runtime_profile::ordered_capability_digest(
-            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
-        ),
+        gocode_http::runtime_profile::ordered_capability_digest(runtime_capabilities),
     )
     .map_err(|_| DaemonError::Bootstrap("build stable local session binding".into()))?;
     let binding = RuntimeSessionBinding::new(
@@ -133,26 +137,14 @@ pub(super) async fn start_http_and_runtime(
     let launched_at = Instant::now();
     let session_clock: Arc<dyn Fn() -> Duration + Send + Sync> =
         Arc::new(move || launched_at.elapsed());
-    let local_session_service = Arc::new(Mutex::new(if protected_activation {
-        LocalSessionService::new_protected_with_store(
-            binding.clone(),
-            launch_authority_id,
-            executable_sha256,
-            bootstrap.launch_identity.bootstrap_secret(),
-            bootstrap_reservation_store.clone(),
-            Duration::ZERO,
-            Duration::from_secs(30),
-        )
-        .map_err(|_| DaemonError::Bootstrap("initialize protected session".into()))?
-    } else {
-        LocalSessionService::with_reservation_store(
-            binding.clone(),
-            launch_authority_id,
-            executable_sha256,
-            bootstrap.launch_identity.bootstrap_secret(),
-            bootstrap_reservation_store.clone(),
-        )
-    }));
+    let local_session_service = session::compose(
+        binding.clone(),
+        launch_authority_id,
+        executable_sha256,
+        bootstrap.launch_identity.bootstrap_secret(),
+        Arc::clone(&bootstrap_reservation_store),
+        protected_activation,
+    )?;
     let replay_service = ReplayService::new(
         Arc::new(replay_store),
         replay_integrity_secret,
@@ -163,7 +155,15 @@ pub(super) async fn start_http_and_runtime(
         )),
     );
     let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
-    let http_host = LocalRuntimeTlsHost::bind_with_operational_telemetry(
+    let command_hosts = command_hosts::compose(
+        &store,
+        root_admission_keys,
+        protected_activation,
+        Arc::clone(&local_session_service),
+    );
+    #[cfg(feature = "desktop-protected")]
+    let root_control = command_hosts.root_control.clone();
+    let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
         HealthState {
@@ -178,15 +178,26 @@ pub(super) async fn start_http_and_runtime(
             gocode_runtime::bundle::BUNDLE_ID,
             gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH,
             env!("CARGO_PKG_VERSION"),
-            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
+            runtime_capabilities,
         ),
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor),
+        gocode_http::project_workspace::ProjectWorkspaceHttpState::new(
+            command_hosts.project_workspace,
+            ApiActor::new("gocode-daemon").expect("the built-in daemon actor identity is valid"),
+        ),
+        gocode_http::command_reconciliation::CommandReconciliationHttpState::new(
+            command_hosts.reconciliation,
+        ),
         ReplayHttpState::new(
             replay_service,
             replay_binding,
             LimitsConfig::default(),
             prohibited_content,
+        )
+        .with_baseline_resume_v2(
+            runtime_capabilities
+                .contains(&gocode_http::replay::REPLAY_BASELINE_RESUME_V2_CAPABILITY),
         ),
         telemetry_state,
     )
@@ -207,7 +218,7 @@ pub(super) async fn start_http_and_runtime(
                             "replay_integrity_key_path has no profile directory".into(),
                         )
                     })?;
-                PublishedClientProfileV2::publish(
+                PublishedClientProfileV3::publish(
                     directory,
                     address,
                     &bootstrap.launch_identity,
@@ -216,6 +227,7 @@ pub(super) async fn start_http_and_runtime(
                     bootstrap.local_session_authority_id,
                     uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
                     session_id,
+                    runtime_capabilities,
                 )
             });
         match result {
@@ -240,16 +252,33 @@ pub(super) async fn start_http_and_runtime(
         client_profile,
         binding,
         local_session_service,
-        _bootstrap_reservation_store: bootstrap_reservation_store,
         session_clock,
         protected_activation,
         provider_activation,
+        provider_readiness,
         runtime_liveness,
         runtime_controller,
+        _bootstrap_reservation_store: bootstrap_reservation_store,
         _secret_broker: secret_broker,
         task_supervisor: RuntimeTaskSupervisor::new(),
         shutdown_timeout,
+        #[cfg(feature = "desktop-protected")]
+        root_control,
+        runtime_capabilities,
     })
+}
+
+#[cfg(feature = "desktop-protected")]
+fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static str] {
+    if protected && has_keys {
+        return gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES;
+    }
+    gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES
+}
+
+#[cfg(not(feature = "desktop-protected"))]
+fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
+    gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES
 }
 
 fn operational_telemetry_state(
@@ -261,3 +290,6 @@ fn operational_telemetry_state(
         binding.ephemeral().launch_generation(),
     ))
 }
+
+#[cfg(test)]
+mod tests;

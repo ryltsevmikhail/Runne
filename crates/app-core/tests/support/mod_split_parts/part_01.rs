@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use gocode_app_core::{AppCore, ConversationTimelineUpdate};
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, REQUIRED_RUNTIME_CAPABILITIES,
-    RuntimeSessionInfo, mock_authenticated_runtime_client,
+    RuntimeSessionInfo, mock_protected_authenticated_runtime_client,
 };
 use serde_json::{Value, json};
 use tokio::sync::{Notify, mpsc};
@@ -38,12 +38,21 @@ struct MockState {
     live_count: AtomicUsize,
     generate_count: AtomicUsize,
     block_generate: AtomicBool,
+    block_v2_resume: AtomicBool,
     retention_gap_once: AtomicBool,
+    retention_v2_gap_once: AtomicBool,
     reconnectable_open_failure_once: AtomicBool,
     open_changed: Notify,
     live_changed: Notify,
     generate_changed: Notify,
     release_generate: Notify,
+    resume_count: AtomicUsize,
+    close_count: AtomicUsize,
+    resume_failure_mode: AtomicUsize,
+    bad_live_id_once: AtomicBool,
+    resume_changed: Notify,
+    close_changed: Notify,
+    release_v2_resume: Notify,
 }
 
 #[derive(Default)]
@@ -64,12 +73,21 @@ impl MockRuntime {
             live_count: AtomicUsize::new(0),
             generate_count: AtomicUsize::new(0),
             block_generate: AtomicBool::new(false),
+            block_v2_resume: AtomicBool::new(false),
             retention_gap_once: AtomicBool::new(false),
+            retention_v2_gap_once: AtomicBool::new(false),
             reconnectable_open_failure_once: AtomicBool::new(false),
             open_changed: Notify::new(),
             live_changed: Notify::new(),
             generate_changed: Notify::new(),
             release_generate: Notify::new(),
+            resume_count: AtomicUsize::new(0),
+            close_count: AtomicUsize::new(0),
+            resume_failure_mode: AtomicUsize::new(0),
+            bad_live_id_once: AtomicBool::new(false),
+            resume_changed: Notify::new(),
+            close_changed: Notify::new(),
+            release_v2_resume: Notify::new(),
         });
         let router = Router::new()
             .route("/v1/conversations", post(create_conversation))
@@ -77,13 +95,19 @@ impl MockRuntime {
                 "/v1/conversations/{conversation_id}/messages",
                 post(generate_text),
             )
+            .route("/v1/commands/reconcile", post(reconcile_command))
             .route("/v1/replay/open-session", post(open_session))
+            .route(
+                "/v1/replay/resume-from-baseline",
+                post(resume_from_baseline),
+            )
             .route("/v1/replay/{session_id}/acknowledge", post(acknowledge))
             .route(
                 "/v1/replay/{session_id}/complete-catch-up",
                 post(complete_catch_up),
             )
             .route("/v1/replay/{session_id}/continue-live", post(continue_live))
+            .route("/v1/replay/{session_id}/close", post(close_session))
             .route("/v1/replay/{session_id}/events", get(live_events))
             .with_state(Arc::clone(&state));
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -101,30 +125,15 @@ impl MockRuntime {
         }
     }
 
-    pub fn client(&self) -> AuthenticatedRuntimeClient {
-        mock_authenticated_runtime_client(
-            &self.origin,
-            RuntimeSessionInfo {
-                profile_id: "gocode-ui-client/1".to_owned(),
-                schema_hash: GOLDEN_BUNDLE_HASH.to_owned(),
-                runtime_version: "test".to_owned(),
-                capabilities: REQUIRED_RUNTIME_CAPABILITIES
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect(),
-                authority_id: AUTHORITY_ID.to_owned(),
-                principal_id: "local-owner".to_owned(),
-                event_log_lineage_id: LINEAGE_ID.to_owned(),
-                daemon_instance_id: INSTANCE_ID.to_owned(),
-                launch_generation: 1,
-                session_id: SESSION_ID.to_owned(),
-                authorization_epoch: 0,
-                sensitivity_ceiling: "sensitive".to_owned(),
-                certificate_sha256: "11".repeat(32),
-                capability_digest: "22".repeat(32),
-            },
-        )
-        .expect("mock authenticated client")
+    pub fn protected_client(&self) -> AuthenticatedRuntimeClient {
+        let mut session = Self::session();
+        session.capabilities = gocode_runtime_client::PROTECTED_RUNTIME_CAPABILITIES
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        session.capability_digest = protected_capability_digest(&session.capabilities);
+        mock_protected_authenticated_runtime_client(&self.origin, session)
+            .expect("mock protected client")
     }
 
     pub fn create_count(&self) -> usize {
@@ -188,6 +197,16 @@ impl MockRuntime {
         broadcast(&mut inner.live_senders, &event, sequence);
     }
 
+    pub fn terminal_live(&self, code: &str) {
+        let mut inner = self.state.inner.lock().expect("mock state");
+        let frame = Bytes::from(format!(
+            "event: terminal\ndata: {{\"transportVersion\":1,\"code\":\"{code}\"}}\n\n"
+        ));
+        inner
+            .live_senders
+            .retain_mut(|(sender, _)| sender.send(frame.clone()).is_ok());
+    }
+
     pub fn disconnect_live(&self) {
         self.state
             .inner
@@ -201,69 +220,49 @@ impl MockRuntime {
         self.state.retention_gap_once.store(true, Ordering::SeqCst);
     }
 
+    pub fn force_retention_v2_gap_once(&self) {
+        self.state
+            .retention_v2_gap_once
+            .store(true, Ordering::SeqCst);
+    }
+
+    pub fn block_v2_resume(&self) {
+        self.state.block_v2_resume.store(true, Ordering::SeqCst);
+    }
+
+    pub fn release_v2_resume(&self) {
+        self.state.block_v2_resume.store(false, Ordering::SeqCst);
+        self.state.release_v2_resume.notify_waiters();
+    }
+
+    pub async fn wait_for_v2_resume(&self, count: usize) {
+        wait_for(&self.state.resume_count, &self.state.resume_changed, count).await;
+    }
+
+    pub fn malform_next_v2_resume_response(&self, mode: usize) {
+        self.state.resume_failure_mode.store(mode, Ordering::SeqCst);
+    }
+
+    pub fn malform_next_live_delivery_id(&self) {
+        self.state.bad_live_id_once.store(true, Ordering::SeqCst);
+    }
+
+    pub async fn wait_for_close(&self, count: usize) {
+        wait_for(&self.state.close_count, &self.state.close_changed, count).await;
+    }
+
+    pub fn close_count(&self) -> usize {
+        self.state.close_count.load(Ordering::SeqCst)
+    }
+
+    pub async fn reset_close_count(&self) {
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        self.state.close_count.store(0, Ordering::SeqCst);
+    }
+
     pub fn fail_next_open_with_reconnectable_error(&self) {
         self.state
             .reconnectable_open_failure_once
             .store(true, Ordering::SeqCst);
-    }
-}
-
-pub struct Fixture {
-    pub directory: tempfile::TempDir,
-    pub database_path: std::path::PathBuf,
-    pub project_id: i64,
-    pub core: Arc<AppCore>,
-    pub runtime: MockRuntime,
-}
-
-impl Fixture {
-    pub async fn opened() -> Self {
-        let directory = tempfile::tempdir().expect("directory");
-        let database_path = directory.path().join("profile.sqlite3");
-        let project_path = directory.path().join("project");
-        std::fs::create_dir(&project_path).expect("project");
-        let runtime = MockRuntime::start().await;
-        let core = Arc::new(
-            AppCore::open_with_mock_runtime(&database_path, runtime.client())
-                .expect("core with mock runtime"),
-        );
-        let project_id = core
-            .open_local_project(&project_path)
-            .expect("open project")
-            .id;
-        core.open_project_conversation(project_id)
-            .await
-            .expect("open conversation");
-        Self {
-            directory,
-            database_path,
-            project_id,
-            core,
-            runtime,
-        }
-    }
-
-    pub fn subscribe(
-        &self,
-        updates: Arc<Mutex<Vec<ConversationTimelineUpdate>>>,
-    ) -> tokio::task::JoinHandle<Result<(), gocode_app_core::AppCoreError>> {
-        let core = Arc::clone(&self.core);
-        let project_id = self.project_id;
-        tokio::spawn(async move {
-            core.subscribe_project_conversation(project_id, move |update| {
-                updates.lock().expect("updates").push(update);
-            })
-            .await
-        })
-    }
-}
-
-async fn wait_for(counter: &AtomicUsize, notify: &Notify, expected: usize) {
-    loop {
-        let notified = notify.notified();
-        if counter.load(Ordering::SeqCst) >= expected {
-            return;
-        }
-        notified.await;
     }
 }

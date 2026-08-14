@@ -110,7 +110,7 @@
             Err(FsBrokerError::BackendUnavailable)
         ));
         assert!(matches!(
-            broker.write_created(&created_handle, b"replacement"),
+            broker.write_created(created_handle, b"replacement"),
             Err(FsBrokerError::BackendUnavailable)
         ));
         assert!(matches!(

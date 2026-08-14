@@ -1,6 +1,6 @@
 {
   "schema": "gocode.phase3-inventory/1",
-  "source_inventory_digest": "283d270f5b818df198ec1054ee2db49342dfa4f67449af76b243d19a97495638",
+  "source_inventory_digest": "84946b53470d126a041511bd8acb972d64f99e889da16892741cda1249192954",
   "entries": [
     {"id":"phase3.evidence-fixtures","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"RESOLVED","fully_qualified_test_name":"evidence_fixtures_deterministic","list_digest":"225dbab2f7d271af0c2014539224d1c31b4044998dd4cc0b892773de69aa3388","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},
     {"id":"phase3.evidence-lineage","stage":"SOURCE_CANDIDATE","package":"gocode-store","integration_target":"evidence_phase3","selector_status":"RESOLVED","fully_qualified_test_name":"evidence_direct_store_lineage_stops_at_default_native","list_digest":"225dbab2f7d271af0c2014539224d1c31b4044998dd4cc0b892773de69aa3388","toolchain":"rustc 1.97.1 (8bab26f4f 2026-07-14)"},

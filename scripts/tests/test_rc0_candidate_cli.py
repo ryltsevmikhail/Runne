@@ -37,6 +37,8 @@ class Rc0CandidateCliTests(unittest.TestCase):
         self.assertNotIn("ci-local.sh", "\n".join(wrapper.splitlines()[2:]))
         self.assertNotIn("bash scripts/ci-local-inputs.sh", wrapper)
         self.assertNotIn("scripts.rc0_candidate.cli", wrapper)
+        self.assertNotIn("cargo test", wrapper)
+        self.assertNotIn("pnpm install", wrapper)
 
         receipt_module = importlib.import_module("scripts.ci_local_receipt")
         with tempfile.TemporaryDirectory() as location:

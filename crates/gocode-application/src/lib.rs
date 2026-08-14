@@ -13,6 +13,7 @@
 //! * **Commands** — input/output DTO for use cases ([`commands`])
 //! * **Service** — public crate::service::TaskRunService facade ([`service`])
 
+pub mod command_reconciliation;
 pub mod commands;
 pub mod conversation_service;
 pub mod conversation_text_service;
@@ -23,6 +24,7 @@ pub mod migration;
 pub(crate) mod pipeline;
 pub mod ports;
 pub mod prohibited_content;
+pub mod project_workspace_service;
 pub mod provider;
 pub mod replay_service;
 pub mod security;

@@ -11,6 +11,27 @@ pub fn tempdir() -> TempDir {
     directory
 }
 
+fn executable_tempdir() -> TempDir {
+    #[cfg(unix)]
+    let directory = std::env::var_os("XDG_RUNTIME_DIR")
+        .and_then(|path| {
+            tempfile::Builder::new()
+                .prefix("gocode-daemon-executable-")
+                .tempdir_in(path)
+                .ok()
+        })
+        .unwrap_or_else(|| {
+            tempfile::Builder::new()
+                .prefix("gocode-daemon-executable-")
+                .tempdir_in("/tmp")
+                .expect("secure executable temporary directory")
+        });
+    #[cfg(not(unix))]
+    let directory = tempfile::tempdir().expect("executable temporary directory");
+    secure_directory(directory.path());
+    directory
+}
+
 pub fn secure_directory(path: &Path) {
     #[cfg(unix)]
     {
@@ -28,7 +49,7 @@ pub struct ControlledExecutable {
 
 impl ControlledExecutable {
     pub fn copy_from(source: impl AsRef<Path>) -> Self {
-        let root = tempdir();
+        let root = executable_tempdir();
         let path = root.path().join("controlled-executable");
         fs::copy(source, &path).expect("copy controlled executable");
         #[cfg(unix)]

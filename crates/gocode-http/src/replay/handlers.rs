@@ -2,10 +2,13 @@ async fn open_session(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
     Extension(authenticated): Extension<AuthenticatedRuntimeSession>,
+    Extension(baseline_context): Extension<
+        gocode_application::local_session::AuthenticatedReplayResumeContextV2,
+    >,
     Extension(request_id): Extension<RequestId>,
     body: Result<Json<OpenSessionRequest>, JsonRejection>,
 ) -> Response {
-    let result: Result<OpenSessionResponse, ReplayHttpFailure> = async {
+    let result: Result<Response, ReplayHttpFailure> = async {
         let Json(req) = body.map_err(map_json_rejection)?;
         let aggregate_id = parse_aggregate_id(&req.aggregate_id)?;
         let aggregate_type = match req.aggregate_type.as_str() {
@@ -18,22 +21,22 @@ async fn open_session(
                 ));
             }
         };
+        if authenticated.binding.stable().principal_id() != principal.as_api_principal() {
+            return Err(replay_authorization_revoked());
+        }
         let session_permit = state
             .quotas
             .reserve_session(principal.as_api_principal().as_str())
             .map_err(|_| replay_backpressure())?;
-        if authenticated.binding.stable().principal_id() != principal.as_api_principal() {
-            return Err(replay_authorization_revoked());
-        }
         let from_cursor = req.from_cursor.as_deref().map(decode_cursor).transpose()?;
         let delivery_guard = Arc::new(OpenSessionDeliveryGuard {
             authenticated: authenticated.clone(),
             service: Arc::clone(&state.service),
             prohibited_content: Arc::clone(&state.prohibited_content),
         });
-        let (session, events) = state
+        let opened = state
             .service
-            .open_session(
+            .open_session_with_baseline_context(
                 principal.as_api_principal().as_str(),
                 state.binding.session_generation,
                 &state.binding.authority_id,
@@ -42,23 +45,39 @@ async fn open_session(
                 &aggregate_id,
                 from_cursor,
                 delivery_guard,
+                Some(&baseline_context),
+                state.baseline_resume_v2_enabled,
             )
-            .await
-            .map_err(|error| replay_error_to_http(&error))?;
+            .await;
+        let (session, events) = match opened {
+            Ok(opened) => opened,
+            Err(ReplayError::ReplayRetentionGap { baseline }) => {
+                return retention_baseline_response(
+                    &baseline,
+                    &request_id,
+                    state.prohibited_content.as_ref(),
+                );
+            }
+            Err(ReplayError::ReplayRetentionGapV2 { baseline }) => {
+                return retention_baseline_v2_response(
+                    &baseline,
+                    &request_id,
+                    state.prohibited_content.as_ref(),
+                );
+            }
+            Err(error) => return Err(replay_error_to_http(&error)),
+        };
         let response =
             open_session_response(&authenticated, state.service.as_ref(), &session, &events)?;
         state.retain_session_permit(session.session_id, session_permit)?;
-        Ok(response)
+        bounded_json_response(StatusCode::OK, &response)
     }
     .await;
-
     match result {
-        Ok(response) => bounded_json_response(StatusCode::OK, &response)
-            .unwrap_or_else(|error| error.into_response(&request_id)),
+        Ok(response) => response,
         Err(error) => error.into_response(&request_id),
     }
 }
-
 async fn read_page(
     State(state): State<ReplayHttpState>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
@@ -108,7 +127,6 @@ async fn read_page(
         read_page_response(&authenticated, state.service.as_ref(), &session, &events)
     }
     .await;
-
     match result {
         Ok(response) => bounded_json_response(StatusCode::OK, &response)
             .unwrap_or_else(|error| error.into_response(&request_id)),
@@ -146,7 +164,6 @@ async fn acknowledge(
         Ok(AcknowledgeResponse { acknowledged: true })
     }
     .await;
-
     match result {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => error.into_response(&request_id),
@@ -266,20 +283,4 @@ async fn close_session(
         }
         Err(error) => error.into_response(&request_id),
     }
-}
-
-fn bounded_json_response<T: Serialize>(
-    status: StatusCode,
-    response: &T,
-) -> Result<Response, ReplayHttpFailure> {
-    let bytes = serde_json::to_vec(response).map_err(|_| replay_invariant_violation())?;
-    if bytes.len() > MAX_ENCODED_REPLAY_PAGE_BYTES {
-        return Err(replay_backpressure());
-    }
-    Ok((
-        status,
-        [(axum::http::header::CONTENT_TYPE, "application/json")],
-        bytes,
-    )
-        .into_response())
 }

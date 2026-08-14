@@ -21,7 +21,16 @@ impl FilesystemBroker {
         self.binding
             .matches(&handle.binding)
             .then_some(())
-            .ok_or(FsBrokerError::PermissionDenied)
+            .ok_or(FsBrokerError::PermissionDenied)?;
+        #[cfg(unix)]
+        {
+            let fd = handle
+                .fd
+                .as_ref()
+                .ok_or_else(|| FsBrokerError::Io("missing root descriptor".into()))?;
+            super::fs_unix::root_is_admitted(fd, &handle.identity)?;
+        }
+        Ok(())
     }
 
     #[cfg(not(target_os = "windows"))]

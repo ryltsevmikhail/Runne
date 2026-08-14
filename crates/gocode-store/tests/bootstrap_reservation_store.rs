@@ -17,7 +17,15 @@ use gocode_store::{
 #[test]
 fn concurrent_legitimate_preallocation_has_one_reservation() {
     let directory = tempfile::tempdir().unwrap();
-    let path = std::fs::canonicalize(directory.path())
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path = std::fs::canonicalize(daemon)
         .unwrap()
         .join("concurrent.sqlite");
     let stores = concurrent_stores(&path, 8);

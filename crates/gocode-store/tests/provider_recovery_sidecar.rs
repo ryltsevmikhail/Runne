@@ -136,8 +136,30 @@ fn scanner_sidecar_rejects_future_schema_without_mutation() {
     let sidecar = sidecar_path(&base);
     Connection::open(&sidecar)
         .unwrap()
-        .pragma_update(None, "user_version", 2_i64)
+        .pragma_update(None, "user_version", 3_i64)
         .unwrap();
+    let before = durable_shape(&sidecar);
+    assert!(SqliteProviderRecoveryStore::open(&base, AUTHORITY).is_err());
+    assert_eq!(durable_shape(&sidecar), before);
+}
+
+#[test]
+fn scanner_sidecar_rejects_old_schema_without_mutation() {
+    let (directory, relative) = fixture("scanner-sidecar-old");
+    let base = base_path(&directory, &relative);
+    drop(SqliteProviderRecoveryStore::open(&base, AUTHORITY).unwrap());
+    let sidecar = sidecar_path(&base);
+    let connection = Connection::open(&sidecar).unwrap();
+    connection
+        .execute_batch("PRAGMA ignore_check_constraints=ON; PRAGMA user_version=1;")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE scanner_recovery_schema SET schema_version=1 WHERE id=1",
+            [],
+        )
+        .unwrap();
+    drop(connection);
     let before = durable_shape(&sidecar);
     assert!(SqliteProviderRecoveryStore::open(&base, AUTHORITY).is_err());
     assert_eq!(durable_shape(&sidecar), before);

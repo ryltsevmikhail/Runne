@@ -6,10 +6,14 @@ use std::net::SocketAddr;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use gocode_runtime_client::{
     EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, LocalProfileError, LocalRuntimeProfile,
-    REQUIRED_RUNTIME_CAPABILITIES,
+    PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES,
 };
-use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256, SanType};
 use sha2::{Digest, Sha256};
+
+#[path = "local_profile/support.rs"]
+mod local_profile_support;
+
+use local_profile_support::{certificate_der, ordered_capability_digest, secure};
 
 fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::PathBuf {
     let bootstrap_path = directory.join("bootstrap.secret");
@@ -20,7 +24,7 @@ fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::Path
     fs::write(
         &profile_path,
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "transportProfileId": "gocode-local-runtime/2",
             "profileId": EXPECTED_BUNDLE_ID,
             "schemaHash": GOLDEN_BUNDLE_HASH,
@@ -61,7 +65,7 @@ fn rewrite_profile(profile_path: &std::path::Path, mutate: impl FnOnce(&mut serd
 
 #[cfg(unix)]
 #[test]
-fn loads_profile_v2_without_reading_the_bootstrap_secret() {
+fn loads_profile_v3_without_reading_the_bootstrap_secret() {
     let directory = tempfile::tempdir().expect("temp directory");
     let endpoint = SocketAddr::from((Ipv4Addr::LOCALHOST, 43123));
     let profile_path = write_profile(directory.path(), &format!("https://{endpoint}"));
@@ -71,6 +75,22 @@ fn loads_profile_v2_without_reading_the_bootstrap_secret() {
 
     assert_eq!(profile.endpoint().address(), endpoint);
     assert!(!format!("{profile:?}").contains("bootstrap"));
+}
+
+#[cfg(unix)]
+#[test]
+fn accepts_the_closed_base_and_protected_capability_profiles() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
+    assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
+    assert!(!REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v3"));
+    rewrite_profile(&profile_path, |profile| {
+        profile["capabilities"] = serde_json::json!(PROTECTED_RUNTIME_CAPABILITIES);
+        profile["capabilityDigest"] = serde_json::json!(hex::encode(ordered_capability_digest(
+            PROTECTED_RUNTIME_CAPABILITIES
+        )));
+    });
+    assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
 }
 
 #[cfg(unix)]
@@ -216,7 +236,7 @@ fn profile_missing_required_telemetry_capability_is_rejected() {
 
 #[test]
 fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
-    let bundle = include_bytes!("../../../contracts/gocode-ui-client-1/bundle.json");
+    let bundle = include_bytes!("../../../contracts/gocode-ui-client-2/bundle.json");
     assert_eq!(hex::encode(Sha256::digest(bundle)), GOLDEN_BUNDLE_HASH);
 
     let bundle: serde_json::Value = serde_json::from_slice(bundle).expect("bundle JSON");
@@ -226,7 +246,7 @@ fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
         .iter()
         .map(|capability| capability.as_str().expect("capability string"))
         .collect::<Vec<_>>();
-    assert_eq!(published_capabilities, REQUIRED_RUNTIME_CAPABILITIES);
+    assert_eq!(published_capabilities, PROTECTED_RUNTIME_CAPABILITIES);
     assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"runtime.operational-telemetry.v1"));
 }
 
@@ -234,11 +254,11 @@ fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
 fn bootstrap_v3_wire_matches_schema_golden() {
     let schema = include_bytes!("../../../docs/schemas/local-session-v2.schema.json");
     let published_schema = include_bytes!(
-        "../../../contracts/gocode-ui-client-1/schemas/local-session-v2.schema.json"
+        "../../../contracts/gocode-ui-client-2/schemas/local-session-v2.schema.json"
     );
     let golden = include_bytes!("../../../docs/golden/local-session-v2.json");
     let published_golden =
-        include_bytes!("../../../contracts/gocode-ui-client-1/golden/local-session-v2.json");
+        include_bytes!("../../../contracts/gocode-ui-client-2/golden/local-session-v2.json");
     assert_eq!(schema, published_schema);
     assert_eq!(golden, published_golden);
 
@@ -258,36 +278,3 @@ fn bootstrap_v3_wire_matches_schema_golden() {
     assert!(golden["authenticateRequest"].get("proof").is_none());
     assert!(golden["authenticateRequest"]["finalProof"].is_string());
 }
-
-fn certificate_der() -> Vec<u8> {
-    let mut parameters = CertificateParams::new(Vec::new()).expect("certificate parameters");
-    parameters.subject_alt_names = vec![SanType::IpAddress(std::net::IpAddr::V4(
-        Ipv4Addr::LOCALHOST,
-    ))];
-    let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("key");
-    parameters
-        .self_signed(&key)
-        .expect("certificate")
-        .der()
-        .to_vec()
-}
-
-fn ordered_capability_digest(capabilities: &[&str]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
-    hasher.update(u32::try_from(capabilities.len()).unwrap().to_be_bytes());
-    for capability in capabilities {
-        hasher.update(u32::try_from(capability.len()).unwrap().to_be_bytes());
-        hasher.update(capability.as_bytes());
-    }
-    hasher.finalize().into()
-}
-
-#[cfg(unix)]
-fn secure(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("secure file");
-}
-
-#[cfg(not(unix))]
-const fn secure(_: &std::path::Path) {}

@@ -1,7 +1,7 @@
 use super::VerifiedOwnerPrivateConfig;
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 pub(super) struct StartupProvider {
@@ -9,6 +9,7 @@ pub(super) struct StartupProvider {
     provenance: Option<DaemonActivationProvenance>,
     launch_authority_id: Option<[u8; 16]>,
     dependencies: Option<ProtectedProviderDependencyCapsule>,
+    root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
 }
 
 impl StartupProvider {
@@ -23,6 +24,7 @@ impl StartupProvider {
             provenance: None,
             launch_authority_id: None,
             dependencies: None,
+            root_admission_keys: None,
         })
     }
 
@@ -37,12 +39,14 @@ impl StartupProvider {
             ),
             launch_authority_id: None,
             dependencies: Some(dependencies),
+            root_admission_keys: None,
         }
     }
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) fn verified_protected(
         start: &VerifiedProtectedApplicationStart,
+        keys: gocode_api::ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Self {
         Self {
@@ -52,6 +56,7 @@ impl StartupProvider {
             )),
             launch_authority_id: Some(start.launch_authority_id()),
             dependencies: Some(dependencies),
+            root_admission_keys: Some(keys),
         }
     }
 
@@ -68,6 +73,7 @@ impl StartupProvider {
         Option<[u8; 16]>,
         bool,
         Option<ProtectedProviderDependencyCapsule>,
+        Option<gocode_api::ProtectedActivationKeys>,
     ) {
         let protected = self.is_protected();
         (
@@ -76,6 +82,7 @@ impl StartupProvider {
             self.launch_authority_id,
             protected,
             self.dependencies,
+            self.root_admission_keys,
         )
     }
 }
@@ -157,11 +164,12 @@ impl DaemonApplication {
             launch_authority_id,
             protected_activation,
             dependencies,
+            root_admission_keys,
         ) = startup.into_parts();
         let launch_authority_id =
             launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
         let provider_profile_digest = *provider_activation.binding().profile_digest();
-        let provider_service = match activation_provenance {
+        let compose_result = match activation_provenance {
             Some(activation_provenance) => {
                 compose_selected_provider(&provider_activation, || {
                     let db_path = config.db_path.clone();
@@ -179,14 +187,14 @@ impl DaemonApplication {
                         replay_lineage,
                         "provider execution store",
                     );
+                    let conversation_store = store.clone();
                     let credential_connection = open_runtime_connection(
                         &db_path,
                         gocode_store::schema::ConnectionMode::ValidatedReopen,
                         bootstrap.authority_id,
                         replay_lineage,
-                        "provider credential lifecycle store",
+                        "provider credential store",
                     );
-                    let conversation_store = store.clone();
                     let conversation_service = Arc::clone(&conversation_text_service);
                     let prohibited_content = Arc::clone(&prohibited_content);
                     async move {
@@ -213,9 +221,28 @@ impl DaemonApplication {
                         .await
                     }
                 })
-                .await?
+                .await
             }
-            None => None,
+            None => Ok(None),
+        };
+        let (provider_service, provider_readiness) = match compose_result {
+            Ok(service) => (service, ProviderActivationReadinessV1::Ready),
+            Err(error) => {
+                if protected_activation {
+                    // OpenAI compose failed: never sign `Ready` with its provider absent.
+                    let readiness =
+                        crate::canonical_provider::probe_provider_readiness(bootstrap.authority_id)
+                            .await;
+                    let readiness = if readiness.is_ready() {
+                        ProviderActivationReadinessV1::SecureStoreUnavailable
+                    } else {
+                        readiness
+                    };
+                    (None, readiness)
+                } else {
+                    return Err(error);
+                }
+            }
         };
         let executable_sha256 =
             *super::executable_identity::measure_launched_executable()?.executable_sha256();
@@ -237,6 +264,8 @@ impl DaemonApplication {
             launch_authority_id,
             executable_sha256,
             session_id,
+            root_admission_keys,
+            provider_readiness,
         )
         .await
     }
@@ -245,48 +274,5 @@ impl DaemonApplication {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn typed_startup_constructors_keep_verified_pairing_atomic() {
-        let directory = tempfile::tempdir().unwrap();
-        let config = ConfigurationSnapshot::from_defaults(&crate::config::BuiltInDefaults::new(
-            directory.path(),
-        ));
-        let bootstrap = crate::bootstrap::bootstrap(&config).unwrap();
-        let verified =
-            crate::application::VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap);
-
-        let startup = StartupProvider::verified_external(
-            &verified,
-            ProtectedProviderDependencyCapsule::production(),
-        );
-        assert!(!startup.is_protected());
-        assert_eq!(
-            startup.activation.binding(),
-            verified.provider_activation().binding()
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn protected_constructor_derives_the_pair_from_one_token() {
-        let directory = tempfile::tempdir().unwrap();
-        let config = ConfigurationSnapshot::from_defaults(&crate::config::BuiltInDefaults::new(
-            directory.path(),
-        ));
-        let bootstrap = crate::bootstrap::bootstrap(&config).unwrap();
-        let start = VerifiedProtectedApplicationStart::from_test_parts(
-            config,
-            ProviderActivation::deterministic_v1(),
-            bootstrap,
-        );
-
-        assert!(
-            StartupProvider::verified_protected(
-                &start,
-                ProtectedProviderDependencyCapsule::production(),
-            )
-            .is_protected()
-        );
-    }
+    include!("provider_startup/tests.rs");
 }

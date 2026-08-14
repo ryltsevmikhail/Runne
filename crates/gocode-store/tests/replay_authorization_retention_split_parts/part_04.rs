@@ -1,5 +1,5 @@
 #[tokio::test]
-async fn revocation_during_gap_computation_releases_no_gap_or_floor_cursor() {
+async fn missing_snapshot_during_gap_computation_fails_closed() {
     let (store, writer, _directory) = file_store_with_events(3);
     let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);
     let service = service(store, authorization.clone());
@@ -22,8 +22,6 @@ async fn revocation_during_gap_computation_releases_no_gap_or_floor_cursor() {
     writer
         .execute("DELETE FROM events WHERE global_position = 1", [])
         .unwrap();
-    authorization.revoke_after_next_lease();
-
     let error = service
         .open_session(
             "principal",
@@ -38,7 +36,7 @@ async fn revocation_during_gap_computation_releases_no_gap_or_floor_cursor() {
         .await
         .unwrap_err();
 
-    assert!(matches!(error, ReplayError::AuthorizationRevoked));
+    assert!(matches!(error, ReplayError::Integrity(_)));
 }
 
 #[tokio::test]
@@ -133,6 +131,8 @@ fn gap_reference_is_bound_to_scope_and_authorization_epoch() {
 fn opened(result: ReplayOpenResult) -> (ReplaySession, Vec<ReplayEvent>) {
     match result {
         ReplayOpenResult::Opened { session, events } => (session, events),
-        ReplayOpenResult::RetentionGap { .. } => panic!("unexpected retention gap"),
+        ReplayOpenResult::RetentionGap { .. } | ReplayOpenResult::RetentionGapWithV2 { .. } => {
+            panic!("unexpected retention gap")
+        }
     }
 }

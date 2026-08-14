@@ -9,7 +9,9 @@ pub struct ProtectedActivationChannel {
 #[cfg(unix)]
 impl ProtectedActivationChannel {
     /// Wraps the inherited child endpoint and installs bounded I/O deadlines.
-    pub fn new(stream: std::os::unix::net::UnixStream) -> Result<Self, LaunchAuthorityError> {
+    pub(crate) fn new(
+        stream: std::os::unix::net::UnixStream,
+    ) -> Result<Self, LaunchAuthorityError> {
         stream
             .set_read_timeout(Some(CHANNEL_TIMEOUT))
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
@@ -59,7 +61,11 @@ impl ProtectedActivationChannel {
     }
 
     pub(super) fn write_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
-        if frame.len() < 5 || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4 {
+        if frame.len() < 5
+            || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4
+            || u32::from_be_bytes(frame[..4].try_into().unwrap_or([0; 4])) as usize
+                != frame.len() - 4
+        {
             return Err(LaunchAuthorityError::InvalidContract);
         }
         self.stream
@@ -69,19 +75,69 @@ impl ProtectedActivationChannel {
     }
 
     /// Reads the next bounded frame for the post-readiness control loop.
-    pub fn read_control_frame(&mut self) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
+    pub(crate) fn read_control_frame(
+        &mut self,
+    ) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
         self.read_frame()
     }
 
     /// Writes one bounded post-readiness control response.
-    pub fn write_control_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
+    pub(crate) fn write_control_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
         self.write_frame(frame)
     }
 
+    #[cfg(any(feature = "desktop-protected", feature = "test-support"))]
     pub(super) fn enter_control_loop(&self) -> Result<(), LaunchAuthorityError> {
         self.stream
             .set_read_timeout(Some(CONTROL_IDLE_TIMEOUT))
             .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
+    }
+
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    pub(super) fn root_handle_endpoint(
+        &self,
+        authenticator: RootHandleTransferAuthenticator,
+        context: &gocode_api::RootHandleTransferContext,
+        offer_digest: [u8; 32],
+    ) -> Result<gocode_platform_desktop::ProtectedRootHandleEndpoint, LaunchAuthorityError> {
+        gocode_platform_desktop::ProtectedRootHandleEndpoint::from_owned_protected_channel(
+            self.stream
+                .try_clone()
+                .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
+            authenticator,
+            context,
+            offer_digest,
+        )
+        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
+    }
+
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[allow(clippy::needless_return)]
+    pub(super) fn peer_identity(&self) -> Result<(u32, u32), LaunchAuthorityError> {
+        #[cfg(target_os = "linux")]
+        {
+            let peer = rustix::net::sockopt::socket_peercred(&self.stream)
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            let pid = u32::try_from(peer.pid.as_raw_pid())
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            return Ok((pid, peer.uid.as_raw() as u32));
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let pid =
+                nix::sys::socket::getsockopt(&self.stream, nix::sys::socket::sockopt::LocalPeerPid)
+                    .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            let credentials = nix::sys::socket::getsockopt(
+                &self.stream,
+                nix::sys::socket::sockopt::LocalPeerCred,
+            )
+            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
+            return u32::try_from(pid)
+                .map(|pid| (pid, credentials.uid()))
+                .map_err(|_| LaunchAuthorityError::OwnershipMismatch);
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        Err(LaunchAuthorityError::UnsupportedPlatformBackend)
     }
 }
 

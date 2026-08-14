@@ -166,7 +166,7 @@ async fn sensitivity_boundary_delivers_readable_prefix_and_stops_before_denied_e
 }
 
 #[tokio::test]
-async fn retained_prefix_gap_returns_authorized_floor_without_cursor_jump() {
+async fn retained_prefix_gap_without_snapshot_fails_closed_without_session() {
     let (store, writer, _directory) = file_store_with_events(3);
     let authorization = MutableAuthorization::new(7, Sensitivity::Sensitive);
     let service = service(store, authorization);
@@ -209,16 +209,7 @@ async fn retained_prefix_gap_returns_authorized_floor_without_cursor_jump() {
         .await
         .unwrap_err();
 
-    match error {
-        ReplayError::ReplayRetentionGap {
-            floor_cursor: Some(floor_cursor),
-            gap_range_ref,
-        } => {
-            assert_eq!(floor_cursor.global_position, 2);
-            assert_ne!(gap_range_ref.integrity().as_bytes(), &[0; 32]);
-        }
-        other => panic!("unexpected gap result: {other:?}"),
-    }
+    assert!(matches!(error, ReplayError::Integrity(_)));
     let session_count_after: i64 = writer
         .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |row| {
             row.get(0)

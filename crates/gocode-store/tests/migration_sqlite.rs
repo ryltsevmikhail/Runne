@@ -12,22 +12,21 @@ include!("migration_sqlite_split_parts/part_06.rs");
 fn interrupted_v17_migration_recovers_on_reopen() {
     use gocode_store::{
         provider::SqliteProviderExecutionStore,
-        schema::{ConnectionMode, apply_migrations, open_managed_connection},
+        schema::{ConnectionMode, apply_migrations_through_v16_for_test, open_managed_connection},
     };
 
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("interrupted-v17.sqlite");
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path = daemon.join("interrupted-v17.sqlite");
     let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
-    apply_migrations(&connection).unwrap();
-    connection
-        .execute_batch(
-            "DROP INDEX IF EXISTS bootstrap_reservation_unexpired;
-             DROP TABLE IF EXISTS bootstrap_reservation_tombstones;
-             DROP TABLE IF EXISTS bootstrap_reservations;
-             DROP TABLE IF EXISTS bootstrap_last_observed_clock;
-             DELETE FROM schema_version WHERE version = 17;",
-        )
-        .unwrap();
+    apply_migrations_through_v16_for_test(&connection).unwrap();
     {
         let interrupted = connection.unchecked_transaction().unwrap();
         interrupted
@@ -55,7 +54,7 @@ fn interrupted_v17_migration_recovers_on_reopen() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        17
+        20
     );
     assert_eq!(
         reopened

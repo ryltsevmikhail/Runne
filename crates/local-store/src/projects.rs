@@ -70,18 +70,35 @@ impl LocalStore {
         let transaction = self.connection.transaction()?;
         transaction.execute(
             "
-            INSERT INTO projects (name, path, last_opened_at)
-            VALUES (?1, ?2, ?3)
-            ON CONFLICT(path) DO UPDATE SET
-                name = excluded.name,
-                last_opened_at = excluded.last_opened_at
+            INSERT INTO recent_roots (
+                project_id, workspace_id, display_name, last_opened_at,
+                root_state, native_root_metadata, legacy_project_id
+            ) VALUES (
+                NULL, NULL, ?1, ?2, 'migration_required', ?3,
+                (SELECT COALESCE(MAX(legacy_project_id), 0) + 1 FROM recent_roots)
+            )
+            ON CONFLICT DO NOTHING
             ",
-            params![name, path_value, last_opened_at],
+            params![name, last_opened_at, path_value],
         )?;
         let id = transaction.query_row(
-            "SELECT id FROM projects WHERE path = ?1",
+            "
+            SELECT legacy_project_id
+            FROM recent_roots
+            WHERE root_state = 'migration_required' AND native_root_metadata = ?1
+            ORDER BY legacy_project_id DESC
+            LIMIT 1
+            ",
             params![path_value],
             |row| row.get(0),
+        )?;
+        transaction.execute(
+            "
+            UPDATE recent_roots
+            SET display_name = ?1, last_opened_at = ?2
+            WHERE legacy_project_id = ?3
+            ",
+            params![name, last_opened_at, id],
         )?;
         transaction.commit()?;
         Ok(LocalProject {
@@ -100,9 +117,10 @@ impl LocalStore {
     pub fn list_projects(&self) -> rusqlite::Result<Vec<LocalProject>> {
         let mut statement = self.connection.prepare(
             "
-            SELECT id, name, path, last_opened_at
-            FROM projects
-            ORDER BY last_opened_at DESC, id DESC
+            SELECT legacy_project_id, display_name, native_root_metadata, last_opened_at
+            FROM recent_roots
+            WHERE root_state = 'migration_required'
+            ORDER BY last_opened_at DESC, legacy_project_id DESC
             ",
         )?;
         statement
@@ -126,9 +144,9 @@ impl LocalStore {
         self.connection
             .query_row(
                 "
-                SELECT id, name, path, last_opened_at
-                FROM projects
-                WHERE id = ?1
+                SELECT legacy_project_id, display_name, native_root_metadata, last_opened_at
+                FROM recent_roots
+                WHERE root_state = 'migration_required' AND legacy_project_id = ?1
                 ",
                 params![id],
                 |row| {
@@ -160,7 +178,7 @@ impl LocalStore {
         )?;
         let project_count: i64 =
             self.connection
-                .query_row("SELECT COUNT(*) FROM projects", [], |row| row.get(0))?;
+                .query_row("SELECT COUNT(*) FROM recent_roots", [], |row| row.get(0))?;
         Ok(LocalStoreDiagnostics {
             schema_version: u32::try_from(schema_version)
                 .map_err(|_| SecurityTransactionError::GenerationOutOfRange)?,

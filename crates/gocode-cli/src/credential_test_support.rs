@@ -1,6 +1,6 @@
 use super::{
     CliError, CredentialBackend, CredentialIdentityResolver, CredentialOutcome, OsString,
-    ProcessOutcome, ProviderCredentialAccessPolicy, ProviderCredentialMaterial, Read,
+    OutputFormat, ProcessOutcome, ProviderCredentialAccessPolicy, ProviderCredentialMaterial, Read,
     SecureStoreError, VecDeque, process_outcome, run_provider_credential_with,
 };
 #[cfg(unix)]
@@ -39,7 +39,7 @@ pub fn run(
         true,
     );
     ProcessResult {
-        outcome: process_outcome(result),
+        outcome: process_outcome(result, OutputFormat::Text),
         delete_calls: backend.delete_calls,
         resolver_calls: resolver.calls.get(),
         store_calls: backend.store_calls,

@@ -6,13 +6,22 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+gocode-api = { path = "../gocode-api" }
 gocode-secure-store = { path = "../secure-store", default-features = false }
+gocode-sqlite-native-identity = { path = "../sqlite-native-identity" }
 rusqlite.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+gocode-windows-native-handle = { path = "../windows-native-handle" }
+
+[features]
+test-support = []
+
 [dev-dependencies]
 tempfile = "=3.27.0"
+gocode-secure-store = { path = "../secure-store", default-features = false, features = ["test-support"] }
 
 [lints]
 workspace = true

@@ -15,6 +15,7 @@ fn test_wal_reopen_data_intact() {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
         let svc = TaskRunService::new(
             store.clone(),
             store.clone(),
@@ -143,6 +144,7 @@ fn test_schema_mismatch_fail_closed() {
             available_guard(),
         )
         .unwrap();
+        validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
         let svc = TaskRunService::new(
             store.clone(),
             store.clone(),

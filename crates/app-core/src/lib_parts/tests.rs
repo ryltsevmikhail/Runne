@@ -40,27 +40,34 @@
     }
 
     #[test]
-    fn opening_a_project_makes_it_available_after_app_restart() {
+    fn canonical_recent_root_makes_it_available_after_app_restart() {
         let directory = tempfile::tempdir().expect("temp directory");
         let database_path = directory.path().join("profile.sqlite3");
-        let project_path = directory.path().join("project-one");
-        std::fs::create_dir(&project_path).expect("create project directory");
-
-        let project = {
-            let core = AppCore::open(&database_path).expect("open core");
-            core.open_local_project(&project_path)
-                .expect("open local project")
-        };
+        let mut store = LocalStore::open(&database_path).expect("open store");
+        store
+            .record_recent_root(
+                "01890e00-0000-7000-8000-000000000001",
+                "01890e00-0000-7000-8000-000000000002",
+                "Project one",
+                1,
+                "native-root-1",
+            )
+            .expect("record root");
+        drop(store);
 
         let reopened = AppCore::open(&database_path).expect("reopen core");
         let projects = reopened.list_projects().expect("list projects");
         let restored = reopened
-            .get_project(project.id)
+            .get_project("01890e00-0000-7000-8000-000000000001")
             .expect("get project")
+            .into_iter()
+            .next()
             .expect("stored project");
 
-        assert_eq!(projects, vec![project.clone()]);
-        assert_eq!(restored, project);
+        assert_eq!(projects, vec![restored.clone()]);
+        assert_eq!(restored.project_id, "01890e00-0000-7000-8000-000000000001");
+        assert_eq!(restored.workspace_id, "01890e00-0000-7000-8000-000000000002");
+        assert!(!serde_json::to_string(&restored).expect("serialize").contains("native-root-1"));
     }
 
     #[test]
@@ -80,7 +87,7 @@
 
         assert_eq!(diagnostics.app_version, "0.1.0");
         assert_eq!(diagnostics.platform, "macos");
-        assert_eq!(diagnostics.database_schema_version, 4);
+        assert_eq!(diagnostics.database_schema_version, 5);
         assert_eq!(diagnostics.database_generation, 1);
         assert_eq!(diagnostics.project_count, 1);
         assert_eq!(diagnostics.runtime, RuntimeAvailability::Unconfigured);
@@ -102,11 +109,15 @@
             authority: "018f2e3a-7000-7000-8000-000000000120".to_owned(),
             principal: "local-owner".to_owned(),
             lineage: "018f2e3a-7000-7000-8000-000000000121".to_owned(),
-            profile_id: "gocode-ui-client/1".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: "11".repeat(32),
             capability_digest: "22".repeat(32),
             binding_digest: "33".repeat(32),
             launch_generation: 9,
+            session_id: "session".to_owned(),
+            daemon_instance_id: "daemon".to_owned(),
+            authorization_epoch: 1,
+            certificate_sha256: "44".repeat(32),
         };
 
         let bound = identity.bind_reference(&reference);
@@ -165,11 +176,11 @@
         let project_path = directory.path().join("project");
         std::fs::create_dir(&project_path).expect("create project");
         let core = AppCore::open(&database_path).expect("open core");
-        let project = core
+        let project_id = core
             .open_local_project(&project_path)
             .expect("open project");
         let reference = core
-            .load_or_prepare_conversation_reference(project.id)
+            .load_or_prepare_conversation_reference(project_id)
             .expect("v1 reference");
         let first = StableRuntimeIdentity {
             authority: "authority-a".to_owned(),
@@ -180,11 +191,15 @@
             capability_digest: "22".repeat(32),
             binding_digest: "33".repeat(32),
             launch_generation: 1,
+            session_id: "session".to_owned(),
+            daemon_instance_id: "daemon".to_owned(),
+            authorization_epoch: 1,
+            certificate_sha256: "44".repeat(32),
         };
         let bound = core
-            .bind_conversation_reference(project.id, reference, &first)
+            .bind_conversation_reference(project_id, reference, &first)
             .expect("bind reference");
-        let key = format!("runtime.conversation.project.{}", project.id);
+        let key = format!("runtime.conversation.project.{project_id}");
         let before = {
             let store = core.store.lock().expect("store");
             store.get_setting(&key).expect("read").expect("reference")
@@ -193,7 +208,7 @@
         conflicting.authority = "authority-b".to_owned();
 
         let error = core
-            .bind_conversation_reference(project.id, bound, &conflicting)
+            .bind_conversation_reference(project_id, bound, &conflicting)
             .expect_err("identity conflict");
         assert_eq!(error.to_string(), "runtime_identity_conflict");
         assert_eq!(

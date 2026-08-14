@@ -23,7 +23,12 @@ use gocode_runtime::provider_execution::{
     ProviderTerminalOutboxApplication,
 };
 use gocode_security::SecretBroker;
+use gocode_store::schema::apply_migrations;
 use gocode_store::store::StoreTransaction;
+use rusqlite::Connection;
+
+#[path = "support/validated_reopen.rs"]
+mod validated_reopen;
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
@@ -59,6 +64,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
     .unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-000000000081".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-000000000082".parse().unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "local-owner", workspace_id);
     let create_context = context(
         "018f2e3a-7000-7000-8000-000000000083",
         "create-provider-conversation",
@@ -72,6 +78,15 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
                 command_id: create_context.command_id,
                 idempotency_key: create_context.idempotency_key.clone(),
             },
+        )
+        .unwrap();
+    let old_projection: (Vec<u8>, Vec<u8>, Vec<u8>) = Connection::open(&database)
+        .unwrap()
+        .query_row(
+            "SELECT projection_bytes, projection_digest, snapshot_integrity_digest
+             FROM aggregate_state_snapshots WHERE aggregate_type = 2 AND aggregate_id = ?1",
+            [conversation_id.as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
     let generate_context = context(
@@ -141,5 +156,142 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
             ))
             .count(),
         1
+    );
+    drop(store);
+    let connection = Connection::open(&database).unwrap();
+    let snapshots: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM aggregate_state_snapshots AS snapshot
+             JOIN aggregate_streams AS stream ON stream.aggregate_type = snapshot.aggregate_type
+                AND stream.aggregate_id = snapshot.aggregate_id
+             WHERE snapshot.aggregate_version = stream.current_version
+                AND snapshot.event_sequence = stream.current_version
+                AND snapshot.head_event_id = stream.last_event_id",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(snapshots, 2);
+    connection
+        .execute_batch(
+            "DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_insert;
+             DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_update;
+             DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_insert;
+             DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_update;
+             DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
+             DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
+             DROP TABLE IF EXISTS aggregate_state_snapshots;
+             DELETE FROM schema_version WHERE version >= 19;",
+        )
+        .unwrap();
+    apply_migrations(&connection).unwrap();
+    let backfilled: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM aggregate_state_snapshots",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(backfilled, 2);
+    let projection_bytes: Vec<u8> = connection
+        .query_row(
+            "SELECT projection_bytes FROM aggregate_state_snapshots
+             WHERE aggregate_type = 2 AND aggregate_id = ?1",
+            [conversation_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE aggregate_state_snapshots SET projection_bytes = x'00'
+             WHERE aggregate_type = 2 AND aggregate_id = ?1",
+            [conversation_id.as_bytes()],
+        )
+        .unwrap();
+    drop(connection);
+    assert!(
+        StoreTransaction::open(
+            database.to_str().unwrap(),
+            RuntimeAuthorityId("provider-conversation-terminal".into()),
+            available_guard(),
+        )
+        .is_err()
+    );
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE aggregate_state_snapshots SET projection_bytes = ?1
+             WHERE aggregate_type = 2 AND aggregate_id = ?2",
+            rusqlite::params![projection_bytes, conversation_id.as_bytes()],
+        )
+        .unwrap();
+    let snapshot_integrity_digest: Vec<u8> = connection
+        .query_row(
+            "SELECT snapshot_integrity_digest FROM aggregate_state_snapshots
+             WHERE aggregate_type = 2 AND aggregate_id = ?1",
+            [conversation_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE aggregate_state_snapshots SET projection_bytes = ?1, projection_digest = ?2,
+             snapshot_integrity_digest = ?3 WHERE aggregate_type = 2 AND aggregate_id = ?4",
+            rusqlite::params![
+                old_projection.0,
+                old_projection.1,
+                old_projection.2,
+                conversation_id.as_bytes()
+            ],
+        )
+        .unwrap();
+    drop(connection);
+    assert!(
+        StoreTransaction::open(
+            database.to_str().unwrap(),
+            RuntimeAuthorityId("provider-conversation-terminal".into()),
+            available_guard(),
+        )
+        .is_err()
+    );
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE aggregate_state_snapshots SET snapshot_integrity_digest = zeroblob(32)
+             WHERE aggregate_type = 2 AND aggregate_id = ?1",
+            [conversation_id.as_bytes()],
+        )
+        .unwrap();
+    drop(connection);
+    assert!(
+        StoreTransaction::open(
+            database.to_str().unwrap(),
+            RuntimeAuthorityId("provider-conversation-terminal".into()),
+            available_guard(),
+        )
+        .is_err()
+    );
+    let connection = Connection::open(&database).unwrap();
+    connection
+        .execute(
+            "UPDATE aggregate_state_snapshots SET snapshot_integrity_digest = ?1
+             WHERE aggregate_type = 2 AND aggregate_id = ?2",
+            rusqlite::params![snapshot_integrity_digest, conversation_id.as_bytes()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "DELETE FROM aggregate_state_snapshots WHERE aggregate_type = 2 AND aggregate_id = ?1",
+            [conversation_id.as_bytes()],
+        )
+        .unwrap();
+    drop(connection);
+    assert!(
+        StoreTransaction::open(
+            database.to_str().unwrap(),
+            RuntimeAuthorityId("provider-conversation-terminal".into()),
+            available_guard(),
+        )
+        .is_err()
     );
 }

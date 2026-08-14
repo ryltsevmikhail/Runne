@@ -44,6 +44,27 @@ for subsystem in os.listdir(subsystems_dir):
         if match:
             defined_requirements.add(match.group(1))
 
+subsystem_dirs = sum(
+    os.path.isfile(os.path.join(subsystems_dir, name, "REQUIREMENTS.md"))
+    for name in os.listdir(subsystems_dir)
+)
+subsystem_docs = list(walk_files(subsystems_dir, ".md"))
+ready_subsystem_docs = sum(
+    re.search(r"(?m)^status:\s*[\"']?ready[\"']?\s*$", open(path, encoding="utf-8").read(300))
+    is not None
+    for path in subsystem_docs
+)
+adr_count = sum(
+    re.fullmatch(r"ADR-(?!0000)\d{4}-.*\.md", name) is not None
+    for name in os.listdir(os.path.join(DOCS_DIR, "adr"))
+)
+inventory_text = open(os.path.join(subsystems_dir, "README.md"), encoding="utf-8").read()
+for label, value in (("Subsystems", subsystem_dirs), ("Total ready", ready_subsystem_docs), ("Canonical REQ coverage", len(defined_requirements))):
+    if not re.search(rf"\*\*{re.escape(label)}:\*\*\s*{value}(?:/{value})?\b", inventory_text):
+        err(f"Stale subsystem inventory for {label}: expected {value}")
+if f"ADR-0001…ADR-{adr_count:04d}" not in open(os.path.join(DOCS_DIR, "README.md"), encoding="utf-8").read():
+    err(f"Stale ADR range in docs/README.md: expected ADR-{adr_count:04d}")
+
 local_requirement_prefixes = {"DOM", "PROTO", "FUZZ"}
 for file_path in walk_files(DOCS_DIR, (".md", ".json")):
     if is_implementation_plan(file_path) or "templates" in file_path.split(os.sep):

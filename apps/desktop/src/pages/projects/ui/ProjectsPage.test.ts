@@ -5,9 +5,9 @@ import { describe, expect, it } from 'vitest'
 import ProjectsPage from './ProjectsPage.vue'
 
 const project = {
-  id: 7,
-  name: 'gocode-ui',
-  path: '/workspace/gocode-ui',
+  projectId: '01890e00-0000-7000-8000-000000000001',
+  workspaceId: '01890e00-0000-7000-8000-000000000002',
+  displayName: 'gocode-ui',
   lastOpenedAt: 1_753_500_000_000,
 } as const
 
@@ -17,7 +17,7 @@ function createTestRouter() {
     routes: [
       { path: '/', component: ProjectsPage },
       {
-        path: '/projects/:id',
+        path: '/projects/:projectId',
         name: 'project-details',
         component: { template: '<div>Project details</div>' },
       },
@@ -44,13 +44,13 @@ describe('projects page', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('gocode-ui')
-    expect(wrapper.text()).toContain('/workspace/gocode-ui')
+    expect(wrapper.text()).not.toContain('/workspace/gocode-ui')
     expect(wrapper.get('[aria-label="Open project gocode-ui"] button').attributes('type')).toBe('button')
 
     await wrapper.get('[aria-label="Open project gocode-ui"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/projects/7')
+    expect(router.currentRoute.value.fullPath).toBe(`/projects/${project.projectId}`)
   })
 
   it('opens the documented local project setup route', async () => {

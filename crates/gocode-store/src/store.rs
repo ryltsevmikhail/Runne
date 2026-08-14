@@ -77,29 +77,6 @@ const fn sensitivity_value(value: Sensitivity) -> i64 {
     }
 }
 
-#[derive(Clone, Copy)]
-enum StoredCorrelationType {
-    TaskRun,
-    Conversation,
-}
-
-impl StoredCorrelationType {
-    fn from_i64(value: i64) -> Result<Self, EventStoreError> {
-        match value {
-            CORRELATION_TYPE_TASK_RUN => Ok(Self::TaskRun),
-            CORRELATION_TYPE_CONVERSATION => Ok(Self::Conversation),
-            _ => Err(EventStoreError::CorruptData),
-        }
-    }
-
-    const fn as_i64(self) -> i64 {
-        match self {
-            Self::TaskRun => CORRELATION_TYPE_TASK_RUN,
-            Self::Conversation => CORRELATION_TYPE_CONVERSATION,
-        }
-    }
-}
-
 /// Inner state shared between clones via `Arc`.
 struct StoreInner {
     writer: Mutex<ManagedConnection>,
@@ -136,6 +113,7 @@ mod clock;
 mod component_guard;
 mod conversation;
 mod core;
+mod correlation;
 mod event_context;
 mod event_guard;
 mod events;
@@ -143,10 +121,13 @@ mod ids;
 mod parse_helpers;
 mod position_helpers;
 mod provider_terminal;
+pub(crate) mod snapshot;
 mod text;
 mod text_receipt_helpers;
 mod text_validation_helpers;
 mod unit_of_work;
+
+use correlation::StoredCorrelationType;
 
 #[cfg(test)]
 mod tests {
@@ -191,6 +172,20 @@ mod tests {
                 let _ = std::fs::remove_dir(runtime_root);
             }
         }
+    }
+
+    #[test]
+    fn public_store_open_rejects_memory_database() {
+        let result = StoreTransaction::open(
+            ":memory:",
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        );
+
+        assert!(matches!(
+            result,
+            Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+        ));
     }
 
     #[test]

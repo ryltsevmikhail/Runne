@@ -1,13 +1,9 @@
 //! GOCODE Runtime Daemon.
 
-#[cfg(unix)]
-use gocode_api::LaunchAuthorityError;
-use gocode_daemon::application::workspace_internal::{self, ProtectedProviderDependencyCapsule};
-#[cfg(unix)]
-use gocode_daemon::error::DaemonError;
+use gocode_daemon::application::DaemonApplication;
 #[cfg(unix)]
 use gocode_daemon::protected_activation::{
-    ProtectedActivationChannel, ProtectedDaemonLaunch, run_control_loop, run_control_loop_v2,
+    ProtectedActivationChannel, run_verified_protected_channel,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,14 +31,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn run_external() -> Result<(), Box<dyn std::error::Error>> {
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
-        let application = workspace_internal::start_external_from_fixed_source(
-            ProtectedProviderDependencyCapsule::production(),
-        )
-        .await
-        .map_err(|error| {
-            eprintln!("fatal: bootstrap error: {error}");
-            std::process::exit(2);
-        })?;
+        let application = DaemonApplication::start_external_from_fixed_source()
+            .await
+            .map_err(|error| {
+                eprintln!("fatal: bootstrap error: {error}");
+                std::process::exit(2);
+            })?;
         tracing::info!(
             authority_id = hex::encode(application.authority_id()),
             db_existed = application.db_existed(),
@@ -61,87 +55,8 @@ fn run_external() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(unix)]
-fn run_protected(mut channel: ProtectedActivationChannel) -> Result<(), ()> {
-    let executable_path = std::env::current_exe().map_err(|_| ())?;
-    let mut launch = ProtectedDaemonLaunch::accept(&mut channel, &executable_path, || {
-        unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
-    })
-    .map_err(|_| ())?;
-    let runtime = tokio::runtime::Runtime::new().map_err(|_| ())?;
-    runtime
-        .block_on(async move {
-            let start = launch
-                .bootstrap_application_start(|| {
-                    unix_time_millis().ok_or(LaunchAuthorityError::StaleLaunchAuthority)
-                })
-                .map_err(|_| ())?;
-            let application = workspace_internal::start_from_verified_protected_launch(
-                start,
-                ProtectedProviderDependencyCapsule::production(),
-            )
-            .await
-            .map_err(|_| ())?;
-            let keys = launch.keys().clone();
-            let local_session_service = application.protected_session_service().map_err(|_| ())?;
-            let session_clock = application.protected_session_clock().map_err(|_| ())?;
-            let control_loop = if let Some(request) = launch.request_v1() {
-                let ready = application
-                    .protected_ready(request, launch.keys())
-                    .map_err(|_| ())?;
-                let owned_launch = ready.owned_launch();
-                channel
-                    .write_control_frame(&ready.encode_frame().map_err(|_| ())?)
-                    .map_err(|_| ())?;
-                tokio::task::spawn_blocking(move || {
-                    run_control_loop(
-                        channel,
-                        keys,
-                        owned_launch,
-                        local_session_service,
-                        session_clock,
-                    )
-                })
-            } else if let Some(request) = launch.request_v2() {
-                let ready = application
-                    .protected_ready_v2(request, launch.keys())
-                    .map_err(|_| ())?;
-                let owned_launch = ready.owned_launch();
-                channel
-                    .write_control_frame(&ready.encode_frame().map_err(|_| ())?)
-                    .map_err(|_| ())?;
-                tokio::task::spawn_blocking(move || {
-                    run_control_loop_v2(
-                        channel,
-                        keys,
-                        owned_launch,
-                        local_session_service,
-                        session_clock,
-                    )
-                })
-            } else {
-                return Err(());
-            };
-            application
-                .run(async move {
-                    control_loop
-                        .await
-                        .map_err(|_| {
-                            DaemonError::Bootstrap("protected control task failed".into())
-                        })?
-                        .map_err(|_| {
-                            DaemonError::Bootstrap("protected control channel closed".into())
-                        })
-                })
-                .await
-                .map_err(|_| ())
-        })
-        .map_err(|_| ())
-}
-
-#[cfg(unix)]
-fn unix_time_millis() -> Option<u64> {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|duration| u64::try_from(duration.as_millis()).ok())
+fn run_protected(
+    channel: ProtectedActivationChannel,
+) -> Result<(), gocode_daemon::error::DaemonError> {
+    run_verified_protected_channel(channel)
 }

@@ -35,10 +35,7 @@ impl AppCore {
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         self.invalidate_bundled_activation_lease()?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.replace_runtime_client(None)?;
         self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
         self.record_bundled_shutdown_lifecycle()?;
         self.set_runtime_failure_code(None)
@@ -51,10 +48,7 @@ impl AppCore {
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         let lease = self.rotate_bundled_activation_lease()?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.replace_runtime_client(None)?;
         self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
         self.set_runtime_lifecycle(lifecycle)?;
         self.set_runtime_failure_code(None)?;
@@ -78,10 +72,7 @@ impl AppCore {
         self.require_bundled_mode()?;
         self.consume_bundled_activation_lease(lease)?;
         if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
-            *self
-                .runtime_client
-                .write()
-                .map_err(|_| AppCoreError::StateUnavailable)? = None;
+            self.replace_runtime_client(None)?;
             self.set_runtime_availability(RuntimeAvailability::Incompatible)?;
             self.set_runtime_lifecycle(RuntimeLifecycleStatus::Failed)?;
             self.set_runtime_failure_code(Some(RuntimeFailureCode::DowngradedExternalProfile))?;
@@ -93,13 +84,15 @@ impl AppCore {
         self.transition_runtime(RuntimeAvailability::PeerVerified)?;
         self.transition_runtime(RuntimeAvailability::BootstrapProved)?;
         self.transition_runtime(RuntimeAvailability::Authenticated)?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = Some(client);
+        self.replace_runtime_client(Some(client))?;
         self.transition_runtime(RuntimeAvailability::Reconciling)?;
+        let mut recovery_fence = RuntimeRecoveryFence::new(self);
+        if self.recover_anchored_mutations_v7_under_operation().await.is_err() {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
         self.transition_runtime(RuntimeAvailability::Live)?;
         self.set_runtime_failure_code(None)?;
+        recovery_fence.disarm();
         Ok(RuntimeAvailability::Live)
     }
 
@@ -116,10 +109,7 @@ impl AppCore {
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         self.invalidate_bundled_activation_lease()?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.replace_runtime_client(None)?;
         self.set_runtime_availability(RuntimeAvailability::Reconnecting)?;
         self.set_runtime_lifecycle(RuntimeLifecycleStatus::Degraded)?;
         self.set_runtime_failure_code(Some(failure))
@@ -141,10 +131,7 @@ impl AppCore {
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         self.invalidate_bundled_activation_lease()?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.replace_runtime_client(None)?;
         self.set_runtime_availability(RuntimeAvailability::Fatal)?;
         self.set_runtime_lifecycle(RuntimeLifecycleStatus::Failed)?;
         self.set_runtime_failure_code(Some(failure))
@@ -159,12 +146,32 @@ impl AppCore {
         let _operation = self.runtime_operation.lock().await;
         self.require_bundled_mode()?;
         self.invalidate_bundled_activation_lease()?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.replace_runtime_client(None)?;
         self.set_runtime_availability(RuntimeAvailability::Unconfigured)?;
         self.set_runtime_lifecycle(RuntimeLifecycleStatus::ConfigurationRequired)?;
         self.set_runtime_failure_code(Some(RuntimeFailureCode::ConfigurationRequired))
+    }
+}
+
+struct RuntimeRecoveryFence<'a> {
+    core: &'a AppCore,
+    armed: bool,
+}
+
+impl<'a> RuntimeRecoveryFence<'a> {
+    const fn new(core: &'a AppCore) -> Self {
+        Self { core, armed: true }
+    }
+
+    const fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RuntimeRecoveryFence<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.core.fence_cancelled_runtime_recovery();
+        }
     }
 }

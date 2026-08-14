@@ -68,6 +68,7 @@ async fn revocation_after_page_selection_returns_no_page_and_preserves_progress(
         )
         .await
         .unwrap();
+    assert_eq!(session.retention_generation, 0);
     let before = session.last_delivered_position;
 
     let error = service

@@ -3,10 +3,13 @@ use gocode_api::{
     LocalSessionContractError, ReplayContractError, RetentionManifest, RuntimeSessionBinding,
     StableRuntimeBinding,
 };
+use gocode_domain::conversation::Conversation;
 use gocode_domain::event::EventType;
 use gocode_domain::event::Sensitivity;
 use gocode_domain::id::EventLogLineageId;
+use gocode_domain::id::{ConversationId, WorkspaceId};
 use gocode_domain::replay::ReplayScope;
+use gocode_domain::task_run::{TaskRun, TaskRunEvent};
 
 const UUID_V7: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
@@ -137,3 +140,106 @@ fn replay_capability_accepts_every_valid_canonical_event_type() {
     assert_eq!(capability.event_type(), canonical_event_type.as_str());
     assert_eq!(capability.schema_version(), 1);
 }
+
+#[test]
+fn replay_projection_is_closed_and_round_trips_complete_conversation_state() {
+    let conversation_id = ConversationId::from_bytes(UUID_V7);
+    let workspace_id = WorkspaceId::from_bytes([
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x02,
+    ]);
+    let created = Conversation::decide_create(conversation_id, workspace_id);
+    let event = gocode_domain::event::EventEnvelope::from_parts(
+        gocode_domain::id::EventId::from_bytes([3; 16]),
+        created.aggregate_id().clone(),
+        created.correlation_id().clone(),
+        None,
+        gocode_domain::id::CommandId::from_bytes([4; 16]),
+        gocode_domain::id::IdempotencyKey::new("projection").unwrap(),
+        1,
+        gocode_domain::event::Actor::new("test").unwrap(),
+        *created.sensitivity(),
+        created.payload().clone(),
+        1,
+        gocode_domain::timestamp::Timestamp::from_unix_micros(1),
+        gocode_domain::id::IntegrityDigest::from_bytes([5; 32]),
+    );
+    let conversation = Conversation::replay(&[event]).unwrap();
+
+    let projection = gocode_api::ReplayAggregateProjectionV1::from_conversation(&conversation)
+        .expect("complete aggregate snapshot must be closed and encodable");
+    assert_eq!(
+        projection.aggregate_kind(),
+        ApiReplayAggregateKind::Conversation
+    );
+    assert_eq!(projection.aggregate_id(), *conversation_id.as_bytes());
+    let parsed = gocode_api::UnauthenticatedReplayProjectionV1::decode_conversation_bytes(
+        projection.encoded_bytes(),
+    )
+    .unwrap();
+    assert_eq!(parsed.aggregate_kind(), projection.aggregate_kind());
+    assert_eq!(parsed.aggregate_id(), projection.aggregate_id());
+    assert_eq!(parsed.projection_digest(), projection.projection_digest());
+}
+
+#[test]
+fn replay_projection_rejects_tamper_unknown_tag_and_trailing_bytes() {
+    let conversation_id = ConversationId::from_bytes(UUID_V7);
+    let workspace_id = WorkspaceId::from_bytes([
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x02,
+    ]);
+    let draft = Conversation::decide_create(conversation_id, workspace_id);
+    let event = gocode_domain::event::EventEnvelope::from_parts(
+        gocode_domain::id::EventId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 3,
+        ]),
+        draft.aggregate_id().clone(),
+        draft.correlation_id().clone(),
+        None,
+        gocode_domain::id::CommandId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 4,
+        ]),
+        gocode_domain::id::IdempotencyKey::new("projection-negative").unwrap(),
+        1,
+        gocode_domain::event::Actor::new("test").unwrap(),
+        *draft.sensitivity(),
+        draft.payload().clone(),
+        1,
+        gocode_domain::timestamp::Timestamp::from_unix_micros(1),
+        gocode_domain::id::IntegrityDigest::from_bytes([5; 32]),
+    );
+    let projection = gocode_api::ReplayAggregateProjectionV1::from_conversation(
+        &Conversation::replay(&[event]).unwrap(),
+    )
+    .unwrap();
+    let bytes = projection.encoded_bytes();
+    for malformed in [
+        bytes[..bytes.len() - 1].to_vec(),
+        {
+            let mut value = bytes.to_vec();
+            value[0] = 99;
+            value
+        },
+        {
+            let mut value = bytes.to_vec();
+            value.push(0);
+            value
+        },
+    ] {
+        assert_eq!(
+            gocode_api::UnauthenticatedReplayProjectionV1::decode_conversation_bytes(&malformed),
+            Err(ReplayContractError::InvalidProjection)
+        );
+    }
+    assert_eq!(
+        gocode_api::UnauthenticatedReplayProjectionV1::decode_conversation_bytes(&vec![
+            0;
+            gocode_api::MAX_REPLAY_BASELINE_PROJECTION_BYTES_V1
+                + 1
+        ],),
+        Err(ReplayContractError::InvalidProjection)
+    );
+}
+
+include!("replay_contract/projection_tail.rs");

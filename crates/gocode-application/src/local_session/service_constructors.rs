@@ -111,6 +111,7 @@ impl LocalSessionService {
             challenges: HashMap::new(),
             issued: VecDeque::new(),
             sessions: HashMap::new(),
+            trusted_clock_origin: std::time::Instant::now(),
         }
     }
 

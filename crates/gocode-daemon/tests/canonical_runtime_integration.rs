@@ -19,6 +19,7 @@ use support::{TestSession, connect_session};
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000071";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000072";
+const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-000000000073";
 
 struct RunningDaemon {
     address: SocketAddr,
@@ -143,6 +144,15 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
         .unwrap();
     assert_eq!(event_count, 0, "rejected auth must commit no event");
 
+    support::seed_project_workspace(
+        &client,
+        daemon.address,
+        &authorization,
+        PROJECT_ID,
+        WORKSPACE_ID,
+    )
+    .await;
+
     let response = command(
         &client,
         &daemon,
@@ -224,7 +234,7 @@ async fn canonical_lifecycle_is_authenticated_durable_and_restored_after_restart
     let profile: Value = profile.json().await.unwrap();
     assert_eq!(
         profile["capabilities"],
-        json!(gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES)
+        json!(gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES)
     );
 
     let replay = client

@@ -21,6 +21,7 @@ use gocode_runtime_client::{
 };
 use gocode_store::codec::{ConversationEventCodec, StoreCodec};
 use gocode_store::integrity::compute_integrity_digest_v2_with_global_position;
+use gocode_secure_store::SecureStore;
 use rusqlite::Connection;
 use tokio::sync::{Mutex, MutexGuard};
 

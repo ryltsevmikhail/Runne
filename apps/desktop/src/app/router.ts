@@ -14,12 +14,12 @@ export const routes: RouteRecordRaw[] = [
     component: OpenProjectPage,
   },
   {
-    path: '/projects/:id',
+    path: '/projects/:projectId',
     name: 'project-details',
     component: ProjectDetailsPage,
   },
   {
-    path: '/workspaces/:id',
+    path: '/workspaces/:workspaceId',
     name: 'workspace',
     component: WorkspacePage,
   },

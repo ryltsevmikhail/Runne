@@ -72,6 +72,22 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&operational_telemetry_golden())?,
         ),
         (
+            "golden/project-workspace.json",
+            canonical_json(&project_workspace_golden())?,
+        ),
+        (
+            "golden/replay-retention-gap-v2.json",
+            canonical_json(&replay_retention_baseline_v2_golden())?,
+        ),
+        (
+            "golden/replay-retention-gap.json",
+            canonical_json(&replay_retention_baseline_golden())?,
+        ),
+        (
+            "golden/replay-resume-v2.json",
+            canonical_json(&replay_resume_from_baseline_golden())?,
+        ),
+        (
             "golden/replay-conversation.json",
             canonical_json(&replay_conversation_golden())?,
         ),
@@ -85,7 +101,7 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
         ),
         ("openapi.json", canonical_json(&openapi())?),
         (
-            "schemas/local-runtime-profile-v2.schema.json",
+            "schemas/local-runtime-profile-v3.schema.json",
             canonical_json(&local_runtime_profile_schema())?,
         ),
         (
@@ -95,6 +111,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
         (
             "schemas/operational-telemetry-v1.schema.json",
             canonical_json(&operational_telemetry_schema())?,
+        ),
+        (
+            "schemas/project-workspace-v2.schema.json",
+            canonical_json(&project_workspace_schema())?,
         ),
         (
             "schemas/replay-v1.schema.json",

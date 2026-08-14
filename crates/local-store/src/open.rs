@@ -1,7 +1,5 @@
 use super::{
-    Connection, LocalStore, Path, PathBuf, REPLAY_TABLES_V4_SQL, StoreOpenError,
-    TransactionBehavior, params, pre_v4_migration_backup_path, sync_parent_directory,
-    verify_pre_v4_backup_path,
+    Connection, LocalStore, Path, REPLAY_TABLES_V4_SQL, StoreOpenError, TransactionBehavior,
 };
 
 impl LocalStore {
@@ -20,7 +18,10 @@ impl LocalStore {
             PRAGMA synchronous = FULL;
             ",
         )?;
-        let mut store = Self { connection };
+        let mut store = Self {
+            connection,
+            security: None,
+        };
         store.apply_migrations()?;
         Ok(store)
     }
@@ -30,7 +31,7 @@ impl LocalStore {
         let version: i64 = self
             .connection
             .pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if version > 4 {
+        if version > 5 {
             return Err(StoreOpenError::UnsupportedSchema(version));
         }
         if version < 1 {
@@ -226,55 +227,11 @@ impl LocalStore {
                 transaction.commit()?;
             }
         }
-        Ok(())
-    }
-
-    fn ensure_pre_v4_migration_backup(&self) -> Result<(), StoreOpenError> {
-        let Some(database_path) = self
-            .connection
-            .path()
-            .filter(|path| !path.is_empty())
-            .map(PathBuf::from)
-        else {
-            return Ok(());
-        };
-        let backup_path = pre_v4_migration_backup_path(&database_path)?;
-        if backup_path.exists() || backup_path.is_symlink() {
-            return Err(StoreOpenError::MigrationBackupUnavailable);
+        if version < 5 {
+            let backup = self.ensure_pre_v5_migration_backup()?;
+            self.migrate_v4_recent_roots(backup)?;
         }
-        let temporary = backup_path.with_extension("sqlite3.tmp");
-        if temporary.exists() || temporary.is_symlink() {
-            return Err(StoreOpenError::MigrationBackupUnavailable);
-        }
-        let temporary_text = temporary
-            .to_str()
-            .ok_or(StoreOpenError::MigrationBackupUnavailable)?;
-        if self
-            .connection
-            .execute("VACUUM main INTO ?1", params![temporary_text])
-            .is_err()
-        {
-            let _ = std::fs::remove_file(&temporary);
-            return Err(StoreOpenError::MigrationBackupUnavailable);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let permissions = std::fs::Permissions::from_mode(0o600);
-            std::fs::set_permissions(&temporary, permissions)
-                .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
-        }
-        std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&temporary)
-            .and_then(|file| file.sync_all())
-            .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
-        verify_pre_v4_backup_path(&temporary)?;
-        std::fs::rename(&temporary, &backup_path)
-            .map_err(|_| StoreOpenError::MigrationBackupUnavailable)?;
-        sync_parent_directory(&backup_path)?;
-        verify_pre_v4_backup_path(&backup_path)?;
+        self.validate_v5_schema()?;
         Ok(())
     }
 }

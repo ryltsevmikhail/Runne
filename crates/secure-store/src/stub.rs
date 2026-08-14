@@ -39,19 +39,7 @@ impl StubStore {
     }
 }
 
-impl SecureStore for StubStore {
-    fn store_anchor(&self, _generation: u64) -> Result<(), SecureStoreError> {
-        Err(SecureStoreError::Unavailable)
-    }
-
-    fn read_anchor(&self) -> Result<Option<u64>, SecureStoreError> {
-        Err(SecureStoreError::Unavailable)
-    }
-
-    fn delete_anchor(&self) -> Result<(), SecureStoreError> {
-        Err(SecureStoreError::Unavailable)
-    }
-}
+impl SecureStore for StubStore {}
 
 #[cfg(feature = "project-owner-key-store")]
 impl ProjectOwnerKeyStore for StubStore {

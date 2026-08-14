@@ -2,7 +2,7 @@ use super::provider_startup::StartupProvider;
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
 use crate::config::{Source, external_config_path, load_external_config};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 pub(crate) struct VerifiedOwnerPrivateConfig {
@@ -66,26 +66,32 @@ pub struct DaemonApplication {
     pub(super) bootstrap: BootstrapOutcome,
     pub(super) store: StoreTransaction,
     pub(super) http_host: LocalRuntimeTlsHost,
-    pub(super) client_profile: Option<PublishedClientProfileV2>,
+    pub(super) client_profile: Option<PublishedClientProfileV3>,
     pub(super) binding: RuntimeSessionBinding,
     pub(super) local_session_service: Arc<Mutex<LocalSessionService>>,
     pub(super) _bootstrap_reservation_store: Arc<SqliteBootstrapReservationStore>,
     pub(super) session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     pub(super) protected_activation: bool,
     pub(super) provider_activation: ProviderActivation,
+    /// Metadata-only provider readiness, consumed only by the
+    /// desktop-protected V2 readiness path; unread in featureless builds.
+    #[allow(dead_code)]
+    pub(super) provider_readiness: gocode_api::ProviderActivationReadinessV1,
     pub(super) runtime_liveness: RuntimeHandle,
     pub(super) runtime_controller: RuntimeController,
     pub(super) _secret_broker: Arc<Mutex<SecretBroker>>,
     pub(super) task_supervisor: Arc<RuntimeTaskSupervisor>,
     pub(super) shutdown_timeout: Duration,
+    #[cfg(feature = "desktop-protected")]
+    pub(super) root_control: Option<Arc<crate::protected_activation::ProtectedRootControl>>,
+    pub(super) runtime_capabilities: &'static [&'static str],
 }
 
 impl DaemonApplication {
-    pub(super) async fn start_external_from_fixed_source(
-        dependencies: ProtectedProviderDependencyCapsule,
-    ) -> Result<Self, DaemonError> {
+    pub async fn start_external_from_fixed_source() -> Result<Self, DaemonError> {
         let verified = VerifiedOwnerPrivateConfig::load_fixed_source()?;
-        Self::start_verified_external(verified, dependencies).await
+        Self::start_verified_external(verified, ProtectedProviderDependencyCapsule::production())
+            .await
     }
 
     async fn start_verified_external(
@@ -107,12 +113,13 @@ impl DaemonApplication {
     }
 
     /// Starts from an already authenticated protected bundled bootstrap.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) async fn start_protected(
         start: VerifiedProtectedApplicationStart,
+        keys: ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Result<Self, DaemonError> {
-        let startup = StartupProvider::verified_protected(&start, dependencies);
+        let startup = StartupProvider::verified_protected(&start, keys, dependencies);
         let (config, bootstrap, _) = start.into_parts();
         Self::validate_config(&config)?;
         Self::start_with_bootstrap(&config, bootstrap, startup).await

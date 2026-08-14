@@ -10,7 +10,7 @@ use crate::canonical_provider::{
     DaemonActivationProvenance, DaemonCanonicalOpenAiComposition, DaemonCanonicalOpenAiService,
     compose_selected_provider,
 };
-use crate::client_profile::PublishedClientProfileV2;
+use crate::client_profile::PublishedClientProfileV3;
 use crate::config::ConfigurationSnapshot;
 use crate::error::DaemonError;
 use crate::provider_activation::ProviderActivation;
@@ -19,7 +19,8 @@ use crate::shutdown::{RuntimeTaskSupervisor, graceful_shutdown};
 use gocode_api::{
     ApiActor, ApiPrincipalId, ExecutableIdentityV1, ProtectedActivationKeys,
     ProtectedLaunchRequestV1, ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2,
-    RuntimeSessionBinding, StableRuntimeBinding, StableRuntimeBindingV1,
+    ProviderActivationReadinessV1, RuntimeSessionBinding, StableRuntimeBinding,
+    StableRuntimeBindingV1,
 };
 use gocode_application::conversation_service::ConversationService;
 use gocode_application::conversation_text_service::{
@@ -66,13 +67,19 @@ mod http_startup;
 mod provider_startup;
 mod readiness;
 mod replay_authorization;
+#[cfg(all(feature = "test-support", feature = "desktop-protected"))]
+pub(crate) mod root_admission_test_support;
+#[cfg(not(feature = "desktop-protected"))]
+mod root_admission_unavailable;
+#[cfg(feature = "desktop-protected")]
+#[doc(hidden)]
+pub(crate) mod root_handle_admission;
 mod runtime_connection;
 mod shutdown;
 mod startup;
 #[cfg(test)]
 mod tests;
-#[doc(hidden)]
-pub mod workspace_internal;
+pub(crate) mod workspace_internal;
 
 use runtime_connection::open_runtime_connection;
 pub use startup::DaemonApplication;

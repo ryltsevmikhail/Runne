@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [features]
 default = []
+protected-channel-integration = []
 test-support = ["gocode-api/test-support", "gocode-runtime-client/test-support"]
 
 [dependencies]
@@ -24,7 +25,13 @@ zeroize = "=1.9.0"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
-rustix = { version = "=1.1.4", features = ["process"] }
+rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["socket"] }
+
+[target.'cfg(windows)'.dependencies]
+gocode-windows-native-handle = { path = "../windows-native-handle" }
 
 [lints]
 workspace = true

@@ -58,6 +58,10 @@ impl Harness {
                 RuntimeAuthorityId(hex::encode(authority)),
                 Arc::clone(&prohibited),
             ));
+        seed_canonical_workspace(
+            &store,
+            "018f2e3a-7000-7000-8000-000000000093".parse().unwrap(),
+        );
         Self {
             _directory: directory,
             db_path,

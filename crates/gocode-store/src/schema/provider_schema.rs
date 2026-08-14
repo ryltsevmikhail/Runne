@@ -73,7 +73,15 @@ pub(super) fn v15_matches(
     version: i64,
     v14_matches: bool,
 ) -> SqliteResult<bool> {
-    if version != 15 || !v14_matches {
+    if version != 15 {
+        return Ok(false);
+    }
+    v15_base_matches(conn, v14_matches)
+}
+
+/// Checks the additive V15 table without constraining a later schema marker.
+pub(super) fn v15_base_matches(conn: &Connection, v14_matches: bool) -> SqliteResult<bool> {
+    if !v14_matches {
         return Ok(false);
     }
     let actual: Option<String> = conn.query_row(

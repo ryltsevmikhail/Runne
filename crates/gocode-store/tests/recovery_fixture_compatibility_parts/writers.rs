@@ -38,6 +38,11 @@ fn current_writers_emit_only_taskrun_v1_and_conversation_v2() {
     let path = daemon.join("writers.sqlite");
     let authority = RuntimeAuthorityId("fixture-writer".into());
     let store = StoreTransaction::open(path.to_str().unwrap(), authority.clone(), available_guard()).unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &store,
+        "fixture-test",
+        "018f2e3a-7000-7000-8000-000000000013".parse().unwrap(),
+    );
     let taskrun = TaskRunService::new(store.clone(), store.clone(), store.clone(), authority.clone());
     taskrun.create_task_run(&context("018f2e3a-7000-7000-8000-000000000011", "taskrun"), CreateTaskRunInput {
         conversation_id: "018f2e3a-7000-7000-8000-000000000012".parse::<ConversationId>().unwrap(),

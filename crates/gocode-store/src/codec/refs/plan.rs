@@ -31,9 +31,9 @@ pub(super) fn encode_result_ref(
     buf: &mut Vec<u8>,
     value: &ResultRef,
 ) -> Result<(), StoreCodecError> {
-    write_uuid(buf, value.result_id.as_bytes());
-    write_string(buf, &value.media_type)?;
-    write_digest(buf, &value.integrity_digest);
+    write_uuid(buf, value.result_id().as_bytes());
+    write_string(buf, value.media_type())?;
+    write_digest(buf, value.integrity_digest());
     Ok(())
 }
 

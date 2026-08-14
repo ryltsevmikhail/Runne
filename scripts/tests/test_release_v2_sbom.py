@@ -82,7 +82,7 @@ class SbomTests(unittest.TestCase):
 
     def test_root_structural_sbom_is_deterministic_with_bundled_component_and_production_blocks_unknowns(self) -> None:
         root = Path(__file__).parents[2]
-        manifests = (root / "Cargo.toml", *sorted((root / "crates").glob("*/Cargo.toml")), root / "apps/desktop/src-tauri/Cargo.toml", root / "package.json", root / "apps/desktop/package.json", root / "contracts/gocode-ui-client-1/package.json", root / "packages/platform-contract/package.json", root / "packages/product/package.json")
+        manifests = (root / "Cargo.toml", *sorted((root / "crates").glob("*/Cargo.toml")), root / "apps/desktop/src-tauri/Cargo.toml", root / "package.json", root / "apps/desktop/package.json", root / "contracts/gocode-ui-client-2/package.json", root / "packages/platform-contract/package.json", root / "packages/product/package.json")
         identity = BuildInputIdentityV2("build-input-v2", "a" * 40, "b" * 64, "1.0.0", "x86_64-unknown-linux-gnu", "linux", ("c" * 64,), "rust-1.97.1", _sha256(root / "Cargo.lock"), _sha256(root / "pnpm-lock.yaml"), "release", 0)
         source = inventory_dependencies(root / "Cargo.lock", root / "pnpm-lock.yaml", manifests, identity)
         bundled_digest = hashlib.sha256(b"gocoded").hexdigest()

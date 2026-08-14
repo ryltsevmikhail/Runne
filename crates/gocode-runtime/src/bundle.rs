@@ -1,10 +1,10 @@
-//! Published canonical contract identity for `gocode-ui-client/1`.
+//! Published canonical contract identity for `gocode-ui-client/2`.
 //!
 //! The checked-in `bundle.json` is generated from contract content only.
 //! Source revision evidence is deliberately maintained outside this digest.
 
 /// Canonical API profile identifier.
-pub const BUNDLE_ID: &str = "gocode-ui-client/1";
+pub const BUNDLE_ID: &str = "gocode-ui-client/2";
 
 /// Exact local transport profile described by this contract.
 pub const TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "6cc2512e01d160b14d805a8e5a1d328d2d9659e7cac6b2140f050e7ef68643ac";
+    "a3644c77c658c81baa4503d51c8a4207799bea1c9673674f1963defc6f4b8e90";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -25,12 +25,51 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
     "replay.aggregate.read_page.v1",
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+    "workspace.bind_root.v3",
+];
+
+/// Exact base profile for external and deterministic daemon modes.
+pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
+    "conversation.create.v1",
+    "conversation.generate_text.v1",
+    "conversation.list_messages.v1",
+    "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
+    "replay.aggregate.read_page.v1",
+    "replay.aggregate.acknowledge.v1",
+    "replay.aggregate.complete_catch_up.v1",
+    "replay.aggregate.continue_live.v1",
+    "replay.aggregate.sse.v1",
+    "runtime.operational-telemetry.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
 ];
 
 /// Ordered capability catalog described by the generated API contract.
@@ -39,12 +78,25 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
     "replay.aggregate.read_page.v1",
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
+    "project.list.v1",
+    "project.get.v1",
+    "project.create.v1",
+    "project.archive.v1",
+    "project.restore.v1",
+    "project.delete.v1",
+    "workspace.list.v1",
+    "workspace.get.v1",
+    "workspace.create.v1",
+    "workspace.open.v1",
+    "workspace.bind_root.v3",
 ];
 
 #[cfg(test)]
@@ -58,12 +110,25 @@ mod tests {
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
             "replay.aggregate.open.v1",
+            "replay.aggregate.retention_baseline.v1",
+            "replay.aggregate.retention_baseline_resume.v2",
             "replay.aggregate.read_page.v1",
             "replay.aggregate.acknowledge.v1",
             "replay.aggregate.complete_catch_up.v1",
             "replay.aggregate.continue_live.v1",
             "replay.aggregate.sse.v1",
             "runtime.operational-telemetry.v1",
+            "project.list.v1",
+            "project.get.v1",
+            "project.create.v1",
+            "project.archive.v1",
+            "project.restore.v1",
+            "project.delete.v1",
+            "workspace.list.v1",
+            "workspace.get.v1",
+            "workspace.create.v1",
+            "workspace.open.v1",
+            "workspace.bind_root.v3",
         ];
         assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
         assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);

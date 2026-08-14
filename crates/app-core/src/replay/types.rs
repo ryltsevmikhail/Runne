@@ -26,6 +26,10 @@ pub struct StableRuntimeIdentity {
     pub capability_digest: String,
     pub binding_digest: String,
     pub launch_generation: u64,
+    pub session_id: String,
+    pub daemon_instance_id: String,
+    pub authorization_epoch: u64,
+    pub certificate_sha256: String,
 }
 
 impl StableRuntimeIdentity {
@@ -40,6 +44,10 @@ impl StableRuntimeIdentity {
             capability_digest: session.capability_digest.clone(),
             binding_digest: client.replay_persistence_binding().digest().to_owned(),
             launch_generation: session.launch_generation,
+            session_id: session.session_id.clone(),
+            daemon_instance_id: session.daemon_instance_id.clone(),
+            authorization_epoch: session.authorization_epoch,
+            certificate_sha256: session.certificate_sha256.clone(),
         }
     }
 
@@ -51,6 +59,19 @@ impl StableRuntimeIdentity {
             self.profile_id == reference.profile_id,
             self.schema_hash == reference.schema_hash,
             self.capability_digest == reference.capability_digest,
+        ]
+        .into_iter()
+        .all(std::convert::identity)
+    }
+
+    pub fn same_durable_runtime(&self, other: &Self) -> bool {
+        [
+            self.authority == other.authority,
+            self.principal == other.principal,
+            self.lineage == other.lineage,
+            self.profile_id == other.profile_id,
+            self.schema_hash == other.schema_hash,
+            self.capability_digest == other.capability_digest,
         ]
         .into_iter()
         .all(std::convert::identity)

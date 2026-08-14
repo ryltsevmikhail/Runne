@@ -28,6 +28,17 @@ pub trait ReplayDeliveryPrecommitGuard: Send + Sync {
         self.inspect_ack(session)?;
         mutation()
     }
+
+    /// Fences one session INSERT plus its exact readback and commit.
+    fn mutate_session_admission(
+        &self,
+        session: &ReplaySession,
+        events: &[ReplayEvent],
+        mutation: &mut dyn FnMut() -> Result<ReplaySession, ReplayError>,
+    ) -> Result<ReplaySession, ReplayError> {
+        self.inspect(session, events)?;
+        mutation()
+    }
 }
 
 /// Inputs used to acquire a current replay authorization lease.
@@ -98,5 +109,18 @@ pub trait ReplayAuthorizationPort: Send + Sync {
     ) -> Result<usize, ReplayError> {
         let lease = self.current_lease(request)?;
         mutation(&lease)
+    }
+
+    fn mutate_session_admission(
+        &self,
+        request: &ReplayAuthorizationRequest,
+        mutation: &mut dyn FnMut(&ReplayAuthorizationLease) -> Result<ReplaySession, ReplayError>,
+    ) -> Result<ReplaySession, ReplayError> {
+        let mut result = None;
+        self.mutate_with_current_lease(request, &mut |lease| {
+            result = Some(mutation(lease)?);
+            Ok(1)
+        })?;
+        result.ok_or_else(|| ReplayError::Integrity("session admission mutation did not run".to_owned()))
     }
 }

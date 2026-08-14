@@ -8,8 +8,7 @@ use axum::{
     http::{HeaderMap, Request, Response, StatusCode},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use gocode_api::ApiPrincipalId;
-use gocode_api::RuntimeSessionBinding;
+use gocode_api::{ApiPrincipalId, RuntimeSessionBinding};
 use gocode_application::local_session::LocalSessionService;
 use std::future::Future;
 use std::pin::Pin;
@@ -30,8 +29,6 @@ impl AuthenticatedPrincipal {
         &self.0
     }
 }
-
-// ── Public helpers ────────────────────────────────────────────────────
 
 /// Extract a Bearer token from request headers.
 ///
@@ -150,29 +147,39 @@ where
             req.headers_mut().append("authorization", value);
         }
         let authenticated = extract_session_authority(req.headers()).and_then(|authority| {
-            self.service
-                .lock()
-                .ok()
-                .and_then(|mut service| match self.binding.as_ref() {
+            self.service.lock().ok().and_then(|mut service| {
+                let (authenticated, issuer) = match self.binding.as_ref() {
                     Some(binding) => service
-                        .authorize_wire_for_binding(&authority, binding, (self.clock)())
-                        .ok(),
-                    None => service.authorize_wire(&authority, (self.clock)()).ok(),
-                })
+                        .authorize_wire_with_replay_issuer_for_binding(
+                            &authority,
+                            binding,
+                            (self.clock)(),
+                        )
+                        .ok()?,
+                    None => service
+                        .authorize_wire_with_replay_issuer(&authority, (self.clock)())
+                        .ok()?,
+                };
+                let context = service.replay_resume_context_v2(&issuer).ok()?;
+                Some((authenticated, context))
+            })
         });
-        if let Some(authenticated) = authenticated {
+        if let Some((authenticated, baseline_context)) = authenticated {
             let principal =
                 AuthenticatedPrincipal(authenticated.binding.stable().principal_id().clone());
             req.extensions_mut().insert(authenticated);
+            req.extensions_mut().insert(baseline_context);
             req.extensions_mut().insert(principal);
             let mut inner = self.inner.clone();
             Box::pin(async move { inner.call(req).await })
         } else {
-            let response = canonical_error_response(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                &RequestId::generate(),
-            );
+            let request_id = req
+                .extensions()
+                .get::<RequestId>()
+                .cloned()
+                .unwrap_or_else(RequestId::generate);
+            let response =
+                canonical_error_response(StatusCode::UNAUTHORIZED, "unauthorized", &request_id);
             Box::pin(async move { Ok(response) })
         }
     }
@@ -193,8 +200,6 @@ fn extract_session_authority(headers: &HeaderMap) -> Option<[u8; 32]> {
     }
     URL_SAFE_NO_PAD.decode(token).ok()?.try_into().ok()
 }
-
-// ── AuthLayer ─────────────────────────────────────────────────────────
 
 /// Tower layer that adds bearer token authentication.
 ///

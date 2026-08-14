@@ -1,4 +1,7 @@
 include!("ui_contract_generation/support.rs");
 include!("ui_contract_generation/generation.rs");
+include!("ui_contract_generation/project_workspace_contract.rs");
+include!("ui_contract_generation/project_workspace_openapi_contract.rs");
 include!("ui_contract_generation/remaining.rs");
+include!("ui_contract_generation/retention_baseline_contract.rs");
 include!("ui_contract_generation/operational_telemetry_review.rs");

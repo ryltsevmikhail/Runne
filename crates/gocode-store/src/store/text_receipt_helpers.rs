@@ -9,6 +9,23 @@ pub(super) fn lookup_text_receipt(
     scope: &[u8],
     fingerprint: &CommandFingerprint,
 ) -> Result<TextGenerationReceiptLookup, CommitError> {
+    if let Some(stored_fingerprint) = connection
+        .query_row(
+            "SELECT semantic_fingerprint FROM project_workspace_command_receipts
+             WHERE command_id = ?1",
+            params![command_id.as_bytes()],
+            |row| row.get::<_, Vec<u8>>(0),
+        )
+        .optional()
+        .map_err(map_commit_read_error)?
+    {
+        return Err(CommitError::IdempotencyConflict {
+            stored_command_id: command_id,
+            attempted_command_id: command_id,
+            stored_fingerprint: parse_fingerprint(stored_fingerprint)?,
+            attempted_fingerprint: *fingerprint,
+        });
+    }
     let by_command = connection
         .query_row(
             "SELECT idempotency_scope_bytes, idempotency_key, fingerprint, command_outcome
@@ -26,14 +43,36 @@ pub(super) fn lookup_text_receipt(
         .optional()
         .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
     if let Some((stored_scope, stored_key, stored_fingerprint, stored_outcome)) = by_command {
+        let stored_key = parse_idempotency_key_for_commit(stored_key)?;
         let stored_fingerprint = parse_fingerprint(stored_fingerprint)?;
         if stored_scope == scope
-            && stored_key == idempotency_key.as_str().as_bytes()
+            && stored_key == *idempotency_key
             && stored_fingerprint == *fingerprint
         {
             let stored_result = TextGenerationReceiptCodec
                 .decode(&stored_outcome)
                 .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+            let stored_scope = IdempotencyScopeCodec
+                .decode(&stored_scope)
+                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+            let version_valid = match stored_result.phase {
+                TextGenerationPhase::Started => stored_result.taskrun_version == 4,
+                TextGenerationPhase::Completed
+                | TextGenerationPhase::Rejected
+                | TextGenerationPhase::ProhibitedInputRejected => {
+                    stored_result.taskrun_version == 5
+                }
+            };
+            if stored_scope.operation != OperationTag::GenerateConversationText || !version_valid {
+                return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+            }
+            crate::project_workspace::lineage::validate_text_taskrun_lineage(
+                connection,
+                stored_result.taskrun_id,
+                stored_result.workspace_id,
+                command_id,
+                &stored_scope,
+            )?;
             return Ok(TextGenerationReceiptLookup::Duplicate { stored_result });
         }
         return Err(CommitError::IdempotencyConflict {

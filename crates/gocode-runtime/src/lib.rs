@@ -7,6 +7,7 @@
 
 //! `gocode-runtime` — multi-worker dispatch runtime for GOCODE.
 
+pub mod command_reconciliation_host;
 pub mod config;
 pub mod controller;
 pub mod error;
@@ -19,6 +20,7 @@ pub mod migration_router;
 pub mod migration_shadow;
 pub mod opencode_session;
 pub mod plugin_host;
+pub mod project_workspace_host;
 pub mod provider_execution;
 pub mod provider_redaction;
 pub mod provider_tool;
@@ -31,6 +33,7 @@ mod supervisor;
 mod worker;
 
 mod startup;
+pub use project_workspace_host::{PROJECT_WORKSPACE_WORKER_CAPACITY, RuntimeProjectWorkspaceHost};
 pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };
@@ -47,6 +50,9 @@ pub use canonical_conversation_host::{
 pub use canonical_provider_execution::{
     CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
     CanonicalProviderExecutionService,
+};
+pub use command_reconciliation_host::{
+    COMMAND_RECONCILIATION_WORKER_CAPACITY, RuntimeCommandReconciliationHost,
 };
 pub use mcp::{McpActivationError, McpActivationRequest, McpRuntimeActivation};
 pub use plugin_host::{

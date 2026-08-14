@@ -1,4 +1,6 @@
 use super::*;
+use gocode_api::ProviderActivationReadinessV1;
+use gocode_secure_store::{ProviderCredentialId, SecureStoreError};
 
 /// Typed pre-readiness failures for exact OpenAI composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -67,6 +69,43 @@ impl OpenAiReadinessEvidence {
             return Err(OpenAiReadinessError::JournalKey);
         }
         Ok(())
+    }
+}
+
+/// Computes metadata-only provider readiness without loading credential
+/// material. No credential bytes, keychain errors, or filesystem paths enter
+/// the returned disposition.
+pub(crate) async fn probe_provider_readiness(
+    runtime_authority_id: [u8; 16],
+) -> ProviderActivationReadinessV1 {
+    let keyring = native_journal_keyring(runtime_authority_id);
+    if !keyring.retains_multiple_provider_journal_keys() {
+        return ProviderActivationReadinessV1::SecureStoreUnavailable;
+    }
+    let access = match credential_access_policy() {
+        Ok(access) => access,
+        Err(_) => return ProviderActivationReadinessV1::CredentialIdentityMismatch,
+    };
+    let store: Arc<dyn ProviderCredentialStore> = Arc::new(NativeProviderCredentialStore::new());
+    let probe = tokio::task::spawn_blocking(move || {
+        store.provider_credential_status(ProviderCredentialId::OpenAi, &access)
+    })
+    .await;
+    match probe {
+        Ok(Ok(ProviderCredentialStatus::Configured)) => ProviderActivationReadinessV1::Ready,
+        Ok(Ok(ProviderCredentialStatus::Missing)) => {
+            ProviderActivationReadinessV1::CredentialMissing
+        }
+        Ok(Ok(ProviderCredentialStatus::Unsupported)) => {
+            ProviderActivationReadinessV1::SecureStoreUnavailable
+        }
+        Ok(Err(SecureStoreError::CredentialAccessDenied)) => {
+            ProviderActivationReadinessV1::CredentialAccessDenied
+        }
+        Ok(Err(SecureStoreError::CredentialIdentityMismatch)) => {
+            ProviderActivationReadinessV1::CredentialIdentityMismatch
+        }
+        _ => ProviderActivationReadinessV1::SecureStoreUnavailable,
     }
 }
 

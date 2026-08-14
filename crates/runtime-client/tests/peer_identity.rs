@@ -215,7 +215,7 @@ fn write_profile(
     fs::write(
         &profile_path,
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "transportProfileId": "gocode-local-runtime/2",
             "profileId": EXPECTED_BUNDLE_ID,
             "schemaHash": GOLDEN_BUNDLE_HASH,

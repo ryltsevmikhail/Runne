@@ -68,8 +68,7 @@ fn setup_with_events(
         prohibited_content,
     );
     let router = replay_router(state)
-        .layer(axum::Extension(authenticated_runtime_session()))
-        .layer(AuthLayer::new(TOKEN))
+        .layer(session_auth_layer())
         .layer(axum::middleware::from_fn(request_id_middleware));
     (router, database)
 }

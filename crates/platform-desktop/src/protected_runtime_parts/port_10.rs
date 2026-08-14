@@ -6,7 +6,7 @@ fn expected_profile() -> Result<ProtectedRuntimeProfileV1, ProtectedBundledRunti
         .ok_or(ProtectedBundledRuntimeError::LaunchAuthority(
             LaunchAuthorityError::ProfileHashMismatch,
         ))?;
-    let capabilities = REQUIRED_RUNTIME_CAPABILITIES
+    let capabilities = PROTECTED_RUNTIME_CAPABILITIES
         .iter()
         .map(|capability| (*capability).to_owned())
         .collect::<Vec<_>>();
@@ -72,7 +72,9 @@ fn read_frame(stream: &mut UnixStream) -> Result<Zeroizing<Vec<u8>>, ProtectedBu
 
 #[cfg(unix)]
 fn write_frame(stream: &mut UnixStream, frame: &[u8]) -> Result<(), ProtectedBundledRuntimeError> {
-    if frame.len() < 5 || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4 {
+    if frame.len() < 5 || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4
+        || u32::from_be_bytes(frame[..4].try_into().unwrap_or([0; 4])) as usize != frame.len() - 4
+    {
         return Err(ProtectedBundledRuntimeError::LaunchAuthority(
             LaunchAuthorityError::InvalidContract,
         ));

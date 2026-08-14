@@ -3,9 +3,13 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode};
+use base64::Engine as _;
 use futures::StreamExt;
 use gocode_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding};
 use gocode_application::local_session::AuthenticatedRuntimeSession;
+use gocode_application::local_session::{
+    BootstrapProof, LocalSessionService, bootstrap_proof_transcript,
+};
 use gocode_application::ports::{
     ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
 };
@@ -19,7 +23,7 @@ use gocode_domain::id::{
 };
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
-use gocode_http::auth::AuthLayer;
+use gocode_http::auth::{SessionAuthLayer, session_authorization_header};
 use gocode_http::limits::LimitsConfig;
 use gocode_http::middleware::request_id_middleware;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
@@ -29,10 +33,13 @@ use gocode_store::schema::{
     ConnectionMode, apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id,
     open_managed_connection,
 };
+use hmac::{Hmac, Mac};
 use serde_json::{Value, json};
+use std::sync::Mutex;
 use tower::ServiceExt;
 
 const TOKEN: [u8; 32] = [0xAB; 32];
+const SESSION_AUTHORITY: [u8; 32] = [0xAC; 32];
 const AGGREGATE: [u8; 16] = [
     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 0xbb,
 ];
@@ -56,7 +63,7 @@ fn authenticated_runtime_session() -> AuthenticatedRuntimeSession {
                 ],
                 ApiPrincipalId::new("local-owner").unwrap(),
                 EventLogLineageId::from_bytes(LINEAGE),
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [0x31; 32],
                 [0x41; 32],
             )
@@ -75,6 +82,31 @@ fn authenticated_runtime_session() -> AuthenticatedRuntimeSession {
         .unwrap(),
         expires_at_monotonic: std::time::Duration::from_secs(600),
     }
+}
+
+fn session_auth_layer() -> SessionAuthLayer {
+    let binding = authenticated_runtime_session().binding;
+    let mut service = LocalSessionService::new(binding.clone(), TOKEN);
+    let challenge = service
+        .issue_challenge([0x11; 32], [0x12; 32], std::time::Duration::ZERO)
+        .unwrap();
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&TOKEN).unwrap();
+    mac.update(&bootstrap_proof_transcript(
+        &binding, [0x12; 32], [0x11; 32],
+    ));
+    service
+        .authenticate(
+            challenge.id,
+            BootstrapProof::new(mac.finalize().into_bytes().into()),
+            SESSION_AUTHORITY,
+            std::time::Duration::ZERO,
+        )
+        .unwrap();
+    SessionAuthLayer::new(
+        Arc::new(Mutex::new(service)),
+        binding,
+        Arc::new(|| std::time::Duration::ZERO),
+    )
 }
 
 struct AvailableGuard;

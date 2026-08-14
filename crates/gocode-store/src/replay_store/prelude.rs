@@ -1,9 +1,10 @@
-
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use gocode_application::ports::{
-    ReplayError, ReplayEvent, ReplayOpenResult, ReplaySession, ReplayState, ReplayStorePort,
+    ReplayError, ReplayEvent, ReplayOpenResult, ReplayRetentionBaselineCandidateV1,
+    ReplayRetentionBaselineCandidateV2, ReplayRetentionBaselineCandidateV2Parts, ReplaySession,
+    ReplayState, ReplayStorePort,
 };
 use gocode_application::replay_service::{
     ReplayDeliveryPrecommitGuard, measured_conversation_replay_event_bytes,
@@ -36,6 +37,12 @@ use crate::schema::ManagedConnection;
 type HmacSha256 = Hmac<Sha256>;
 const HIGH_WATER_REF_SCHEMA_VERSION: u32 = 1;
 const RETENTION_GENERATION: u64 = 0;
+
+fn published_retention_generation(internal_generation: u64) -> Result<u64, ReplayError> {
+    internal_generation
+        .checked_add(1)
+        .ok_or_else(|| ReplayError::Integrity("published retention generation overflow".to_owned()))
+}
 
 /// Build a 77-byte HMAC-protected `HighWaterRef`.
 ///

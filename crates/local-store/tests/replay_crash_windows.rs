@@ -48,7 +48,11 @@ fn transition<'a>(
     }
 }
 
-fn assert_failure_rolls_back_all_three_records(path: &Path, trigger_sql: &str) {
+fn assert_failure_rolls_back_all_three_records(
+    path: &Path,
+    trigger_sql: &str,
+    drop_trigger_sql: &str,
+) {
     let scope = scope();
     let old_event = br#"{"eventId":"event-1","sequence":1}"#;
     let old_projection = br#"{"conversationId":"conversation-1","messages":[]}"#;
@@ -69,7 +73,7 @@ fn assert_failure_rolls_back_all_three_records(path: &Path, trigger_sql: &str) {
         .replay_checkpoint(&scope)
         .expect("read checkpoint")
         .expect("checkpoint");
-    drop(store);
+    let mut store = LocalStore::open(path).expect("reopen before failure injection");
 
     let connection = Connection::open(path).expect("open for failure injection");
     connection
@@ -79,7 +83,6 @@ fn assert_failure_rolls_back_all_three_records(path: &Path, trigger_sql: &str) {
 
     let new_event = br#"{"eventId":"event-2","sequence":2}"#;
     let new_projection = br#"{"conversationId":"conversation-1","messages":[{"id":"message-1"}]}"#;
-    let mut store = LocalStore::open(path).expect("reopen store");
     let error = store
         .apply_replay_transition(&transition(
             &scope,
@@ -94,6 +97,12 @@ fn assert_failure_rolls_back_all_three_records(path: &Path, trigger_sql: &str) {
         .expect_err("injected failure");
     assert!(matches!(error, ReplayStoreError::Storage(_)));
     drop(store);
+
+    let connection = Connection::open(path).expect("open to remove test trigger");
+    connection
+        .execute_batch(drop_trigger_sql)
+        .expect("remove failure trigger");
+    drop(connection);
 
     let store = LocalStore::open(path).expect("reopen after failure");
     let actual_checkpoint = store
@@ -135,6 +144,7 @@ fn crash_before_journal_insert_leaves_old_atomic_state() {
             SELECT RAISE(ABORT, 'injected before journal insert');
         END;
         ",
+        "DROP TRIGGER fail_before_journal_insert",
     );
 }
 
@@ -150,6 +160,7 @@ fn crash_after_journal_insert_leaves_old_atomic_state() {
             SELECT RAISE(ABORT, 'injected after journal insert');
         END;
         ",
+        "DROP TRIGGER fail_after_journal_insert",
     );
 }
 
@@ -165,6 +176,7 @@ fn crash_after_projection_update_leaves_old_atomic_state() {
             SELECT RAISE(ABORT, 'injected after projection update');
         END;
         ",
+        "DROP TRIGGER fail_after_projection_update",
     );
 }
 
@@ -180,5 +192,6 @@ fn crash_after_cursor_update_before_commit_leaves_old_atomic_state() {
             SELECT RAISE(ABORT, 'injected after cursor update');
         END;
         ",
+        "DROP TRIGGER fail_after_cursor_update",
     );
 }

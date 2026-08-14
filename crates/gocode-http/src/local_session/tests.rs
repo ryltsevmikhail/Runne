@@ -5,8 +5,8 @@ use axum::{
 };
 use gocode_api::{ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding};
 use gocode_application::local_session::{
-    BootstrapClock, LocalSessionService, BOOTSTRAP_FINAL_ENDPOINT_V3,
-    BOOTSTRAP_HTTP_METHOD_V3, BOOTSTRAP_PREALLOCATION_ENDPOINT_V3, BOOTSTRAP_PROTOCOL_V3,
+    BOOTSTRAP_FINAL_ENDPOINT_V3, BOOTSTRAP_HTTP_METHOD_V3, BOOTSTRAP_PREALLOCATION_ENDPOINT_V3,
+    BOOTSTRAP_PROTOCOL_V3, BootstrapClock, LocalSessionService,
 };
 use gocode_domain::{event::Sensitivity, id::EventLogLineageId};
 use gocode_pairing_crypto::{
@@ -29,14 +29,12 @@ fn binding() -> RuntimeSessionBinding {
             "018f2e3a-7000-7000-8000-000000000003"
                 .parse::<EventLogLineageId>()
                 .unwrap(),
-            "gocode-ui-client/1",
+            "gocode-ui-client/2",
             [3; 32],
             [4; 32],
         )
         .unwrap(),
-        DaemonInstanceId::from_bytes([
-            1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 2,
-        ]),
+        DaemonInstanceId::from_bytes([1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 2]),
         7,
         [5; 16],
         3,
@@ -129,25 +127,37 @@ pub(crate) async fn assert_verified_tls_router_issues_and_consumes_a_challenge()
         "expiry":"1970-01-01T00:00:01.000000Z",
         "preallocationProof":proof(&transcript(BOOTSTRAP_PREALLOCATION_ENDPOINT_V3, &client, None)),
     });
-    let response = app.clone().oneshot(json_request("/v1/local-session/challenges", request)).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(json_request("/v1/local-session/challenges", request))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let challenge: serde_json::Value = serde_json::from_slice(
-        &to_bytes(response.into_body(), 4096).await.unwrap(),
-    ).unwrap();
+    let challenge: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(challenge["wireVersion"], "3");
     assert_eq!(challenge["keyVersion"], 1);
-    let server: [u8; 32] = URL_SAFE_NO_PAD.decode(challenge["serverNonce"].as_str().unwrap()).unwrap().try_into().unwrap();
+    let server: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(challenge["serverNonce"].as_str().unwrap())
+        .unwrap()
+        .try_into()
+        .unwrap();
     let final_request = serde_json::json!({
         "wireVersion":"3", "keyVersion":1,
         "challengeId":challenge["challengeId"],
         "finalProof":proof(&transcript(BOOTSTRAP_FINAL_ENDPOINT_V3, &client, Some(server))),
         "authority":URL_SAFE_NO_PAD.encode([10;32]),
     });
-    let response = app.oneshot(json_request("/v1/local-session/authenticate", final_request)).await.unwrap();
+    let response = app
+        .oneshot(json_request(
+            "/v1/local-session/authenticate",
+            final_request,
+        ))
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let authenticated: serde_json::Value = serde_json::from_slice(
-        &to_bytes(response.into_body(), 4096).await.unwrap(),
-    ).unwrap();
+    let authenticated: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(authenticated["wireVersion"], "3");
     assert_eq!(authenticated["keyVersion"], 1);
 }
@@ -203,10 +213,8 @@ async fn downgrade_alias_and_unknown_fields_are_closed_rejections() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        let body: serde_json::Value = serde_json::from_slice(
-            &to_bytes(response.into_body(), 4096).await.unwrap(),
-        )
-        .unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body["code"], "BOOTSTRAP_REJECTED");
     }
 }
@@ -214,18 +222,29 @@ async fn downgrade_alias_and_unknown_fields_are_closed_rejections() {
 pub(crate) async fn assert_oversized_transport_body_has_canonical_rejection() {
     let (state, _directory) = state();
     let response = local_session_router(state)
-        .oneshot(Request::builder().method("POST").uri("/v1/local-session/challenges")
-            .header("content-type", "application/json")
-            .body(Body::from("x".repeat(MAX_LOCAL_SESSION_BODY_BYTES + 1))).unwrap())
-        .await.unwrap();
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/v1/local-session/challenges")
+                .header("content-type", "application/json")
+                .body(Body::from("x".repeat(MAX_LOCAL_SESSION_BODY_BYTES + 1)))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-    let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+    let body: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
     assert_eq!(body["code"], "BOOTSTRAP_REJECTED");
 }
 
 fn json_request(uri: &str, value: serde_json::Value) -> Request<Body> {
-    Request::builder().method("POST").uri(uri).header("content-type", "application/json")
-        .body(Body::from(value.to_string())).unwrap()
+    Request::builder()
+        .method("POST")
+        .uri(uri)
+        .header("content-type", "application/json")
+        .body(Body::from(value.to_string()))
+        .unwrap()
 }
 
 include!("tests/rejections.rs");

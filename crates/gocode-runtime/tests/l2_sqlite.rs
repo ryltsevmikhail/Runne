@@ -62,6 +62,7 @@ async fn test_full_lifecycle_sqlite() {
     let (conn, identity) =
         validated_reopen::initialize_store(database.path(), authority.clone(), guard.clone())
             .unwrap();
+    validated_reopen::seed_canonical_workspace(&conn, "test", ws_id());
     let svc = make_service(conn, authority.clone());
     let (handle, mut ctrl) = Runtime::start_borrowed(
         gocode_runtime::TokioRuntimeContext::new_for_test(),

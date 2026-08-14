@@ -9,45 +9,83 @@
         let authority_id = o1.authority_id;
         drop(o1);
 
-        // Insert a synthetic event directly into the DB
-        {
-            let conn = schema::reopen_managed_connection_validated(
-                Path::new(&config.db_path),
-                schema::ConnectionMode::ValidatedReopen,
-                |connection| {
-                    if schema::read_authority_id(connection)? == Some(authority_id) {
-                        Ok(())
-                    } else {
-                        Err(rusqlite::Error::InvalidQuery)
-                    }
-                },
+        // Commit one structurally valid event through the production repository.
+        use gocode_application::ports::ProjectWorkspaceRepository as _;
+        let prohibited = std::sync::Arc::new(
+            gocode_security::SecretBroker::new().prohibited_content_guard(),
+        );
+        let store = gocode_store::store::StoreTransaction::open(
+            &config.db_path,
+            gocode_application::ports::RuntimeAuthorityId(hex::encode(authority_id)),
+            prohibited,
+        )
+        .unwrap();
+        let project_id = gocode_domain::id::ProjectId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x42,
+        ]);
+        let repository = gocode_store::ProjectWorkspaceStore::from_store(store.clone());
+        repository
+            .create_project(
+                "local-owner",
+                gocode_domain::id::CommandId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x43,
+                ]),
+                &gocode_domain::id::IdempotencyKey::new("recovery-project").unwrap(),
+                gocode_domain::project_workspace::Project::create(
+                    project_id,
+                    gocode_domain::project_workspace::ProjectWorkspaceDisplayName::new(
+                        "Recovery project".into(),
+                    )
+                    .unwrap(),
+                ),
             )
             .unwrap();
-            schema::readiness_from_managed(&conn).unwrap();
-            schema::publication_from_managed(&conn).unwrap();
-            // Insert into aggregate_streams so FK is satisfied
-            conn.execute(
-                "INSERT OR IGNORE INTO aggregate_streams
-                 (aggregate_type, aggregate_id, current_version, created_at)
-                 VALUES (1, x'00000000000000000000000000000042', 1, 0)",
-                [],
+        let workspace_id = gocode_domain::id::WorkspaceId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x44,
+        ]);
+        repository
+            .create_workspace(
+                "local-owner",
+                gocode_domain::id::CommandId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x45,
+                ]),
+                &gocode_domain::id::IdempotencyKey::new("recovery-workspace").unwrap(),
+                gocode_domain::project_workspace::Workspace::create(
+                    workspace_id,
+                    project_id,
+                    gocode_domain::project_workspace::ProjectWorkspaceDisplayName::new(
+                        "Recovery workspace".into(),
+                    )
+                    .unwrap(),
+                ),
             )
             .unwrap();
-            // Insert an event
-            conn.execute(
-                "INSERT INTO events
-                 (event_id, aggregate_type, aggregate_id, sequence, global_position,
-                  timestamp, sensitivity, schema_version, command_id, idempotency_key,
-                  actor, payload, integrity_digest, correlation_id, correlation_type,
-                  integrity_profile)
-                 VALUES
-                 (randomblob(16), 1, x'00000000000000000000000000000042', 1, 1,
-                  0, 0, 1, randomblob(16), x'01', x'02', x'03', randomblob(32),
-                  randomblob(16), 1, 1)",
-                [],
-            )
-            .unwrap();
-        }
+        let command_id = gocode_domain::id::CommandId::from_bytes([
+            0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x46,
+        ]);
+        let key = gocode_domain::id::IdempotencyKey::new("recovery-conversation").unwrap();
+        gocode_application::conversation_service::ConversationService::new(
+            store.clone(),
+            store,
+            gocode_application::ports::RuntimeAuthorityId(hex::encode(authority_id)),
+        )
+        .create_from_application(
+            &gocode_application::ports::ApplicationCommandContext {
+                command_id,
+                idempotency_key: key.clone(),
+                principal_id: gocode_application::ports::PrincipalId("local-owner".into()),
+                actor: gocode_domain::event::Actor::new("recovery-test").unwrap(),
+            },
+            gocode_api::CreateConversationInput {
+                conversation_id: gocode_domain::id::ConversationId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 0x47,
+                ]),
+                workspace_id,
+                command_id,
+                idempotency_key: key,
+            },
+        )
+        .unwrap();
 
         // Now call enumerate_recovery_tasks — should be RecoveryBlocked
         use crate::recovery::enumerate_recovery_tasks;
@@ -91,7 +129,7 @@
                 [
                     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 2,
                 ],
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [0x20; 32],
                 [0x30; 32],
             )
@@ -100,7 +138,7 @@
             ProtectedRuntimeProfileV1::new(
                 "gocode-bundled-runtime/1",
                 1,
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [0x20; 32],
                 [0x30; 32],
             )

@@ -59,7 +59,7 @@ pub const CHILD_CASES: &[ChildCase] = &[
         input: b"credential",
         terminal: true,
         expected_stdout: "",
-        expected_code: 1,
+        expected_code: 4,
     },
     ChildCase {
         scenario: "backend-error",
@@ -67,7 +67,7 @@ pub const CHILD_CASES: &[ChildCase] = &[
         input: b"",
         terminal: false,
         expected_stdout: "",
-        expected_code: 1,
+        expected_code: 4,
     },
     ChildCase {
         scenario: "set-resolver-error",
@@ -75,7 +75,7 @@ pub const CHILD_CASES: &[ChildCase] = &[
         input: b"stdin-secret",
         terminal: false,
         expected_stdout: "",
-        expected_code: 1,
+        expected_code: 4,
     },
     ChildCase {
         scenario: "set-backend-error",
@@ -83,7 +83,7 @@ pub const CHILD_CASES: &[ChildCase] = &[
         input: b"stdin-secret",
         terminal: false,
         expected_stdout: "",
-        expected_code: 1,
+        expected_code: 4,
     },
     ChildCase {
         scenario: "missing-stdin",

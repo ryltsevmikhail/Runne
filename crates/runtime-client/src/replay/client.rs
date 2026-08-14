@@ -132,9 +132,7 @@ impl AuthenticatedRuntimeClient {
             aggregate_id: scope.aggregate_id.to_string(),
             from_cursor: from_cursor.map(wire::cursor_value),
         };
-        let open: OpenSessionResponseWire = self
-            .post_replay_json("/v1/replay/open-session", &request)
-            .await?;
+        let open: OpenSessionResponseWire = self.post_open_session(&request, scope).await?;
         let session_id = wire::session_id(&open.session_id)?;
         validate_bounded_lower_hex(&open.high_water_ref, MAXIMUM_CURSOR_BYTES)?;
         let mut validator = DeliveryValidator::new(scope, identities);
@@ -240,7 +238,11 @@ impl AuthenticatedRuntimeClient {
         Ok(())
     }
 
-    async fn post_replay_json<T, R>(&self, path: &str, body: &T) -> Result<R, ReplayClientError>
+    pub(super) async fn post_replay_json<T, R>(
+        &self,
+        path: &str,
+        body: &T,
+    ) -> Result<R, ReplayClientError>
     where
         T: Serialize + Sync + ?Sized,
         R: serde::de::DeserializeOwned,
@@ -263,8 +265,7 @@ impl AuthenticatedRuntimeClient {
             .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::Transport))?;
         read_replay_json(response).await
     }
-
-    async fn post_replay_empty<R>(&self, path: &str) -> Result<R, ReplayClientError>
+    pub(super) async fn post_replay_empty<R>(&self, path: &str) -> Result<R, ReplayClientError>
     where
         R: serde::de::DeserializeOwned,
     {
@@ -276,5 +277,14 @@ impl AuthenticatedRuntimeClient {
             .await
             .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::Transport))?;
         read_replay_json(response).await
+    }
+
+    pub(super) async fn close_replay_session(&self, session: &ReplaySessionId) {
+        let path = format!("/v1/replay/{}/close", wire::session_value(session));
+        let Ok(request) = self.authenticated_request(self.http_client().post(self.url(&path)))
+        else {
+            return;
+        };
+        let _ = request.send().await;
     }
 }

@@ -52,6 +52,32 @@ pub(super) struct OpenSessionResponseWire {
     pub(super) has_more: bool,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ResumeFromBaselineResponseWire {
+    pub(super) request_id: String,
+    pub(super) session_id: String,
+    pub(super) high_water_ref: String,
+    pub(super) baseline_checkpoint: String,
+    pub(super) accepted_promotion: AcceptedPromotionWire,
+    pub(super) events: Vec<serde_json::Value>,
+    pub(super) has_more: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct AcceptedPromotionWire {
+    pub(super) codec: u8,
+    pub(super) projection_bytes: String,
+    pub(super) projection_digest: String,
+    pub(super) sequence: u64,
+    pub(super) version: u64,
+    pub(super) global_position: i64,
+    pub(super) head_event_id: String,
+    pub(super) head_integrity_digest: String,
+    pub(super) captured_high_water: i64,
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct ReadPageRequestWire {
@@ -132,6 +158,33 @@ pub(super) struct SseTerminalWire {
 pub(super) struct ErrorEnvelopeWire {
     pub(super) code: String,
     pub(super) request_id: String,
+    pub(super) baseline: Option<serde_json::Value>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct ReplayRetentionBaselineWire {
+    pub(super) schema_version: u8,
+    pub(super) authority_id: String,
+    pub(super) principal_id: String,
+    pub(super) lineage_id: String,
+    pub(super) runtime_session_binding_digest: String,
+    pub(super) replay_scope_digest: String,
+    pub(super) aggregate_kind: String,
+    pub(super) aggregate_id: String,
+    pub(super) sequence: u64,
+    pub(super) version: u64,
+    pub(super) baseline_global_position: i64,
+    pub(super) projection_codec: u8,
+    pub(super) projection_bytes: String,
+    pub(super) projection_digest: String,
+    pub(super) retained_floor: i64,
+    pub(super) captured_high_water: i64,
+    pub(super) retention_generation: u64,
+    pub(super) retention_witness: String,
+    pub(super) issued_at_unix_ms: u64,
+    pub(super) expires_at_unix_ms: u64,
+    pub(super) witness_mac: String,
 }
 
 pub(super) const EVENT_KEYS: &[&str] = &[

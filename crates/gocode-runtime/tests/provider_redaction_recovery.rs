@@ -145,6 +145,9 @@ fn corrupt_ref_or_checkpoint_is_checkpoint_secret_state_unavailable() {
             ScannerUncertainReason::CheckpointSecretStateUnavailable,
         ))
     );
+    let replayed =
+        ProviderRedactionRecovery::restart(binding(), &tails, &durable, &matcher).unwrap();
+    assert_eq!(replayed.disposition(), restarted.disposition());
     assert_no_publication(&durable);
 }
 
@@ -276,3 +279,4 @@ fn four_durable_boundaries_require_checkpoint_before_cursor_and_terminal() {
 }
 
 include!("provider_redaction_recovery/completion.rs");
+include!("provider_redaction_recovery/terminal_authority.rs");

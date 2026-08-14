@@ -23,6 +23,22 @@
     }
 
     #[test]
+    fn snapshot_encode_rejects_non_uuid_v7_identifier() {
+        let snapshot = ConversationSnapshotV1 {
+            id: ConversationId::from_bytes([0; 16]),
+            workspace_id: workspace_id(),
+            state: ConversationState::Active,
+            messages: vec![],
+            active_generation: None,
+        };
+
+        assert_eq!(
+            snapshot.encode(),
+            Err(ConversationSnapshotError::InvalidEncoding)
+        );
+    }
+
+    #[test]
     fn apply_rejects_creation_after_create_without_mutation() {
         let mut conversation = conversation(ConversationState::Active);
         let event = make_envelope(

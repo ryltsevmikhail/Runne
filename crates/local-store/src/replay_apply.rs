@@ -21,6 +21,9 @@ impl LocalStore {
         &mut self,
         transition: &ReplayTransition<'_>,
     ) -> Result<ReplayApplyOutcome, ReplayStoreError> {
+        if self.security.is_some() {
+            return Err(ReplayStoreError::AnchoredAdmissionRequired);
+        }
         validate_replay_transition_shape(transition)?;
         let generation = i64::try_from(transition.generation)
             .map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
@@ -209,16 +212,7 @@ impl LocalStore {
                 transition.projection_digest
             ],
         )?;
-        transaction.execute(
-            "
-            UPDATE meta
-            SET db_generation = db_generation + 1,
-                last_transaction_digest = ?1,
-                commit_marker = 1
-            WHERE singleton = 1
-            ",
-            params![transition.event_digest],
-        )?;
+        transaction.execute("UPDATE meta SET db_generation=db_generation+1,last_transaction_digest=?1,commit_marker=1 WHERE singleton=1", params![transition.event_digest])?;
         let database_generation = read_database_generation(&transaction)?;
         transaction.commit()?;
         Ok(ReplayApplyOutcome::Applied {

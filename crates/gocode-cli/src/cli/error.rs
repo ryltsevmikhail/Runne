@@ -1,5 +1,15 @@
+/// CLI error types with associated exit codes and error codes.
+///
+/// Exit code contract:
+/// - 0: Success (including help/version)
+/// - 1: Runtime/API error
+/// - 2: Usage error (invalid args, unknown command)
+/// - 3: Profile error (unavailable, incompatible)
+/// - 4: Credential error (input, operation, unsupported backend)
 #[derive(Debug)]
 enum CliError {
+    Help(String),
+    Version(String),
     Usage,
     Profile,
     ProfileIncompatible,
@@ -8,6 +18,7 @@ enum CliError {
     CredentialInput,
     CredentialOperation,
     UnsupportedCredentialBackend,
+    HealthNonHealthy(String),
     AuthorityUsage,
     #[cfg(not(target_os = "macos"))]
     AuthorityUnsupportedPlatform,
@@ -36,10 +47,33 @@ enum CliError {
 
 impl CliError {
     const fn exit_code(&self) -> i32 {
-        if matches!(self, Self::Usage | Self::AuthorityUsage) {
-            2
-        } else {
-            1
+        match self {
+            Self::Help(_) | Self::Version(_) => 0,
+            Self::Usage | Self::AuthorityUsage => 2,
+            Self::Profile | Self::ProfileIncompatible => 3,
+            Self::Runtime | Self::Api(_) => 1,
+            Self::CredentialInput
+            | Self::CredentialOperation
+            | Self::UnsupportedCredentialBackend => 4,
+            Self::HealthNonHealthy(_) => 1,
+            _ => 1,
+        }
+    }
+
+    /// Returns the stable error code for JSON output.
+    const fn error_code(&self) -> Option<ErrorCode> {
+        match self {
+            Self::Help(_) | Self::Version(_) => None,
+            Self::Usage | Self::AuthorityUsage => Some(ErrorCode::InvalidArguments),
+            Self::Profile => Some(ErrorCode::ProfileUnavailable),
+            Self::ProfileIncompatible => Some(ErrorCode::ProfileIncompatible),
+            Self::Runtime => Some(ErrorCode::RuntimeUnavailable),
+            Self::Api(_) => Some(ErrorCode::ApiError),
+            Self::CredentialInput => Some(ErrorCode::CredentialInputInvalid),
+            Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
+            Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
+            Self::HealthNonHealthy(_) => Some(ErrorCode::RuntimeUnavailable),
+            _ => Some(ErrorCode::ApiError),
         }
     }
 }
@@ -47,6 +81,7 @@ impl CliError {
 impl fmt::Display for CliError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Help(text) | Self::Version(text) => formatter.write_str(text),
             Self::Usage => formatter.write_str(USAGE),
             Self::Profile => formatter.write_str("local runtime profile is unavailable"),
             Self::ProfileIncompatible => {
@@ -65,6 +100,7 @@ impl fmt::Display for CliError {
             Self::UnsupportedCredentialBackend => {
                 formatter.write_str("provider credential backend is unsupported")
             }
+            Self::HealthNonHealthy(_) => formatter.write_str("runtime health check failed"),
             Self::AuthorityUsage => formatter.write_str("USAGE"),
             #[cfg(not(target_os = "macos"))]
             Self::AuthorityUnsupportedPlatform => formatter.write_str("UNSUPPORTED_PLATFORM"),
