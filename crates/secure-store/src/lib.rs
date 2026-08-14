@@ -9,10 +9,34 @@
 use std::fmt;
 use thiserror::Error;
 
+#[cfg(feature = "project-owner-key-store")]
+mod project_owner_key;
+#[cfg(feature = "project-owner-key-store")]
+mod project_owner_key_store;
+#[cfg(all(test, feature = "project-owner-key-store", not(target_os = "macos")))]
+mod project_owner_key_tests;
+#[cfg(all(test, feature = "project-owner-key-store", not(target_os = "macos")))]
+mod project_owner_key_transaction_tests;
+#[cfg(feature = "project-owner-key-store")]
+mod project_owner_keychain_policy;
 mod provider_credential;
 mod provider_journal_key;
 mod provider_recovery;
 
+#[cfg(all(feature = "project-owner-key-store", target_os = "macos"))]
+pub use project_owner_key::{CodeSignIdentity, MacosProjectOwnerKeyStore};
+#[cfg(feature = "project-owner-key-store")]
+pub use project_owner_key::{
+    MAX_PROJECT_OWNER_TRANSCRIPT_BYTES, PendingProjectOwnerKey, ProjectOwnerAnchorFloor,
+    ProjectOwnerKeyMaterial, ProjectOwnerKeyRef, StoreStatus,
+};
+#[cfg(feature = "project-owner-key-store")]
+pub use project_owner_key_store::{ProjectOwnerKeyStore, validate_transcript};
+#[cfg(feature = "project-owner-key-store")]
+pub use project_owner_keychain_policy::{
+    PROJECT_OWNER_KEYCHAIN_ACCESS_GROUP, PROJECT_OWNER_KEYCHAIN_SERVICE,
+    ProjectOwnerKeychainAccount, ProjectOwnerKeychainQuery, map_project_owner_keychain_status,
+};
 pub use provider_credential::{
     MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
     PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy, ProviderCredentialId,

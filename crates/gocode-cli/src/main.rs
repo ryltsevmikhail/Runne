@@ -21,7 +21,9 @@ const USAGE: &str = "\
 Usage:
   gocode [--profile PATH] conversation create [--workspace-id UUID]
   gocode [--profile PATH] conversation send --conversation-id UUID --expected-version N --text TEXT
-  gocode [--profile PATH] conversation messages --conversation-id UUID";
+  gocode [--profile PATH] conversation messages --conversation-id UUID
+  gocode authority --help
+  gocode release --help";
 
 #[tokio::main]
 async fn main() {
@@ -60,7 +62,10 @@ pub fn write_process_outcome(outcome: &ProcessOutcome) -> ! {
 include!("cli/conversation.rs");
 include!("cli/provider_credential.rs");
 include!("cli/parsing.rs");
+include!("cli/token_parsing.rs");
 include!("cli/error.rs");
+mod authority;
+mod release;
 
 #[cfg(test)]
 pub mod credential_test_support;

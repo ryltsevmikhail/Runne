@@ -1,0 +1,211 @@
+#![cfg(unix)]
+
+#[path = "release_dry_run/support.rs"]
+mod support;
+use support::{assert_plan, assert_usage, command};
+
+#[path = "release_dry_run/rejection.rs"]
+mod rejection;
+
+const DIGEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const UPPER: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn dry_run_operations_are_canonical_and_side_effect_free() {
+    assert_plan(
+        &[
+            "release",
+            "rc1",
+            "qualify",
+            "--dry-run",
+            "--subject-sha256",
+            DIGEST,
+            "--matrix-sha256",
+            DIGEST,
+            "--bootstrap-sha256",
+            DIGEST,
+            "--candidate-sha256",
+            DIGEST,
+            "--policy-sha256",
+            DIGEST,
+        ],
+        "release.rc1.qualify",
+        &[
+            "subject-sha256",
+            "matrix-sha256",
+            "bootstrap-sha256",
+            "candidate-sha256",
+            "policy-sha256",
+        ],
+        DIGEST,
+    );
+    assert_plan(
+        &[
+            "release",
+            "rc2",
+            "authorize",
+            "--dry-run",
+            "--candidate-sha256",
+            DIGEST,
+            "--rc1-decision-sha256",
+            DIGEST,
+            "--unsigned-candidate-manifest-sha256",
+            DIGEST,
+            "--linux-pre-sign-sha256",
+            DIGEST,
+            "--linux-pre-sign-length",
+            "1",
+            "--windows-pre-sign-sha256",
+            DIGEST,
+            "--windows-pre-sign-length",
+            "2",
+            "--workflow-sha256",
+            DIGEST,
+            "--effect-namespace",
+            "release-native-sign",
+            "--effect-generation",
+            "1",
+            "--signing-policy-sha256",
+            DIGEST,
+        ],
+        "release.rc2.authorize",
+        &[
+            "candidate-sha256",
+            "rc1-decision-sha256",
+            "unsigned-candidate-manifest-sha256",
+            "linux-pre-sign-sha256",
+            "linux-pre-sign-length",
+            "windows-pre-sign-sha256",
+            "windows-pre-sign-length",
+            "workflow-sha256",
+            "effect-namespace",
+            "effect-generation",
+            "signing-policy-sha256",
+        ],
+        DIGEST,
+    );
+    assert_plan(
+        &[
+            "release",
+            "rc2",
+            "verify",
+            "--dry-run",
+            "--candidate-sha256",
+            DIGEST,
+            "--signed-envelope-inventory-sha256",
+            DIGEST,
+            "--threshold-update-metadata-set-sha256",
+            DIGEST,
+            "--verification-report-sha256",
+            DIGEST,
+        ],
+        "release.rc2.verify",
+        &[
+            "candidate-sha256",
+            "signed-envelope-inventory-sha256",
+            "threshold-update-metadata-set-sha256",
+            "verification-report-sha256",
+        ],
+        DIGEST,
+    );
+    assert_plan(
+        &[
+            "release",
+            "rc3",
+            "authorize",
+            "--dry-run",
+            "--candidate-sha256",
+            DIGEST,
+            "--signed-envelope-inventory-sha256",
+            DIGEST,
+            "--threshold-update-metadata-set-sha256",
+            DIGEST,
+            "--verification-report-sha256",
+            DIGEST,
+            "--publication-manifest-sha256",
+            DIGEST,
+        ],
+        "release.rc3.authorize",
+        &[
+            "candidate-sha256",
+            "signed-envelope-inventory-sha256",
+            "threshold-update-metadata-set-sha256",
+            "verification-report-sha256",
+            "publication-manifest-sha256",
+        ],
+        DIGEST,
+    );
+}
+
+#[test]
+fn release_rejects_all_open_or_ambiguous_input_forms() {
+    for arguments in [
+        vec!["release", "rc1", "qualify", "--execute"],
+        vec![
+            "release",
+            "rc1",
+            "qualify",
+            "--dry-run",
+            "--subject-sha256",
+            DIGEST,
+        ],
+        vec![
+            "release",
+            "rc2",
+            "verify",
+            "--dry-run",
+            "--candidate-sha256",
+            DIGEST,
+            "--signed-envelope-inventory-sha256",
+            DIGEST,
+            "--threshold-update-metadata-set-sha256",
+            DIGEST,
+            "--verification-report-sha256",
+            DIGEST,
+            "--yes",
+        ],
+        vec![
+            "release",
+            "rc2",
+            "verify",
+            "--dry-run",
+            "--candidate-sha256",
+            DIGEST,
+            "--signed-envelope-inventory-sha256",
+            DIGEST,
+            "--threshold-update-metadata-set-sha256",
+            DIGEST,
+            "--verification-report-sha256",
+            DIGEST,
+            "--candidate-sha256",
+            DIGEST,
+        ],
+        vec![
+            "release",
+            "rc2",
+            "verify",
+            "--dry-run",
+            "--signed-envelope-inventory-sha256",
+            DIGEST,
+            "--candidate-sha256",
+            DIGEST,
+            "--threshold-update-metadata-set-sha256",
+            DIGEST,
+            "--verification-report-sha256",
+            DIGEST,
+        ],
+        vec![
+            "release",
+            "rc2",
+            "verify",
+            "--dry-run",
+            "--candidate-sha256",
+            DIGEST,
+            "--unknown-sha256",
+            DIGEST,
+        ],
+    ] {
+        assert_usage(&arguments);
+    }
+}

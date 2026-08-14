@@ -17,7 +17,7 @@ gocode-runtime = { path = "../gocode-runtime" }
 gocode-store = { path = "../gocode-store" }
 gocode-observability = { path = "../gocode-observability" }
 gocode-security = { path = "../gocode-security" }
-gocode-secure-store = { path = "../secure-store" }
+gocode-secure-store = { path = "../secure-store", default-features = false }
 gocode-provider-openai = { path = "../gocode-provider-openai" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-platform = { path = "../gocode-platform" }

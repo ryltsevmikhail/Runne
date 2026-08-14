@@ -1,0 +1,6 @@
+[
+  {"name":"role","path":["snapshot","body","role"],"value":"timestamp","schema_reject":true,"rust_reject":true},
+  {"name":"slot","path":["targets","body","targets","0","slot"],"value":"linux-deb","schema_reject":true,"rust_reject":true},
+  {"name":"key_id","path":["root","body","keyset","1","key_id"],"value":"r1","schema_reject":false,"rust_reject":true},
+  {"name":"proof_id","path":["root","self_proof","1","key_id"],"value":"r1","schema_reject":false,"rust_reject":true}
+]

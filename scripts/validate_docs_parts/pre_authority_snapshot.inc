@@ -12,6 +12,8 @@ import posixpath
 _FROZEN_BYTES = {
     "docs/authority/PRE_AUTHORITY_DOCUMENT_DELTA_V1.json",
     "docs/schemas/pre-authority-document-delta-v1.schema.json",
+    "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V2.json",
+    "docs/schemas/pre-authority-document-overlay-v2.schema.json",
     "docs/rc0/document-universe-v1.json", "docs/rc0/governed-scope-v1.json", "docs/rc0/status-claims-v1.json",
 }
 
@@ -52,6 +54,7 @@ def strict_json(raw: bytes, code: str):
 def git_bytes(repo: Path, args: list[str], index_file: Path | None = None, stdin: bytes | None = None) -> bytes:
     env = os.environ.copy()
     env.pop("GIT_INDEX_FILE", None)
+    env["GIT_NO_REPLACE_OBJECTS"] = "1"
     if index_file is not None:
         env["GIT_INDEX_FILE"] = str(index_file)
     result = subprocess.run(["git", "-C", str(repo), *args], input=stdin, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)

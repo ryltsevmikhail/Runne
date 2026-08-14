@@ -4,7 +4,7 @@ import re
 
 
 _parts_root = Path(globals().get("BASE", Path(__file__).resolve().parents[2])) / "scripts" / "validate_docs_parts"
-for _part in ("pre_authority_snapshot.inc", "pre_authority_claims.inc", "pre_authority_admission.inc", "pre_authority_legacy.inc"):
+for _part in ("pre_authority_snapshot.inc", "pre_authority_claims.inc", "pre_authority_admission.inc", "pre_authority_legacy.inc", "pre_authority_composed_v3.inc"):
     exec((_parts_root / _part).read_text(encoding="utf-8"))
 
 
@@ -33,33 +33,36 @@ GOVERNED_DELTA_PATHS = frozenset((
     "docs/superpowers/specs/2026-08-09-v1-platform-scope-qualification-design.md",
     "docs/superpowers/specs/2026-08-12-solo-project-owner-authority-design.md",
 ))
+exec((_parts_root / "pre_authority_overlay_v2.inc").read_text(encoding="utf-8"))
 
 
 def _mode(snapshot):
-    pre, composed = ARTIFACT_PATH in snapshot.entries, COMPOSED_PATH in snapshot.entries
-    if pre and composed:
+    pre, overlay, composed = ARTIFACT_PATH in snapshot.entries, OVERLAY_ARTIFACT_PATH in snapshot.entries, COMPOSED_PATH in snapshot.entries
+    if sum((pre, overlay, composed)) > 1:
         raise ValueError("DOCS_MODE_CONFLICT")
-    return "composed" if composed else "pre_authority" if pre else "legacy"
+    return "composed" if composed else "overlay" if overlay else "pre_authority" if pre else "legacy"
 
 
 def _predecessor_mode(snapshot):
     paths = snapshot.head_paths()
-    pre, composed = ARTIFACT_PATH in paths, COMPOSED_PATH in paths
-    if pre and composed:
+    pre, overlay, composed = ARTIFACT_PATH in paths, OVERLAY_ARTIFACT_PATH in paths, COMPOSED_PATH in paths
+    if sum((pre, overlay, composed)) > 1:
         raise ValueError("DOCS_MODE_CONFLICT")
-    return "composed" if composed else "pre_authority" if pre else "legacy"
+    return "composed" if composed else "overlay" if overlay else "pre_authority" if pre else "legacy"
 
 
 def _select(snapshot):
     mode, previous = _mode(snapshot), _predecessor_mode(snapshot)
+    if previous == "legacy" and mode == "overlay":
+        raise ValueError("DOCS_MODE_TRANSITION")
+    if previous == "overlay" and mode != "overlay":
+        raise ValueError("DOCS_MODE_DOWNGRADE")
     if previous == "pre_authority" and mode == "legacy":
         raise ValueError("DOCS_MODE_DOWNGRADE")
     if previous == "composed" and mode != "composed":
         raise ValueError("DOCS_MODE_DOWNGRADE")
-    if previous == "pre_authority" and mode == "composed":
-        raise ValueError("DOCS_COMPOSED_VALIDATOR_UNAVAILABLE")
     if mode == "composed":
-        raise ValueError("DOCS_COMPOSED_VALIDATOR_UNAVAILABLE")
+        validate_post_rc0_composed_authority(snapshot)
     return mode
 
 
@@ -221,7 +224,10 @@ def validate_documentation_mode(repo: Path, *, index_file: Path | None = None) -
         mode = _select(snapshot)
         if mode == "legacy":
             return validate_legacy_snapshot(snapshot) if "validate_document_universe" in globals() else []
-        _validate_pre(snapshot)
+        if mode == "overlay":
+            _validate_pre_authority_document_overlay_v2(snapshot)
+        else:
+            _validate_pre(snapshot)
         return []
     except ValueError as error:
         return [str(error)]
