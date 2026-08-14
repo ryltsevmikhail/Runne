@@ -1,9 +1,13 @@
 """Documentation structure, reference, and summary validation phase."""
 
+exec((Path(BASE) / "scripts/validate_docs_parts/adr_identity.inc").read_text(encoding="utf-8"))
+
 # Task 2 intentionally leaves the three canonical manifests absent.  Once
 # Task 10a commits all of them, closed-world validation becomes mandatory.
 for diagnostic in validate_documentation_mode(Path(BASE)):
     err(f"Documentation mode: {diagnostic}")
+for diagnostic in validate_adr_identity(Path(BASE)):
+    err(f"ADR identity: {diagnostic}")
 
 for file_path in walk_files(DOCS_DIR, ".md"):
     if is_implementation_plan(file_path):
