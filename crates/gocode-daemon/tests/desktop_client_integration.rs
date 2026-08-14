@@ -3,10 +3,12 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use gocode_app_core::{AppCore, RuntimeAvailability};
+use gocode_app_core::RuntimeAvailability;
 use gocode_daemon::application::DaemonApplication;
 use gocode_daemon::config::{BuiltInDefaults, ConfigurationSnapshot};
 use gocode_daemon::error::DaemonError;
+use gocode_runtime_client::CanonicalId;
+use gocode_secure_store::SecureStore;
 use tokio::sync::oneshot;
 
 #[path = "support/owner_private.rs"]
@@ -30,11 +32,20 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
     let runtime_profile =
         PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
     let database_path = directory.path().join("desktop.sqlite3");
+    let security_profile = [0xD3; 32];
+    let secure: std::sync::Arc<dyn SecureStore> = std::sync::Arc::new(
+        gocode_secure_store::test_support::DeterministicSecureStore::new(security_profile),
+    );
     let project_path = directory.path().join("project");
     std::fs::create_dir(&project_path).expect("create project");
 
-    let first = AppCore::open_with_runtime_profile(&database_path, runtime_profile.clone())
-        .expect("open desktop core");
+    let first = gocode_app_core::test_support::open_anchored_external_local_core(
+        &database_path,
+        runtime_profile.clone(),
+        std::sync::Arc::clone(&secure),
+        security_profile,
+    )
+    .expect("open desktop core");
     let project = first
         .open_local_project(&project_path)
         .expect("open local project");
@@ -46,6 +57,7 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
         first.connect_runtime().await.expect("connect runtime"),
         RuntimeAvailability::Live
     );
+    prepare_canonical_conversation_workspace(&first, project).await;
 
     let opened = first
         .open_project_conversation(project)
@@ -67,8 +79,13 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
     assert_eq!(generated.messages[1].text, "GOCODE local response: hello");
     drop(first);
 
-    let reopened = AppCore::open_with_runtime_profile(&database_path, runtime_profile)
-        .expect("reopen desktop core");
+    let reopened = gocode_app_core::test_support::open_anchored_external_local_core(
+        &database_path,
+        runtime_profile,
+        secure,
+        security_profile,
+    )
+    .expect("reopen desktop core");
     assert_eq!(
         reopened.connect_runtime().await.expect("reconnect runtime"),
         RuntimeAvailability::Live
@@ -94,4 +111,25 @@ async fn desktop_host_restores_the_same_authoritative_conversation_after_restart
         reopened.bootstrap().expect("bootstrap").runtime,
         RuntimeAvailability::Reconnecting
     );
+}
+
+async fn prepare_canonical_conversation_workspace(
+    core: &gocode_app_core::AppCore,
+    local_project_id: i64,
+) {
+    let runtime_project_id = CanonicalId::now_v7();
+    let workspace_id = CanonicalId::now_v7();
+    core.create_runtime_project(runtime_project_id, "Desktop fixture".into())
+        .await
+        .expect("create canonical project");
+    core.create_runtime_workspace(runtime_project_id, workspace_id, "Desktop fixture".into())
+        .await
+        .expect("create canonical workspace");
+    gocode_app_core::test_support::install_unbound_conversation_reference_for_test(
+        core,
+        local_project_id,
+        CanonicalId::now_v7(),
+        workspace_id,
+    )
+    .expect("install canonical conversation reference");
 }
