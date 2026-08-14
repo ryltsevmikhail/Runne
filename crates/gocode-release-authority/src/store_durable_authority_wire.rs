@@ -101,7 +101,7 @@ fn hex(value: &str) -> bool {
             .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "fixture-only"))]
 pub fn fixture_successor(
     current: &[u8],
     publication_ledger: &[u8],

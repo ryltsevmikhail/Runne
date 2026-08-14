@@ -23,7 +23,7 @@ pub struct DurableFixturePromotionAuthority {
     pub(crate) lease: crate::store_durable_lease::Lease,
     pub(crate) lock: RefCell<()>,
     pub(crate) poisoned: Cell<bool>,
-    #[cfg(test)]
+    #[cfg(all(test, feature = "fixture-only"))]
     pub(crate) publication_failpoint:
         Cell<Option<crate::publication_effect_failpoint::PublicationEffectFailpoint>>,
 }
@@ -116,7 +116,7 @@ impl DurableFixturePromotionAuthority {
             lease: crate::store_durable_lease::Lease::acquire(path.as_ref())?,
             lock: RefCell::new(()),
             poisoned: Cell::new(false),
-            #[cfg(test)]
+            #[cfg(all(test, feature = "fixture-only"))]
             publication_failpoint: Cell::new(None),
         })
     }
