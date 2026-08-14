@@ -4,6 +4,7 @@ mod destructive_intent;
 mod directory_selection;
 mod directory_selection_response;
 mod open_selected_workspace_request;
+mod operational_telemetry_command;
 mod prepare_workspace_request;
 mod prepared_workspace;
 mod renderer_generation;

@@ -42,6 +42,26 @@
   font-weight: 650;
 }
 
+.operational-telemetry {
+  margin-top: 32px;
+}
+
+.operational-telemetry h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.operational-telemetry > p {
+  margin: 12px 0 0;
+  color: var(--error);
+  font-size: 11px;
+}
+
+.operational-telemetry__grid {
+  margin-top: 16px;
+}
+
 .workspace-panels {
   display: grid;
   min-height: 0;
