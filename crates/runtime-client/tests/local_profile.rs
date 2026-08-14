@@ -20,7 +20,7 @@ fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::Path
     fs::write(
         &profile_path,
         serde_json::to_vec(&serde_json::json!({
-            "schemaVersion": 2,
+            "schemaVersion": 3,
             "transportProfileId": "gocode-local-runtime/2",
             "profileId": EXPECTED_BUNDLE_ID,
             "schemaHash": GOLDEN_BUNDLE_HASH,
@@ -58,7 +58,7 @@ fn rewrite_profile(profile_path: &std::path::Path, mutate: impl FnOnce(&mut serd
 
 #[cfg(unix)]
 #[test]
-fn loads_profile_v2_without_reading_the_bootstrap_secret() {
+fn loads_profile_v3_without_reading_the_bootstrap_secret() {
     let directory = tempfile::tempdir().expect("temp directory");
     let endpoint = SocketAddr::from((Ipv4Addr::LOCALHOST, 43123));
     let profile_path = write_profile(directory.path(), &format!("https://{endpoint}"));
@@ -76,7 +76,7 @@ fn accepts_the_closed_base_and_protected_capability_profiles() {
     let directory = tempfile::tempdir().expect("temp directory");
     let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
     assert!(LocalRuntimeProfile::load(&profile_path).is_ok());
-    assert!(!REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
+    assert!(!REQUIRED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v3"));
     rewrite_profile(&profile_path, |profile| {
         profile["capabilities"] = serde_json::json!(PROTECTED_RUNTIME_CAPABILITIES);
         profile["capabilityDigest"] = serde_json::json!(hex::encode(ordered_capability_digest(
@@ -197,7 +197,7 @@ fn profile_missing_required_telemetry_capability_is_rejected() {
 
 #[test]
 fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
-    let bundle = include_bytes!("../../../contracts/gocode-ui-client-1/bundle.json");
+    let bundle = include_bytes!("../../../contracts/gocode-ui-client-2/bundle.json");
     assert_eq!(hex::encode(Sha256::digest(bundle)), GOLDEN_BUNDLE_HASH);
 
     let bundle: serde_json::Value = serde_json::from_slice(bundle).expect("bundle JSON");

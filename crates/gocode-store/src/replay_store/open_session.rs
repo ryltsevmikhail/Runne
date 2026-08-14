@@ -34,12 +34,6 @@ impl ReplayStore {
             let inventory = retained_inventory(&tx)?;
             let retention_manifest =
                 retention_manifest_for_events(&inventory.events, lineage_id, &server_secret)?;
-            let scope = ReplayScope::Aggregate {
-                aggregate_type: u8::try_from(aggregate_type).map_err(|_| {
-                    ReplayError::Integrity("invalid replay aggregate type".to_owned())
-                })?,
-                aggregate_id: aggregate_id_copy,
-            };
             let gap = match (
                 from_position,
                 retention_manifest.retained_floor(),
@@ -52,28 +46,29 @@ impl ReplayStore {
                 _ => None,
             };
             if let Some((missing_start, missing_end)) = gap {
-                let floor_event = inventory
-                    .events
-                    .iter()
-                    .find(|event| {
-                        event.aggregate_type == aggregate_type
-                            && event.aggregate_id == aggregate_id_copy
-                    })
-                    .cloned();
-                return Ok(ReplayOpenResult::RetentionGap {
-                    floor_event,
-                    gap_range_ref: build_gap_range_ref(
+                let baseline_v2 = retention_gap_baseline_v2(
+                    &tx,
+                    aggregate_type,
+                    &aggregate_id_copy,
+                    &lineage_id,
+                    &server_secret,
+                    &retention_manifest,
+                )?;
+                return Ok(ReplayOpenResult::RetentionGapWithV2 {
+                    baseline: retention_gap_baseline(
+                        &tx,
+                        aggregate_type,
+                        &aggregate_id_copy,
+                        authorization_epoch,
                         &lineage_id,
-                        retention_manifest.retention_generation(),
+                        &server_secret,
+                        &retention_manifest,
                         missing_start,
                         missing_end,
-                        &scope,
-                        authorization_epoch,
-                        &server_secret,
-                    ),
+                    )?,
+                    baseline_v2: Box::new(baseline_v2),
                 });
             }
-
             // Capture current high-water mark
             let high_water: i64 = tx
                 .query_row(
@@ -120,10 +115,8 @@ impl ReplayStore {
             if let Some(cursor) = &from_cursor {
                 validate_cursor_event(&tx, cursor, aggregate_type, &aggregate_id_copy)?;
             }
-
             // Generate session ID
             let session_id = Self::generate_session_id();
-
             // Build high_water_ref
             let high_water_ref = build_high_water_ref(
                 &authority_id,
@@ -132,7 +125,6 @@ impl ReplayStore {
                 &server_secret,
                 &session_id,
             );
-
             // Read one look-ahead row so an exactly full page is not mistaken
             // for an unfinished page.
             let mut events = {

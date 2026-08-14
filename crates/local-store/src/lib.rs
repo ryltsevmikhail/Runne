@@ -12,6 +12,8 @@ include!("schema.rs");
 include!("models.rs");
 include!("backup.rs");
 include!("replay_types.rs");
+include!("replay_shadow_types.rs");
+include!("replay_shadow_authenticated.rs");
 include!("replay_journal.rs");
 include!("replay_state.rs");
 include!("replay_validation.rs");
@@ -20,6 +22,10 @@ include!("anchor.rs");
 include!("security_state.rs");
 #[allow(clippy::doc_markdown, clippy::format_collect)]
 mod security_commit;
+#[allow(clippy::format_collect)]
+mod security_install;
+mod security_ledger_v7;
+mod security_legacy_v7_recovery;
 #[allow(
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
@@ -29,7 +35,9 @@ mod security_commit;
     clippy::missing_const_for_fn,
     clippy::format_collect
 )]
+#[allow(clippy::redundant_pub_crate)]
 mod security_mutation;
+mod security_mutation_prepare;
 #[allow(
     clippy::missing_errors_doc,
     clippy::needless_pass_by_value,
@@ -37,10 +45,39 @@ mod security_mutation;
     clippy::format_collect
 )]
 mod security_open;
+mod security_open_hash;
+#[allow(
+    clippy::redundant_pub_crate,
+    clippy::type_complexity,
+    clippy::needless_pass_by_value
+)]
+mod security_record;
 #[allow(clippy::redundant_pub_crate)]
 mod security_recovery;
+mod security_recovery_read;
+mod security_recovery_read_types;
 #[allow(clippy::redundant_pub_crate)]
 mod security_schema_v6;
+mod security_schema_v7;
+#[allow(clippy::redundant_pub_crate)]
+mod security_schema_v8;
+#[allow(clippy::redundant_pub_crate)]
+mod security_state_root;
+mod security_v6_migration;
+
+pub use security_ledger_v7::{
+    CanonicalMutationOutcome, GenerationAssistant, GenerationFailureReason, GenerationTerminal,
+    LedgerMessage, MessageRole, NormalizedMutationCommand,
+};
+pub use security_recovery_read_types::{
+    MAX_MUTATION_RECOVERY_RECORDS, MutationRecoveryBatch, MutationRecoveryBinding,
+    MutationRecoveryEvidence, MutationRecoveryLimit,
+};
+
+#[cfg(feature = "test-support")]
+pub mod security_open_test_support;
+#[cfg(feature = "test-support")]
+pub mod security_v6_test_support;
 
 mod open;
 mod projects;
@@ -61,6 +98,13 @@ mod replay_access;
 mod replay_anchored;
 mod replay_apply;
 mod replay_confirm;
+#[allow(clippy::redundant_pub_crate)]
+mod replay_shadow;
+mod replay_shadow_accept;
+mod replay_shadow_apply;
+mod replay_shadow_digest;
+#[cfg(test)]
+mod replay_shadow_tests;
 
 pub use recent_roots::{RecentRoot, RecentRootError};
 

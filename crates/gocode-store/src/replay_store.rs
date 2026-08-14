@@ -11,6 +11,16 @@ include!("replay_store/inventory.rs");
 include!("replay_store/events.rs");
 include!("replay_store/sessions.rs");
 include!("replay_store/store.rs");
+include!("replay_store/open_baseline.rs");
+include!("replay_store/open_gap_baseline_v2.rs");
+include!("replay_store/open_baseline_v2.rs");
+include!("replay_store/resume_tx_v2.rs");
+#[cfg(test)]
+include!("replay_store/open_baseline_v2_tests.rs");
+#[cfg(test)]
+include!("replay_store/open_baseline_v2_lifecycle_tests.rs");
+#[cfg(test)]
+include!("replay_store/open_baseline_v2_guard_tests.rs");
 include!("replay_store/open_session.rs");
 include!("replay_store/retention.rs");
 include!("replay_store/read_page.rs");

@@ -2,6 +2,10 @@
 
 use std::{
     collections::{HashMap, VecDeque},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -121,6 +125,29 @@ struct Session {
     authority: RuntimeSessionAuthority,
     epoch: u64,
     generation: u64,
+    issuer_state: Arc<ReplayBaselineIssuerState>,
+}
+
+struct ReplayBaselineIssuerState {
+    revoked: AtomicBool,
+}
+
+/// Opaque, revocable server-side replay-baseline issuer for one authorized request.
+#[derive(Clone)]
+pub struct AuthenticatedReplayBaselineIssuer {
+    binding: RuntimeSessionBinding,
+    authority: RuntimeSessionAuthority,
+    expires_at_monotonic: Duration,
+    state: Arc<ReplayBaselineIssuerState>,
+}
+
+/// Opaque server-owned clock and issuer binding for one V2 resume admission.
+/// It is created only from an authenticated local-session issuer.
+#[derive(Clone)]
+pub struct AuthenticatedReplayResumeContextV2 {
+    issuer: AuthenticatedReplayBaselineIssuer,
+    monotonic_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    wall_clock: Arc<dyn Fn() -> Result<u64, LocalSessionError> + Send + Sync>,
 }
 
 /// In-memory bounded proof and authority service.
@@ -134,7 +161,15 @@ pub struct LocalSessionService {
     sessions: HashMap<[u8; 32], Session>,
     authorization_epoch: u64,
     sensitivity_ceiling: Sensitivity,
+    trusted_clock_origin: std::time::Instant,
 }
 
 include!("local_session/service.rs");
+include!("local_session/service_replay_issuer.rs");
 include!("local_session/transcript.rs");
+include!("local_session/replay_baseline.rs");
+include!("local_session/replay_baseline_v2.rs");
+#[cfg(test)]
+include!("local_session/replay_baseline_tests.rs");
+#[cfg(test)]
+include!("local_session/replay_baseline_v2_tests.rs");

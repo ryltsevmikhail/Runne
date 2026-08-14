@@ -85,8 +85,12 @@ impl DaemonApplication {
             ));
         }
         let ready = self.protected_ready(request.compatibility_request(), keys)?;
-        let mut ready = ProtectedReadyV2::new(ready, request.provider_binding().clone())
-            .map_err(|_| DaemonError::Bootstrap("build provider-bound readiness".into()))?;
+        let mut ready = ProtectedReadyV2::new(
+            ready,
+            request.provider_binding().clone(),
+            self.provider_readiness,
+        )
+        .map_err(|_| DaemonError::Bootstrap("build provider-bound readiness".into()))?;
         ready.sign(keys);
         Ok(ready)
     }

@@ -6,27 +6,9 @@
 
 use gocode_local_store::{
     BoundedCanonicalId, ClientMutationDisposition, LocalStore, MutationIdentity, MutationOperation,
-    MutationTargetKind,
+    MutationTargetKind, NormalizedMutationCommand, V7MutationTransition,
 };
 use gocode_secure_store::test_support::DeterministicSecureStore;
-
-#[test]
-fn mutation_ledger_rejects_a_target_outside_its_closed_operation_matrix() {
-    let target = BoundedCanonicalId::parse(b"project-1").expect("canonical target");
-    assert!(
-        MutationIdentity::new(
-            [1; 32],
-            [2; 32],
-            MutationOperation::WorkspaceOpen,
-            MutationTargetKind::Project,
-            target,
-            "idem-1",
-            0,
-            [3; 32],
-        )
-        .is_err()
-    );
-}
 
 #[test]
 fn mutation_ledger_rejects_terminal_and_same_state_transitions() {
@@ -39,50 +21,68 @@ fn mutation_ledger_rejects_terminal_and_same_state_transitions() {
     let identity = MutationIdentity::new(
         [1; 32],
         [2; 32],
-        MutationOperation::WorkspaceOpen,
-        MutationTargetKind::Workspace,
-        BoundedCanonicalId::parse(b"workspace-7").expect("id"),
+        MutationOperation::ProjectCreate,
+        MutationTargetKind::Project,
+        id("project-7"),
         "terminal",
         0,
         [11; 32],
     )
     .expect("identity");
     store
-        .prepare_anchored_mutation(&secure, identity.clone())
+        .prepare_anchored_mutation_v7(&secure, identity.clone(), project("project-7"))
         .expect("prepare");
     assert!(
         store
-            .transition_anchored_mutation(
+            .transition_anchored_mutation_v7(
                 &secure,
                 identity.clone(),
-                ClientMutationDisposition::Prepared
+                V7MutationTransition::CanonicalOutcome {
+                    outcome: Box::new(
+                        gocode_local_store::CanonicalMutationOutcome::project(id("project-7"), 1)
+                            .unwrap()
+                    ),
+                    summary: "early".into(),
+                    timestamp: 1
+                }
             )
             .is_err()
     );
     store
-        .transition_anchored_mutation(
+        .transition_anchored_mutation_v7(
             &secure,
             identity.clone(),
-            ClientMutationDisposition::Dispatching,
+            V7MutationTransition::Dispatching { timestamp: 2 },
         )
         .expect("dispatch");
     store
-        .transition_anchored_mutation(
+        .transition_anchored_mutation_v7(
             &secure,
             identity.clone(),
-            ClientMutationDisposition::Observing,
+            V7MutationTransition::Observing { timestamp: 3 },
         )
         .expect("observe");
     store
-        .transition_anchored_mutation(
+        .transition_anchored_mutation_v7(
             &secure,
             identity.clone(),
-            ClientMutationDisposition::CanonicalOutcome,
+            V7MutationTransition::CanonicalOutcome {
+                outcome: Box::new(
+                    gocode_local_store::CanonicalMutationOutcome::project(id("project-7"), 1)
+                        .unwrap(),
+                ),
+                summary: "committed".into(),
+                timestamp: 4,
+            },
         )
         .expect("terminal");
     assert!(
         store
-            .transition_anchored_mutation(&secure, identity, ClientMutationDisposition::Reconciling)
+            .transition_anchored_mutation_v7(
+                &secure,
+                identity,
+                V7MutationTransition::Indeterminate { timestamp: 5 }
+            )
             .is_err()
     );
 }
@@ -98,19 +98,19 @@ fn mutation_ledger_prepares_an_anchored_identity_exactly_once() {
     let identity = MutationIdentity::new(
         [1; 32],
         [2; 32],
-        MutationOperation::WorkspaceOpen,
-        MutationTargetKind::Workspace,
-        BoundedCanonicalId::parse(b"workspace-1").expect("id"),
+        MutationOperation::ProjectCreate,
+        MutationTargetKind::Project,
+        id("project-1"),
         "idempotency-1",
-        1,
+        0,
         [4; 32],
     )
     .expect("identity");
     let first = store
-        .prepare_anchored_mutation(&secure, identity.clone())
+        .prepare_anchored_mutation_v7(&secure, identity.clone(), project("project-1"))
         .expect("prepare");
     let duplicate = store
-        .prepare_anchored_mutation(&secure, identity)
+        .prepare_anchored_mutation_v7(&secure, identity, project("project-1"))
         .expect("reuse");
     assert_eq!(first.generation(), duplicate.generation());
     assert_eq!(first.disposition(), ClientMutationDisposition::Prepared);
@@ -127,23 +127,23 @@ fn mutation_ledger_allows_only_closed_disposition_edges() {
     let identity = MutationIdentity::new(
         [1; 32],
         [2; 32],
-        MutationOperation::WorkspaceOpen,
-        MutationTargetKind::Workspace,
-        BoundedCanonicalId::parse(b"workspace-2").expect("id"),
+        MutationOperation::ProjectCreate,
+        MutationTargetKind::Project,
+        id("project-2"),
         "idempotency-2",
-        1,
+        0,
         [5; 32],
     )
     .expect("identity");
     store
-        .prepare_anchored_mutation(&secure, identity.clone())
+        .prepare_anchored_mutation_v7(&secure, identity.clone(), project("project-2"))
         .expect("prepare");
     assert_eq!(
         store
-            .transition_anchored_mutation(
+            .transition_anchored_mutation_v7(
                 &secure,
                 identity.clone(),
-                ClientMutationDisposition::Dispatching
+                V7MutationTransition::Dispatching { timestamp: 1 }
             )
             .expect("dispatch")
             .disposition(),
@@ -151,10 +151,17 @@ fn mutation_ledger_allows_only_closed_disposition_edges() {
     );
     assert!(
         store
-            .transition_anchored_mutation(
+            .transition_anchored_mutation_v7(
                 &secure,
                 identity,
-                ClientMutationDisposition::CanonicalOutcome
+                V7MutationTransition::CanonicalOutcome {
+                    outcome: Box::new(
+                        gocode_local_store::CanonicalMutationOutcome::project(id("project-2"), 1)
+                            .unwrap()
+                    ),
+                    summary: "bad".into(),
+                    timestamp: 2
+                }
             )
             .is_err()
     );
@@ -215,20 +222,13 @@ fn mutation_ledger_accepts_every_closed_operation_target_pair() {
                 [2; 32],
                 operation,
                 target,
-                BoundedCanonicalId::parse(b"canonical-id").expect("id"),
+                id("canonical-id"),
                 "key",
                 0,
                 [3; 32]
             )
             .is_ok()
         );
-    }
-}
-
-#[test]
-fn mutation_ledger_rejects_noncanonical_or_control_target_ids() {
-    for value in [b"".as_slice(), b"id\n", "ń".as_bytes(), &[b'x'; 129][..]] {
-        assert!(BoundedCanonicalId::parse(value).is_err());
     }
 }
 
@@ -244,9 +244,9 @@ fn mutation_ledger_rejects_same_key_with_a_different_semantic_digest() {
         MutationIdentity::new(
             [1; 32],
             [2; 32],
-            MutationOperation::WorkspaceOpen,
-            MutationTargetKind::Workspace,
-            BoundedCanonicalId::parse(b"workspace-3").expect("id"),
+            MutationOperation::ProjectCreate,
+            MutationTargetKind::Project,
+            id("project-3"),
             "same-key",
             0,
             digest,
@@ -254,17 +254,17 @@ fn mutation_ledger_rejects_same_key_with_a_different_semantic_digest() {
         .expect("identity")
     };
     store
-        .prepare_anchored_mutation(&secure, make([4; 32]))
+        .prepare_anchored_mutation_v7(&secure, make([4; 32]), project("project-3"))
         .expect("first");
     assert!(
         store
-            .prepare_anchored_mutation(&secure, make([5; 32]))
+            .prepare_anchored_mutation_v7(&secure, make([5; 32]), project("project-3"))
             .is_err()
     );
 }
 
 #[test]
-fn mutation_ledger_poisoned_after_anchor_cas_failure() {
+fn mutation_ledger_reuses_the_original_semantic_command_across_a_new_key() {
     let directory = tempfile::tempdir().expect("temporary profile");
     let profile = [15; 32];
     let secure = DeterministicSecureStore::new(profile);
@@ -275,24 +275,22 @@ fn mutation_ledger_poisoned_after_anchor_cas_failure() {
         MutationIdentity::new(
             [1; 32],
             [2; 32],
-            MutationOperation::WorkspaceOpen,
-            MutationTargetKind::Workspace,
-            BoundedCanonicalId::parse(b"workspace-4").expect("id"),
+            MutationOperation::ProjectCreate,
+            MutationTargetKind::Project,
+            id("project-semantic"),
             key,
             0,
             [6; 32],
         )
         .expect("identity")
     };
-    secure.fail_next_advance();
-    assert!(
-        store
-            .prepare_anchored_mutation(&secure, make("failed"))
-            .is_err()
-    );
-    assert!(
-        store
-            .prepare_anchored_mutation(&secure, make("later"))
-            .is_err()
-    );
+    let first = store
+        .prepare_anchored_mutation_v7(&secure, make("first-key"), project("project-semantic"))
+        .expect("first");
+    let second = store
+        .prepare_anchored_mutation_v7(&secure, make("second-key"), project("project-semantic"))
+        .expect("semantic reuse");
+    assert_eq!(first.generation(), second.generation());
 }
+
+include!("support/mutation_ledger_support.rs");

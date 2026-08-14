@@ -49,6 +49,7 @@ mod runtime_store;
 pub(crate) use activation_provenance::DaemonActivationProvenance;
 pub(crate) use composition::DaemonCanonicalOpenAiComposition;
 pub use composition::{DaemonCanonicalOpenAiService, compose_selected_provider};
+pub(crate) use readiness::probe_provider_readiness;
 pub use readiness::{OpenAiReadinessError, OpenAiReadinessEvidence};
 
 pub(crate) type RuntimeStoreDecorator = dyn Fn(

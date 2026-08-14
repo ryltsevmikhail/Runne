@@ -13,10 +13,10 @@ use crate::launch_identity::LaunchIdentity;
 
 pub(crate) const LOCAL_RUNTIME_PROFILE_V2: &str = "gocode-local-runtime/2";
 
-/// Strict profile-v2 wire representation for pinned TLS clients.
+/// Strict profile-v3 wire representation for pinned TLS clients.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ClientProfileV2Wire {
+pub(crate) struct ClientProfileV3Wire {
     schema_version: u32,
     transport_profile_id: String,
     profile_id: String,
@@ -34,8 +34,8 @@ pub(crate) struct ClientProfileV2Wire {
     launch_generation: u64,
 }
 
-impl ClientProfileV2Wire {
-    /// Serializes the exact profile-v2 wire shape.
+impl ClientProfileV3Wire {
+    /// Serializes the exact profile-v3 wire shape.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         endpoint: SocketAddr,
@@ -49,10 +49,10 @@ impl ClientProfileV2Wire {
         capabilities: &[&str],
     ) -> Result<Self, DaemonError> {
         if !bootstrap_secret_path.is_absolute() || launch_generation == 0 {
-            return Err(DaemonError::Bootstrap("invalid profile-v2 identity".into()));
+            return Err(DaemonError::Bootstrap("invalid profile-v3 identity".into()));
         }
         Ok(Self {
-            schema_version: 2,
+            schema_version: 3,
             transport_profile_id: LOCAL_RUNTIME_PROFILE_V2.to_owned(),
             profile_id: gocode_runtime::bundle::BUNDLE_ID.to_owned(),
             schema_hash: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
@@ -76,15 +76,15 @@ impl ClientProfileV2Wire {
     }
 }
 
-/// Lifetime guard for one active v2 profile and its bootstrap secret.
-pub(crate) struct PublishedClientProfileV2 {
+/// Lifetime guard for one active v3 profile and its bootstrap secret.
+pub(crate) struct PublishedClientProfileV3 {
     profile_path: PathBuf,
     profile_bytes: Vec<u8>,
     secret_path: PathBuf,
     secret_bytes: [u8; 32],
 }
 
-impl PublishedClientProfileV2 {
+impl PublishedClientProfileV3 {
     pub(crate) fn publish(
         directory: &Path,
         endpoint: SocketAddr,
@@ -94,7 +94,7 @@ impl PublishedClientProfileV2 {
         capabilities: &[&str],
     ) -> Result<Self, DaemonError> {
         let directory = std::fs::canonicalize(directory)
-            .map_err(|_| DaemonError::Bootstrap("canonicalize v2 profile directory".into()))?;
+            .map_err(|_| DaemonError::Bootstrap("canonicalize v3 profile directory".into()))?;
         let secret_path = directory.join(format!(
             "bootstrap-{}.secret",
             identity.daemon_instance_id()
@@ -106,7 +106,7 @@ impl PublishedClientProfileV2 {
             .map_err(|_| DaemonError::Bootstrap("read v2 bootstrap secret".into()))?
             .try_into()
             .map_err(|_| DaemonError::Bootstrap("invalid v2 bootstrap secret".into()))?;
-        let wire = ClientProfileV2Wire::new(
+        let wire = ClientProfileV3Wire::new(
             endpoint,
             identity.profile_certificate_der_base64(),
             *identity.certificate_sha256(),
@@ -118,7 +118,7 @@ impl PublishedClientProfileV2 {
             capabilities,
         )?;
         let profile_bytes = serde_json::to_vec(&wire)
-            .map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
+            .map_err(|_| DaemonError::Bootstrap("serialize v3 profile".into()))?;
         let profile_path = directory.join("client-profile.json");
         let temporary = directory.join(format!(".client-profile.{}.tmp", uuid::Uuid::now_v7()));
         if let Err(error) = write_owner_only(&temporary, &profile_bytes)
@@ -130,7 +130,7 @@ impl PublishedClientProfileV2 {
             remove_if_matches(&secret_path, &secret_bytes);
             let _ = sync_directory(&directory);
             return Err(DaemonError::Bootstrap(format!(
-                "publish v2 local client profile: {error}"
+                "publish v3 local client profile: {error}"
             )));
         }
         Ok(Self {
@@ -151,7 +151,7 @@ fn remove_if_matches(path: &Path, bytes: &[u8]) {
     }
 }
 
-impl Drop for PublishedClientProfileV2 {
+impl Drop for PublishedClientProfileV3 {
     fn drop(&mut self) {
         for (path, bytes) in [
             (&self.profile_path, self.profile_bytes.as_slice()),
@@ -215,7 +215,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let (identity, marker) =
             LaunchIdentity::generate_with_private_key_marker_for_test(1).unwrap();
-        let published = PublishedClientProfileV2::publish(
+        let published = PublishedClientProfileV3::publish(
             directory.path(),
             "127.0.0.1:3000".parse().unwrap(),
             &identity,

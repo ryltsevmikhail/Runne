@@ -5,6 +5,7 @@
         BundledRuntimeController, ProtectedSessionRenewalSchedule, RuntimeOperationFence,
         map_protected_failure,
     };
+    use gocode_api::ProviderActivationReadinessV1;
     use gocode_app_core::{AppCore, RuntimeFailureCode, RuntimeMode};
     use gocode_platform_desktop::ProtectedBundledRuntimeError;
 
@@ -25,6 +26,30 @@
         assert_eq!(
             map_protected_failure(ProtectedBundledRuntimeError::UnsupportedPlatformBackend),
             RuntimeFailureCode::UnsupportedPlatformBackend
+        );
+        assert_eq!(
+            map_protected_failure(ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                ProviderActivationReadinessV1::CredentialMissing,
+            )),
+            RuntimeFailureCode::ConfigurationRequired
+        );
+        assert_eq!(
+            map_protected_failure(ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                ProviderActivationReadinessV1::CredentialAccessDenied,
+            )),
+            RuntimeFailureCode::BundledExecutableIdentityMismatch
+        );
+        assert_eq!(
+            map_protected_failure(ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                ProviderActivationReadinessV1::CredentialIdentityMismatch,
+            )),
+            RuntimeFailureCode::BundledExecutableIdentityMismatch
+        );
+        assert_eq!(
+            map_protected_failure(ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                ProviderActivationReadinessV1::SecureStoreUnavailable,
+            )),
+            RuntimeFailureCode::ProtectedActivationUnavailable
         );
     }
 

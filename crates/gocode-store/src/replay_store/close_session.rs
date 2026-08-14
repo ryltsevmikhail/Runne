@@ -37,33 +37,38 @@ impl ReplayStore {
 
             validate_auth(&session, &principal_id, generation, &authority_id, epoch)?;
 
-            // Allow close from CatchUpComplete or Live
-            match session.state {
-                ReplayState::CatchUpComplete | ReplayState::Live => {}
+            let (statement, expected_state) = match session.state {
+                ReplayState::CatchingUp => (
+                    "DELETE FROM _replay_subscriptions
+                     WHERE session_id = ?1 AND state = ?6
+                       AND principal_id = ?2 AND session_generation = ?3
+                       AND authority_id = ?4 AND authorization_epoch = ?5",
+                    "catching_up",
+                ),
+                ReplayState::CatchUpComplete | ReplayState::Live => (
+                    "UPDATE _replay_subscriptions SET state = 'closed'
+                     WHERE session_id = ?1 AND state = ?6
+                       AND principal_id = ?2 AND session_generation = ?3
+                       AND authority_id = ?4 AND authorization_epoch = ?5",
+                    session.state.as_db(),
+                ),
                 _ => {
                     return Err(ReplayError::InvalidState(session.state.as_db().to_string()));
                 }
-            }
-
+            };
             let affected = conn
                 .execute(
-                    "UPDATE _replay_subscriptions
-                     SET state = 'closed'
-                     WHERE session_id = ?1
-                       AND state IN ('catch_up_complete', 'live')
-                       AND principal_id = ?2
-                       AND session_generation = ?3
-                       AND authority_id = ?4
-                       AND authorization_epoch = ?5",
+                    statement,
                     params![
                         session_id.as_slice(),
                         principal_id.as_str(),
                         generation,
                         authority_id.as_slice(),
                         epoch,
+                        expected_state,
                     ],
                 )
-                .map_err(|e| ReplayError::Storage(format!("close: {}", e)))?;
+                .map_err(|error| ReplayError::Storage(format!("close: {error}")))?;
 
             if affected != 1 {
                 return Err(ReplayError::InvalidState(

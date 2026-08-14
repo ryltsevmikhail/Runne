@@ -1,4 +1,4 @@
-//! Deterministic generation of the checked-in local runtime UI contract.
+//! Deterministic generation of the checked-in `gocode-ui-client/2` contract.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -41,13 +41,16 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "golden/operational-telemetry.json",
     "golden/project-workspace.json",
     "golden/replay-conversation.json",
+    "golden/replay-resume-v2.json",
+    "golden/replay-retention-gap-v2.json",
+    "golden/replay-retention-gap.json",
     "golden/replay-taskrun.json",
     "golden/sse-delivery.json",
     "openapi.json",
-    "schemas/local-runtime-profile-v2.schema.json",
+    "schemas/local-runtime-profile-v3.schema.json",
     "schemas/local-session-v1.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
-    "schemas/project-workspace-v1.schema.json",
+    "schemas/project-workspace-v2.schema.json",
     "schemas/replay-v1.schema.json",
     "schemas/sse-v1.schema.json",
 ];
@@ -78,3 +81,4 @@ include!("contract_generation/operational_telemetry_schema.rs");
 include!("contract_generation/project_workspace_schema.rs");
 include!("contract_generation/project_workspace_openapi.rs");
 include!("contract_generation/openapi.rs");
+include!("contract_generation/replay_retention_goldens.rs");

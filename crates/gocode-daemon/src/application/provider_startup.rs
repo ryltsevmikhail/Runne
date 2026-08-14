@@ -160,7 +160,7 @@ impl DaemonApplication {
             root_admission_keys,
         ) = startup.into_parts();
         let provider_profile_digest = *provider_activation.binding().profile_digest();
-        let provider_service = match activation_provenance {
+        let compose_result = match activation_provenance {
             Some(activation_provenance) => {
                 compose_selected_provider(&provider_activation, || {
                     let db_path = config.db_path.clone();
@@ -201,9 +201,28 @@ impl DaemonApplication {
                         .await
                     }
                 })
-                .await?
+                .await
             }
-            None => None,
+            None => Ok(None),
+        };
+        let (provider_service, provider_readiness) = match compose_result {
+            Ok(service) => (service, ProviderActivationReadinessV1::Ready),
+            Err(error) => {
+                if protected_activation {
+                    // OpenAI compose failed: never sign `Ready` with its provider absent.
+                    let readiness =
+                        crate::canonical_provider::probe_provider_readiness(bootstrap.authority_id)
+                            .await;
+                    let readiness = if readiness.is_ready() {
+                        ProviderActivationReadinessV1::SecureStoreUnavailable
+                    } else {
+                        readiness
+                    };
+                    (None, readiness)
+                } else {
+                    return Err(error);
+                }
+            }
         };
         http_startup::start_http_and_runtime(
             config,
@@ -222,6 +241,7 @@ impl DaemonApplication {
             protected_activation,
             session_id,
             root_admission_keys,
+            provider_readiness,
         )
         .await
     }

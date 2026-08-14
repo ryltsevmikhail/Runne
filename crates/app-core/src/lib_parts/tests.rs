@@ -109,11 +109,15 @@
             authority: "018f2e3a-7000-7000-8000-000000000120".to_owned(),
             principal: "local-owner".to_owned(),
             lineage: "018f2e3a-7000-7000-8000-000000000121".to_owned(),
-            profile_id: "gocode-ui-client/1".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: "11".repeat(32),
             capability_digest: "22".repeat(32),
             binding_digest: "33".repeat(32),
             launch_generation: 9,
+            session_id: "session".to_owned(),
+            daemon_instance_id: "daemon".to_owned(),
+            authorization_epoch: 1,
+            certificate_sha256: "44".repeat(32),
         };
 
         let bound = identity.bind_reference(&reference);
@@ -187,6 +191,10 @@
             capability_digest: "22".repeat(32),
             binding_digest: "33".repeat(32),
             launch_generation: 1,
+            session_id: "session".to_owned(),
+            daemon_instance_id: "daemon".to_owned(),
+            authorization_epoch: 1,
+            certificate_sha256: "44".repeat(32),
         };
         let bound = core
             .bind_conversation_reference(project_id, reference, &first)

@@ -40,7 +40,7 @@ fn project_delete_committed_first_blocks_a_text_taskrun_origin() {
             command(51),
             &key("delete-before-text"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         )
         .unwrap();
 

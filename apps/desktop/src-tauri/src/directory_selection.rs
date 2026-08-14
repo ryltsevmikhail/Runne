@@ -159,59 +159,6 @@ impl DirectorySelectionManager {
             .ok_or(SelectionError)
     }
 
-    /// Atomically fences a window and removes all of its pending selections.
-    ///
-    /// # Errors
-    ///
-    /// Returns a closed error for invalid labels, poisoned state, or overflow.
-    #[cfg(test)]
-    pub fn invalidate_window(&self, window: &str) -> Result<(), SelectionError> {
-        self.state
-            .lock()
-            .map_err(|_| SelectionError)?
-            .advance(window)
-            .map(|_| ())
-            .map_err(|_| SelectionError)
-    }
-
-    #[cfg(test)]
-    /// Issues a deterministic reference for collision tests only.
-    ///
-    /// # Errors
-    ///
-    /// Returns the same closed validation errors as [`Self::issue`].
-    pub fn issue_with_reference_for_test(
-        &self,
-        window: &str,
-        expected_generation: u64,
-        request: &str,
-        root: VerifiedRootHandle,
-        now: Instant,
-        reference: String,
-    ) -> Result<DirectorySelectionRef, SelectionError> {
-        self.issue_inner(
-            window,
-            expected_generation,
-            request,
-            root,
-            now,
-            Some(reference),
-        )
-    }
-
-    #[cfg(test)]
-    /// Deliberately poisons the shared state for fail-closed tests.
-    ///
-    /// # Panics
-    ///
-    /// The generated panic is caught internally after it has poisoned the mutex.
-    pub fn poison_for_test(&self) {
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _lock = self.state.lock().unwrap();
-            panic!("test mutex poison");
-        }));
-    }
-
     fn issue_inner(
         &self,
         window: &str,
@@ -292,6 +239,8 @@ pub fn valid_reference(value: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 include!("directory_selection_parts/lifecycle.rs");
+#[cfg(test)]
+include!("directory_selection_parts/test_support.rs");
 
 #[cfg(test)]
 #[allow(clippy::significant_drop_tightening)]

@@ -163,6 +163,27 @@ async fn root_bind_rejects_non_ascii_opaque_tokens_without_echoing_them() {
 }
 
 #[tokio::test]
+async fn root_bind_rejects_oversized_admission_before_the_host() {
+    let response = authorized(
+        Request::builder()
+            .method("POST")
+            .uri(format!("/v1/workspaces/{ID}/root-bindings")),
+    )
+    .header("x-command-id", ID)
+    .header("idempotency-key", "key")
+    .header("content-type", "application/json")
+    .body(Body::from(format!(
+        r#"{{"expectedVersion":1,"rootAdmission":"{}"}}"#,
+        "a".repeat(gocode_api::MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES + 1),
+    )))
+    .unwrap();
+    assert_eq!(
+        app().oneshot(response).await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
 async fn root_bind_is_present_but_fail_closed_without_a_native_admission_producer() {
     let response = authorized(
         Request::builder()
@@ -172,9 +193,10 @@ async fn root_bind_is_present_but_fail_closed_without_a_native_admission_produce
     .header("x-command-id", ID)
     .header("idempotency-key", "key")
     .header("content-type", "application/json")
-    .body(Body::from(
-        r#"{"expectedVersion":1,"rootAdmission":"gocode-root-admission-v2.AA"}"#,
-    ))
+    .body(Body::from(format!(
+        r#"{{"expectedVersion":1,"rootAdmission":"gocode-root-admission-v3.{}"}}"#,
+        "A".repeat((gocode_api::ROOT_HANDLE_ADMISSION_V3_BYTES * 4).div_ceil(3)),
+    )))
     .unwrap();
     let response = app().oneshot(response).await.unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);

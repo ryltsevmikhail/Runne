@@ -76,7 +76,7 @@ fn admission_context() -> RootAdmissionVerificationContext {
         [2; 16],
         1,
         RootAdmissionVerificationContext::principal_digest_for("owner"),
-        1,
+        3,
         1,
         100,
     )
@@ -200,7 +200,7 @@ async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mu
         [2; 16],
         1,
         RootAdmissionVerificationContext::principal_digest_for("owner"),
-        1,
+        3,
         1,
         100,
     )

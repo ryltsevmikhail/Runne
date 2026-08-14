@@ -62,7 +62,7 @@ mod tests {
                 "018f2e3a-7000-7000-8000-000000000003"
                     .parse::<EventLogLineageId>()
                     .unwrap(),
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [3; 32],
                 ordered_capability_digest(&["conversation.create.v1", "conversation.list.v1"]),
             )
@@ -103,7 +103,7 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
-        assert_eq!(body["profileId"], "gocode-ui-client/1");
+        assert_eq!(body["profileId"], "gocode-ui-client/2");
         assert_eq!(body["schemaHash"], hex::encode([3; 32]));
         assert_eq!(body["runtimeVersion"], "0.1.0-test");
         assert_eq!(

@@ -83,30 +83,33 @@ impl FilesystemBroker {
             self.validate_root_handle(root)?;
             #[cfg(unix)]
             {
-                let _ = (root, relative);
-                Err(FsBrokerError::MutationUnavailable)
-            }
-            #[cfg(all(not(unix), not(target_os = "windows")))]
-            {
-                let workspace_root = self.find_root(&root.root_id)?;
+                let workspace_root = self.find_root_for_root_handle(root)?;
                 if !workspace_root.policy.create_allowed {
                     return Err(FsBrokerError::PermissionDenied);
                 }
-                let full_path = workspace_root
+                let candidate = workspace_root
                     .canonical_path
                     .join(relative.components.join("/"));
-                if let Some(parent) = full_path.parent() {
-                    fs::create_dir_all(parent)
-                        .map_err(|error| FsBrokerError::Io(error.to_string()))?;
-                }
-                fs::write(&full_path, b"").map_err(|error| FsBrokerError::Io(error.to_string()))?;
-                let canonical = fs::canonicalize(&full_path)
-                    .map_err(|error| FsBrokerError::Io(error.to_string()))?;
+                self.validate_sensitive_path(&candidate)?;
+                let root_fd = root
+                    .fd
+                    .as_ref()
+                    .ok_or_else(|| FsBrokerError::Io("missing root descriptor".into()))?;
+                let parent = super::fs_unix::parent_nofollow(root_fd, &relative.components)?;
+                super::fs_unix::ensure_absent(&parent.directory, &parent.final_name)?;
+                let fd = super::fs_unix::create_unnamed(&parent.directory)?;
                 Ok(CreatedFsHandle {
                     root_id: root.root_id.clone(),
                     binding: self.binding.clone(),
-                    path: canonical,
+                    fd: Some(fd),
+                    parent_fd: Some(parent.directory),
+                    final_name: parent.final_name,
                 })
+            }
+            #[cfg(all(not(unix), not(target_os = "windows")))]
+            {
+                let _ = (root, relative);
+                Err(FsBrokerError::BackendUnavailable)
             }
         }
     }
@@ -127,11 +130,8 @@ impl FilesystemBroker {
             }
             #[cfg(all(not(unix), not(target_os = "windows")))]
             {
-                let workspace_root = self.find_root(&handle.root_id)?;
-                if !workspace_root.policy.delete_allowed {
-                    return Err(FsBrokerError::PermissionDenied);
-                }
-                fs::remove_file(&handle.path).map_err(|error| FsBrokerError::Io(error.to_string()))
+                let _ = handle;
+                Err(FsBrokerError::BackendUnavailable)
             }
         }
     }

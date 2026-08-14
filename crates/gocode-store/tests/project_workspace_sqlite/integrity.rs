@@ -39,7 +39,7 @@ fn delete(database: &Database, tail: u8) -> Result<u64, Error> {
         command(tail),
         &key("integrity-delete"),
         ProjectId::from_bytes(PROJECT),
-        1,
+        3,
     )
 }
 

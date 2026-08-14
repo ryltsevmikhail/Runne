@@ -209,6 +209,16 @@ impl StoreTransaction {
             *payload.conversation_events[0].event_id(),
             now,
         )?;
+        crate::store::snapshot::refresh_aggregate_snapshot(
+            &transaction,
+            CORRELATION_TYPE_CONVERSATION,
+            conversation_id.as_bytes(),
+        )?;
+        crate::store::snapshot::refresh_aggregate_snapshot(
+            &transaction,
+            CORRELATION_TYPE_TASK_RUN,
+            taskrun_id.as_bytes(),
+        )?;
         update_global_position(&transaction, next_global_position)?;
         let outcome = TextGenerationReceiptCodec
             .encode(&payload.receipt)

@@ -24,6 +24,7 @@ serde_json.workspace = true
 same-file = "1"
 
 [dev-dependencies]
+gocode-api = { path = "../gocode-api", features = ["test-support"] }
 gocode-runtime = { path = "../gocode-runtime", features = ["provider-terminal-test-support"] }
 gocode-security = { path = "../gocode-security" }
 serde = { workspace = true }

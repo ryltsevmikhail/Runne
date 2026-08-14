@@ -1,4 +1,7 @@
-use super::{Duration, Future, LIVE_RESET_INTERVAL, Pin, RECONNECT_DELAYS, fmt};
+use super::{
+    Duration, Future, LIVE_RESET_INTERVAL, Pin, RECONNECT_DELAYS, ReplayRetentionBaselineV1,
+    ReplayRetentionBaselineV2, fmt,
+};
 
 /// Closed recovery state consumed by `AppCore`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,11 +50,10 @@ impl ReplayClientErrorKind {
             | Self::SchemaMismatch
             | Self::UnexpectedContentType
             | Self::InvalidResponse => ReplayRecoveryDisposition::Incompatible,
-            Self::RetentionGap => ReplayRecoveryDisposition::ResyncRequired,
-            Self::SensitivityDenied | Self::AuthorizationRevoked => {
-                ReplayRecoveryDisposition::Revoked
-            }
-            Self::InvalidRequest
+            // A verified retention baseline is exposed for Task 11 consumption
+            // only; Task 10 must not authorize local reset or promotion.
+            Self::RetentionGap
+            | Self::InvalidRequest
             | Self::CursorInvalid
             | Self::AggregateMismatch
             | Self::NonMonotonicSequence
@@ -59,6 +61,9 @@ impl ReplayClientErrorKind {
             | Self::Integrity
             | Self::LocalCallback
             | Self::ResponseTooLarge => ReplayRecoveryDisposition::Fatal,
+            Self::SensitivityDenied | Self::AuthorizationRevoked => {
+                ReplayRecoveryDisposition::Revoked
+            }
         }
     }
 }
@@ -67,16 +72,47 @@ impl ReplayClientErrorKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReplayClientError {
     kind: ReplayClientErrorKind,
+    baseline: Option<Box<ReplayRetentionBaselineV1>>,
+    baseline_v2: Option<Box<ReplayRetentionBaselineV2>>,
 }
 
 impl ReplayClientError {
     pub(super) const fn new(kind: ReplayClientErrorKind) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            baseline: None,
+            baseline_v2: None,
+        }
+    }
+
+    pub(super) fn retention_gap(baseline: ReplayRetentionBaselineV1) -> Self {
+        Self {
+            kind: ReplayClientErrorKind::RetentionGap,
+            baseline: Some(Box::new(baseline)),
+            baseline_v2: None,
+        }
     }
 
     #[must_use]
     pub const fn kind(&self) -> ReplayClientErrorKind {
         self.kind
+    }
+
+    #[must_use]
+    pub fn retention_baseline(&self) -> Option<&ReplayRetentionBaselineV1> {
+        self.baseline.as_deref()
+    }
+    /// Returns a verified V2 resume baseline only when the server supplied one.
+    #[must_use]
+    pub fn retention_baseline_v2(&self) -> Option<&ReplayRetentionBaselineV2> {
+        self.baseline_v2.as_deref()
+    }
+    pub(super) fn retention_gap_v2(baseline: ReplayRetentionBaselineV2) -> Self {
+        Self {
+            kind: ReplayClientErrorKind::RetentionGap,
+            baseline: None,
+            baseline_v2: Some(Box::new(baseline)),
+        }
     }
 
     #[must_use]

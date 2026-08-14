@@ -103,37 +103,31 @@ async fn disconnect_after_ack_uses_fresh_catch_up_and_recovers_without_duplicate
 }
 
 #[tokio::test]
-async fn explicit_resync_resets_only_the_affected_scope_and_rebuilds_from_floor() {
+async fn retention_gap_does_not_arm_public_resync_or_reset_affected_scope() {
     let fixture = Fixture::opened().await;
     fixture.runtime.force_retention_gap_once();
+    let opens_before = fixture.runtime.open_count();
     let error = fixture
         .core
         .open_project_conversation(fixture.project_id)
         .await
         .expect_err("persisted cursor is outside retention");
-    assert_eq!(error.to_string(), "replay_resync_required");
+    assert_eq!(error.to_string(), "runtime_incompatible");
     assert_eq!(
         fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::ResyncRequired
+        RuntimeAvailability::Incompatible
     );
-    let create_before = fixture.runtime.create_count();
-
-    let snapshot = fixture
+    let resync = fixture
         .core
         .resync_project_conversation(fixture.project_id)
         .await
-        .expect("dedicated resync rebuild");
-
-    assert_eq!(snapshot.messages.len(), 0);
-    assert_eq!(fixture.runtime.create_count(), create_before);
-    assert_eq!(
-        fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::Live
-    );
+        .expect_err("Task 10 does not promote a retention baseline to reset authority");
+    assert_eq!(resync.to_string(), "runtime is unavailable");
+    assert_eq!(fixture.runtime.open_count(), opens_before + 1);
 }
 
 #[tokio::test]
-async fn explicit_resync_rejects_unaffected_project_scope_without_resetting_it() {
+async fn retention_gap_does_not_grant_resync_to_another_scope() {
     let fixture = Fixture::opened().await;
     let other_project_path = fixture.directory.path().join("other-project");
     std::fs::create_dir(&other_project_path).expect("other project");
@@ -151,34 +145,30 @@ async fn explicit_resync_rejects_unaffected_project_scope_without_resetting_it()
         .core
         .open_project_conversation(other_project_id)
         .await
-        .expect_err("other project requires resync");
-    assert_eq!(error.to_string(), "replay_resync_required");
+        .expect_err("other project must fail closed");
+    assert_eq!(error.to_string(), "runtime_incompatible");
 
     let wrong_scope = fixture
         .core
         .resync_project_conversation(fixture.project_id)
         .await
-        .expect_err("unaffected project cannot claim resync");
+        .expect_err("unaffected project cannot claim reset authority");
 
-    assert_eq!(wrong_scope.to_string(), "replay_resync_required");
+    assert_eq!(wrong_scope.to_string(), "runtime is unavailable");
     assert_eq!(
         fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::ResyncRequired
+        RuntimeAvailability::Incompatible
     );
-    let snapshot = fixture
+    let affected_scope = fixture
         .core
         .resync_project_conversation(other_project_id)
         .await
-        .expect("affected project remains retryable and rebuilds");
-    assert_eq!(snapshot.messages.len(), 0);
-    assert_eq!(
-        fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::Live
-    );
+        .expect_err("affected project cannot reset until Task 11");
+    assert_eq!(affected_scope.to_string(), "runtime is unavailable");
 }
 
 #[tokio::test]
-async fn explicit_resync_remains_retryable_after_transient_rebuild_failure() {
+async fn retention_gap_resync_request_does_not_trigger_transient_rebuild() {
     let fixture = Fixture::opened().await;
     fixture.runtime.force_retention_gap_once();
     let error = fixture
@@ -186,34 +176,22 @@ async fn explicit_resync_remains_retryable_after_transient_rebuild_failure() {
         .open_project_conversation(fixture.project_id)
         .await
         .expect_err("persisted cursor is outside retention");
-    assert_eq!(error.to_string(), "replay_resync_required");
+    assert_eq!(error.to_string(), "runtime_incompatible");
 
     fixture.runtime.fail_next_open_with_reconnectable_error();
-    let transient = fixture
+    let opens_before_resync = fixture.runtime.open_count();
+    let rejected = fixture
         .core
         .resync_project_conversation(fixture.project_id)
         .await
-        .expect_err("transient rebuild failure");
+        .expect_err("resync must remain unavailable before any rebuild request");
 
-    assert_eq!(transient.to_string(), "runtime is unavailable");
-    assert_eq!(
-        fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::ResyncRequired
-    );
-    let snapshot = fixture
-        .core
-        .resync_project_conversation(fixture.project_id)
-        .await
-        .expect("resync can be retried after transient failure");
-    assert_eq!(snapshot.messages.len(), 0);
-    assert_eq!(
-        fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::Live
-    );
+    assert_eq!(rejected.to_string(), "runtime is unavailable");
+    assert_eq!(fixture.runtime.open_count(), opens_before_resync);
 }
 
 #[tokio::test]
-async fn pending_resync_scope_survives_unrelated_live_reconnect_state() {
+async fn retention_gap_stays_closed_after_another_scope_was_opened() {
     let fixture = Fixture::opened().await;
     let other_project_path = fixture.directory.path().join("project-with-gap");
     std::fs::create_dir(&other_project_path).expect("other project");
@@ -231,22 +209,17 @@ async fn pending_resync_scope_survives_unrelated_live_reconnect_state() {
         .core
         .open_project_conversation(other_project_id)
         .await
-        .expect_err("other project requires resync");
-    assert_eq!(error.to_string(), "replay_resync_required");
-
-    fixture
-        .core
-        .force_runtime_reconnecting_for_test()
-        .expect("simulate unrelated raw reconnect transition");
+        .expect_err("other project must fail closed");
+    assert_eq!(error.to_string(), "runtime_incompatible");
 
     assert_eq!(
         fixture.core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::ResyncRequired
+        RuntimeAvailability::Incompatible
     );
-    let snapshot = fixture
+    let resync = fixture
         .core
         .resync_project_conversation(other_project_id)
         .await
-        .expect("resync scope remains authoritative after unrelated reconnect");
-    assert_eq!(snapshot.messages.len(), 0);
+        .expect_err("existing local scope does not authorize a reset");
+    assert_eq!(resync.to_string(), "runtime is unavailable");
 }

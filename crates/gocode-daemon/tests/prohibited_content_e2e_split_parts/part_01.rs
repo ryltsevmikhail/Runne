@@ -109,7 +109,7 @@ fn authenticated_runtime_session(lineage: EventLogLineageId) -> AuthenticatedRun
                 AUTHORITY,
                 ApiPrincipalId::new("local-owner").unwrap(),
                 lineage,
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [0x31; 32],
                 [0x41; 32],
             )

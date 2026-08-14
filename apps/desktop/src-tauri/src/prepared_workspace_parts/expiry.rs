@@ -18,11 +18,22 @@ impl PreparedWorkspaceManager {
                     let deadline = match sweep_state.lock() {
                         Ok(mut state) => {
                             let now = std::time::Instant::now();
-                            state.prepared.retain(|_, entry| entry.expires_at > now);
+                            state.prepared.retain(|_, entry| {
+                                if entry.expires_at > now { return true; }
+                                match entry.phase {
+                                PreparedWorkspacePhase::Attempting { attempt_id, .. } => {
+                                    entry.phase = PreparedWorkspacePhase::Attempting { attempt_id, revoked: true };
+                                    true
+                                }
+                                PreparedWorkspacePhase::Ready | PreparedWorkspacePhase::Retained
+                                    | PreparedWorkspacePhase::Orphaned | PreparedWorkspacePhase::Opened => false,
+                                }
+                            });
                             state.reservations.retain(|_, entry| entry.expires_at > now);
                             let deadline = state
                                 .prepared
                                 .values()
+                                .filter(|entry| !matches!(entry.phase, PreparedWorkspacePhase::Attempting { revoked: true, .. }))
                                 .map(|entry| entry.expires_at)
                                 .chain(state.reservations.values().map(|entry| entry.expires_at))
                                 .min();

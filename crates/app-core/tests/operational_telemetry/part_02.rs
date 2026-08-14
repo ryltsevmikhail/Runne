@@ -83,7 +83,7 @@ fn runtime_section_is_unavailable_without_a_validated_client_snapshot() {
 fn runtime_section_uses_the_validated_runtime_client_snapshot() {
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind listener");
     let origin = format!("http://{}", listener.local_addr().expect("listener address"));
-    let wire = include_bytes!("../../../../contracts/gocode-ui-client-1/golden/operational-telemetry.json");
+    let wire = include_bytes!("../../../../contracts/gocode-ui-client-2/golden/operational-telemetry.json");
     let server = std::thread::spawn(move || {
         let (mut stream, _) = listener.accept().expect("accept request");
         let mut request = [0_u8; 1024];
@@ -92,7 +92,7 @@ fn runtime_section_uses_the_validated_runtime_client_snapshot() {
         stream.write_all(wire).expect("write body");
     });
     let client = mock_authenticated_runtime_client(&origin, RuntimeSessionInfo {
-        profile_id: "gocode-ui-client/1".to_owned(), schema_hash: "test".to_owned(),
+        profile_id: "gocode-ui-client/2".to_owned(), schema_hash: "test".to_owned(),
         runtime_version: "test".to_owned(), capabilities: REQUIRED_RUNTIME_CAPABILITIES.iter().map(ToString::to_string).collect(),
         authority_id: "authority".to_owned(), principal_id: "principal".to_owned(),
         event_log_lineage_id: "lineage".to_owned(), daemon_instance_id: "daemon".to_owned(),

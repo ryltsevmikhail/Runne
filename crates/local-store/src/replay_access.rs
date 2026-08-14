@@ -1,7 +1,7 @@
 use super::{
-    Digest, LocalStore, ReplayCheckpoint, ReplayScopeKey, ReplayStoreError, Sha256,
-    StoredConversationProjection, TransactionBehavior, params, read_replay_state,
-    validate_replay_scope,
+    Digest, LocalStore, OptionalExtension, ReplayCheckpoint, ReplayScopeKey, ReplayStoreError,
+    Sha256, ShadowReplayId, StoredConversationProjection, TransactionBehavior, params,
+    read_replay_state, validate_replay_scope,
 };
 
 impl LocalStore {
@@ -15,7 +15,18 @@ impl LocalStore {
         &self,
         scope: &ReplayScopeKey,
     ) -> Result<Option<ReplayCheckpoint>, ReplayStoreError> {
+        if self.security.is_some() {
+            return Err(ReplayStoreError::AnchoredAdmissionRequired);
+        }
         validate_replay_scope(scope)?;
+        if let Some(shadow) = crate::replay_shadow::selected_shadow(&self.connection, scope)? {
+            return crate::replay_shadow::shadow_checkpoint_for_scope(
+                &self.connection,
+                scope,
+                &shadow,
+            )
+            .map(Some);
+        }
         Ok(read_replay_state(&self.connection, scope)?.map(|state| state.checkpoint))
     }
 
@@ -29,8 +40,65 @@ impl LocalStore {
         &self,
         scope: &ReplayScopeKey,
     ) -> Result<Option<StoredConversationProjection>, ReplayStoreError> {
+        if self.security.is_some() {
+            return Err(ReplayStoreError::AnchoredAdmissionRequired);
+        }
         validate_replay_scope(scope)?;
+        if let Some(shadow) = crate::replay_shadow::selected_shadow(&self.connection, scope)? {
+            return crate::replay_shadow::shadow_projection_for_scope(
+                &self.connection,
+                scope,
+                &shadow,
+            )
+            .map(Some);
+        }
         Ok(read_replay_state(&self.connection, scope)?.map(|state| state.projection))
+    }
+
+    /// Authenticates the current anchor and reads a replay checkpoint in one
+    /// immediate `SQLite` transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an admission or integrity error without exposing replay state.
+    pub fn authenticated_replay_checkpoint(
+        &mut self,
+        secure: &dyn gocode_secure_store::SecureStore,
+        scope: &ReplayScopeKey,
+    ) -> Result<Option<ReplayCheckpoint>, ReplayStoreError> {
+        validate_replay_scope(scope)?;
+        self.authenticated_replay_read(secure, |transaction| {
+            selected_shadow_in_transaction(transaction, scope)?.map_or_else(
+                || Ok(read_replay_state(transaction, scope)?.map(|state| state.checkpoint)),
+                |shadow| {
+                    crate::replay_shadow::shadow_checkpoint_for_scope(transaction, scope, &shadow)
+                        .map(Some)
+                },
+            )
+        })
+    }
+
+    /// Authenticates the current anchor and reads a Conversation projection in
+    /// one immediate `SQLite` transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns an admission or integrity error without exposing replay state.
+    pub fn authenticated_conversation_projection(
+        &mut self,
+        secure: &dyn gocode_secure_store::SecureStore,
+        scope: &ReplayScopeKey,
+    ) -> Result<Option<StoredConversationProjection>, ReplayStoreError> {
+        validate_replay_scope(scope)?;
+        self.authenticated_replay_read(secure, |transaction| {
+            selected_shadow_in_transaction(transaction, scope)?.map_or_else(
+                || Ok(read_replay_state(transaction, scope)?.map(|state| state.projection)),
+                |shadow| {
+                    crate::replay_shadow::shadow_projection_for_scope(transaction, scope, &shadow)
+                        .map(Some)
+                },
+            )
+        })
     }
 
     /// Atomically clears one affected replay scope before an explicit
@@ -103,5 +171,25 @@ impl LocalStore {
         transaction.execute("UPDATE meta SET db_generation=db_generation+1,last_transaction_digest=?1,commit_marker=1 WHERE singleton=1", params![format!("{:x}", hasher.finalize())])?;
         transaction.commit()?;
         Ok(true)
+    }
+}
+
+fn selected_shadow_in_transaction(
+    transaction: &rusqlite::Transaction<'_>,
+    scope: &ReplayScopeKey,
+) -> Result<Option<ShadowReplayId>, ReplayStoreError> {
+    let selected: Option<(String, Option<String>)> = transaction
+        .query_row(
+            "SELECT selector,shadow_id FROM replay_active_generations WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4",
+            params![scope.runtime_authority, scope.principal, scope.lineage, scope.scope],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    match selected {
+        Some((selector, None)) if selector == "legacy" => Ok(None),
+        Some((selector, Some(id))) if selector == "shadow" => Ok(Some(ShadowReplayId(id))),
+        Some(_) => Err(ReplayStoreError::PromotionConflict),
+        None if transaction.query_row("SELECT EXISTS(SELECT 1 FROM event_journal WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4 UNION SELECT 1 FROM projections WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4 UNION SELECT 1 FROM replay_cursors WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4 UNION SELECT 1 FROM replay_shadow_generations WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4 UNION SELECT 1 FROM replay_promotion_pending WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4)", params![scope.runtime_authority,scope.principal,scope.lineage,scope.scope], |row| row.get(0))? => Err(ReplayStoreError::PromotionConflict),
+        None => Ok(None),
     }
 }

@@ -88,7 +88,7 @@ fn assert_invalid(result: Result<(), gocode_runtime_client::RuntimeApiError>) {
 async fn exact_project_workspace_branches_reject_only_identity_mismatches() {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let origin = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(exact_server(listener, 10, false));
+    let server = tokio::spawn(exact_server(listener, 9, false));
     let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
     let project = id();
     let workspace = CanonicalId::parse(WORKSPACE).unwrap();
@@ -135,27 +135,8 @@ async fn exact_project_workspace_branches_reject_only_identity_mismatches() {
             .await
             .map(|_| ()),
     );
-    assert_invalid(
-        client
-            .bind_workspace_root(
-                BindWorkspaceRootRequest::new(
-                    command,
-                    workspace,
-                    1,
-                    RootAdmissionToken::parse(format!(
-                        "gocode-root-admission-v2.{}",
-                        "A".repeat(343)
-                    ))
-                    .unwrap(),
-                )
-                .unwrap(),
-            )
-            .await
-            .map(|_| ()),
-    );
-
     let branches = server.await.unwrap();
-    assert_eq!(branches.len(), 10);
+    assert_eq!(branches.len(), 9);
     assert!(branches.values().all(|count| *count == 1));
 }
 

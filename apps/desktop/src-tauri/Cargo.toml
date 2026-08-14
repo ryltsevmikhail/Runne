@@ -7,13 +7,14 @@ rust-version.workspace = true
 build = "build.rs"
 
 [features]
-test-support = []
+test-support = ["gocode-app-core/test-support"]
 
 [build-dependencies]
 tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 gocode-app-core = { path = "../../../crates/app-core" }
+gocode-api = { path = "../../../crates/gocode-api" }
 gocode-platform-desktop = { path = "../../../crates/platform-desktop", features = ["protected-channel-integration"] }
 hex.workspace = true
 rand = "0.8"

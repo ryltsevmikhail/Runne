@@ -35,7 +35,7 @@ fn direct_origin_rejects_operation_inconsistent_aggregate_shape() {
             command(65),
             &key("delete-wrong-origin-scope"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
         Err(Error::InvariantViolation)
     );

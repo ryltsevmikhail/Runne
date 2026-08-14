@@ -165,7 +165,7 @@ fn delete_audit_rejects_lineage_without_immutable_workspace_history() {
             command(0x5e),
             &key("delete-missing-history"),
             gocode_domain::id::ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
         Err(Error::InvariantViolation)
     );

@@ -1,0 +1,398 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/desktop-native-platform-foundation-v1.schema.json",
+  "title": "GOCODE Desktop V1 Native Platform Foundation Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "recorded_at",
+    "platforms"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "desktop-native-platform-foundation.v1"
+    },
+    "manifest_id": {
+      "const": "desktop-v1"
+    },
+    "recorded_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "platforms": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/platform_row"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullable_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "disposition": {
+      "enum": [
+        "verified",
+        "blocked",
+        "unsupported",
+        "incompatible"
+      ]
+    },
+    "blocker_code": {
+      "enum": [
+        "EVIDENCE_NOT_RECORDED",
+        "WINDOWS_SECURE_IDENTITY_UNVERIFIED",
+        "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED",
+        "LINUX_SECURE_IDENTITY_UNVERIFIED",
+        "LINUX_PROTECTED_LAUNCH_UNVERIFIED",
+        "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED",
+        "RUNNER_TRUST_UNVERIFIED",
+        null
+      ]
+    },
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "runner_id",
+        "image_sha256",
+        "instance_id",
+        "boot_measurement_sha256",
+        "job_id",
+        "workflow_run_id",
+        "admission_sha256",
+        "admission_issued_at",
+        "admission_expires_at"
+      ],
+      "properties": {
+        "runner_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "instance_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "boot_measurement_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "job_id": {
+          "type": ["string", "null"]
+        },
+        "workflow_run_id": {
+          "type": ["string", "null"]
+        },
+        "admission_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "admission_issued_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "admission_expires_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+    "identity_pair": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identity_sha256",
+        "signing_identity"
+      ],
+      "properties": {
+        "identity_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "signing_identity": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "detail"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "verified",
+            "blocked",
+            "unsupported"
+          ]
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 0
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject_sha256",
+        "predicate_sha256",
+        "issuer",
+        "repository",
+        "workflow",
+        "ref",
+        "source_ref",
+        "canonical_source_content_sha256"
+      ],
+      "properties": {
+        "subject_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "predicate_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "issuer": {"type": ["string", "null"]},
+        "repository": {"type": ["string", "null"]},
+        "workflow": {"type": ["string", "null"]},
+        "ref": {"type": ["string", "null"]},
+        "source_ref": {"type": ["string", "null"]},
+        "canonical_source_content_sha256": {"$ref": "#/$defs/nullable_sha256"}
+        }
+      }
+    },
+    "platform_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform_id",
+        "disposition",
+        "blocker_code",
+        "source_sha256",
+        "artifact_sha256",
+        "profile_sha256",
+        "bundle_sha256",
+        "runner",
+        "packaged_executable",
+        "staged_daemon",
+        "notarization",
+        "secure_store_probe",
+        "protected_launch_probe",
+        "provenance"
+      ],
+      "properties": {
+        "platform_id": {
+          "type": "string",
+          "enum": [
+            "MACOS-13-ARM64",
+            "MACOS-13-X86-64",
+            "WINDOWS-10-22H2-X86-64",
+            "LINUX-UBUNTU-22-04-X86-64"
+          ]
+        },
+        "disposition": {
+          "$ref": "#/$defs/disposition"
+        },
+        "blocker_code": {
+          "$ref": "#/$defs/blocker_code"
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "artifact_sha256": {
+          "$ref": "#/$defs/nullable_sha256"
+        },
+        "profile_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "bundle_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runner": {
+          "$ref": "#/$defs/runner"
+        },
+        "packaged_executable": {
+          "$ref": "#/$defs/identity_pair"
+        },
+        "staged_daemon": {
+          "$ref": "#/$defs/identity_pair"
+        },
+        "notarization": {
+          "enum": ["verified", "blocked", "unsupported"]
+        },
+        "secure_store_probe": {
+          "$ref": "#/$defs/probe"
+        },
+        "protected_launch_probe": {
+          "$ref": "#/$defs/probe"
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "verified"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "blocker_code": {
+                "const": null
+              },
+              "source_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "artifact_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "runner": {
+                "properties": {
+                  "runner_id": {
+                    "type": "string"
+                  },
+                  "image_sha256": {
+                    "type": "string"
+                  },
+                  "boot_measurement_sha256": {
+                    "type": "string"
+                  },
+                  "instance_id": {
+                    "type": "string"
+                  },
+                  "job_id": {
+                    "type": "string"
+                  },
+                  "workflow_run_id": {
+                    "type": "string"
+                  },
+                  "admission_sha256": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{64}$"
+                  },
+                  "admission_issued_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "admission_expires_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "runner_id",
+                  "image_sha256",
+                  "instance_id",
+                  "boot_measurement_sha256",
+                  "job_id",
+                  "workflow_run_id",
+                  "admission_sha256",
+                  "admission_issued_at",
+                  "admission_expires_at"
+                ]
+              },
+              "packaged_executable": {
+                "properties": {
+                  "identity_sha256": {
+                    "type": "string"
+                  },
+                  "signing_identity": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identity_sha256",
+                  "signing_identity"
+                ]
+              },
+              "staged_daemon": {
+                "properties": {
+                  "identity_sha256": {"type": "string"},
+                  "signing_identity": {"type": "string"}
+                },
+                "required": ["identity_sha256", "signing_identity"]
+              },
+              "secure_store_probe": {
+                "properties": {
+                  "status": {
+                    "const": "verified"
+                  }
+                }
+              },
+              "protected_launch_probe": {
+                "properties": {
+                  "status": {
+                    "const": "verified"
+                  }
+                }
+              },
+              "provenance": {
+                "properties": {
+                  "subject_sha256": {
+                    "type": "string"
+                  },
+                  "predicate_sha256": {
+                    "type": "string"
+                  },
+                  "issuer": {"type": "string"},
+                  "repository": {"type": "string"},
+                  "workflow": {"type": "string"},
+                  "ref": {"type": "string"},
+                  "source_ref": {"type": "string"},
+                  "canonical_source_content_sha256": {"type": "string"}
+                },
+                "required": [
+                  "subject_sha256",
+                  "predicate_sha256",
+                  "issuer", "repository", "workflow", "ref", "source_ref", "canonical_source_content_sha256"
+                ]
+              }
+            },
+            "required": [
+              "source_sha256",
+              "artifact_sha256",
+              "runner",
+              "packaged_executable",
+              "staged_daemon",
+              "provenance"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -6,8 +6,9 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+gocode-api = { path = "../gocode-api" }
 gocode-secure-store = { path = "../secure-store" }
-gocode-domain = { path = "../gocode-domain" }
+gocode-sqlite-native-identity = { path = "../sqlite-native-identity" }
 rusqlite.workspace = true
 sha2.workspace = true
 thiserror.workspace = true

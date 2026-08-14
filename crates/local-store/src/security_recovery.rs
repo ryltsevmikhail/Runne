@@ -50,5 +50,9 @@ pub(crate) fn verify_persisted_anchor_chain(
         secure.verify_security_transaction(lock, &anchor)?;
         previous = Some(anchor);
     }
-    previous.ok_or(SecurityStateError::AnchorMismatch)
+    let latest = previous.ok_or(SecurityStateError::AnchorMismatch)?;
+    if crate::security_state_root::protected_state_root(connection)? != latest.transaction_digest {
+        return Err(SecurityStateError::AnchorMismatch);
+    }
+    Ok(latest)
 }

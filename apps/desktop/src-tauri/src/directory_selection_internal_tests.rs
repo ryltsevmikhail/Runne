@@ -1,19 +1,14 @@
-#![allow(clippy::significant_drop_tightening)]
 
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::directory_selection_test_support::test_admission;
 use crate::prepared_workspace::PreparedWorkspaceRef;
 
 fn test_root() -> (tempfile::TempDir, VerifiedRootHandle) {
     let directory = tempfile::tempdir().unwrap();
     let root = VerifiedRootHandle::open(directory.path()).unwrap();
     (directory, root)
-}
-
-fn test_admission() -> RootHandleAdmission {
-    RootHandleAdmission::decode_token(&format!("gocode-root-admission-v2.{}", "A".repeat(343)))
-        .unwrap()
 }
 
 #[test]

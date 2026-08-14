@@ -59,7 +59,8 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         self.assertNotIn("current_stage", status)
         self.assertNotIn("score_bps", status)
         self.assertNotIn("fully_qualified", status)
-        self.assertEqual(status["schema_version"], "desktop-v1-capability-status.v1")
+        self.assertEqual(status["schema_version"], "desktop-v1-capability-status.v2")
+        self.assertEqual(status["contract"]["profile_id"], "gocode-ui-client/2")
         self.assertTrue(all(row["disposition"] == "not_recorded" for row in status["gates"]))
         self.assertTrue(all(row["disposition"] == "blocked" for row in status["capabilities"]))
 
@@ -279,6 +280,12 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output): self.assertEqual(main(["score", "--status", str(STATUS), "--status-provenance", str(ROOT / "missing-bundle"), "--source-ref", "0d095d26", "--verify-provenance", "--format", "json"]), 1)
         self.assertIn("SOURCE_CONTENT_DIGEST_MISMATCH", output.getvalue())
+
+    def test_current_wave_defaults_to_v2_status_and_contract_bundle(self) -> None:
+        from scripts.desktop import capability_manifest as manifest
+
+        self.assertEqual(manifest.DEFAULT_STATUS, STATUS)
+        self.assertEqual(manifest.DEFAULT_STATUS.name, "desktop-v1-capability-status-v2.json")
 
     @staticmethod
     def _policy() -> dict[str, str]:

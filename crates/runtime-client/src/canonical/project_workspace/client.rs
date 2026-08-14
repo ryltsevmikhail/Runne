@@ -197,13 +197,13 @@ impl AuthenticatedRuntimeClient {
     /// Binds only an opaque native-admission token at the exact Workspace version.
     pub async fn bind_workspace_root(
         &self,
-        request: BindWorkspaceRootRequest,
+        request: BindWorkspaceRootRequest<'_>,
     ) -> Result<WorkspaceCommandAcknowledgement, RuntimeApiError> {
         let expected = request.id;
         let path = format!("/v1/workspaces/{expected}/root-bindings");
         let wire = RootBindingWire {
             expected_version: request.expected_version,
-            root_admission: request.admission.0,
+            root_admission: request.admission.transport(),
         };
         let response = self.send_command(&path, &request.identity, &wire).await?;
         let ack = WorkspaceCommandAcknowledgement::try_from(

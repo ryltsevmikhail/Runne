@@ -66,12 +66,16 @@ pub struct DaemonApplication {
     pub(super) bootstrap: BootstrapOutcome,
     pub(super) store: StoreTransaction,
     pub(super) http_host: LocalRuntimeTlsHost,
-    pub(super) client_profile: Option<PublishedClientProfileV2>,
+    pub(super) client_profile: Option<PublishedClientProfileV3>,
     pub(super) binding: RuntimeSessionBinding,
     pub(super) local_session_service: Arc<Mutex<LocalSessionService>>,
     pub(super) session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
     pub(super) protected_activation: bool,
     pub(super) provider_activation: ProviderActivation,
+    /// Metadata-only provider readiness, consumed only by the
+    /// desktop-protected V2 readiness path; unread in featureless builds.
+    #[allow(dead_code)]
+    pub(super) provider_readiness: gocode_api::ProviderActivationReadinessV1,
     pub(super) runtime_liveness: RuntimeHandle,
     pub(super) runtime_controller: RuntimeController,
     pub(super) _secret_broker: Arc<Mutex<SecretBroker>>,

@@ -1,7 +1,7 @@
 fn generated_project_workspace(output: &Path) -> (Value, Value, Value) {
     generate_ui_contract(output).unwrap();
     let schema = serde_json::from_slice(
-        &fs::read(output.join("schemas/project-workspace-v1.schema.json")).unwrap(),
+        &fs::read(output.join("schemas/project-workspace-v2.schema.json")).unwrap(),
     )
     .unwrap();
     let golden =
@@ -83,26 +83,26 @@ fn root_admission_schema_matches_canonical_unpadded_codec_boundaries() {
     let output = tempfile::tempdir().unwrap();
     let (schema, golden, _) = generated_project_workspace(output.path());
     let validator = project_workspace_validator(&schema);
-    let encoded_len = (gocode_api::ROOT_HANDLE_ADMISSION_V2_BYTES * 4).div_ceil(3);
-    let prefix = "gocode-root-admission-v2.";
-    for last in "AEIMQUYcgkosw048".chars() {
-        let encoded = format!("{}AA{last}", "A".repeat(encoded_len - 3));
+    let encoded_len = (gocode_api::ROOT_HANDLE_ADMISSION_V3_BYTES * 4).div_ceil(3);
+    let prefix = "gocode-root-admission-v3.";
+    for last in "AQgw".chars() {
+        let encoded = format!("{}A{last}", "A".repeat(encoded_len - 2));
         assert_canonical_root_token(&validator, &golden, &encoded);
     }
     for encoded_len in [encoded_len - 1, encoded_len + 1] {
         let token = format!("{prefix}{}", "A".repeat(encoded_len));
-        assert!(gocode_api::RootHandleAdmission::decode_token(&token).is_err());
+        assert!(serde_json::from_value::<gocode_api::RootBindAdmission>(Value::String(token.clone())).is_err());
         let mut fixture = golden.clone();
         fixture["rootBind"]["rootAdmission"] = Value::String(token);
         assert!(!validator.is_valid(&fixture));
     }
     for token in [
         "gocode-root-admission-v2.AB",
-        "gocode-root-admission-v2.AAB",
-        "gocode-root-admission-v2.A",
-        "gocode-root-admission-v2.AAAA=",
+        "gocode-root-admission-v3.AAB",
+        "gocode-root-admission-v3.A",
+        "gocode-root-admission-v3.AAAA=",
     ] {
-        assert!(gocode_api::RootHandleAdmission::decode_token(token).is_err());
+        assert!(serde_json::from_value::<gocode_api::RootBindAdmission>(Value::String(token.to_owned())).is_err());
         let mut fixture = golden.clone();
         fixture["rootBind"]["rootAdmission"] = Value::String(token.to_owned());
         assert!(
@@ -183,9 +183,9 @@ fn cursor_invalid_corpus(token: &str, workspace: bool) -> Vec<String> {
 }
 
 fn assert_canonical_root_token(validator: &JSONSchema, golden: &Value, encoded: &str) {
-    let token = format!("gocode-root-admission-v2.{encoded}");
-    let admission = gocode_api::RootHandleAdmission::decode_token(&token).unwrap();
-    assert_eq!(admission.encode_token().unwrap(), token);
+    let token = format!("gocode-root-admission-v3.{encoded}");
+    let _: gocode_api::RootBindAdmission =
+        serde_json::from_value(Value::String(token.clone())).expect("canonical v3 carrier");
     let mut fixture = golden.clone();
     fixture["rootBind"]["rootAdmission"] = Value::String(token);
     assert!(validator.is_valid(&fixture));

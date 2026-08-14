@@ -7,8 +7,7 @@
         ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayState,
     };
     use gocode_domain::event::Sensitivity;
-    use gocode_domain::id::{EventLogLineageId, IntegrityDigest};
-    use gocode_domain::replay::GapRangeRef;
+    use gocode_domain::id::EventLogLineageId;
     use gocode_store::replay_store::ReplayStore;
 
     struct AvailableReplayAuthorization;
@@ -26,7 +25,7 @@
                     uuid_v7(1),
                     ApiPrincipalId::new(session.principal_id.clone()).unwrap(),
                     EventLogLineageId::from_bytes(uuid_v7(2)),
-                    "gocode-ui-client/1",
+                    "gocode-ui-client/2",
                     [3; 32],
                     [4; 32],
                 )
@@ -68,10 +67,60 @@
     }
 
     #[test]
+    fn v2_delivery_and_reaper_atomically_claim_one_pending_session() {
+        for iteration in 0..256_u16 {
+            let session_id = [u8::try_from(iteration % 251).unwrap(); 16];
+            let sessions = Arc::new(Mutex::new(HashMap::from([(
+                session_id,
+                V2ResumeLeaseState::Pending,
+            )])));
+            let barrier = Arc::new(std::sync::Barrier::new(3));
+            let delivery_sessions = Arc::clone(&sessions);
+            let delivery_barrier = Arc::clone(&barrier);
+            let delivery = std::thread::spawn(move || {
+                delivery_barrier.wait();
+                claim_v2_resume_delivery_state(
+                    &mut delivery_sessions.lock().unwrap(),
+                    &session_id,
+                ) == V2ResumeDeliveryClaim::Delivered
+            });
+            let reaper_sessions = Arc::clone(&sessions);
+            let reaper_barrier = Arc::clone(&barrier);
+            let reaper = std::thread::spawn(move || {
+                reaper_barrier.wait();
+                claim_v2_resume_reaping_state(
+                    &mut reaper_sessions.lock().unwrap(),
+                    &session_id,
+                    V2ResumeLeaseState::Pending,
+                )
+            });
+            barrier.wait();
+            let delivery_won = delivery.join().unwrap();
+            let reaper_won = reaper.join().unwrap();
+            assert_ne!(delivery_won, reaper_won);
+            let final_state = sessions.lock().unwrap()[&session_id];
+            assert_eq!(
+                final_state == V2ResumeLeaseState::Delivered,
+                delivery_won
+            );
+        }
+    }
+
+    #[test]
     fn replay_failures_map_to_the_closed_public_codes() {
         let retention_gap = ReplayError::ReplayRetentionGap {
-            floor_cursor: None,
-            gap_range_ref: GapRangeRef::new(IntegrityDigest::from_bytes([9; 32])).unwrap(),
+            baseline: Box::new(gocode_api::ReplayRetentionBaselineWireV1::from_unauthenticated_fields(
+                gocode_api::UnauthenticatedReplayRetentionBaselineFieldsV1 {
+                    schema_version: 0, authority_id: [0; 16], principal_id: String::new(),
+                    lineage_id: [0; 16], runtime_session_binding_digest: [0; 32],
+                    replay_scope_digest: [0; 32], aggregate_kind: gocode_api::ApiReplayAggregateKind::TaskRun,
+                    aggregate_id: [0; 16], sequence: 0, version: 0, baseline_global_position: 0,
+                    projection_codec: 0, projection_bytes: Vec::new(), projection_digest: [0; 32],
+                    retained_floor: 0, captured_high_water: 0, retention_generation: 0,
+                    retention_witness: [0; 32], issued_at_unix_ms: 0, expires_at_unix_ms: 0,
+                    witness_mac: [0; 32],
+                },
+            )),
         };
         for (error, code) in [
             (ReplayError::StaleGeneration, "replay_session_expired"),
@@ -177,3 +226,5 @@
             encoded.len()
         );
     }
+
+    include!("retention_baseline_wire_tests.rs");

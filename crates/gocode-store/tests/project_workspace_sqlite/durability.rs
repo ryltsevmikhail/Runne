@@ -62,6 +62,23 @@ fn create_rejects_noninitial_aggregate_state_without_a_receipt() {
 }
 
 #[test]
+fn workspace_creation_advances_its_parent_project_version() {
+    let database = Database::new("project-workspace-parent-version");
+    let repository = database.repository();
+    create_project(&repository);
+
+    create_workspace(&repository);
+
+    assert_eq!(
+        repository
+            .get_project("owner", ProjectId::from_bytes(PROJECT))
+            .unwrap()
+            .version(),
+        3
+    );
+}
+
+#[test]
 fn receipt_collides_on_any_changed_command_semantics() {
     let database = Database::new("project-workspace-collisions");
     let repository = database.repository();
@@ -126,7 +143,7 @@ fn receipt_collides_on_any_changed_command_semantics() {
             command(25),
             &key("archive-version"),
             ProjectId::from_bytes(PROJECT),
-            2,
+            3,
         ),
         Err(Error::Conflict)
     );
@@ -160,9 +177,9 @@ fn consumed_root_nonce_history_survives_project_deletion() {
             command(49),
             &key("delete-with-nonce"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
-        Ok(2)
+        Ok(4)
     );
     assert_eq!(
         connection

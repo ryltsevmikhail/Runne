@@ -4,11 +4,17 @@ pub enum RootHandleControlFrame {
     Ready(RootHandleTransferReady),
     Result(RootHandleTransferResult),
 }
+/// A control frame authenticated against the expected protected session.
+pub enum VerifiedRootHandleControlFrame {
+    Offer(RootHandleTransferOffer),
+    Ready(RootHandleTransferReady),
+    Result(VerifiedRootHandleTransferResult),
+}
 
-const ROOT_CONTROL_MAGIC: &[u8; 8] = b"GCRHCTL2";
+const ROOT_CONTROL_MAGIC: &[u8; 8] = b"GCRHCTL3";
 const ROOT_CONTROL_UNSIGNED_BYTES: usize = 158;
 const ROOT_CONTROL_RESULT_UNSIGNED_BYTES: usize =
-    ROOT_CONTROL_UNSIGNED_BYTES + ROOT_HANDLE_ADMISSION_V2_BYTES;
+    ROOT_CONTROL_UNSIGNED_BYTES + 32 + ROOT_HANDLE_ADMISSION_V3_BYTES;
 const ROOT_CONTROL_OFFER: u8 = 1;
 const ROOT_CONTROL_READY: u8 = 2;
 const ROOT_CONTROL_RESULT: u8 = 3;
@@ -62,7 +68,12 @@ pub struct RootHandleTransferReady { context: RootHandleTransferContext, sequenc
 /// Authenticated post-descriptor result; rejection stays protocol-synchronized.
 pub struct RootHandleTransferResult {
     context: RootHandleTransferContext, sequence: u64, offer_digest: [u8; 32],
-    accepted: bool, admission: Option<RootHandleAdmission>, proof: [u8; 32],
+    accepted: bool, admission_digest: [u8; 32], admission: Option<RootHandleAdmission>, proof: [u8; 32],
+}
+/// Result material obtained only from an authenticated inbound control frame.
+pub struct VerifiedRootHandleTransferResult {
+    offer_digest: [u8; 32], accepted: bool, admission_digest: [u8; 32],
+    admission: Option<RootHandleAdmission>,
 }
 
 impl RootHandleTransferOffer {
@@ -87,22 +98,29 @@ impl RootHandleTransferReady {
 impl RootHandleTransferResult {
     /// Creates the only semantic rejection result. It carries no native material.
     pub fn rejected(ready: &RootHandleTransferReady, keys: &RootHandleTransferAuthenticator) -> Self {
-        let mut value = Self { context: ready.context.clone(), sequence: ready.sequence + 1, offer_digest: ready.offer_digest, accepted: false, admission: None, proof: [0; 32] };
+        let mut value = Self { context: ready.context.clone(), sequence: ready.sequence + 1, offer_digest: ready.offer_digest, accepted: false, admission_digest: [0;32], admission: None, proof: [0; 32] };
         value.proof = keys.authenticate_root_result(&value.unsigned()); value
     }
     /// Creates a successful result bound to the exact offer and opaque admission.
-    pub fn admitted(ready: &RootHandleTransferReady, admission: RootHandleAdmission, keys: &RootHandleTransferAuthenticator) -> Self {
-        let mut value = Self { context: ready.context.clone(), sequence: ready.sequence + 1, offer_digest: ready.offer_digest, accepted: true, admission: Some(admission), proof: [0; 32] };
+    pub fn admitted(ready: &RootHandleTransferReady, admission: IssuedRootHandleAdmission, keys: &RootHandleTransferAuthenticator) -> Self {
+        let admission_digest = admission.admission_digest();
+        let mut value = Self { context: ready.context.clone(), sequence: ready.sequence + 1, offer_digest: ready.offer_digest, accepted: true, admission_digest, admission: Some(admission.into_admission()), proof: [0; 32] };
         value.proof = keys.authenticate_root_result(&value.unsigned()); value
     }
     #[must_use] pub const fn accepted(&self) -> bool { self.accepted }
     #[must_use] pub const fn offer_digest(&self) -> &[u8; 32] { &self.offer_digest }
-    /// Returns the opaque admission only after the signed result has been verified.
-    #[must_use] pub fn into_admission(self) -> Option<RootHandleAdmission> { self.admission }
     fn unsigned(&self) -> Vec<u8> {
         let mut value = encode_unsigned(ROOT_CONTROL_RESULT, &self.context, self.sequence, self.offer_digest, u8::from(self.accepted)).to_vec();
-        match &self.admission { Some(admission) => value.extend_from_slice(&admission.bytes), None => value.extend([0; ROOT_HANDLE_ADMISSION_V2_BYTES]) }
+        value.extend(self.admission_digest);
+        match &self.admission { Some(admission) => value.extend_from_slice(&admission.bytes), None => value.extend([0; ROOT_HANDLE_ADMISSION_V3_BYTES]) }
         value
+    }
+}
+impl VerifiedRootHandleTransferResult {
+    #[must_use] pub const fn accepted(&self) -> bool { self.accepted }
+    /// Moves provenance-bearing admission only after control-frame verification.
+    #[must_use] pub fn into_protected_admission(self) -> Option<crate::ProtectedRootHandleAdmission> {
+        self.admission.and_then(|admission| crate::ProtectedRootHandleAdmission::from_verified_transfer(admission, self.offer_digest, self.admission_digest))
     }
 }
 
@@ -122,7 +140,7 @@ impl RootHandleControlFrame {
     pub fn decode_and_verify(
         bytes: &[u8], keys: &RootHandleTransferAuthenticator, expected: &RootHandleTransferContext,
         previous_sequence: u64, now_unix_millis: u64,
-    ) -> Result<Self, LaunchAuthorityError> {
+    ) -> Result<VerifiedRootHandleControlFrame, LaunchAuthorityError> {
         if !valid_frame(bytes) || now_unix_millis == 0 { return Err(LaunchAuthorityError::InvalidContract); }
         let phase = bytes[12]; let unsigned_len = if phase == ROOT_CONTROL_RESULT { ROOT_CONTROL_RESULT_UNSIGNED_BYTES } else { ROOT_CONTROL_UNSIGNED_BYTES };
         if bytes.len() != 4 + unsigned_len + 32 { return Err(LaunchAuthorityError::InvalidContract); }
@@ -133,12 +151,13 @@ impl RootHandleControlFrame {
         if &context != expected || sequence != previous_sequence.checked_add(1).ok_or(LaunchAuthorityError::RenewalReplay)?
             || now_unix_millis < context.issued_at_unix_millis || now_unix_millis > context.expires_at_unix_millis { return Err(LaunchAuthorityError::OwnershipMismatch); }
         let frame = match phase {
-            ROOT_CONTROL_OFFER if digest == [0; 32] && accepted == 0 && keys.verifies_root_offer(unsigned, &proof) => Self::Offer(RootHandleTransferOffer { context, sequence, proof }),
-            ROOT_CONTROL_READY if accepted == 0 && keys.verifies_root_ready(unsigned, &proof) => Self::Ready(RootHandleTransferReady { context, sequence, offer_digest: digest, proof }),
+            ROOT_CONTROL_OFFER if digest == [0; 32] && accepted == 0 && keys.verifies_root_offer(unsigned, &proof) => VerifiedRootHandleControlFrame::Offer(RootHandleTransferOffer { context, sequence, proof }),
+            ROOT_CONTROL_READY if accepted == 0 && keys.verifies_root_ready(unsigned, &proof) => VerifiedRootHandleControlFrame::Ready(RootHandleTransferReady { context, sequence, offer_digest: digest, proof }),
             ROOT_CONTROL_RESULT if accepted <= ROOT_CONTROL_ACCEPTED && keys.verifies_root_result(unsigned, &proof) => {
                 let payload = &unsigned[ROOT_CONTROL_UNSIGNED_BYTES..];
-                let admission = if accepted == ROOT_CONTROL_ACCEPTED { Some(RootHandleAdmission::from_verified_bytes(payload.to_vec()).ok_or(LaunchAuthorityError::InvalidContract)?) } else if payload.iter().all(|value| *value == 0) { None } else { return Err(LaunchAuthorityError::InvalidContract); };
-                Self::Result(RootHandleTransferResult { context, sequence, offer_digest: digest, accepted: accepted == ROOT_CONTROL_ACCEPTED, admission, proof })
+                let admission_digest: [u8;32] = payload[..32].try_into().map_err(|_| LaunchAuthorityError::InvalidContract)?;
+                let admission = if accepted == ROOT_CONTROL_ACCEPTED && admission_digest != [0;32] { let admission = RootHandleAdmission::from_verified_bytes(payload[32..].to_vec()).ok_or(LaunchAuthorityError::InvalidContract)?; Some((admission.admission_digest() == admission_digest && admission.offer_digest() == digest).then_some(admission).ok_or(LaunchAuthorityError::InvalidContract)?) } else if accepted == 0 && payload.iter().all(|value| *value == 0) { None } else { return Err(LaunchAuthorityError::InvalidContract); };
+                VerifiedRootHandleControlFrame::Result(VerifiedRootHandleTransferResult { offer_digest: digest, accepted: accepted == ROOT_CONTROL_ACCEPTED, admission_digest, admission })
             },
             _ => return Err(LaunchAuthorityError::ReadinessProofMismatch),
         };
@@ -195,9 +214,9 @@ impl std::fmt::Debug for RootHandleControlFrame { fn fmt(&self, formatter: &mut 
 mod root_handle_control_tests {
     use super::*;
     fn context() -> RootHandleTransferContext { RootHandleTransferContext::new([0,0,0,0,0,0,0x70,0,0x80,0,0,0,0,0,0,1], [0,0,0,0,0,0,0x70,0,0x80,0,0,0,0,0,0,2], 1, 10, 11, 1000, WorkspaceId::from_bytes([0,0,0,0,0,0,0x70,0,0x80,0,0,0,0,0,0,3]), 1, [4;16], 100, 30_100).unwrap() }
-    #[test] fn root_control_offer_is_framed_authenticated_and_strictly_sequenced() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([7;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode_frame(); assert!(is_root_handle_control_frame(&encoded)); assert!(matches!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).unwrap(), RootHandleControlFrame::Offer(_))); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 1, 100).is_err()); }
-    #[test] fn root_control_binds_ready_and_admission_result_to_the_offer_digest() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let ready = RootHandleTransferReady::new(&offer, &keys); let admission = RootHandleAdmission::from_verified_bytes(vec![7; ROOT_HANDLE_ADMISSION_V2_BYTES]).unwrap(); let result = RootHandleTransferResult::admitted(&ready, admission, &keys); assert_eq!(offer.digest(), *ready.offer_digest()); assert_eq!(*ready.offer_digest(), *result.offer_digest()); let decoded = RootHandleControlFrame::decode_and_verify(&RootHandleControlFrame::Result(result).encode_frame(), &keys, &context(), 2, 100).unwrap(); let RootHandleControlFrame::Result(value) = decoded else { panic!("expected result") }; assert!(value.accepted()); assert!(value.into_admission().is_some()); }
-    #[test] fn root_control_rejects_a_signed_rejection_with_payload() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let ready = RootHandleTransferReady::new(&offer, &keys); let mut result = RootHandleTransferResult { context: ready.context.clone(), sequence: 2, offer_digest: *ready.offer_digest(), accepted: false, admission: RootHandleAdmission::from_verified_bytes(vec![7; ROOT_HANDLE_ADMISSION_V2_BYTES]), proof: [0;32] }; result.proof = keys.authenticate_root_result(&result.unsigned()); assert!(RootHandleControlFrame::decode_and_verify(&RootHandleControlFrame::Result(result).encode_frame(), &keys, &context(), 1, 100).is_err()); }
+    #[test] fn root_control_offer_is_framed_authenticated_and_strictly_sequenced() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([7;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode_frame(); assert!(is_root_handle_control_frame(&encoded)); assert!(matches!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).unwrap(), VerifiedRootHandleControlFrame::Offer(_))); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 1, 100).is_err()); }
+    #[test] fn root_control_binds_ready_and_admission_result_to_distinct_digests() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let ready = RootHandleTransferReady::new(&offer, &keys); let admission = RootAdmissionAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([9;32]).unwrap().derive_keys()).issue(RootAdmissionRequest::new(RootAdmissionVerificationContext::new([1;32], [2;16], 1, [3;32], 3, 1, 100).unwrap(), context().workspace_id(), 1, [4;32], offer.digest(), [5;16], 30_100).unwrap()).unwrap(); let digest = admission.admission_digest(); let result = RootHandleTransferResult::admitted(&ready, admission, &keys); assert_eq!(offer.digest(), *ready.offer_digest()); assert_eq!(*ready.offer_digest(), *result.offer_digest()); let decoded = RootHandleControlFrame::decode_and_verify(&RootHandleControlFrame::Result(result).encode_frame(), &keys, &context(), 2, 100).unwrap(); let VerifiedRootHandleControlFrame::Result(value) = decoded else { panic!("expected result") }; assert!(value.accepted()); assert_eq!(value.into_protected_admission().unwrap().admission_digest(), digest); }
+    #[test] fn root_control_rejects_a_signed_rejection_with_payload() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([8;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let ready = RootHandleTransferReady::new(&offer, &keys); let mut result = RootHandleTransferResult { context: ready.context.clone(), sequence: 2, offer_digest: *ready.offer_digest(), accepted: false, admission_digest: [0;32], admission: RootHandleAdmission::from_verified_bytes(vec![7; ROOT_HANDLE_ADMISSION_V3_BYTES]), proof: [0;32] }; result.proof = keys.authenticate_root_result(&result.unsigned()); assert!(RootHandleControlFrame::decode_and_verify(&RootHandleControlFrame::Result(result).encode_frame(), &keys, &context(), 1, 100).is_err()); }
     #[test] fn root_control_rejects_tampering_expiry_and_peer_substitution() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([9;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let mut encoded = RootHandleControlFrame::Offer(offer).encode_frame(); encoded[24] ^= 1; assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 100).is_err()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let encoded = RootHandleControlFrame::Offer(offer).encode_frame(); assert!(RootHandleControlFrame::decode_and_verify(&encoded, &keys, &context(), 0, 30_101).is_err()); assert!(RootHandleControlFrame::decode_offer_for_receiver(&encoded, &keys, context().authority_id(), context().session_id(), 1, 99, 11, 1000, 0, 100).is_err()); }
     #[test] fn root_control_rejects_bad_length_prefix_before_magic() { let keys = RootHandleTransferAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([10;32]).unwrap().derive_keys()); let offer = RootHandleTransferOffer::new(context(), 1, &keys).unwrap(); let mut frame = RootHandleControlFrame::Offer(offer).encode_frame(); frame[..4].copy_from_slice(&1_u32.to_be_bytes()); assert!(!is_root_handle_control_frame(&frame)); }
 }

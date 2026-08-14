@@ -41,6 +41,12 @@ const fn map_store_error(error: &ReplayStoreError) -> AppCoreError {
         | ReplayStoreError::NonContiguousSequence
         | ReplayStoreError::NonContiguousRevision
         | ReplayStoreError::IntegerOutOfRange
-        | ReplayStoreError::Storage(_) => AppCoreError::LocalProjectionUnavailable,
+        | ReplayStoreError::InvalidBaseline
+        | ReplayStoreError::ShadowConflict
+        | ReplayStoreError::ShadowNotPromotable
+        | ReplayStoreError::PromotionConflict
+        | ReplayStoreError::Storage(_)
+        | ReplayStoreError::AnchoredAdmissionRequired
+        | ReplayStoreError::Security(_) => AppCoreError::LocalProjectionUnavailable,
     }
 }

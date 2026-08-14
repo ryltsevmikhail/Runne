@@ -43,7 +43,7 @@ fn nonterminal_task_run_blocks_project_delete() {
             command(11),
             &key("delete"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
         Err(Error::Conflict)
     );
@@ -74,7 +74,7 @@ fn corrupt_task_run_relationship_fails_closed() {
             command(13),
             &key("delete-corrupt"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
         Err(Error::InvariantViolation)
     );
@@ -132,7 +132,7 @@ fn terminal_task_run_allows_delete_only_without_live_workspace() {
             command(19),
             &key("delete-live"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
         Err(Error::Conflict)
     );
@@ -149,9 +149,9 @@ fn terminal_task_run_allows_delete_only_without_live_workspace() {
             command(20),
             &key("delete-terminal"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
-        Ok(2)
+        Ok(4)
     );
 }
 
@@ -163,6 +163,12 @@ fn missing_task_run_stream_fails_closed() {
     create_workspace(&repository);
     let taskrun_id = create_task_run(&database, 21);
     let connection = database.connection();
+    connection
+        .execute(
+            "DELETE FROM aggregate_state_snapshots WHERE aggregate_type = 1 AND aggregate_id = ?1",
+            [taskrun_id.as_bytes()],
+        )
+        .unwrap();
     connection
         .execute(
             "DELETE FROM events WHERE aggregate_type = 1 AND aggregate_id = ?1",
@@ -182,7 +188,7 @@ fn missing_task_run_stream_fails_closed() {
             command(22),
             &key("delete-missing"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         ),
         Err(Error::InvariantViolation)
     );

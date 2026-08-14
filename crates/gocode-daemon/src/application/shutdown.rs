@@ -17,6 +17,7 @@ impl DaemonApplication {
             session_clock,
             protected_activation,
             provider_activation,
+            provider_readiness: _,
             runtime_liveness,
             mut runtime_controller,
             _secret_broker,

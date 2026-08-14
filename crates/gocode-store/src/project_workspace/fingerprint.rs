@@ -3,19 +3,19 @@ use sha2::{Digest, Sha256};
 
 use super::receipts::Scope;
 
-pub(super) struct FingerprintInput<'a> {
-    pub authority: &'a str,
-    pub principal: &'a str,
-    pub command_id: CommandId,
-    pub key: &'a IdempotencyKey,
-    pub scope: Scope,
-    pub related_id: Option<[u8; 16]>,
-    pub expected_version: Option<u64>,
-    pub display_name: Option<&'a str>,
-    pub admission_digest: Option<&'a [u8; 32]>,
+pub(crate) struct FingerprintInput<'a> {
+    pub(crate) authority: &'a str,
+    pub(crate) principal: &'a str,
+    pub(crate) command_id: CommandId,
+    pub(crate) key: &'a IdempotencyKey,
+    pub(crate) scope: Scope,
+    pub(crate) related_id: Option<[u8; 16]>,
+    pub(crate) expected_version: Option<u64>,
+    pub(crate) display_name: Option<&'a str>,
+    pub(crate) admission_digest: Option<&'a [u8; 32]>,
 }
 
-pub(super) fn semantic_fingerprint(input: FingerprintInput<'_>) -> [u8; 32] {
+pub(crate) fn semantic_fingerprint(input: FingerprintInput<'_>) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(b"gocode-project-workspace-command\x01");
     update_bytes(&mut digest, input.authority.as_bytes());

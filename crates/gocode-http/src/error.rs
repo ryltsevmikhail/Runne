@@ -1,7 +1,7 @@
 //! Redacted canonical HTTP error envelope and ingress request identity.
 
 use axum::{
-    http::{HeaderValue, StatusCode},
+    http::{HeaderValue, StatusCode, header::CACHE_CONTROL},
     response::{IntoResponse, Json, Response},
 };
 use serde::Serialize;
@@ -49,5 +49,8 @@ pub fn canonical_error_response(
         HeaderValue::from_str(request_id.as_str())
             .expect("generated UUIDv7 request identity is a valid header value"),
     );
+    response
+        .headers_mut()
+        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
     response
 }

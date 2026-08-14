@@ -13,6 +13,7 @@ mod mutation_support;
 mod project_mutations;
 mod queries;
 mod receipts;
+mod reconciliation;
 mod records;
 mod taskrun_audit;
 mod taskrun_fence;

@@ -25,10 +25,16 @@ impl FilesystemBroker {
             Err(FsBrokerError::BackendUnavailable)
         }
         #[cfg(not(target_os = "windows"))]
-        if self.roots.iter().any(|root| root.root_id == root_id) {
+        if let Some(workspace_root) = self.roots.iter().find(|root| root.root_id == root_id) {
+            #[cfg(unix)]
+            let (fd, identity) = super::fs_unix::open_root(&workspace_root.canonical_path)?;
             Ok(RootHandle {
                 root_id: root_id.to_string(),
                 binding: self.binding.clone(),
+                #[cfg(unix)]
+                fd: Some(fd),
+                #[cfg(unix)]
+                identity,
             })
         } else {
             Err(FsBrokerError::RootNotFound)

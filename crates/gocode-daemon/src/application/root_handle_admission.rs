@@ -12,13 +12,13 @@ use gocode_application::ports::{
 use gocode_platform_desktop::VerifiedRootHandle;
 use gocode_store::ProjectWorkspaceStore;
 use rand::RngCore;
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_PENDING: usize = 64;
 const TTL_MILLIS: u64 = 30_000;
 const PRINCIPAL: &str = "local-owner";
+include!("root_handle_admission/issued.rs");
 #[derive(Clone)]
 pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);
 impl RootAdmissionGateway {
@@ -41,8 +41,6 @@ struct State {
     leases: usize,
     stopped: bool,
     pending: HashMap<[u8; 16], Pending>,
-    #[cfg(feature = "test-support")]
-    issued: Option<String>,
 }
 struct Pending {
     workspace: gocode_domain::id::WorkspaceId,
@@ -72,8 +70,6 @@ impl RootHandleAdmissionAuthority {
                 leases: 0,
                 stopped: false,
                 pending: HashMap::new(),
-                #[cfg(feature = "test-support")]
-                issued: None,
             })),
             authenticator: Arc::new(RootAdmissionAuthenticator::from_protected_activation(keys)),
             sessions,
@@ -87,7 +83,7 @@ impl RootHandleAdmissionAuthority {
         offer: &RootHandleTransferOffer,
         root: VerifiedRootHandle,
         now: u64,
-    ) -> Result<RootHandleAdmission, RootAdmissionVerifierError> {
+    ) -> Result<IssuedRootAdmission, RootAdmissionVerifierError> {
         let current = self.context(now)?;
         let transfer = offer.context();
         if transfer.session_id() != &current.session_id()
@@ -109,15 +105,14 @@ impl RootHandleAdmissionAuthority {
         let mut nonce = [0; 16];
         rand::rngs::OsRng.fill_bytes(&mut nonce);
         let identity = root.filesystem_identity_digest();
-        let digest = digest(offer.digest(), identity, nonce, expires_at);
         let request = RootAdmissionRequest::new(
             current,
             transfer.workspace_id(),
             transfer.expected_version(),
             identity,
+            offer.digest(),
             nonce,
             expires_at,
-            digest,
         )
         .map_err(|_| RootAdmissionVerifierError::Rejected)?;
         let admission = self
@@ -133,10 +128,7 @@ impl RootHandleAdmissionAuthority {
         {
             return Err(RootAdmissionVerifierError::Unavailable);
         }
-        #[cfg(feature = "test-support")]
-        {
-            state.issued = admission.encode_token().ok();
-        }
+        let digest = admission.admission_digest();
         state.pending.insert(
             nonce,
             Pending {
@@ -148,7 +140,7 @@ impl RootHandleAdmissionAuthority {
                 _handle: root,
             },
         );
-        Ok(admission)
+        Ok(IssuedRootAdmission::new(admission, digest))
     }
     /// Fences every native admission before session renewal or shutdown.
     pub(crate) fn fence(&self) -> Result<(), RootAdmissionVerifierError> {
@@ -184,15 +176,13 @@ impl RootHandleAdmissionAuthority {
             *binding.ephemeral().session_id(),
             binding.ephemeral().launch_generation(),
             RootAdmissionVerificationContext::principal_digest_for(PRINCIPAL),
-            2,
+            3,
             1,
             now,
         )
         .map_err(|_| RootAdmissionVerifierError::Unavailable)
     }
 }
-#[cfg(feature = "test-support")]
-mod test_support;
 impl CurrentRootAdmissionContext for RootAdmissionGateway {
     type Lease = GatewayLease;
     fn acquire_root_admission_lease(&self) -> Result<Self::Lease, RootAdmissionVerifierError> {
@@ -282,13 +272,4 @@ fn now() -> Result<u64, RootAdmissionVerifierError> {
         .ok()
         .and_then(|value| u64::try_from(value.as_millis()).ok())
         .ok_or(RootAdmissionVerifierError::Unavailable)
-}
-fn digest(offer: [u8; 32], identity: [u8; 32], nonce: [u8; 16], expires_at: u64) -> [u8; 32] {
-    let mut value = Sha256::new();
-    value.update(b"gocode/root-admission/native/v2");
-    value.update(offer);
-    value.update(identity);
-    value.update(nonce);
-    value.update(expires_at.to_be_bytes());
-    value.finalize().into()
 }

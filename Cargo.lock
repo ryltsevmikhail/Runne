@@ -1640,16 +1640,22 @@ name = "gocode-app-core"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
+ "gocode-api",
  "gocode-local-store",
  "gocode-runtime-client",
+ "gocode-secure-store",
  "hex",
+ "hmac",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
+ "uuid",
 ]
 
 [[package]]
@@ -1807,6 +1813,7 @@ dependencies = [
 name = "gocode-desktop"
 version = "0.1.0"
 dependencies = [
+ "gocode-api",
  "gocode-app-core",
  "gocode-platform-desktop",
  "hex",
@@ -1849,6 +1856,7 @@ dependencies = [
  "gocode-domain",
  "gocode-observability",
  "gocode-opencode-compat",
+ "gocode-security",
  "gocode-store",
  "hex",
  "hmac",
@@ -1879,8 +1887,9 @@ dependencies = [
 name = "gocode-local-store"
 version = "0.1.0"
 dependencies = [
- "gocode-domain",
+ "gocode-api",
  "gocode-secure-store",
+ "gocode-sqlite-native-identity",
  "gocode-windows-native-handle",
  "rusqlite",
  "sha2",
@@ -2106,6 +2115,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "subtle",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -2150,6 +2160,14 @@ dependencies = [
  "tokio",
  "uuid",
  "zeroize",
+]
+
+[[package]]
+name = "gocode-sqlite-native-identity"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

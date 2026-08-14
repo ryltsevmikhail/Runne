@@ -20,7 +20,7 @@ else:
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_STATUS = ROOT / "docs/evidence/desktop-v1-capability-status-v1.json"
+DEFAULT_STATUS = ROOT / "docs/evidence/desktop-v1-capability-status-v2.json"
 DEFAULT_DEFINITION = ROOT / "docs/profiles/desktop-v1-capabilities-v1.json"
 
 

@@ -1,6 +1,7 @@
 use super::super::component_guard::*;
 use super::super::event_guard::*;
 use super::super::parse_helpers::*;
+use super::super::snapshot::refresh_conversation_snapshot;
 use super::super::*;
 
 impl StoreTransaction {
@@ -265,6 +266,7 @@ impl StoreTransaction {
             params![next_global_position],
         )
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        refresh_conversation_snapshot(&tx, conversation_id)?;
 
         let result = ConversationReceipt {
             conversation_id,

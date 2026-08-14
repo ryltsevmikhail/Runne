@@ -26,7 +26,7 @@ use std::os::unix::net::UnixStream;
 use gocode_api::{
     ExecutableIdentityV1, LaunchAuthorityError, PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
     PendingFirstActivationV1, ProtectedRuntimeProfileV1, ProviderActivationBindingV1,
-    StableRuntimeBindingV1,
+    ProviderActivationReadinessV1, StableRuntimeBindingV1,
 };
 #[cfg(unix)]
 use gocode_api::{
@@ -168,6 +168,8 @@ pub enum ProtectedBundledRuntimeError {
     ShutdownIncomplete,
     #[error("{0}")]
     LaunchAuthority(#[from] LaunchAuthorityError),
+    #[error("provider_activation_not_ready")]
+    ProviderActivationNotReady(ProviderActivationReadinessV1),
 }
 
 /// Canonical executable and owner-private runtime root for one local profile.

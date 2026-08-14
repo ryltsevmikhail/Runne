@@ -2,6 +2,9 @@
 
 //! API-level contracts for the GOCODE runtime host boundary.
 
+/// Closed authoritative-command reconciliation contracts.
+pub mod command_reconciliation;
+
 /// Canonical Conversation and message contracts.
 pub mod conversation;
 /// Runtime host port contracts.
@@ -22,12 +25,16 @@ pub mod replay;
 pub mod session_info;
 /// Canonical TaskRun command and query contracts.
 pub mod task_run;
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub mod test_support;
 /// API data transfer objects.
 pub mod types;
 
 /// Stable workspace identifier transported across the public host boundary.
-pub use gocode_domain::id::WorkspaceId;
+pub use gocode_domain::id::{EventLogLineageId, WorkspaceId};
 
+pub use command_reconciliation::*;
 pub use conversation::*;
 pub use host_port::*;
 pub use local_session::*;

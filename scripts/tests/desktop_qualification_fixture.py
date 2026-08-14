@@ -16,9 +16,9 @@ WORKFLOW = ROOT / ".github/workflows/desktop-qualification.yml"
 ANCHORS = (
     "docs/profiles/desktop-v1-capabilities-v1.json",
     "docs/profiles/desktop-v1-capabilities-v1.digest",
-    "docs/evidence/desktop-v1-capability-status-v1.json",
-    "docs/schemas/desktop-v1-capabilities-v1.schema.json",
-    "contracts/gocode-ui-client-1/bundle.json",
+    "docs/evidence/desktop-v1-capability-status-v2.json",
+    "docs/schemas/desktop-v1-capability-status-v2.schema.json",
+    "contracts/gocode-ui-client-2/bundle.json",
 )
 
 
@@ -221,7 +221,7 @@ exec /bin/cat "$response"
         (self.runner / "gate-action-bundle.jsonl").write_text("gate action bundle\n", encoding="utf-8")
         self._response(gate)
         self._require("sign", "Verify gate, then construct status from trusted baseline")
-        status = self.signed / "desktop-v1-capability-status-v1.json"
+        status = self.signed / "desktop-v1-capability-status-v2.json"
         (self.runner / "status-action-bundle.jsonl").write_text("status action bundle\n", encoding="utf-8")
         self._require("sign", "Collect status bundle and close digest manifest")
         self._response(status)
@@ -230,18 +230,18 @@ exec /bin/cat "$response"
 
     def final_verification(self, status_verification=None):
         if status_verification is not None:
-            self._response(self.signed / "desktop-v1-capability-status-v1.json", status_verification)
+            self._response(self.signed / "desktop-v1-capability-status-v2.json", status_verification)
         verified = self._command("verify-publish", "Independently verify signed subjects")
         return verified if verified.returncode else self._command("verify-publish", "Reject malformed package before publication")
 
     def status_verification(self):
-        return copy.deepcopy(self.verification(self.signed / "desktop-v1-capability-status-v1.json"))
+        return copy.deepcopy(self.verification(self.signed / "desktop-v1-capability-status-v2.json"))
 
     def gate_verification(self):
         return copy.deepcopy(self.verification(self.signed / "desktop-v1-contract-schema.json"))
 
     def gate_to_status_verification(self, gate_verification):
-        shutil.copy2(self.signed / "desktop-v1-capability-status-baseline.json", self.signed / "desktop-v1-capability-status-v1.json")
+        shutil.copy2(self.signed / "desktop-v1-capability-status-baseline.json", self.signed / "desktop-v1-capability-status-v2.json")
         self._response(self.signed / "desktop-v1-contract-schema.json", gate_verification)
         return self._command("sign", "Verify gate, then construct status from trusted baseline")
 
@@ -251,7 +251,7 @@ exec /bin/cat "$response"
         for path in self.pristine.iterdir():
             shutil.copy2(path, self.signed / path.name)
         self._response(self.signed / "desktop-v1-contract-schema.json")
-        self._response(self.signed / "desktop-v1-capability-status-v1.json")
+        self._response(self.signed / "desktop-v1-capability-status-v2.json")
 
     def mutate_json(self, name: str, mutate) -> None:
         path = self.signed / name
@@ -261,7 +261,7 @@ exec /bin/cat "$response"
 
     def authenticate_and_reclose(self) -> None:
         self._response(self.signed / "desktop-v1-contract-schema.json")
-        self._response(self.signed / "desktop-v1-capability-status-v1.json")
+        self._response(self.signed / "desktop-v1-capability-status-v2.json")
         manifest = self.signed / "desktop-v1-package-manifest.json"
         value = json.loads(manifest.read_bytes())
         for row in value["files"]:

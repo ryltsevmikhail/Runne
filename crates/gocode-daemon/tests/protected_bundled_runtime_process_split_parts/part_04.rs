@@ -64,8 +64,13 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
     let desktop_database = temporary.path().join("desktop-audit.sqlite3");
     let project_directory = temporary.path().join("audit-project");
     std::fs::create_dir(&project_directory).expect("audit project directory");
-    let core = AppCore::open_with_runtime_mode(&desktop_database, RuntimeMode::Bundled)
-        .expect("audit AppCore");
+    let profile = [0x53; 32];
+    let core = AppCore::open_bundled_anchored(
+        &desktop_database,
+        Arc::new(gocode_secure_store::test_support::DeterministicSecureStore::new(profile)),
+        profile,
+    )
+    .expect("audit AppCore");
     let lease = core
         .begin_bundled_runtime_start()
         .await
@@ -76,6 +81,7 @@ async fn generated_protected_material_is_absent_from_every_forbidden_local_sink(
     let project = core
         .open_local_project(&project_directory)
         .expect("open audit project");
+    prepare_canonical_conversation_workspace(&core, project).await;
     core.open_project_conversation(project)
         .await
         .expect("open audited conversation");

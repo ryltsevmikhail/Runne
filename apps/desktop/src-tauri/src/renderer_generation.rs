@@ -53,7 +53,34 @@ impl DirectorySelectionState {
         let next = generation.checked_add(1).ok_or(RendererGenerationError)?;
         self.generations.insert(window.to_owned(), next);
         self.selections.retain(|_, entry| entry.window != window);
-        self.prepared.retain(|_, entry| entry.window != window);
+        self.prepared.retain(|_, entry| {
+            if entry.window != window {
+                return true;
+            }
+            match entry.phase {
+                crate::prepared_workspace::PreparedWorkspacePhase::Ready => false,
+                crate::prepared_workspace::PreparedWorkspacePhase::Attempting {
+                    attempt_id,
+                    ..
+                } => {
+                    entry.phase = crate::prepared_workspace::PreparedWorkspacePhase::Attempting {
+                        attempt_id,
+                        revoked: true,
+                    };
+                    true
+                }
+                crate::prepared_workspace::PreparedWorkspacePhase::Retained => {
+                    entry.root.take();
+                    entry.admission.take();
+                    entry.operation_permit.take();
+                    entry.prepared_open.take();
+                    entry.phase = crate::prepared_workspace::PreparedWorkspacePhase::Orphaned;
+                    true
+                }
+                crate::prepared_workspace::PreparedWorkspacePhase::Orphaned
+                | crate::prepared_workspace::PreparedWorkspacePhase::Opened => true,
+            }
+        });
         self.reservations.retain(|_, entry| entry.window != window);
         Ok(next)
     }

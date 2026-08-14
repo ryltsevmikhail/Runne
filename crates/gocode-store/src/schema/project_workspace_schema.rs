@@ -99,17 +99,40 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
     if version != 16 {
         return Ok(false);
     }
+    if !v16_base_matches(connection)? {
+        return Ok(false);
+    }
+    let mut tables = super::RELEASED_V13_TABLES.to_vec();
+    tables.extend([
+        "provider_effect_starts",
+        "projects",
+        "workspaces",
+        "root_admission_nonces",
+        "project_workspace_command_receipts",
+        "workspace_identity_history",
+        "task_run_workspace_lineage",
+    ]);
+    super::released_catalog_matches(connection, &tables)
+}
+
+pub(super) fn v16_base_matches(connection: &Connection) -> SqliteResult<bool> {
+    v16_base_matches_with_additional_triggers(connection, &[])
+}
+
+pub(super) fn v16_base_matches_with_additional_triggers(
+    connection: &Connection,
+    additional: &[&str],
+) -> SqliteResult<bool> {
+    let mut allowed_triggers = vec![
+        "global_command_id_from_command_receipts",
+        "global_command_id_from_project_workspace_receipts",
+    ];
+    allowed_triggers.extend_from_slice(additional);
     let v12 = super::provider_v12_core_matches(connection)?
-        && super::v12_fence_triggers_match_with_additional(
-            connection,
-            &[
-                "global_command_id_from_command_receipts",
-                "global_command_id_from_project_workspace_receipts",
-            ],
-        )?;
+        && super::v12_fence_triggers_match_with_additional(connection, &allowed_triggers)?;
     let v13 = super::v13_unchanged_tables_match(connection)?;
     let v14 = super::provider_schema::v14_base_matches(connection, v12, v13)?;
-    let v15 = super::provider_schema::v15_matches(connection, 15, v14)?;
+    let v15 = super::provider_schema::v15_base_matches(connection, v14)?;
     if !v15 {
         return Ok(false);
     }
@@ -127,19 +150,7 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
             valid && super::table_sql_matches_migration(connection, table, MIGRATION_V16)?,
         )
     })?;
-    let mut tables = super::RELEASED_V13_TABLES.to_vec();
-    tables.extend([
-        "provider_effect_starts",
-        "projects",
-        "workspaces",
-        "root_admission_nonces",
-        "project_workspace_command_receipts",
-        "workspace_identity_history",
-        "task_run_workspace_lineage",
-    ]);
-    Ok(tables_match
-        && global_command_triggers_match(connection)?
-        && super::released_catalog_matches(connection, &tables)?)
+    Ok(tables_match && global_command_triggers_match(connection)?)
 }
 
 fn global_command_triggers_match(connection: &Connection) -> SqliteResult<bool> {

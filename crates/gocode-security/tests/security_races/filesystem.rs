@@ -61,7 +61,7 @@ fn valid_tx(intent: &str, permit_id: &str) -> AtomicPreEffectTransaction {
 
 #[tokio::test]
 #[cfg(not(target_os = "windows"))]
-async fn race_toc_tou_replacement_is_rejected_by_production_broker() {
+async fn race_toc_tou_replacement_cannot_mutate_through_production_broker() {
     let test_root =
         std::env::temp_dir().join(format!("gocode-security-race-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&test_root).unwrap();

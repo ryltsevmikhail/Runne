@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gocode_platform_desktop::{RootHandleAdmission, VerifiedRootHandle, WorkspaceId};
+use gocode_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
 use crate::directory_selection::{
@@ -78,12 +78,25 @@ pub struct PreparedWorkspaceEntry {
     pub(crate) window: String,
     pub(crate) generation: u64,
     pub(crate) request: String,
-    root: VerifiedRootHandle,
-    admission: RootHandleAdmission,
+    pub(super) root: Option<VerifiedRootHandle>,
+    pub(super) admission: Option<ProtectedRootHandleAdmission>,
     workspace_id: WorkspaceId,
     expected_version: u64,
     expires_at: Instant,
-    operation_permit: Option<tokio::sync::OwnedMutexGuard<()>>,
+    pub(super) operation_permit: Option<tokio::sync::OwnedMutexGuard<()>>,
+    pub(super) prepared_open: Option<gocode_app_core::PreparedWorkspaceOpen>,
+    pub(super) phase: PreparedWorkspacePhase,
+}
+
+// These state types remain crate-internal while sibling root modules access them.
+#[allow(clippy::redundant_pub_crate)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum PreparedWorkspacePhase {
+    Ready,
+    Attempting { attempt_id: u64, revoked: bool },
+    Retained,
+    Orphaned,
+    Opened,
 }
 
 pub struct PreparedWorkspaceReservation {
@@ -99,7 +112,7 @@ pub struct PreparedWorkspaceReservation {
 #[allow(dead_code)] // Task 8 consumes this host-only prepared workspace.
 pub struct PreparedWorkspace {
     root: VerifiedRootHandle,
-    admission: RootHandleAdmission,
+    admission: ProtectedRootHandleAdmission,
     workspace_id: WorkspaceId,
     expected_version: u64,
     operation_permit: Option<tokio::sync::OwnedMutexGuard<()>>,
@@ -122,7 +135,7 @@ impl PreparedWorkspace {
         self,
     ) -> (
         VerifiedRootHandle,
-        RootHandleAdmission,
+        ProtectedRootHandleAdmission,
         Option<tokio::sync::OwnedMutexGuard<()>>,
     ) {
         (self.root, self.admission, self.operation_permit)
@@ -240,8 +253,8 @@ impl PreparedWorkspaceManager {
         let entry = state.prepared.remove(&reference.0).ok_or(SelectionError)?;
         drop(state);
         Ok(PreparedWorkspace {
-            root: entry.root,
-            admission: entry.admission,
+            root: entry.root.ok_or(SelectionError)?,
+            admission: entry.admission.ok_or(SelectionError)?,
             workspace_id: entry.workspace_id,
             expected_version: entry.expected_version,
             operation_permit: entry.operation_permit,
@@ -263,3 +276,7 @@ impl fmt::Debug for PreparedWorkspaceManager {
 
 include!("prepared_workspace_parts/reservations.rs");
 include!("prepared_workspace_parts/expiry.rs");
+include!("prepared_workspace_parts/composite.rs");
+include!("prepared_workspace_parts/open_attempt.rs");
+#[cfg(all(test, feature = "test-support"))]
+include!("prepared_workspace_parts/test_support.rs");

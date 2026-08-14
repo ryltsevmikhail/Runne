@@ -223,7 +223,7 @@
 
     fn runtime_identity() -> BundledRuntimeAuthenticatedIdentity {
         BundledRuntimeAuthenticatedIdentity {
-            profile_id: "gocode-ui-client/1".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: "a".repeat(64),
             authority_id: "0".repeat(32),
             principal_id: "desktop-development".to_owned(),
@@ -245,4 +245,50 @@
         identity: &BundledRuntimeAuthenticatedIdentity,
     ) {
         supervisor.spec.profile_binding = Some(BundledRuntimeProfileBinding::for_test(identity));
+    }
+
+    #[cfg(unix)]
+    pub struct OwnerPrivateBundledRuntimeFixture {
+        root: tempfile::TempDir,
+        desktop: PathBuf,
+        daemon: PathBuf,
+    }
+
+    #[cfg(unix)]
+    impl OwnerPrivateBundledRuntimeFixture {
+        pub fn new() -> Self {
+            use std::os::unix::fs::PermissionsExt;
+
+            let root = tempfile::Builder::new()
+                .prefix("gocode-platform-desktop-")
+                .tempdir_in("/tmp")
+                .expect("create owner-private runtime fixture");
+            std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700))
+                .expect("protect runtime fixture root");
+            let desktop = root.path().join("gocode-desktop");
+            let daemon = root.path().join("gocode-daemon");
+            for executable in [&desktop, &daemon] {
+                std::fs::write(executable, b"#!/bin/sh\nexit 0\n")
+                    .expect("write controlled executable");
+                std::fs::set_permissions(executable, std::fs::Permissions::from_mode(0o500))
+                    .expect("protect controlled executable");
+            }
+            Self {
+                root,
+                desktop,
+                daemon,
+            }
+        }
+
+        pub fn desktop(&self) -> &std::path::Path {
+            &self.desktop
+        }
+
+        pub fn daemon(&self) -> &std::path::Path {
+            &self.daemon
+        }
+
+        pub fn runtime_root(&self) -> PathBuf {
+            self.root.path().join("runtime")
+        }
     }

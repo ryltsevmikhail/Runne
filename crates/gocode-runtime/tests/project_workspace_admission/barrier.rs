@@ -83,20 +83,21 @@ pub(super) fn issue(
     expiry: u64,
     digest: u8,
 ) -> gocode_api::RootHandleAdmission {
-    RootAdmissionAuthenticator::from_protected_activation(keys)
+    let issued = RootAdmissionAuthenticator::from_protected_activation(keys)
         .issue(
             RootAdmissionRequest::new(
                 context,
                 workspace,
                 1,
                 [9; 32],
+                [digest; 32],
                 [nonce; 16],
                 expiry,
-                [digest; 32],
             )
             .unwrap(),
         )
-        .unwrap()
+        .unwrap();
+    gocode_api::test_support::into_untrusted_admission(issued)
 }
 
 pub(super) struct AuthenticatorVerifier {

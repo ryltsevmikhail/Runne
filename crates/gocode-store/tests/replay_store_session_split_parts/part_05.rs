@@ -50,6 +50,23 @@ async fn test_close_session() {
 }
 
 #[tokio::test]
+async fn catching_up_session_can_be_aborted_before_acknowledgement() {
+    let store = store_with_events(1);
+    let (session, _) = open(&store, None).await;
+
+    store
+        .close_session(&session.session_id, "principal", 1, &AUTHORITY, 0)
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .close_session(&session.session_id, "principal", 1, &AUTHORITY, 0)
+            .await,
+        Err(ReplayError::SessionNotFound)
+    ));
+}
+
+#[tokio::test]
 async fn test_reconnect_from_ack() {
     let store = store_with_events(3);
     let (session, _) = open(&store, None).await;

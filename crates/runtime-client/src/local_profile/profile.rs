@@ -15,7 +15,7 @@ use crate::{
     AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, RuntimeEndpoint,
 };
 
-const LOCAL_PROFILE_SCHEMA_VERSION: u32 = 2;
+const LOCAL_PROFILE_SCHEMA_VERSION: u32 = 3;
 const LOCAL_TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
 const MAXIMUM_PROFILE_BYTES: usize = 16 * 1024;
 const MAXIMUM_CERTIFICATE_BYTES: usize = 16 * 1024;
@@ -73,7 +73,7 @@ impl fmt::Debug for LocalRuntimeProfile {
 }
 
 impl LocalRuntimeProfile {
-    /// Loads one strict owner-only profile v2 without reading its bootstrap secret.
+    /// Loads one strict owner-only profile v3 without reading its bootstrap secret.
     ///
     /// On Unix the profile must be a regular, non-symlink file owned by the
     /// effective user with exact mode `0600`. Other platforms fail closed until
@@ -92,7 +92,7 @@ impl LocalRuntimeProfile {
         if schema_version(&profile_bytes) == Some(1) {
             return Err(LocalProfileError::InvalidProfile);
         }
-        let wire: LocalProfileV2Wire = serde_json::from_slice(&profile_bytes)
+        let wire: LocalProfileV3Wire = serde_json::from_slice(&profile_bytes)
             .map_err(|_| LocalProfileError::InvalidProfile)?;
         if wire.schema_version != LOCAL_PROFILE_SCHEMA_VERSION
             || wire.transport_profile_id != LOCAL_TRANSPORT_PROFILE_ID
@@ -193,7 +193,7 @@ pub fn default_local_profile_path() -> Result<PathBuf, LocalProfileError> {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct LocalProfileV2Wire {
+struct LocalProfileV3Wire {
     schema_version: u32,
     transport_profile_id: String,
     profile_id: String,

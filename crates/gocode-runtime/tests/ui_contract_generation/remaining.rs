@@ -83,7 +83,7 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
     );
     assert_eq!(digest.trim_end(), PUBLISHED_BUNDLE_HASH);
     let bundle: Value = serde_json::from_slice(&bundle_bytes).unwrap();
-    assert_eq!(bundle["apiProfileId"], "gocode-ui-client/1");
+    assert_eq!(bundle["apiProfileId"], "gocode-ui-client/2");
     assert_eq!(bundle["transportProfileId"], "gocode-local-runtime/2");
     assert_eq!(
         bundle["publishedCapabilities"],
@@ -98,6 +98,8 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "conversation.generate_text.v1",
         "conversation.list_messages.v1",
         "replay.aggregate.open.v1",
+        "replay.aggregate.retention_baseline.v1",
+        "replay.aggregate.retention_baseline_resume.v2",
         "replay.aggregate.read_page.v1",
         "replay.aggregate.acknowledge.v1",
         "replay.aggregate.complete_catch_up.v1",
@@ -114,7 +116,7 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "workspace.get.v1",
         "workspace.create.v1",
         "workspace.open.v1",
-        "workspace.bind_root.v2",
+        "workspace.bind_root.v3",
     ]);
     assert_eq!(bundle["publishedCapabilities"], expected_capabilities);
     assert_eq!(bundle["capabilityCatalog"], expected_capabilities);
@@ -149,12 +151,23 @@ fn operational_telemetry_contract_is_closed_safe_and_advertised() {
     assert!(GENERATED_ARTIFACT_PATHS.contains(&"schemas/operational-telemetry-v1.schema.json"));
 
     let schema: Value = serde_json::from_slice(
-        &fs::read(output.path().join("schemas/operational-telemetry-v1.schema.json")).unwrap(),
+        &fs::read(
+            output
+                .path()
+                .join("schemas/operational-telemetry-v1.schema.json"),
+        )
+        .unwrap(),
     )
     .unwrap();
-    assert_eq!(schema["properties"]["schemaVersion"], serde_json::json!({"const": 1, "type": "integer"}));
+    assert_eq!(
+        schema["properties"]["schemaVersion"],
+        serde_json::json!({"const": 1, "type": "integer"})
+    );
     assert_eq!(schema["properties"]["launchGeneration"]["minimum"], 1);
-    assert_eq!(schema["properties"]["launchGeneration"]["maximum"], u64::MAX);
+    assert_eq!(
+        schema["properties"]["launchGeneration"]["maximum"],
+        u64::MAX
+    );
     assert_eq!(schema["properties"]["durable"]["$ref"], "#/$defs/durable");
     assert_eq!(
         schema["$defs"]["sectionMeta"]["properties"]["freshness"]["enum"],
@@ -162,7 +175,11 @@ fn operational_telemetry_contract_is_closed_safe_and_advertised() {
     );
     assert_eq!(
         schema["$defs"]["recoveryTransient"]["properties"]["status"]["enum"],
-        serde_json::json!(["lower_bound_since_launch", "truncated_lower_bound_since_launch", "unavailable"])
+        serde_json::json!([
+            "lower_bound_since_launch",
+            "truncated_lower_bound_since_launch",
+            "unavailable"
+        ])
     );
     assert_all_schema_objects_are_closed(&schema);
 
@@ -171,20 +188,26 @@ fn operational_telemetry_contract_is_closed_safe_and_advertised() {
     )
     .unwrap();
     assert_safe_telemetry_golden(&golden);
-    assert!(JSONSchema::options()
-        .with_draft(Draft::Draft202012)
-        .compile(&schema)
-        .unwrap()
-        .is_valid(&golden));
+    assert!(
+        JSONSchema::options()
+            .with_draft(Draft::Draft202012)
+            .compile(&schema)
+            .unwrap()
+            .is_valid(&golden)
+    );
 
-    let openapi: Value = serde_json::from_slice(&fs::read(output.path().join("openapi.json")).unwrap()).unwrap();
+    let openapi: Value =
+        serde_json::from_slice(&fs::read(output.path().join("openapi.json")).unwrap()).unwrap();
     let responses = &openapi["paths"]["/v1/runtime/operational-telemetry"]["get"]["responses"];
     assert_eq!(
         responses["200"]["content"]["application/json"]["schema"]["$ref"],
         "schemas/operational-telemetry-v1.schema.json"
     );
     for status in ["200", "400", "401", "405", "413", "503"] {
-        assert_eq!(responses[status]["headers"]["Cache-Control"]["schema"]["const"], "no-store");
+        assert_eq!(
+            responses[status]["headers"]["Cache-Control"]["schema"]["const"],
+            "no-store"
+        );
     }
 }
 
@@ -192,7 +215,10 @@ fn assert_all_schema_objects_are_closed(value: &Value) {
     match value {
         Value::Object(object) => {
             if object.get("type") == Some(&Value::String("object".to_owned())) {
-                assert_eq!(object.get("additionalProperties"), Some(&Value::Bool(false)));
+                assert_eq!(
+                    object.get("additionalProperties"),
+                    Some(&Value::Bool(false))
+                );
             }
             for nested in object.values() {
                 assert_all_schema_objects_are_closed(nested);
@@ -209,8 +235,12 @@ fn assert_safe_telemetry_golden(value: &Value) {
         Value::Array(values) => values.iter().for_each(assert_safe_telemetry_golden),
         Value::String(value) => assert!(matches!(
             value.as_str(),
-            "observed_in_current_cycle" | "unavailable" | "complete" | "partial"
-                | "lower_bound_since_launch" | "truncated_lower_bound_since_launch"
+            "observed_in_current_cycle"
+                | "unavailable"
+                | "complete"
+                | "partial"
+                | "lower_bound_since_launch"
+                | "truncated_lower_bound_since_launch"
         )),
         Value::Number(_) | Value::Bool(_) | Value::Null => {}
     }

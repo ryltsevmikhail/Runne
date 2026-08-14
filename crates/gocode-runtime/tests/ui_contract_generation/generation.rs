@@ -44,7 +44,7 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
     generate_ui_contract(output.path()).unwrap();
 
     for path in [
-        "schemas/local-runtime-profile-v2.schema.json",
+        "schemas/local-runtime-profile-v3.schema.json",
         "schemas/local-session-v1.schema.json",
         "schemas/replay-v1.schema.json",
         "schemas/sse-v1.schema.json",
@@ -138,7 +138,7 @@ fn local_runtime_profile_schema_accepts_only_base_or_protected_capabilities() {
     let output = tempfile::tempdir().unwrap();
     generate_ui_contract(output.path()).unwrap();
     let schema: Value = serde_json::from_slice(
-        &fs::read(output.path().join("schemas/local-runtime-profile-v2.schema.json")).unwrap(),
+        &fs::read(output.path().join("schemas/local-runtime-profile-v3.schema.json")).unwrap(),
     )
     .unwrap();
     let validator = JSONSchema::options().with_draft(Draft::Draft202012).compile(&schema).unwrap();
@@ -154,9 +154,9 @@ fn local_runtime_profile_schema_accepts_only_base_or_protected_capabilities() {
         "eventLogLineageId": "018f2e3a-7000-7000-8000-000000000003",
         "launchGeneration": 1,
         "principalId": "local-owner",
-        "profileId": "gocode-ui-client/1",
+        "profileId": "gocode-ui-client/2",
         "schemaHash": "00".repeat(32),
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "transportProfileId": "gocode-local-runtime/2",
     });
     assert!(validator.is_valid(&profile(BASE_RUNTIME_CAPABILITIES)));

@@ -51,6 +51,8 @@ pub struct DeterministicSecureStore {
     anchor: Mutex<StoredSecurityAnchor>,
     profile_lock: Mutex<()>,
     fail_advance: Mutex<bool>,
+    fail_read_after: Mutex<Option<usize>>,
+    fail_legacy_migration: Mutex<bool>,
 }
 
 impl DeterministicSecureStore {
@@ -61,6 +63,8 @@ impl DeterministicSecureStore {
             anchor: Mutex::new(StoredSecurityAnchor::Missing),
             profile_lock: Mutex::new(()),
             fail_advance: Mutex::new(false),
+            fail_read_after: Mutex::new(None),
+            fail_legacy_migration: Mutex::new(false),
         }
     }
 
@@ -70,9 +74,19 @@ impl DeterministicSecureStore {
     }
 
     #[allow(clippy::missing_panics_doc)]
+    pub fn fail_read_after(&self, successful_reads: usize) {
+        *self.fail_read_after.lock().expect("test lock") = Some(successful_reads);
+    }
+
+    #[allow(clippy::missing_panics_doc)]
     pub fn set_legacy_generation(&self, generation: u64) {
         *self.anchor.lock().expect("test lock") =
             StoredSecurityAnchor::LegacyGeneration(generation);
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn fail_next_legacy_migration(&self) {
+        *self.fail_legacy_migration.lock().expect("test lock") = true;
     }
 }
 
@@ -101,6 +115,18 @@ impl SecureStore for DeterministicSecureStore {
         &self,
         lock: &SecurityProfileLock<'_>,
     ) -> Result<StoredSecurityAnchor, SecureStoreError> {
+        let mut fail = self
+            .fail_read_after
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
+        if matches!(*fail, Some(0)) {
+            *fail = None;
+            return Err(SecureStoreError::Unavailable);
+        }
+        if let Some(remaining) = fail.as_mut() {
+            *remaining -= 1;
+        }
+        drop(fail);
         let anchor = self
             .anchor
             .lock()
@@ -195,6 +221,14 @@ impl SecureStore for DeterministicSecureStore {
             return Err(SecureStoreError::InvalidTransition);
         }
         self.verify_security_transaction(lock, next)?;
+        let mut fail = self
+            .fail_legacy_migration
+            .lock()
+            .map_err(|_| SecureStoreError::Unavailable)?;
+        if std::mem::replace(&mut *fail, false) {
+            return Err(SecureStoreError::AnchorConflict);
+        }
+        drop(fail);
         let mut current = self
             .anchor
             .lock()
@@ -241,31 +275,4 @@ impl SecureStore for DeterministicSecureStore {
     }
 }
 
-fn valid_next(expected: Option<&SecurityAnchorV1>, next: &SecurityAnchorV1) -> bool {
-    expected.map_or_else(
-        || next.generation == 1 && next.previous_anchor_digest == [0; 32],
-        |previous| {
-            next.profile_identity_digest == previous.profile_identity_digest
-                && next.database_identity == previous.database_identity
-                && previous.generation.checked_add(1) == Some(next.generation)
-                && next.previous_anchor_digest == previous.digest()
-        },
-    )
-}
-
-fn test_tag(
-    profile: [u8; 32],
-    database_identity: [u8; 32],
-    generation: u64,
-    transaction_digest: [u8; 32],
-    previous_anchor_digest: [u8; 32],
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"test-only/gocode/security-seal/v1\0");
-    hasher.update(profile);
-    hasher.update(database_identity);
-    hasher.update(generation.to_be_bytes());
-    hasher.update(transaction_digest);
-    hasher.update(previous_anchor_digest);
-    hasher.finalize().into()
-}
+include!("test_support_helpers.rs");

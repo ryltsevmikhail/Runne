@@ -6,13 +6,25 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let current = admission_context();
+    assert!(
+        RootAdmissionVerificationContext::new(
+            [1; 32],
+            [2; 16],
+            1,
+            current.principal_digest(),
+            2,
+            1,
+            100,
+        )
+        .is_err()
+    );
     let contexts = [
         RootAdmissionVerificationContext::new(
             [8; 32],
             [2; 16],
             1,
             current.principal_digest(),
-            1,
+            3,
             1,
             100,
         )
@@ -22,7 +34,7 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             [8; 16],
             1,
             current.principal_digest(),
-            1,
+            3,
             1,
             100,
         )
@@ -32,17 +44,7 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             [2; 16],
             2,
             current.principal_digest(),
-            1,
-            1,
-            100,
-        )
-        .unwrap(),
-        RootAdmissionVerificationContext::new(
-            [1; 32],
-            [2; 16],
-            1,
-            current.principal_digest(),
-            2,
+            3,
             1,
             100,
         )
@@ -52,7 +54,7 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             [2; 16],
             1,
             current.principal_digest(),
-            1,
+            3,
             2,
             100,
         )
@@ -62,7 +64,7 @@ async fn root_admission_rejects_every_stale_or_mismatched_binding() {
             [2; 16],
             1,
             current.principal_digest(),
-            1,
+            3,
             1,
             101,
         )

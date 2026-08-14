@@ -1,7 +1,7 @@
 use gocode_runtime_client::{
     BindWorkspaceRootRequest, CanonicalId, CommandIdentity, CreateProjectRequest,
     CreateWorkspaceRequest, ExistingProjectRequest, ExistingWorkspaceRequest,
-    PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES, RootAdmissionToken,
+    PROTECTED_RUNTIME_CAPABILITIES, ProtectedRootAdmission, REQUIRED_RUNTIME_CAPABILITIES,
     RuntimeApiErrorKind, RuntimeSessionInfo, mock_authenticated_runtime_client,
 };
 use tokio::{
@@ -38,30 +38,16 @@ fn project_workspace_requests_reject_invalid_names_and_versions() {
 }
 
 #[test]
-fn root_admission_token_is_opaque_redacted_and_v2_only() {
-    let token =
-        RootAdmissionToken::parse(format!("gocode-root-admission-v2.{}", "A".repeat(343))).unwrap();
-    assert_eq!(format!("{token:?}"), "RootAdmissionToken([REDACTED])");
-    assert_eq!(
-        RootAdmissionToken::parse("gocode-root-admission-v1.abc")
-            .unwrap_err()
-            .kind(),
-        RuntimeApiErrorKind::InvalidRequest
-    );
-    assert!(BindWorkspaceRootRequest::new(identity(), id(), 1, token).is_ok());
-}
-
-#[test]
 fn capability_wave_is_exactly_required_by_the_client() {
     for capability in ["project.list.v1", "project.restore.v1"] {
         assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&capability));
     }
-    assert!(PROTECTED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v2"));
+    assert!(PROTECTED_RUNTIME_CAPABILITIES.contains(&"workspace.bind_root.v3"));
 }
 
 fn session() -> RuntimeSessionInfo {
     RuntimeSessionInfo {
-        profile_id: "gocode-ui-client/1".into(),
+        profile_id: "gocode-ui-client/2".into(),
         schema_hash: "test".into(),
         runtime_version: "test".into(),
         capabilities: PROTECTED_RUNTIME_CAPABILITIES
@@ -140,6 +126,98 @@ async fn delete_project_uses_authenticated_delete_body_headers_and_closed_errors
     assert_eq!(
         client.delete_project(request).await.unwrap_err().kind(),
         RuntimeApiErrorKind::NotFound
+    );
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn root_bind_uses_only_the_wrapper_transport_serializer() {
+    use gocode_api::{
+        LaunchSecret, RootAdmissionAuthenticator, RootAdmissionRequest,
+        RootAdmissionVerificationContext, RootHandleControlFrame, RootHandleTransferAuthenticator,
+        RootHandleTransferContext, RootHandleTransferOffer, RootHandleTransferReady,
+        RootHandleTransferResult, WorkspaceId,
+    };
+    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut request = vec![0; 4096];
+        let count = stream.read(&mut request).await.unwrap();
+        let request = String::from_utf8_lossy(&request[..count]);
+        assert!(
+            request.starts_with(
+                "POST /v1/workspaces/018f2e3a-7000-7000-8000-000000000302/root-bindings"
+            )
+        );
+        assert!(request.contains(r#""rootAdmission":"gocode-root-admission-v3."#));
+        let body = r#"{"workspaceId":"018f2e3a-7000-7000-8000-000000000302","newVersion":2}"#;
+        stream.write_all(format!("HTTP/1.1 202 test\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    });
+    let workspace: WorkspaceId = "018f2e3a-7000-7000-8000-000000000302".parse().unwrap();
+    let keys = RootHandleTransferAuthenticator::from_protected_activation(
+        &LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys(),
+    );
+    let context = RootHandleTransferContext::new(
+        [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 2],
+        1,
+        10,
+        11,
+        1000,
+        workspace,
+        1,
+        [4; 16],
+        100,
+        30_100,
+    )
+    .unwrap();
+    let offer = RootHandleTransferOffer::new(context.clone(), 1, &keys).unwrap();
+    let admission = RootAdmissionAuthenticator::from_protected_activation(
+        &LaunchSecret::from_bytes([8; 32]).unwrap().derive_keys(),
+    )
+    .issue(
+        RootAdmissionRequest::new(
+            RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 3, 1, 100).unwrap(),
+            workspace,
+            1,
+            [4; 32],
+            offer.digest(),
+            [5; 16],
+            30_100,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let result = RootHandleTransferResult::admitted(
+        &RootHandleTransferReady::new(&offer, &keys),
+        admission,
+        &keys,
+    );
+    let gocode_api::VerifiedRootHandleControlFrame::Result(result) =
+        RootHandleControlFrame::decode_and_verify(
+            &RootHandleControlFrame::Result(result).encode_frame(),
+            &keys,
+            &context,
+            2,
+            100,
+        )
+        .unwrap()
+    else {
+        unreachable!()
+    };
+    let admission = result.into_protected_admission().unwrap();
+    let admission = ProtectedRootAdmission::from_verified(admission).unwrap();
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+    assert_eq!(
+        client
+            .bind_workspace_root(
+                BindWorkspaceRootRequest::new(identity(), id(), 1, &admission).unwrap()
+            )
+            .await
+            .unwrap()
+            .new_version(),
+        2
     );
     server.await.unwrap();
 }

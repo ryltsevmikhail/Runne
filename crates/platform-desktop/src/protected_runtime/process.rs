@@ -66,6 +66,15 @@ impl DesktopReady {
         }
     }
 
+    /// Returns the authenticated provider readiness disposition for V2, or
+    /// `None` for the V1 deterministic protocol which carries no disposition.
+    const fn provider_readiness(&self) -> Option<ProviderActivationReadinessV1> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(ready) => Some(ready.provider_readiness()),
+        }
+    }
+
     fn into_process_activation(
         self,
         request: DesktopLaunchRequest,

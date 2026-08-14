@@ -1,5 +1,6 @@
 #![cfg(all(unix, feature = "desktop-protected", feature = "test-support"))]
 
+use std::io::Write;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
@@ -12,9 +13,9 @@ use gocode_api::{
 use gocode_daemon::protected_activation::test_support::run_inherited_root_admission_fixture;
 use gocode_domain::id::WorkspaceId;
 use gocode_platform_desktop::{
-    BundledRuntimeProcessStatus, ProtectedBundledRuntimeError, ProtectedBundledRuntimeProcess,
-    VerifiedRootHandle,
+    BundledRuntimeProcessStatus, ProtectedBundledRuntimeProcess, VerifiedRootHandle,
 };
+use gocode_runtime_client::ProtectedRootAdmission;
 
 const AUTHORITY: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
 const LINEAGE: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 2];
@@ -46,19 +47,47 @@ fn inherited_child_binds_the_exact_admission_once() {
     let admission = process
         .prepare_root_admission(&root, workspace(), 1)
         .unwrap();
-    assert_eq!(
-        admission.encode_token().unwrap(),
-        std::fs::read_to_string(&token_path).unwrap()
+    let admission = ProtectedRootAdmission::from_verified(admission).unwrap();
+    let admission_digest = admission.admission_digest();
+    let digest_path = token_path.with_extension("admission-digest");
+    publish_exact(&digest_path, &admission_digest);
+    wait_for_exact_file(&digest_path, &admission_digest);
+    wait_for_exact_file(
+        &token_path.with_extension("outcome"),
+        b"durably_recorded_root_bound",
     );
-    assert!(matches!(
-        process.prepare_root_admission(&root, workspace(), 1),
-        Err(ProtectedBundledRuntimeError::OwnershipMismatch)
-    ));
+    assert_eq!(admission.admission_digest(), admission_digest);
+    let _ = process
+        .prepare_root_admission(&root, workspace(), 1)
+        .unwrap();
     process.request_graceful_stop().unwrap();
     assert_eq!(
         process.wait_for_exit(Duration::from_secs(5)).unwrap(),
         BundledRuntimeProcessStatus::Exited
     );
+}
+
+fn publish_exact(path: &std::path::Path, bytes: &[u8]) {
+    let temporary_path = path.with_extension("tmp");
+    let mut temporary = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary_path)
+        .unwrap();
+    temporary.write_all(bytes).unwrap();
+    temporary.sync_all().unwrap();
+    drop(temporary);
+    std::fs::rename(temporary_path, path).unwrap();
+}
+
+fn wait_for_exact_file(path: &std::path::Path, expected: &[u8]) {
+    for _ in 0..100 {
+        if std::fs::read(path).is_ok_and(|bytes| bytes == expected) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    panic!("exact cross-process witness was not published")
 }
 
 const fn workspace() -> WorkspaceId {

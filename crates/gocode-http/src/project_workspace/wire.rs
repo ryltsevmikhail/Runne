@@ -1,6 +1,6 @@
 use gocode_api::{
-    ProjectCommandAck, ProjectPage, ProjectSnapshot, WorkspaceCommandAck, WorkspacePage,
-    WorkspaceSnapshot,
+    ProjectCommandAck, ProjectPage, ProjectSnapshot, RootBindAdmission, WorkspaceCommandAck,
+    WorkspacePage, WorkspaceSnapshot,
 };
 use serde::{Deserialize, Serialize};
 
@@ -28,7 +28,7 @@ pub(super) struct ExistingBody {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct RootBindingBody {
     pub expected_version: u64,
-    pub root_admission: String,
+    pub root_admission: RootBindAdmission,
 }
 
 #[derive(Deserialize)]

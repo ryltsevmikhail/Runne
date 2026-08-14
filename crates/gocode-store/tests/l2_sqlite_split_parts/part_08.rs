@@ -43,9 +43,10 @@ fn conversation_command_id_rejects_changed_idempotency_key() {
         store.clone(),
         store.runtime_authority_id().clone(),
     );
-    let command_id = CommandId::from_bytes([0x71; 16]);
-    let conversation_id = ConversationId::from_bytes([0x72; 16]);
-    let workspace_id = WorkspaceId::from_bytes([0x73; 16]);
+    let command_id = "018f2e3a-7000-7000-8000-000000000071".parse().unwrap();
+    let conversation_id = make_conv_id();
+    let workspace_id = make_ws_id();
+    validated_reopen::seed_canonical_workspace(&store, "test-principal", workspace_id);
     let original = CreateConversationInput {
         conversation_id,
         workspace_id,
@@ -111,8 +112,8 @@ fn receipt_lookup_rejects_changed_fingerprint_and_corrupt_identity() {
     validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
     let payload = direct_taskrun_commit(
         &store,
-        TaskRunId::from_bytes([0x74; 16]),
-        CommandId::from_bytes([0x75; 16]),
+        "018f2e3a-7000-7000-8000-000000000074".parse().unwrap(),
+        "018f2e3a-7000-7000-8000-000000000075".parse().unwrap(),
         IdempotencyKey::new("receipt-identity").unwrap(),
         0x76,
     );
@@ -169,10 +170,10 @@ fn concurrent_exact_create_double_miss_replays_winner_identity() {
     .unwrap();
     validated_reopen::seed_canonical_workspace(&seed, "test-principal", make_ws_id());
     drop(seed);
-    let command_id = CommandId::from_bytes([0x81; 16]);
+    let command_id = "018f2e3a-7000-7000-8000-000000000081".parse().unwrap();
     let taskrun_ids = [
-        TaskRunId::from_bytes([0x82; 16]),
-        TaskRunId::from_bytes([0x83; 16]),
+        "018f2e3a-7000-7000-8000-000000000082".parse().unwrap(),
+        "018f2e3a-7000-7000-8000-000000000083".parse().unwrap(),
     ];
     let barrier = Arc::new(Barrier::new(2));
     let mut handles = Vec::new();

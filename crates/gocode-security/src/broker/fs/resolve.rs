@@ -14,13 +14,17 @@ impl FilesystemBroker {
             self.validate_root_handle(root)?;
             let workspace_root = self.find_root_for_root_handle(root)?;
             #[cfg(unix)]
-            let (canonical, fd) = {
+            let fd = {
+                let root_fd = root
+                    .fd
+                    .as_ref()
+                    .ok_or_else(|| FsBrokerError::Io("missing root descriptor".into()))?;
                 let resolution = super::fs_unix::resolve_nofollow(
-                    &workspace_root.canonical_path,
+                    root_fd,
                     &relative.components,
                     rustix::fs::OFlags::RDONLY,
                 )?;
-                (resolution.path, resolution.file_fd)
+                resolution.file_fd
             };
             #[cfg(all(not(unix), not(target_os = "windows")))]
             let canonical = {
@@ -39,20 +43,15 @@ impl FilesystemBroker {
                 fs::canonicalize(&full_path)
                     .map_err(|error| FsBrokerError::Io(error.to_string()))?
             };
+            #[cfg(not(unix))]
             if !canonical.starts_with(&workspace_root.canonical_path) {
                 return Err(FsBrokerError::SymlinkEscapesRoot);
             }
-            let path_string = canonical.to_string_lossy();
-            for pattern in SENSITIVE_PATTERNS {
-                if pattern.contains('*') {
-                    let extension = pattern.trim_start_matches('*');
-                    if path_string.ends_with(extension) {
-                        return Err(FsBrokerError::SensitivePathDenied);
-                    }
-                } else if path_string.contains(pattern) {
-                    return Err(FsBrokerError::SensitivePathDenied);
-                }
-            }
+            #[cfg(unix)]
+            let canonical = workspace_root
+                .canonical_path
+                .join(relative.components.join("/"));
+            self.validate_sensitive_path(&canonical)?;
             Ok(FsHandle {
                 root_id: root.root_id.clone(),
                 binding: self.binding.clone(),

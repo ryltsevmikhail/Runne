@@ -39,10 +39,23 @@ async fn stream_live(
             return replay_error_to_http(&error).into_response(&request_id);
         }
     };
+    let delivery_claim = state.claim_v2_resume_delivery(&session_id);
+    if delivery_claim == V2ResumeDeliveryClaim::Reaping {
+        return ReplayHttpFailure::new(StatusCode::GONE, "replay_session_expired")
+            .into_response(&request_id);
+    }
     let session_permit = match state.take_session_permit(&session_id) {
         Some(permit) => permit,
-        None => return replay_backpressure().into_response(&request_id),
+        None => {
+            if delivery_claim == V2ResumeDeliveryClaim::Delivered {
+                state.fail_v2_resume_delivery(session_id, principal_id);
+            }
+            return replay_backpressure().into_response(&request_id);
+        }
     };
+    if delivery_claim == V2ResumeDeliveryClaim::Delivered {
+        state.finish_v2_resume_delivery(&session_id);
+    }
     let (sender, receiver) = sse_channel_with_quota(MAX_LIVE_QUEUE_FRAMES, state.quotas.queue());
     tokio::spawn(produce_live_events(
         LiveProducer {

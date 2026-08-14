@@ -9,6 +9,7 @@ pub use crate::command::ConversationCommand;
 include!("conversation/types.rs");
 include!("conversation/aggregate.rs");
 include!("conversation/invariants.rs");
+include!("conversation/snapshot.rs");
 
 #[cfg(test)]
 mod tests {

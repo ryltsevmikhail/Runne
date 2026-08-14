@@ -1,5 +1,6 @@
-const ROOT_ADMISSION_DOMAIN: &[u8] = b"gocode/root-admission/v2";
-const ROOT_ADMISSION_BODY_BYTES: usize = 225;
+const ROOT_ADMISSION_DOMAIN: &[u8] = b"gocode/root-admission/v3";
+const ROOT_ADMISSION_DIGEST_DOMAIN: &[u8] = b"gocode/root-admission/digest/v3\0";
+const ROOT_ADMISSION_PAYLOAD_BYTES: usize = 225;
 
 /// Trusted native input accepted only after a protected directory-handle check.
 pub struct RootAdmissionRequest {
@@ -7,134 +8,111 @@ pub struct RootAdmissionRequest {
     workspace_id: WorkspaceId,
     expected_version: u64,
     filesystem_identity_digest: [u8; 32],
+    offer_digest: [u8; 32],
     nonce: [u8; 16],
     expires_at_unix_millis: u64,
-    admission_digest: [u8; 32],
 }
 
 impl RootAdmissionRequest {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        context: RootAdmissionVerificationContext, workspace_id: WorkspaceId, expected_version: u64,
-        filesystem_identity_digest: [u8; 32], nonce: [u8; 16], expires_at_unix_millis: u64,
-        admission_digest: [u8; 32],
+        context: RootAdmissionVerificationContext,
+        workspace_id: WorkspaceId,
+        expected_version: u64,
+        filesystem_identity_digest: [u8; 32],
+        offer_digest: [u8; 32],
+        nonce: [u8; 16],
+        expires_at_unix_millis: u64,
     ) -> Result<Self, RootAdmissionValidationError> {
-        let claims = VerifiedRootAdmissionClaims::new(
+        let digest = admission_digest(&encode_payload(
+            &context, workspace_id, expected_version, filesystem_identity_digest, offer_digest, nonce, expires_at_unix_millis,
+        ));
+        VerifiedRootAdmissionClaims::new(
             context.clone(), RootAdmissionAction::WorkspaceBindRoot, workspace_id, expected_version,
-            filesystem_identity_digest, nonce, expires_at_unix_millis, admission_digest,
+            filesystem_identity_digest, offer_digest, nonce, expires_at_unix_millis, digest,
         )?;
-        Ok(Self { context, workspace_id, expected_version, filesystem_identity_digest,
-            nonce: claims.nonce(), expires_at_unix_millis, admission_digest: claims.admission_digest() })
+        Ok(Self { context, workspace_id, expected_version, filesystem_identity_digest, offer_digest, nonce, expires_at_unix_millis })
     }
 }
 
-/// Authenticates root-admission envelopes using protected activation key material.
-pub struct RootAdmissionAuthenticator {
-    key: Zeroizing<[u8; 32]>,
-}
-
+/// Authenticates canonical root-admission envelopes using protected activation keys.
+pub struct RootAdmissionAuthenticator { key: Zeroizing<[u8; 32]> }
 impl RootAdmissionAuthenticator {
-    /// Creates a native-only issuer/verifier from an established protected launch.
+    #[must_use]
     pub fn from_protected_activation(keys: &ProtectedActivationKeys) -> Self {
         Self { key: Zeroizing::new(derive_key(keys.readiness_key(), ROOT_ADMISSION_DOMAIN)) }
     }
-
-    /// Seals trusted native admission metadata into an opaque renderer-safe envelope.
-    pub fn issue(&self, request: RootAdmissionRequest) -> Result<RootHandleAdmission, RootAdmissionValidationError> {
-        let body = encode_root_request(&request);
-        let mac = authenticated_mac(&self.key, ROOT_ADMISSION_DOMAIN, &body);
-        let mut bytes = Vec::with_capacity(ROOT_ADMISSION_BODY_BYTES + mac.len());
-        bytes.extend(body);
-        bytes.extend(mac);
-        RootHandleAdmission::from_verified_bytes(bytes).ok_or(RootAdmissionValidationError::ZeroBinding)
+    pub fn issue(&self, request: RootAdmissionRequest) -> Result<IssuedRootHandleAdmission, RootAdmissionValidationError> {
+        let payload = encode_payload(&request.context, request.workspace_id, request.expected_version, request.filesystem_identity_digest, request.offer_digest, request.nonce, request.expires_at_unix_millis);
+        let digest = admission_digest(&payload);
+        let mac = authenticated_mac(&self.key, ROOT_ADMISSION_DOMAIN, &[payload.as_slice(), &digest].concat());
+        let mut envelope = payload.to_vec(); envelope.extend(digest); envelope.extend(mac);
+        RootHandleAdmission::from_verified_bytes(envelope).map(IssuedRootHandleAdmission).ok_or(RootAdmissionValidationError::ZeroBinding)
     }
-
-    /// Authenticates and opens one opaque admission without exposing its bytes.
+    pub fn verify_issued(&self, admission: IssuedRootHandleAdmission) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
+        self.verify(admission.into_admission())
+    }
     pub fn verify(&self, admission: RootHandleAdmission) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
-        if admission.bytes.len() != ROOT_ADMISSION_BODY_BYTES + 32 { return Err(RootAdmissionValidationError::ZeroBinding); }
-        let (body, proof) = admission.bytes.split_at(ROOT_ADMISSION_BODY_BYTES);
-        let expected = authenticated_mac(&self.key, ROOT_ADMISSION_DOMAIN, body);
-        if !bool::from(expected.ct_eq(proof)) { return Err(RootAdmissionValidationError::ZeroBinding); }
-        decode_root_claims(body)
+        let (payload, tail) = admission.bytes.split_at(ROOT_ADMISSION_PAYLOAD_BYTES);
+        let (digest, mac) = tail.split_at(32);
+        let calculated = admission_digest(payload);
+        let proof = authenticated_mac(&self.key, ROOT_ADMISSION_DOMAIN, &[payload, digest].concat());
+        if !bool::from(calculated.ct_eq(digest)) || !bool::from(proof.ct_eq(mac)) { return Err(RootAdmissionValidationError::ZeroBinding); }
+        decode_claims(payload, calculated)
     }
 }
 
-fn encode_root_request(request: &RootAdmissionRequest) -> Vec<u8> {
-    let context = &request.context;
-    let mut body = Vec::with_capacity(ROOT_ADMISSION_BODY_BYTES);
-    body.extend(context.authority_digest()); body.extend(context.session_id());
-    put_u64(&mut body, context.launch_generation()); body.extend(context.principal_digest());
-    put_u64(&mut body, context.capability_version()); put_u64(&mut body, context.policy_version());
-    put_u64(&mut body, context.now_unix_millis());
-    body.push(1); body.extend(request.workspace_id.as_bytes()); put_u64(&mut body, request.expected_version);
-    body.extend(request.filesystem_identity_digest); body.extend(request.nonce);
-    put_u64(&mut body, request.expires_at_unix_millis); body.extend(request.admission_digest); body
+fn encode_payload(
+    context: &RootAdmissionVerificationContext, workspace: WorkspaceId, version: u64, identity: [u8; 32],
+    offer: [u8; 32], nonce: [u8; 16], expiry: u64,
+) -> [u8; ROOT_ADMISSION_PAYLOAD_BYTES] {
+    let mut value = [0; ROOT_ADMISSION_PAYLOAD_BYTES]; let mut index = 0;
+    for part in [context.authority_digest().as_slice(), context.session_id().as_slice(), context.launch_generation().to_be_bytes().as_slice(), context.principal_digest().as_slice(), &[1], &3_u64.to_be_bytes(), context.policy_version().to_be_bytes().as_slice(), context.now_unix_millis().to_be_bytes().as_slice(), workspace.as_bytes().as_slice(), version.to_be_bytes().as_slice(), identity.as_slice(), offer.as_slice(), nonce.as_slice(), expiry.to_be_bytes().as_slice()] {
+        value[index..index + part.len()].copy_from_slice(part); index += part.len();
+    }
+    value
 }
-
-fn decode_root_claims(body: &[u8]) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
-    let mut offset = 0;
-    let authority = take::<32>(body, &mut offset)?; let session = take::<16>(body, &mut offset)?;
-    let generation = take_u64(body, &mut offset)?; let principal = take::<32>(body, &mut offset)?;
-    let capability = take_u64(body, &mut offset)?; let policy = take_u64(body, &mut offset)?;
-    let now = take_u64(body, &mut offset)?;
-    if take::<1>(body, &mut offset)? != [1] { return Err(RootAdmissionValidationError::ZeroBinding); }
-    let workspace = WorkspaceId::from_bytes(take::<16>(body, &mut offset)?);
-    let version = take_u64(body, &mut offset)?; let identity = take::<32>(body, &mut offset)?;
-    let nonce = take::<16>(body, &mut offset)?; let expiry = take_u64(body, &mut offset)?;
-    let digest = take::<32>(body, &mut offset)?;
-    if offset != body.len() { return Err(RootAdmissionValidationError::ZeroBinding); }
-    let context = RootAdmissionVerificationContext::new(authority, session, generation, principal, capability, policy, now)?;
-    VerifiedRootAdmissionClaims::new(context, RootAdmissionAction::WorkspaceBindRoot, workspace, version, identity, nonce, expiry, digest)
+fn decode_claims(payload: &[u8], digest: [u8; 32]) -> Result<VerifiedRootAdmissionClaims, RootAdmissionValidationError> {
+    let mut index = 0;
+    let authority = take::<32>(payload, &mut index)?; let session = take::<16>(payload, &mut index)?;
+    let generation = take_u64(payload, &mut index)?; let principal = take::<32>(payload, &mut index)?;
+    if take::<1>(payload, &mut index)? != [1] || take_u64(payload, &mut index)? != 3 { return Err(RootAdmissionValidationError::ZeroBinding); }
+    let policy = take_u64(payload, &mut index)?; let issued = take_u64(payload, &mut index)?;
+    let workspace = WorkspaceId::from_bytes(take::<16>(payload, &mut index)?); let version = take_u64(payload, &mut index)?;
+    let identity = take::<32>(payload, &mut index)?; let offer = take::<32>(payload, &mut index)?;
+    let nonce = take::<16>(payload, &mut index)?; let expiry = take_u64(payload, &mut index)?;
+    if index != payload.len() { return Err(RootAdmissionValidationError::ZeroBinding); }
+    VerifiedRootAdmissionClaims::new(RootAdmissionVerificationContext::new(authority, session, generation, principal, 3, policy, issued)?, RootAdmissionAction::WorkspaceBindRoot, workspace, version, identity, offer, nonce, expiry, digest)
 }
-
-fn put_u64(bytes: &mut Vec<u8>, value: u64) { bytes.extend(value.to_be_bytes()); }
-fn take_u64(bytes: &[u8], offset: &mut usize) -> Result<u64, RootAdmissionValidationError> { Ok(u64::from_be_bytes(take::<8>(bytes, offset)?)) }
-fn take<const N: usize>(bytes: &[u8], offset: &mut usize) -> Result<[u8; N], RootAdmissionValidationError> {
-    let end = offset.checked_add(N).ok_or(RootAdmissionValidationError::ZeroBinding)?;
-    let value = bytes.get(*offset..end).ok_or(RootAdmissionValidationError::ZeroBinding)?;
-    *offset = end; value.try_into().map_err(|_| RootAdmissionValidationError::ZeroBinding)
+fn admission_digest(payload: &[u8]) -> [u8; 32] {
+    let mut value = Sha256::new(); value.update(ROOT_ADMISSION_DIGEST_DOMAIN); value.update(payload); value.finalize().into()
+}
+fn take_u64(value: &[u8], index: &mut usize) -> Result<u64, RootAdmissionValidationError> { Ok(u64::from_be_bytes(take::<8>(value, index)?)) }
+fn take<const N: usize>(value: &[u8], index: &mut usize) -> Result<[u8; N], RootAdmissionValidationError> {
+    let end = index.checked_add(N).ok_or(RootAdmissionValidationError::ZeroBinding)?;
+    let result = value.get(*index..end).ok_or(RootAdmissionValidationError::ZeroBinding)?; *index = end;
+    result.try_into().map_err(|_| RootAdmissionValidationError::ZeroBinding)
 }
 
 #[cfg(test)]
 mod root_admission_authenticator_tests {
     use super::*;
-
-    #[test]
-    fn verifier_rejects_the_fixed_v1_envelope_after_the_v2_hard_cut() {
-        const V1_DOMAIN: &[u8] = b"gocode/root-admission/v1";
-        let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
-        let context = RootAdmissionVerificationContext::new(
-            [1; 32], [2; 16], 1, [3; 32], 1, 1, 10,
-        ).unwrap();
-        let workspace = WorkspaceId::from_bytes([4; 16]);
-        let mut body = Vec::with_capacity(233);
-        body.extend(context.authority_digest()); body.extend(context.session_id());
-        put_u64(&mut body, context.launch_generation()); body.extend(context.principal_digest());
-        put_u64(&mut body, context.capability_version()); put_u64(&mut body, context.policy_version());
-        put_u64(&mut body, 1); put_u64(&mut body, context.now_unix_millis());
-        body.push(1); body.extend(workspace.as_bytes()); put_u64(&mut body, 1);
-        body.extend([5; 32]); body.extend([6; 16]); put_u64(&mut body, 20); body.extend([8; 32]);
-        assert_eq!(body.len(), 233);
-        let key = derive_key(keys.readiness_key(), V1_DOMAIN);
-        let mut envelope = body;
-        let proof = authenticated_mac(&key, V1_DOMAIN, &envelope);
-        envelope.extend(proof);
-        assert_eq!(envelope.len(), 265);
-        assert!(RootHandleAdmission::from_verified_bytes(envelope).is_none());
+    fn request() -> RootAdmissionRequest {
+        RootAdmissionRequest::new(
+            RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 3, 1, 10).unwrap(),
+            WorkspaceId::from_bytes([4; 16]), 1, [5; 32], [6; 32], [7; 16], 20,
+        ).unwrap()
     }
-
     #[test]
-    fn v2_envelope_has_the_gate_free_fixed_wire_length_and_rejects_tampering() {
-        let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
-        let request = RootAdmissionRequest::new(
-            RootAdmissionVerificationContext::new([1; 32], [2; 16], 1, [3; 32], 1, 1, 10).unwrap(),
-            WorkspaceId::from_bytes([4; 16]), 1, [5; 32], [6; 16], 20, [8; 32],
-        ).unwrap();
-        let authenticator = RootAdmissionAuthenticator::from_protected_activation(&keys);
-        let mut admission = authenticator.issue(request).unwrap();
-        assert_eq!(admission.bytes.len(), ROOT_ADMISSION_BODY_BYTES + 32);
-        assert_eq!(ROOT_ADMISSION_BODY_BYTES, 225);
-        admission.bytes[0] ^= 1;
-        assert!(authenticator.verify(admission).is_err());
+    fn v2_envelopes_are_rejected_before_authentication() {
+        assert!(RootHandleAdmission::from_verified_bytes(vec![0; 257]).is_none());
+    }
+    #[test]
+    fn v3_envelope_rejects_tampered_payload_and_digest() {
+        let authenticator = RootAdmissionAuthenticator::from_protected_activation(&LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys());
+        let mut admission = authenticator.issue(request()).unwrap(); admission.0.bytes[177] ^= 1;
+        assert!(authenticator.verify_issued(admission).is_err());
+        let mut admission = authenticator.issue(request()).unwrap(); admission.0.bytes[225] ^= 1;
+        assert!(authenticator.verify_issued(admission).is_err());
     }
 }

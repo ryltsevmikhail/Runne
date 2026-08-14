@@ -5,7 +5,7 @@
     // 11 blocked: rollback with an authority switch is not implemented or qualified.
 
     #[test]
-    fn recovery_compatibility_status_8_covered_released_v8_upgrade_open_preserves_identity() {
+    fn v17_rejects_released_v8_fixture_without_a_valid_complete_replay_history() {
         let temporary = tempfile::tempdir().unwrap();
         let path = temporary.path().join("released-v8.sqlite");
         let conn = Connection::open(&path).unwrap();
@@ -38,7 +38,7 @@
         preflight_existing_file(&path).unwrap();
         let conn = open_with_pragmas(path.to_str().unwrap()).unwrap();
 
-        apply_migrations(&conn).unwrap();
+        assert!(apply_migrations(&conn).is_err());
 
         let after: (Vec<u8>, Vec<u8>, i64, Vec<u8>) = conn
             .query_row(
@@ -53,6 +53,6 @@
                 row.get::<_, i64>(0)
             })
             .unwrap(),
-            CURRENT_SCHEMA_VERSION
+            16
         );
     }

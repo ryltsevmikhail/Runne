@@ -19,6 +19,9 @@ pub fn run_startup_gates(conn: &Connection, _db_path: &str) -> SqliteResult<()> 
     if schema_version != CURRENT_SCHEMA_VERSION {
         return Err(rusqlite::Error::InvalidQuery);
     }
+    if schema_version >= 17 {
+        crate::store::snapshot::validate_all_replay_snapshots(conn)?;
+    }
 
     // PRAGMA profile verification
     verify_pragma(conn, "journal_mode", "wal")?;

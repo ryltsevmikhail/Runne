@@ -82,6 +82,20 @@ fn retention_manifest_for_events(
     .map_err(|_| ReplayError::Integrity("invalid retention manifest".to_owned()))
 }
 
+fn baseline_resume_manifest_digest(
+    lineage_id: &EventLogLineageId,
+    internal_generation: u64,
+    retained_floor: i64,
+    server_secret: &[u8; 32],
+) -> [u8; 32] {
+    let mut mac = HmacSha256::new_from_slice(server_secret).expect("fixed HMAC key size");
+    mac.update(b"gocode/replay-retention-baseline-resume-manifest/v2\0");
+    mac.update(lineage_id.as_bytes());
+    mac.update(&internal_generation.to_be_bytes());
+    mac.update(&retained_floor.to_be_bytes());
+    mac.finalize().into_bytes().into()
+}
+
 fn build_gap_range_ref(
     lineage_id: &EventLogLineageId,
     retention_generation: u64,

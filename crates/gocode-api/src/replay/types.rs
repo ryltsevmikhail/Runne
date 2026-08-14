@@ -63,6 +63,8 @@ pub enum ReplayContractError {
     InvalidEventType,
     /// A supported canonical event schema version was zero.
     InvalidEventSchemaVersion,
+    /// A closed aggregate projection failed its integrity validation.
+    InvalidProjection,
 }
 
 /// Opaque public replay-binding identity.

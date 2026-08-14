@@ -97,12 +97,6 @@ fn parse_conversation_reference(value: &str) -> Result<StoredConversationReferen
     Ok(reference)
 }
 
-fn new_command_identity() -> Result<CommandIdentity, AppCoreError> {
-    let command_id = CanonicalId::now_v7();
-    CommandIdentity::new(command_id, command_id.to_string())
-        .map_err(|_| AppCoreError::RuntimeUnavailable)
-}
-
 const fn map_profile_state(error: LocalProfileError) -> RuntimeAvailability {
     match error {
         LocalProfileError::Unavailable => RuntimeAvailability::Reconnecting,

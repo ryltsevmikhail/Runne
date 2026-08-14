@@ -32,7 +32,13 @@ fn post(uri: &str, body: Value) -> Request<Body> {
     Request::builder()
         .method("POST")
         .uri(uri)
-        .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+        .header(
+            "authorization",
+            session_authorization_header(
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(SESSION_AUTHORITY),
+            )
+            .unwrap(),
+        )
         .header("content-type", "application/json")
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap()
@@ -42,7 +48,13 @@ fn get(uri: &str) -> Request<Body> {
     Request::builder()
         .method("GET")
         .uri(uri)
-        .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+        .header(
+            "authorization",
+            session_authorization_header(
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(SESSION_AUTHORITY),
+            )
+            .unwrap(),
+        )
         .header("accept", "text/event-stream")
         .body(Body::empty())
         .unwrap()
@@ -211,7 +223,13 @@ async fn replay_body_and_page_count_are_bounded_at_the_published_values() {
             Request::builder()
                 .method("POST")
                 .uri("/v1/replay/open-session")
-                .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+                .header(
+                    "authorization",
+                    session_authorization_header(
+                        &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(SESSION_AUTHORITY),
+                    )
+                    .unwrap(),
+                )
                 .header("content-type", "application/json")
                 .body(Body::from(vec![b'x'; 8 * 1024 + 1]))
                 .unwrap(),

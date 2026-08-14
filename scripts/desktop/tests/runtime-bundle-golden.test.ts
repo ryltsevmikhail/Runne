@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 function canonicalBundleBytes(runtimeCommit: string): Uint8Array {
   const RS = 0x1E
   const NL = 0x0A
-  const BUNDLE_ID = 'gocode-ui-client/1'
+  const BUNDLE_ID = 'gocode-ui-client/2'
   
   const events = [
     'TaskRunCreated','TaskRunAdmitted','TaskRunQueued','TaskRunStarted',
@@ -37,7 +37,7 @@ function canonicalBundleBytes(runtimeCommit: string): Uint8Array {
 
 const PLACEHOLDER = '0000000000000000000000000000000000000000'
 const PINNED_COMMIT = '6311992cea0551dab406a93b855ce2c49507e07e'
-const GOLDEN_HASH = 'bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429'
+const GOLDEN_HASH = 'c713ea07af71b1fc51e09591caa889be7d35f91dcbe1a940d0148f1ab3716de5'
 
 describe('Runtime bundle golden vectors (TypeScript)', () => {
   it('produce canonical bytes identical to Rust', () => {
@@ -59,7 +59,7 @@ describe('Runtime bundle golden vectors (TypeScript)', () => {
     const hashBuffer = await crypto.subtle.digest('SHA-256', bytes)
     const hashHex = Array.from(new Uint8Array(hashBuffer))
       .map(b => b.toString(16).padStart(2, '0')).join('')
-    expect(hashHex).toBe('6eae1a1b3fb7cb216d1ca7a9d1ce6b6087f28976e5e50a84031da8fea57d2c4b')
+    expect(hashHex).toBe('27cd581c1f5c6a2b836703771cff92b11cc3d7a3cdcd4687be31be2a2a737812')
   })
 
   it('pinned commit produces different hash than placeholder', async () => {
@@ -74,7 +74,7 @@ describe('Runtime bundle golden vectors (TypeScript)', () => {
   it('format is correct — no spaces, correct separators', () => {
     const bytes = canonicalBundleBytes(PLACEHOLDER)
     const text = new TextDecoder().decode(bytes)
-    expect(text.startsWith('gocode-ui-client/1\x1E')).toBe(true)
+    expect(text.startsWith('gocode-ui-client/2\x1E')).toBe(true)
     expect(text.includes('EVENTS\x1E')).toBe(true)
     expect(text.includes('COMMANDS\x1E')).toBe(true)
     expect(text.includes('AGGREGATES\x1E')).toBe(true)

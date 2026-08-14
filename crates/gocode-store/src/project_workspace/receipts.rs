@@ -8,7 +8,7 @@ use crate::codec::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
-pub(super) enum Operation {
+pub(crate) enum Operation {
     CreateProject = 1,
     ArchiveProject = 2,
     RestoreProject = 3,
@@ -19,10 +19,10 @@ pub(super) enum Operation {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Scope {
-    pub operation: Operation,
-    pub aggregate_kind: u8,
-    pub aggregate_id: [u8; 16],
+pub(crate) struct Scope {
+    pub(crate) operation: Operation,
+    pub(crate) aggregate_kind: u8,
+    pub(crate) aggregate_id: [u8; 16],
 }
 
 impl Scope {
@@ -43,13 +43,13 @@ impl Scope {
     }
 }
 
-pub(super) struct ReceiptRequest<'a> {
-    pub authority: &'a str,
-    pub principal: &'a str,
-    pub command_id: CommandId,
-    pub key: &'a IdempotencyKey,
-    pub scope: Scope,
-    pub fingerprint: [u8; 32],
+pub(crate) struct ReceiptRequest<'a> {
+    pub(crate) authority: &'a str,
+    pub(crate) principal: &'a str,
+    pub(crate) command_id: CommandId,
+    pub(crate) key: &'a IdempotencyKey,
+    pub(crate) scope: Scope,
+    pub(crate) fingerprint: [u8; 32],
 }
 
 pub(super) fn lookup(
