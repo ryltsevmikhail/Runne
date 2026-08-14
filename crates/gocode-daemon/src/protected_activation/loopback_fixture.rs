@@ -2,6 +2,7 @@
 
 mod ack_failure_store;
 mod bootstrap;
+mod credential_versions;
 mod fixed_response;
 mod request_validation;
 mod tls_sse_server;
@@ -49,6 +50,7 @@ pub(crate) async fn dependencies(
             effect,
             keyring,
             acknowledgement_failure_decorator(),
+            credential_versions::factory(),
         ),
         server,
     ))

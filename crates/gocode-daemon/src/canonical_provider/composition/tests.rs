@@ -40,6 +40,8 @@ use crate::provider_activation::ProviderActivation;
 
 mod pending;
 mod recovery_audit;
+mod workspace;
+use workspace::seed_canonical_workspace;
 
 fn managed_test_connection(path: &str) -> gocode_store::schema::ManagedConnection {
     let observer = rusqlite::Connection::open_with_flags(
@@ -163,6 +165,10 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
             RuntimeAuthorityId(hex::encode(authority)),
             Arc::clone(&prohibited),
         ));
+    seed_canonical_workspace(
+        &store,
+        "018f2e3a-7000-7000-8000-000000000093".parse().unwrap(),
+    );
     let conversation_id = "018f2e3a-7000-7000-8000-000000000091".parse().unwrap();
     let create_context = command_context("018f2e3a-7000-7000-8000-000000000092", "create");
     ConversationService::new(

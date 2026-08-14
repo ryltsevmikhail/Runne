@@ -4,6 +4,7 @@ use super::*;
 use crate::operational_telemetry::compose_operational_telemetry_query;
 
 mod command_hosts;
+mod session;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
@@ -21,6 +22,8 @@ pub(super) async fn start_http_and_runtime(
     provider_activation: ProviderActivation,
     provider_service: Option<Arc<DaemonCanonicalOpenAiService>>,
     protected_activation: bool,
+    launch_authority_id: [u8; 16],
+    executable_sha256: [u8; 32],
     session_id: [u8; 16],
     root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
     provider_readiness: gocode_api::ProviderActivationReadinessV1,
@@ -134,20 +137,14 @@ pub(super) async fn start_http_and_runtime(
     let launched_at = Instant::now();
     let session_clock: Arc<dyn Fn() -> Duration + Send + Sync> =
         Arc::new(move || launched_at.elapsed());
-    let local_session_service = Arc::new(Mutex::new(if protected_activation {
-        LocalSessionService::new_protected(
-            binding.clone(),
-            bootstrap.launch_identity.bootstrap_secret(),
-            Duration::ZERO,
-            Duration::from_secs(30),
-        )
-        .map_err(|_| DaemonError::Bootstrap("initialize protected session".into()))?
-    } else {
-        LocalSessionService::new(
-            binding.clone(),
-            bootstrap.launch_identity.bootstrap_secret(),
-        )
-    }));
+    let local_session_service = session::compose(
+        binding.clone(),
+        launch_authority_id,
+        executable_sha256,
+        bootstrap.launch_identity.bootstrap_secret(),
+        Arc::clone(&bootstrap_reservation_store),
+        protected_activation,
+    )?;
     let replay_service = ReplayService::new(
         Arc::new(replay_store),
         replay_integrity_secret,
@@ -225,8 +222,11 @@ pub(super) async fn start_http_and_runtime(
                     directory,
                     address,
                     &bootstrap.launch_identity,
+                    launch_authority_id,
+                    executable_sha256,
                     bootstrap.local_session_authority_id,
                     uuid::Uuid::from_bytes(*replay_lineage.as_bytes()),
+                    session_id,
                     runtime_capabilities,
                 )
             });
