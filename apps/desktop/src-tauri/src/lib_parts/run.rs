@@ -121,6 +121,7 @@ pub fn run() {
             prepare_destructive_project_action,
             dispatch_destructive_project_action,
             get_diagnostics,
+            operational_telemetry_command::get_operational_telemetry,
             connect_runtime,
         ])
         .build(tauri::generate_context!())
