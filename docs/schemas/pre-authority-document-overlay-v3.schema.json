@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.project-owner.pre-authority-document-overlay/3",
+  "title": "Pre-authority document overlay successor",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "repository_id", "policy_id", "mode",
+    "anchor_commit_oid", "anchor_tree_oid", "anchor_commit_bytes_sha256",
+    "anchor_tree_bytes_sha256", "v2_schema_sha256", "v2_artifact_sha256",
+    "base_universe_bytes_sha256", "base_governed_scope_bytes_sha256",
+    "base_status_claims_bytes_sha256", "records", "status_claims"
+  ],
+  "properties": {
+    "schema_version": {"const": 3},
+    "repository_id": {"const": "gocode"},
+    "policy_id": {"const": "gocode.project-owner.pre-authority-document-overlay-policy/3"},
+    "mode": {"const": "pre_authority_overlay_successor"},
+    "anchor_commit_oid": {"const": "f6d0b2d6a5ccdda83ed80f9d0daefa785b622266"},
+    "anchor_tree_oid": {"const": "99c8f97ae55c4912ad6097b8397e9743e62e33ab"},
+    "anchor_commit_bytes_sha256": {"const": "b49b9a24f6c3c0d619a08e2d3e65976b1f6a25adbe380689a7448405d855002c"},
+    "anchor_tree_bytes_sha256": {"const": "6dbd3b34b5243ca7f355e5fbb902b6286369860ac1a48631e946dda07de44f5b"},
+    "v2_schema_sha256": {"const": "2b38bd6681b8549991e185f13e37125d30a3034f6ee424f3ffae697cf27f944c"},
+    "v2_artifact_sha256": {"const": "70e533bb5734b1f2e466932ab3f73a87eb875ef99f74e0cbfa44eb4dfbec2c67"},
+    "base_universe_bytes_sha256": {"const": "efeb9eabdfb03084a8cdc10c33acc4f8008dd73e1f750acb24513d19d1ab66b1"},
+    "base_governed_scope_bytes_sha256": {"const": "18d80090ecc15ed0da8a935cbde1dfcc72308d96eb28cd0c0f9c0b6315daa5a4"},
+    "base_status_claims_bytes_sha256": {"const": "d0dbbe23dbb553d090751a4f43537fd50ea46c298bdc9008f4ef80896067e77b"},
+    "records": {"type": "array"},
+    "status_claims": {"type": "array"}
+  }
+}

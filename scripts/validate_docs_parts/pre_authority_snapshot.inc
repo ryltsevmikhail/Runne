@@ -14,6 +14,8 @@ _FROZEN_BYTES = {
     "docs/schemas/pre-authority-document-delta-v1.schema.json",
     "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V2.json",
     "docs/schemas/pre-authority-document-overlay-v2.schema.json",
+    "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V3.json",
+    "docs/schemas/pre-authority-document-overlay-v3.schema.json",
     "docs/rc0/document-universe-v1.json", "docs/rc0/governed-scope-v1.json", "docs/rc0/status-claims-v1.json",
 }
 
@@ -131,7 +133,7 @@ class CandidateSnapshot:
             if path in mapping or path.casefold() in folded or stage != "0" or oid == "0" * 40:
                 raise ValueError("DOCS_INDEX_RECORD_INVALID")
             mapping[path] = IndexEntry(stage, mode, oid, b"")
-            if mode != "160000" and (path.endswith((".md", ".markdown")) or path in _FROZEN_BYTES):
+            if mode != "160000" and (path.endswith((".md", ".markdown")) or path.startswith("docs/schemas/") or path in _FROZEN_BYTES):
                 pending.append(oid)
             folded.add(path.casefold())
         blobs = blob_bytes(repo, pending) if pending else {}

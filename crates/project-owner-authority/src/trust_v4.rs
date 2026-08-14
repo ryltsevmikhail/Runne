@@ -162,7 +162,7 @@ fn v4_leaf_schema_digests() -> Vec<SchemaDigest> {
         ),
         (
             "gocode.release.rc2-native-evidence/1",
-            "c7c689345a4ba6c57d72509db282c63005ef74b754a3037548f459a7711ddfae",
+            "cb0ccf3b635200aa43614c362f631aca3d0feba91fa496512bb908d157ed3ae9",
         ),
         (
             "gocode.release.rc2-signing-authorization/1",
@@ -170,11 +170,11 @@ fn v4_leaf_schema_digests() -> Vec<SchemaDigest> {
         ),
         (
             "gocode.release.rc2-signing-review/1",
-            "63071cc5da14cf5fed0dbcd54e4d60a002dd379f07b07a77d92f3e81faec621e",
+            "49aa1c4b02a078096ef535fc32ecbfe13457141d5d2b0f0af594d3948f80b1a3",
         ),
         (
             "gocode.release.rc2-update-metadata-issuance/1",
-            "27544aeb992222350e43650525065df0c971669fbda2bbefa950fdebe2605445",
+            "64a299a83c1d31a994b34b1aa97cfb3c7f74929a7d947d7366b52c7cc297bc58",
         ),
         (
             "gocode.release.rc3-final-review/1",

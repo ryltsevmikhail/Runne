@@ -78,6 +78,14 @@ class ReleaseAuthoritySchemaParityTests(unittest.TestCase):
             self.assertEqual(payload["$id"], schema_id)
             self.assertFalse(payload.get("additionalProperties", True))
 
+    def test_all_stage_schemas_have_non_empty_titles(self) -> None:
+        schemas = ROOT / "docs/schemas"
+        for name in SCHEMAS:
+            with self.subTest(schema=name):
+                payload = json.loads((schemas / name).read_text(encoding="utf-8"))
+                self.assertIsInstance(payload.get("title"), str)
+                self.assertTrue(payload["title"].strip())
+
     def test_publication_manifest_excludes_macos_preview(self) -> None:
         payload = json.loads((ROOT / "docs/schemas/publication-manifest-v1.schema.json").read_text(encoding="utf-8"))
         self.assertEqual(payload["properties"]["artifacts"], {"const": ["linux", "windows"]})

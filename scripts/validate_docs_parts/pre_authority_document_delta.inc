@@ -33,11 +33,17 @@ GOVERNED_DELTA_PATHS = frozenset((
     "docs/superpowers/specs/2026-08-09-v1-platform-scope-qualification-design.md",
     "docs/superpowers/specs/2026-08-12-solo-project-owner-authority-design.md",
 ))
+exec((_parts_root / "pre_authority_overlay_repair.inc").read_text(encoding="utf-8"))
 exec((_parts_root / "pre_authority_overlay_v2.inc").read_text(encoding="utf-8"))
+exec((_parts_root / "pre_authority_overlay_v3.inc").read_text(encoding="utf-8"))
 
 
 def _mode(snapshot):
-    pre, overlay, composed = ARTIFACT_PATH in snapshot.entries, OVERLAY_ARTIFACT_PATH in snapshot.entries, COMPOSED_PATH in snapshot.entries
+    pre, overlay, successor, composed = ARTIFACT_PATH in snapshot.entries, OVERLAY_ARTIFACT_PATH in snapshot.entries, OVERLAY_V3_ARTIFACT_PATH in snapshot.entries, COMPOSED_PATH in snapshot.entries
+    if successor:
+        if pre or composed:
+            raise ValueError("DOCS_MODE_CONFLICT")
+        return "overlay_v3"
     if sum((pre, overlay, composed)) > 1:
         raise ValueError("DOCS_MODE_CONFLICT")
     return "composed" if composed else "overlay" if overlay else "pre_authority" if pre else "legacy"
@@ -45,8 +51,14 @@ def _mode(snapshot):
 
 def _predecessor_mode(snapshot):
     paths = snapshot.head_paths()
-    pre, overlay, composed = ARTIFACT_PATH in paths, OVERLAY_ARTIFACT_PATH in paths, COMPOSED_PATH in paths
+    pre, overlay, successor, composed = ARTIFACT_PATH in paths, OVERLAY_ARTIFACT_PATH in paths, OVERLAY_V3_ARTIFACT_PATH in paths, COMPOSED_PATH in paths
+    if successor:
+        if pre or composed:
+            raise ValueError("DOCS_MODE_CONFLICT")
+        return "overlay_v3"
     if sum((pre, overlay, composed)) > 1:
+        if is_exact_overlay_repair_predecessor(snapshot):
+            return "repair"
         raise ValueError("DOCS_MODE_CONFLICT")
     return "composed" if composed else "overlay" if overlay else "pre_authority" if pre else "legacy"
 
@@ -58,6 +70,10 @@ def _select(snapshot):
     if previous == "overlay" and mode != "overlay":
         raise ValueError("DOCS_MODE_DOWNGRADE")
     if previous == "pre_authority" and mode == "legacy":
+        raise ValueError("DOCS_MODE_DOWNGRADE")
+    if previous == "repair" and mode != "overlay_v3":
+        raise ValueError("DOCS_MODE_DOWNGRADE")
+    if previous == "overlay_v3" and mode != "overlay_v3":
         raise ValueError("DOCS_MODE_DOWNGRADE")
     if previous == "composed" and mode != "composed":
         raise ValueError("DOCS_MODE_DOWNGRADE")
@@ -131,7 +147,7 @@ def _validate_documents(snapshot, records, base):
         raise ValueError("DOCS_DELTA_EXACTNESS")
 
 
-def _validate_claims(snapshot, records, document_paths):
+def _validate_claims(snapshot, records, document_paths, *, frozen_protected=None):
     if not isinstance(records, list):
         raise ValueError("PRE_AUTHORITY_ARTIFACT")
     allowed = {"blocked_status": "BLOCKED", "design_policy": "NON_PRODUCTION", "terminology_reference": "NON_PRODUCTION", "out_of_scope_status": "OUT_OF_SCOPE"}
@@ -147,8 +163,10 @@ def _validate_claims(snapshot, records, document_paths):
     expected = _front_matter_claims(snapshot, document_paths)
     if seen != expected:
         raise ValueError("DOCS_STATUS_CLAIM_RECONCILIATION")
+    if frozen_protected is not None and set(frozen_protected) - document_paths:
+        raise ValueError("DOCS_AUTHORIZING_CLAIM")
     for path in document_paths:
-        if protected_claim_diagnostics(snapshot.bytes(path)):
+        if protected_claim_diagnostics(snapshot.bytes(path)) != (frozen_protected or {}).get(path, []):
             raise ValueError("DOCS_AUTHORIZING_CLAIM")
 
 
@@ -226,6 +244,8 @@ def validate_documentation_mode(repo: Path, *, index_file: Path | None = None) -
             return validate_legacy_snapshot(snapshot) if "validate_document_universe" in globals() else []
         if mode == "overlay":
             _validate_pre_authority_document_overlay_v2(snapshot)
+        elif mode == "overlay_v3":
+            _validate_pre_authority_document_overlay_v3(snapshot)
         else:
             _validate_pre(snapshot)
         return []
