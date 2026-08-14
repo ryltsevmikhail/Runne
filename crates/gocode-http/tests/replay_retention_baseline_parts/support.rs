@@ -23,7 +23,8 @@ use gocode_http::middleware::request_id_middleware;
 use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
 use gocode_store::replay_store::ReplayStore;
 use gocode_store::schema::{
-    apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id,
+    ConnectionMode, apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id,
+    read_authority_id, read_event_log_lineage_id, reopen_managed_connection_validated,
 };
 use tower::ServiceExt;
 
@@ -240,8 +241,20 @@ fn replay_app_with_v2(
     replay_guard: Arc<dyn ProhibitedContentPort>,
     v2: bool,
 ) -> axum::Router {
+    let connection =
+        reopen_managed_connection_validated(path, ConnectionMode::ValidatedReopen, |connection| {
+            if read_authority_id(connection)? == Some(AUTHORITY)
+                && read_event_log_lineage_id(connection)?
+                    == Some(EventLogLineageId::from_bytes(LINEAGE))
+            {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        })
+        .unwrap();
     let service = ReplayService::new(
-        Arc::new(ReplayStore::new(rusqlite::Connection::open(path).unwrap())),
+        Arc::new(ReplayStore::new(connection)),
         [0x46; 32],
         EventLogLineageId::from_bytes(LINEAGE),
         Arc::new(AvailableAuthorization),
