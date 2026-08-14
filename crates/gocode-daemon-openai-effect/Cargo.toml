@@ -9,7 +9,7 @@ publish = false
 bytes = "1"
 gocode-provider = { path = "../gocode-provider" }
 gocode-provider-openai = { path = "../gocode-provider-openai" }
-gocode-secure-store = { path = "../secure-store" }
+gocode-secure-store = { path = "../secure-store", default-features = false }
 gocode-store = { path = "../gocode-store" }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 thiserror = { workspace = true }

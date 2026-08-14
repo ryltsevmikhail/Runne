@@ -265,7 +265,7 @@ class PreAuthorityDocumentDeltaTests(unittest.TestCase):
         git(repo, "read-tree", "HEAD", index=index)
         write(repo, "docs/rc0/POST_RC0_PLATFORM_QUALIFICATION_COMPOSED_UNIVERSE_V1.json", b"{}")
         git(repo, "add", "docs/rc0/POST_RC0_PLATFORM_QUALIFICATION_COMPOSED_UNIVERSE_V1.json", index=index)
-        with self.assertRaisesRegex(ValueError, "DOCS_COMPOSED_VALIDATOR_UNAVAILABLE"):
+        with self.assertRaisesRegex(ValueError, "DOCS_COMPOSED_AUTHORITY_UNAVAILABLE"):
             module.select_documentation_mode(repo, index_file=index)
 
     def test_predecessor_downgrade_matrix_uses_captured_head(self):

@@ -15,7 +15,7 @@ gocode-provider = { path = "../gocode-provider" }
 gocode-runtime = { path = "../gocode-runtime" }
 gocode-runtime-client = { path = "../runtime-client" }
 gocode-store = { path = "../gocode-store" }
-gocode-secure-store = { path = "../secure-store" }
+gocode-secure-store = { path = "../secure-store", default-features = false }
 rand = "0.8"
 rcgen = { workspace = true }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }

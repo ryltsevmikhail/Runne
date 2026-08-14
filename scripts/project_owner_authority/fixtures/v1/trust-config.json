@@ -1,0 +1,13 @@
+{
+  "schema_version": "gocode.project-owner.trust-config/1",
+  "repository_id": "gocode",
+  "role": "PROJECT_OWNER",
+  "epoch": 1,
+  "key_id": "1111111111111111111111111111111111111111111111111111111111111111",
+  "public_key": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "schema_digests": [
+    {"schema_id": "gocode.project-owner.authority-receipt/1", "schema_sha256": "2222222222222222222222222222222222222222222222222222222222222222"}
+  ],
+  "proof_of_possession": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "predecessor": null
+}

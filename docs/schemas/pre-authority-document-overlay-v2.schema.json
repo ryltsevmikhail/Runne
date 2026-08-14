@@ -1,0 +1,274 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.project-owner.pre-authority-document-overlay/2",
+  "title": "Pre-authority document overlay",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository_id",
+    "policy_id",
+    "mode",
+    "anchor_commit_oid",
+    "anchor_tree_oid",
+    "anchor_commit_bytes_sha256",
+    "anchor_tree_bytes_sha256",
+    "v1_schema_sha256",
+    "v1_artifact_sha256",
+    "base_universe_bytes_sha256",
+    "base_governed_scope_bytes_sha256",
+    "base_status_claims_bytes_sha256",
+    "records",
+    "status_claims"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "repository_id": {
+      "const": "gocode"
+    },
+    "policy_id": {
+      "const": "gocode.project-owner.pre-authority-document-overlay-policy/2"
+    },
+    "mode": {
+      "const": "pre_authority_overlay"
+    },
+    "anchor_commit_oid": {
+      "const": "f6d0b2d6a5ccdda83ed80f9d0daefa785b622266"
+    },
+    "anchor_tree_oid": {
+      "const": "99c8f97ae55c4912ad6097b8397e9743e62e33ab"
+    },
+    "anchor_commit_bytes_sha256": {
+      "const": "b49b9a24f6c3c0d619a08e2d3e65976b1f6a25adbe380689a7448405d855002c"
+    },
+    "anchor_tree_bytes_sha256": {
+      "const": "6dbd3b34b5243ca7f355e5fbb902b6286369860ac1a48631e946dda07de44f5b"
+    },
+    "v1_schema_sha256": {
+      "const": "379d0c00d93af56a75be9f554e9cd58efd1d085eaabdebf8af1769b1ea66450f"
+    },
+    "v1_artifact_sha256": {
+      "const": "b0f4a92f07df9efd78aebf5dee5ef682e6698ad92fc3b21957e37705ff817d54"
+    },
+    "base_universe_bytes_sha256": {
+      "const": "efeb9eabdfb03084a8cdc10c33acc4f8008dd73e1f750acb24513d19d1ab66b1"
+    },
+    "base_governed_scope_bytes_sha256": {
+      "const": "18d80090ecc15ed0da8a935cbde1dfcc72308d96eb28cd0c0f9c0b6315daa5a4"
+    },
+    "base_status_claims_bytes_sha256": {
+      "const": "d0dbbe23dbb553d090751a4f43537fd50ea46c298bdc9008f4ef80896067e77b"
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    },
+    "status_claims": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/claim"
+      }
+    }
+  },
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "change_id",
+        "path",
+        "candidate_mode",
+        "candidate_blob_oid",
+        "candidate_sha256",
+        "base_mode",
+        "base_blob_oid",
+        "base_sha256",
+        "classification",
+        "reason"
+      ],
+      "properties": {
+        "operation": {
+          "enum": [
+            "add",
+            "replace"
+          ]
+        },
+        "change_id": {
+          "enum": [
+            "TASK_1_BASELINE",
+            "TASK_2"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "enum": [
+            "docs/adr/ADR-0027-v1-platform-scope.md",
+            "docs/desktop/adr/ADR-0015-v1-platform-scope.md",
+            "docs/schemas/README.md",
+            "docs/superpowers/plans/2026-08-09-v1-platform-scope-local-contracts.md",
+            "docs/superpowers/plans/2026-08-12-solo-project-owner-authority.md",
+            "docs/superpowers/specs/2026-08-09-post-rc0-delivery-program-design.md",
+            "docs/superpowers/specs/2026-08-09-v1-platform-scope-qualification-design.md",
+            "docs/superpowers/specs/2026-08-12-solo-project-owner-authority-design.md",
+            "scripts/rc0_policy/fixtures/platform_claim_migration/v1/invalid/README.md"
+          ]
+        },
+        "candidate_mode": {
+          "const": "100644"
+        },
+        "candidate_blob_oid": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "candidate_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "base_mode": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_blob_oid": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "base_sha256": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "classification": {
+          "enum": [
+            "governed",
+            "non_governed"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "add"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "change_id": {
+                "const": "TASK_1_BASELINE"
+              },
+              "base_mode": {
+                "type": "null"
+              },
+              "base_blob_oid": {
+                "type": "null"
+              },
+              "base_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "replace"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "change_id": {
+                "const": "TASK_2"
+              },
+              "base_mode": {
+                "const": "100644"
+              },
+              "base_blob_oid": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{40}$"
+              },
+              "base_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ],
+      "oneOf": [
+        {"properties":{"operation":{"const":"add"},"classification":{"const":"governed"},"reason":{"type":"null"},"path":{"enum":["docs/adr/ADR-0027-v1-platform-scope.md","docs/desktop/adr/ADR-0015-v1-platform-scope.md","docs/superpowers/plans/2026-08-09-v1-platform-scope-local-contracts.md","docs/superpowers/plans/2026-08-12-solo-project-owner-authority.md","docs/superpowers/specs/2026-08-09-post-rc0-delivery-program-design.md","docs/superpowers/specs/2026-08-09-v1-platform-scope-qualification-design.md","docs/superpowers/specs/2026-08-12-solo-project-owner-authority-design.md"]}}},
+        {"properties":{"operation":{"const":"add"},"classification":{"const":"non_governed"},"reason":{"const":"Outside the authoritative docs/ governance tree."},"path":{"const":"scripts/rc0_policy/fixtures/platform_claim_migration/v1/invalid/README.md"}}},
+        {"properties":{"operation":{"const":"replace"},"classification":{"const":"governed"},"reason":{"type":"null"},"path":{"const":"docs/schemas/README.md"}}}
+      ]
+    },
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "claim_kind",
+        "disposition",
+        "evidence_binding"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "enum": [
+            "docs/adr/ADR-0027-v1-platform-scope.md",
+            "docs/desktop/adr/ADR-0015-v1-platform-scope.md",
+            "docs/schemas/README.md",
+            "docs/superpowers/plans/2026-08-09-v1-platform-scope-local-contracts.md",
+            "docs/superpowers/plans/2026-08-12-solo-project-owner-authority.md",
+            "docs/superpowers/specs/2026-08-09-post-rc0-delivery-program-design.md",
+            "docs/superpowers/specs/2026-08-09-v1-platform-scope-qualification-design.md",
+            "docs/superpowers/specs/2026-08-12-solo-project-owner-authority-design.md",
+            "scripts/rc0_policy/fixtures/platform_claim_migration/v1/invalid/README.md"
+          ]
+        },
+        "claim_kind": {
+          "enum": [
+            "blocked_status",
+            "design_policy",
+            "terminology_reference",
+            "out_of_scope_status"
+          ]
+        },
+        "disposition": {
+          "enum": [
+            "BLOCKED",
+            "NON_PRODUCTION",
+            "OUT_OF_SCOPE"
+          ]
+        },
+        "evidence_binding": {
+          "const": "gocode.rc0.evidence-profile/3"
+        }
+      },
+      "oneOf": [
+        {"properties":{"claim_kind":{"const":"blocked_status"},"disposition":{"const":"BLOCKED"}}},
+        {"properties":{"claim_kind":{"const":"design_policy"},"disposition":{"const":"NON_PRODUCTION"}}},
+        {"properties":{"claim_kind":{"const":"terminology_reference"},"disposition":{"const":"NON_PRODUCTION"}}},
+        {"properties":{"claim_kind":{"const":"out_of_scope_status"},"disposition":{"const":"OUT_OF_SCOPE"}}}
+      ]
+    }
+  }
+}

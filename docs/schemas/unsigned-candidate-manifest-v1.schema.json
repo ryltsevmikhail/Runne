@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.release.unsigned-candidate-manifest/1",
+  "title": "Unsigned Candidate Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_sha256", "subject_sha256", "matrix_sha256", "bootstrap_sha256", "policy_sha256", "app_version", "release_sequence", "bundle_identity", "artifacts", "bundled_runtime", "macos_preview"],
+  "properties": {
+    "schema_version": {"const": "gocode.release.unsigned-candidate-manifest/1"}, "candidate_sha256": {"$ref": "#/$defs/digest"}, "subject_sha256": {"$ref": "#/$defs/digest"}, "matrix_sha256": {"$ref": "#/$defs/digest"}, "bootstrap_sha256": {"$ref": "#/$defs/digest"}, "policy_sha256": {"$ref": "#/$defs/digest"},
+    "app_version": {"$ref": "#/$defs/text"}, "release_sequence": {"$ref": "#/$defs/nonzero_u64"}, "bundle_identity": {"$ref": "#/$defs/id"}, "artifacts": {"type": "array", "minItems": 5, "maxItems": 5, "prefixItems": [{"$ref": "#/$defs/linux_appimage"}, {"$ref": "#/$defs/linux_deb"}, {"$ref": "#/$defs/macos_app"}, {"$ref": "#/$defs/macos_dmg"}, {"$ref": "#/$defs/windows_installer"}], "items": false}, "bundled_runtime": {"$ref": "#/$defs/bundled_runtime"}, "macos_preview": {"$ref": "#/$defs/macos_preview"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"}, "text": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[!-~]+$"}, "nonzero_u64": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "profile": {"type": "object", "additionalProperties": false, "required": ["profile_id", "bundle_sha256"], "properties": {"profile_id": {"$ref": "#/$defs/id"}, "bundle_sha256": {"$ref": "#/$defs/digest"}}},
+    "minimum_os_policy": {"type": "object", "additionalProperties": false, "required": ["policy_id", "policy_sha256"], "properties": {"policy_id": {"$ref": "#/$defs/id"}, "policy_sha256": {"$ref": "#/$defs/digest"}}},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["artifact_slot_id", "platform_scope_id", "platform", "architecture", "artifact_sha256", "byte_length", "minimum_os_policy", "profile_bindings"], "properties": {"artifact_slot_id": {"$ref": "#/$defs/id"}, "platform_scope_id": {"$ref": "#/$defs/id"}, "platform": {"enum": ["linux", "macos", "windows"]}, "architecture": {"enum": ["x86_64", "arm64"]}, "artifact_sha256": {"$ref": "#/$defs/digest"}, "byte_length": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615}, "minimum_os_policy": {"$ref": "#/$defs/minimum_os_policy"}, "profile_bindings": {"type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/profile"}}}},
+    "linux_appimage": {"allOf": [{"$ref": "#/$defs/artifact"}, {"properties": {"artifact_slot_id": {"const": "linux-appimage"}, "platform_scope_id": {"const": "linux-ubuntu-24_04-x86_64-production"}, "platform": {"const": "linux"}, "architecture": {"const": "x86_64"}}}]},
+    "linux_deb": {"allOf": [{"$ref": "#/$defs/artifact"}, {"properties": {"artifact_slot_id": {"const": "linux-deb"}, "platform_scope_id": {"const": "linux-ubuntu-24_04-x86_64-production"}, "platform": {"const": "linux"}, "architecture": {"const": "x86_64"}}}]},
+    "macos_app": {"allOf": [{"$ref": "#/$defs/artifact"}, {"properties": {"artifact_slot_id": {"const": "macos-app-development-adhoc"}, "platform_scope_id": {"const": "macos-14-arm64-development-preview"}, "platform": {"const": "macos"}, "architecture": {"const": "arm64"}}}]},
+    "macos_dmg": {"allOf": [{"$ref": "#/$defs/artifact"}, {"properties": {"artifact_slot_id": {"const": "macos-dmg-development-adhoc"}, "platform_scope_id": {"const": "macos-14-arm64-development-preview"}, "platform": {"const": "macos"}, "architecture": {"const": "arm64"}}}]},
+    "windows_installer": {"allOf": [{"$ref": "#/$defs/artifact"}, {"properties": {"artifact_slot_id": {"const": "windows-installer-unsigned"}, "platform_scope_id": {"const": "windows-11-24h2-x86_64-production"}, "platform": {"const": "windows"}, "architecture": {"const": "x86_64"}}}]},
+    "bundled_runtime": {"type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": {"version": {"$ref": "#/$defs/text"}, "sha256": {"$ref": "#/$defs/digest"}}},
+    "macos_preview": {"type": "object", "additionalProperties": false, "required": ["platform_scope_id", "artifact_slot_ids", "disposition", "publication_allowed"], "properties": {"platform_scope_id": {"const": "macos-14-arm64-development-preview"}, "artifact_slot_ids": {"const": ["macos-app-development-adhoc", "macos-dmg-development-adhoc"]}, "disposition": {"const": "development_preview"}, "publication_allowed": {"const": false}}}
+  }
+}

@@ -1,5 +1,11 @@
 async fn run(arguments: Vec<OsString>) -> Result<String, CliError> {
     let mut arguments = VecDeque::from(arguments);
+    if peek(&arguments) == Some("release") {
+        return release::run(arguments);
+    }
+    if peek(&arguments) == Some("authority") {
+        return authority::run(arguments);
+    }
     if peek(&arguments) == Some("provider") {
         return run_provider_credential(arguments);
     }

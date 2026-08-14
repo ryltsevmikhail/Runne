@@ -1,0 +1,11 @@
+{
+  "schema_version": "gocode.project-owner.encrypted-key-backup/1",
+  "repository_id": "gocode",
+  "key_id": "1111111111111111111111111111111111111111111111111111111111111111",
+  "key_epoch": 1,
+  "key_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",
+  "kdf": {"algorithm": "Argon2id", "memory_kib": 65536, "iterations": 3, "parallelism": 1},
+  "salt": "AAAAAAAAAAAAAAAAAAAAAA",
+  "nonce": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "ciphertext": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

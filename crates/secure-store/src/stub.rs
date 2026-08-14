@@ -4,6 +4,11 @@ use crate::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore, SecureStoreError,
 };
+#[cfg(feature = "project-owner-key-store")]
+use crate::{
+    PendingProjectOwnerKey, ProjectOwnerAnchorFloor, ProjectOwnerKeyMaterial, ProjectOwnerKeyRef,
+    ProjectOwnerKeyStore, StoreStatus,
+};
 use gocode_provider::CredentialVersionRef;
 use gocode_provider::{
     CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
@@ -45,6 +50,100 @@ impl SecureStore for StubStore {
 
     fn delete_anchor(&self) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::Unavailable)
+    }
+}
+
+#[cfg(feature = "project-owner-key-store")]
+impl ProjectOwnerKeyStore for StubStore {
+    fn read_active_ref(
+        &self,
+        _repository_id: &str,
+    ) -> Result<Option<ProjectOwnerKeyRef>, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn create_pending(
+        &self,
+        _expected_active: Option<&ProjectOwnerKeyRef>,
+        _repository_id: &str,
+        _key_epoch: u64,
+        _build_pop_transcript: &mut dyn FnMut(&ProjectOwnerKeyRef) -> Result<Vec<u8>, StoreStatus>,
+    ) -> Result<PendingProjectOwnerKey, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn create_or_resume_pending(
+        &self,
+        _expected_active: Option<&ProjectOwnerKeyRef>,
+        _repository_id: &str,
+        _key_epoch: u64,
+        _build_pop_transcript: &mut dyn FnMut(&ProjectOwnerKeyRef) -> Result<Vec<u8>, StoreStatus>,
+    ) -> Result<PendingProjectOwnerKey, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn sign_active(
+        &self,
+        _expected: &ProjectOwnerKeyRef,
+        _transcript: &[u8],
+    ) -> Result<[u8; 64], StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn activate_pending(
+        &self,
+        _expected_active: Option<&ProjectOwnerKeyRef>,
+        _pending: PendingProjectOwnerKey,
+    ) -> Result<ProjectOwnerKeyRef, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn commit_pending_and_floor(
+        &self,
+        _expected_active: Option<&ProjectOwnerKeyRef>,
+        _pending: PendingProjectOwnerKey,
+        _expected_floor: Option<&ProjectOwnerAnchorFloor>,
+        _replacement: &ProjectOwnerAnchorFloor,
+    ) -> Result<ProjectOwnerKeyRef, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn read_anchor_floor(
+        &self,
+        _repository_id: &str,
+    ) -> Result<Option<ProjectOwnerAnchorFloor>, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn write_anchor_floor(
+        &self,
+        _expected: Option<&ProjectOwnerAnchorFloor>,
+        _replacement: &ProjectOwnerAnchorFloor,
+    ) -> Result<(), StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn export_active_for_backup(
+        &self,
+        _expected: &ProjectOwnerKeyRef,
+    ) -> Result<ProjectOwnerKeyMaterial, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn restore_active(
+        &self,
+        _expected_current: Option<&ProjectOwnerKeyRef>,
+        _material: ProjectOwnerKeyMaterial,
+    ) -> Result<ProjectOwnerKeyRef, StoreStatus> {
+        Err(StoreStatus::Unsupported)
+    }
+
+    fn reset_after_compromise(
+        &self,
+        _expected_active: &ProjectOwnerKeyRef,
+        _expected_floor: &ProjectOwnerAnchorFloor,
+    ) -> Result<(), StoreStatus> {
+        Err(StoreStatus::Unsupported)
     }
 }
 

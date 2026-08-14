@@ -29,3 +29,6 @@ tmp/
 .tmp/
 __pycache__/
 *.pyc
+
+# Named target directories
+target-*/
