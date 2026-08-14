@@ -89,12 +89,11 @@ fn child_authority(
     directory: &std::path::Path,
 ) -> RootAdmissionHarness {
     let path = directory.join("event-log.db");
-    let writer = schema::open_with_pragmas(path.to_str().expect("database path")).expect("writer");
+    let writer =
+        schema::open_managed_connection(&path, schema::ConnectionMode::Writer).expect("writer");
     schema::apply_migrations(&writer).expect("migrations");
-    let reader = rusqlite::Connection::open(&path).expect("reader");
-    reader
-        .execute_batch("PRAGMA query_only = ON;")
-        .expect("reader only");
+    let reader =
+        schema::open_managed_connection(&path, schema::ConnectionMode::Reader).expect("reader");
     let store = StoreTransaction::open_with_connections(
         path.to_str().expect("database path"),
         writer,

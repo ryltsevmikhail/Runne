@@ -74,6 +74,7 @@ gocode-app-core = { path = "../app-core", features = ["test-support"] }
 gocode-platform-desktop = { path = "../platform-desktop", features = ["test-support"] }
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
 tempfile = "3"
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 
 [[bin]]
 name = "gocode-daemon"

@@ -44,7 +44,7 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
     );
     assert_eq!(
         runtime_profile["schemaHash"],
-        "e98ae0dc6e6223fe0cfeae27271c5a5db504497cdb588bbc9952691647da39cb"
+        gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH
     );
     assert_eq!(runtime_profile["runtimeVersion"], env!("CARGO_PKG_VERSION"));
     assert_eq!(runtime_profile["launchGeneration"], 1);
@@ -68,6 +68,14 @@ async fn text_generation_is_authenticated_idempotent_durable_and_queryable_after
         .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
         .unwrap();
     assert_eq!(event_count, 0, "rejected auth must commit no event");
+    support::seed_project_workspace(
+        &client,
+        daemon.address,
+        &authorization,
+        PROJECT_ID,
+        WORKSPACE_ID,
+    )
+    .await;
 
     let created = command(
         &client,

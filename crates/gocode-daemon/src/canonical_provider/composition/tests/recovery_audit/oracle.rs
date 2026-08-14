@@ -9,6 +9,7 @@ const LIFECYCLE_TABLES: &[&str] = &[
     "events",
     "command_receipts",
     "aggregate_streams",
+    "aggregate_state_snapshots",
     "event_log_state",
 ];
 
@@ -239,6 +240,7 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         assert_eq!(after[last_event_id], event[event_id]);
         assert_eq!(after[last_timestamp], event[timestamp]);
     }
+    super::projection_snapshot::assert_refreshed(before, after, path);
     let state_columns = table_columns(path, "event_log_state");
     let position = column(&state_columns, "next_global_position");
     let before_state = singleton_row(before, "event_log_state");
