@@ -8,8 +8,11 @@ use gocode_runtime_client::{
     EXPECTED_BUNDLE_ID, GOLDEN_BUNDLE_HASH, LocalProfileError, LocalRuntimeProfile,
     PROTECTED_RUNTIME_CAPABILITIES, REQUIRED_RUNTIME_CAPABILITIES,
 };
-use rcgen::{CertificateParams, KeyPair, PKCS_ECDSA_P256_SHA256, SanType};
 use sha2::{Digest, Sha256};
+
+mod local_profile_support;
+
+use local_profile_support::{certificate_der, ordered_capability_digest, secure};
 
 fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::PathBuf {
     let bootstrap_path = directory.join("bootstrap.secret");
@@ -250,11 +253,11 @@ fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
 fn bootstrap_v3_wire_matches_schema_golden() {
     let schema = include_bytes!("../../../docs/schemas/local-session-v2.schema.json");
     let published_schema = include_bytes!(
-        "../../../contracts/gocode-ui-client-1/schemas/local-session-v2.schema.json"
+        "../../../contracts/gocode-ui-client-2/schemas/local-session-v2.schema.json"
     );
     let golden = include_bytes!("../../../docs/golden/local-session-v2.json");
     let published_golden =
-        include_bytes!("../../../contracts/gocode-ui-client-1/golden/local-session-v2.json");
+        include_bytes!("../../../contracts/gocode-ui-client-2/golden/local-session-v2.json");
     assert_eq!(schema, published_schema);
     assert_eq!(golden, published_golden);
 
@@ -274,36 +277,3 @@ fn bootstrap_v3_wire_matches_schema_golden() {
     assert!(golden["authenticateRequest"].get("proof").is_none());
     assert!(golden["authenticateRequest"]["finalProof"].is_string());
 }
-
-fn certificate_der() -> Vec<u8> {
-    let mut parameters = CertificateParams::new(Vec::new()).expect("certificate parameters");
-    parameters.subject_alt_names = vec![SanType::IpAddress(std::net::IpAddr::V4(
-        Ipv4Addr::LOCALHOST,
-    ))];
-    let key = KeyPair::generate_for(&PKCS_ECDSA_P256_SHA256).expect("key");
-    parameters
-        .self_signed(&key)
-        .expect("certificate")
-        .der()
-        .to_vec()
-}
-
-fn ordered_capability_digest(capabilities: &[&str]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
-    hasher.update(u32::try_from(capabilities.len()).unwrap().to_be_bytes());
-    for capability in capabilities {
-        hasher.update(u32::try_from(capability.len()).unwrap().to_be_bytes());
-        hasher.update(capability.as_bytes());
-    }
-    hasher.finalize().into()
-}
-
-#[cfg(unix)]
-fn secure(path: &std::path::Path) {
-    use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o600)).expect("secure file");
-}
-
-#[cfg(not(unix))]
-const fn secure(_: &std::path::Path) {}
