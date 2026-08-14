@@ -16,6 +16,8 @@ _FROZEN_BYTES = {
     "docs/schemas/pre-authority-document-overlay-v2.schema.json",
     "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V3.json",
     "docs/schemas/pre-authority-document-overlay-v3.schema.json",
+    "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V4.json",
+    "docs/schemas/pre-authority-document-overlay-v4.schema.json",
     "docs/rc0/document-universe-v1.json", "docs/rc0/governed-scope-v1.json", "docs/rc0/status-claims-v1.json",
 }
 

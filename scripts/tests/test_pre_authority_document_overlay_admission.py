@@ -64,7 +64,9 @@ class OverlayAdmissionTests(unittest.TestCase):
         value = module()
         for transaction in value.OVERLAY_TRANSACTION_PATHS:
             with self.subTest(transaction=transaction):
-                repo = self.repo(MIXED if transaction == "OVERLAY_V3_REPAIR" else ANCHOR)
+                revision = (MIXED if transaction == "OVERLAY_V3_REPAIR" else
+                            value.OVERLAY_V4_PREDECESSOR if transaction == "OVERLAY_V4_DESKTOP_FOUNDATION" else ANCHOR)
+                repo = self.repo(revision)
                 if transaction == "TASK_2":
                     self.bootstrap(value, repo)
                 prepared = self.prepare(value, repo, transaction)
@@ -72,7 +74,7 @@ class OverlayAdmissionTests(unittest.TestCase):
                 manifest = value.strict_json(prepared["manifest_path"].read_bytes(), "bad")
                 self.assertEqual(git(repo, "rev-parse", f"{candidate['candidate_commit_oid']}^{{tree}}").decode().strip(), manifest["candidate_tree_oid"])
                 self.assertEqual(candidate["status"], "BLOCKED_AT_MANUAL_REF_ADMISSION")
-                if transaction == "OVERLAY_V3_REPAIR":
+                if transaction in {"OVERLAY_V3_REPAIR", "OVERLAY_V4_DESKTOP_FOUNDATION"}:
                     self.assertEqual(value.admit_pre_authority_overlay_candidate(repo, prepared, candidate, prepared["manifest_sha256"], candidate["candidate_receipt_sha256"], manual_ref_admission=True), candidate["candidate_commit_oid"])
                     directory = tempfile.TemporaryDirectory(dir="/srv/data")
                     self.addCleanup(directory.cleanup)
