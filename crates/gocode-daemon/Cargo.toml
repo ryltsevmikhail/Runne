@@ -80,6 +80,11 @@ reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 name = "gocode-daemon"
 path = "src/main.rs"
 
+[[test]]
+name = "protected_bundled_runtime_process"
+path = "tests/protected_bundled_runtime_process.rs"
+required-features = ["test-support", "desktop-protected"]
+
 [lib]
 name = "gocode_daemon"
 path = "src/lib.rs"

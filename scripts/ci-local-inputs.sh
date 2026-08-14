@@ -132,6 +132,9 @@ run_with_toolchain "$pinned_toolchain" \
     process_containment_admission::matching_caller_constructed_certificate_is_unavailable_without_launching
 run_with_toolchain "$pinned_toolchain" \
     cargo test -p gocode-security --test process_containment_admission -- --nocapture
+run_with_toolchain "$pinned_toolchain" \
+    cargo test -p gocode-daemon --test protected_bundled_runtime_process \
+    --locked --features test-support,desktop-protected
 
 run_runtime_closure "$pinned_toolchain" pinned
 run_runtime_closure "$msrv_toolchain" msrv
