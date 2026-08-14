@@ -5,6 +5,11 @@ async fn uncertain_provider_effect_preserves_started_generation_for_reconciliati
     let (store, _identity) =
         validated_reopen::initialize_store(database.path(), authority.clone(), available_guard())
             .unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &store,
+        "local-owner",
+        WORKSPACE_ID.parse().unwrap(),
+    );
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -92,6 +97,11 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
     let (store, _identity) =
         validated_reopen::initialize_store(database.path(), authority.clone(), available_guard())
             .unwrap();
+    validated_reopen::seed_canonical_workspace(
+        &store,
+        "local-owner",
+        WORKSPACE_ID.parse().unwrap(),
+    );
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
