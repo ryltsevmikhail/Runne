@@ -1,44 +1,70 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
-
-use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
-use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
-use gocode_provider::{
-    ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
-    ProviderCall, ProviderCallId, ProviderId,
-};
-use rusqlite::Connection;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use super::super::{PreparedProviderRecord, SqliteProviderDispatchStore};
 use super::{
     ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig, SqliteProviderExecutionStore,
 };
+use gocode_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
+use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
+use gocode_provider::{
+    CredentialLease, CredentialVersionRef, ModelRef, PrepareCredentialVersion,
+    PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
+    ProviderCallId, ProviderCredentialVersionStore, ProviderId,
+};
+use rusqlite::Connection;
 
-pub(super) struct TestClock(AtomicI64);
+pub(super) struct TestClock {
+    now: AtomicI64,
+    reads: AtomicUsize,
+    step_at: AtomicUsize,
+    step_to: AtomicI64,
+}
 
-pub(super) fn configured_connection(path: &Path) -> Connection {
-    let connection = Connection::open(path).unwrap();
-    connection
-        .execute_batch(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = FULL;
-             PRAGMA foreign_keys = ON;
-             PRAGMA busy_timeout = 5000;",
+pub(super) fn configured_connection(path: &Path) -> crate::schema::ManagedConnection {
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    if path.exists() {
+        crate::schema::reopen_managed_connection_validated(
+            path,
+            crate::schema::ConnectionMode::ValidatedReopen,
+            |_| Ok(()),
         )
-        .unwrap();
-    #[cfg(target_os = "macos")]
-    connection.execute_batch("PRAGMA fullfsync = ON;").unwrap();
-    connection
+        .unwrap()
+    } else {
+        crate::schema::open_managed_connection(path, crate::schema::ConnectionMode::Writer).unwrap()
+    }
 }
 
 impl TestClock {
     pub(super) fn set(&self, now: i64) {
-        self.0.store(now, Ordering::SeqCst);
+        self.now.store(now, Ordering::SeqCst);
+    }
+
+    pub(super) fn read_count(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn step_on_read(&self, read: usize, now: i64) {
+        self.step_to.store(now, Ordering::SeqCst);
+        self.step_at.store(read, Ordering::SeqCst);
     }
 
     fn get(&self) -> i64 {
-        self.0.load(Ordering::SeqCst)
+        let read = self.reads.fetch_add(1, Ordering::SeqCst) + 1;
+        if self
+            .step_at
+            .compare_exchange(read, usize::MAX, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.now
+                .store(self.step_to.load(Ordering::SeqCst), Ordering::SeqCst);
+        }
+        self.now.load(Ordering::SeqCst)
     }
 }
 
@@ -53,8 +79,22 @@ pub(super) struct Fixture {
 impl Fixture {
     pub(super) fn new(now: i64) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("provider-v14.sqlite");
-        let clock = Arc::new(TestClock(AtomicI64::new(now)));
+        let daemon = directory.path().join("gocode-daemon");
+        std::fs::create_dir(&daemon).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = daemon.join("provider-v14.sqlite");
+        let clock = Arc::new(TestClock {
+            now: AtomicI64::new(now),
+            reads: AtomicUsize::new(0),
+            step_at: AtomicUsize::new(usize::MAX),
+            step_to: AtomicI64::new(now),
+        });
         let captured = Arc::clone(&clock);
         let store =
             SqliteProviderExecutionStore::open_with_now(&path, Arc::new(move || captured.get()))
@@ -79,6 +119,40 @@ impl Fixture {
     {
         let request = prepare_request(&self.path, discriminator);
         self.store.issue(&request)
+    }
+
+    pub(super) fn credential(
+        &self,
+    ) -> (
+        super::super::SqliteProviderCredentialLifecycleStore,
+        super::super::CredentialDispatchBinding,
+    ) {
+        let lifecycle = super::super::SqliteProviderCredentialLifecycleStore::open_connection_at(
+            configured_connection(&self.path),
+            self.clock.get(),
+        )
+        .unwrap();
+        let provider = ProviderId::new("fixture-provider").unwrap();
+        let reference = CredentialVersionRef::new(provider.clone(), 1).unwrap();
+        let lease = CredentialLease::new(reference.clone(), [1; 16], 1_600, 13).unwrap();
+        let _ = lifecycle.create_prepared(PrepareCredentialVersion::new(reference));
+        let _ = lifecycle.activate(lease);
+        let binding = lifecycle
+            .authorize_active(&provider, [1; 16], 13, self.clock.get())
+            .unwrap();
+        (lifecycle, binding)
+    }
+}
+
+impl SqliteProviderExecutionStore {
+    pub(super) fn pause_next_effect_receipt_lock(
+        &self,
+    ) -> (Arc<std::sync::Barrier>, Arc<std::sync::Barrier>) {
+        let reached = Arc::new(std::sync::Barrier::new(2));
+        let release = Arc::new(std::sync::Barrier::new(2));
+        *self.effect_receipt_pause.lock().unwrap() =
+            Some((Arc::clone(&reached), Arc::clone(&release)));
+        (reached, release)
     }
 }
 

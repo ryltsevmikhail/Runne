@@ -109,6 +109,10 @@ fn is_released_provider_v15(conn: &Connection, version: i64) -> SqliteResult<boo
     Ok(v15 && catalog)
 }
 
+fn is_released_provider_v17(conn: &Connection, version: i64) -> SqliteResult<bool> {
+    released_v17_matches(conn, version)
+}
+
 const RELEASED_V12_TABLES: [&str; 34] = [
     "_authority",
     "_daemon_info",
@@ -202,6 +206,14 @@ pub(super) const RELEASED_V12_EXPLICIT_INDEXES: &[&str] = &[
 ];
 
 fn released_catalog_matches(conn: &Connection, expected_tables: &[&str]) -> SqliteResult<bool> {
+    released_catalog_matches_with_indexes(conn, expected_tables, RELEASED_V12_EXPLICIT_INDEXES)
+}
+
+fn released_catalog_matches_with_indexes(
+    conn: &Connection,
+    expected_tables: &[&str],
+    expected_indexes: &[&str],
+) -> SqliteResult<bool> {
     let actual = conn.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?.query_map([], |row| row.get::<_, String>(0))?.collect::<SqliteResult<Vec<_>>>()?;
     let mut expected = expected_tables.to_vec();
     expected.sort_unstable();
@@ -218,7 +230,7 @@ fn released_catalog_matches(conn: &Connection, expected_tables: &[&str]) -> Sqli
         )?
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
-    let mut expected_indexes = RELEASED_V12_EXPLICIT_INDEXES.to_vec();
+    let mut expected_indexes = expected_indexes.to_vec();
     expected_indexes.sort_unstable();
     if actual_indexes
         .iter()

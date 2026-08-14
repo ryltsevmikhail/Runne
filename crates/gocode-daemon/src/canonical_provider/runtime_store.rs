@@ -10,6 +10,8 @@ use gocode_runtime::provider_execution::{
     ProviderTerminalCommitRequest, ProviderTerminalPersistence,
 };
 
+use super::{RuntimeStoreDecorator, SqliteProviderExecutionStore};
+
 /// Sized runtime view over the independently typed execution and terminal ports.
 pub(super) struct DaemonProviderRuntimeStore {
     execution: Arc<dyn ProviderExecutionStore>,
@@ -26,6 +28,22 @@ impl DaemonProviderRuntimeStore {
             terminal,
         }
     }
+}
+
+pub(super) fn compose_runtime_store(
+    concrete: Arc<SqliteProviderExecutionStore>,
+    runtime_generation: u64,
+    decorator: Option<Arc<RuntimeStoreDecorator>>,
+) -> Arc<DaemonProviderRuntimeStore> {
+    let (execution, terminal) = match decorator {
+        None => {
+            let execution: Arc<dyn ProviderExecutionStore> = concrete.clone();
+            let terminal: Arc<dyn ProviderTerminalPersistence> = concrete;
+            (execution, terminal)
+        }
+        Some(decorate) => decorate(concrete, runtime_generation),
+    };
+    Arc::new(DaemonProviderRuntimeStore::new(execution, terminal))
 }
 
 impl ProviderExecutionStore for DaemonProviderRuntimeStore {

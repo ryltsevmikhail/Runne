@@ -2,7 +2,7 @@
 /// verification.
 ///
 /// Fails closed (returns an error) if any check fails.
-pub fn run_startup_gates(conn: &Connection, _db_path: &str) -> SqliteResult<()> {
+pub(crate) fn run_startup_gates_raw(conn: &Connection, _db_path: &str) -> SqliteResult<()> {
     let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
         return Err(rusqlite::Error::InvalidQuery);
@@ -59,13 +59,7 @@ fn verify_pragma(conn: &Connection, pragma: &str, expected: &str) -> SqliteResul
         })
     })?;
     if actual != expected {
-        return Err(rusqlite::Error::SqliteFailure(
-            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISMATCH),
-            Some(format!(
-                "PRAGMA {} = '{}', expected '{}'",
-                pragma, actual, expected
-            )),
-        ));
+        return Err(profile_mismatch(pragma, &actual, expected));
     }
     Ok(())
 }

@@ -13,11 +13,13 @@ use gocode_provider::{
     ProviderCallId, ProviderFuture, ProviderId, ProviderPort, ProviderStreamId,
 };
 use gocode_store::provider::{
-    ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect,
-    ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore,
-    SqliteProviderExecutionStore,
+    CredentialDispatchBinding, ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect,
+    ProviderRuntimeAuthorityConfig, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
+#[path = "support/provider_credential_fixture.rs"]
+mod provider_credential_fixture;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -110,6 +112,7 @@ impl ProviderEffectPort for Provider {
     fn stage_effect(
         &self,
         _: DispatchRequest,
+        _: CredentialDispatchBinding,
     ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
         Box::pin(async { Ok(Box::new(Ready) as Box<dyn ProviderReadyEffect>) })
     }
@@ -141,11 +144,13 @@ fn fixture(
     validated_reopen::ProviderTestDatabase,
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
+    SqliteProviderCredentialLifecycleStore,
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-authority-denials");
     let dispatch = database.dispatch();
     let execution = database.execution();
+    let credential = provider_credential_fixture::credential(&database, "fixture", [1; 16], 1, 100);
     let mut config = ProviderRuntimeAuthorityConfig {
         runtime_authority_id: [1; 16],
         database_generation: 1,
@@ -209,7 +214,7 @@ fn fixture(
     if matches!(denial, Denial::Pricing) {
         request.pricing_revision_digest = [4; 32];
     }
-    (database, dispatch, execution, request)
+    (database, dispatch, execution, credential, request)
 }
 
 #[test]
@@ -223,10 +228,15 @@ fn authority_denials_never_dispatch_or_commit_a_partial_claim() {
         Denial::Pricing,
         Denial::StaleFence,
     ] {
-        let (_directory, dispatch, execution, request) = fixture(denial);
+        let (_directory, dispatch, execution, credential, request) = fixture(denial);
         let provider = Provider(Mutex::new(0));
         let coordinator = SqliteProviderDispatchCoordinator::new(
-            &dispatch, &execution, &provider, &provider, &Allowed,
+            &dispatch,
+            &execution,
+            gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+            &provider,
+            &provider,
+            &Allowed,
         );
         assert_eq!(
             block_on(coordinator.dispatch(request)),

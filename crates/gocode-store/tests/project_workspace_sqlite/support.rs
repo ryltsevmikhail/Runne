@@ -9,8 +9,8 @@ use gocode_domain::event::Actor;
 use gocode_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
 use gocode_domain::project_workspace::{Project, ProjectWorkspaceDisplayName, Workspace};
 use gocode_security::SecretBroker;
-use gocode_store::ProjectWorkspaceStore;
 use gocode_store::store::StoreTransaction;
+use gocode_store::{ProjectWorkspaceStore, schema::ManagedConnection};
 
 use crate::validated_reopen::{self, MainDatabaseIdentity, ValidatedTestDatabase};
 
@@ -65,7 +65,7 @@ impl Database {
         )
     }
 
-    pub fn connection(&self) -> rusqlite::Connection {
+    pub fn connection(&self) -> ManagedConnection {
         validated_reopen::open_validated_connection(self.file.path(), self.identity).unwrap()
     }
 }

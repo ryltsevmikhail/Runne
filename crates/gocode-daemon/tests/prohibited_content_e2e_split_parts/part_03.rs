@@ -100,7 +100,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     );
     assert_eq!(provider_calls.load(Ordering::SeqCst), 1);
 
-    let connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
+    let connection = open_admitted_fixture_connection(&db_path, lineage);
     let mut statement = connection
         .prepare(
             "SELECT idempotency_key, command_outcome
@@ -124,7 +124,7 @@ async fn prohibited_material_is_absent_from_current_durable_and_outbound_boundar
     let lineage = ensure_event_log_lineage_id(&connection).unwrap();
     let authenticated = authenticated_runtime_session(lineage);
     drop(connection);
-    let replay_connection = open_with_pragmas(db_path.to_str().unwrap()).unwrap();
+    let replay_connection = open_admitted_fixture_connection(&db_path, lineage);
     let replay_service = ReplayService::new(
         Arc::new(ReplayStore::new(replay_connection)),
         [0x77; 32],

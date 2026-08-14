@@ -1,4 +1,3 @@
-
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::Read;
@@ -11,9 +10,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::{
-    AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, RuntimeEndpoint,
-};
+use crate::{AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, RuntimeEndpoint};
 
 const LOCAL_PROFILE_SCHEMA_VERSION: u32 = 3;
 const LOCAL_TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
@@ -50,12 +47,15 @@ pub struct LocalRuntimeProfile {
     pub(crate) origin: String,
     pub(crate) certificate_der: Vec<u8>,
     pub(crate) certificate_sha256: [u8; 32],
+    pub(crate) executable_sha256: [u8; 32],
     pub(crate) bootstrap_secret_path: PathBuf,
+    pub(crate) launch_authority_id: [u8; 16],
     pub(crate) authority_id: [u8; 16],
     pub(crate) principal_id: String,
     pub(crate) event_log_lineage_id: uuid::Uuid,
     pub(crate) daemon_instance_id: uuid::Uuid,
     pub(crate) launch_generation: u64,
+    pub(crate) session_id: [u8; 16],
     pub(crate) schema_hash: [u8; 32],
     pub(crate) capabilities: Vec<String>,
     pub(crate) capability_digest: [u8; 32],
@@ -115,6 +115,10 @@ impl LocalRuntimeProfile {
         if Sha256::digest(&certificate_der).as_slice() != certificate_sha256 {
             return Err(LocalProfileError::InvalidProfile);
         }
+        let executable_sha256 = decode_lower_hex_32(&wire.executable_sha256)?;
+        if executable_sha256 == [0; 32] {
+            return Err(LocalProfileError::InvalidProfile);
+        }
         let schema_hash = decode_lower_hex_32(&wire.schema_hash)?;
         let capability_digest = decode_lower_hex_32(&wire.capability_digest)?;
         if wire.capabilities.is_empty()
@@ -127,6 +131,8 @@ impl LocalRuntimeProfile {
         {
             return Err(LocalProfileError::InvalidProfile);
         }
+        let launch_authority_id = decode_lower_hex_16(&wire.launch_authority_id)?;
+        validate_uuid_v7(uuid::Uuid::from_bytes(launch_authority_id))?;
         let authority_id = decode_lower_hex_16(&wire.authority_id)?;
         validate_uuid_v7(uuid::Uuid::from_bytes(authority_id))?;
         if wire.principal_id.is_empty()
@@ -137,6 +143,11 @@ impl LocalRuntimeProfile {
         }
         let event_log_lineage_id = parse_uuid_v7(&wire.event_log_lineage_id)?;
         let daemon_instance_id = parse_uuid_v7(&wire.daemon_instance_id)?;
+        let session_id = decode_lower_hex_16(&wire.session_id)?;
+        validate_uuid_v7(uuid::Uuid::from_bytes(session_id))?;
+        if session_id == *daemon_instance_id.as_bytes() {
+            return Err(LocalProfileError::InvalidProfile);
+        }
         if !crate::canonical::is_supported_capability_profile(&wire.capabilities) {
             return Err(LocalProfileError::InvalidProfile);
         }
@@ -146,12 +157,15 @@ impl LocalRuntimeProfile {
             origin,
             certificate_der,
             certificate_sha256,
+            executable_sha256,
             bootstrap_secret_path: wire.bootstrap_secret_path,
+            launch_authority_id,
             authority_id,
             principal_id: wire.principal_id,
             event_log_lineage_id,
             daemon_instance_id,
             launch_generation: wire.launch_generation,
+            session_id,
             schema_hash,
             capabilities: wire.capabilities,
             capability_digest,
@@ -168,8 +182,8 @@ impl LocalRuntimeProfile {
     ///
     /// # Errors
     ///
-    /// No bootstrap secret or protected content is read or sent before the
-    /// profile-pinned TLS peer has answered the challenge request.
+    /// The bootstrap proof is sent only inside the profile-pinned TLS channel;
+    /// no raw bootstrap secret or protected content is transmitted.
     pub async fn connect(
         self,
         timeout: Duration,
@@ -203,10 +217,13 @@ struct LocalProfileV3Wire {
     endpoint: String,
     certificate_der_base64: String,
     certificate_sha256: String,
+    executable_sha256: String,
     bootstrap_secret_path: PathBuf,
+    launch_authority_id: String,
     authority_id: String,
     principal_id: String,
     event_log_lineage_id: String,
     daemon_instance_id: String,
     launch_generation: u64,
+    session_id: String,
 }

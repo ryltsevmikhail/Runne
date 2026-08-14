@@ -3,6 +3,9 @@ fn validate_event_kind(kind: &ProviderStreamEventKind) -> Result<(), StreamError
         ProviderStreamEventKind::TextDelta { text } => {
             validate_payload_bytes(text, MAX_PROVIDER_TEXT_DELTA_BYTES, false)
         }
+        ProviderStreamEventKind::ScannerCompleted { text, .. } => {
+            validate_payload_bytes(text, MAX_PROVIDER_TEXT_DELTA_BYTES, true)
+        }
         ProviderStreamEventKind::ToolCallRequested {
             call_id,
             tool_name,
@@ -22,6 +25,7 @@ fn validate_event_kind(kind: &ProviderStreamEventKind) -> Result<(), StreamError
         ProviderStreamEventKind::Started
         | ProviderStreamEventKind::Usage { .. }
         | ProviderStreamEventKind::UsageUnavailable
+        | ProviderStreamEventKind::ScannerProgress
         | ProviderStreamEventKind::Finished { .. } => Ok(()),
     }
 }

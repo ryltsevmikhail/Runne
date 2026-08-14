@@ -40,56 +40,7 @@
             );
         }
 
-        let client_nonce = [9; 32];
-        let server_nonce = [8; 32];
-        let challenge = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/challenges")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "clientNonce": URL_SAFE_NO_PAD.encode(client_nonce),
-                            "serverNonce": URL_SAFE_NO_PAD.encode(server_nonce),
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(challenge.status(), StatusCode::OK);
-        let challenge: serde_json::Value =
-            serde_json::from_slice(&to_bytes(challenge.into_body(), 8192).await.unwrap()).unwrap();
-        let mut mac = Hmac::<Sha256>::new_from_slice(&[7; 32]).unwrap();
-        mac.update(&bootstrap_proof_transcript(
-            &binding(),
-            server_nonce,
-            client_nonce,
-        ));
-        let authority = [10; 32];
-        let authenticated = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/authenticate")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "challengeId": challenge["challengeId"],
-                            "proof": URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()),
-                            "authority": URL_SAFE_NO_PAD.encode(authority),
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(authenticated.status(), StatusCode::OK);
+        let authority = bootstrap_authority(&app, &binding()).await;
         let profile = app
             .oneshot(
                 Request::builder()
@@ -127,56 +78,8 @@
 
         let absent = host_with_operational_telemetry(CAPABILITIES, None).unwrap();
         let app = absent.router_for_test();
-        let client_nonce = [9; 32];
-        let server_nonce = [8; 32];
-        let challenge = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/challenges")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "clientNonce": URL_SAFE_NO_PAD.encode(client_nonce),
-                            "serverNonce": URL_SAFE_NO_PAD.encode(server_nonce),
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        let challenge: serde_json::Value =
-            serde_json::from_slice(&to_bytes(challenge.into_body(), 8192).await.unwrap()).unwrap();
         let binding = binding_with_capabilities(CAPABILITIES);
-        let mut mac = Hmac::<Sha256>::new_from_slice(&[7; 32]).unwrap();
-        mac.update(&bootstrap_proof_transcript(
-            &binding,
-            server_nonce,
-            client_nonce,
-        ));
-        let authority = [10; 32];
-        let authenticated = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/v1/local-session/authenticate")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        serde_json::json!({
-                            "challengeId": challenge["challengeId"],
-                            "proof": URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()),
-                            "authority": URL_SAFE_NO_PAD.encode(authority),
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(authenticated.status(), StatusCode::OK);
+        let authority = bootstrap_authority(&app, &binding).await;
         let response = app
             .oneshot(
                 Request::builder()

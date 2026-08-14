@@ -2,7 +2,7 @@ use rusqlite::{
     Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
 };
 
-pub(super) const MIGRATION_V16: &str = r#"
+pub(super) const MIGRATION_V18: &str = r#"
 CREATE TABLE projects (
     project_id BLOB PRIMARY KEY CHECK(length(project_id) = 16),
     principal_id TEXT NOT NULL CHECK(length(principal_id) BETWEEN 1 AND 256),
@@ -77,9 +77,9 @@ WHEN EXISTS(SELECT 1 FROM command_receipts WHERE command_id = NEW.command_id)
 BEGIN SELECT RAISE(ABORT, 'global command id collision'); END;
 "#;
 
-pub(super) fn apply_v16_migration(connection: &Connection) -> SqliteResult<()> {
+pub(super) fn apply_v18_migration(connection: &Connection) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Exclusive)?;
-    transaction.execute_batch(MIGRATION_V16)?;
+    transaction.execute_batch(MIGRATION_V18)?;
     super::project_workspace_backfill::backfill_taskrun_lineage(&transaction)?;
     transaction.execute(
         "INSERT INTO workspace_identity_history
@@ -91,20 +91,27 @@ pub(super) fn apply_v16_migration(connection: &Connection) -> SqliteResult<()> {
     transaction.execute_batch(GLOBAL_COMMAND_RECEIPT_TRIGGER)?;
     transaction.execute_batch(GLOBAL_PROJECT_WORKSPACE_RECEIPT_TRIGGER)?;
     super::install_missing_v12_fence_triggers(&transaction)?;
-    transaction.execute("INSERT INTO schema_version (version) VALUES (16)", [])?;
+    transaction.execute("INSERT INTO schema_version (version) VALUES (18)", [])?;
     transaction.commit()
 }
 
-pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 16 {
+pub(super) fn v18_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != 18 {
         return Ok(false);
     }
-    if !v16_base_matches(connection)? {
+    if !v18_base_matches(connection)? {
         return Ok(false);
     }
     let mut tables = super::RELEASED_V13_TABLES.to_vec();
     tables.extend([
         "provider_effect_starts",
+        "provider_credential_versions",
+        "provider_credential_clock_high_water",
+        "provider_credential_provisions",
+        "provider_credential_effect_bindings",
+        "bootstrap_reservations",
+        "bootstrap_reservation_tombstones",
+        "bootstrap_last_observed_clock",
         "projects",
         "workspaces",
         "root_admission_nonces",
@@ -112,14 +119,20 @@ pub(super) fn v16_matches(connection: &Connection, version: i64) -> SqliteResult
         "workspace_identity_history",
         "task_run_workspace_lineage",
     ]);
-    super::released_catalog_matches(connection, &tables)
+    let mut indexes = super::RELEASED_V12_EXPLICIT_INDEXES.to_vec();
+    indexes.extend([
+        "provider_credential_one_active",
+        "provider_credential_one_pending_provision",
+        "bootstrap_reservation_unexpired",
+    ]);
+    super::released_catalog_matches_with_indexes(connection, &tables, &indexes)
 }
 
-pub(super) fn v16_base_matches(connection: &Connection) -> SqliteResult<bool> {
-    v16_base_matches_with_additional_triggers(connection, &[])
+pub(super) fn v18_base_matches(connection: &Connection) -> SqliteResult<bool> {
+    v18_base_matches_with_additional_triggers(connection, &[])
 }
 
-pub(super) fn v16_base_matches_with_additional_triggers(
+pub(super) fn v18_base_matches_with_additional_triggers(
     connection: &Connection,
     additional: &[&str],
 ) -> SqliteResult<bool> {
@@ -128,12 +141,11 @@ pub(super) fn v16_base_matches_with_additional_triggers(
         "global_command_id_from_project_workspace_receipts",
     ];
     allowed_triggers.extend_from_slice(additional);
-    let v12 = super::provider_v12_core_matches(connection)?
-        && super::v12_fence_triggers_match_with_additional(connection, &allowed_triggers)?;
-    let v13 = super::v13_unchanged_tables_match(connection)?;
-    let v14 = super::provider_schema::v14_base_matches(connection, v12, v13)?;
-    let v15 = super::provider_schema::v15_base_matches(connection, v14)?;
-    if !v15 {
+    if !super::released_v17_base_matches_with_additional_triggers(
+        connection,
+        18,
+        &allowed_triggers,
+    )? {
         return Ok(false);
     }
     let tables_match = [
@@ -147,7 +159,7 @@ pub(super) fn v16_base_matches_with_additional_triggers(
     .into_iter()
     .try_fold(true, |valid, table| {
         Ok::<bool, rusqlite::Error>(
-            valid && super::table_sql_matches_migration(connection, table, MIGRATION_V16)?,
+            valid && super::table_sql_matches_migration(connection, table, MIGRATION_V18)?,
         )
     })?;
     Ok(tables_match && global_command_triggers_match(connection)?)

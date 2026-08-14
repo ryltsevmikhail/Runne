@@ -2,17 +2,19 @@ impl SqliteProviderDispatchStore {
     /// Opens the store, applies additive migrations and runs startup gates.
     pub fn open(path: &Path) -> Result<Self, ProviderStoreError> {
         let path = path.to_str().ok_or(ProviderStoreError::Unavailable)?;
-        let connection = open_with_pragmas(path).map_err(|_| ProviderStoreError::Unavailable)?;
+        let connection = open_managed_connection(Path::new(path), ConnectionMode::Writer)
+            .map_err(|_| ProviderStoreError::Unavailable)?;
         Self::open_with_connection(path, connection)
     }
 
     /// Adopts a validated writable connection without reopening its path.
     pub fn open_with_connection(
-        path: &str,
-        connection: Connection,
+        _path: &str,
+        connection: ManagedConnection,
     ) -> Result<Self, ProviderStoreError> {
         apply_migrations(&connection).map_err(|_| ProviderStoreError::Unavailable)?;
-        run_startup_gates(&connection, path).map_err(|_| ProviderStoreError::Unavailable)?;
+        readiness_from_managed(&connection).map_err(|_| ProviderStoreError::Unavailable)?;
+        publication_from_managed(&connection).map_err(|_| ProviderStoreError::Unavailable)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })

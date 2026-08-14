@@ -11,6 +11,14 @@ where
         &self,
         context: &ProviderEventJournalContext,
     ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
+        if self
+            .redaction
+            .terminal_disposition(context.attempt_id)
+            .map_err(|_| RuntimeProviderExecutionError::PolicyDenied)?
+            != Some(gocode_provider::ScannerTerminalDisposition::Completed)
+        {
+            return Err(RuntimeProviderExecutionError::PolicyDenied);
+        }
         let pricing_binding = self
             .store
             .load_terminal_pricing_binding(context.attempt_id)
@@ -130,7 +138,6 @@ struct AssembledTerminal {
     disposition: ProviderTerminalDisposition,
     terminal_sequence: u64,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TerminalUsageEvidence {
     Exact(ProviderUsage),
@@ -150,6 +157,7 @@ fn assemble_terminal_stream(
             .map_err(|_| RuntimeProviderExecutionError::TerminalRejected)?;
         match event.kind() {
             ProviderStreamEventKind::Started => {}
+            ProviderStreamEventKind::ScannerProgress => {}
             ProviderStreamEventKind::TextDelta { text } => {
                 let current_len = output.len();
                 let next_len = current_len
@@ -172,6 +180,20 @@ fn assemble_terminal_stream(
                 disposition,
                 reason,
             } => terminal = Some((event.sequence(), *disposition, reason.clone())),
+            ProviderStreamEventKind::ScannerCompleted {
+                text,
+                disposition,
+                reason,
+            } => {
+                let current_len = output.len();
+                let next_len = current_len
+                    .checked_add(text.len())
+                    .filter(|length| *length <= MAX_PROVIDER_ASSEMBLED_OUTPUT_BYTES)
+                    .ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
+                output.reserve(next_len - current_len);
+                output.extend_from_slice(text.as_bytes());
+                terminal = Some((event.sequence(), *disposition, reason.clone()));
+            }
         }
     }
     let (terminal_sequence, disposition, reason) =

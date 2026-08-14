@@ -1,6 +1,6 @@
 use gocode_store::schema::{
     CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v15_for_test,
-    apply_migrations_through_v17_for_test,
+    apply_migrations_through_v19_for_test,
 };
 use std::sync::Arc;
 
@@ -51,7 +51,7 @@ fn current_schema_requires_bound_promotion_projection_columns() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
     for column in [
         "promotion_codec_version",
         "promotion_projection_bytes",
@@ -72,7 +72,15 @@ fn current_schema_requires_bound_promotion_projection_columns() {
 #[test]
 fn writes_promotions_with_exact_times_taskrun_view_and_tamper_rejection() {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("promotion.sqlite");
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let database = daemon.join("promotion.sqlite");
     let authority = RuntimeAuthorityId("v18-promotion".into());
     let store =
         StoreTransaction::open(database.to_str().unwrap(), authority.clone(), guard()).unwrap();
@@ -149,9 +157,9 @@ fn writes_promotions_with_exact_times_taskrun_view_and_tamper_rejection() {
 }
 
 #[test]
-fn incomplete_v17_history_rolls_back_the_entire_v18_rebuild() {
+fn incomplete_v19_history_rolls_back_the_entire_v20_rebuild() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations_through_v17_for_test(&connection).unwrap();
+    apply_migrations_through_v19_for_test(&connection).unwrap();
     let taskrun_id: TaskRunId = "018f2e3a-7000-7000-8000-0000000000f1".parse().unwrap();
     let event_id: EventId = "018f2e3a-7000-7000-8000-0000000000f2".parse().unwrap();
     let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000f3".parse().unwrap();
@@ -174,7 +182,7 @@ fn incomplete_v17_history_rolls_back_the_entire_v18_rebuild() {
     let digest = compute_integrity_digest_with_global_position(&event, 1, &payload).unwrap();
     connection.execute("INSERT INTO aggregate_streams (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) VALUES (1, ?1, 1, ?2, 1, 1)", params![taskrun_id.as_bytes(), event_id.as_bytes()]).unwrap();
     connection.execute("INSERT INTO events (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, payload, integrity_digest, correlation_id, correlation_type, integrity_profile) VALUES (?1, 1, ?2, 1, 1, 1, 0, 1, NULL, ?3, ?4, ?5, ?6, ?7, ?2, 1, 1)", params![event_id.as_bytes(), taskrun_id.as_bytes(), command_id.as_bytes(), event.idempotency_key().as_str().as_bytes(), event.actor().as_str().as_bytes(), payload, digest.as_bytes()]).unwrap();
-    // V17 cannot have constructed a snapshot for a stream added after its migration.
+    // V19 cannot have constructed a snapshot for a stream added after its migration.
     connection
         .execute(
             "UPDATE aggregate_streams SET current_version = 2 WHERE aggregate_id = ?1",
@@ -187,14 +195,14 @@ fn incomplete_v17_history_rolls_back_the_entire_v18_rebuild() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        17
+        19
     );
     let promotion_column: bool = connection.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('aggregate_state_snapshots') WHERE name = 'promotion_projection_bytes')", [], |row| row.get(0)).unwrap();
     assert!(!promotion_column);
 }
 
 #[test]
-fn nonempty_v15_histories_upgrade_directly_to_v18_without_v17_waypoint() {
+fn nonempty_v15_histories_upgrade_directly_to_v20_without_v19_waypoint() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations_through_v15_for_test(&connection).unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-000000000101".parse().unwrap();
@@ -203,20 +211,20 @@ fn nonempty_v15_histories_upgrade_directly_to_v18_without_v17_waypoint() {
     insert_conversation_created(&connection, conversation_id, workspace_id);
     insert_taskrun_created(&connection, taskrun_id);
     apply_migrations(&connection).unwrap();
-    let v17_markers: i64 = connection
+    let v19_markers: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM schema_version WHERE version = 17",
+            "SELECT COUNT(*) FROM schema_version WHERE version = 19",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(v17_markers, 0);
+    assert_eq!(v19_markers, 0);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        18
+        20
     );
     assert_eq!(
         connection

@@ -38,7 +38,15 @@ fn v16_fixture(
     TaskRunId,
 ) {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join(format!("{label}.sqlite"));
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let database = daemon.join(format!("{label}.sqlite"));
     let authority = RuntimeAuthorityId(format!("snapshot-migration-{label}"));
     let store =
         StoreTransaction::open(database.to_str().unwrap(), authority.clone(), guard()).unwrap();
@@ -85,20 +93,20 @@ fn v16_fixture(
          DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
          DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
          DROP TABLE IF EXISTS aggregate_state_snapshots;
-         DELETE FROM schema_version WHERE version >= 17;",
+         DELETE FROM schema_version WHERE version >= 19;",
         )
         .unwrap();
     (directory, database, conversation_id, started.taskrun_id)
 }
 
-fn assert_atomic_v16_rollback(connection: &Connection) {
+fn assert_atomic_v18_rollback(connection: &Connection) {
     assert!(apply_migrations(connection).is_err());
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        16
+        18
     );
     assert_eq!(
         connection
@@ -119,7 +127,7 @@ fn malformed_then_repaired(
     let (_directory, database, conversation_id, taskrun_id) = v16_fixture(label);
     let connection = Connection::open(database).unwrap();
     let repair = mutate(&connection, conversation_id, taskrun_id);
-    assert_atomic_v16_rollback(&connection);
+    assert_atomic_v18_rollback(&connection);
     repair(&connection);
     apply_migrations(&connection).unwrap();
     assert_eq!(

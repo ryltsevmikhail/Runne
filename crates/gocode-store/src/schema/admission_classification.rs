@@ -31,9 +31,11 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
         13 => is_released_provider_v13(conn, schema_version)?,
         14 => is_released_provider_v14(conn, schema_version)?,
         15 => is_released_provider_v15(conn, schema_version)?,
-        16 => project_workspace_schema::v16_matches(conn, schema_version)?,
-        17 => replay_snapshot_schema::v17_matches(conn, schema_version)?,
-        18 => replay_promotion_snapshot_schema::v18_matches(conn, schema_version)?,
+        16 => is_released_provider_v16(conn, schema_version)?,
+        17 => is_released_provider_v17(conn, schema_version)?,
+        18 => project_workspace_schema::v18_matches(conn, schema_version)?,
+        19 => replay_snapshot_schema::v19_matches(conn, schema_version)?,
+        20 => replay_promotion_snapshot_schema::v20_matches(conn, schema_version)?,
         _ => false,
     };
     if compatible {

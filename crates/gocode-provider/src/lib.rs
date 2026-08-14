@@ -4,6 +4,7 @@
 //! Provider-neutral contracts for GOCODE runtime adapters.
 
 mod coordination;
+mod credential;
 mod digest;
 mod fake;
 mod id;
@@ -11,12 +12,22 @@ mod model;
 mod port;
 mod prepared;
 mod pricing;
+mod recovery;
 mod stream;
 
 pub use coordination::{
     PreparedProviderRecord, ProviderDispatchClaim, ProviderDispatchRepository,
     ProviderPreEffectRejection, ProviderRepositoryClaimOutcome, ProviderRepositoryError,
     ProviderRepositoryState,
+};
+pub use credential::{
+    CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
+    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateAuthorization,
+    CredentialNativeCreateClaim, CredentialNativeCreateIssuer, CredentialNativeCreateProgression,
+    CredentialNativeCreateValidator, CredentialProvisionSource, CredentialVersionRef,
+    CredentialVersionState, NativeCredentialAuthority, NativeCredentialDeletionProof,
+    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
+    RevokeCredentialVersion,
 };
 pub use digest::{
     CanonicalProviderError, ProviderCallDigest, ProviderCallDigestVersion,
@@ -36,6 +47,11 @@ pub use port::{
 };
 pub use prepared::{PreparedRequest, PreparedRequestRef};
 pub use pricing::{ProviderPricedUsage, ProviderTerminalPricing, ProviderTerminalPricingError};
+pub use recovery::{
+    CredentialMatcher, NativeSecretRef, ScanStep, ScannerCheckpoint, ScannerError,
+    ScannerTerminalDisposition, ScannerUncertainReason, SecureStoreError, TailBinding,
+    WithheldTailStore, scan_provider_chunk,
+};
 pub use stream::{
     MAX_PROVIDER_TEXT_DELTA_BYTES, MAX_PROVIDER_TOOL_ARGUMENT_BYTES,
     MAX_PROVIDER_TOOL_IDENTIFIER_BYTES, MAX_PROVIDER_USAGE_TOKENS, ProviderStreamEvent,

@@ -46,22 +46,42 @@ fn preflight_rejects_v11_authority_table_with_same_columns_and_missing_constrain
 fn shared_opener_admits_new_released_v8_and_canonical_v9_files() {
     let new_path = std::env::temp_dir().join("gocode-schema-preflight-new.sqlite");
     let _ = std::fs::remove_file(&new_path);
-    let new_conn = open_with_pragmas(new_path.to_str().unwrap()).unwrap();
+    let new_conn = open_managed_connection(&new_path, ConnectionMode::Writer).unwrap();
     apply_migrations(&new_conn).unwrap();
     drop(new_conn);
 
     let v8_path = std::env::temp_dir().join("gocode-schema-preflight-v8.sqlite");
     let _ = std::fs::remove_file(&v8_path);
-    let v8_conn = Connection::open(&v8_path).unwrap();
+    let v8_conn = open_managed_connection(&v8_path, ConnectionMode::Writer).unwrap();
     apply_migrations(&v8_conn).unwrap();
+    let triggers = v8_conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for trigger in triggers {
+        v8_conn
+            .execute_batch(&format!("DROP TRIGGER \"{trigger}\";"))
+            .unwrap();
+    }
     v8_conn
         .execute_batch(
-            "DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_insert;
-             DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_update;
-             DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_delete;
-             DROP TRIGGER aggregate_state_snapshots_bind_insert;
-             DROP TRIGGER aggregate_state_snapshots_bind_update;
-             DROP TABLE aggregate_state_snapshots;
+            "DROP TABLE aggregate_state_snapshots;
+             DROP TABLE task_run_workspace_lineage;
+             DROP TABLE workspace_identity_history;
+             DROP TABLE project_workspace_command_receipts;
+             DROP TABLE root_admission_nonces;
+             DROP TABLE workspaces;
+             DROP TABLE projects;
+             DROP TABLE bootstrap_reservation_tombstones;
+             DROP TABLE bootstrap_reservations;
+             DROP TABLE bootstrap_last_observed_clock;
+             DROP TABLE provider_credential_effect_bindings;
+             DROP TABLE provider_credential_provisions;
+             DROP TABLE provider_credential_clock_high_water;
+             DROP TABLE provider_credential_versions;
              DROP TABLE provider_effect_authorities;
              DROP TABLE provider_dispatch_attempts;
              DROP TABLE provider_prepared_requests;
@@ -72,9 +92,9 @@ fn shared_opener_admits_new_released_v8_and_canonical_v9_files() {
         )
         .unwrap();
     drop(v8_conn);
-    assert!(open_with_pragmas(v8_path.to_str().unwrap()).is_ok());
+    assert!(open_managed_connection(&v8_path, ConnectionMode::Writer).is_ok());
 
-    assert!(open_with_pragmas(new_path.to_str().unwrap()).is_ok());
+    assert!(open_managed_connection(&new_path, ConnectionMode::Writer).is_ok());
 
     for path in [new_path, v8_path] {
         for suffix in ["", "-wal", "-shm"] {

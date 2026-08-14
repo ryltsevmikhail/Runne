@@ -2,7 +2,7 @@ use rusqlite::{
     Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
 };
 
-pub(super) const MIGRATION_V17: &str = r#"
+pub(super) const MIGRATION_V19: &str = r#"
 CREATE TABLE aggregate_state_snapshots (
     aggregate_type INTEGER NOT NULL CHECK(aggregate_type IN (1, 2)),
     aggregate_id BLOB NOT NULL CHECK(length(aggregate_id) = 16),
@@ -70,20 +70,20 @@ WHEN NOT EXISTS(
 BEGIN SELECT RAISE(ABORT, 'aggregate snapshot head mismatch'); END;
 "#;
 
-pub(super) fn apply_v17_migration(connection: &Connection) -> SqliteResult<()> {
+pub(super) fn apply_v19_migration(connection: &Connection) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Exclusive)?;
-    transaction.execute_batch(MIGRATION_V17)?;
+    transaction.execute_batch(MIGRATION_V19)?;
     transaction.execute_batch(SNAPSHOT_INSERT_TRIGGER)?;
     transaction.execute_batch(SNAPSHOT_UPDATE_TRIGGER)?;
     super::install_missing_v12_fence_triggers(&transaction)?;
     crate::store::snapshot::legacy::backfill_v17_aggregate_snapshots(&transaction)?;
-    transaction.execute("INSERT INTO schema_version (version) VALUES (17)", [])?;
+    transaction.execute("INSERT INTO schema_version (version) VALUES (19)", [])?;
     transaction.commit()
 }
 
-pub(super) fn v17_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 17
-        || !super::project_workspace_schema::v16_base_matches_with_additional_triggers(
+pub(super) fn v19_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != 19
+        || !super::project_workspace_schema::v18_base_matches_with_additional_triggers(
             connection,
             &[
                 "aggregate_state_snapshots_bind_insert",
@@ -123,6 +123,13 @@ pub(super) fn v17_matches(connection: &Connection, version: i64) -> SqliteResult
     let mut tables = super::RELEASED_V13_TABLES.to_vec();
     tables.extend([
         "provider_effect_starts",
+        "provider_credential_versions",
+        "provider_credential_clock_high_water",
+        "provider_credential_provisions",
+        "provider_credential_effect_bindings",
+        "bootstrap_reservations",
+        "bootstrap_reservation_tombstones",
+        "bootstrap_last_observed_clock",
         "projects",
         "workspaces",
         "root_admission_nonces",
@@ -135,7 +142,7 @@ pub(super) fn v17_matches(connection: &Connection, version: i64) -> SqliteResult
         && super::table_sql_matches_migration(
             connection,
             "aggregate_state_snapshots",
-            MIGRATION_V17,
+            MIGRATION_V19,
         )?
         && super::index_matches(
             connection,
@@ -165,7 +172,12 @@ fn v17_catalog_matches(connection: &Connection, tables: &[&str]) -> SqliteResult
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
     let mut expected_indexes = super::RELEASED_V12_EXPLICIT_INDEXES.to_vec();
-    expected_indexes.push("idx_aggregate_state_snapshots_head_position");
+    expected_indexes.extend([
+        "provider_credential_one_active",
+        "provider_credential_one_pending_provision",
+        "bootstrap_reservation_unexpired",
+        "idx_aggregate_state_snapshots_head_position",
+    ]);
     expected_indexes.sort_unstable();
     let views: i64 = connection.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view'",

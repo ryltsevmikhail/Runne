@@ -54,8 +54,10 @@ pub enum ProviderToolLoopError {
 }
 
 /// Runtime-owned supervised provider/tool loop.
-pub struct ProviderToolLoop<J, T> {
+pub struct ProviderToolLoop<'a, J, T> {
     journal: J,
     tool_handoff: T,
     max_text_bytes: usize,
+    redaction: &'a dyn ProviderEventRedaction,
+    journal_context: ProviderEventJournalContext,
 }

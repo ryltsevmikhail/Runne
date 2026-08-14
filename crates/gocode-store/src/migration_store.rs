@@ -43,7 +43,10 @@ use crate::{
         encode_retirement_manifest, encode_rollback_manifest, encode_routing_snapshot,
         encode_runtime_binding,
     },
-    schema::{apply_migrations, open_with_pragmas, run_startup_gates},
+    schema::{
+        ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+        publication_from_managed, readiness_from_managed,
+    },
 };
 
 /// SQLite-backed migration control-plane store.
@@ -52,7 +55,7 @@ use crate::{
 /// control commit uses `BEGIN IMMEDIATE`.
 #[derive(Clone)]
 pub struct SqliteMigrationControlStore {
-    writer: Arc<Mutex<Connection>>,
+    writer: Arc<Mutex<ManagedConnection>>,
 }
 
 impl SqliteMigrationControlStore {
@@ -63,29 +66,29 @@ impl SqliteMigrationControlStore {
             .as_ref()
             .to_str()
             .ok_or(MigrationStoreError::Unavailable)?;
-        let writer = open_with_pragmas(path_text).map_err(map_open_error)?;
+        let writer = open_managed_connection(path.as_ref(), ConnectionMode::Writer)
+            .map_err(map_open_error)?;
         Self::open_with_connection(path_text, writer)
     }
 
     /// Adopts an already admitted writable connection for this store.
     ///
-    /// The caller must first use `open_with_pragmas` or
-    /// `open_existing_with_pragmas_validated` for this exact path and same
-    /// connection. The connection must be writable, `query_only = OFF`, and
-    /// have no attached databases; validated reopen must verify exact authority
-    /// and event-log lineage identity. This is not an admission API.
+    /// The caller must retain a factory-managed writable connection admitted
+    /// for this exact path. Validated reopen still verifies exact authority and
+    /// event-log lineage identity before this adoption API is reached.
     pub fn open_with_connection(
-        path: &str,
-        writer: Connection,
+        _path: &str,
+        writer: ManagedConnection,
     ) -> Result<Self, MigrationStoreError> {
         apply_migrations(&writer).map_err(|_| MigrationStoreError::CorruptData)?;
-        run_startup_gates(&writer, path).map_err(|_| MigrationStoreError::IntegrityViolation)?;
+        readiness_from_managed(&writer).map_err(|_| MigrationStoreError::IntegrityViolation)?;
+        publication_from_managed(&writer).map_err(|_| MigrationStoreError::IntegrityViolation)?;
         Ok(Self {
             writer: Arc::new(Mutex::new(writer)),
         })
     }
 
-    fn reader(&self) -> Result<MutexGuard<'_, Connection>, MigrationStoreError> {
+    fn reader(&self) -> Result<MutexGuard<'_, ManagedConnection>, MigrationStoreError> {
         self.writer
             .lock()
             .map_err(|_| MigrationStoreError::Unavailable)

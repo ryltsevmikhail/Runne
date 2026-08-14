@@ -79,10 +79,22 @@ async fn production_v1_database_upgrades_without_reusing_legacy_authority_or_tok
     defaults.http_bind = "127.0.0.1:0".to_owned();
     let config = ConfigurationSnapshot::from_defaults(&defaults);
     let initial = bootstrap(&config).expect("create pre-upgrade database");
+    let initial_authority = initial.authority_id;
     drop(initial);
 
     let legacy_authority = [0x42; 16];
-    let connection = schema::open_with_pragmas(&config.db_path).expect("open database");
+    let connection = schema::reopen_managed_connection_validated(
+        std::path::Path::new(&config.db_path),
+        schema::ConnectionMode::ValidatedReopen,
+        |connection| {
+            if schema::read_authority_id(connection)? == Some(initial_authority) {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .expect("open database");
     connection
         .execute(
             "UPDATE _authority SET authority_id = ?1 WHERE id = 1",

@@ -28,7 +28,7 @@ struct CliState {
 async fn main() {
     let state = parse_global_options(std::env::args_os().skip(1).collect());
     let format = state.format;
-    let outcome = process_outcome(run(state.arguments).await, format);
+    let outcome = process_outcome(run(state.arguments, format).await, format);
     write_process_outcome(&outcome);
 }
 

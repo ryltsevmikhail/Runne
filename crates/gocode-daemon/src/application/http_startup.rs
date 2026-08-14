@@ -10,7 +10,7 @@ pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
     bootstrap: BootstrapOutcome,
     recovery_state: RecoveryState,
-    replay_connection: rusqlite::Connection,
+    replay_connection: gocode_store::schema::ManagedConnection,
     replay_lineage: gocode_domain::id::EventLogLineageId,
     store: StoreTransaction,
     service: Arc<SqliteTaskRunService>,
@@ -27,6 +27,15 @@ pub(super) async fn start_http_and_runtime(
 ) -> Result<DaemonApplication, DaemonError> {
     let runtime_capabilities =
         runtime_capabilities(protected_activation, root_admission_keys.is_some());
+    let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
+        open_runtime_connection(
+            &config.db_path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+            bootstrap.authority_id,
+            replay_lineage,
+            "bootstrap reservation store",
+        )?,
+    ));
     let runtime_config = RuntimeConfig {
         max_in_flight_requests: usize::try_from(config.max_in_flight).map_err(|_| {
             DaemonError::Config("max_in_flight does not fit this platform".to_owned())
@@ -249,6 +258,7 @@ pub(super) async fn start_http_and_runtime(
         provider_readiness,
         runtime_liveness,
         runtime_controller,
+        _bootstrap_reservation_store: bootstrap_reservation_store,
         _secret_broker: secret_broker,
         task_supervisor: RuntimeTaskSupervisor::new(),
         shutdown_timeout,

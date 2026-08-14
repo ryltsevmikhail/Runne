@@ -9,7 +9,7 @@ from scripts.desktop.capability_manifest_impl.validation import (
 )
 
 
-CURRENT_HASH = "c95d46512405cb293fb410bddca4879ec9992952303bf0f0f63d70477c94fd12"
+CURRENT_HASH = "a3644c77c658c81baa4503d51c8a4207799bea1c9673674f1963defc6f4b8e90"
 OLD_HASH = "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429"
 RUNTIME = "6311992cea0551dab406a93b855ce2c49507e07e"
 

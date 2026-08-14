@@ -11,32 +11,35 @@ impl SqliteProviderExecutionStore {
         let path = path
             .to_str()
             .ok_or(ProviderAdmissionError::RepositoryFailure)?;
-        let connection =
-            open_with_pragmas(path).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let connection = open_managed_connection(Path::new(path), ConnectionMode::Writer)
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         Self::open_with_connection_and_now(path, connection, now)
     }
 
     /// Adopts a validated writable connection without reopening its path.
     pub fn open_with_connection(
         path: &str,
-        connection: Connection,
+        connection: ManagedConnection,
     ) -> Result<Self, ProviderAdmissionError> {
         Self::open_with_connection_and_now(path, connection, Arc::new(unix_timestamp))
     }
 
     fn open_with_connection_and_now(
-        path: &str,
-        connection: Connection,
+        _path: &str,
+        connection: ManagedConnection,
         now: Arc<dyn Fn() -> i64 + Send + Sync>,
     ) -> Result<Self, ProviderAdmissionError> {
         apply_migrations(&connection).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        run_startup_gates(&connection, path)
+        readiness_from_managed(&connection)
+            .and_then(|_| publication_from_managed(&connection).map(|_| ()))
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
         Ok(Self {
             connection: Mutex::new(connection),
             now,
             #[cfg(test)]
             fail_effect_readback: AtomicBool::new(false),
+            #[cfg(test)]
+            effect_receipt_pause: Mutex::new(None),
         })
     }
 
@@ -142,21 +145,37 @@ impl SqliteProviderExecutionStore {
     pub fn start_effect(
         &self,
         claim: &ProviderDispatchClaim,
+        credential: &crate::provider::CredentialDispatchBinding,
     ) -> Result<ProviderEffectStartReceipt, ProviderAdmissionError> {
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
-        start_effect(&mut connection, claim, self.now(), || self.now(), {
-            #[cfg(test)]
+        start_effect(
+            &mut connection,
+            claim,
+            credential,
+            || self.now(),
+            || {
+                #[cfg(test)]
+                if let Some((reached, release)) =
+                    self.effect_receipt_pause.lock().unwrap().take()
+                {
+                    reached.wait();
+                    release.wait();
+                }
+            },
             {
-                self.fail_effect_readback.swap(false, Ordering::SeqCst)
-            }
-            #[cfg(not(test))]
-            {
-                false
-            }
-        })
+                #[cfg(test)]
+                {
+                    self.fail_effect_readback.swap(false, Ordering::SeqCst)
+                }
+                #[cfg(not(test))]
+                {
+                    false
+                }
+            },
+        )
     }
 
     #[cfg(test)]
@@ -261,6 +280,10 @@ impl SqliteProviderExecutionStore {
 
     fn now(&self) -> i64 {
         (self.now)()
+    }
+
+    pub(super) fn credential_validation_time(&self) -> i64 {
+        self.now()
     }
 }
 

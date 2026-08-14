@@ -32,8 +32,21 @@ fn local_session_authority_path(config: &ConfigurationSnapshot) -> PathBuf {
     replay_key_path(config).with_file_name("local-session-authority-id")
 }
 
-fn remove_sidecar_migration_marker(config: &ConfigurationSnapshot) {
-    let connection = schema::open_with_pragmas(&config.db_path).unwrap();
+fn remove_sidecar_migration_marker(config: &ConfigurationSnapshot, authority_id: [u8; 16]) {
+    let connection = schema::reopen_managed_connection_validated(
+        Path::new(&config.db_path),
+        schema::ConnectionMode::ValidatedReopen,
+        |connection| {
+            if schema::read_authority_id(connection)? == Some(authority_id) {
+                Ok(())
+            } else {
+                Err(rusqlite::Error::InvalidQuery)
+            }
+        },
+    )
+    .unwrap();
+    schema::readiness_from_managed(&connection).unwrap();
+    schema::publication_from_managed(&connection).unwrap();
     connection
         .execute(
             "DELETE FROM _daemon_info WHERE key = 'local_session_sidecars_v1'",

@@ -1,4 +1,4 @@
-impl<J, T> ProviderToolLoop<J, T>
+impl<'a, J, T> ProviderToolLoop<'a, J, T>
 where
     J: ProviderToolJournal,
     T: ToolCallHandoffPort,
@@ -8,6 +8,8 @@ where
         journal: J,
         tool_handoff: T,
         max_text_bytes: usize,
+        redaction: &'a dyn ProviderEventRedaction,
+        journal_context: ProviderEventJournalContext,
     ) -> Result<Self, ProviderToolLoopError> {
         if max_text_bytes == 0 {
             return Err(ProviderToolLoopError::TextTooLarge);
@@ -16,6 +18,8 @@ where
             journal,
             tool_handoff,
             max_text_bytes,
+            redaction,
+            journal_context,
         })
     }
 
@@ -52,14 +56,15 @@ where
             ProviderToolRecoveryStatus::Terminal {
                 disposition: ProviderTerminalDisposition::Completed,
                 reason: ProviderFinishReason::Stop,
-            } if !usage_unavailable => {
+            } if !usage_unavailable && self.scanner_completed() => {
                 return Ok(ProviderToolLoopOutcome::Completed { text, usage });
             }
             ProviderToolRecoveryStatus::Terminal {
                 disposition,
                 reason,
             } if valid_remote_terminal(disposition, reason)
-                && (usage.is_some() || usage_unavailable) =>
+                && (usage.is_some() || usage_unavailable)
+                && self.scanner_completed() =>
             {
                 return Ok(ProviderToolLoopOutcome::RemoteTerminal {
                     disposition: *disposition,
@@ -117,11 +122,29 @@ where
                 Ok(item) => item,
                 Err(_) => return self.freeze(stream_id, "provider_stream"),
             };
-            let event = item.event();
-            if validator.accept(event).is_err() {
+            let provider_event = item.event();
+            if validator.accept(provider_event).is_err() {
                 return self.freeze(stream_id, "provider_grammar");
             }
-            if let ProviderStreamEventKind::TextDelta { text: delta } = event.kind() {
+            let event = match self
+                .redaction
+                .scan_before_journal(&self.journal_context, provider_event)
+            {
+                Ok(PreJournalProviderEvent::Append(event))
+                    if event.sequence() == provider_event.sequence() =>
+                {
+                    event
+                }
+                Ok(PreJournalProviderEvent::Append(_))
+                | Ok(PreJournalProviderEvent::Terminal(_))
+                | Err(_) => return self.freeze(stream_id, "scanner_boundary"),
+            };
+            let released_text = match event.kind() {
+                ProviderStreamEventKind::TextDelta { text }
+                | ProviderStreamEventKind::ScannerCompleted { text, .. } => Some(text),
+                _ => None,
+            };
+            if let Some(delta) = released_text {
                 let next = text
                     .len()
                     .checked_add(delta.len())
@@ -130,7 +153,7 @@ where
                     return self.freeze(stream_id, "text_bound");
                 }
             }
-            self.journal.append_provider_event(stream_id, event)?;
+            self.journal.append_provider_event(stream_id, &event)?;
             cursor = cursor
                 .checked_add(1)
                 .ok_or(ProviderToolLoopError::MalformedStream)?;
@@ -181,14 +204,15 @@ where
                 ProviderStreamEventKind::Finished {
                     disposition: ProviderTerminalDisposition::Completed,
                     reason: ProviderFinishReason::Stop,
-                } if !usage_unavailable => {
+                } if !usage_unavailable && self.scanner_completed() => {
                     return Ok(ProviderToolLoopOutcome::Completed { text, usage });
                 }
                 ProviderStreamEventKind::Finished {
                     disposition,
                     reason,
                 } if valid_remote_terminal(disposition, reason)
-                    && (usage.is_some() || usage_unavailable) =>
+                    && (usage.is_some() || usage_unavailable)
+                    && self.scanner_completed() =>
                 {
                     return Ok(ProviderToolLoopOutcome::RemoteTerminal {
                         disposition: *disposition,
@@ -201,8 +225,45 @@ where
                 ProviderStreamEventKind::Finished { .. } => {
                     return self.freeze(stream_id, "terminal_reason");
                 }
+                ProviderStreamEventKind::ScannerCompleted {
+                    text: tail,
+                    disposition: ProviderTerminalDisposition::Completed,
+                    reason: ProviderFinishReason::Stop,
+                } if !usage_unavailable && self.scanner_completed() => {
+                    text.push_str(tail);
+                    return Ok(ProviderToolLoopOutcome::Completed { text, usage });
+                }
+                ProviderStreamEventKind::ScannerCompleted {
+                    text: tail,
+                    disposition,
+                    reason,
+                } if valid_remote_terminal(disposition, reason)
+                    && (usage.is_some() || usage_unavailable)
+                    && self.scanner_completed() =>
+                {
+                    text.push_str(tail);
+                    return Ok(ProviderToolLoopOutcome::RemoteTerminal {
+                        disposition: *disposition,
+                        reason: reason.clone(),
+                        text,
+                        usage,
+                        usage_unavailable,
+                    });
+                }
+                ProviderStreamEventKind::ScannerCompleted { .. } => {
+                    return self.freeze(stream_id, "scanner_terminal");
+                }
+                ProviderStreamEventKind::ScannerProgress => {}
             }
         }
+    }
+
+    fn scanner_completed(&self) -> bool {
+        matches!(
+            self.redaction
+                .terminal_disposition(self.journal_context.attempt_id),
+            Ok(Some(ScannerTerminalDisposition::Completed))
+        )
     }
 
     fn freeze(

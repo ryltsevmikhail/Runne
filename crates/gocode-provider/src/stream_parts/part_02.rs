@@ -58,6 +58,24 @@ impl<'de> Deserialize<'de> for ProviderStreamEventKind {
                     reason: raw.reason.expect("guarded reason"),
                 }
             }
+            RawProviderStreamEventTag::ScannerCompleted
+                if raw.text.is_some()
+                    && no_usage
+                    && no_tool
+                    && raw.disposition.is_some()
+                    && raw.reason.is_some() =>
+            {
+                Self::ScannerCompleted {
+                    text: raw.text.expect("guarded text"),
+                    disposition: raw.disposition.expect("guarded disposition"),
+                    reason: raw.reason.expect("guarded reason"),
+                }
+            }
+            RawProviderStreamEventTag::ScannerProgress
+                if no_text && no_usage && no_tool && no_terminal =>
+            {
+                Self::ScannerProgress
+            }
             _ => {
                 return Err(<D::Error as serde::de::Error>::custom(
                     "provider stream event payload does not match its kind",
@@ -184,9 +202,11 @@ impl ProviderStreamValidator {
             ProviderStreamEventKind::Usage { .. } | ProviderStreamEventKind::UsageUnavailable => {
                 self.usage_seen = true;
             }
-            ProviderStreamEventKind::Finished { .. } => self.terminal = true,
+            ProviderStreamEventKind::Finished { .. }
+            | ProviderStreamEventKind::ScannerCompleted { .. } => self.terminal = true,
             ProviderStreamEventKind::TextDelta { .. }
-            | ProviderStreamEventKind::ToolCallRequested { .. } => {}
+            | ProviderStreamEventKind::ToolCallRequested { .. }
+            | ProviderStreamEventKind::ScannerProgress => {}
         }
         self.next_sequence = self
             .next_sequence

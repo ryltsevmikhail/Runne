@@ -26,8 +26,12 @@ ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     },
     "gocode-platform-ports": set(),
     "gocode-pairing-crypto": set(),
-    "gocode-runtime-client": {"gocode-api"},
-    "gocode-secure-store": {"gocode-api", "gocode-macos-keychain-acl"},
+    "gocode-runtime-client": {"gocode-api", "gocode-pairing-crypto"},
+    "gocode-secure-store": {
+        "gocode-api",
+        "gocode-macos-keychain-acl",
+        "gocode-provider",
+    },
 }
 RENDERER_ROOT = Path("apps/desktop/src")
 CONVERSATION_ENTITY_API = Path("apps/desktop/src/entities/conversation/api")

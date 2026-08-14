@@ -9,7 +9,8 @@ use gocode_application::{
 };
 use gocode_security::SecretBroker;
 use gocode_store::schema::{
-    SchemaOpenDiagnostic, apply_migrations, open_with_pragmas, preflight_existing_file,
+    ConnectionMode, SchemaOpenDiagnostic, apply_migrations, open_managed_connection,
+    preflight_existing_file,
 };
 use gocode_store::{
     atomic_pre_effect::SqliteAtomicPreEffectStore,
@@ -61,7 +62,7 @@ fn canonical_v9_database(name: &str) -> PathBuf {
         "gocode-schema-preflight-canonical-{name}-{}-{nonce}.sqlite",
         std::process::id()
     ));
-    let connection = open_with_pragmas(path.to_str().unwrap()).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
     drop(connection);
     path
@@ -115,11 +116,14 @@ fn assert_file_set_unchanged(before: &[(PathBuf, Vec<u8>)]) {
     }
 }
 
-fn assert_diagnostic<T: std::fmt::Debug>(
+fn assert_diagnostic<T>(
     result: Result<T, rusqlite::Error>,
     diagnostic: SchemaOpenDiagnostic,
 ) {
-    let error = result.unwrap_err();
+    let error = match result {
+        Ok(_) => panic!("expected schema open diagnostic"),
+        Err(error) => error,
+    };
     assert_eq!(error.to_string(), diagnostic.to_string());
 }
 
@@ -130,7 +134,7 @@ fn shared_opener_rejects_existing_zero_byte_database_before_writable_open() {
     let before = snapshot_file_set(&path);
 
     assert_diagnostic(
-        open_with_pragmas(path.to_str().unwrap()),
+        open_managed_connection(&path, ConnectionMode::Writer),
         SchemaOpenDiagnostic::ZeroByteDatabase,
     );
     assert_file_set_unchanged(&before);
@@ -145,7 +149,7 @@ fn shared_opener_rejects_existing_sidecars_before_recovery_or_wal() {
         let before = snapshot_file_set(&path);
 
         assert_diagnostic(
-            open_with_pragmas(path.to_str().unwrap()),
+            open_managed_connection(&path, ConnectionMode::Writer),
             SchemaOpenDiagnostic::SidecarPresent,
         );
         assert_file_set_unchanged(&before);
@@ -159,7 +163,7 @@ fn shared_opener_rejects_uri_metacharacter_path_without_mapping_another_file() {
     let before = snapshot_file_set(&path);
 
     assert_diagnostic(
-        open_with_pragmas(path.to_str().unwrap()),
+        open_managed_connection(&path, ConnectionMode::Writer),
         SchemaOpenDiagnostic::UnsafePath,
     );
     assert_file_set_unchanged(&before);
@@ -177,7 +181,7 @@ fn shared_opener_rejects_symlink_when_file_identity_cannot_be_confirmed() {
     let before = snapshot_file_set(&target);
 
     assert_diagnostic(
-        open_with_pragmas(link.to_str().unwrap()),
+        open_managed_connection(&link, ConnectionMode::Writer),
         SchemaOpenDiagnostic::FileIdentityUncertain,
     );
     assert_file_set_unchanged(&before);

@@ -7,6 +7,7 @@
 //! - [`IdGenerator`] impl — UUIDv7-based unique IDs
 //! - [`Clock`] impl — system wall clock in microseconds
 
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,7 +38,7 @@ use gocode_domain::id::{
 };
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_domain::timestamp::Timestamp;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::codec::{
     CommandOutcomeCodec, ConversationEventCodec, ConversationReceiptCodec, IdempotencyScopeCodec,
@@ -46,7 +47,10 @@ use crate::codec::{
 use crate::integrity::{
     compute_integrity_digest_v2_with_global_position, compute_integrity_digest_with_global_position,
 };
-use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
+use crate::schema::{
+    ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+    publication_from_managed, readiness_from_managed,
+};
 
 /// Maximum event count per commit (safety bound).
 const MAX_EVENTS_PER_COMMIT: usize = 1_000;
@@ -98,8 +102,8 @@ impl StoredCorrelationType {
 
 /// Inner state shared between clones via `Arc`.
 struct StoreInner {
-    writer: Mutex<Connection>,
-    reader: Mutex<Connection>,
+    writer: Mutex<ManagedConnection>,
+    reader: Mutex<ManagedConnection>,
     id_counter: AtomicU64,
 }
 
@@ -162,8 +166,18 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .expect("system clock must be after Unix epoch")
             .as_nanos();
-        std::env::temp_dir()
-            .join(format!("gocode-store-{name}-{unique}.sqlite"))
+        let runtime_root = std::env::temp_dir().join(format!("gocode-store-{name}-{unique}"));
+        let daemon = runtime_root.join("gocode-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&runtime_root, std::fs::Permissions::from_mode(0o700))
+                .unwrap();
+            std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        daemon
+            .join("event-log.sqlite")
             .to_string_lossy()
             .into_owned()
     }
@@ -171,6 +185,12 @@ mod tests {
     fn cleanup_db(db_path: &str) {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{db_path}{suffix}"));
+        }
+        if let Some(daemon) = Path::new(db_path).parent() {
+            let _ = std::fs::remove_dir(daemon);
+            if let Some(runtime_root) = daemon.parent() {
+                let _ = std::fs::remove_dir(runtime_root);
+            }
         }
     }
 

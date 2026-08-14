@@ -1,4 +1,3 @@
-
 impl ProhibitedContentPort for ProviderInputRejectingGuard {
     fn inspect(
         &self,
@@ -76,21 +75,11 @@ fn conversation_context(sequence: u8, key: &str) -> ConversationCommandContext {
 
 #[tokio::test(flavor = "current_thread")]
 async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_message() {
-    let directory = tempfile::tempdir().unwrap();
-    let database_path = directory
-        .path()
-        .join("provider-output-rejection.sqlite")
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let database = validated_reopen::ValidatedTestDatabase::new("provider-output-rejection");
     let authority = RuntimeAuthorityId("provider-output-rejection-test".into());
-    let store =
-        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
-    validated_reopen::seed_canonical_workspace(
-        &store,
-        "local-owner",
-        WORKSPACE_ID.parse().unwrap(),
-    );
+    let (store, _identity) =
+        validated_reopen::initialize_store(database.path(), authority.clone(), available_guard())
+            .unwrap();
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),

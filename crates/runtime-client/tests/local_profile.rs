@@ -29,12 +29,15 @@ fn write_profile(directory: &std::path::Path, endpoint: &str) -> std::path::Path
             "endpoint": endpoint,
             "certificateDerBase64": STANDARD.encode(&certificate),
             "certificateSha256": hex::encode(Sha256::digest(&certificate)),
+            "executableSha256": "0e".repeat(32),
             "bootstrapSecretPath": bootstrap_path,
             "authorityId": "018f2e3a700070008000000000000001",
+            "launchAuthorityId": "018f2e3a700070008000000000000006",
             "principalId": "local-owner",
             "eventLogLineageId": "018f2e3a-7000-7000-8000-000000000003",
             "daemonInstanceId": "018f2e3a-7000-7000-8000-000000000002",
-            "launchGeneration": 7
+            "launchGeneration": 7,
+            "sessionId": "018f2e3a700070008000000000000005"
         }))
         .expect("profile JSON"),
     )
@@ -144,6 +147,38 @@ fn rejects_profile_v1_and_wrong_certificate_digest_redacted() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn rejects_missing_or_zero_executable_identity() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
+    rewrite_profile(&profile_path, |profile| {
+        profile.as_object_mut().unwrap().remove("executableSha256");
+    });
+    assert_eq!(
+        LocalRuntimeProfile::load(&profile_path).expect_err("missing executable identity"),
+        LocalProfileError::InvalidProfile
+    );
+
+    let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
+    rewrite_profile(&profile_path, |profile| {
+        profile["executableSha256"] = serde_json::json!("00".repeat(32));
+    });
+    assert_eq!(
+        LocalRuntimeProfile::load(&profile_path).expect_err("zero executable identity"),
+        LocalProfileError::InvalidProfile
+    );
+
+    let profile_path = write_profile(directory.path(), "https://127.0.0.1:43123");
+    rewrite_profile(&profile_path, |profile| {
+        profile.as_object_mut().unwrap().remove("launchAuthorityId");
+    });
+    assert_eq!(
+        LocalRuntimeProfile::load(&profile_path).expect_err("missing launch authority"),
+        LocalProfileError::InvalidProfile
+    );
+}
+
 #[cfg(not(unix))]
 #[test]
 fn rejects_local_profiles_until_native_owner_acl_validation_exists() {
@@ -209,6 +244,35 @@ fn committed_bundle_hash_and_required_telemetry_capability_are_synchronized() {
         .collect::<Vec<_>>();
     assert_eq!(published_capabilities, PROTECTED_RUNTIME_CAPABILITIES);
     assert!(REQUIRED_RUNTIME_CAPABILITIES.contains(&"runtime.operational-telemetry.v1"));
+}
+
+#[test]
+fn bootstrap_v3_wire_matches_schema_golden() {
+    let schema = include_bytes!("../../../docs/schemas/local-session-v2.schema.json");
+    let published_schema = include_bytes!(
+        "../../../contracts/gocode-ui-client-1/schemas/local-session-v2.schema.json"
+    );
+    let golden = include_bytes!("../../../docs/golden/local-session-v2.json");
+    let published_golden =
+        include_bytes!("../../../contracts/gocode-ui-client-1/golden/local-session-v2.json");
+    assert_eq!(schema, published_schema);
+    assert_eq!(golden, published_golden);
+
+    let schema: serde_json::Value = serde_json::from_slice(schema).unwrap();
+    let golden: serde_json::Value = serde_json::from_slice(golden).unwrap();
+    for definition in [
+        "challengeRequest",
+        "challengeResponse",
+        "authenticateRequest",
+        "authenticateResponse",
+    ] {
+        assert_eq!(schema["$defs"][definition]["additionalProperties"], false);
+        assert_eq!(golden[definition]["wireVersion"], "3");
+        assert_eq!(golden[definition]["keyVersion"], 1);
+    }
+    assert!(golden["challengeRequest"].get("serverNonce").is_none());
+    assert!(golden["authenticateRequest"].get("proof").is_none());
+    assert!(golden["authenticateRequest"]["finalProof"].is_string());
 }
 
 fn certificate_der() -> Vec<u8> {

@@ -25,36 +25,31 @@ impl StoreTransaction {
             ));
         }
 
-        let writer = open_with_pragmas(db_path).map_err(|_| {
-            CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::Unavailable)
-        })?;
-
-        apply_migrations(&writer).map_err(|_| {
-            CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::CorruptData)
-        })?;
-
-        run_startup_gates(&writer, db_path).map_err(|_| {
-            CommitError::StorageFailure(
-                gocode_application::ports::StorageFailureKind::IntegrityViolation,
-            )
-        })?;
-
-        // The opened writer owns lifecycle classification. A read-only
-        // connection cannot mutate WAL state and deliberately avoids a second
-        // preflight/classification pass.
-        let reader = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-            .map_err(|_| {
+        let writer =
+            open_managed_connection(Path::new(db_path), ConnectionMode::Writer).map_err(|_| {
                 CommitError::StorageFailure(
                     gocode_application::ports::StorageFailureKind::Unavailable,
                 )
             })?;
 
-        Ok(Self::from_connections(
+        apply_migrations(&writer).map_err(|_| {
+            CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::CorruptData)
+        })?;
+
+        let reader =
+            open_managed_connection(Path::new(db_path), ConnectionMode::Reader).map_err(|_| {
+                CommitError::StorageFailure(
+                    gocode_application::ports::StorageFailureKind::Unavailable,
+                )
+            })?;
+
+        Self::open_with_connections(
+            db_path,
             writer,
             reader,
             runtime_authority_id,
             prohibited_content,
-        ))
+        )
     }
 
     /// Adopts validated writer and reader connections without reopening their paths.
@@ -62,16 +57,31 @@ impl StoreTransaction {
     /// The caller owns path admission. Migrations and startup gates still run on
     /// the supplied writer before the store becomes available.
     pub fn open_with_connections(
-        db_path: &str,
-        writer: Connection,
-        reader: Connection,
+        _db_path: &str,
+        writer: ManagedConnection,
+        reader: ManagedConnection,
         runtime_authority_id: RuntimeAuthorityId,
         prohibited_content: Arc<dyn ProhibitedContentPort>,
     ) -> Result<Self, CommitError> {
         apply_migrations(&writer).map_err(|_| {
             CommitError::StorageFailure(gocode_application::ports::StorageFailureKind::CorruptData)
         })?;
-        run_startup_gates(&writer, db_path).map_err(|_| {
+        readiness_from_managed(&writer).map_err(|_| {
+            CommitError::StorageFailure(
+                gocode_application::ports::StorageFailureKind::IntegrityViolation,
+            )
+        })?;
+        readiness_from_managed(&reader).map_err(|_| {
+            CommitError::StorageFailure(
+                gocode_application::ports::StorageFailureKind::IntegrityViolation,
+            )
+        })?;
+        publication_from_managed(&writer).map_err(|_| {
+            CommitError::StorageFailure(
+                gocode_application::ports::StorageFailureKind::IntegrityViolation,
+            )
+        })?;
+        publication_from_managed(&reader).map_err(|_| {
             CommitError::StorageFailure(
                 gocode_application::ports::StorageFailureKind::IntegrityViolation,
             )
@@ -86,8 +96,8 @@ impl StoreTransaction {
     }
 
     fn from_connections(
-        writer: Connection,
-        reader: Connection,
+        writer: ManagedConnection,
+        reader: ManagedConnection,
         runtime_authority_id: RuntimeAuthorityId,
         prohibited_content: Arc<dyn ProhibitedContentPort>,
     ) -> Self {

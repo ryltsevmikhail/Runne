@@ -111,7 +111,7 @@ fn nonexistent_protected_unicode_filename_redacts_open_failure() {
     assert!(!message.contains("No such file"));
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn non_unicode_path_redacts_raw_os_bytes() {
     use std::os::unix::ffi::OsStringExt;

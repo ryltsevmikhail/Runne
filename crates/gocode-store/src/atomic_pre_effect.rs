@@ -7,13 +7,16 @@ use gocode_application::security::atomic_transaction::{
     AtomicPreEffectTransaction, AtomicTransactionError, AuthorizationDecision,
     DispatchIntentRecord, IntentStatus, PreEffectTransactionOutcome,
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
-use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
+use crate::schema::{
+    ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+    publication_from_managed, readiness_from_managed,
+};
 
 /// Repository-owned SQLite store для security pre-effect boundary.
 pub struct SqliteAtomicPreEffectStore {
-    connection: Mutex<Connection>,
+    connection: Mutex<ManagedConnection>,
 }
 
 impl SqliteAtomicPreEffectStore {
@@ -22,24 +25,23 @@ impl SqliteAtomicPreEffectStore {
         let path = path
             .to_str()
             .ok_or(AtomicTransactionError::StoreUnavailable)?;
-        let connection =
-            open_with_pragmas(path).map_err(|_| AtomicTransactionError::StoreUnavailable)?;
+        let connection = open_managed_connection(Path::new(path), ConnectionMode::Writer)
+            .map_err(|_| AtomicTransactionError::StoreUnavailable)?;
         Self::open_with_connection(path, connection)
     }
 
     /// Adopts an already admitted writable connection for this store.
     ///
-    /// The caller must first use `open_with_pragmas` or
-    /// `open_existing_with_pragmas_validated` for this exact path and same
-    /// connection. The connection must be writable, `query_only = OFF`, and
-    /// have no attached databases; validated reopen must verify exact authority
-    /// and event-log lineage identity. This is not an admission API.
+    /// The caller must retain a factory-managed writable connection admitted
+    /// for this exact path. Validated reopen still verifies exact authority and
+    /// event-log lineage identity before this adoption API is reached.
     pub fn open_with_connection(
-        path: &str,
-        connection: Connection,
+        _path: &str,
+        connection: ManagedConnection,
     ) -> Result<Self, AtomicTransactionError> {
         apply_migrations(&connection).map_err(|_| AtomicTransactionError::StoreUnavailable)?;
-        run_startup_gates(&connection, path)
+        readiness_from_managed(&connection)
+            .and_then(|_| publication_from_managed(&connection).map(|_| ()))
             .map_err(|_| AtomicTransactionError::StoreUnavailable)?;
         Ok(Self {
             connection: Mutex::new(connection),

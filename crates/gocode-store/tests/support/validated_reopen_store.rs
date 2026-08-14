@@ -1,19 +1,18 @@
-use rusqlite::{Connection, Error as SqliteError};
+use gocode_store::schema::ManagedConnection;
+use rusqlite::Error as SqliteError;
 
 use super::validated_reopen::{self, MainDatabaseIdentity};
 
 pub(crate) fn open_validated_reader(
     db_path: &str,
     identity: MainDatabaseIdentity,
-) -> Result<Connection, SqliteError> {
-    let reader = validated_reopen::open_validated_connection(db_path, identity)?;
-    reader.execute_batch("PRAGMA query_only = ON;")?;
-    Ok(reader)
+) -> Result<ManagedConnection, SqliteError> {
+    validated_reopen::open_validated_reader(db_path, identity)
 }
 
 pub(crate) fn open_validated_writer(
     db_path: &str,
     identity: MainDatabaseIdentity,
-) -> Result<Connection, SqliteError> {
+) -> Result<ManagedConnection, SqliteError> {
     validated_reopen::open_validated_connection(db_path, identity)
 }

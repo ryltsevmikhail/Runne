@@ -30,6 +30,7 @@ use crate::codec::{ConversationEventCodec, StoreCodec, TaskRunEventCodec};
 use crate::integrity::{
     compute_integrity_digest_v2_with_global_position, compute_integrity_digest_with_global_position,
 };
+use crate::schema::ManagedConnection;
 
 // ── HMAC ─────────────────────────────────────────────────────────────────────
 

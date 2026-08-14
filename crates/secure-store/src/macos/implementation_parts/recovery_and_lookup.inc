@@ -21,8 +21,17 @@ impl MacOsProviderCredentialStore {
 
         let primary_metadata = self.find_named_metadata(keychain, &self.service)?;
         if !backup_metadata.is_complete() {
-            let Some((primary_metadata, primary_item)) = primary_metadata else {
-                return Err(SecureStoreError::CredentialMigrationIncomplete);
+            let (primary_metadata, primary_item, source_service) = if let Some((metadata, item)) =
+                primary_metadata
+            {
+                (metadata, item, self.service.clone())
+            } else {
+                let Some((metadata, item)) = self
+                    .find_named_metadata(keychain, &self.source_alternate_service())?
+                else {
+                    return Err(SecureStoreError::CredentialMigrationIncomplete);
+                };
+                (metadata, item, self.source_alternate_service())
             };
             if !primary_metadata.is_complete() {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
@@ -44,7 +53,7 @@ impl MacOsProviderCredentialStore {
             } else {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }
-            let Some((primary_encoded, _)) = self.find_primary_item(keychain)? else {
+            let Some((primary_encoded, _)) = self.find_named_item(keychain, &source_service)? else {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             };
             let primary = StoredProviderCredential::decode(&primary_encoded)

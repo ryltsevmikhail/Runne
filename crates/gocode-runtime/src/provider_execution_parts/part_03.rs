@@ -42,7 +42,6 @@ where
             .map_err(|_| RuntimeProviderExecutionError::PersistenceUnavailable)? = Some(binding);
         Ok(binding)
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -117,19 +116,37 @@ where
         &self,
         context: &ProviderEventJournalContext,
         event: &ProviderStreamEvent,
-    ) -> Result<ProviderJournalAppendOutcome, RuntimeProviderExecutionError> {
+    ) -> Result<(ProviderJournalAppendOutcome, ProviderStreamItem), RuntimeProviderExecutionError>
+    {
+        let event = match self
+            .redaction
+            .scan_before_journal(context, event)
+            .map_err(|_| RuntimeProviderExecutionError::PolicyDenied)?
+        {
+            PreJournalProviderEvent::Append(event) => event,
+            PreJournalProviderEvent::Terminal(_) => {
+                return Err(RuntimeProviderExecutionError::PolicyDenied);
+            }
+        };
         if event.sequence() == u64::MAX {
             return Err(RuntimeProviderExecutionError::JournalCorrupt);
         }
+        let sanitized_item = ProviderStreamItem::from_event(event.clone())
+            .map_err(|_| RuntimeProviderExecutionError::JournalCorrupt)?;
         let key = self.current_key()?;
         let material = self.load_key(key)?;
         let event_kind = event_kind_code(event.kind());
-        let terminal = matches!(event.kind(), ProviderStreamEventKind::Finished { .. });
+        let terminal = matches!(
+            event.kind(),
+            ProviderStreamEventKind::Finished { .. }
+                | ProviderStreamEventKind::ScannerCompleted { .. }
+        );
         let plaintext =
-            serde_json::to_vec(event).map_err(|_| RuntimeProviderExecutionError::JournalCorrupt)?;
+            serde_json::to_vec(&event).map_err(|_| RuntimeProviderExecutionError::JournalCorrupt)?;
         let aad = event_aad(context, key, event.sequence(), event_kind, terminal);
         let encrypted = self.seal(&material, &aad, &plaintext)?;
-        self.store
+        let outcome = self
+            .store
             .append_encrypted_event(&ProviderJournalAppendRequest {
                 attempt_id: context.attempt_id,
                 fencing_token: context.fencing_token,
@@ -142,7 +159,8 @@ where
                 key,
                 encrypted,
             })
-            .map_err(map_execution_error)
+            .map_err(map_execution_error)?;
+        Ok((outcome, sanitized_item))
     }
 
 }
@@ -181,13 +199,19 @@ where
                 return Err(RuntimeProviderExecutionError::AdapterStreamUnavailable);
             }
         };
-        if self.commit_polled_event(context, item.event()).is_err() {
-            self.store
-                .mark_execution_uncertain(context.attempt_id, context.fencing_token)
-                .map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
-            return Err(RuntimeProviderExecutionError::JournalCommitLost);
+        match self.commit_polled_event(context, item.event()) {
+            Ok((_outcome, sanitized_item)) => Ok(sanitized_item),
+            Err(error) => {
+                self.store
+                    .mark_execution_uncertain(context.attempt_id, context.fencing_token)
+                    .map_err(|_| RuntimeProviderExecutionError::JournalCommitLost)?;
+                Err(if error == RuntimeProviderExecutionError::PolicyDenied {
+                    error
+                } else {
+                    RuntimeProviderExecutionError::JournalCommitLost
+                })
+            }
         }
-        Ok(item)
     }
 
 }
@@ -229,49 +253,16 @@ where
                     .map_err(|_| RuntimeProviderExecutionError::JournalCorrupt)?;
                 if event.sequence() != record.sequence
                     || event_kind_code(event.kind()) != record.event_kind
-                    || matches!(event.kind(), ProviderStreamEventKind::Finished { .. })
+                    || matches!(
+                        event.kind(),
+                        ProviderStreamEventKind::Finished { .. }
+                            | ProviderStreamEventKind::ScannerCompleted { .. }
+                    )
                         != record.terminal
                 {
                     return Err(RuntimeProviderExecutionError::JournalCorrupt);
                 }
                 Ok(event)
-            })
-            .collect()
-    }
-
-}
-impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
-where
-    K: ProviderJournalKeyring + ?Sized,
-    S: ProviderExecutionStore + ProviderTerminalPersistence,
-    P: ProviderTerminalPricing,
-{
-    /// Loads and decrypts pending terminal outputs for idempotent application.
-    pub fn recover_pending_terminal_outputs(
-        &self,
-    ) -> Result<Vec<RecoveredProviderTerminalOutput>, RuntimeProviderExecutionError> {
-        self.store
-            .pending_terminal_outbox()
-            .map_err(map_execution_error)?
-            .into_iter()
-            .map(|record| {
-                let material = self.load_key(record.key)?;
-                let context = ProviderEventJournalContext {
-                    attempt_id: record.attempt_id,
-                    fencing_token: record.fencing_token,
-                    call_digest_version: record.call_digest_version,
-                    profile_digest: record.profile_digest,
-                    runtime_generation: record.runtime_generation,
-                };
-                let aad = outbox_aad(
-                    &context,
-                    record.key,
-                    record.terminal_sequence,
-                    record.outbox_id,
-                );
-                let output =
-                    Zeroizing::new(open_payload(&material, &aad, &record.encrypted_output)?);
-                Ok(RecoveredProviderTerminalOutput { record, output })
             })
             .collect()
     }

@@ -153,7 +153,7 @@ fn preflight_rejects_v15_with_tampered_inherited_v14_activation_binding() {
 }
 
 #[test]
-fn v17_rejects_released_v15_fixture_without_complete_replay_histories() {
+fn v20_rejects_released_v15_fixture_without_complete_replay_histories() {
     let (_directory, path) = released_v15_database();
     let released = Connection::open(&path).unwrap();
     assert_eq!(
@@ -177,13 +177,13 @@ fn v17_rejects_released_v15_fixture_without_complete_replay_histories() {
     preflight_existing_file(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
     assert!(apply_migrations(&connection).is_err());
-    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        16
+        18
     );
     assert!(connection
         .query_row(
@@ -221,7 +221,7 @@ fn v17_rejects_released_v15_fixture_without_complete_replay_histories() {
 }
 
 #[test]
-fn corrupt_v15_origin_rolls_back_v16_atomically() {
+fn corrupt_v15_origin_rolls_back_v18_atomically() {
     let (_directory, path) = released_v15_database();
     let connection = Connection::open(&path).unwrap();
     connection
@@ -233,14 +233,14 @@ fn corrupt_v15_origin_rolls_back_v16_atomically() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        15
+        17
     );
     assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_run_workspace_lineage')", [], |row| row.get::<_, bool>(0)).unwrap());
     assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_identity_history')", [], |row| row.get::<_, bool>(0)).unwrap());
 }
 
 #[test]
-fn preflight_rejects_tampered_v16_global_command_trigger() {
+fn preflight_rejects_tampered_v18_global_command_trigger() {
     let (_directory, path) = released_v15_database();
     let connection = Connection::open(&path).unwrap();
     assert!(apply_migrations(&connection).is_err());
@@ -249,7 +249,7 @@ fn preflight_rejects_tampered_v16_global_command_trigger() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        16,
+        18,
     );
     connection
         .execute_batch("DROP TRIGGER global_command_id_from_command_receipts")

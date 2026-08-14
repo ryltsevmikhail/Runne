@@ -139,7 +139,11 @@ fn rotation_preserves_settled_bindings_and_freezes_stale_incomplete() {
 
     let (dispatching_request, _) = prepared_request(&database, 12);
     let dispatching_claim = issue_winner(&database, &dispatching_request);
-    database.execution().start_effect(&dispatching_claim).unwrap();
+    let (_credential, binding) = credential(&database);
+    database
+        .execution()
+        .start_effect(&dispatching_claim, &binding)
+        .unwrap();
     let (streaming_request, _) = prepared_request(&database, 13);
     let streaming_claim = issue_winner(&database, &streaming_request);
     database

@@ -194,6 +194,17 @@ pub enum ProviderStreamEventKind {
         /// Normalized reason.
         reason: ProviderFinishReason,
     },
+    /// Runtime-produced terminal event carrying the final scanner-released suffix.
+    ScannerCompleted {
+        /// Final bytes released only after the scanner checkpoint became durable.
+        text: String,
+        /// Closed terminal effect disposition.
+        disposition: ProviderTerminalDisposition,
+        /// Normalized reason.
+        reason: ProviderFinishReason,
+    },
+    /// Runtime-produced non-text progress marker while all text remains withheld.
+    ScannerProgress,
 }
 
 impl fmt::Debug for ProviderStreamEventKind {
@@ -227,6 +238,17 @@ impl fmt::Debug for ProviderStreamEventKind {
                 .field("disposition", disposition)
                 .field("reason", reason)
                 .finish(),
+            Self::ScannerCompleted {
+                text,
+                disposition,
+                reason,
+            } => formatter
+                .debug_struct("ScannerCompleted")
+                .field("text_len", &text.len())
+                .field("disposition", disposition)
+                .field("reason", reason)
+                .finish(),
+            Self::ScannerProgress => formatter.write_str("ScannerProgress"),
         }
     }
 }
@@ -240,6 +262,8 @@ enum RawProviderStreamEventTag {
     UsageUnavailable,
     ToolCallRequested,
     Finished,
+    ScannerCompleted,
+    ScannerProgress,
 }
 
 #[derive(Deserialize)]

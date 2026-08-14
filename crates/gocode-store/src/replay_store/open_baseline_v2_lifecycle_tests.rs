@@ -19,8 +19,12 @@ fn v2_ack_cursor(event: &ReplayEvent, aggregate_id: [u8; 16]) -> ReplayCursor {
 #[tokio::test]
 async fn v2_resumed_sessions_page_ack_and_complete_each_suffix_once() {
     for suffix_count in [0_i64, 1, 100, 101] {
-        let mut connection = Connection::open_in_memory().unwrap();
-        let facts = v2_test_facts(&mut connection);
+        let mut connection = crate::schema::open_managed_connection(
+            std::path::Path::new(":memory:"),
+            crate::schema::ConnectionMode::Writer,
+        )
+        .unwrap();
+        let facts = connection.with_connection_mut(v2_test_facts);
         for position in 2..=suffix_count + 1 {
             insert_v2_event(&connection, position, position, facts.aggregate_id);
         }
@@ -44,14 +48,17 @@ async fn v2_resumed_sessions_page_ack_and_complete_each_suffix_once() {
                 [suffix_count + 2],
             )
             .unwrap();
-        let (mut session, mut delivered, _, _) = resume_session_from_internal_facts(
-            &mut connection,
-            facts.clone(),
-            &EventLogLineageId::from_bytes(V2_LINEAGE),
-            &V2_SECRET,
-            Arc::new(V2AllowDelivery),
-        )
-        .unwrap();
+        let (mut session, mut delivered, _, _) = connection
+            .with_connection_mut(|raw| {
+                resume_session_from_internal_facts(
+                    raw,
+                    facts.clone(),
+                    &EventLogLineageId::from_bytes(V2_LINEAGE),
+                    &V2_SECRET,
+                    Arc::new(V2AllowDelivery),
+                )
+            })
+            .unwrap();
         let store = ReplayStore::new(connection);
         let (paged, page) = store
             .read_page(

@@ -7,15 +7,15 @@ use gocode_domain::timestamp::Timestamp;
 use gocode_store::codec::{StoreCodec, TaskRunEventCodec};
 use gocode_store::integrity::compute_integrity_digest_with_global_position;
 use gocode_store::schema::{
-    apply_migrations, apply_migrations_through_v16_for_test, apply_migrations_through_v17_for_test,
+    apply_migrations, apply_migrations_through_v18_for_test, apply_migrations_through_v19_for_test,
 };
 use rusqlite::{Connection, params};
 
 #[test]
-fn complete_v17_history_rebuilds_to_v18() {
-    let connection = v17_taskrun();
+fn complete_v19_history_rebuilds_to_v20() {
+    let connection = v19_taskrun();
     apply_migrations(&connection).unwrap();
-    assert_eq!(version(&connection), 18);
+    assert_eq!(version(&connection), 20);
     let projection: Vec<u8> = connection
         .query_row(
             "SELECT promotion_projection_bytes FROM aggregate_state_snapshots",
@@ -27,18 +27,18 @@ fn complete_v17_history_rebuilds_to_v18() {
 }
 
 #[test]
-fn pruned_v17_history_fails_closed_without_catalog_or_snapshot_changes() {
-    let connection = v17_taskrun();
+fn pruned_v19_history_fails_closed_without_catalog_or_snapshot_changes() {
+    let connection = v19_taskrun();
     let before_catalog = catalog(&connection);
     let before_user_version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .unwrap();
-    let before_snapshot = v17_snapshot_row(&connection);
+    let before_snapshot = v19_snapshot_row(&connection);
     connection
         .execute("DELETE FROM events WHERE aggregate_type = 1", [])
         .unwrap();
     assert!(apply_migrations(&connection).is_err());
-    assert_eq!(version(&connection), 17);
+    assert_eq!(version(&connection), 19);
     assert_eq!(catalog(&connection), before_catalog);
     assert_eq!(
         connection
@@ -46,10 +46,10 @@ fn pruned_v17_history_fails_closed_without_catalog_or_snapshot_changes() {
             .unwrap(),
         before_user_version
     );
-    assert_eq!(v17_snapshot_row(&connection), before_snapshot);
+    assert_eq!(v19_snapshot_row(&connection), before_snapshot);
 }
 
-type V17SnapshotRow = (
+type V19SnapshotRow = (
     i64,
     Vec<u8>,
     i64,
@@ -63,7 +63,7 @@ type V17SnapshotRow = (
     Vec<u8>,
 );
 
-fn v17_snapshot_row(connection: &Connection) -> V17SnapshotRow {
+fn v19_snapshot_row(connection: &Connection) -> V19SnapshotRow {
     connection
         .query_row(
             "SELECT aggregate_type, aggregate_id, codec_version, aggregate_version, event_sequence,
@@ -90,9 +90,9 @@ fn v17_snapshot_row(connection: &Connection) -> V17SnapshotRow {
         .unwrap()
 }
 
-fn v17_taskrun() -> Connection {
+fn v19_taskrun() -> Connection {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations_through_v16_for_test(&connection).unwrap();
+    apply_migrations_through_v18_for_test(&connection).unwrap();
     let id: TaskRunId = "018f2e3a-7000-7000-8000-000000000201".parse().unwrap();
     let event_id: EventId = "018f2e3a-7000-7000-8000-000000000202".parse().unwrap();
     let command: CommandId = "018f2e3a-7000-7000-8000-000000000203".parse().unwrap();
@@ -102,9 +102,9 @@ fn v17_taskrun() -> Connection {
         AggregateId::TaskRun(id),
         None,
         command,
-        IdempotencyKey::new("v17-history").unwrap(),
+        IdempotencyKey::new("v19-history").unwrap(),
         1,
-        Actor::new("v17").unwrap(),
+        Actor::new("v19").unwrap(),
         Sensitivity::Public,
         TaskRunEvent::TaskRunCreated,
         1,
@@ -115,7 +115,7 @@ fn v17_taskrun() -> Connection {
     let digest = compute_integrity_digest_with_global_position(&event, 1, &payload).unwrap();
     connection.execute("INSERT INTO aggregate_streams (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) VALUES (1, ?1, 1, ?2, 1, 1)", params![id.as_bytes(), event_id.as_bytes()]).unwrap();
     connection.execute("INSERT INTO events (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, payload, integrity_digest, correlation_id, correlation_type, integrity_profile) VALUES (?1, 1, ?2, 1, 1, 1, 0, 1, NULL, ?3, ?4, ?5, ?6, ?7, ?2, 1, 1)", params![event_id.as_bytes(), id.as_bytes(), command.as_bytes(), event.idempotency_key().as_str().as_bytes(), event.actor().as_str().as_bytes(), payload, digest.as_bytes()]).unwrap();
-    apply_migrations_through_v17_for_test(&connection).unwrap();
+    apply_migrations_through_v19_for_test(&connection).unwrap();
     connection
 }
 

@@ -14,7 +14,7 @@
         RuntimeOperationalTelemetrySnapshotV1, TaskRunCommandAck, TaskRunCommandContext,
         TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
     };
-    use gocode_application::local_session::{LocalSessionService, bootstrap_proof_transcript};
+    use gocode_application::local_session::LocalSessionService;
     use gocode_application::ports::{
         ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
     };
@@ -26,7 +26,10 @@
         event::Sensitivity,
         id::{ConversationId, EventLogLineageId, TaskRunId},
     };
-    use gocode_store::{replay_store::ReplayStore, schema::apply_migrations};
+    use gocode_store::{
+        replay_store::ReplayStore,
+        schema::{ConnectionMode, apply_migrations, open_managed_connection},
+    };
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
     use tower::ServiceExt;
@@ -193,7 +196,11 @@
     }
 
     fn replay_state() -> ReplayHttpState {
-        let connection = rusqlite::Connection::open_in_memory().unwrap();
+        let connection = open_managed_connection(
+            std::path::Path::new(":memory:"),
+            ConnectionMode::Writer,
+        )
+        .unwrap();
         apply_migrations(&connection).unwrap();
         let binding = binding();
         let service = ReplayService::new(
@@ -217,10 +224,7 @@
 
     fn host() -> SecureLocalHttpHost {
         let binding = binding();
-        let service = Arc::new(Mutex::new(LocalSessionService::new(
-            binding.clone(),
-            [7; 32],
-        )));
+        let service = session_service(binding.clone());
         SecureLocalHttpHost::new(
             VerifiedLocalTls::from_verified_listener(),
             HealthState {
@@ -250,7 +254,7 @@
         telemetry: Option<OperationalTelemetryHttpState>,
     ) -> Result<SecureLocalHttpHost, SecureLocalHttpHostError> {
         let binding = binding_with_capabilities(capabilities);
-        let service = Arc::new(Mutex::new(LocalSessionService::new(binding.clone(), [7; 32])));
+        let service = session_service(binding.clone());
         SecureLocalHttpHost::new_with_operational_telemetry(
             VerifiedLocalTls::from_verified_listener(),
             HealthState {

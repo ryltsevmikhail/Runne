@@ -45,7 +45,7 @@ fn new_command_identity() -> Result<CommandIdentity, CliError> {
     CommandIdentity::new(command_id, command_id.to_string()).map_err(CliError::Api)
 }
 
-async fn run(arguments: Vec<OsString>) -> Result<String, CliError> {
+async fn run(arguments: Vec<OsString>, format: OutputFormat) -> Result<String, CliError> {
     let mut arguments = VecDeque::from(arguments);
     
     // Check for top-level --help/-h/--version/-V before any command dispatch
@@ -70,7 +70,7 @@ async fn run(arguments: Vec<OsString>) -> Result<String, CliError> {
     
     let command_token = pop_string(&mut arguments)?;
     
-    dispatch_command(command_token, profile_path, arguments, OutputFormat::Text).await
+    dispatch_command(command_token, profile_path, arguments, format).await
 }
 
 async fn dispatch_command(

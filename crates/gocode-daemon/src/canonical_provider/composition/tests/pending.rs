@@ -15,7 +15,10 @@ use gocode_store::provider::{
 
 use super::super::DaemonCanonicalOpenAiService;
 
-pub(super) async fn create(service: &DaemonCanonicalOpenAiService, started: TextGenerationReceipt) {
+pub(super) async fn create(
+    service: &DaemonCanonicalOpenAiService,
+    started: TextGenerationReceipt,
+) -> gocode_provider::DispatchAttemptId {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([1; 16]),
         ModelRef::new(
@@ -71,11 +74,18 @@ pub(super) async fn create(service: &DaemonCanonicalOpenAiService, started: Text
             stream_id: ProviderStreamId::from_bytes([3; 16]),
         })
         .unwrap();
+    let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
+    let redaction = ProviderEventRedactionBoundary::new(
+        service.tail_store.as_ref(),
+        service.scanner_store.as_ref(),
+        &matcher,
+    );
     let runtime = RuntimeProviderExecution::new(
         service.keyring.as_ref(),
         service.execution_store.as_ref(),
         service.profile.as_ref(),
         service.prohibited_content.as_ref(),
+        &redaction,
     );
     runtime
         .preflight_existing_active_key(service.runtime_authority_id, service.database_generation)
@@ -100,6 +110,7 @@ pub(super) async fn create(service: &DaemonCanonicalOpenAiService, started: Text
             .unwrap();
     }
     runtime.finalize_terminal_output(&context).unwrap();
+    context.attempt_id
 }
 
 fn events() -> Vec<ProviderStreamEvent> {
@@ -170,3 +181,6 @@ impl ProviderPort for FixtureProvider {
         Box::pin(async { unreachable!() })
     }
 }
+use gocode_runtime::provider_redaction::{
+    ProhibitedContentCredentialMatcher, ProviderEventRedactionBoundary,
+};

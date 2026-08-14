@@ -26,7 +26,16 @@ fn fixture(
     StoreTransaction,
 ) {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join(format!("{label}.sqlite"));
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let database = daemon.join(format!("{label}.sqlite"));
     let authority = RuntimeAuthorityId(format!("snapshot-binding-{label}"));
     let store =
         StoreTransaction::open(database.to_str().unwrap(), authority.clone(), guard()).unwrap();

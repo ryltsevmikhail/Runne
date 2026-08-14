@@ -8,6 +8,7 @@ use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
 };
 
+pub(super) use super::super::managed_test_connection;
 use super::super::*;
 pub(super) use super::snapshot::{Snapshot, assert_unchanged_except, snapshot, table_columns};
 
@@ -36,6 +37,7 @@ impl Harness {
         let profile_digest = *config.provider_activation.binding().profile_digest();
         let db_path = config.db_path.clone();
         let bootstrap = bootstrap(&config).unwrap();
+        gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
         let authority = bootstrap.authority_id;
         let generation = bootstrap.launch_generation;
         let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
@@ -78,6 +80,13 @@ impl Harness {
         &self,
         generation: u64,
     ) -> Arc<DaemonCanonicalOpenAiService> {
+        self.try_compose_at_generation(generation).await.unwrap()
+    }
+
+    pub(super) async fn try_compose_at_generation(
+        &self,
+        generation: u64,
+    ) -> Result<Arc<DaemonCanonicalOpenAiService>, DaemonError> {
         let effect =
             gocode_daemon_openai_effect::effect_from_loopback_fixture(reqwest::Client::new())
                 .unwrap()
@@ -89,8 +98,9 @@ impl Harness {
         });
         DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
             db_path: self.db_path.clone(),
-            dispatch_connection: rusqlite::Connection::open(&self.db_path).unwrap(),
-            execution_connection: rusqlite::Connection::open(&self.db_path).unwrap(),
+            dispatch_connection: managed_test_connection(&self.db_path),
+            execution_connection: managed_test_connection(&self.db_path),
+            credential_connection: managed_test_connection(&self.db_path),
             runtime_authority_id: self.authority,
             runtime_generation: generation,
             activation_provenance: self.provenance,
@@ -102,10 +112,10 @@ impl Harness {
                 effect,
                 Arc::clone(&self.keyring),
                 decorator,
+                Arc::new(crate::canonical_provider::credential_versions::fixture_native),
             ),
         })
         .await
-        .unwrap()
     }
 
     pub(super) fn issue_incomplete(
