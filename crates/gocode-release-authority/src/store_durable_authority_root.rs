@@ -68,7 +68,7 @@ impl DurableFixturePromotionAuthority {
         if fs::rename(temp, &self.path).is_err() {
             return Err(AuthorityError::DurableStateUnavailable);
         }
-        #[cfg(test)]
+        #[cfg(all(test, feature = "fixture-only"))]
         if self.take_publication_failpoint(
             crate::publication_effect_failpoint::PublicationEffectFailpoint::AfterRenameBeforeParentSync,
         ) {

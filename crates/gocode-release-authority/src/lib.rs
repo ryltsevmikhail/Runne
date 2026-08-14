@@ -1,5 +1,5 @@
 //! Fail-closed authority engine for post-RC0 release promotion.
-#[cfg(test)]
+#[cfg(all(test, feature = "fixture-only"))]
 extern crate self as gocode_release_authority;
 #[cfg(any(test, feature = "fixture-only"))]
 mod admission;
@@ -64,7 +64,7 @@ mod store_machine_rc2;
 mod store_memory;
 #[cfg(any(test, feature = "fixture-only"))]
 mod store_publication_effect;
-#[cfg(test)]
+#[cfg(all(test, feature = "fixture-only"))]
 mod store_publication_effect_fixture;
 #[cfg(all(test, feature = "fixture-only"))]
 mod store_publication_effect_fixture_crash_tests;
