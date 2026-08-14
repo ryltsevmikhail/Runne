@@ -169,6 +169,6 @@ impl DurableFixturePromotionAuthority {
     }
 }
 
-fn durable(_: crate::AuthorityError) -> PublicationEffectError {
+const fn durable(_: crate::AuthorityError) -> PublicationEffectError {
     PublicationEffectError::DurableStateUnavailable
 }
