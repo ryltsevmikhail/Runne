@@ -16,6 +16,7 @@ WORKFLOW = ROOT / ".github/workflows/desktop-qualification.yml"
 ANCHORS = (
     "docs/profiles/desktop-v1-capabilities-v1.json",
     "docs/profiles/desktop-v1-capabilities-v1.digest",
+    "docs/evidence/desktop-v1-capability-status-baseline-v2.json",
     "docs/evidence/desktop-v1-capability-status-v2.json",
     "docs/schemas/desktop-v1-capability-status-v2.schema.json",
     "contracts/gocode-ui-client-2/bundle.json",
