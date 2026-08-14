@@ -4,6 +4,7 @@ mod validated_reopen;
 mod validated_reopen_store;
 
 include!("l2_sqlite_split_parts/part_01.rs");
+include!("l2_sqlite_split_parts/part_11.rs");
 include!("l2_sqlite_split_parts/part_02.rs");
 include!("l2_sqlite_split_parts/part_03.rs");
 include!("l2_sqlite_split_parts/part_04.rs");

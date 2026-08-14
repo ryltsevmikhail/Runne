@@ -6,7 +6,6 @@ import re
 import subprocess
 import sys
 
-
 ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
     "gocode-desktop": {"gocode-api", "gocode-app-core", "gocode-platform-desktop"},
     "gocode-app-core": {

@@ -20,8 +20,8 @@ use gocode_application::fingerprint::CommandFingerprint;
 use gocode_application::ports::{
     AggregateScope, ApplicationCommandContext, CommandCommit, CommitError, CommitResult,
     ConversationCommit, ConversationRepository, EventStore, EventStoreError, IdempotencyScope,
-    LoadedStream, OperationTag, PrincipalId, ReceiptLookup, RuntimeAuthorityId,
-    StorageFailureKind, UnitOfWork,
+    LoadedStream, OperationTag, PrincipalId, ReceiptLookup, RuntimeAuthorityId, StorageFailureKind,
+    UnitOfWork,
 };
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_application::service::TaskRunService;
@@ -186,12 +186,14 @@ fn direct_taskrun_commit(
     let conversation_id = make_conv_id();
     let workspace_id = make_ws_id();
     let events = materialize_batch(
-        vec![TaskRun::decide_create(CreateTaskRun {
-            taskrun_id,
-            conversation_id,
-            workspace_id,
-        })
-        .unwrap()],
+        vec![
+            TaskRun::decide_create(CreateTaskRun {
+                taskrun_id,
+                conversation_id,
+                workspace_id,
+            })
+            .unwrap(),
+        ],
         &[
             format!("018f2e3a-7000-7000-8000-0000000000{event_byte:02x}")
                 .parse()
@@ -279,49 +281,4 @@ fn assert_no_conversation_commit_rows(db_path: &str) {
         )
         .unwrap();
     assert_eq!(counts, (0, 0, 0));
-}
-
-// ── Test 1: PRAGMA profile ───────────────────────────────────────────────
-
-#[test]
-fn test_pragma_profile() {
-    let database = validated_reopen::ValidatedTestDatabase::new("pragma");
-    let db_path = database.path().to_owned();
-    cleanup_db(&db_path);
-
-    let (_store, identity) = validated_reopen::initialize_store(
-        &db_path,
-        RuntimeAuthorityId("test-host".into()),
-        available_guard(),
-    )
-    .unwrap();
-
-    // Verify PRAGMAs via direct rusqlite connection
-    let conn = validated_reopen_store::open_validated_reader(&db_path, identity).unwrap();
-
-    let journal_mode: String = conn
-        .query_row("PRAGMA journal_mode;", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(journal_mode, "wal", "expected WAL journal mode");
-
-    let synchronous: i32 = conn
-        .query_row("PRAGMA synchronous;", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(synchronous, 2, "expected FULL synchronous (2)");
-
-    let fk: i32 = conn
-        .query_row("PRAGMA foreign_keys;", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(fk, 1, "expected foreign_keys = ON");
-
-    // fullfsync is macOS-only
-    #[cfg(target_os = "macos")]
-    {
-        let fullfsync: i32 = conn
-            .query_row("PRAGMA fullfsync;", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(fullfsync, 1, "expected fullfsync = 1 on macOS");
-    }
-
-    cleanup_db(&db_path);
 }
