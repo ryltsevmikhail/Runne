@@ -65,10 +65,16 @@ pub(super) fn assert_expected_terminal_recovery_delta(
     command_id: CommandId,
     started: &TextGenerationReceipt,
     allow_authority_renewal: bool,
+    allow_credential_rotation: bool,
 ) {
     let mut allowed = LIFECYCLE_TABLES.to_vec();
     if allow_authority_renewal {
         allowed.push("provider_runtime_authority_state");
+    }
+    if allow_credential_rotation {
+        allowed.push("provider_credential_versions");
+        allowed.push("provider_credential_provisions");
+        allowed.push("provider_credential_clock_high_water");
     }
     assert_unchanged_except(before, after, &allowed);
     let outbox_columns = table_columns(path, "provider_terminal_outbox");

@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[path = "support/provider_credential_fixture.rs"]
+mod provider_credential_fixture;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 

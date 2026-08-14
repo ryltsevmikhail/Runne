@@ -1,21 +1,10 @@
-
 #[tokio::test(flavor = "current_thread")]
 async fn uncertain_provider_effect_preserves_started_generation_for_reconciliation() {
-    let directory = tempfile::tempdir().unwrap();
-    let database_path = directory
-        .path()
-        .join("provider-uncertain.sqlite")
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let database = validated_reopen::ValidatedTestDatabase::new("provider-uncertain");
     let authority = RuntimeAuthorityId("provider-uncertain-test".into());
-    let store =
-        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
-    validated_reopen::seed_canonical_workspace(
-        &store,
-        "local-owner",
-        WORKSPACE_ID.parse().unwrap(),
-    );
+    let (store, _identity) =
+        validated_reopen::initialize_store(database.path(), authority.clone(), available_guard())
+            .unwrap();
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -98,21 +87,11 @@ async fn uncertain_provider_effect_preserves_started_generation_for_reconciliati
 
 #[tokio::test(flavor = "current_thread")]
 async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation() {
-    let directory = tempfile::tempdir().unwrap();
-    let database_path = directory
-        .path()
-        .join("provider-input-rejection.sqlite")
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let database = validated_reopen::ValidatedTestDatabase::new("provider-input-rejection");
     let authority = RuntimeAuthorityId("provider-input-rejection-test".into());
-    let store =
-        StoreTransaction::open(&database_path, authority.clone(), available_guard()).unwrap();
-    validated_reopen::seed_canonical_workspace(
-        &store,
-        "local-owner",
-        WORKSPACE_ID.parse().unwrap(),
-    );
+    let (store, _identity) =
+        validated_reopen::initialize_store(database.path(), authority.clone(), available_guard())
+            .unwrap();
     let taskrun_service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),

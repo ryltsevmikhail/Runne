@@ -12,18 +12,32 @@ pub fn apply_migrations_through_v15_for_test(conn: &Connection) -> SqliteResult<
     apply_migrations_internal(conn, 15)
 }
 
-/// Builds the released V16 boundary for V18 migration fixtures only.
+/// Builds the released V16 credential boundary for compatibility fixtures only.
 #[doc(hidden)]
 #[cfg(debug_assertions)]
 pub fn apply_migrations_through_v16_for_test(conn: &Connection) -> SqliteResult<()> {
     apply_migrations_internal(conn, 16)
 }
 
-/// Builds the locally-created V17 boundary for V18 migration fixtures only.
+/// Builds the released V17 bootstrap boundary for compatibility fixtures only.
 #[doc(hidden)]
 #[cfg(debug_assertions)]
 pub fn apply_migrations_through_v17_for_test(conn: &Connection) -> SqliteResult<()> {
     apply_migrations_internal(conn, 17)
+}
+
+/// Builds the V18 project/workspace boundary for replay fixtures only.
+#[doc(hidden)]
+#[cfg(debug_assertions)]
+pub fn apply_migrations_through_v18_for_test(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, 18)
+}
+
+/// Builds the locally-created V19 snapshot boundary for V20 fixtures only.
+#[doc(hidden)]
+#[cfg(debug_assertions)]
+pub fn apply_migrations_through_v19_for_test(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, 19)
 }
 
 fn apply_migrations_internal(conn: &Connection, target_version: i64) -> SqliteResult<()> {
@@ -35,7 +49,11 @@ fn apply_migrations_internal(conn: &Connection, target_version: i64) -> SqliteRe
         );",
     )?;
     let current_version: i64 = conn
-        .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |row| row.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get(0),
+        )
         .unwrap_or(0);
     apply_legacy_migrations(conn, current_version)?;
     apply_v12_and_later(conn, current_version, target_version, source_version)?;
@@ -55,7 +73,9 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         return Ok(0);
     }
     let version: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |row| row.get(0),
+        "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+        [],
+        |row| row.get(0),
     )?;
     let compatible = match version {
         0..=8 => true,
@@ -66,12 +86,16 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         13 => is_released_provider_v13(conn, version)?,
         14 => is_released_provider_v14(conn, version)?,
         15 => is_released_provider_v15(conn, version)?,
-        16 => project_workspace_schema::v16_matches(conn, version)?,
-        17 => replay_snapshot_schema::v17_matches(conn, version)?,
-        18 => replay_promotion_snapshot_schema::v18_matches(conn, version)?,
+        16 => is_released_provider_v16(conn, version)?,
+        17 => is_released_provider_v17(conn, version)?,
+        18 => project_workspace_schema::v18_matches(conn, version)?,
+        19 => replay_snapshot_schema::v19_matches(conn, version)?,
+        20 => replay_promotion_snapshot_schema::v20_matches(conn, version)?,
         _ => false,
     };
-    compatible.then_some(version).ok_or(rusqlite::Error::InvalidQuery)
+    compatible
+        .then_some(version)
+        .ok_or(rusqlite::Error::InvalidQuery)
 }
 
 fn apply_legacy_migrations(conn: &Connection, version: i64) -> SqliteResult<()> {
@@ -89,8 +113,14 @@ fn apply_legacy_migrations(conn: &Connection, version: i64) -> SqliteResult<()> 
         transaction.commit()?;
     }
     for (marker, migration) in [
-        (3, MIGRATION_V3), (4, MIGRATION_V4), (5, MIGRATION_V5), (6, MIGRATION_V6),
-        (7, MIGRATION_V7), (8, MIGRATION_V8), (9, MIGRATION_V9), (10, MIGRATION_V10),
+        (3, MIGRATION_V3),
+        (4, MIGRATION_V4),
+        (5, MIGRATION_V5),
+        (6, MIGRATION_V6),
+        (7, MIGRATION_V7),
+        (8, MIGRATION_V8),
+        (9, MIGRATION_V9),
+        (10, MIGRATION_V10),
         (11, MIGRATION_V11),
     ] {
         if version < marker {
@@ -124,19 +154,27 @@ fn apply_v12_and_later(
         transaction.commit()?;
     }
     if source_version < 14 {
-        provider_schema::apply_v14_migration(conn, |transaction| install_missing_v12_fence_triggers(transaction))?;
+        provider_schema::apply_v14_migration(conn, |transaction| {
+            install_missing_v12_fence_triggers(transaction)
+        })?;
     }
     if source_version < 15 {
         provider_schema::apply_v15_migration(conn)?;
     }
     if source_version < 16 && target_version >= 16 {
-        project_workspace_schema::apply_v16_migration(conn)?;
+        apply_v16_migration(conn)?;
     }
-    if source_version < 17 && target_version == 17 {
-        replay_snapshot_schema::apply_v17_migration(conn)?;
+    if source_version < 17 && target_version >= 17 {
+        apply_v17_migration(conn)?;
     }
     if source_version < 18 && target_version >= 18 {
-        replay_promotion_snapshot_schema::apply_v18_migration(conn, original_version == 17)?;
+        project_workspace_schema::apply_v18_migration(conn)?;
+    }
+    if source_version < 19 && target_version == 19 {
+        replay_snapshot_schema::apply_v19_migration(conn)?;
+    }
+    if source_version < 20 && target_version >= 20 {
+        replay_promotion_snapshot_schema::apply_v20_migration(conn, original_version == 19)?;
     }
     Ok(())
 }

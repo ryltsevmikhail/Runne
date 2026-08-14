@@ -11,19 +11,22 @@ use thiserror::Error;
 
 mod provider_credential;
 mod provider_journal_key;
+mod provider_recovery;
 pub(crate) mod security_anchor;
 #[cfg(feature = "test-support")]
 pub mod test_support;
 
 pub use provider_credential::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
-    ProviderCredentialStore,
+    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
+    PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
+pub use provider_recovery::NativeWithheldTailStore;
 pub use security_anchor::{
     MAX_SEALED_TRANSACTION_TAG_BYTES, SealedTransactionTag, SecurityAnchorV1, SecurityProfileLock,
     StoredSecurityAnchor,
@@ -81,6 +84,8 @@ pub enum SecureStoreError {
     CredentialEnrollmentIncomplete,
     #[error("provider credential ACL migration is incomplete")]
     CredentialMigrationIncomplete,
+    #[error("provider credential source revision is unavailable")]
+    ProviderCredentialSourceRevisionUnavailable,
 }
 
 // ---------------------------------------------------------------------------

@@ -91,18 +91,23 @@ fn second_taskrun_id() -> TaskRunId {
 }
 
 struct TestDb {
+    _root: tempfile::TempDir,
     path: PathBuf,
 }
 
 impl TestDb {
     fn new(label: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "gocode-routing-{label}-{}-{}.sqlite",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("test")
-        ));
-        let _ = fs::remove_file(&path);
-        Self { path }
+        let root = tempfile::tempdir().unwrap();
+        let daemon = root.path().join("gocode-daemon");
+        fs::create_dir(&daemon).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            fs::set_permissions(&daemon, fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let path = daemon.join(format!("{label}.sqlite"));
+        Self { _root: root, path }
     }
 
     fn path(&self) -> &Path {

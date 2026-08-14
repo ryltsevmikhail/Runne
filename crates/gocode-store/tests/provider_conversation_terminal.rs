@@ -46,9 +46,15 @@ fn context(command: &str, key: &str) -> ApplicationCommandContext {
 #[test]
 fn production_terminal_application_reconstructs_started_command_and_finishes_once() {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory
-        .path()
-        .join("provider-conversation-terminal.sqlite");
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let database = daemon.join("provider-conversation-terminal.sqlite");
     let authority = RuntimeAuthorityId("provider-conversation-terminal".into());
     let store = StoreTransaction::open(
         database.to_str().unwrap(),
@@ -175,7 +181,7 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
              DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
              DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
              DROP TABLE IF EXISTS aggregate_state_snapshots;
-             DELETE FROM schema_version WHERE version >= 17;",
+             DELETE FROM schema_version WHERE version >= 19;",
         )
         .unwrap();
     apply_migrations(&connection).unwrap();

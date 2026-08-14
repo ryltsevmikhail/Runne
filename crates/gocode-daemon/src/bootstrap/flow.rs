@@ -115,7 +115,7 @@ fn bootstrap_inner(
             &runtime_dir,
         )
     } else {
-        schema::open_with_pragmas(&config.db_path)
+        schema::open_managed_connection(&db_path, schema::ConnectionMode::Writer)
     }
     .map_err(|e| DaemonError::Bootstrap(format!("open DB: {e}")))?;
 
@@ -133,8 +133,6 @@ fn bootstrap_inner(
     // ── Step 11: schema migration ───────────────────────────────────
     schema::apply_migrations(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("schema migration: {e}")))?;
-    schema::run_startup_gates(&db_conn, &config.db_path)
-        .map_err(|e| DaemonError::Bootstrap(format!("startup integrity: {e}")))?;
     // ── Step 12: authority ID ───────────────────────────────────────
     let (authority_id, db_authority_after) = acquire_authority(
         db_existed,
@@ -210,6 +208,9 @@ fn bootstrap_inner(
     // ── Step 14: startup purge ──────────────────────────────────────
     schema::purge_replay_subscriptions(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("startup purge: {e}")))?;
+    schema::readiness_from_managed(&db_conn)
+        .and_then(|_| schema::publication_from_managed(&db_conn).map(|_| ()))
+        .map_err(|e| DaemonError::Bootstrap(format!("publish bootstrap database: {e}")))?;
 
     // ── Step 15: recovery is informational; caller may invoke
     //    `crate::recovery::enumerate_recovery_tasks` separately. ──────
@@ -233,11 +234,14 @@ fn open_existing_bootstrap_database(
     metadata: &MetadataSnapshot,
     locks: &mut LockSet,
     runtime_dir: &Path,
-) -> rusqlite::Result<rusqlite::Connection> {
+) -> rusqlite::Result<schema::ManagedConnection> {
     let path = Path::new(&config.db_path);
     #[cfg(unix)]
     {
-        schema::open_existing_with_pragmas_validated(path, |connection| {
+        schema::reopen_managed_connection_validated(
+            path,
+            schema::ConnectionMode::ValidatedReopen,
+            |connection| {
             if let Some(protected) = protected {
                 validate_protected_bootstrap_connection(
                     config,
@@ -264,23 +268,28 @@ fn open_existing_bootstrap_database(
             locks
                 .acquire_authority_lock(&authority_id, runtime_dir)
                 .map_err(|_| rusqlite::Error::InvalidQuery)
-        })
+            },
+        )
     }
 
     #[cfg(not(unix))]
     let _ = (protected, locks, runtime_dir);
     #[cfg(not(unix))]
-    match schema::open_with_pragmas(&config.db_path) {
+    match schema::open_managed_connection(path, schema::ConnectionMode::Writer) {
         Ok(connection) => Ok(connection),
         Err(default_error) => match metadata {
             MetadataSnapshot::Valid { authority_id } => {
-                schema::open_existing_with_pragmas_validated(path, |connection| {
+                schema::reopen_managed_connection_validated(
+                    path,
+                    schema::ConnectionMode::ValidatedReopen,
+                    |connection| {
                     if schema::read_authority_id(connection)? == Some(*authority_id) {
                         Ok(())
                     } else {
                         Err(rusqlite::Error::InvalidQuery)
                     }
-                })
+                    },
+                )
             }
             MetadataSnapshot::Empty | MetadataSnapshot::Malformed => Err(default_error),
         },

@@ -50,7 +50,15 @@ impl ReplayStore {
         lineage_id: &EventLogLineageId,
         server_secret: &[u8; 32],
         delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
-    ) -> Result<(ReplaySession, Vec<ReplayEvent>, ReplayEvent, gocode_application::ports::ReplayAcceptedPromotionV2), ReplayError> {
+    ) -> Result<
+        (
+            ReplaySession,
+            Vec<ReplayEvent>,
+            ReplayEvent,
+            gocode_application::ports::ReplayAcceptedPromotionV2,
+        ),
+        ReplayError,
+    > {
         let request = InternalResumeFacts::from(sealed_request);
         let conn = Arc::clone(&self.conn);
         let lineage_id = *lineage_id;
@@ -59,13 +67,15 @@ impl ReplayStore {
             let mut conn = conn
                 .lock()
                 .map_err(|error| ReplayError::Storage(format!("lock poisoned: {error}")))?;
-            resume_session_from_internal_facts(
-                &mut conn,
-                request,
-                &lineage_id,
-                &server_secret,
-                delivery_guard,
-            )
+            conn.with_connection_mut(|connection| {
+                resume_session_from_internal_facts(
+                    connection,
+                    request,
+                    &lineage_id,
+                    &server_secret,
+                    delivery_guard,
+                )
+            })
         })
         .await
         .map_err(|error| ReplayError::Storage(format!("V2 resume join: {error}")))?
@@ -80,7 +90,13 @@ fn validate_v2_baseline(
     server_secret: &[u8; 32],
     retained_floor: i64,
     high_water: i64,
-) -> Result<(ReplayEvent, gocode_application::ports::ReplayAcceptedPromotionV2), ReplayError> {
+) -> Result<
+    (
+        ReplayEvent,
+        gocode_application::ports::ReplayAcceptedPromotionV2,
+    ),
+    ReplayError,
+> {
     let next_global_position: i64 = tx
         .query_row(
             "SELECT next_global_position FROM event_log_state WHERE singleton = 1",
@@ -181,13 +197,22 @@ fn validate_v2_baseline(
         params![request.aggregate_type, request.aggregate_id.as_slice()],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     ).map_err(|error| ReplayError::Storage(format!("read V2 accepted promotion: {error}")))?;
-    let digest: [u8; 32] = digest.try_into().map_err(|_| ReplayError::Integrity("invalid accepted V2 promotion digest".to_owned()))?;
+    let digest: [u8; 32] = digest
+        .try_into()
+        .map_err(|_| ReplayError::Integrity("invalid accepted V2 promotion digest".to_owned()))?;
     let accepted = gocode_application::ports::ReplayAcceptedPromotionV2::from_storage(
         gocode_application::ports::ReplayAcceptedPromotionV2Parts {
-            codec: u8::try_from(codec).map_err(|_| ReplayError::Integrity("invalid accepted V2 promotion codec".to_owned()))?,
-            bytes, digest, sequence: snapshot.event_sequence, version: snapshot.aggregate_version,
-            global_position: snapshot.head_global_position, head_event_id: *snapshot.head_event_id.as_bytes(),
-            head_integrity_digest: *snapshot.head_integrity_digest.as_bytes(), captured_high_water: high_water,
+            codec: u8::try_from(codec).map_err(|_| {
+                ReplayError::Integrity("invalid accepted V2 promotion codec".to_owned())
+            })?,
+            bytes,
+            digest,
+            sequence: snapshot.event_sequence,
+            version: snapshot.aggregate_version,
+            global_position: snapshot.head_global_position,
+            head_event_id: *snapshot.head_event_id.as_bytes(),
+            head_integrity_digest: *snapshot.head_integrity_digest.as_bytes(),
+            captured_high_water: high_water,
         },
     )?;
     Ok((baseline, accepted))

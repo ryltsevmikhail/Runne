@@ -133,3 +133,15 @@ pub(super) fn native_journal_keyring(authority: [u8; 16]) -> Arc<dyn ProviderJou
 pub(super) fn native_journal_keyring(_authority: [u8; 16]) -> Arc<dyn ProviderJournalKeyring> {
     Arc::new(gocode_secure_store::StubStore::new())
 }
+
+#[cfg(target_os = "macos")]
+pub(super) fn native_withheld_tail_store(authority: [u8; 16]) -> Arc<NativeWithheldTailStore> {
+    Arc::new(gocode_secure_store::MacOsKeychainStore::new(hex::encode(
+        authority,
+    )))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(super) fn native_withheld_tail_store(_authority: [u8; 16]) -> Arc<NativeWithheldTailStore> {
+    Arc::new(gocode_secure_store::StubStore::new())
+}

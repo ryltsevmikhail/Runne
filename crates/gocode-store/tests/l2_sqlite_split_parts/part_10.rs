@@ -32,7 +32,11 @@ fn migrated_v16_and_v17_taskruns_refresh_both_snapshot_projections_on_queue() {
 }
 
 fn seed_legacy_taskrun(db_path: &str, taskrun_id: TaskRunId, marker: i64) {
-    let connection = gocode_store::schema::open_with_pragmas(db_path).unwrap();
+    let connection = gocode_store::schema::open_managed_connection(
+        std::path::Path::new(db_path),
+        gocode_store::schema::ConnectionMode::Writer,
+    )
+    .unwrap();
     gocode_store::schema::apply_migrations_through_v16_for_test(&connection).unwrap();
     let event_id: EventId = if marker == 16 {
         "018f2e3a-7000-7000-8000-000000000402".parse().unwrap()
@@ -45,16 +49,26 @@ fn seed_legacy_taskrun(db_path: &str, taskrun_id: TaskRunId, marker: i64) {
         "018f2e3a-7000-7000-8000-000000000413".parse().unwrap()
     };
     let event = gocode_domain::event::EventEnvelope::from_parts(
-        event_id, gocode_domain::id::AggregateId::TaskRun(taskrun_id),
-        gocode_domain::id::AggregateId::TaskRun(taskrun_id), None, command_id,
-        IdempotencyKey::new(format!("legacy-v{marker}")).unwrap(), 1,
-        Actor::new("legacy-v18-refresh").unwrap(), Sensitivity::Public,
-        gocode_domain::task_run::TaskRunEvent::TaskRunCreated, 1,
+        event_id,
+        gocode_domain::id::AggregateId::TaskRun(taskrun_id),
+        gocode_domain::id::AggregateId::TaskRun(taskrun_id),
+        None,
+        command_id,
+        IdempotencyKey::new(format!("legacy-v{marker}")).unwrap(),
+        1,
+        Actor::new("legacy-v18-refresh").unwrap(),
+        Sensitivity::Public,
+        gocode_domain::task_run::TaskRunEvent::TaskRunCreated,
+        1,
         gocode_domain::timestamp::Timestamp::from_unix_micros(1),
         gocode_domain::id::IntegrityDigest::from_bytes([0; 32]),
     );
-    let payload = gocode_store::codec::TaskRunEventCodec.encode(event.payload()).unwrap();
-    let digest = gocode_store::integrity::compute_integrity_digest_with_global_position(&event, 1, &payload).unwrap();
+    let payload = gocode_store::codec::TaskRunEventCodec
+        .encode(event.payload())
+        .unwrap();
+    let digest =
+        gocode_store::integrity::compute_integrity_digest_with_global_position(&event, 1, &payload)
+            .unwrap();
     connection.execute("INSERT INTO aggregate_streams (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) VALUES (1, ?1, 1, ?2, 1, 1)", rusqlite::params![taskrun_id.as_bytes(), event_id.as_bytes()]).unwrap();
     connection.execute("INSERT INTO events (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, payload, integrity_digest, correlation_id, correlation_type, integrity_profile) VALUES (?1, 1, ?2, 1, 1, 1, 0, 1, NULL, ?3, ?4, ?5, ?6, ?7, ?2, 1, 1)", rusqlite::params![event_id.as_bytes(), taskrun_id.as_bytes(), command_id.as_bytes(), event.idempotency_key().as_str().as_bytes(), event.actor().as_str().as_bytes(), payload, digest.as_bytes()]).unwrap();
     connection

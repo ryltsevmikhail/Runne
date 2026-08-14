@@ -20,7 +20,9 @@ use gocode_store::integrity::{
     compute_integrity_digest_v2_with_global_position, compute_integrity_digest_with_global_position,
 };
 use gocode_store::replay_store::ReplayStore;
-use gocode_store::schema::apply_migrations;
+use gocode_store::schema::{
+    ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+};
 use rusqlite::Connection;
 use tempfile::TempDir;
 
@@ -30,6 +32,13 @@ const AGGREGATE: [u8; 16] = [
 ];
 const LINEAGE: [u8; 16] = [0xBB; 16];
 const SECRET: [u8; 32] = [0xCC; 32];
+
+fn managed_memory() -> ManagedConnection {
+    let connection =
+        open_managed_connection(std::path::Path::new(":memory:"), ConnectionMode::Writer).unwrap();
+    apply_migrations(&connection).unwrap();
+    connection
+}
 
 #[derive(Clone)]
 struct MutableAuthorization {

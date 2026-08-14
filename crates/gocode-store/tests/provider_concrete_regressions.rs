@@ -14,11 +14,14 @@ use gocode_provider::{
     ProviderStreamId,
 };
 use gocode_store::provider::{
-    PreparedProviderRecord, ProviderCoordinatorOutcome, ProviderEffectPort,
-    ProviderEffectStartReceipt, ProviderReadyEffect, ProviderRuntimeAuthorityConfig,
+    CredentialDispatchBinding, PreparedProviderRecord, ProviderCoordinatorOutcome,
+    ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect,
+    ProviderRuntimeAuthorityConfig, SqliteProviderCredentialLifecycleStore,
     SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 
+#[path = "support/provider_credential_fixture.rs"]
+mod provider_credential_fixture;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -105,6 +108,7 @@ impl ProviderEffectPort for Provider {
     fn stage_effect(
         &self,
         request: DispatchRequest,
+        _credential: CredentialDispatchBinding,
     ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
         Box::pin(async move { Ok(Box::new(Ready(request)) as Box<dyn ProviderReadyEffect>) })
     }
@@ -152,11 +156,13 @@ fn fixture() -> (
     validated_reopen::ProviderTestDatabase,
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
+    SqliteProviderCredentialLifecycleStore,
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-concrete-regressions");
     let dispatch = database.dispatch();
     let execution = database.execution();
+    let credential = provider_credential_fixture::credential(&database, "fixture", [1; 16], 1, 100);
     execution
         .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
@@ -197,6 +203,7 @@ fn fixture() -> (
         database,
         dispatch,
         execution,
+        credential,
         ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
@@ -216,7 +223,7 @@ fn fixture() -> (
 
 #[test]
 fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
-    let (_directory, dispatch, execution, request) = fixture();
+    let (_directory, dispatch, execution, credential, request) = fixture();
     let v1 =
         PreparedRequest::from_call_for_digest_version(&request.call, ProviderCallDigestVersion::V1)
             .unwrap();
@@ -234,8 +241,14 @@ fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
         mode: GuardMode::Allowed,
         saw_marker: Mutex::new(false),
     };
-    let coordinator =
-        SqliteProviderDispatchCoordinator::new(&dispatch, &execution, &provider, &provider, &guard);
+    let coordinator = SqliteProviderDispatchCoordinator::new(
+        &dispatch,
+        &execution,
+        gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        &provider,
+        &provider,
+        &guard,
+    );
     assert!(matches!(
         block_on(coordinator.dispatch(request.clone())),
         Ok(ProviderCoordinatorOutcome::Streaming { .. })
@@ -253,14 +266,20 @@ fn released_v1_prepared_replay_uses_stored_domain_without_redispatch() {
 
 #[test]
 fn maybe_dispatched_is_durable_uncertain_and_never_retries() {
-    let (_directory, dispatch, execution, request) = fixture();
+    let (_directory, dispatch, execution, credential, request) = fixture();
     let provider = Provider::new(Response::MaybeDispatched);
     let guard = Guard {
         mode: GuardMode::Allowed,
         saw_marker: Mutex::new(false),
     };
-    let coordinator =
-        SqliteProviderDispatchCoordinator::new(&dispatch, &execution, &provider, &provider, &guard);
+    let coordinator = SqliteProviderDispatchCoordinator::new(
+        &dispatch,
+        &execution,
+        gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        &provider,
+        &provider,
+        &guard,
+    );
     assert_eq!(
         block_on(coordinator.dispatch(request.clone())).unwrap(),
         ProviderCoordinatorOutcome::Uncertain

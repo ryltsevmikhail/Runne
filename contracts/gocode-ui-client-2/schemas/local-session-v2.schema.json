@@ -15,17 +15,27 @@
           "pattern": "^[A-Za-z0-9_-]+$",
           "type": "string"
         },
-        "proof": {
+        "finalProof": {
           "maxLength": 43,
           "minLength": 43,
           "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "keyVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "wireVersion": {
+          "const": "3",
           "type": "string"
         }
       },
       "required": [
         "authority",
         "challengeId",
-        "proof"
+        "finalProof",
+        "keyVersion",
+        "wireVersion"
       ],
       "type": "object"
     },
@@ -37,14 +47,24 @@
           "minimum": 1,
           "type": "integer"
         },
+        "keyVersion": {
+          "const": 1,
+          "type": "integer"
+        },
         "sessionId": {
           "pattern": "^[0-9a-f]{32}$",
+          "type": "string"
+        },
+        "wireVersion": {
+          "const": "3",
           "type": "string"
         }
       },
       "required": [
         "expiresAtMonotonicMillis",
-        "sessionId"
+        "keyVersion",
+        "sessionId",
+        "wireVersion"
       ],
       "type": "object"
     },
@@ -57,16 +77,38 @@
           "pattern": "^[A-Za-z0-9_-]+$",
           "type": "string"
         },
-        "serverNonce": {
+        "expiry": {
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{6}Z$",
+          "type": "string"
+        },
+        "keyVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "notBefore": {
+          "format": "date-time",
+          "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{6}Z$",
+          "type": "string"
+        },
+        "preallocationProof": {
           "maxLength": 43,
           "minLength": 43,
           "pattern": "^[A-Za-z0-9_-]+$",
+          "type": "string"
+        },
+        "wireVersion": {
+          "const": "3",
           "type": "string"
         }
       },
       "required": [
         "clientNonce",
-        "serverNonce"
+        "expiry",
+        "keyVersion",
+        "notBefore",
+        "preallocationProof",
+        "wireVersion"
       ],
       "type": "object"
     },
@@ -79,21 +121,31 @@
           "pattern": "^[A-Za-z0-9_-]+$",
           "type": "string"
         },
+        "keyVersion": {
+          "const": 1,
+          "type": "integer"
+        },
         "serverNonce": {
           "maxLength": 43,
           "minLength": 43,
           "pattern": "^[A-Za-z0-9_-]+$",
           "type": "string"
+        },
+        "wireVersion": {
+          "const": "3",
+          "type": "string"
         }
       },
       "required": [
         "challengeId",
-        "serverNonce"
+        "keyVersion",
+        "serverNonce",
+        "wireVersion"
       ],
       "type": "object"
     }
   },
-  "$id": "gocode://schemas/local-session-v1",
+  "$id": "gocode://schemas/local-session-v2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -116,6 +168,6 @@
     "challengeRequest",
     "challengeResponse"
   ],
-  "title": "Local Session V1 Golden Exchange",
+  "title": "Local Session V2 Golden Exchange",
   "type": "object"
 }

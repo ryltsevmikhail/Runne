@@ -150,9 +150,15 @@ pub struct AuthenticatedReplayResumeContextV2 {
     wall_clock: Arc<dyn Fn() -> Result<u64, LocalSessionError> + Send + Sync>,
 }
 
-/// In-memory bounded proof and authority service.
+/// Bounded local-session authority service.
+///
+/// The transitional challenge path is memory-only. Bootstrap-v3 reservation,
+/// replay, tombstone, attempt-fence, and clock state is delegated to the
+/// injected [`BootstrapReservationStore`].
 pub struct LocalSessionService {
     binding: RuntimeSessionBinding,
+    launch_authority_id: [u8; 16],
+    executable_sha256: [u8; 32],
     bootstrap_secret: Option<Zeroizing<[u8; 32]>>,
     bootstrap_expires_at: Option<Duration>,
     bootstrap_policy: BootstrapPolicy,
@@ -162,8 +168,16 @@ pub struct LocalSessionService {
     authorization_epoch: u64,
     sensitivity_ceiling: Sensitivity,
     trusted_clock_origin: std::time::Instant,
+    reservation_store: Arc<dyn BootstrapReservationStore>,
 }
 
+mod bootstrap_reservation_store;
+mod bootstrap_v3;
+mod bootstrap_v3_transcript;
+pub use bootstrap_reservation_store::*;
+pub use bootstrap_v3::*;
+
+include!("local_session/service_constructors.rs");
 include!("local_session/service.rs");
 include!("local_session/service_replay_issuer.rs");
 include!("local_session/transcript.rs");

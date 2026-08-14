@@ -2,7 +2,7 @@ impl ReplayStore {
     /// Create a new `ReplayStore` from an existing SQLite connection.
     ///
     /// The connection must contain the `_replay_subscriptions` table.
-    pub fn new(conn: Connection) -> Self {
+    pub fn new(conn: ManagedConnection) -> Self {
         Self {
             conn: Arc::new(Mutex::new(conn)),
         }

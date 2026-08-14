@@ -41,6 +41,8 @@ fn session_peer_from_ready(
         origin,
         certificate_der: ready.certificate_der().to_vec(),
         certificate_sha256: *ready.certificate_sha256(),
+        executable_sha256: *ready.executable().executable_sha256(),
+        launch_authority_id: request.launch_authority_id(),
         authority_id: *stable.authority_id(),
         principal_id: stable.principal_id().to_owned(),
         event_log_lineage_id: uuid::Uuid::from_bytes(*stable.lineage_id()),
@@ -62,12 +64,15 @@ pub async fn connect(
         origin,
         certificate_der,
         certificate_sha256,
+        executable_sha256,
         bootstrap_secret_path,
+        launch_authority_id,
         authority_id,
         principal_id,
         event_log_lineage_id,
         daemon_instance_id,
         launch_generation,
+        session_id,
         schema_hash,
         capabilities,
         capability_digest,
@@ -78,12 +83,14 @@ pub async fn connect(
             origin,
             certificate_der,
             certificate_sha256,
+            executable_sha256,
+            launch_authority_id,
             authority_id,
             principal_id,
             event_log_lineage_id,
             daemon_instance_id,
             launch_generation,
-            expected_session_id: None,
+            expected_session_id: Some(session_id),
             schema_hash,
             capabilities,
             capability_digest,
@@ -117,66 +124,17 @@ async fn connect_with_peer(
         .build()
         .map_err(|_| RuntimeTransportError::Unavailable)?;
 
-    let mut client_nonce = [0; 32];
-    let mut requested_server_nonce = [0; 32];
-    OsRng.fill_bytes(&mut client_nonce);
-    OsRng.fill_bytes(&mut requested_server_nonce);
-    let challenge_body = serde_json::to_vec(&ChallengeRequest {
-        client_nonce: URL_SAFE_NO_PAD.encode(client_nonce),
-        server_nonce: URL_SAFE_NO_PAD.encode(requested_server_nonce),
-    })
-    .map_err(|_| incompatible())?;
-    let challenge_response = client
-        .post(format!("{}/v1/local-session/challenges", profile.origin))
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .body(challenge_body)
-        .send()
-        .await
-        .map_err(|_| RuntimeTransportError::PeerIdentityMismatch)?;
-    let challenge: ChallengeResponse = read_json(challenge_response).await?;
-    let challenge_id = decode_16(&challenge.challenge_id)?;
-    let server_nonce = decode_32(&challenge.server_nonce)?;
-    if server_nonce != requested_server_nonce || challenge_id != server_nonce[..16] {
-        return Err(incompatible());
-    }
+    verify_pinned_peer(&client, &profile.origin).await?;
 
-    // The bootstrap secret is deliberately opened only after a pinned TLS
-    // response has authenticated the peer that issued this challenge.
+    // The pinned root and HTTPS-only client bind the request to the verified
+    // local peer before any bootstrap material can leave this process.
     let bootstrap_secret = match bootstrap_material {
         BootstrapMaterial::ExternalPath(path) => Zeroizing::new(read_bootstrap_secret(&path)?),
         BootstrapMaterial::Protected(secret) => secret,
     };
-    let transcript = Zeroizing::new(proof_transcript(&profile, server_nonce, client_nonce));
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(bootstrap_secret.as_ref()).map_err(|_| incompatible())?;
-    mac.update(&transcript);
-    let proof = Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()));
-    let mut authority = Zeroizing::new([0; 32]);
-    while *authority == [0; 32] {
-        OsRng.fill_bytes(authority.as_mut());
-    }
-    let authenticate_body = serde_json::to_vec(&AuthenticateRequest {
-        challenge_id: URL_SAFE_NO_PAD.encode(challenge_id),
-        proof: URL_SAFE_NO_PAD.encode(proof.as_ref()),
-        authority: URL_SAFE_NO_PAD.encode(authority.as_ref()),
-    })
-    .map_err(|_| incompatible())?;
-    let authenticate_response = client
-        .post(format!("{}/v1/local-session/authenticate", profile.origin))
-        .header(ACCEPT, "application/json")
-        .header(CONTENT_TYPE, "application/json")
-        .body(authenticate_body)
-        .send()
-        .await
-        .map_err(|_| RuntimeTransportError::Unavailable)?;
-    let authenticated: AuthenticateResponse = read_json(authenticate_response).await?;
-    let issued_session_id = decode_lower_hex_16(&authenticated.session_id)?;
-    if authenticated.expires_at_monotonic_millis == 0 || issued_session_id == [0; 16] {
-        return Err(incompatible());
-    }
+    let (credential, issued_session_id) =
+        authenticate_bootstrap(&client, &profile, bootstrap_secret).await?;
 
-    let credential = RuntimeCredential::from_local_session(*authority);
     let profile_response = client
         .get(format!("{}/v1/runtime/profile", profile.origin))
         .header(ACCEPT, "application/json")
@@ -202,4 +160,87 @@ async fn connect_with_peer(
             )
         }
     })
+}
+
+async fn authenticate_bootstrap(
+    client: &reqwest::Client,
+    profile: &SessionPeer,
+    bootstrap_secret: Zeroizing<[u8; 32]>,
+) -> Result<(RuntimeCredential, [u8; 16]), LocalRuntimeConnectError> {
+    let mut client_nonce = [0; 32];
+    while client_nonce == [0; 32] {
+        OsRng.fill_bytes(&mut client_nonce);
+    }
+    let window = BootstrapWindow::new(client_nonce)?;
+    let preallocation = Zeroizing::new(preallocation_transcript(profile, &window)?);
+    let mut preallocation_mac =
+        Hmac::<Sha256>::new_from_slice(bootstrap_secret.as_ref()).map_err(|_| incompatible())?;
+    preallocation_mac.update(&preallocation);
+    let challenge_body = serde_json::to_vec(&ChallengeRequest {
+        wire_version: wire_version(),
+        key_version: key_version(),
+        client_nonce: URL_SAFE_NO_PAD.encode(window.client_nonce),
+        not_before: window.not_before.clone(),
+        expiry: window.expiry.clone(),
+        preallocation_proof: URL_SAFE_NO_PAD.encode(preallocation_mac.finalize().into_bytes()),
+    })
+    .map_err(|_| incompatible())?;
+    let challenge_response = client
+        .post(format!("{}/v1/local-session/challenges", profile.origin))
+        .header(ACCEPT, "application/json")
+        .header(CONTENT_TYPE, "application/json")
+        .body(challenge_body)
+        .send()
+        .await
+        .map_err(|_| RuntimeTransportError::PeerIdentityMismatch)?;
+    let challenge: ChallengeResponse = read_json(challenge_response).await?;
+    let challenge_id = decode_16(&challenge.challenge_id)?;
+    let server_nonce = decode_32(&challenge.server_nonce)?;
+    if challenge.wire_version != wire_version()
+        || challenge.key_version != key_version()
+        || challenge_id == [0; 16]
+        || server_nonce == [0; 32]
+    {
+        return Err(incompatible());
+    }
+
+    let transcript = Zeroizing::new(final_transcript(profile, &window, server_nonce)?);
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(bootstrap_secret.as_ref()).map_err(|_| incompatible())?;
+    mac.update(&transcript);
+    let proof = Zeroizing::new(<[u8; 32]>::from(mac.finalize().into_bytes()));
+    let mut authority = Zeroizing::new([0; 32]);
+    while *authority == [0; 32] {
+        OsRng.fill_bytes(authority.as_mut());
+    }
+    let authenticate_body = serde_json::to_vec(&AuthenticateRequest {
+        wire_version: wire_version(),
+        key_version: key_version(),
+        challenge_id: URL_SAFE_NO_PAD.encode(challenge_id),
+        final_proof: URL_SAFE_NO_PAD.encode(proof.as_ref()),
+        authority: URL_SAFE_NO_PAD.encode(authority.as_ref()),
+    })
+    .map_err(|_| incompatible())?;
+    let authenticate_response = client
+        .post(format!("{}/v1/local-session/authenticate", profile.origin))
+        .header(ACCEPT, "application/json")
+        .header(CONTENT_TYPE, "application/json")
+        .body(authenticate_body)
+        .send()
+        .await
+        .map_err(|_| RuntimeTransportError::Unavailable)?;
+    let authenticated: AuthenticateResponse = read_json(authenticate_response).await?;
+    let issued_session_id = decode_lower_hex_16(&authenticated.session_id)?;
+    if authenticated.wire_version != wire_version()
+        || authenticated.key_version != key_version()
+        || authenticated.expires_at_monotonic_millis == 0
+        || issued_session_id == [0; 16]
+    {
+        return Err(incompatible());
+    }
+
+    Ok((
+        RuntimeCredential::from_local_session(*authority),
+        issued_session_id,
+    ))
 }

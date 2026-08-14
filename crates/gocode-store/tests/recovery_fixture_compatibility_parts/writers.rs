@@ -27,7 +27,15 @@ fn context(command: &str, key: &str) -> ApplicationCommandContext {
 #[test]
 fn current_writers_emit_only_taskrun_v1_and_conversation_v2() {
     let directory = tempfile::tempdir().unwrap();
-    let path = directory.path().join("writers.sqlite");
+    let daemon = directory.path().join("gocode-daemon");
+    std::fs::create_dir(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let path = daemon.join("writers.sqlite");
     let authority = RuntimeAuthorityId("fixture-writer".into());
     let store = StoreTransaction::open(path.to_str().unwrap(), authority.clone(), available_guard()).unwrap();
     validated_reopen::seed_canonical_workspace(

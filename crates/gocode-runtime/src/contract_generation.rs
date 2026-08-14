@@ -37,7 +37,7 @@ const CURSOR_PATTERN: &str = "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$";
 pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "bundle.json",
     "bundle.sha256",
-    "golden/local-session.json",
+    "golden/local-session-v2.json",
     "golden/operational-telemetry.json",
     "golden/project-workspace.json",
     "golden/replay-conversation.json",
@@ -48,7 +48,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "golden/sse-delivery.json",
     "openapi.json",
     "schemas/local-runtime-profile-v3.schema.json",
-    "schemas/local-session-v1.schema.json",
+    "schemas/local-session-v2.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
     "schemas/project-workspace-v2.schema.json",
     "schemas/replay-v1.schema.json",

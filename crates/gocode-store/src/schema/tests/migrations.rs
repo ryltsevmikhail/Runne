@@ -1,5 +1,5 @@
 #[test]
-fn v17_rejects_legacy_event_without_a_valid_complete_replay_history() {
+fn v20_rejects_legacy_event_without_a_valid_complete_replay_history() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_v1(&conn);
     conn.execute(
@@ -21,8 +21,10 @@ fn v17_rejects_legacy_event_without_a_valid_complete_replay_history() {
 
     assert!(apply_migrations(&conn).is_err());
     assert_eq!(
-        conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get::<_, i64>(0)).unwrap(),
-        16,
+        conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        18,
     );
     let snapshot_table: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'aggregate_state_snapshots')",
@@ -120,7 +122,7 @@ fn schema_v6_adds_migration_tables_with_cycle_lineage_atomically() {
     let conn = Connection::open_in_memory().unwrap();
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
     for table in [
         "migration_plans",
         "migration_transitions",

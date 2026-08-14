@@ -125,9 +125,12 @@ async fn assert_uncertain_single_effect(nack: Nack) {
     let client = loopback_fixture_client(&policy, server.address, &server.certificate_der)
         .expect("production-shaped loopback client");
     let (effect, _) = effect_from_loopback_fixture(client).expect("fixture effect");
-    let (request, receipt) = durable_dispatch(&profile, effect.as_ref());
+    let (request, receipt, credential) = durable_dispatch(&profile, effect.as_ref());
     let attempt_id = request.attempt_id();
-    let ready = effect.stage_effect(request).await.expect("stage admitted effect");
+    let ready = effect
+        .stage_effect(request, credential)
+        .await
+        .expect("stage admitted effect");
     assert_eq!(
         effect.dispatch_effect(ready, receipt).await,
         Err(DispatchError::MaybeDispatched)

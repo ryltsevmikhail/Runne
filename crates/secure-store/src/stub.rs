@@ -1,19 +1,36 @@
 use crate::{
-    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
-    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
-    ProviderJournalKeyring, SecureStore, SecureStoreError,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore, SecureStoreError,
+};
+use gocode_provider::CredentialVersionRef;
+use gocode_provider::{
+    CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
+    NativeCredentialAuthority, NativeCredentialDeletionProof,
 };
 
 /// Stub implementation for platforms where the secure store is not yet wired.
 /// All operations return `Unavailable`.
 #[derive(Default)]
-pub struct StubStore;
+pub struct StubStore {
+    version_authority: Option<NativeCredentialAuthority>,
+}
 
 impl StubStore {
     #[must_use]
     pub const fn new() -> Self {
-        Self
+        Self {
+            version_authority: None,
+        }
+    }
+
+    /// Constructs the fail-closed backend bound to a lifecycle authority.
+    #[must_use]
+    pub const fn new_versioned(authority: NativeCredentialAuthority) -> Self {
+        Self {
+            version_authority: Some(authority),
+        }
     }
 }
 
@@ -93,6 +110,59 @@ impl ProviderCredentialStore for StubStore {
         _current: &ProviderCredentialAccessPolicy,
         _replacement: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+}
+
+impl NativeProviderCredentialVersionStore for StubStore {
+    fn version_status(
+        &self,
+        _reference: &CredentialVersionRef,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        Ok(ProviderCredentialStatus::Unsupported)
+    }
+
+    fn create_version(
+        &self,
+        claim: CredentialNativeCreateClaim,
+        _credential: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        self.version_authority
+            .as_ref()
+            .ok_or(SecureStoreError::CredentialAccessDenied)?
+            .authorize_create(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+
+    fn load_version(
+        &self,
+        capability: &CredentialDispatchCapability,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        let authority = self
+            .version_authority
+            .as_ref()
+            .ok_or(SecureStoreError::CredentialAccessDenied)?;
+        authority
+            .authorize_load(capability)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        Err(SecureStoreError::UnsupportedSecureStoreBackend)
+    }
+
+    fn delete_version(
+        &self,
+        claim: CredentialGcClaim,
+    ) -> Result<NativeCredentialDeletionProof, SecureStoreError> {
+        let authority = self
+            .version_authority
+            .as_ref()
+            .ok_or(SecureStoreError::CredentialAccessDenied)?;
+        authority
+            .authorize_delete(&claim)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 }

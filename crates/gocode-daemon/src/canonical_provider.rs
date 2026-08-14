@@ -13,7 +13,7 @@ use gocode_domain::conversation::ConversationEvent;
 use gocode_provider::{
     ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderId, ProviderInputRole,
     ProviderStreamEventKind, ProviderTerminalDisposition, ProviderTextInput, ProviderUsage,
-    StreamCursor,
+    StreamCursor, WithheldTailStore,
 };
 use gocode_provider_openai::{OPENAI_MODEL_ID, OPENAI_MODEL_REVISION, OpenAiResponsesTextProfile};
 use gocode_runtime::canonical_provider_execution::{
@@ -24,13 +24,18 @@ use gocode_runtime::provider_execution::{
     ConversationProviderTerminalApplication, ProviderEventJournalContext,
     ProviderTerminalPersistence, RuntimeProviderExecution, RuntimeProviderExecutionError,
 };
+use gocode_runtime::provider_redaction::{
+    ProhibitedContentCredentialMatcher, ProviderEventRedactionBoundary,
+};
 use gocode_secure_store::{
-    NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialStatus,
-    ProviderCredentialStore, ProviderJournalKeyStatus, ProviderJournalKeyring,
+    NativeProviderCredentialStore, NativeWithheldTailStore, ProviderCredentialAccessPolicy,
+    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyStatus,
+    ProviderJournalKeyring,
 };
 use gocode_store::provider::{
-    ProviderCoordinatorOutcome, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    ProviderCoordinatorOutcome, ProviderRuntimeAuthorityConfig,
+    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore, SqliteProviderRecoveryStore,
 };
 use gocode_store::store::StoreTransaction;
 use sha2::{Digest, Sha256};
@@ -40,11 +45,16 @@ use crate::provider_activation::ProviderActivation;
 
 mod activation_provenance;
 mod composition;
+mod composition_telemetry;
+mod credential_versions;
 mod execution;
+mod loopback_tail;
 mod projection;
 mod readiness;
 mod recovery;
 mod runtime_store;
+
+use loopback_tail::LoopbackWithheldTailStore;
 
 pub(crate) use activation_provenance::DaemonActivationProvenance;
 pub(crate) use composition::DaemonCanonicalOpenAiComposition;

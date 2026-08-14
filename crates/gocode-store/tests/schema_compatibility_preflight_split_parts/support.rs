@@ -1,5 +1,7 @@
 fn checkpoint_and_close(connection: Connection) {
-    connection.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);").unwrap();
+    connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
     drop(connection);
 }
 
@@ -19,7 +21,9 @@ fn immutable_read_only_connection(path: &Path) -> Connection {
     uri.push_str("?immutable=1");
     Connection::open_with_flags(
         uri,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        OpenFlags::SQLITE_OPEN_READ_ONLY
+            | OpenFlags::SQLITE_OPEN_URI
+            | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .unwrap()
 }
@@ -40,9 +44,12 @@ fn assert_clean_preflight(path: &Path) {
 
 fn canonical_current_database(name: &str) -> PathBuf {
     let path = current_database(name);
-    let connection = open_with_pragmas(path.to_str().unwrap()).unwrap();
+    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
     apply_migrations(&connection).unwrap();
-    checkpoint_and_close(connection);
+    connection
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")
+        .unwrap();
+    drop(connection);
     assert_clean_preflight(&path);
     path
 }
@@ -50,14 +57,34 @@ fn canonical_current_database(name: &str) -> PathBuf {
 fn released_v8_database(name: &str) -> PathBuf {
     let path = canonical_current_database(name);
     let connection = Connection::open(&path).unwrap();
+    let triggers = connection
+        .prepare("SELECT name FROM sqlite_master WHERE type='trigger'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for trigger in triggers {
+        connection
+            .execute_batch(&format!("DROP TRIGGER \"{trigger}\";"))
+            .unwrap();
+    }
     connection
         .execute_batch(
-            "DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_insert;
-             DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_update;
-             DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_delete;
-             DROP TRIGGER aggregate_state_snapshots_bind_insert;
-             DROP TRIGGER aggregate_state_snapshots_bind_update;
-             DROP TABLE aggregate_state_snapshots;
+            "DROP TABLE aggregate_state_snapshots;
+             DROP TABLE task_run_workspace_lineage;
+             DROP TABLE workspace_identity_history;
+             DROP TABLE project_workspace_command_receipts;
+             DROP TABLE root_admission_nonces;
+             DROP TABLE workspaces;
+             DROP TABLE projects;
+             DROP TABLE bootstrap_reservation_tombstones;
+             DROP TABLE bootstrap_reservations;
+             DROP TABLE bootstrap_last_observed_clock;
+             DROP TABLE provider_credential_effect_bindings;
+             DROP TABLE provider_credential_provisions;
+             DROP TABLE provider_credential_clock_high_water;
+             DROP TABLE provider_credential_versions;
              DROP TABLE provider_effect_authorities;
              DROP TABLE provider_dispatch_attempts;
              DROP TABLE provider_prepared_requests;
@@ -86,14 +113,18 @@ fn apply_future_schema_marker(path: &Path) {
 fn assert_future_schema_marker(path: &Path) {
     let connection = immutable_read_only_connection(path);
     let version: i64 = connection
-        .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get(0))
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(version, gocode_store::schema::CURRENT_SCHEMA_VERSION + 1);
 }
 
 fn delete_schema_lineage(path: &Path) {
     let connection = Connection::open(path).unwrap();
-    connection.execute("DELETE FROM schema_lineage", []).unwrap();
+    connection
+        .execute("DELETE FROM schema_lineage", [])
+        .unwrap();
     checkpoint_and_close(connection);
 }
 

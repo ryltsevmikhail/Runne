@@ -53,6 +53,29 @@ fn allows_unregistered_credential_looking_text() {
 }
 
 #[test]
+fn matcher_width_tracks_active_secret_representations() {
+    let mut broker = SecretBroker::new();
+    assert_eq!(
+        broker
+            .prohibited_content_guard()
+            .maximum_match_len()
+            .unwrap(),
+        1
+    );
+
+    broker
+        .register("test marker", MARKER.to_vec())
+        .expect("fixture registration must succeed");
+    assert!(
+        broker
+            .prohibited_content_guard()
+            .maximum_match_len()
+            .unwrap()
+            >= MARKER.len()
+    );
+}
+
+#[test]
 fn revoked_values_no_longer_match_after_epoch_advances() {
     let marker = MARKER;
     let mut broker = SecretBroker::new();

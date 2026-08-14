@@ -11,16 +11,16 @@ use gocode_application::ports::{CommitError, RuntimeAuthorityId};
 use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_domain::id::EventLogLineageId;
 use gocode_store::schema::{
-    apply_migrations, ensure_authority_id, ensure_event_log_lineage_id, generate_authority_id,
-    open_existing_with_pragmas_validated, open_with_pragmas, read_authority_id,
-    read_event_log_lineage_id,
+    ConnectionMode, ManagedConnection, apply_migrations, ensure_authority_id,
+    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection, read_authority_id,
+    read_event_log_lineage_id, reopen_managed_connection_validated,
 };
 use gocode_store::store::StoreTransaction;
 use gocode_store::{
     migration_store::SqliteMigrationControlStore,
     provider::{SqliteProviderDispatchStore, SqliteProviderExecutionStore},
 };
-use rusqlite::{Connection, Error as SqliteError, OpenFlags};
+use rusqlite::{Connection, Error as SqliteError};
 use tempfile::TempDir;
 
 pub struct ValidatedTestDatabase {
@@ -66,7 +66,7 @@ pub struct MainDatabaseIdentity {
 }
 
 pub fn initialize_database_identity(db_path: &str) -> Result<MainDatabaseIdentity, SqliteError> {
-    let connection = open_with_pragmas(db_path)?;
+    let connection = open_managed_connection(Path::new(db_path), ConnectionMode::Writer)?;
     apply_migrations(&connection)?;
     ensure_authority_id(&connection, &generate_authority_id())?;
     let _ = ensure_event_log_lineage_id(&connection)?;
@@ -78,7 +78,8 @@ pub fn initialize_store(
     runtime_authority_id: RuntimeAuthorityId,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
 ) -> Result<(StoreTransaction, MainDatabaseIdentity), CommitError> {
-    let writer = open_with_pragmas(db_path).map_err(unavailable)?;
+    let writer =
+        open_managed_connection(Path::new(db_path), ConnectionMode::Writer).map_err(unavailable)?;
     apply_migrations(&writer).map_err(corrupt)?;
     ensure_authority_id(&writer, &generate_authority_id()).map_err(corrupt)?;
     let _ = ensure_event_log_lineage_id(&writer).map_err(corrupt)?;
@@ -157,14 +158,12 @@ impl ProviderTestDatabase {
         open_provider_execution(self.path(), self.identity).unwrap()
     }
 
-    pub fn connection(&self) -> Connection {
+    pub fn connection(&self) -> ManagedConnection {
         open_validated_connection(self.path(), self.identity).unwrap()
     }
 
-    pub fn query_connection(&self) -> Connection {
-        let connection = self.connection();
-        connection.execute_batch("PRAGMA query_only = ON;").unwrap();
-        connection
+    pub fn query_connection(&self) -> ManagedConnection {
+        open_validated_reader(self.path(), self.identity).unwrap()
     }
 }
 
@@ -186,22 +185,24 @@ impl MigrationTestDatabase {
     }
 }
 
-fn open_validated_reader(
+pub fn open_validated_reader(
     db_path: &str,
     identity: MainDatabaseIdentity,
-) -> Result<Connection, SqliteError> {
-    let reader = open_validated_connection(db_path, identity)?;
-    reader.execute_batch("PRAGMA query_only = ON;")?;
-    Ok(reader)
+) -> Result<ManagedConnection, SqliteError> {
+    reopen_managed_connection_validated(Path::new(db_path), ConnectionMode::Reader, |connection| {
+        validate_main_database_identity(connection, identity)
+    })
 }
 
 pub(super) fn open_validated_connection(
     db_path: &str,
     identity: MainDatabaseIdentity,
-) -> Result<Connection, SqliteError> {
-    open_existing_with_pragmas_validated(Path::new(db_path), |connection| {
-        validate_main_database_identity(connection, identity)
-    })
+) -> Result<ManagedConnection, SqliteError> {
+    reopen_managed_connection_validated(
+        Path::new(db_path),
+        ConnectionMode::ValidatedReopen,
+        |connection| validate_main_database_identity(connection, identity),
+    )
 }
 
 fn read_main_database_identity(
@@ -224,13 +225,8 @@ fn validate_main_database_identity(
     }
 }
 
-fn open_reader(db_path: &str) -> Result<Connection, SqliteError> {
-    let reader = Connection::open_with_flags(
-        db_path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )?;
-    reader.execute_batch("PRAGMA query_only = ON;")?;
-    Ok(reader)
+fn open_reader(db_path: &str) -> Result<ManagedConnection, SqliteError> {
+    open_managed_connection(Path::new(db_path), ConnectionMode::Reader)
 }
 
 fn unavailable(_: SqliteError) -> CommitError {

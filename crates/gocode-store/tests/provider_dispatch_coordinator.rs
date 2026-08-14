@@ -14,10 +14,13 @@ use gocode_provider::{
     ProviderStreamId,
 };
 use gocode_store::provider::{
-    ProviderCoordinatorOutcome, ProviderEffectPort, ProviderEffectStartReceipt,
-    ProviderReadyEffect, ProviderRuntimeAuthorityConfig, SqliteProviderDispatchCoordinator,
+    CredentialDispatchBinding, ProviderCoordinatorOutcome, ProviderEffectPort,
+    ProviderEffectStartReceipt, ProviderReadyEffect, ProviderRuntimeAuthorityConfig,
+    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
+#[path = "support/provider_credential_fixture.rs"]
+mod provider_credential_fixture;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -115,6 +118,7 @@ impl ProviderEffectPort for RecordingProvider {
     fn stage_effect(
         &self,
         request: DispatchRequest,
+        _credential: CredentialDispatchBinding,
     ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
         Box::pin(async move { Ok(Box::new(Ready(request)) as Box<dyn ProviderReadyEffect>) })
     }
@@ -148,11 +152,13 @@ fn fixture() -> (
     validated_reopen::ProviderTestDatabase,
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
+    SqliteProviderCredentialLifecycleStore,
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-dispatch-coordinator");
     let dispatch = database.dispatch();
     let execution = database.execution();
+    let credential = provider_credential_fixture::credential(&database, "fixture", [1; 16], 1, 100);
     execution
         .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
@@ -193,6 +199,7 @@ fn fixture() -> (
         database,
         dispatch,
         execution,
+        credential,
         ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
@@ -211,56 +218,13 @@ fn fixture() -> (
 }
 
 #[test]
-fn prohibited_content_stops_prepare_admission_and_dispatch() {
-    let (_directory, dispatch, execution, request) = fixture();
-    let provider = RecordingProvider::new(ProviderMode::Streaming);
-    let coordinator = SqliteProviderDispatchCoordinator::new(
-        &dispatch,
-        &execution,
-        &provider,
-        &provider,
-        &Guard(false),
-    );
-
-    assert!(matches!(
-        block_on(coordinator.dispatch(request)),
-        Err(gocode_application::provider::ProviderAdmissionError::PolicyDenied)
-    ));
-    assert_eq!(*provider.prepared.lock().unwrap(), 0);
-    assert_eq!(provider.dispatched(), 0);
-    assert_eq!(execution.admitted_count().unwrap(), 0);
-}
-
-#[test]
-fn sqlite_admission_dispatches_once_and_exact_replay_never_redispaches() {
-    let (_directory, dispatch, execution, request) = fixture();
-    let provider = RecordingProvider::new(ProviderMode::Streaming);
-    let coordinator = SqliteProviderDispatchCoordinator::new(
-        &dispatch,
-        &execution,
-        &provider,
-        &provider,
-        &Guard(true),
-    );
-
-    assert!(matches!(
-        block_on(coordinator.dispatch(request.clone())),
-        Ok(ProviderCoordinatorOutcome::Streaming { .. })
-    ));
-    assert!(matches!(
-        block_on(coordinator.dispatch(request)),
-        Ok(ProviderCoordinatorOutcome::Existing { .. })
-    ));
-    assert_eq!(provider.dispatched(), 1);
-}
-
-#[test]
 fn adapter_rejection_after_effect_cas_is_durably_uncertain() {
-    let (_directory, dispatch, execution, request) = fixture();
+    let (_directory, dispatch, execution, credential, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Rejected);
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
+        gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
         &provider,
         &provider,
         &Guard(true),
@@ -275,11 +239,12 @@ fn adapter_rejection_after_effect_cas_is_durably_uncertain() {
 
 #[test]
 fn timeout_after_effect_cas_is_uncertain_and_exact_replay_does_not_retry() {
-    let (_directory, dispatch, execution, request) = fixture();
+    let (_directory, dispatch, execution, credential, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Timeout);
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
+        gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
         &provider,
         &provider,
         &Guard(true),
@@ -295,5 +260,7 @@ fn timeout_after_effect_cas_is_uncertain_and_exact_replay_does_not_retry() {
     assert_eq!(provider.dispatched(), 1);
 }
 
+#[path = "support/provider_credential_dispatch_tests.rs"]
+mod provider_credential_dispatch_tests;
 #[path = "support/provider_dispatch_coordinator_persistence_tests.rs"]
 mod provider_dispatch_coordinator_persistence_tests;

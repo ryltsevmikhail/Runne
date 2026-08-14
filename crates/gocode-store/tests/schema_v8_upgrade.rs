@@ -26,9 +26,7 @@ fn released_v8_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
     apply_migrations(&conn).unwrap();
     let triggers = conn
-        .prepare(
-            "SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'schema_v12_%'",
-        )
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'")
         .unwrap()
         .query_map([], |row| row.get::<_, String>(0))
         .unwrap()
@@ -39,16 +37,20 @@ fn released_v8_db() -> Connection {
             .unwrap();
     }
     conn.execute_batch(
-        "DROP TRIGGER aggregate_state_snapshots_bind_insert;
-         DROP TRIGGER aggregate_state_snapshots_bind_update;
-         DROP TABLE aggregate_state_snapshots;
-         DROP TRIGGER global_command_id_from_command_receipts;
+        "DROP TABLE aggregate_state_snapshots;
          DROP TABLE task_run_workspace_lineage;
          DROP TABLE workspace_identity_history;
          DROP TABLE root_admission_nonces;
          DROP TABLE project_workspace_command_receipts;
          DROP TABLE workspaces;
          DROP TABLE projects;
+         DROP TABLE bootstrap_reservation_tombstones;
+         DROP TABLE bootstrap_reservations;
+         DROP TABLE bootstrap_last_observed_clock;
+         DROP TABLE provider_credential_effect_bindings;
+         DROP TABLE provider_credential_provisions;
+         DROP TABLE provider_credential_clock_high_water;
+         DROP TABLE provider_credential_versions;
          DROP TABLE schema_upgrade_write_latch;
          DROP TABLE schema_upgrade_fence;
          DROP TABLE provider_effect_starts;
@@ -92,8 +94,8 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
-    assert_eq!(version, 18);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
+    assert_eq!(version, 20);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));
@@ -107,6 +109,13 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         "provider_journal_key_refs",
         "provider_terminal_outbox",
         "provider_effect_starts",
+        "provider_credential_versions",
+        "provider_credential_clock_high_water",
+        "provider_credential_provisions",
+        "provider_credential_effect_bindings",
+        "bootstrap_reservations",
+        "bootstrap_reservation_tombstones",
+        "bootstrap_last_observed_clock",
         "projects",
         "workspaces",
         "root_admission_nonces",

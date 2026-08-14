@@ -18,7 +18,7 @@ async fn crash_after_event_commit_recovers_exact_text_without_repolling_delta() 
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashAfterDurableDeltaJournal::default(),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -56,7 +56,7 @@ async fn crash_after_terminal_event_commit_recovers_terminal_without_provider_re
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::TerminalEvent),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -102,7 +102,7 @@ async fn usage_unavailable_remote_terminal_survives_loop_crash_without_freeze_or
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::TerminalEvent),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -146,7 +146,7 @@ async fn crash_after_tool_request_commit_freezes_without_tool_dispatch() {
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::ToolEvent),
         handoff(ToolHandoffDisposition::Completed {
             result_digest: [9; 32],
@@ -184,7 +184,7 @@ async fn crash_after_tool_result_commit_recovers_result_without_second_tool_effe
         ),
     ]);
     let stream = dispatch(&provider).await;
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::ToolResult),
         handoff(ToolHandoffDisposition::Completed {
             result_digest: [9; 32],
@@ -217,7 +217,7 @@ async fn crash_after_cancellation_intent_recovers_as_uncertain_without_repoll() 
     let stream = dispatch(&provider).await;
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::CancellationIntent),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -243,7 +243,7 @@ async fn crash_after_cancellation_ack_recovers_cancelled_without_second_signal()
     let stream = dispatch(&provider).await;
     let cancellation = CancellationToken::new();
     cancellation.cancel();
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::CancellationAcknowledged),
         handoff(ToolHandoffDisposition::Uncertain),
         64,
@@ -276,7 +276,7 @@ async fn crash_after_freeze_commit_recovers_fence_without_provider_repoll() {
         .unwrap(),
     };
     let stream = ProviderStreamId::from_bytes([3; 16]);
-    let loop_ = ProviderToolLoop::new(
+    let loop_ = test_loop(
         CrashRecoveryJournal::new(CrashPoint::Frozen),
         handoff(ToolHandoffDisposition::Uncertain),
         64,

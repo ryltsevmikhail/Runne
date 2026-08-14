@@ -110,5 +110,7 @@ python3 -m unittest scripts.tests.test_desktop_qualification_workflow -v
 python3 -m unittest scripts.tests.test_desktop_capability_manifest -v
 pnpm validate:docs
 pnpm lint:architecture
+/usr/bin/python3 -m scripts.ci_local_receipt run --receipt "$receipt"
+/usr/bin/python3 -m scripts.ci_local_receipt validate --receipt "$receipt"
 
 echo "=== Local CI: PASSED ==="

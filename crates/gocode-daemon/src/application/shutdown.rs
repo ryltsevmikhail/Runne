@@ -14,6 +14,7 @@ impl DaemonApplication {
             client_profile,
             binding,
             local_session_service,
+            _bootstrap_reservation_store,
             session_clock,
             protected_activation,
             provider_activation,
@@ -47,6 +48,7 @@ impl DaemonApplication {
         let _ = runtime_capabilities;
         drop(provider_activation);
         drop(_secret_broker);
+        drop(_bootstrap_reservation_store);
         drop(store);
         drop(bootstrap);
 

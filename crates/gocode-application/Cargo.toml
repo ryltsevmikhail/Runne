@@ -8,6 +8,7 @@ rust-version.workspace = true
 gocode-provider = { path = "../gocode-provider" }
 gocode-domain = { path = "../gocode-domain" }
 gocode-api = { path = "../gocode-api" }
+gocode-pairing-crypto = { path = "../pairing-crypto" }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }

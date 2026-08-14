@@ -66,8 +66,7 @@ async fn live_event_revocation_stops_before_event_and_preserves_progress() {
 
 #[tokio::test]
 async fn sensitivity_denied_stops_before_session_and_denied_cursor() {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     insert_sensitive_conversation_event(&connection);
     let store = ReplayStore::new(connection);
     let service = service(store, MutableAuthorization::new(0, Sensitivity::Public));
@@ -91,8 +90,7 @@ async fn sensitivity_denied_stops_before_session_and_denied_cursor() {
 
 #[tokio::test]
 async fn sensitivity_boundary_delivers_readable_prefix_and_stops_before_denied_event() {
-    let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    let connection = managed_memory();
     connection
         .execute(
             "INSERT INTO aggregate_streams

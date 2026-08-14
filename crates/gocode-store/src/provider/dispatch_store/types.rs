@@ -12,7 +12,10 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::schema::{apply_migrations, open_with_pragmas, run_startup_gates};
+use crate::schema::{
+    ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
+    publication_from_managed, readiness_from_managed,
+};
 
 const PREPARED_V1_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V1\0";
 const PREPARED_V2_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V2\0";
@@ -214,5 +217,5 @@ pub enum ProviderStoreError {
 
 /// Repository-owned SQLite provider dispatch store.
 pub struct SqliteProviderDispatchStore {
-    connection: Mutex<Connection>,
+    connection: Mutex<ManagedConnection>,
 }

@@ -2,7 +2,7 @@ use rusqlite::{
     Connection, OptionalExtension, Result as SqliteResult, Transaction, TransactionBehavior,
 };
 
-pub(super) const MIGRATION_V18: &str = r#"
+pub(super) const MIGRATION_V20: &str = r#"
 CREATE TABLE aggregate_state_snapshots (
     aggregate_type INTEGER NOT NULL CHECK(aggregate_type IN (1, 2)),
     aggregate_id BLOB NOT NULL CHECK(length(aggregate_id) = 16),
@@ -27,7 +27,7 @@ CREATE INDEX idx_aggregate_state_snapshots_head_position
     ON aggregate_state_snapshots(head_global_position);
 "#;
 
-const DROP_V17_SNAPSHOT: &str = r#"
+const DROP_V19_SNAPSHOT: &str = r#"
 DROP TRIGGER aggregate_state_snapshots_bind_insert;
 DROP TRIGGER aggregate_state_snapshots_bind_update;
 DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_insert;
@@ -36,26 +36,26 @@ DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_delete;
 DROP TABLE aggregate_state_snapshots;
 "#;
 
-/// Applies V18 directly from V16 or replaces a locally-created V17 snapshot
-/// catalog only after replay validates every source history. V17 was never a
-/// published boundary, so callers from V16 must not create it as a waypoint.
-pub(super) fn apply_v18_migration(connection: &Connection, replaces_v17: bool) -> SqliteResult<()> {
+/// Applies V20 directly from V18 or replaces a locally-created V19 snapshot
+/// catalog only after replay validates every source history. V19 was never a
+/// published boundary, so callers from V18 must not create it as a waypoint.
+pub(super) fn apply_v20_migration(connection: &Connection, replaces_v19: bool) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Exclusive)?;
-    if replaces_v17 {
-        transaction.execute_batch(DROP_V17_SNAPSHOT)?;
+    if replaces_v19 {
+        transaction.execute_batch(DROP_V19_SNAPSHOT)?;
     }
-    transaction.execute_batch(MIGRATION_V18)?;
+    transaction.execute_batch(MIGRATION_V20)?;
     transaction.execute_batch(super::replay_snapshot_schema::SNAPSHOT_INSERT_TRIGGER)?;
     transaction.execute_batch(super::replay_snapshot_schema::SNAPSHOT_UPDATE_TRIGGER)?;
     super::install_missing_v12_fence_triggers(&transaction)?;
     crate::store::snapshot::backfill_all_aggregate_snapshots(&transaction)?;
-    transaction.execute("INSERT INTO schema_version (version) VALUES (18)", [])?;
+    transaction.execute("INSERT INTO schema_version (version) VALUES (20)", [])?;
     transaction.commit()
 }
 
-pub(super) fn v18_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 18
-        || !super::project_workspace_schema::v16_base_matches_with_additional_triggers(
+pub(super) fn v20_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
+    if version != 20
+        || !super::project_workspace_schema::v18_base_matches_with_additional_triggers(
             connection,
             &[
                 "aggregate_state_snapshots_bind_insert",
@@ -65,7 +65,7 @@ pub(super) fn v18_matches(connection: &Connection, version: i64) -> SqliteResult
         || !super::table_sql_matches_migration(
             connection,
             "aggregate_state_snapshots",
-            MIGRATION_V18,
+            MIGRATION_V20,
         )?
         || !super::index_matches(
             connection,
@@ -111,6 +111,13 @@ fn catalog_matches(connection: &Connection) -> SqliteResult<bool> {
     let mut tables = super::RELEASED_V13_TABLES.to_vec();
     tables.extend([
         "provider_effect_starts",
+        "provider_credential_versions",
+        "provider_credential_clock_high_water",
+        "provider_credential_provisions",
+        "provider_credential_effect_bindings",
+        "bootstrap_reservations",
+        "bootstrap_reservation_tombstones",
+        "bootstrap_last_observed_clock",
         "projects",
         "workspaces",
         "root_admission_nonces",
@@ -132,7 +139,12 @@ fn catalog_matches(connection: &Connection) -> SqliteResult<bool> {
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
     let mut expected = super::RELEASED_V12_EXPLICIT_INDEXES.to_vec();
-    expected.push("idx_aggregate_state_snapshots_head_position");
+    expected.extend([
+        "provider_credential_one_active",
+        "provider_credential_one_pending_provision",
+        "bootstrap_reservation_unexpired",
+        "idx_aggregate_state_snapshots_head_position",
+    ]);
     expected.sort_unstable();
     let views: i64 = connection.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view'",

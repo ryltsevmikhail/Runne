@@ -6,7 +6,8 @@ use gocode_domain::{
 };
 use gocode_store::schema::{
     CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v15_for_test,
-    apply_migrations_through_v17_for_test,
+    apply_migrations_through_v17_for_test, apply_migrations_through_v18_for_test,
+    apply_migrations_through_v19_for_test,
 };
 use gocode_store::{
     codec::{StoreCodec, TaskRunEventCodec},
@@ -19,7 +20,7 @@ fn current_schema_installs_authoritative_aggregate_snapshot_table() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
     let exists: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master
@@ -58,7 +59,7 @@ fn snapshot_insert_without_an_exact_stream_head_is_rejected() {
 }
 
 #[test]
-fn released_v15_without_aggregate_histories_upgrades_to_v17() {
+fn released_v15_without_aggregate_histories_upgrades_through_main_v17() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations_through_v15_for_test(&connection).unwrap();
     assert_eq!(
@@ -76,10 +77,38 @@ fn released_v15_without_aggregate_histories_upgrades_to_v17() {
             .unwrap(),
         17,
     );
+
+    apply_migrations_through_v17_for_test(&connection).unwrap();
 }
 
 #[test]
-fn released_v15_with_a_complete_typed_taskrun_history_backfills_v17() {
+fn released_main_v17_is_preserved_before_v18_project_workspace_successor() {
+    let connection = Connection::open_in_memory().unwrap();
+    apply_migrations_through_v17_for_test(&connection).unwrap();
+
+    apply_migrations_through_v18_for_test(&connection).unwrap();
+
+    assert_eq!(
+        connection
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        18,
+    );
+    for table in ["bootstrap_reservations", "projects", "workspaces"] {
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
+                [table],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(exists, "{table} must survive the V18 successor");
+    }
+}
+
+#[test]
+fn released_v15_with_a_complete_typed_taskrun_history_backfills_v19() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations_through_v15_for_test(&connection).unwrap();
     let taskrun_id: TaskRunId = "018f2e3a-7000-7000-8000-0000000000d1".parse().unwrap();
@@ -104,6 +133,7 @@ fn released_v15_with_a_complete_typed_taskrun_history_backfills_v17() {
     let digest = compute_integrity_digest_with_global_position(&event, 1, &payload).unwrap();
     connection.execute("INSERT INTO aggregate_streams (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) VALUES (1, ?1, 1, ?2, 1, 1)", params![taskrun_id.as_bytes(), event_id.as_bytes()]).unwrap();
     connection.execute("INSERT INTO events (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, payload, integrity_digest, correlation_id, correlation_type, integrity_profile) VALUES (?1, 1, ?2, 1, 1, 1, 0, 1, NULL, ?3, ?4, ?5, ?6, ?7, ?2, 1, 1)", params![event_id.as_bytes(), taskrun_id.as_bytes(), command_id.as_bytes(), event.idempotency_key().as_str().as_bytes(), event.actor().as_str().as_bytes(), payload, digest.as_bytes()]).unwrap();
-    apply_migrations_through_v17_for_test(&connection).unwrap();
+    apply_migrations_through_v18_for_test(&connection).unwrap();
+    apply_migrations_through_v19_for_test(&connection).unwrap();
     assert_eq!(connection.query_row("SELECT aggregate_version FROM aggregate_state_snapshots WHERE aggregate_type = 1 AND aggregate_id = ?1", [taskrun_id.as_bytes()], |row| row.get::<_, i64>(0)).unwrap(), 1);
 }

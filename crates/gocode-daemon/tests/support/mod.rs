@@ -42,33 +42,64 @@ pub async fn connect_session(config: &ConfigurationSnapshot) -> TestSession {
         .expect("pinned test client");
     let endpoint = profile["endpoint"].as_str().expect("profile endpoint");
     let client_nonce = [8; 32];
-    let server_nonce = [9; 32];
-    let challenge = client
-        .post(format!("{endpoint}/v1/local-session/challenges"))
-        .json(&serde_json::json!({
-            "clientNonce": URL_SAFE_NO_PAD.encode(client_nonce),
-            "serverNonce": URL_SAFE_NO_PAD.encode(server_nonce),
-        }))
-        .send()
-        .await
-        .expect("challenge request");
-    assert_eq!(challenge.status(), reqwest::StatusCode::OK);
-    let challenge: Value = challenge.json().await.expect("challenge response");
-
+    let not_before = chrono::Utc::now();
+    let expiry = not_before + chrono::TimeDelta::seconds(30);
+    let not_before = not_before.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
+    let expiry = expiry.to_rfc3339_opts(chrono::SecondsFormat::Micros, true);
     let secret_path = Path::new(
         profile["bootstrapSecretPath"]
             .as_str()
             .expect("bootstrap secret path"),
     );
     let secret = std::fs::read(secret_path).expect("read bootstrap secret");
+    let mut preallocation_mac = Hmac::<Sha256>::new_from_slice(&secret).expect("HMAC key");
+    preallocation_mac.update(&proof_transcript(
+        &profile,
+        b"/v1/local-session/challenges",
+        &not_before,
+        &expiry,
+        &client_nonce,
+        None,
+    ));
+    let challenge = client
+        .post(format!("{endpoint}/v1/local-session/challenges"))
+        .json(&serde_json::json!({
+            "wireVersion": "3",
+            "keyVersion": 1,
+            "clientNonce": URL_SAFE_NO_PAD.encode(client_nonce),
+            "notBefore": not_before,
+            "expiry": expiry,
+            "preallocationProof": URL_SAFE_NO_PAD.encode(preallocation_mac.finalize().into_bytes()),
+        }))
+        .send()
+        .await
+        .expect("challenge request");
+    assert_eq!(challenge.status(), reqwest::StatusCode::OK);
+    let challenge: Value = challenge.json().await.expect("challenge response");
+    assert_eq!(challenge["wireVersion"], "3");
+    assert_eq!(challenge["keyVersion"], 1);
+    let server_nonce: [u8; 32] = URL_SAFE_NO_PAD
+        .decode(challenge["serverNonce"].as_str().expect("server nonce"))
+        .expect("decode server nonce")
+        .try_into()
+        .expect("32-byte server nonce");
     let mut mac = Hmac::<Sha256>::new_from_slice(&secret).expect("HMAC key");
-    mac.update(&proof_transcript(&profile, server_nonce, client_nonce));
+    mac.update(&proof_transcript(
+        &profile,
+        b"/v1/local-session/authenticate",
+        &not_before,
+        &expiry,
+        &client_nonce,
+        Some(server_nonce),
+    ));
     let authority = [10; 32];
     let authenticated = client
         .post(format!("{endpoint}/v1/local-session/authenticate"))
         .json(&serde_json::json!({
+            "wireVersion": "3",
+            "keyVersion": 1,
             "challengeId": challenge["challengeId"],
-            "proof": URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()),
+            "finalProof": URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes()),
             "authority": URL_SAFE_NO_PAD.encode(authority),
         }))
         .send()
@@ -81,57 +112,51 @@ pub async fn connect_session(config: &ConfigurationSnapshot) -> TestSession {
     }
 }
 
-fn proof_transcript(profile: &Value, server_nonce: [u8; 32], client_nonce: [u8; 32]) -> Vec<u8> {
-    let mut output = b"gocode/local-runtime/bootstrap-proof/v2\0".to_vec();
-    output.extend_from_slice(&2_u32.to_be_bytes());
-    output.extend_from_slice(&decode_hex::<32>(&profile["certificateSha256"]));
-    output.extend_from_slice(&server_nonce);
-    output.extend_from_slice(&client_nonce);
-    output.extend_from_slice(&decode_hex::<16>(&profile["authorityId"]));
-    append_string(
-        &mut output,
-        profile["principalId"].as_str().expect("principal"),
-    );
-    output.extend_from_slice(
-        uuid::Uuid::parse_str(profile["eventLogLineageId"].as_str().expect("lineage"))
-            .expect("lineage UUID")
-            .as_bytes(),
-    );
-    output.extend_from_slice(
-        uuid::Uuid::parse_str(
-            profile["daemonInstanceId"]
-                .as_str()
-                .expect("daemon instance"),
-        )
-        .expect("daemon instance UUID")
-        .as_bytes(),
-    );
-    output.extend_from_slice(
-        &profile["launchGeneration"]
-            .as_u64()
-            .expect("generation")
-            .to_be_bytes(),
-    );
-    append_string(
-        &mut output,
-        profile["profileId"].as_str().expect("profile id"),
-    );
-    output.extend_from_slice(&decode_hex::<32>(&profile["schemaHash"]));
-    output.extend_from_slice(&decode_hex::<32>(&profile["capabilityDigest"]));
-    output
+fn proof_transcript(
+    profile: &Value,
+    endpoint: &[u8],
+    not_before: &str,
+    expiry: &str,
+    client_nonce: &[u8; 32],
+    server_nonce: Option<[u8; 32]>,
+) -> Vec<u8> {
+    let authority = decode_hex::<16>(&profile["launchAuthorityId"]);
+    let schema = decode_hex::<32>(&profile["schemaHash"]);
+    let executable = decode_hex::<32>(&profile["executableSha256"]);
+    let lineage = uuid::Uuid::parse_str(profile["eventLogLineageId"].as_str().unwrap()).unwrap();
+    let instance = uuid::Uuid::parse_str(profile["daemonInstanceId"].as_str().unwrap()).unwrap();
+    let session = decode_hex::<16>(&profile["sessionId"]);
+    let generation = profile["launchGeneration"].as_u64().unwrap().to_be_bytes();
+    let fields: [&[u8]; 16] = [
+        b"gocode-local-session-v3",
+        &authority,
+        profile["principalId"].as_str().unwrap().as_bytes(),
+        lineage.as_bytes(),
+        profile["profileId"].as_str().unwrap().as_bytes(),
+        &schema,
+        &executable,
+        instance.as_bytes(),
+        &generation,
+        &session,
+        endpoint,
+        b"POST",
+        not_before.as_bytes(),
+        expiry.as_bytes(),
+        client_nonce,
+        &[],
+    ];
+    let input = gocode_pairing_crypto::BootstrapTranscriptV3 {
+        key_version: 1,
+        fields,
+    };
+    server_nonce.map_or_else(
+        || gocode_pairing_crypto::encode_preallocation_transcript(&input).unwrap(),
+        |nonce| gocode_pairing_crypto::encode_final_transcript(&input, nonce).unwrap(),
+    )
 }
 
 fn decode_hex<const N: usize>(value: &Value) -> [u8; N] {
     let mut output = [0; N];
     hex::decode_to_slice(value.as_str().expect("hex string"), &mut output).expect("decode hex");
     output
-}
-
-fn append_string(output: &mut Vec<u8>, value: &str) {
-    output.extend_from_slice(
-        &u16::try_from(value.len())
-            .expect("bounded string")
-            .to_be_bytes(),
-    );
-    output.extend_from_slice(value.as_bytes());
 }

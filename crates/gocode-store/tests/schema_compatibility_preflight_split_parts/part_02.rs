@@ -98,7 +98,7 @@ fn shared_opener_rejects_hot_wal_candidate_without_changing_any_file() {
             .any(|(file, _)| file.to_string_lossy().ends_with("-wal"))
     );
 
-    assert!(open_with_pragmas(path.to_str().unwrap()).is_err());
+    assert!(open_managed_connection(&path, ConnectionMode::Writer).is_err());
     assert_file_set_unchanged(&before);
     drop(reader);
 }

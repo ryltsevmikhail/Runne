@@ -136,6 +136,10 @@ impl MacOsKeychainStore {
         security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
             .map_err(|_| SecureStoreError::OperationFailed("security anchor keychain write".into()))
     }
+
+    pub(crate) fn provider_recovery_profile_scope(&self) -> &str {
+        &self.account_name
+    }
 }
 
 impl SecureStore for MacOsKeychainStore {

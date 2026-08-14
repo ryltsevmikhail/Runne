@@ -57,7 +57,7 @@ pub struct BootstrapOutcome {
     /// All three locks held (path, file, authority).
     pub locks: LockSet,
     /// Open writable SQLite connection with schema applied.
-    pub db_conn: rusqlite::Connection,
+    pub db_conn: schema::ManagedConnection,
     /// Authority ID from the `_authority` table.
     pub authority_id: [u8; 16],
     /// Stable UUIDv7 authority for peer-authenticated local sessions.

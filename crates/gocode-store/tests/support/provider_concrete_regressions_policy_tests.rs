@@ -3,14 +3,19 @@ use super::*;
 #[test]
 fn serialized_prohibited_and_unavailable_guards_stop_before_prepare() {
     for mode in [GuardMode::Prohibited, GuardMode::Unavailable] {
-        let (_directory, dispatch, execution, request) = fixture();
+        let (_directory, dispatch, execution, credential, request) = fixture();
         let provider = Provider::new(Response::Stream);
         let guard = Guard {
             mode,
             saw_marker: Mutex::new(false),
         };
         let coordinator = SqliteProviderDispatchCoordinator::new(
-            &dispatch, &execution, &provider, &provider, &guard,
+            &dispatch,
+            &execution,
+            gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+            &provider,
+            &provider,
+            &guard,
         );
         assert_eq!(
             block_on(coordinator.dispatch(request)),
@@ -26,7 +31,7 @@ fn serialized_prohibited_and_unavailable_guards_stop_before_prepare() {
 #[test]
 fn oversized_reservations_are_rejected_before_admission_or_dispatch() {
     for oversized_output in [false, true] {
-        let (_directory, dispatch, execution, mut request) = fixture();
+        let (_directory, dispatch, execution, credential, mut request) = fixture();
         if oversized_output {
             request.requested_output_tokens =
                 u32::try_from(gocode_provider::MAX_PROVIDER_USAGE_TOKENS + 1).unwrap();
@@ -39,7 +44,12 @@ fn oversized_reservations_are_rejected_before_admission_or_dispatch() {
             saw_marker: Mutex::new(false),
         };
         let coordinator = SqliteProviderDispatchCoordinator::new(
-            &dispatch, &execution, &provider, &provider, &guard,
+            &dispatch,
+            &execution,
+            gocode_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+            &provider,
+            &provider,
+            &guard,
         );
         assert_eq!(
             block_on(coordinator.dispatch(request)),

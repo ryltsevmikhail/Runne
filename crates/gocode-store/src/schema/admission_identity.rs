@@ -1,8 +1,21 @@
 #[cfg(unix)]
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct FileIdentity {
     volume: u64,
     file: u64,
+}
+
+#[cfg(unix)]
+fn descriptor_identity(file: &fs::File) -> Result<FileIdentity, SchemaOpenDiagnostic> {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let metadata = file
+        .metadata()
+        .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+    Ok(FileIdentity {
+        volume: metadata.dev(),
+        file: metadata.ino(),
+    })
 }
 
 #[cfg(windows)]
@@ -37,49 +50,180 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
 }
 
 #[cfg(unix)]
-#[derive(Debug, PartialEq, Eq)]
-struct RecoveryFileSet {
-    database: FileIdentity,
-    wal: Option<FileIdentity>,
-    shm: Option<FileIdentity>,
+struct RetainedFileIdentity {
+    path: PathBuf,
+    file: fs::File,
+    identity: FileIdentity,
 }
 
 #[cfg(unix)]
-fn owner_private_recovery_file_set(
-    db_path: &Path,
-) -> Result<RecoveryFileSet, SchemaOpenDiagnostic> {
-    validate_owner_private_recovery_files(db_path)?;
-    Ok(RecoveryFileSet {
-        database: file_identity(db_path)?,
-        wal: optional_file_identity(&sidecar_path(db_path, "-wal"))?,
-        shm: optional_file_identity(&sidecar_path(db_path, "-shm"))?,
-    })
+impl RetainedFileIdentity {
+    fn from_file(path: &Path, file: fs::File) -> Result<Self, SchemaOpenDiagnostic> {
+        let identity = descriptor_identity(&file)?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            file,
+            identity,
+        })
+    }
+
+    fn open(path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
+        use std::os::unix::fs::OpenOptionsExt as _;
+
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+            .open(path)
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
+        Self::from_file(path, file)
+    }
+
+    fn unchanged(&self) -> Result<bool, SchemaOpenDiagnostic> {
+        Ok(descriptor_identity(&self.file)? == self.identity
+            && file_identity(&self.path)? == self.identity)
+    }
 }
 
 #[cfg(unix)]
-fn recovery_file_set_unchanged(
-    db_path: &Path,
-    expected: &RecoveryFileSet,
-) -> Result<bool, SchemaOpenDiagnostic> {
-    validate_owner_private_recovery_files(db_path)?;
-    let current = RecoveryFileSet {
-        database: file_identity(db_path)?,
-        wal: optional_file_identity(&sidecar_path(db_path, "-wal"))?,
-        shm: optional_file_identity(&sidecar_path(db_path, "-shm"))?,
-    };
-    // SQLite may create WAL/SHM while opening a WAL-mode database READ_WRITE,
-    // before it accepts `query_only`, or remove stale crash sidecars after it
-    // has consumed them. The private directory remains the owner boundary;
-    // sidecars that remain present must still retain their identities.
-    Ok(current.database == expected.database
-        && optional_identity_matches(&expected.wal, &current.wal)
-        && optional_identity_matches(&expected.shm, &current.shm))
+struct ConnectionIdentityGuard {
+    database: RetainedFileIdentity,
+    wal: Option<RetainedFileIdentity>,
+    shm: Option<RetainedFileIdentity>,
+    owner_private: bool,
 }
 
 #[cfg(unix)]
-fn optional_file_identity(path: &Path) -> Result<Option<FileIdentity>, SchemaOpenDiagnostic> {
+impl ConnectionIdentityGuard {
+    fn main(path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
+        Ok(Self {
+            database: RetainedFileIdentity::open(path)?,
+            wal: None,
+            shm: None,
+            owner_private: false,
+        })
+    }
+
+    fn from_created(path: &Path, file: fs::File) -> Result<Self, SchemaOpenDiagnostic> {
+        Ok(Self {
+            database: RetainedFileIdentity::from_file(path, file)?,
+            wal: None,
+            shm: None,
+            owner_private: false,
+        })
+    }
+
+    fn owner_private(path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
+        validate_owner_private_recovery_files(path)?;
+        Ok(Self {
+            database: RetainedFileIdentity::open(path)?,
+            wal: retain_optional(&sidecar_path(path, "-wal"))?,
+            shm: retain_optional(&sidecar_path(path, "-shm"))?,
+            owner_private: true,
+        })
+    }
+
+    fn verify(&self, connection: &Connection) -> SqliteResult<()> {
+        if !self.database.unchanged().map_err(diagnostic_error)?
+            || sqlite_main_has_moved(connection)?
+        {
+            return Err(diagnostic_error(
+                SchemaOpenDiagnostic::FileIdentityUncertain,
+            ));
+        }
+        if self.owner_private {
+            validate_owner_private_recovery_files(&self.database.path)
+                .map_err(diagnostic_error)?;
+            if !optional_retained_unchanged(&self.wal, &sidecar_path(&self.database.path, "-wal"))?
+                || !optional_retained_unchanged(
+                    &self.shm,
+                    &sidecar_path(&self.database.path, "-shm"),
+                )?
+            {
+                return Err(diagnostic_error(
+                    SchemaOpenDiagnostic::FileIdentityUncertain,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn verify_with_sidecar_handle(&self, connection: &Connection) -> SqliteResult<()> {
+        self.verify(connection)?;
+        if self.owner_private && (self.wal.is_some() || self.shm.is_some()) {
+            match sqlite_handle_identity::journal_file_has_moved(connection) {
+                Ok(Some(false)) => {}
+                Ok(Some(true)) | Ok(None) | Err(_) => {
+                    return Err(diagnostic_error(
+                        SchemaOpenDiagnostic::FileIdentityUncertain,
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn retain_created_sidecars(&mut self) -> SqliteResult<()> {
+        if !self.owner_private {
+            return Ok(());
+        }
+        validate_owner_private_recovery_files(&self.database.path).map_err(diagnostic_error)?;
+        if self.wal.is_none() {
+            self.wal = retain_optional(&sidecar_path(&self.database.path, "-wal"))
+                .map_err(diagnostic_error)?;
+        }
+        if self.shm.is_none() {
+            self.shm = retain_optional(&sidecar_path(&self.database.path, "-shm"))
+                .map_err(diagnostic_error)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(not(unix))]
+struct ConnectionIdentityGuard;
+
+#[derive(Clone, Copy)]
+enum IdentityHookStage {
+    Retained,
+    Opened,
+    Classified,
+}
+
+#[cfg(not(unix))]
+impl ConnectionIdentityGuard {
+    fn main(_path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
+        Err(SchemaOpenDiagnostic::FileIdentityUncertain)
+    }
+
+    fn from_created(_path: &Path, _file: fs::File) -> Result<Self, SchemaOpenDiagnostic> {
+        Err(SchemaOpenDiagnostic::FileIdentityUncertain)
+    }
+
+    fn verify(&self, _connection: &Connection) -> SqliteResult<()> {
+        Err(diagnostic_error(
+            SchemaOpenDiagnostic::FileIdentityUncertain,
+        ))
+    }
+
+
+    fn retain_created_sidecars(&mut self) -> SqliteResult<()> {
+        Err(diagnostic_error(
+            SchemaOpenDiagnostic::FileIdentityUncertain,
+        ))
+    }
+
+
+    fn verify_with_sidecar_handle(&self, _connection: &Connection) -> SqliteResult<()> {
+        Err(diagnostic_error(
+            SchemaOpenDiagnostic::FileIdentityUncertain,
+        ))
+    }
+}
+
+#[cfg(unix)]
+fn retain_optional(path: &Path) -> Result<Option<RetainedFileIdentity>, SchemaOpenDiagnostic> {
     match fs::symlink_metadata(path) {
-        Ok(_) => match file_identity(path) {
+        Ok(_) => match RetainedFileIdentity::open(path) {
             Ok(identity) => Ok(Some(identity)),
             Err(SchemaOpenDiagnostic::FileIdentityUncertain) if !path.exists() => Ok(None),
             Err(error) => Err(error),
@@ -90,14 +234,24 @@ fn optional_file_identity(path: &Path) -> Result<Option<FileIdentity>, SchemaOpe
 }
 
 #[cfg(unix)]
-fn optional_identity_matches(
-    expected: &Option<FileIdentity>,
-    actual: &Option<FileIdentity>,
-) -> bool {
-    match (expected, actual) {
-        (Some(expected), Some(actual)) => expected == actual,
-        (Some(_), None) | (None, _) => true,
+fn optional_retained_unchanged(
+    retained: &Option<RetainedFileIdentity>,
+    path: &Path,
+) -> SqliteResult<bool> {
+    match retained {
+        Some(retained) => retained.unchanged().map_err(diagnostic_error),
+        None => match fs::symlink_metadata(path) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+            _ => Ok(false),
+        },
     }
+}
+
+#[cfg(unix)]
+fn sqlite_main_has_moved(connection: &Connection) -> SqliteResult<bool> {
+    sqlite_handle_identity::main_file_has_moved(connection).map_err(|_| {
+        diagnostic_error(SchemaOpenDiagnostic::FileIdentityUncertain)
+    })
 }
 
 fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {

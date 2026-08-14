@@ -64,7 +64,7 @@ fn contract_files(root: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
 fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGenerationError> {
     let mut artifacts = BTreeMap::from([
         (
-            "golden/local-session.json",
+            "golden/local-session-v2.json",
             canonical_json(&local_session_golden())?,
         ),
         (
@@ -105,7 +105,7 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&local_runtime_profile_schema())?,
         ),
         (
-            "schemas/local-session-v1.schema.json",
+            "schemas/local-session-v2.schema.json",
             canonical_json(&local_session_schema())?,
         ),
         (
