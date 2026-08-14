@@ -162,6 +162,8 @@ fn bootstrap_inner(
         )
         .map_err(|_| DaemonError::Bootstrap("prepared first activation mismatch".into()))?;
     }
+    schema::readiness_from_managed(&db_conn)
+        .map_err(|_| DaemonError::Bootstrap("pre-sidecar readiness".into()))?;
     let (replay_integrity_key, local_session_authority_id) =
         load_or_migrate_local_sidecars(&db_conn, &replay_integrity_key_path, authority_id)?;
     if let Some(protected) = protected.as_mut() {
