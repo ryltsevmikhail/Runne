@@ -9,7 +9,7 @@ rust-version.workspace = true
 gocode-local-store = { path = "../local-store" }
 gocode-api = { path = "../gocode-api" }
 gocode-runtime-client = { path = "../runtime-client" }
-gocode-secure-store = { path = "../secure-store" }
+gocode-secure-store = { path = "../secure-store", default-features = false }
 hex.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
@@ -29,7 +29,7 @@ test-support = [
 axum = "0.8"
 base64.workspace = true
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
-gocode-secure-store = { path = "../secure-store", features = ["test-support"] }
+gocode-secure-store = { path = "../secure-store", default-features = false }
 hmac = "0.12"
 sha2.workspace = true
 tempfile = "=3.27.0"
