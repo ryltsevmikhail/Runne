@@ -37,8 +37,19 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
         manifest_step = ci[manifest_start : ci.find("\n      - name:", ci.index(manifest))]
         self.assertIn("if: matrix.mode == 'pinned'", manifest_step)
         self.assertNotIn("runner.os", manifest_step)
-        for path in (".github/workflows/desktop-ci.yml", ".github/workflows/desktop-qualification.yml", "scripts/ci-local.sh"):
+        for path in (".github/workflows/desktop-ci.yml", ".github/workflows/desktop-qualification.yml"):
             self.assertIn(marker, (ROOT / path).read_text(encoding="utf-8"), path)
+        local_inputs = (ROOT / "scripts/ci-local-inputs.sh").read_text(encoding="utf-8")
+        self.assertIn(
+            '"$trusted_python" -m unittest scripts.tests.test_desktop_qualification_workflow -v',
+            local_inputs,
+        )
+        wrapper = (ROOT / "scripts/ci-local.sh").read_text(encoding="utf-8")
+        receipt = (ROOT / "scripts/ci_local_receipt_state.py").read_text(encoding="utf-8")
+        common = (ROOT / "scripts/ci_local_receipt_common.py").read_text(encoding="utf-8")
+        self.assertIn("scripts.ci_local_receipt run --receipt", wrapper)
+        self.assertIn('INPUT_SCRIPT = "scripts/ci-local-inputs.sh"', common)
+        self.assertIn("(namespace.bash, root / INPUT_SCRIPT)", receipt)
 
     def test_isolated_system_python_rejects_workspace_shadows(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT.parent) as temporary:

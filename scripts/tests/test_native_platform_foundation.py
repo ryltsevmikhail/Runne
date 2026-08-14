@@ -3,6 +3,8 @@
 import copy
 import hashlib
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -213,7 +215,7 @@ class NativeQualificationWorkflowTests(unittest.TestCase):
 
     def test_native_workflow_binds_protected_source_and_verified_attestation_output(self) -> None:
         workflow = (EVIDENCE_PATH.parents[2] / ".github/workflows/desktop-native-qualification.yml").read_text(encoding="utf-8")
-        for required in ('test "${{ inputs.source_ref }}" = "$GITHUB_SHA"', 'ref: "${{ github.sha }}"', "persist-credentials: false", "GOCODE_NATIVE_PROVENANCE_ISSUER", "--bundle", "native-package-verified-attestation.json"):
+        for required in ('INPUT_SOURCE_REF: ${{ inputs.source_ref }}', 'test "$INPUT_SOURCE_REF" = "$GITHUB_SHA"', 'ref: "${{ github.sha }}"', "persist-credentials: false", "GOCODE_NATIVE_PROVENANCE_ISSUER", "--bundle", "native-package-verified-attestation.json"):
             self.assertIn(required, workflow)
         self.assertNotIn("--native-secure-store-probe", workflow)
         self.assertIn("GOCODE_NATIVE_PROVENANCE_REF: ${{ vars.NATIVE_PROVENANCE_REF }}", workflow)
@@ -222,6 +224,35 @@ class NativeQualificationWorkflowTests(unittest.TestCase):
         self.assertIn("--runner-identity", workflow)
         for required in ("--cert-oidc-issuer", "NATIVE_RUNNER_CONTROL_PLANE_PUBLIC_ROOT_SHA256: ${{ vars.NATIVE_RUNNER_CONTROL_PLANE_PUBLIC_ROOT_SHA256 }}", "--trust-root-sha256", "--oidc-token-file", "--job-id \"$GITHUB_JOB\" --workflow-run-id \"$GITHUB_RUN_ID\"", "ACTIONS_ID_TOKEN_REQUEST_URL", "gocode-native-runner-control-plane", "id-token: write"):
             self.assertIn(required, workflow)
+
+    def test_native_workflow_never_interpolates_dispatch_inputs_in_shell(self) -> None:
+        workflow = (EVIDENCE_PATH.parents[2] / ".github/workflows/desktop-native-qualification.yml").read_text(encoding="utf-8")
+        lines = workflow.splitlines()
+        run_bodies = []
+        for index, line in enumerate(lines):
+            stripped = line.lstrip()
+            if not stripped.startswith("run:"):
+                continue
+            indent = len(line) - len(stripped)
+            value = stripped.removeprefix("run:").strip()
+            if value != "|":
+                run_bodies.append(value)
+                continue
+            block = []
+            for continuation in lines[index + 1 :]:
+                if continuation.strip() and len(continuation) - len(continuation.lstrip()) <= indent:
+                    break
+                block.append(continuation)
+            run_bodies.append("\n".join(block))
+        self.assertTrue(run_bodies)
+        self.assertTrue(all("${{ inputs." not in body for body in run_bodies))
+
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "executed"
+            environment = {**os.environ, "INPUT_SOURCE_REF": f"$(touch {marker})", "GITHUB_SHA": "candidate"}
+            result = subprocess.run(["bash", "-c", 'test "$INPUT_SOURCE_REF" = "$GITHUB_SHA"'], env=environment)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(marker.exists())
 
 
 if __name__ == "__main__":
