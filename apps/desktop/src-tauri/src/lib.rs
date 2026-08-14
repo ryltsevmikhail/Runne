@@ -1,7 +1,9 @@
 mod bundled_runtime;
 pub mod conversation_channel;
+mod destructive_intent;
 mod directory_selection;
 mod directory_selection_response;
+mod open_selected_workspace_request;
 mod prepare_workspace_request;
 mod prepared_workspace;
 mod renderer_generation;
@@ -16,7 +18,10 @@ use gocode_app_core::{
     RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
 };
 use gocode_platform_desktop::ProfileLock;
-use gocode_platform_desktop::{RootHandleAdmission, VerifiedRootHandle, WorkspaceId};
+use gocode_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
+use open_selected_workspace_request::{
+    OpenSelectedWorkspaceRequest, RetryOpenSelectedWorkspaceRequest,
+};
 use prepare_workspace_request::PrepareSelectedWorkspaceRequest;
 use prepared_workspace::{
     PreparedWorkspaceBinding, PreparedWorkspaceManager, PreparedWorkspaceReservationGuard,
@@ -40,7 +45,7 @@ pub type RuntimeConnectionFuture<'a> =
     Pin<Box<dyn Future<Output = Result<RuntimeAvailability, AppCoreError>> + Send + 'a>>;
 struct NativeRootAdmission {
     pub(crate) root: VerifiedRootHandle,
-    pub(crate) admission: RootHandleAdmission,
+    pub(crate) admission: ProtectedRootHandleAdmission,
     operation_permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
@@ -49,7 +54,7 @@ impl NativeRootAdmission {
         self,
     ) -> (
         VerifiedRootHandle,
-        RootHandleAdmission,
+        ProtectedRootHandleAdmission,
         tokio::sync::OwnedMutexGuard<()>,
     ) {
         (self.root, self.admission, self.operation_permit)
@@ -218,6 +223,10 @@ impl RuntimeLifecycleManager {
         }
     }
 
+    pub(crate) fn native_root_reaper(&self) -> Option<Arc<dyn NativeRootAdmissionLifecycle>> {
+        self.root_admission.clone()
+    }
+
     /// Fences host lifecycle work on explicit quit without adopting an
     /// external daemon.
     pub fn explicit_quit(&self) {
@@ -270,27 +279,4 @@ where
 include!("lib_parts/commands.rs");
 include!("lib_parts/prepared_commit.rs");
 include!("lib_parts/run.rs");
-
-#[cfg(test)]
-mod native_root_admission_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn external_lifecycle_rejects_native_root_admission() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = VerifiedRootHandle::open(directory.path()).unwrap();
-        assert!(
-            RuntimeLifecycleManager::external()
-                .prepare_root_admission(root, WorkspaceId::from_bytes([4; 16]), 1)
-                .await
-                .is_err()
-        );
-    }
-}
-
-#[cfg(all(test, feature = "test-support"))]
-mod directory_selection_expiry_tests;
-#[cfg(all(test, feature = "test-support"))]
-mod directory_selection_internal_tests;
-#[cfg(all(test, feature = "test-support"))]
-mod directory_selection_rollback_tests;
+include!("lib_parts/test_modules.rs");

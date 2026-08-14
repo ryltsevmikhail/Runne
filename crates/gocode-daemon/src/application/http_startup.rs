@@ -1,10 +1,9 @@
 use super::replay_authorization::DaemonReplayAuthorization;
-#[cfg(not(feature = "desktop-protected"))]
-use super::root_admission_unavailable::UnavailableRootAdmission;
 use super::shutdown::map_recovery_state;
 use super::*;
 use crate::operational_telemetry::compose_operational_telemetry_query;
-use gocode_store::ProjectWorkspaceStore;
+
+mod command_hosts;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
@@ -24,9 +23,8 @@ pub(super) async fn start_http_and_runtime(
     protected_activation: bool,
     session_id: [u8; 16],
     root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
+    provider_readiness: gocode_api::ProviderActivationReadinessV1,
 ) -> Result<DaemonApplication, DaemonError> {
-    #[cfg(not(feature = "desktop-protected"))]
-    let _ = &root_admission_keys;
     let runtime_capabilities =
         runtime_capabilities(protected_activation, root_admission_keys.is_some());
     let runtime_config = RuntimeConfig {
@@ -151,41 +149,15 @@ pub(super) async fn start_http_and_runtime(
         )),
     );
     let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
-    #[cfg(feature = "desktop-protected")]
-    let (project_workspace_host, root_control) = {
-        use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority};
-        use crate::protected_activation::ProtectedRootControl;
-        let authority = root_admission_keys
-            .filter(|_| protected_activation)
-            .map(|keys| {
-                RootHandleAdmissionAuthority::new(
-                    &keys,
-                    ProjectWorkspaceStore::from_store(store.clone()),
-                    store.runtime_authority_id().0.clone(),
-                    Arc::clone(&local_session_service),
-                )
-            });
-        let gateway = authority
-            .as_ref()
-            .map_or_else(RootAdmissionGateway::unavailable, |value| {
-                RootAdmissionGateway::protected(Arc::clone(value))
-            });
-        (
-            gocode_runtime::RuntimeProjectWorkspaceHost::new(
-                ProjectWorkspaceStore::from_store(store.clone()),
-                gateway.clone(),
-                gateway,
-            ),
-            authority.map(ProtectedRootControl::new),
-        )
-    };
-    #[cfg(not(feature = "desktop-protected"))]
-    let project_workspace_host = gocode_runtime::RuntimeProjectWorkspaceHost::new(
-        ProjectWorkspaceStore::from_store(store.clone()),
-        UnavailableRootAdmission,
-        UnavailableRootAdmission,
+    let command_hosts = command_hosts::compose(
+        &store,
+        root_admission_keys,
+        protected_activation,
+        Arc::clone(&local_session_service),
     );
-    let http_host = LocalRuntimeTlsHost::bind_with_project_workspace(
+    #[cfg(feature = "desktop-protected")]
+    let root_control = command_hosts.root_control.clone();
+    let http_host = LocalRuntimeTlsHost::bind_with_project_workspace_and_command_reconciliation(
         &config.http_bind,
         Arc::clone(bootstrap.launch_identity.server_config()),
         HealthState {
@@ -205,14 +177,21 @@ pub(super) async fn start_http_and_runtime(
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor),
         gocode_http::project_workspace::ProjectWorkspaceHttpState::new(
-            project_workspace_host,
+            command_hosts.project_workspace,
             ApiActor::new("gocode-daemon").expect("the built-in daemon actor identity is valid"),
+        ),
+        gocode_http::command_reconciliation::CommandReconciliationHttpState::new(
+            command_hosts.reconciliation,
         ),
         ReplayHttpState::new(
             replay_service,
             replay_binding,
             LimitsConfig::default(),
             prohibited_content,
+        )
+        .with_baseline_resume_v2(
+            runtime_capabilities
+                .contains(&gocode_http::replay::REPLAY_BASELINE_RESUME_V2_CAPABILITY),
         ),
         telemetry_state,
     )
@@ -233,7 +212,7 @@ pub(super) async fn start_http_and_runtime(
                             "replay_integrity_key_path has no profile directory".into(),
                         )
                     })?;
-                PublishedClientProfileV2::publish(
+                PublishedClientProfileV3::publish(
                     directory,
                     address,
                     &bootstrap.launch_identity,
@@ -267,6 +246,7 @@ pub(super) async fn start_http_and_runtime(
         session_clock,
         protected_activation,
         provider_activation,
+        provider_readiness,
         runtime_liveness,
         runtime_controller,
         _secret_broker: secret_broker,
@@ -278,10 +258,16 @@ pub(super) async fn start_http_and_runtime(
     })
 }
 
+#[cfg(feature = "desktop-protected")]
 fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static str] {
-    if cfg!(feature = "desktop-protected") && protected && has_keys {
+    if protected && has_keys {
         return gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES;
     }
+    gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES
+}
+
+#[cfg(not(feature = "desktop-protected"))]
+fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
     gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES
 }
 

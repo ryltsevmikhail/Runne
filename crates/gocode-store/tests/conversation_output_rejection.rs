@@ -23,6 +23,8 @@ use gocode_security::SecretBroker;
 use gocode_store::codec::{StoreCodec, TextGenerationReceiptCodec};
 use gocode_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
+type SnapshotState = Vec<(i64, Vec<u8>, Vec<u8>, Vec<u8>)>;
+
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
 }
@@ -129,6 +131,10 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
             [workspace_id.as_bytes()],
         )
         .unwrap();
+    let project_version: u64 = projects
+        .get_project("local-owner", project_id)
+        .unwrap()
+        .version();
     assert!(
         projects
             .delete_project(
@@ -136,7 +142,7 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
                 "018f2e3a-7000-7000-8000-000000000013".parse().unwrap(),
                 &IdempotencyKey::new("delete-running").unwrap(),
                 project_id,
-                1,
+                project_version,
             )
             .is_err()
     );
@@ -151,6 +157,19 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
     let rejected = service
         .finish(&generation_context, rejected_input.clone())
         .unwrap();
+    let snapshots_before: SnapshotState = rusqlite::Connection::open(&database_path)
+        .unwrap()
+        .prepare(
+            "SELECT aggregate_type, projection_bytes, projection_digest, snapshot_integrity_digest
+         FROM aggregate_state_snapshots ORDER BY aggregate_type",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
     let duplicate = service
         .finish(&generation_context, rejected_input.clone())
         .unwrap();
@@ -159,6 +178,20 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
     assert_eq!(rejected.phase, TextGenerationPhase::Rejected);
     assert_eq!(rejected.conversation_version, 3);
     assert_eq!(rejected.taskrun_version, 5);
+    let snapshots_after: SnapshotState = rusqlite::Connection::open(&database_path)
+        .unwrap()
+        .prepare(
+            "SELECT aggregate_type, projection_bytes, projection_digest, snapshot_integrity_digest
+         FROM aggregate_state_snapshots ORDER BY aggregate_type",
+        )
+        .unwrap()
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(snapshots_before, snapshots_after);
     let mut invalid = rejected.clone();
     invalid.phase = TextGenerationPhase::Started;
     let connection = rusqlite::Connection::open(&database_path).unwrap();
@@ -177,7 +210,7 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
             "018f2e3a-7000-7000-8000-000000000015".parse().unwrap(),
             &IdempotencyKey::new("delete-invalid-text-origin").unwrap(),
             project_id,
-            1,
+            project_version,
         ),
         Err(gocode_application::ports::ProjectWorkspaceRepositoryError::InvariantViolation)
     );
@@ -197,10 +230,10 @@ fn rejected_provider_output_is_terminal_idempotent_and_creates_no_assistant_mess
                 "018f2e3a-7000-7000-8000-000000000014".parse().unwrap(),
                 &IdempotencyKey::new("delete-terminal").unwrap(),
                 project_id,
-                1,
+                project_version,
             )
             .unwrap(),
-        2
+        4
     );
 
     let conversation_stream = store.load_conversation(conversation_id).unwrap();

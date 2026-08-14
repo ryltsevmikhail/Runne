@@ -42,16 +42,27 @@ use crate::sse::{
 };
 
 const MAX_CURSOR_TOKEN_BYTES: usize = 8 * 1024;
+const MAX_REPLAY_RESUME_BASELINE_BYTES: usize = 1024 * 1024;
+pub const REPLAY_BASELINE_RESUME_V2_CAPABILITY: &str =
+    "replay.aggregate.retention_baseline_resume.v2";
 const CURSOR_TOKEN_PREFIX: &str = "gocode-replay-cursor-v1.";
 const MAX_SSE_FRAME_BYTES: usize = 256 * 1024;
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
 
 include!("replay/types.rs");
+include!("replay/resume_lease.rs");
+include!("replay/retention_baseline_wire.rs");
+include!("replay/retention_baseline_v2_wire.rs");
 include!("replay/wire_binding.rs");
 include!("replay/wire_support.rs");
 include!("replay/errors.rs");
 include!("replay/handlers.rs");
+include!("replay/bounded_response.rs");
+include!("replay/resume_v2.rs");
+include!("replay/resume_v2_types.rs");
+include!("replay/resume_v2_admission.rs");
+include!("replay/resume_v2_json.rs");
 include!("replay/live_support.rs");
 include!("replay/live_producer.rs");
 include!("replay/live_stream.rs");

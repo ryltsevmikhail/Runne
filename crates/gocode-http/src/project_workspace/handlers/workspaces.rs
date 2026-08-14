@@ -6,7 +6,7 @@ use axum::{
 };
 use gocode_api::{
     ExistingWorkspaceCommand, ProjectWorkspaceCommandHostPort, ProjectWorkspaceDisplayNameInput,
-    ProjectWorkspaceQueryHostPort, RootHandleAdmission,
+    ProjectWorkspaceQueryHostPort,
 };
 use gocode_domain::id::{ProjectId, WorkspaceId};
 
@@ -130,10 +130,6 @@ where
     if body.expected_version == 0 {
         return bad_request("invalid_expected_version", &request_id);
     }
-    let root_admission = match RootHandleAdmission::decode_token(&body.root_admission) {
-        Ok(value) => value,
-        Err(_) => return bad_request("invalid_root_admission", &request_id),
-    };
     match state
         .host
         .bind_workspace_root(
@@ -141,7 +137,7 @@ where
             gocode_api::BindWorkspaceRootCommand {
                 workspace_id,
                 expected_version: body.expected_version,
-                root_admission,
+                root_admission: body.root_admission.into_admission(),
             },
         )
         .await

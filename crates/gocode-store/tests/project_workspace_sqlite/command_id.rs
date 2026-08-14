@@ -105,7 +105,7 @@ fn project_command_id_blocks_conversation_and_text_receipt_writers() {
             command(42),
             &key("reserve-text-command"),
             gocode_domain::id::ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         )
         .unwrap();
     let text = ConversationTextService::new(
@@ -141,7 +141,7 @@ fn project_command_id_blocks_conversation_and_text_receipt_writers() {
                 command(43),
                 &key("project-after-text"),
                 gocode_domain::id::ProjectId::from_bytes(PROJECT),
-                2,
+                4,
             )
             .is_err()
     );

@@ -60,24 +60,31 @@ impl AppCore {
         Ok(bound)
     }
 
-    async fn reconcile_conversation<F>(
+    #[allow(clippy::too_many_lines)]
+    async fn reconcile_conversation_under_operation<F>(
         &self,
-        client: &AuthenticatedRuntimeClient,
+        context: &RuntimeOperationContext,
         reference: &StoredConversationReference,
-        identity: &replay::StableRuntimeIdentity,
         mut on_update: F,
     ) -> Result<ConversationSnapshot, AppCoreError>
     where
         F: FnMut(ConversationTimelineUpdate),
     {
+        self.require_current_operation_context(context)?;
         self.transition_runtime(RuntimeAvailability::Reconciling)?;
-        let scope_key = identity.scope(reference);
+        let scope_key = context.identity.scope(reference);
         let checkpoint_result = {
-            let store = self
+            let mut store = self
                 .store
                 .lock()
                 .map_err(|_| AppCoreError::StateUnavailable)?;
-            replay::checkpoint(&store, &scope_key)
+            replay::checkpoint(
+                &mut store,
+                self.mutation_security
+                    .as_ref()
+                    .map(|value| value.secure.as_ref()),
+                &scope_key,
+            )
         };
         let checkpoint = match checkpoint_result {
             Ok(checkpoint) => checkpoint,
@@ -91,7 +98,8 @@ impl AppCore {
             reference.conversation_id(),
         );
         let mut local_error = None;
-        let result = client
+        let result = context
+            .client
             .catch_up_from_persisted_cursor(
                 scope,
                 checkpoint.as_ref().map(|value| value.cursor.as_str()),
@@ -101,7 +109,15 @@ impl AppCore {
                         local_error = Some(AppCoreError::StateUnavailable);
                         return Err(());
                     };
-                    match replay::apply_delivery(&mut store, reference, identity, delivery) {
+                    match replay::apply_delivery(
+                        &mut store,
+                        self.mutation_security
+                            .as_ref()
+                            .map(|value| value.secure.as_ref()),
+                        reference,
+                        &context.identity,
+                        delivery,
+                    ) {
                         Ok(update) => Ok(update),
                         Err(error) => {
                             local_error = Some(error);
@@ -121,14 +137,33 @@ impl AppCore {
                 self.set_runtime_failure(RuntimeAvailability::Fatal)?;
                 return Err(error);
             }
-            return Err(self.map_replay_failure(&error, &scope_key));
+            if let Some(baseline) = error.retention_baseline_v2() {
+                self.promote_retention_baseline_v2_under_operation(
+                    context,
+                    scope,
+                    &scope_key,
+                    checkpoint.as_ref(),
+                    baseline,
+                )
+                .await?;
+            } else {
+                return Err(self.map_replay_failure(&error, &scope_key));
+            }
         }
+        self.require_current_operation_context(context)?;
         let snapshot_result = {
-            let store = self
+            let mut store = self
                 .store
                 .lock()
                 .map_err(|_| AppCoreError::StateUnavailable)?;
-            replay::snapshot(&store, &scope_key, reference)
+            replay::snapshot(
+                &mut store,
+                self.mutation_security
+                    .as_ref()
+                    .map(|value| value.secure.as_ref()),
+                &scope_key,
+                reference,
+            )
         };
         let snapshot = match snapshot_result {
             Ok(snapshot) => snapshot,

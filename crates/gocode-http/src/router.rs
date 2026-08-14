@@ -17,6 +17,9 @@ use gocode_api::{
 
 use crate::admission::{AdmissionState, admission_middleware};
 use crate::auth::{AuthLayer, SessionAuthLayer};
+use crate::command_reconciliation::{
+    CommandReconciliationHttpState, command_reconciliation_router,
+};
 use crate::conversations::{ConversationHttpState, conversation_router};
 use crate::health::{HealthState, health_router};
 use crate::local_session::{LocalSessionHttpState, VerifiedLocalTls, local_session_router};
@@ -34,6 +37,8 @@ use crate::task_runs::{TaskRunHttpState, task_run_router};
 
 include!("router_parts/production.rs");
 include!("router_parts/project_workspace.rs");
+include!("router_parts/command_reconciliation.rs");
+include!("router_parts/command_reconciliation_production.rs");
 
 #[cfg(test)]
 mod tests {

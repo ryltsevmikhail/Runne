@@ -7,10 +7,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CAPABILITY_SCHEMA = ROOT / "docs/schemas/desktop-v1-capabilities-v1.schema.json"
-STATUS_SCHEMA = ROOT / "docs/schemas/desktop-v1-capability-status-v1.schema.json"
+STATUS_SCHEMA = ROOT / "docs/schemas/desktop-v1-capability-status-v2.schema.json"
 PROFILE = ROOT / "docs/profiles/desktop-v1-capabilities-v1.json"
 PROFILE_DIGEST = ROOT / "docs/profiles/desktop-v1-capabilities-v1.digest"
-STATUS = ROOT / "docs/evidence/desktop-v1-capability-status-v1.json"
+STATUS = ROOT / "docs/evidence/desktop-v1-capability-status-v2.json"
 
 
 def load_json_no_duplicates(path: Path) -> object:

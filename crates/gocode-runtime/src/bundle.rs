@@ -1,10 +1,10 @@
-//! Published canonical contract identity for `gocode-ui-client/1`.
+//! Published canonical contract identity for `gocode-ui-client/2`.
 //!
 //! The checked-in `bundle.json` is generated from contract content only.
 //! Source revision evidence is deliberately maintained outside this digest.
 
 /// Canonical API profile identifier.
-pub const BUNDLE_ID: &str = "gocode-ui-client/1";
+pub const BUNDLE_ID: &str = "gocode-ui-client/2";
 
 /// Exact local transport profile described by this contract.
 pub const TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "e98ae0dc6e6223fe0cfeae27271c5a5db504497cdb588bbc9952691647da39cb";
+    "c95d46512405cb293fb410bddca4879ec9992952303bf0f0f63d70477c94fd12";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -25,6 +25,8 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
     "replay.aggregate.read_page.v1",
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
@@ -41,7 +43,7 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "workspace.get.v1",
     "workspace.create.v1",
     "workspace.open.v1",
-    "workspace.bind_root.v2",
+    "workspace.bind_root.v3",
 ];
 
 /// Exact base profile for external and deterministic daemon modes.
@@ -50,6 +52,8 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
     "replay.aggregate.read_page.v1",
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
@@ -74,6 +78,8 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "replay.aggregate.open.v1",
+    "replay.aggregate.retention_baseline.v1",
+    "replay.aggregate.retention_baseline_resume.v2",
     "replay.aggregate.read_page.v1",
     "replay.aggregate.acknowledge.v1",
     "replay.aggregate.complete_catch_up.v1",
@@ -90,7 +96,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "workspace.get.v1",
     "workspace.create.v1",
     "workspace.open.v1",
-    "workspace.bind_root.v2",
+    "workspace.bind_root.v3",
 ];
 
 #[cfg(test)]
@@ -104,6 +110,8 @@ mod tests {
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
             "replay.aggregate.open.v1",
+            "replay.aggregate.retention_baseline.v1",
+            "replay.aggregate.retention_baseline_resume.v2",
             "replay.aggregate.read_page.v1",
             "replay.aggregate.acknowledge.v1",
             "replay.aggregate.complete_catch_up.v1",
@@ -120,7 +128,7 @@ mod tests {
             "workspace.get.v1",
             "workspace.create.v1",
             "workspace.open.v1",
-            "workspace.bind_root.v2",
+            "workspace.bind_root.v3",
         ];
         assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
         assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);

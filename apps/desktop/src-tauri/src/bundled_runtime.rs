@@ -12,6 +12,7 @@ use crate::{
     NativeRootAdmission, NativeRootAdmissionLifecycle, OwnedRuntimeLifecycle, RootAdmissionFuture,
     RootAdmissionReapFuture, RuntimeConnectionFuture,
 };
+use gocode_api::ProviderActivationReadinessV1;
 use gocode_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
 };

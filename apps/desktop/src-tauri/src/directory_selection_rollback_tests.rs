@@ -1,16 +1,11 @@
-#![allow(clippy::significant_drop_tightening)]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::directory_selection_test_support::test_admission;
 use crate::prepared_workspace::PreparedWorkspaceRef;
-
-fn test_admission() -> RootHandleAdmission {
-    RootHandleAdmission::decode_token(&format!("gocode-root-admission-v2.{}", "A".repeat(343)))
-        .unwrap()
-}
 
 struct RollbackLifecycle(Arc<tokio::sync::Mutex<()>>, Arc<AtomicUsize>);
 impl OwnedRuntimeLifecycle for RollbackLifecycle {
@@ -28,11 +23,7 @@ impl NativeRootAdmissionLifecycle for RollbackLifecycle {
     ) -> RootAdmissionFuture {
         let operations = Arc::clone(&self.0);
         Box::pin(async move {
-            let admission = RootHandleAdmission::decode_token(&format!(
-                "gocode-root-admission-v2.{}",
-                "A".repeat(343)
-            ))
-            .unwrap();
+            let admission = test_admission();
             Ok(NativeRootAdmission {
                 root,
                 admission,

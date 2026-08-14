@@ -1,9 +1,7 @@
 #![allow(clippy::format_collect)]
 
 use gocode_local_store::LocalStore;
-use gocode_secure_store::{
-    SecureStore, SecurityAnchorV1, StoredSecurityAnchor, test_support::DeterministicSecureStore,
-};
+use gocode_secure_store::test_support::DeterministicSecureStore;
 use rusqlite::Connection;
 
 #[test]
@@ -30,6 +28,19 @@ fn security_state_open_migrates_only_an_empty_exact_v5_legacy_anchor() {
     let secure_store = DeterministicSecureStore::new(profile);
     secure_store.set_legacy_generation(1);
     LocalStore::open_anchored(&path, &secure_store, profile).expect("migrate legacy profile");
+}
+
+#[test]
+fn security_state_open_resumes_a_committed_v6_legacy_migration_only_from_its_seal() {
+    let directory = tempfile::tempdir().expect("temporary profile");
+    let path = directory.path().join("profile.sqlite3");
+    LocalStore::open(&path).expect("v5 profile");
+    let profile = [18; 32];
+    let secure_store = DeterministicSecureStore::new(profile);
+    secure_store.set_legacy_generation(1);
+    secure_store.fail_next_legacy_migration();
+    assert!(LocalStore::open_anchored(&path, &secure_store, profile).is_err());
+    LocalStore::open_anchored(&path, &secure_store, profile).expect("resume persisted migration");
 }
 
 #[test]
@@ -89,50 +100,30 @@ fn security_state_open_recovers_only_a_verified_database_one_ahead() {
     let path = directory.path().join("profile.sqlite3");
     let profile = [13; 32];
     let secure_store = DeterministicSecureStore::new(profile);
-    drop(LocalStore::open_anchored(&path, &secure_store, profile).expect("genesis"));
-    let database: Vec<u8> = Connection::open(&path)
-        .expect("database")
-        .query_row(
-            "SELECT database_identity FROM security_profile WHERE singleton=1",
-            [],
-            |row| row.get(0),
-        )
-        .expect("identity");
-    let database: [u8; 32] = database.try_into().expect("identity width");
-    let lock = secure_store
-        .acquire_security_profile_lock(profile)
-        .expect("profile lock");
-    let StoredSecurityAnchor::V1(current) =
-        secure_store.read_security_anchor(&lock).expect("anchor")
-    else {
-        panic!("expected V1 anchor");
-    };
-    let digest = [42; 32];
-    let seal = secure_store
-        .seal_security_transaction(&lock, database, 2, digest, current.digest())
-        .expect("seal");
-    let next =
-        SecurityAnchorV1::new(profile, database, 2, digest, current.digest(), seal).expect("next");
-    drop(lock);
-    let mut database_connection = Connection::open(&path).expect("database");
-    let transaction = database_connection.transaction().expect("transaction");
-    transaction
-        .execute(
-            "INSERT INTO security_transactions VALUES (2,?1,?2,?3,1)",
-            rusqlite::params![
-                next.transaction_digest.to_vec(),
-                next.previous_anchor_digest.to_vec(),
-                next.sealed_transaction.as_bytes()
-            ],
-        )
-        .expect("persisted seal");
-    transaction
-        .execute(
-            "UPDATE meta SET db_generation=2,last_transaction_digest=?1,commit_marker=1",
-            [hex(&digest)],
-        )
-        .expect("one ahead");
-    transaction.commit().expect("commit");
+    let mut store = LocalStore::open_anchored(&path, &secure_store, profile).expect("genesis");
+    let identity = gocode_local_store::MutationIdentity::new(
+        [1; 32],
+        [2; 32],
+        gocode_local_store::MutationOperation::ProjectCreate,
+        gocode_local_store::MutationTargetKind::Project,
+        gocode_local_store::BoundedCanonicalId::parse(b"018f2e3a-7000-7000-8000-000000000094")
+            .expect("id"),
+        "recovery",
+        0,
+        [3; 32],
+    )
+    .expect("identity");
+    secure_store.fail_next_advance();
+    assert!(
+        store
+            .prepare_anchored_mutation_v7(
+                &secure_store,
+                identity,
+                project_command(b"018f2e3a-7000-7000-8000-000000000094"),
+            )
+            .is_err()
+    );
+    drop(store);
     LocalStore::open_anchored(&path, &secure_store, profile).expect("recover one ahead");
 }
 
@@ -153,6 +144,66 @@ fn security_state_open_rejects_changed_profile_or_database_binding() {
     assert!(LocalStore::open_anchored(&path, &secure_store, profile).is_err());
 }
 
-fn hex(value: &[u8; 32]) -> String {
-    value.iter().map(|byte| format!("{byte:02x}")).collect()
+#[test]
+fn security_state_open_rejects_every_ledger_column_tamper() {
+    let updates = [
+        "runtime_authority_digest=x'0909090909090909090909090909090909090909090909090909090909090909'",
+        "principal_digest=x'0808080808080808080808080808080808080808080808080808080808080808'",
+        "operation_kind='tampered'",
+        "target_kind='tampered'",
+        "target_id=x'74'",
+        "idempotency_key='tampered'",
+        "expected_version=1",
+        "semantic_digest=x'0707070707070707070707070707070707070707070707070707070707070707'",
+        "client_disposition='retryable'",
+        "runtime_disposition='indeterminate'",
+        "command_ref=x'04'",
+        "outcome_ref=x'05'",
+        "recovery_summary='tampered'",
+        "created_at=1",
+        "updated_at=1",
+    ];
+    for (index, update) in updates.into_iter().enumerate() {
+        let directory = tempfile::tempdir().expect("temporary profile");
+        let path = directory.path().join("profile.sqlite3");
+        let profile = [40 + u8::try_from(index).expect("profile index"); 32];
+        let secure = DeterministicSecureStore::new(profile);
+        let mut store = LocalStore::open_anchored(&path, &secure, profile).expect("genesis");
+        let identity = gocode_local_store::MutationIdentity::new(
+            [1; 32],
+            [2; 32],
+            gocode_local_store::MutationOperation::ProjectCreate,
+            gocode_local_store::MutationTargetKind::Project,
+            gocode_local_store::BoundedCanonicalId::parse(b"018f2e3a-7000-7000-8000-000000000095")
+                .expect("id"),
+            "tamper",
+            0,
+            [3; 32],
+        )
+        .expect("identity");
+        store
+            .prepare_anchored_mutation_v7(
+                &secure,
+                identity,
+                project_command(b"018f2e3a-7000-7000-8000-000000000095"),
+            )
+            .expect("prepare");
+        drop(store);
+        let rejected_by_schema = Connection::open(&path)
+            .expect("database")
+            .execute(&format!("UPDATE mutation_ledger SET {update}"), [])
+            .is_err();
+        assert!(
+            rejected_by_schema || LocalStore::open_anchored(&path, &secure, profile).is_err(),
+            "{update}"
+        );
+    }
+}
+
+fn project_command(id: &[u8]) -> gocode_local_store::NormalizedMutationCommand {
+    gocode_local_store::NormalizedMutationCommand::create_project(
+        gocode_local_store::BoundedCanonicalId::parse(id).unwrap(),
+        "Project".into(),
+    )
+    .unwrap()
 }

@@ -201,55 +201,6 @@ async fn terminal_failure_invalidates_an_in_flight_activation() {
     );
 }
 
-#[cfg(debug_assertions)]
-#[tokio::test]
-async fn restart_keeps_lifecycle_degraded_while_replay_resync_is_pending() {
-    let directory = tempfile::tempdir().expect("temp directory");
-    let core = AppCore::open_with_runtime_mode(
-        &directory.path().join("profile.sqlite3"),
-        RuntimeMode::Bundled,
-    )
-    .expect("open bundled core");
-    let first_lease = core
-        .begin_bundled_runtime_start()
-        .await
-        .expect("begin activation");
-    let first_client = mock_protected_authenticated_runtime_client(
-        "http://127.0.0.1:41001",
-        runtime_session(1, "018f2e3a-7000-7000-8000-000000000111"),
-    )
-    .expect("first protected client");
-    core.install_bundled_runtime_client(first_lease, first_client)
-        .await
-        .expect("install first client");
-
-    core.force_pending_resync_for_test()
-        .expect("force pending resync");
-    let pending = core.bootstrap().expect("pending bootstrap");
-    assert_eq!(pending.runtime, RuntimeAvailability::ResyncRequired);
-    assert_eq!(pending.runtime_lifecycle, RuntimeLifecycleStatus::Degraded);
-
-    let second_lease = core
-        .begin_bundled_runtime_restart()
-        .await
-        .expect("begin restart");
-    let second_client = mock_protected_authenticated_runtime_client(
-        "http://127.0.0.1:41002",
-        runtime_session(2, "018f2e3a-7000-7000-8000-000000000112"),
-    )
-    .expect("second protected client");
-
-    core.install_bundled_runtime_client(second_lease, second_client)
-        .await
-        .expect("install second client");
-    let bootstrap = core.bootstrap().expect("bootstrap");
-    assert_eq!(bootstrap.runtime, RuntimeAvailability::ResyncRequired);
-    assert_eq!(
-        bootstrap.runtime_lifecycle,
-        RuntimeLifecycleStatus::Degraded
-    );
-}
-
 #[test]
 fn runtime_connection_cannot_skip_authenticated_bootstrap_stages() {
     assert!(

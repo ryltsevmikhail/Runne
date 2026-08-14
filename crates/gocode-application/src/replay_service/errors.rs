@@ -21,8 +21,11 @@ pub enum ReplayError {
     SensitivityDenied,
     #[error("replay cursor crosses unavailable retained history")]
     ReplayRetentionGap {
-        floor_cursor: Option<Box<ReplayCursor>>,
-        gap_range_ref: GapRangeRef,
+        baseline: Box<gocode_api::ReplayRetentionBaselineWireV1>,
+    },
+    #[error("replay cursor crosses unavailable retained history")]
+    ReplayRetentionGapV2 {
+        baseline: Box<gocode_api::ReplayRetentionBaselineWireV2>,
     },
     #[error("delivered events have not been acknowledged")]
     NotAcknowledged,

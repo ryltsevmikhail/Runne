@@ -116,5 +116,6 @@ pub struct ProtectedReadyV2 {
     protocol_schema_version: u32,
     compatibility_ready: ProtectedReadyV1,
     provider_binding: ProviderActivationBindingV1,
+    provider_readiness: ProviderActivationReadinessV1,
     readiness_proof: [u8; 32],
 }

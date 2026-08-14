@@ -10,11 +10,11 @@ const MAX_MEDIA_TYPE_BYTES: usize = 255;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResultRef {
     /// Durable result identity.
-    pub result_id: ResultId,
+    result_id: ResultId,
     /// Bounded media type describing the referenced representation.
-    pub media_type: String,
+    media_type: String,
     /// Digest of the immutable result bytes.
-    pub integrity_digest: IntegrityDigest,
+    integrity_digest: IntegrityDigest,
 }
 
 impl ResultRef {
@@ -47,6 +47,21 @@ impl ResultRef {
             media_type,
             integrity_digest,
         })
+    }
+
+    /// Returns the durable result identity.
+    pub const fn result_id(&self) -> &ResultId {
+        &self.result_id
+    }
+
+    /// Returns the validated media type.
+    pub fn media_type(&self) -> &str {
+        &self.media_type
+    }
+
+    /// Returns the immutable result digest.
+    pub const fn integrity_digest(&self) -> &IntegrityDigest {
+        &self.integrity_digest
     }
 }
 
@@ -103,6 +118,16 @@ mod tests {
     fn result_ref_rejects_empty_media_type() {
         let result_id: ResultId = UUID.parse().unwrap();
         assert!(ResultRef::new(result_id, "", IntegrityDigest::from_bytes([7; 32])).is_err());
+    }
+
+    #[test]
+    fn result_ref_enforces_exact_media_type_bound_and_control_exclusion() {
+        let result_id: ResultId = UUID.parse().unwrap();
+        let digest = IntegrityDigest::from_bytes([7; 32]);
+        assert!(ResultRef::new(result_id, "a".repeat(255), digest).is_ok());
+        for media_type in [String::new(), "a\njson".into(), "a".repeat(256)] {
+            assert!(ResultRef::new(result_id, media_type, digest).is_err());
+        }
     }
 
     #[test]

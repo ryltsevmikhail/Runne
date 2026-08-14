@@ -80,13 +80,13 @@ fn project_workspace_openapi_is_structurally_exact_for_all_operations() {
         let success_status = if request.is_some() { "202" } else { "200" };
         assert_eq!(
             operation["responses"][success_status]["content"]["application/json"]["schema"]["$ref"],
-            format!("schemas/project-workspace-v1.schema.json#/$defs/{success}")
+            format!("schemas/project-workspace-v2.schema.json#/$defs/{success}")
         );
         if let Some(request) = request {
             assert_eq!(operation["requestBody"]["x-gocode-maxBodyBytes"], 16384);
             assert_eq!(
                 operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
-                format!("schemas/project-workspace-v1.schema.json#/$defs/{request}")
+                format!("schemas/project-workspace-v2.schema.json#/$defs/{request}")
             );
             let names = operation["parameters"]
                 .as_array()

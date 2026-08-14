@@ -25,6 +25,18 @@ fn fresh_v8_db() -> Connection {
     conn
 }
 
+fn drop_v17_snapshots(conn: &Connection) {
+    conn.execute_batch(
+        "DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
+         DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_insert;
+         DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_update;
+         DROP TABLE IF EXISTS aggregate_state_snapshots;",
+    )
+    .unwrap();
+}
+
 fn drop_v12_fences(conn: &Connection) {
     let triggers = conn
         .prepare(

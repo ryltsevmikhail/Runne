@@ -2,26 +2,14 @@
 
 use std::sync::{Arc, Mutex};
 
-use gocode_api::{
-    BindWorkspaceRootCommand, LaunchAuthorityError, ProjectCommandContext,
-    ProjectWorkspaceCommandHostPort, ProtectedActivationKeys, ProtectedOwnedLaunchV1,
-    RootHandleAdmission, VerifiedRootAdmissionClaims,
-};
+use gocode_api::{LaunchAuthorityError, ProtectedActivationKeys, ProtectedOwnedLaunchV1};
 use gocode_application::local_session::LocalSessionService;
-use gocode_application::ports::RootAdmissionVerifierError;
-use gocode_runtime::RuntimeProjectWorkspaceHost;
 use gocode_store::ProjectWorkspaceStore;
 
-use super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority};
+use super::root_handle_admission::RootHandleAdmissionAuthority;
 
 pub(crate) struct RootAdmissionHarness {
     authority: Arc<RootHandleAdmissionAuthority>,
-    gateway: RootAdmissionGateway,
-    host: RuntimeProjectWorkspaceHost<
-        ProjectWorkspaceStore,
-        RootAdmissionGateway,
-        RootAdmissionGateway,
-    >,
 }
 
 impl RootAdmissionHarness {
@@ -31,33 +19,8 @@ impl RootAdmissionHarness {
         runtime_authority: String,
         sessions: Arc<Mutex<LocalSessionService>>,
     ) -> Self {
-        let authority =
-            RootHandleAdmissionAuthority::new(keys, store.clone(), runtime_authority, sessions);
-        let gateway = RootAdmissionGateway::protected(Arc::clone(&authority));
-        let host = RuntimeProjectWorkspaceHost::new(store, gateway.clone(), gateway.clone());
-        Self {
-            authority,
-            gateway,
-            host,
-        }
-    }
-
-    pub(crate) fn verify(
-        &self,
-        admission: RootHandleAdmission,
-    ) -> Result<VerifiedRootAdmissionClaims, RootAdmissionVerifierError> {
-        gocode_application::ports::RootAdmissionVerifier::verify_root_admission(
-            &self.gateway,
-            admission,
-        )
-    }
-
-    pub(crate) fn fence(&self) -> Result<(), RootAdmissionVerifierError> {
-        self.authority.fence()
-    }
-
-    pub(crate) fn take_admission(&self) -> Option<RootHandleAdmission> {
-        self.authority.take_test_admission()
+        let authority = RootHandleAdmissionAuthority::new(keys, store, runtime_authority, sessions);
+        Self { authority }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -105,15 +68,7 @@ impl RootAdmissionHarness {
         )
     }
 
-    pub(crate) async fn bind(
-        &self,
-        context: ProjectCommandContext,
-        command: BindWorkspaceRootCommand,
-    ) -> Result<gocode_api::WorkspaceCommandAck, gocode_api::ProjectWorkspaceHostError> {
-        self.host.bind_workspace_root(context, command).await
-    }
-
     pub(crate) async fn shutdown(&self) {
-        self.host.shutdown().await;
+        self.authority.shutdown();
     }
 }

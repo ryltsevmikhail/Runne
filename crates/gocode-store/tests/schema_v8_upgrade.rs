@@ -1,6 +1,16 @@
 //! Released V8 to strict provider-schema upgrade regressions.
 
+use gocode_domain::{
+    event::{Actor, EventEnvelope, Sensitivity},
+    id::{AggregateId, CommandId, EventId, IdempotencyKey, IntegrityDigest, TaskRunId},
+    task_run::TaskRunEvent,
+    timestamp::Timestamp,
+};
 use gocode_store::schema::{CURRENT_SCHEMA_VERSION, apply_migrations};
+use gocode_store::{
+    codec::{StoreCodec, TaskRunEventCodec},
+    integrity::compute_integrity_digest_with_global_position,
+};
 use rusqlite::{Connection, params};
 
 fn table_exists(conn: &Connection, name: &str) -> bool {
@@ -29,7 +39,10 @@ fn released_v8_db() -> Connection {
             .unwrap();
     }
     conn.execute_batch(
-        "DROP TRIGGER global_command_id_from_command_receipts;
+        "DROP TRIGGER aggregate_state_snapshots_bind_insert;
+         DROP TRIGGER aggregate_state_snapshots_bind_update;
+         DROP TABLE aggregate_state_snapshots;
+         DROP TRIGGER global_command_id_from_command_receipts;
          DROP TABLE task_run_workspace_lineage;
          DROP TABLE workspace_identity_history;
          DROP TABLE root_admission_nonces;
@@ -79,8 +92,8 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
-    assert_eq!(version, 16);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
+    assert_eq!(version, 18);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));
@@ -150,6 +163,35 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
                 .is_err()
         );
     }
+}
+
+#[test]
+fn released_v8_with_a_complete_typed_taskrun_history_upgrades_to_v17() {
+    let conn = released_v8_db();
+    let taskrun_id: TaskRunId = "018f2e3a-7000-7000-8000-0000000000e1".parse().unwrap();
+    let event_id: EventId = "018f2e3a-7000-7000-8000-0000000000e2".parse().unwrap();
+    let command_id: CommandId = "018f2e3a-7000-7000-8000-0000000000e3".parse().unwrap();
+    let event = EventEnvelope::from_parts(
+        event_id,
+        AggregateId::TaskRun(taskrun_id),
+        AggregateId::TaskRun(taskrun_id),
+        None,
+        command_id,
+        IdempotencyKey::new("v8-snapshot-history").unwrap(),
+        1,
+        Actor::new("v8-snapshot").unwrap(),
+        Sensitivity::Public,
+        TaskRunEvent::TaskRunCreated,
+        1,
+        Timestamp::from_unix_micros(1),
+        IntegrityDigest::from_bytes([0; 32]),
+    );
+    let payload = TaskRunEventCodec.encode(event.payload()).unwrap();
+    let digest = compute_integrity_digest_with_global_position(&event, 1, &payload).unwrap();
+    conn.execute("INSERT INTO aggregate_streams (aggregate_type, aggregate_id, current_version, last_event_id, last_timestamp, created_at) VALUES (1, ?1, 1, ?2, 1, 1)", params![taskrun_id.as_bytes(), event_id.as_bytes()]).unwrap();
+    conn.execute("INSERT INTO events (event_id, aggregate_type, aggregate_id, sequence, global_position, timestamp, sensitivity, schema_version, causation_id, command_id, idempotency_key, actor, payload, integrity_digest, correlation_id, correlation_type, integrity_profile) VALUES (?1, 1, ?2, 1, 1, 1, 0, 1, NULL, ?3, ?4, ?5, ?6, ?7, ?2, 1, 1)", params![event_id.as_bytes(), taskrun_id.as_bytes(), command_id.as_bytes(), event.idempotency_key().as_str().as_bytes(), event.actor().as_str().as_bytes(), payload, digest.as_bytes()]).unwrap();
+    apply_migrations(&conn).unwrap();
+    assert_eq!(conn.query_row("SELECT aggregate_version FROM aggregate_state_snapshots WHERE aggregate_type = 1 AND aggregate_id = ?1", [taskrun_id.as_bytes()], |row| row.get::<_, i64>(0)).unwrap(), 1);
 }
 
 #[test]

@@ -48,6 +48,39 @@ impl DeliveryValidator {
         }
     }
 
+    /// Creates a validator whose first new delivery must immediately follow a
+    /// server-authenticated retained baseline.
+    pub(super) fn from_retained_baseline(
+        scope: ReplayScope,
+        identities: ReplayIdentityTracker,
+        sequence: u64,
+    ) -> Result<Self, ReplayClientError> {
+        let mut state = identities
+            .inner
+            .lock()
+            .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::Integrity))?;
+        match state.scope {
+            Some(expected) if expected != scope => {
+                return Err(ReplayClientError::new(
+                    ReplayClientErrorKind::BindingMismatch,
+                ));
+            }
+            None => state.scope = Some(scope),
+            _ => {}
+        }
+        if state
+            .last_sequence
+            .replace(sequence)
+            .is_some_and(|last| last != sequence)
+        {
+            return Err(ReplayClientError::new(
+                ReplayClientErrorKind::NonMonotonicSequence,
+            ));
+        }
+        drop(state);
+        Ok(Self::new(scope, identities))
+    }
+
     pub(super) fn validate(
         &mut self,
         wire_event: CanonicalEventWire,

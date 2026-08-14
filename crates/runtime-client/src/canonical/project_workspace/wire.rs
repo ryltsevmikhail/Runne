@@ -25,9 +25,9 @@ pub(super) struct ExistingWire {
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct RootBindingWire {
+pub(super) struct RootBindingWire<'a> {
     pub expected_version: u64,
-    pub root_admission: String,
+    pub root_admission: &'a gocode_api::ProtectedRootBindTransport,
 }
 
 #[derive(Deserialize)]

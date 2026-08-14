@@ -1,224 +1,268 @@
 use crate::{
     AnchoredMutationPermit, ClientMutationDisposition, LocalStore, MutationIdentity,
-    MutationRecord, MutationTransitionMetadata, OptionalExtension, SecurityAnchorV1,
-    SecurityStateError,
+    MutationTransitionMetadata, RuntimeCommitDisposition, SecurityStateError, V7MutationTransition,
 };
-use gocode_secure_store::{SecureStore, StoredSecurityAnchor};
+use gocode_secure_store::SecureStore;
+
 impl LocalStore {
-    pub fn transition_anchored_mutation(
+    pub fn transition_anchored_mutation_v7(
         &mut self,
         secure: &dyn SecureStore,
         identity: MutationIdentity,
-        next_state: ClientMutationDisposition,
+        transition: V7MutationTransition,
     ) -> Result<AnchoredMutationPermit, SecurityStateError> {
-        self.transition_anchored_mutation_with_metadata(
-            secure,
-            identity,
-            next_state,
-            MutationTransitionMetadata::new(None, None, None, "", 0)?,
-        )
+        let (next, runtime, outcome, summary, timestamp) = transition_parts(transition)?;
+        let (record, anchor) = self.commit_anchored_security_write(secure, |transaction| {
+            let previous = crate::security_record::load_record(transaction, identity.clone())?
+                .ok_or(SecurityStateError::IdentityConflict)?;
+            let command = previous
+                .normalized_command
+                .as_ref()
+                .ok_or(SecurityStateError::InvalidTransition)?;
+            if !generic_transition_allowed(previous.client_state, next)
+                || !valid_runtime(next, runtime)
+            {
+                return Err(SecurityStateError::InvalidTransition);
+            }
+            if let Some(outcome) = outcome.as_ref() {
+                if !outcome.correlates_to_command(command) {
+                    return Err(SecurityStateError::IdentityConflict);
+                }
+            } else if next == ClientMutationDisposition::CanonicalOutcome {
+                return Err(SecurityStateError::InvalidTransition);
+            }
+            crate::security_record::update_v7_record(
+                transaction,
+                &previous,
+                crate::security_record::V7RecordUpdate {
+                    state: next,
+                    runtime,
+                    canonical_outcome: outcome,
+                    summary,
+                    timestamp,
+                    increment_resend: false,
+                },
+            )
+        })?;
+        Ok(AnchoredMutationPermit { record, anchor })
     }
 
-    pub fn transition_anchored_mutation_with_metadata(
+    pub fn resend_anchored_mutation_v7(
         &mut self,
         secure: &dyn SecureStore,
         identity: MutationIdentity,
-        next_state: ClientMutationDisposition,
-        metadata: MutationTransitionMetadata,
+        timestamp: u64,
     ) -> Result<AnchoredMutationPermit, SecurityStateError> {
-        let context = self
-            .security
-            .clone()
-            .ok_or(SecurityStateError::AdmissionFailed)?;
-        if context.poisoned {
-            return Err(SecurityStateError::AnchorAdvanceFailed);
-        }
-        let lock = secure.acquire_security_profile_lock(context.profile)?;
-        let StoredSecurityAnchor::V1(anchor) = secure.read_security_anchor(&lock)? else {
-            return Err(SecurityStateError::AnchorMismatch);
-        };
-        let current: Option<(String, Vec<u8>, i64, Vec<u8>, String)> = self.connection.query_row("SELECT operation_kind,target_id,expected_version,semantic_digest,client_disposition FROM mutation_ledger WHERE runtime_authority_digest=?1 AND principal_digest=?2 AND idempotency_key=?3", rusqlite::params![identity.runtime().to_vec(), identity.principal().to_vec(), identity.idempotency_key()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?))).optional()?;
-        let Some((operation, target, version, semantic, current)) = current else {
-            return Err(SecurityStateError::IdentityConflict);
-        };
-        if operation != identity.operation_name()
-            || target != identity.target()
-            || version
-                != i64::try_from(identity.expected_version())
-                    .map_err(|_| SecurityStateError::InvalidIdentity)?
-            || semantic != identity.semantic_digest()
-        {
-            return Err(SecurityStateError::IdentityConflict);
-        }
-        let current = parse_state(&current)?;
-        if !current.transition_to(next_state) {
-            return Err(SecurityStateError::InvalidTransition);
-        }
-        let generation = anchor
-            .generation
-            .checked_add(1)
-            .ok_or(SecurityStateError::InvalidTransition)?;
-        let digest = transition_digest(identity.semantic_digest(), next_state);
-        let seal = secure.seal_security_transaction(
-            &lock,
-            context.database,
-            generation,
-            digest,
-            anchor.digest(),
-        )?;
-        let next = SecurityAnchorV1::new(
-            context.profile,
-            context.database,
-            generation,
-            digest,
-            anchor.digest(),
-            seal,
-        )?;
-        let transaction = self.connection.transaction()?;
-        transaction.execute("UPDATE mutation_ledger SET client_disposition=?1,runtime_disposition=?2,command_ref=?3,outcome_ref=?4,recovery_summary=?5,updated_at=?6 WHERE runtime_authority_digest=?7 AND principal_digest=?8 AND idempotency_key=?9", rusqlite::params![state_name(next_state), metadata.runtime(), metadata.command().map(|value| value.to_vec()), metadata.outcome().map(|value| value.to_vec()), metadata.summary(), metadata.timestamp(), identity.runtime().to_vec(), identity.principal().to_vec(), identity.idempotency_key()])?;
-        transaction.execute(
-            "INSERT INTO security_transactions VALUES (?1,?2,?3,?4,1)",
-            rusqlite::params![
-                i64::try_from(generation).map_err(|_| SecurityStateError::InvalidTransition)?,
-                digest.to_vec(),
-                anchor.digest().to_vec(),
-                next.sealed_transaction.as_bytes()
-            ],
-        )?;
-        transaction.execute("UPDATE meta SET db_generation=?1,last_transaction_digest=?2,commit_marker=1 WHERE singleton=1", rusqlite::params![i64::try_from(generation).map_err(|_| SecurityStateError::InvalidTransition)?, hex(&digest)])?;
-        transaction.commit()?;
-        if secure
-            .compare_and_advance_anchor(&lock, &anchor, &next)
-            .is_err()
-            || secure.read_security_anchor(&lock).ok().as_ref()
-                != Some(&StoredSecurityAnchor::V1(next.clone()))
-        {
-            self.security.as_mut().expect("anchored").poisoned = true;
-            return Err(SecurityStateError::AnchorAdvanceFailed);
-        }
-        Ok(AnchoredMutationPermit {
-            record: MutationRecord {
-                identity,
-                client_state: next_state,
-                runtime_disposition: None,
-                command_ref: None,
-                outcome_ref: None,
-            },
-            anchor: next,
-        })
+        let (record, anchor) = self.commit_anchored_security_write(secure, |transaction| {
+            let previous = crate::security_record::load_record(transaction, identity.clone())?
+                .ok_or(SecurityStateError::IdentityConflict)?;
+            if previous.client_state != ClientMutationDisposition::Retryable
+                || previous.resend_count != 0
+            {
+                return Err(SecurityStateError::InvalidTransition);
+            }
+            crate::security_record::update_v7_record(
+                transaction,
+                &previous,
+                crate::security_record::V7RecordUpdate {
+                    state: ClientMutationDisposition::Dispatching,
+                    runtime: None,
+                    canonical_outcome: None,
+                    summary: "resend".into(),
+                    timestamp: i64::try_from(timestamp)
+                        .map_err(|_| SecurityStateError::InvalidTransition)?,
+                    increment_resend: true,
+                },
+            )
+        })?;
+        Ok(AnchoredMutationPermit { record, anchor })
     }
+
+    /// Legacy metadata cannot establish a normalized v7 command or outcome.
     pub fn prepare_anchored_mutation(
         &mut self,
         secure: &dyn SecureStore,
-        identity: MutationIdentity,
+        _identity: MutationIdentity,
     ) -> Result<AnchoredMutationPermit, SecurityStateError> {
-        let context = self
-            .security
-            .clone()
-            .ok_or(SecurityStateError::AdmissionFailed)?;
-        if context.poisoned {
-            return Err(SecurityStateError::AnchorAdvanceFailed);
-        }
-        let lock = secure.acquire_security_profile_lock(context.profile)?;
-        let StoredSecurityAnchor::V1(anchor) = secure.read_security_anchor(&lock)? else {
-            return Err(SecurityStateError::AnchorMismatch);
-        };
-        let duplicate: Option<(String, Vec<u8>, i64, Vec<u8>)> = self.connection.query_row("SELECT operation_kind,target_id,expected_version,semantic_digest FROM mutation_ledger WHERE runtime_authority_digest=?1 AND principal_digest=?2 AND idempotency_key=?3", rusqlite::params![identity.runtime().to_vec(), identity.principal().to_vec(), identity.idempotency_key()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))).optional()?;
-        if let Some((operation, target, version, semantic)) = duplicate {
-            if operation != identity.operation_name()
-                || target != identity.target()
-                || version
-                    != i64::try_from(identity.expected_version())
-                        .map_err(|_| SecurityStateError::InvalidIdentity)?
-                || semantic != identity.semantic_digest()
-            {
-                return Err(SecurityStateError::IdentityConflict);
-            }
-            return Ok(permit(identity, anchor));
-        }
-        let generation = anchor
-            .generation
-            .checked_add(1)
-            .ok_or(SecurityStateError::InvalidTransition)?;
-        let digest = identity.semantic_digest();
-        let seal = secure.seal_security_transaction(
-            &lock,
-            context.database,
-            generation,
-            digest,
-            anchor.digest(),
-        )?;
-        let next = SecurityAnchorV1::new(
-            context.profile,
-            context.database,
-            generation,
-            digest,
-            anchor.digest(),
-            seal,
-        )?;
-        let transaction = self.connection.transaction()?;
-        transaction.execute("INSERT INTO mutation_ledger (runtime_authority_digest, principal_digest, operation_kind, target_kind, target_id, idempotency_key, expected_version, semantic_digest, client_disposition, recovery_summary, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,'prepared','prepared',0,0)", rusqlite::params![identity.runtime().to_vec(), identity.principal().to_vec(), identity.operation_name(), identity.target_name(), identity.target(), identity.idempotency_key(), i64::try_from(identity.expected_version()).map_err(|_| SecurityStateError::InvalidTransition)?, digest.to_vec()])?;
-        transaction.execute(
-            "INSERT INTO security_transactions VALUES (?1,?2,?3,?4,1)",
-            rusqlite::params![
-                i64::try_from(generation).map_err(|_| SecurityStateError::InvalidTransition)?,
-                digest.to_vec(),
-                anchor.digest().to_vec(),
-                next.sealed_transaction.as_bytes()
-            ],
-        )?;
-        transaction.execute("UPDATE meta SET db_generation=?1,last_transaction_digest=?2,commit_marker=1 WHERE singleton=1", rusqlite::params![i64::try_from(generation).map_err(|_| SecurityStateError::InvalidTransition)?, hex(&digest)])?;
-        transaction.commit()?;
-        if secure
-            .compare_and_advance_anchor(&lock, &anchor, &next)
-            .is_err()
-            || secure.read_security_anchor(&lock).ok().as_ref()
-                != Some(&StoredSecurityAnchor::V1(next.clone()))
-        {
-            self.security.as_mut().expect("anchored").poisoned = true;
-            return Err(SecurityStateError::AnchorAdvanceFailed);
-        }
-        Ok(permit(identity, next))
+        self.verify_legacy_admission(secure)?;
+        Err(SecurityStateError::InvalidTransition)
+    }
+
+    /// Legacy metadata cannot establish a normalized v7 command or outcome.
+    pub fn transition_anchored_mutation(
+        &mut self,
+        secure: &dyn SecureStore,
+        _identity: MutationIdentity,
+        _next_state: ClientMutationDisposition,
+    ) -> Result<AnchoredMutationPermit, SecurityStateError> {
+        self.verify_legacy_admission(secure)?;
+        Err(SecurityStateError::InvalidTransition)
+    }
+
+    /// Legacy metadata cannot establish a normalized v7 command or outcome.
+    pub fn transition_anchored_mutation_with_metadata(
+        &mut self,
+        secure: &dyn SecureStore,
+        _identity: MutationIdentity,
+        _next_state: ClientMutationDisposition,
+        metadata: MutationTransitionMetadata,
+    ) -> Result<AnchoredMutationPermit, SecurityStateError> {
+        self.verify_legacy_admission(secure)?;
+        let _ = (
+            metadata.runtime(),
+            metadata.command(),
+            metadata.outcome(),
+            metadata.summary(),
+            metadata.timestamp(),
+        );
+        Err(SecurityStateError::InvalidTransition)
     }
 }
-fn parse_state(value: &str) -> Result<ClientMutationDisposition, SecurityStateError> {
+
+impl LocalStore {
+    fn verify_legacy_admission(
+        &mut self,
+        secure: &dyn SecureStore,
+    ) -> Result<(), SecurityStateError> {
+        let profile = self
+            .security
+            .as_ref()
+            .ok_or(SecurityStateError::AdmissionFailed)?
+            .profile;
+        let lock = secure.acquire_security_profile_lock(profile)?;
+        self.verify_anchored_admission(secure, &lock)
+    }
+}
+
+fn transition_parts(
+    transition: V7MutationTransition,
+) -> Result<
+    (
+        ClientMutationDisposition,
+        Option<RuntimeCommitDisposition>,
+        Option<crate::CanonicalMutationOutcome>,
+        String,
+        i64,
+    ),
+    SecurityStateError,
+> {
+    let (next, runtime, outcome, summary, timestamp) = match transition {
+        V7MutationTransition::Dispatching { timestamp } => (
+            ClientMutationDisposition::Dispatching,
+            None,
+            None,
+            "dispatching".into(),
+            timestamp,
+        ),
+        V7MutationTransition::Observing { timestamp } => (
+            ClientMutationDisposition::Observing,
+            None,
+            None,
+            "observing".into(),
+            timestamp,
+        ),
+        V7MutationTransition::NotCommittedRetryable { timestamp } => (
+            ClientMutationDisposition::Retryable,
+            Some(RuntimeCommitDisposition::NotCommittedRetryable),
+            None,
+            "not_committed_retryable".into(),
+            timestamp,
+        ),
+        V7MutationTransition::Indeterminate { timestamp } => (
+            ClientMutationDisposition::Reconciling,
+            Some(RuntimeCommitDisposition::Indeterminate),
+            None,
+            "indeterminate".into(),
+            timestamp,
+        ),
+        V7MutationTransition::ManualResolution { summary, timestamp } => (
+            ClientMutationDisposition::ManualResolution,
+            Some(RuntimeCommitDisposition::Indeterminate),
+            None,
+            summary,
+            timestamp,
+        ),
+        V7MutationTransition::CanonicalOutcome {
+            outcome,
+            summary,
+            timestamp,
+        } => (
+            ClientMutationDisposition::CanonicalOutcome,
+            Some(RuntimeCommitDisposition::DurablyRecorded),
+            Some(*outcome),
+            summary,
+            timestamp,
+        ),
+    };
+    if summary.is_empty() || summary.len() > 256 || timestamp > i64::MAX as u64 {
+        return Err(SecurityStateError::InvalidTransition);
+    }
+    Ok((
+        next,
+        runtime,
+        outcome,
+        summary,
+        i64::try_from(timestamp).map_err(|_| SecurityStateError::InvalidTransition)?,
+    ))
+}
+
+fn valid_runtime(
+    next: ClientMutationDisposition,
+    runtime: Option<RuntimeCommitDisposition>,
+) -> bool {
+    matches!(
+        (next, runtime),
+        (
+            ClientMutationDisposition::Dispatching | ClientMutationDisposition::Observing,
+            None
+        ) | (
+            ClientMutationDisposition::Retryable,
+            Some(RuntimeCommitDisposition::NotCommittedRetryable)
+        ) | (
+            ClientMutationDisposition::Reconciling | ClientMutationDisposition::ManualResolution,
+            Some(RuntimeCommitDisposition::Indeterminate)
+        ) | (
+            ClientMutationDisposition::CanonicalOutcome,
+            Some(RuntimeCommitDisposition::DurablyRecorded)
+        )
+    )
+}
+
+const fn generic_transition_allowed(
+    previous: ClientMutationDisposition,
+    next: ClientMutationDisposition,
+) -> bool {
+    previous.transition_to(next)
+        && !matches!(
+            (previous, next),
+            (
+                ClientMutationDisposition::Retryable,
+                ClientMutationDisposition::Dispatching
+            )
+        )
+}
+
+pub(crate) fn parse_state(value: &str) -> Result<ClientMutationDisposition, SecurityStateError> {
     match value {
         "prepared" => Ok(ClientMutationDisposition::Prepared),
         "dispatching" => Ok(ClientMutationDisposition::Dispatching),
         "observing" => Ok(ClientMutationDisposition::Observing),
         "retryable" => Ok(ClientMutationDisposition::Retryable),
         "reconciling" => Ok(ClientMutationDisposition::Reconciling),
+        "canonical_outcome" => Ok(ClientMutationDisposition::CanonicalOutcome),
+        "manual_resolution" => Ok(ClientMutationDisposition::ManualResolution),
         _ => Err(SecurityStateError::InvalidTransition),
     }
 }
-fn state_name(value: ClientMutationDisposition) -> &'static str {
+
+pub(crate) fn state_name(value: ClientMutationDisposition) -> &'static str {
     match value {
         ClientMutationDisposition::Prepared => "prepared",
         ClientMutationDisposition::Dispatching => "dispatching",
         ClientMutationDisposition::Observing => "observing",
-        ClientMutationDisposition::CanonicalOutcome => "canonical_outcome",
         ClientMutationDisposition::Retryable => "retryable",
         ClientMutationDisposition::Reconciling => "reconciling",
+        ClientMutationDisposition::CanonicalOutcome => "canonical_outcome",
         ClientMutationDisposition::ManualResolution => "manual_resolution",
     }
-}
-fn transition_digest(identity: [u8; 32], state: ClientMutationDisposition) -> [u8; 32] {
-    let mut value = identity;
-    value[0] ^= state_name(state).len() as u8;
-    value
-}
-fn permit(identity: MutationIdentity, anchor: SecurityAnchorV1) -> AnchoredMutationPermit {
-    AnchoredMutationPermit {
-        record: MutationRecord {
-            identity,
-            client_state: ClientMutationDisposition::Prepared,
-            runtime_disposition: None,
-            command_ref: None,
-            outcome_ref: None,
-        },
-        anchor,
-    }
-}
-fn hex(value: &[u8; 32]) -> String {
-    value.iter().map(|byte| format!("{byte:02x}")).collect()
 }

@@ -1,4 +1,3 @@
-
 // ── Test 6: IdempotencyConflict — same scope+key, different fingerprint ──
 
 #[test]
@@ -71,7 +70,7 @@ fn test_clock_regression() {
     let db_path = database.path().to_owned();
     cleanup_db(&db_path);
 
-    let (tr_id, identity): (TaskRunId, validated_reopen::MainDatabaseIdentity) = {
+    let (_tr_id, identity): (TaskRunId, validated_reopen::MainDatabaseIdentity) = {
         let (store, identity) = validated_reopen::initialize_store(
             &db_path,
             RuntimeAuthorityId("test-host".into()),
@@ -122,40 +121,15 @@ fn test_clock_regression() {
         .unwrap();
     }
 
-    // Reopen store and try to commit — should detect clock regression.
-    // The service maps ClockRegression to StorageFailed(IntegrityViolation).
-    let store = validated_reopen::reopen_store(
+    // A head timestamp no longer matching its authenticated event is corruption;
+    // startup must fail before a subsequent write could mask the regression.
+    assert!(validated_reopen::reopen_store(
         &db_path,
         identity,
         RuntimeAuthorityId("test-host".into()),
         available_guard(),
     )
-    .unwrap();
-    let svc = TaskRunService::new(
-        store.clone(),
-        store.clone(),
-        store.clone(),
-        store.runtime_authority_id().clone(),
-    );
-
-    let err = svc
-        .admit_task_run(
-            &make_context(5),
-            AdmitTaskRunInput {
-                taskrun_id: tr_id,
-                expected_version: 2,
-            },
-        )
-        .unwrap_err();
-
-    assert!(
-        matches!(
-            err,
-            ApplicationError::StorageFailed(StorageFailureKind::IntegrityViolation)
-        ),
-        "expected StorageFailed(IntegrityViolation) from ClockRegression, got {:?}",
-        err,
-    );
+    .is_err());
 
     cleanup_db(&db_path);
 }

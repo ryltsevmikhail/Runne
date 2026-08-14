@@ -1,14 +1,9 @@
-#![allow(clippy::significant_drop_tightening)]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::*;
-
-fn test_admission() -> RootHandleAdmission {
-    RootHandleAdmission::decode_token(&format!("gocode-root-admission-v2.{}", "A".repeat(343)))
-        .unwrap()
-}
+use crate::directory_selection_test_support::test_admission;
 
 #[tokio::test]
 async fn idle_prepared_expiry_releases_the_operation_permit_without_followup_ipc() {

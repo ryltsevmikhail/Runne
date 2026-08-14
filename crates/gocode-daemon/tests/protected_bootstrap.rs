@@ -274,3 +274,5 @@ fn migrated_database_keeps_different_local_session_authority() {
     assert_eq!(migrated.authority_id, legacy_authority);
     assert_ne!(migrated.local_session_authority_id, legacy_authority);
 }
+
+include!("protected_bootstrap_split_parts/v17.rs");

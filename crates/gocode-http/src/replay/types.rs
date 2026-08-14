@@ -5,7 +5,6 @@ pub struct ReplayHttpBinding {
     session_generation: i64,
     authorization_epoch: i64,
 }
-
 impl ReplayHttpBinding {
     /// Validates the runtime authority and process generation bound into every
     /// replay operation.
@@ -30,7 +29,6 @@ impl ReplayHttpBinding {
         })
     }
 }
-
 /// Invalid daemon-owned replay transport configuration.
 #[derive(Clone, Copy, Debug, thiserror::Error, Eq, PartialEq)]
 pub enum ReplayHttpConfigurationError {
@@ -41,7 +39,6 @@ pub enum ReplayHttpConfigurationError {
     #[error("replay authorization epoch must not be negative")]
     InvalidAuthorizationEpoch,
 }
-
 /// Shared state for Replay HTTP handlers.
 #[derive(Clone)]
 pub struct ReplayHttpState {
@@ -53,8 +50,9 @@ pub struct ReplayHttpState {
     active_drains: Arc<Mutex<HashSet<[u8; 16]>>>,
     quotas: ReplayQuotaManager,
     session_permits: Arc<Mutex<HashMap<[u8; 16], ReplayCountPermit>>>,
+    provisional_resume_sessions: Arc<Mutex<HashMap<[u8; 16], V2ResumeLeaseState>>>,
+    baseline_resume_v2_enabled: bool,
 }
-
 impl ReplayHttpState {
     pub fn new(
         service: ReplayService,
@@ -71,9 +69,16 @@ impl ReplayHttpState {
             active_drains: Arc::new(Mutex::new(HashSet::new())),
             quotas: ReplayQuotaManager::default(),
             session_permits: Arc::new(Mutex::new(HashMap::new())),
+            provisional_resume_sessions: Arc::new(Mutex::new(HashMap::new())),
+            baseline_resume_v2_enabled: false,
         }
     }
-
+    /// Enables the negotiated V2 baseline-resume transport surface.
+    #[must_use]
+    pub fn with_baseline_resume_v2(mut self, enabled: bool) -> Self {
+        self.baseline_resume_v2_enabled = enabled;
+        self
+    }
     fn claim_page_read(&self, session_id: [u8; 16]) -> Option<SessionClaim> {
         SessionClaim::acquire(Arc::clone(&self.active_page_reads), session_id)
     }
@@ -91,9 +96,10 @@ impl ReplayHttpState {
             .session_permits
             .lock()
             .map_err(|_| replay_backpressure())?;
-        if permits.insert(session_id, permit).is_some() {
+        if permits.contains_key(&session_id) {
             return Err(replay_invariant_violation());
         }
+        permits.insert(session_id, permit);
         Ok(())
     }
 
@@ -105,6 +111,9 @@ impl ReplayHttpState {
     }
 
     fn release_session_permit(&self, session_id: &[u8; 16]) {
+        if let Ok(mut provisional) = self.provisional_resume_sessions.lock() {
+            provisional.remove(session_id);
+        }
         drop(self.take_session_permit(session_id));
     }
 

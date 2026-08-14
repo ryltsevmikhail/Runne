@@ -1,3 +1,17 @@
+/// Complete storage-verified material which must be authenticated by the
+/// application before it is disclosed outside the replay boundary.
+#[derive(Clone, Debug)]
+pub struct ReplayRetentionBaselineCandidateV1 {
+    pub projection: gocode_api::UnauthenticatedReplayProjectionV1,
+    pub sequence: u64,
+    pub version: u64,
+    pub baseline_global_position: i64,
+    pub retained_floor: i64,
+    pub captured_high_water: i64,
+    pub retention_generation: u64,
+    pub retention_witness: [u8; 32],
+}
+
 /// Store result which keeps retained floor material internal until the
 /// application has applied the current sensitivity lease.
 #[derive(Clone, Debug)]
@@ -7,8 +21,11 @@ pub enum ReplayOpenResult {
         events: Vec<ReplayEvent>,
     },
     RetentionGap {
-        floor_event: Option<ReplayEvent>,
-        gap_range_ref: GapRangeRef,
+        baseline: ReplayRetentionBaselineCandidateV1,
+    },
+    RetentionGapWithV2 {
+        baseline: ReplayRetentionBaselineCandidateV1,
+        baseline_v2: Box<ReplayRetentionBaselineCandidateV2>,
     },
 }
 
@@ -16,10 +33,11 @@ impl ReplayOpenResult {
     pub fn into_opened(self) -> Result<(ReplaySession, Vec<ReplayEvent>), ReplayError> {
         match self {
             Self::Opened { session, events } => Ok((session, events)),
-            Self::RetentionGap { gap_range_ref, .. } => Err(ReplayError::ReplayRetentionGap {
-                floor_cursor: None,
-                gap_range_ref,
-            }),
+            Self::RetentionGap { .. } | Self::RetentionGapWithV2 { .. } => {
+                Err(ReplayError::Integrity(
+                    "retention baseline requires authenticated issuance".to_owned(),
+                ))
+            }
         }
     }
 }
@@ -28,6 +46,18 @@ impl ReplayOpenResult {
 #[async_trait]
 #[allow(clippy::too_many_arguments)]
 pub trait ReplayStorePort: Send + Sync {
+    async fn resume_session_from_baseline_v2(
+        &self,
+        _request: ReplayBaselineResumeRequestV2,
+        _lineage_id: &EventLogLineageId,
+        _server_secret: &[u8; 32],
+        _delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>, ReplayEvent, ReplayAcceptedPromotionV2), ReplayError> {
+        Err(ReplayError::Integrity(
+            "V2 replay resume is unavailable".to_owned(),
+        ))
+    }
+
     async fn open_session(
         &self,
         principal_id: &str,

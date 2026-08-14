@@ -31,7 +31,7 @@ impl ProtectedBundledRuntimeProcess {
         root: &crate::VerifiedRootHandle,
         workspace_id: gocode_api::WorkspaceId,
         expected_version: u64,
-    ) -> Result<gocode_api::RootHandleAdmission, ProtectedBundledRuntimeError> {
+    ) -> Result<gocode_api::ProtectedRootHandleAdmission, ProtectedBundledRuntimeError> {
         let transaction = self.root_handle_preflight(workspace_id, expected_version)?;
         match self.prepare_root_handle_transaction(root, transaction) {
             Ok(Some(admission)) => Ok(admission),
@@ -68,7 +68,7 @@ impl ProtectedBundledRuntimeProcess {
         &mut self,
         root: &crate::VerifiedRootHandle,
         transaction: RootHandleTransaction,
-    ) -> Result<Option<gocode_api::RootHandleAdmission>, ProtectedBundledRuntimeError> {
+    ) -> Result<Option<gocode_api::ProtectedRootHandleAdmission>, ProtectedBundledRuntimeError> {
         let RootHandleTransaction { authenticator, context, sequence, offer } = transaction;
         let offer_digest = offer.digest();
         write_frame(
@@ -78,7 +78,7 @@ impl ProtectedBundledRuntimeProcess {
         let ready = gocode_api::RootHandleControlFrame::decode_and_verify(
             &read_frame(&mut self.channel)?, &authenticator, &context, sequence, unix_millis()?,
         )?;
-        let gocode_api::RootHandleControlFrame::Ready(ready) = ready else {
+        let gocode_api::VerifiedRootHandleControlFrame::Ready(ready) = ready else {
             return Err(ProtectedBundledRuntimeError::LaunchAuthority(LaunchAuthorityError::InvalidContract));
         };
         if ready.offer_digest() != &offer_digest {
@@ -93,14 +93,11 @@ impl ProtectedBundledRuntimeProcess {
         let result = gocode_api::RootHandleControlFrame::decode_and_verify(
             &read_frame(&mut self.channel)?, &authenticator, &context, sequence + 1, unix_millis()?,
         )?;
-        let gocode_api::RootHandleControlFrame::Result(result) = result else {
+        let gocode_api::VerifiedRootHandleControlFrame::Result(result) = result else {
             return Err(ProtectedBundledRuntimeError::LaunchAuthority(LaunchAuthorityError::InvalidContract));
         };
-        if result.offer_digest() != ready.offer_digest() {
-            return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
-        }
         let accepted = result.accepted();
-        let admission = result.into_admission();
+        let admission = result.into_protected_admission();
         if !accepted || admission.is_none() {
             self.root_control_sequence = sequence + 2;
             return Ok(None);
@@ -151,7 +148,7 @@ impl ProtectedBundledRuntimeProcess {
         _root: &crate::VerifiedRootHandle,
         _workspace_id: gocode_api::WorkspaceId,
         _expected_version: u64,
-    ) -> Result<gocode_api::RootHandleAdmission, ProtectedBundledRuntimeError> {
+    ) -> Result<gocode_api::ProtectedRootHandleAdmission, ProtectedBundledRuntimeError> {
         Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
     }
 }

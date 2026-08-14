@@ -3,6 +3,7 @@ impl ProtectedReadyV2 {
     pub fn new(
         compatibility_ready: ProtectedReadyV1,
         provider_binding: ProviderActivationBindingV1,
+        provider_readiness: ProviderActivationReadinessV1,
     ) -> Result<Self, LaunchAuthorityError> {
         if compatibility_ready.profile.transport_profile_id
             != PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID
@@ -13,6 +14,7 @@ impl ProtectedReadyV2 {
             protocol_schema_version: PROTOCOL_SCHEMA_VERSION_V2,
             compatibility_ready,
             provider_binding,
+            provider_readiness,
             readiness_proof: [0; 32],
         })
     }
@@ -69,6 +71,11 @@ impl ProtectedReadyV2 {
     #[must_use]
     pub const fn provider_binding(&self) -> &ProviderActivationBindingV1 {
         &self.provider_binding
+    }
+
+    #[must_use]
+    pub const fn provider_readiness(&self) -> ProviderActivationReadinessV1 {
+        self.provider_readiness
     }
 
     #[must_use]
@@ -142,7 +149,7 @@ impl ProtectedReadyV2 {
         encoder: &mut CborEncoder,
         include_proof: bool,
     ) -> Result<(), EncodeError> {
-        encoder.write_map_header(if include_proof { 5 } else { 4 });
+        encoder.write_map_header(if include_proof { 6 } else { 5 });
         write_key(encoder, 0);
         encoder.write_unsigned(u64::from(Self::MESSAGE_TYPE_ID));
         write_key(encoder, 1);
@@ -151,8 +158,10 @@ impl ProtectedReadyV2 {
         self.compatibility_ready.encode(encoder)?;
         write_key(encoder, 3);
         encode_provider_binding(encoder, &self.provider_binding);
+        write_key(encoder, 4);
+        encoder.write_unsigned(self.provider_readiness.wire_code());
         if include_proof {
-            write_key(encoder, 4);
+            write_key(encoder, 5);
             encoder.write_byte_string(&self.readiness_proof);
         }
         Ok(())
@@ -165,6 +174,7 @@ impl fmt::Debug for ProtectedReadyV2 {
             .debug_struct("ProtectedReadyV2")
             .field("launch_generation", &self.launch_generation())
             .field("provider_binding", &self.provider_binding)
+            .field("provider_readiness", &self.provider_readiness)
             .field("protected_fields", &"<redacted>")
             .finish()
     }
@@ -178,7 +188,7 @@ impl DeterministicCodec for ProtectedReadyV2 {
     }
 
     fn decode(type_id: u32, decoder: &mut CborDecoder<'_>) -> Result<Self, DecodeError> {
-        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(5)? != 5 {
+        if type_id != Self::MESSAGE_TYPE_ID || decoder.read_map_header(6)? != 6 {
             return Err(DecodeError::UnknownMessageType { type_id });
         }
         expect_key(decoder, 0)?;
@@ -190,8 +200,12 @@ impl DeterministicCodec for ProtectedReadyV2 {
         expect_key(decoder, 3)?;
         let provider_binding = decode_provider_binding(decoder)?;
         expect_key(decoder, 4)?;
+        let readiness_code = decoder.read_unsigned(u64::MAX)?;
+        let provider_readiness = ProviderActivationReadinessV1::from_wire_code(readiness_code)
+            .ok_or(DecodeError::UnknownField { key: 4 })?;
+        expect_key(decoder, 5)?;
         let readiness_proof = decode_fixed::<32>(decoder)?;
-        let mut value = Self::new(compatibility_ready, provider_binding)
+        let mut value = Self::new(compatibility_ready, provider_binding, provider_readiness)
             .map_err(|_| DecodeError::UnknownField { key: 3 })?;
         value.readiness_proof = readiness_proof;
         Ok(value)

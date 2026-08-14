@@ -9,7 +9,7 @@ mod tests {
     use gocode_api::{
         ActivationDispositionV1, ExecutableIdentityV1, LaunchSecret, ProtectedLaunchRequestV1,
         ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2, ProtectedRuntimeProfileV1,
-        ProviderActivationBindingV1, StableRuntimeBindingV1,
+        ProviderActivationBindingV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
     };
 
     #[test]
@@ -88,7 +88,7 @@ mod tests {
             protected_ready_fixture(PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID);
         let binding = ProviderActivationBindingV1::openai_responses_text_v1();
         let request = ProtectedLaunchRequestV2::new(request_v1, binding.clone()).unwrap();
-        let mut ready = ProtectedReadyV2::new(ready_v1, binding).unwrap();
+        let mut ready = ProtectedReadyV2::new(ready_v1, binding, ProviderActivationReadinessV1::Ready).unwrap();
         ready.sign(&keys);
 
         ProtectedBundledRuntimeProfile::from_ready_v2(&ready, &request, &keys)

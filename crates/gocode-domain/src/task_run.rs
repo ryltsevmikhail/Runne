@@ -17,20 +17,23 @@ use crate::plan::PlanRevisionRef;
 use crate::recovery::{ReconciliationResultRef, ReconciliationStatus};
 use crate::reference::{BudgetReservationRef, CheckpointRef};
 use crate::verification::PlanEvaluationResult;
+use std::fmt;
 
 mod commands;
 mod replay;
+mod snapshot;
 #[cfg(test)]
 mod tests;
 mod types;
 mod validation;
 
+pub use snapshot::{TaskRunSnapshotError, TaskRunSnapshotV1};
 pub use types::{TaskRunEvent, TaskRunEventKind, TaskRunState};
 
 // ── TaskRun aggregate ──────────────────────────────────────────────────────
 
 /// The TaskRun aggregate root — tracks execution lifecycle.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct TaskRun {
     /// The aggregate identity.
     id: TaskRunId,
@@ -58,6 +61,18 @@ pub struct TaskRun {
     cycle_history: Vec<CycleHistoryEntry>,
     /// Monotonic recovery generation.
     recovery_generation: u64,
+}
+
+impl fmt::Debug for TaskRun {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TaskRun")
+            .field("id", &self.id)
+            .field("state", &self.state)
+            .field("recovery_generation", &self.recovery_generation)
+            .field("redacted", &true)
+            .finish()
+    }
 }
 
 impl TaskRun {

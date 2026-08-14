@@ -190,6 +190,14 @@ pub enum ReplayApplyOutcome {
 pub enum ReplayStoreError {
     #[error("anchored replay admission is required for this database")]
     AnchoredAdmissionRequired,
+    #[error("replay baseline evidence is malformed or unavailable")]
+    InvalidBaseline,
+    #[error("shadow generation conflicts with authenticated evidence")]
+    ShadowConflict,
+    #[error("shadow generation is not promotable")]
+    ShadowNotPromotable,
+    #[error("promotion compare-and-swap failed")]
+    PromotionConflict,
     #[error("replay scope is invalid")]
     InvalidScope,
     #[error("replay digest must be 32-byte lower hex")]

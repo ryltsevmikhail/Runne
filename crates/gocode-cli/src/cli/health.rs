@@ -89,7 +89,7 @@ pub async fn run_health(profile_path: Option<PathBuf>) -> Result<HealthInfo, Hea
 
     let endpoint = profile.endpoint();
 
-    let runtime_profile = RuntimeProfile::validate(endpoint, "gocode-ui-client/1", GOLDEN_BUNDLE_HASH)
+    let runtime_profile = RuntimeProfile::validate(endpoint, "gocode-ui-client/2", GOLDEN_BUNDLE_HASH)
         .map_err(|_| HealthError::ProfileIncompatible)?;
 
     let client = HttpRuntimeClient::new(runtime_profile, HEALTH_TIMEOUT)

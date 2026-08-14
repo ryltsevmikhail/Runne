@@ -54,6 +54,26 @@ pub(super) fn create_workspace(
         if project.archived() {
             return Err(Error::Conflict);
         }
+        // Project versions encode archived state by parity. Membership changes
+        // therefore advance by two so they fence stale destructive summaries
+        // without changing the Project's archived state.
+        if project.version() > MAX_REHYDRATED_VERSION.saturating_sub(2) {
+            return Err(Error::InvariantViolation);
+        }
+        let advanced = transaction
+            .execute(
+                "UPDATE projects SET version = version + 2
+                 WHERE project_id = ?1 AND principal_id = ?2 AND version = ?3 AND archived = 0",
+                params![
+                    workspace.project_id().as_bytes(),
+                    principal,
+                    project.version() as i64
+                ],
+            )
+            .map_err(|_| Error::Unavailable)?;
+        if advanced != 1 {
+            return Err(Error::Conflict);
+        }
         transaction
             .execute(
                 "INSERT INTO workspace_identity_history

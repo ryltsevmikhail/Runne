@@ -182,7 +182,11 @@ fn direct_taskrun_commit(
             workspace_id,
         })
         .unwrap()],
-        &[EventId::from_bytes([event_byte; 16])],
+        &[
+            format!("018f2e3a-7000-7000-8000-0000000000{event_byte:02x}")
+                .parse()
+                .unwrap(),
+        ],
         None,
         &CommandContext {
             command_id,

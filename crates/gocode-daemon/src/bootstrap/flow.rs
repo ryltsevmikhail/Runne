@@ -133,6 +133,8 @@ fn bootstrap_inner(
     // ── Step 11: schema migration ───────────────────────────────────
     schema::apply_migrations(&db_conn)
         .map_err(|e| DaemonError::Bootstrap(format!("schema migration: {e}")))?;
+    schema::run_startup_gates(&db_conn, &config.db_path)
+        .map_err(|e| DaemonError::Bootstrap(format!("startup integrity: {e}")))?;
     // ── Step 12: authority ID ───────────────────────────────────────
     let (authority_id, db_authority_after) = acquire_authority(
         db_existed,

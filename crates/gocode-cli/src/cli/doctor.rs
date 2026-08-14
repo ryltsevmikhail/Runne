@@ -147,7 +147,7 @@ async fn check_runtime_health(profile_path: &Path) -> Result<(String, String), (
     let endpoint = profile.endpoint();
 
     let runtime_profile =
-        RuntimeProfile::validate(endpoint, "gocode-ui-client/1", GOLDEN_BUNDLE_HASH)
+        RuntimeProfile::validate(endpoint, "gocode-ui-client/2", GOLDEN_BUNDLE_HASH)
             .map_err(|_| ())?;
 
     let client = HttpRuntimeClient::new(runtime_profile, DOCTOR_HEALTH_TIMEOUT).map_err(|_| ())?;

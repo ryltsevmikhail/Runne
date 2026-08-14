@@ -163,7 +163,7 @@
                 "018f2e3a-7000-7000-8000-000000000003"
                     .parse::<EventLogLineageId>()
                     .unwrap(),
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [3; 32],
                 crate::runtime_profile::ordered_capability_digest(capabilities),
             )

@@ -80,7 +80,7 @@ impl ProtectedRootControl {
         root: gocode_platform_desktop::VerifiedRootHandle,
         now: u64,
     ) -> Result<
-        gocode_api::RootHandleAdmission,
+        crate::application::root_handle_admission::IssuedRootAdmission,
         gocode_application::ports::RootAdmissionVerifierError,
     > {
         self.0.admit(offer, root, now)

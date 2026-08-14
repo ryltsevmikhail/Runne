@@ -5,6 +5,7 @@
 
 pub mod admission;
 pub mod auth;
+pub mod command_reconciliation;
 pub mod commands;
 pub mod conversations;
 pub mod error;

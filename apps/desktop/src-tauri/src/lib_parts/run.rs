@@ -12,6 +12,11 @@ fn fence_page_load<R: tauri::Runtime>(
                     .page_loaded(webview.label())
                     .map_err(|_| ())
             });
+        if let Some(intents) = webview
+            .try_state::<crate::destructive_intent::DestructiveIntentManager>()
+        {
+            intents.invalidate_window(webview.label());
+        }
     }
 }
 
@@ -25,9 +30,13 @@ pub fn run() {
     let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
         .expect("fixed directory selection lifetime is valid");
     let prepared = selections.prepared_workspaces();
+    let destructive_intents = crate::destructive_intent::DestructiveIntentManager::new(
+        std::time::Duration::from_secs(30),
+    ).expect("fixed destructive intent lifetime is valid");
     let app = tauri::Builder::default()
         .manage(selections)
         .manage(prepared)
+        .manage(destructive_intents)
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -44,12 +53,17 @@ pub fn run() {
                     .cancel_window(window.label());
                 let _ = window
                     .try_state::<DirectorySelectionManager>()
-                    .and_then(|selections| {
+                        .and_then(|selections| {
                         selections
                             .renderer_generations()
                             .fence_destroyed(window.label())
                             .ok()
                     });
+                if let Some(intents) = window
+                    .try_state::<crate::destructive_intent::DestructiveIntentManager>()
+                {
+                    intents.invalidate_window(window.label());
+                }
             }
         })
         .setup(|app| {
@@ -57,7 +71,7 @@ pub fn run() {
             std::fs::create_dir_all(&profile_directory)?;
             let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
             let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
-            let core = Arc::new(AppCore::open_with_runtime_mode(
+            let core = Arc::new(AppCore::open_production(
                 &profile_directory.join("profile.sqlite3"),
                 runtime_mode,
             )?);
@@ -102,6 +116,10 @@ pub fn run() {
             acquire_renderer_generation,
             request_directory_selection,
             prepare_selected_workspace,
+            open_selected_workspace,
+            retry_open_selected_workspace,
+            prepare_destructive_project_action,
+            dispatch_destructive_project_action,
             get_diagnostics,
             connect_runtime,
         ])
@@ -113,6 +131,8 @@ pub fn run() {
             if lifecycle.begin_explicit_quit() {
                 app.state::<DirectorySelectionManager>()
                     .clear_pending_authority();
+                app.state::<crate::destructive_intent::DestructiveIntentManager>()
+                    .clear_pending();
                 app.state::<ConversationSubscriptionManager>().shutdown();
                 lifecycle.stop_owned_runtime();
             }

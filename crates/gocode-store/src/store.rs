@@ -139,6 +139,7 @@ mod ids;
 mod parse_helpers;
 mod position_helpers;
 mod provider_terminal;
+pub(crate) mod snapshot;
 mod text;
 mod text_receipt_helpers;
 mod text_validation_helpers;

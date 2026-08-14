@@ -1,0 +1,48 @@
+{
+  "acceptedResponse": {
+    "acceptedPromotion": {
+      "capturedHighWater": 2,
+      "codec": 1,
+      "globalPosition": 1,
+      "headEventId": "018f2e3a700070008000000000000112",
+      "headIntegrityDigest": "0505050505050505050505050505050505050505050505050505050505050505",
+      "projectionBytes": "AQGPLjpwAHAAgAAAAAAAARABjy46cABwAIAAAAAAAAERAQAAAAAA",
+      "projectionDigest": "48668e97acdc9c689c0b74d0affd5e090e8a1d327ac3ccf08c94fa6288ef32ed",
+      "sequence": 1,
+      "version": 1
+    },
+    "baselineCheckpoint": "gocode-replay-cursor-v1.7b7d",
+    "events": [],
+    "hasMore": false,
+    "highWaterRef": "gocode-replay-cursor-v1.7b7d",
+    "requestId": "018f2e3a-7000-7000-8000-000000000120",
+    "sessionId": "018f2e3a700070008000000000000118"
+  },
+  "request": {
+    "baseline": {
+      "aggregateId": "018f2e3a700070008000000000000110",
+      "aggregateKind": "conversation",
+      "authorityId": "018f2e3a700070008000000000000101",
+      "baselineGlobalPosition": 1,
+      "capturedHighWater": 2,
+      "expiresAtUnixMs": 1722330030000,
+      "headEventId": "018f2e3a700070008000000000000112",
+      "headIntegrityDigest": "0505050505050505050505050505050505050505050505050505050505050505",
+      "issuedAtUnixMs": 1722330000000,
+      "lineageId": "018f2e3a700070008000000000000102",
+      "principalId": "local-owner",
+      "promotionCodec": 1,
+      "promotionProjectionBytes": "AQGPLjpwAHAAgAAAAAAAARABjy46cABwAIAAAAAAAAERAQAAAAAA",
+      "promotionProjectionDigest": "48668e97acdc9c689c0b74d0affd5e090e8a1d327ac3ccf08c94fa6288ef32ed",
+      "replayScopeDigest": "0404040404040404040404040404040404040404040404040404040404040404",
+      "retainedFloor": 2,
+      "retentionGeneration": 1,
+      "retentionManifestDigest": "0606060606060606060606060606060606060606060606060606060606060606",
+      "runtimeSessionBindingDigest": "0303030303030303030303030303030303030303030303030303030303030303",
+      "schemaVersion": 2,
+      "sequence": 1,
+      "version": 1,
+      "witnessMac": "0707070707070707070707070707070707070707070707070707070707070707"
+    }
+  }
+}

@@ -153,7 +153,7 @@ fn preflight_rejects_v15_with_tampered_inherited_v14_activation_binding() {
 }
 
 #[test]
-fn preflight_accepts_released_v15_shape() {
+fn v17_rejects_released_v15_fixture_without_complete_replay_histories() {
     let (_directory, path) = released_v15_database();
     let released = Connection::open(&path).unwrap();
     assert_eq!(
@@ -175,15 +175,15 @@ fn preflight_accepts_released_v15_shape() {
     );
     drop(released);
     preflight_existing_file(&path).unwrap();
-    SqliteProviderExecutionStore::open(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 16);
+    assert!(apply_migrations(&connection).is_err());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 18);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        CURRENT_SCHEMA_VERSION
+        16
     );
     assert!(connection
         .query_row(
@@ -242,8 +242,15 @@ fn corrupt_v15_origin_rolls_back_v16_atomically() {
 #[test]
 fn preflight_rejects_tampered_v16_global_command_trigger() {
     let (_directory, path) = released_v15_database();
-    SqliteProviderExecutionStore::open(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
+    assert!(apply_migrations(&connection).is_err());
+    assert_eq!(
+        connection
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        16,
+    );
     connection
         .execute_batch("DROP TRIGGER global_command_id_from_command_receipts")
         .unwrap();

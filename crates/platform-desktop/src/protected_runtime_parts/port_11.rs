@@ -22,6 +22,7 @@ fn sync_directory(path: &Path) -> Result<(), ProtectedBundledRuntimeError> {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use crate::tests::OwnerPrivateBundledRuntimeFixture;
 
     fn owner_private_tempdir() -> tempfile::TempDir {
         let temporary = tempfile::tempdir().expect("temporary directory");
@@ -104,14 +105,15 @@ mod tests {
 
     #[test]
     fn launch_rejects_source_replacement_after_identity_is_pinned() {
-        let temporary = owner_private_tempdir();
-        let daemon = temporary.path().join("gocode-daemon");
-        executable(&daemon, 0o755);
+        let fixture = OwnerPrivateBundledRuntimeFixture::new();
+        let daemon = fixture.daemon();
         let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(&daemon, &temporary.path().join("runtime"))
+            ProtectedBundledRuntimeLaunchSpec::new(daemon, &fixture.runtime_root())
                 .expect("trusted launch spec");
-        std::fs::write(&daemon, b"#!/bin/sh\nexit 7\n").expect("replace source bytes");
-        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o755))
+        std::fs::set_permissions(daemon, std::fs::Permissions::from_mode(0o700))
+            .expect("permit controlled replacement");
+        std::fs::write(daemon, b"#!/bin/sh\nexit 7\n").expect("replace source bytes");
+        std::fs::set_permissions(daemon, std::fs::Permissions::from_mode(0o500))
             .expect("restore executable permissions");
 
         assert_eq!(
@@ -124,21 +126,19 @@ mod tests {
 
     #[test]
     fn discovery_uses_only_the_exact_colocated_packaged_daemon_name() {
-        let temporary = owner_private_tempdir();
-        let desktop = temporary.path().join("gocode-desktop");
-        let daemon = temporary.path().join("gocode-daemon");
-        executable(&desktop, 0o755);
-        executable(&daemon, 0o755);
+        let fixture = OwnerPrivateBundledRuntimeFixture::new();
+        let desktop = fixture.desktop();
+        let daemon = fixture.daemon();
 
         assert_eq!(
-            discover_bundled_runtime(&desktop).expect("discover protected daemon"),
-            std::fs::canonicalize(&daemon).expect("canonical daemon")
+            discover_bundled_runtime(desktop).expect("discover protected daemon"),
+            std::fs::canonicalize(daemon).expect("canonical daemon")
         );
 
-        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o775))
+        std::fs::set_permissions(daemon, std::fs::Permissions::from_mode(0o775))
             .expect("weaken daemon permissions");
         assert_eq!(
-            discover_bundled_runtime(&desktop),
+            discover_bundled_runtime(desktop),
             Err(ProtectedBundledRuntimeError::ExecutableUnavailable)
         );
     }
@@ -204,11 +204,9 @@ mod tests {
 
     #[test]
     fn concrete_supervisor_exhausts_the_bounded_restart_budget() {
-        let temporary = owner_private_tempdir();
-        let daemon = temporary.path().join("gocoded");
-        executable(&daemon, 0o755);
+        let fixture = OwnerPrivateBundledRuntimeFixture::new();
         let spec =
-            ProtectedBundledRuntimeLaunchSpec::new(&daemon, &temporary.path().join("runtime"))
+            ProtectedBundledRuntimeLaunchSpec::new(fixture.daemon(), &fixture.runtime_root())
                 .expect("launch spec");
         let mut supervisor =
             ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);

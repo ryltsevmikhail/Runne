@@ -29,7 +29,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let target = output.unwrap_or_else(|| {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
-            .join("contracts/gocode-ui-client-1")
+            .join("contracts/gocode-ui-client-2")
     });
     if check {
         check_ui_contract(&target)?;

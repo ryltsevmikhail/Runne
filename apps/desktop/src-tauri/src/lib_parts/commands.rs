@@ -152,6 +152,39 @@ async fn prepare_selected_workspace(
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::significant_drop_tightening)] // root and permit intentionally span both mutations.
+async fn open_selected_workspace(window: WebviewWindow, core: State<'_, Arc<AppCore>>, lifecycle: State<'_, RuntimeLifecycleManager>, prepared: State<'_, PreparedWorkspaceManager>, request: OpenSelectedWorkspaceRequest) -> Result<(), IpcError> {
+    let attempt = prepared.begin_initial(&request.prepared, window.label(), request.renderer_generation, &request.request_id, std::time::Instant::now(), &lifecycle).map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    open_prepared_workspace(&core, &lifecycle, attempt).await
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn retry_open_selected_workspace(window: WebviewWindow, core: State<'_, Arc<AppCore>>, lifecycle: State<'_, RuntimeLifecycleManager>, prepared: State<'_, PreparedWorkspaceManager>, request: RetryOpenSelectedWorkspaceRequest) -> Result<(), IpcError> {
+    let attempt = prepared.begin_retry(&request.prepared, window.label(), request.renderer_generation, &request.request_id, std::time::Instant::now(), &lifecycle).map_err(|_| IpcError { code: "prepared_workspace_rejected" })?;
+    open_prepared_workspace(&core, &lifecycle, attempt).await
+}
+
+async fn open_prepared_workspace(core: &AppCore, _lifecycle: &RuntimeLifecycleManager, mut attempt: crate::prepared_workspace::PreparedWorkspaceOpenAttempt) -> Result<(), IpcError> {
+    if attempt.prepare(core).await.is_err() {
+        attempt.reap().await;
+        return Err(IpcError { code: "prepared_workspace_rejected" });
+    }
+    if let Err(error) = attempt.dispatch(core).await {
+        if attempt.possible_send() {
+            return Err(IpcError { code: if attempt.retain() == crate::prepared_workspace::PreparedWorkspaceRestoreOutcome::Retained { "prepared_workspace_retryable" } else { "prepared_workspace_rejected" } });
+        }
+        if error.disposition() == gocode_app_core::NativeAuthorityDisposition::ReapBeforeDispatch {
+            attempt.reap().await;
+        }
+        return Err(IpcError { code: "prepared_workspace_rejected" });
+    }
+    attempt.opened();
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
 fn get_diagnostics(state: State<'_, Arc<AppCore>>) -> Result<DiagnosticsSnapshot, IpcError> {
     state
         .diagnostics(env!("CARGO_PKG_VERSION"), std::env::consts::OS)
@@ -174,3 +207,5 @@ async fn connect_runtime(
             code: "runtime_connection_unavailable",
         })
 }
+
+include!("destructive_commands.rs");

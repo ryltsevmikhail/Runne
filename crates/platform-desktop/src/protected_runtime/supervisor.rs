@@ -222,6 +222,13 @@ impl DevelopmentBundledRuntimeLauncher {
 
             let ready_frame = read_frame(&mut parent_channel)?;
             let ready = request.decode_ready(&ready_frame, &keys)?;
+            if let Some(readiness) = ready.provider_readiness()
+                && !readiness.is_ready()
+            {
+                return Err(ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                    readiness,
+                ));
+            }
             controls.checkpoint(ActivationCheckpoint::AfterEventLogCreation)?;
             if prepared_pending
                 .as_ref()

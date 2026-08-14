@@ -59,6 +59,7 @@ def main() -> int:
     violations += find_renderer_conversation_violations(root)
     violations += find_provider_terminal_persistence_violations(root)
     violations += find_provider_terminal_test_feature_violations(metadata["packages"])
+    violations += find_protected_admission_surface_violations(root)
     if violations:
         for violation in violations:
             print(f"ERROR: {violation}")

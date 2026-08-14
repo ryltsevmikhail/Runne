@@ -80,6 +80,8 @@ struct ProcessFaultFixture {
     desktop_database: PathBuf,
     next_stop_ordinal: u64,
     next_launch_generation: u64,
+    secure: Arc<dyn SecureStore>,
+    security_profile: [u8; 32],
     core: Option<Arc<AppCore>>,
     client: Option<AuthenticatedRuntimeClient>,
     project_id: i64,
@@ -112,11 +114,20 @@ impl ProcessFaultFixture {
             1,
         );
         let desktop_database = directory.path().join("desktop.sqlite3");
+        let security_profile = [0xD3; 32];
+        let secure: Arc<dyn SecureStore> = Arc::new(
+            gocode_secure_store::test_support::DeterministicSecureStore::new(security_profile),
+        );
         let project_path = directory.path().join("project");
         std::fs::create_dir(&project_path).expect("create project");
         let core = Arc::new(
-            AppCore::open_with_runtime_profile(&desktop_database, profile_path.clone())
-                .expect("open desktop core"),
+            gocode_app_core::test_support::open_anchored_external_local_core(
+                &desktop_database,
+                profile_path.clone(),
+                Arc::clone(&secure),
+                security_profile,
+            )
+            .expect("open anchored desktop core"),
         );
         let project_id = core
             .open_local_project(&project_path)
@@ -125,10 +136,22 @@ impl ProcessFaultFixture {
             core.connect_runtime().await.expect("connect runtime"),
             RuntimeAvailability::Live
         );
+        let runtime_project_id = CanonicalId::now_v7();
+        core.create_runtime_project(runtime_project_id, "Replay fixture".to_owned())
+            .await
+            .expect("create canonical project");
         let snapshot = core
             .open_project_conversation(project_id)
             .await
             .expect("create conversation");
+        let workspace_id = conversation_workspace_id(&desktop_database, project_id);
+        core.create_runtime_workspace(
+            runtime_project_id,
+            workspace_id,
+            "Replay fixture".to_owned(),
+        )
+        .await
+        .expect("create canonical workspace");
         let conversation_id =
             CanonicalId::parse(&snapshot.conversation_id).expect("canonical conversation ID");
         drop(core);
@@ -143,8 +166,13 @@ impl ProcessFaultFixture {
             2,
         );
         let core = Arc::new(
-            AppCore::open_with_runtime_profile(&desktop_database, profile_path.clone())
-                .expect("reopen desktop core"),
+            gocode_app_core::test_support::open_anchored_external_local_core(
+                &desktop_database,
+                profile_path.clone(),
+                Arc::clone(&secure),
+                security_profile,
+            )
+            .expect("reopen anchored desktop core"),
         );
         assert_eq!(
             core.connect_runtime().await.expect("reconnect runtime"),
@@ -160,6 +188,8 @@ impl ProcessFaultFixture {
             desktop_database,
             next_stop_ordinal: 3,
             next_launch_generation: 3,
+            secure,
+            security_profile,
             core: Some(core),
             client: Some(client),
             project_id,
@@ -193,8 +223,13 @@ impl ProcessFaultFixture {
 
     async fn reopen_core(&self) -> Arc<AppCore> {
         let core = Arc::new(
-            AppCore::open_with_runtime_profile(&self.desktop_database, self.profile_path.clone())
-                .expect("reopen desktop core"),
+            gocode_app_core::test_support::open_anchored_external_local_core(
+                &self.desktop_database,
+                self.profile_path.clone(),
+                Arc::clone(&self.secure),
+                self.security_profile,
+            )
+            .expect("reopen anchored desktop core"),
         );
         assert_eq!(
             core.connect_runtime().await.expect("reconnect runtime"),
@@ -236,6 +271,22 @@ impl ProcessFaultFixture {
     fn client(&self) -> &AuthenticatedRuntimeClient {
         self.client.as_ref().expect("connected runtime client")
     }
+}
+
+fn conversation_workspace_id(database_path: &Path, project_id: i64) -> CanonicalId {
+    let connection = Connection::open(database_path).expect("open desktop database");
+    let key = format!("runtime.conversation.project.{project_id}");
+    let serialized: String = connection
+        .query_row("SELECT value FROM settings WHERE key = ?1", [&key], |row| row.get(0))
+        .expect("conversation reference");
+    let value: serde_json::Value =
+        serde_json::from_str(&serialized).expect("conversation reference JSON");
+    CanonicalId::parse(
+        value["workspaceId"]
+            .as_str()
+            .expect("conversation workspace id"),
+    )
+    .expect("canonical conversation workspace ID")
 }
 
 async fn authenticated_client(profile_path: &Path) -> AuthenticatedRuntimeClient {

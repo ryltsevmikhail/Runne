@@ -112,7 +112,7 @@ def _digest(path: Path) -> str:
 
 def _root_manifests(root: Path) -> tuple[Path, ...]:
     cargo = (root / "Cargo.toml", *sorted((root / "crates").glob("*/Cargo.toml")), root / "apps/desktop/src-tauri/Cargo.toml")
-    pnpm = (root / "package.json", root / "apps/desktop/package.json", root / "contracts/gocode-ui-client-1/package.json", root / "packages/platform-contract/package.json", root / "packages/product/package.json")
+    pnpm = (root / "package.json", root / "apps/desktop/package.json", root / "contracts/gocode-ui-client-2/package.json", root / "packages/platform-contract/package.json", root / "packages/product/package.json")
     return cargo + pnpm
 
 

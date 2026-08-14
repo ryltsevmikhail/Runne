@@ -69,7 +69,7 @@ nix = { version = "=0.31.3", default-features = false, features = ["socket"], op
 
 [dev-dependencies]
 aho-corasick = { workspace = true }
-gocode-app-core = { path = "../app-core" }
+gocode-app-core = { path = "../app-core", features = ["test-support"] }
 gocode-platform-desktop = { path = "../platform-desktop", features = ["test-support"] }
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
 tempfile = "3"

@@ -26,6 +26,12 @@ impl ProjectWorkspaceDisplayNameInput {
     pub fn into_domain(self) -> ProjectWorkspaceDisplayName {
         self.0
     }
+
+    /// Returns the validated display name without consuming its boundary type.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
 }
 
 /// Authenticated context carried by every Project or Workspace mutation.

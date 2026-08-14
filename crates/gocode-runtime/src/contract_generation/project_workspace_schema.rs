@@ -1,8 +1,8 @@
 pub(super) fn project_workspace_schema() -> Value {
-    let encoded_len = (gocode_api::ROOT_HANDLE_ADMISSION_V2_BYTES * 4).div_ceil(3);
-    let full_groups = (encoded_len - 3) / 4;
+    let encoded_len = (gocode_api::ROOT_HANDLE_ADMISSION_V3_BYTES * 4).div_ceil(3);
+    let full_groups = (encoded_len - 2) / 4;
     let root_admission_pattern = format!(
-        "^gocode-root-admission-v2\\.(?:[A-Za-z0-9_-]{{4}}){{{full_groups}}}[A-Za-z0-9_-]{{2}}[AEIMQUYcgkosw048]$"
+        "^gocode-root-admission-v3\\.(?:[A-Za-z0-9_-]{{4}}){{{full_groups}}}[A-Za-z0-9_-]{{1}}[AQgw]$"
     );
     let id = || json!({"maxLength": 36, "pattern": UUID_V7_PATTERN, "type": "string"});
     let version = || positive_integer_schema();
@@ -43,14 +43,14 @@ pub(super) fn project_workspace_schema() -> Value {
     });
     let mut schema = closed_object(json!({"project": {"$ref": "#/$defs/project"}, "workspace": {"$ref": "#/$defs/workspace"}, "projectPage": {"$ref": "#/$defs/projectPage"}, "workspacePage": {"$ref": "#/$defs/workspacePage"}, "rootBind": {"$ref": "#/$defs/rootBind"}}), &["project", "workspace", "projectPage", "workspacePage", "rootBind"]);
     let object = schema.as_object_mut().expect("closed object");
-    object.insert("$defs".into(), defs); object.insert("$id".into(), json!("gocode://schemas/project-workspace-v1")); object.insert("$schema".into(), json!(DRAFT_2020_12)); object.insert("title".into(), json!("Project Workspace V1"));
+    object.insert("$defs".into(), defs); object.insert("$id".into(), json!("gocode://schemas/project-workspace-v2")); object.insert("$schema".into(), json!(DRAFT_2020_12)); object.insert("title".into(), json!("Project Workspace V2"));
     schema
 }
 
 pub(super) fn project_workspace_golden() -> Value {
     let root_admission = format!(
-        "gocode-root-admission-v2.{}",
-        "A".repeat((gocode_api::ROOT_HANDLE_ADMISSION_V2_BYTES * 4).div_ceil(3)),
+        "gocode-root-admission-v3.{}",
+        "A".repeat((gocode_api::ROOT_HANDLE_ADMISSION_V3_BYTES * 4).div_ceil(3)),
     );
     json!({"project": {"projectId": "018f2e3a-7000-7000-8000-000000000201", "displayName": "Project", "version": 1, "archived": false}, "workspace": {"workspaceId": "018f2e3a-7000-7000-8000-000000000202", "projectId": "018f2e3a-7000-7000-8000-000000000201", "displayName": "Workspace", "version": 1, "open": false}, "projectPage": {"items": [], "nextCursor": null}, "workspacePage": {"items": [], "nextCursor": null}, "rootBind": {"expectedVersion": 1, "rootAdmission": root_admission}})
 }

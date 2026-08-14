@@ -80,6 +80,42 @@ fn concurrent_same_version_writers_commit_exactly_once() {
 }
 
 #[test]
+fn archive_and_workspace_create_share_the_parent_version_fence() {
+    let database = Database::new("project-workspace-archive-create-fence");
+    let repository = database.repository();
+    create_project(&repository);
+    let barrier = Arc::new(Barrier::new(3));
+    let archive_repository = repository.clone();
+    let create_repository = repository.clone();
+    let archive_barrier = Arc::clone(&barrier);
+    let create_barrier = Arc::clone(&barrier);
+    let archive = std::thread::spawn(move || {
+        archive_barrier.wait();
+        archive_repository.archive_project(
+            "owner",
+            command(0x61),
+            &key("archive-race"),
+            ProjectId::from_bytes(PROJECT),
+            1,
+        )
+    });
+    let create = std::thread::spawn(move || {
+        create_barrier.wait();
+        create_repository.create_workspace(
+            "owner",
+            command(0x62),
+            &key("create-race"),
+            workspace(WORKSPACE, PROJECT, "Workspace"),
+        )
+    });
+    barrier.wait();
+
+    let archive = archive.join().unwrap();
+    let create = create.join().unwrap();
+    assert!(archive.is_ok() ^ create.is_ok());
+}
+
+#[test]
 fn sqlite_abort_rolls_back_state_and_receipt_together() {
     let database = Database::new("project-workspace-rollback");
     let repository = database.repository();
@@ -190,12 +226,12 @@ fn project_delete_and_taskrun_append_share_one_sqlite_fence() {
             command(33),
             &key("racing-delete-append"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            2,
         )
     });
     barrier.wait();
 
     assert!(append.join().unwrap().is_ok());
     let deletion = delete.join().unwrap();
-    assert!(matches!(deletion, Ok(2) | Err(Error::Conflict)));
+    assert!(matches!(deletion, Ok(4) | Err(Error::Conflict)));
 }

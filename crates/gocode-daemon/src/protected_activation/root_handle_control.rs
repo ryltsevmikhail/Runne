@@ -72,7 +72,8 @@ pub(crate) fn receive_root_handle_offer(
             .admit_verified_offer(&offer, root, now_unix_millis)
             .ok()
     }) {
-        Some(admission) => {
+        Some(issued) => {
+            let (admission, _) = issued.into_parts();
             gocode_api::RootHandleTransferResult::admitted(&ready, admission, &authenticator)
         }
         None => gocode_api::RootHandleTransferResult::rejected(&ready, &authenticator),

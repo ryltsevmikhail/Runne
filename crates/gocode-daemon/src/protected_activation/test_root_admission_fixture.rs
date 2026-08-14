@@ -5,9 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gocode_api::{
-    ApiActor, ApiPrincipalId, BindWorkspaceRootCommand, DaemonInstanceId, LaunchSecret,
-    ProjectCommandContext, ProtectedActivationKeys, ProtectedOwnedLaunchV1, ProtectedReadyV1,
-    ProtectedRuntimeProfileV1, RuntimeSessionBinding, StableRuntimeBinding, StableRuntimeBindingV1,
+    ApiPrincipalId, DaemonInstanceId, LaunchSecret, ProtectedActivationKeys,
+    ProtectedOwnedLaunchV1, ProtectedReadyV1, ProtectedRuntimeProfileV1, RuntimeSessionBinding,
+    StableRuntimeBinding, StableRuntimeBindingV1,
 };
 use gocode_application::local_session::LocalSessionService;
 use gocode_application::ports::{ProjectWorkspaceRepository, RuntimeAuthorityId};
@@ -22,6 +22,9 @@ use gocode_store::{ProjectWorkspaceStore, schema, store::StoreTransaction};
 use crate::application::root_admission_test_support::RootAdmissionHarness;
 
 use super::ProtectedActivationChannel;
+use witness::{publish_exact, read_parent_admission_digest};
+
+mod witness;
 
 const AUTHORITY: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
 const LINEAGE: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x71, 0, 0x80, 0, 0, 0, 0, 0, 0, 2];
@@ -47,30 +50,13 @@ pub fn run_inherited_root_admission_fixture(token_path: &OsStr) {
         .dispatch(&mut channel, &first, &keys, &owned, &mut used, 0, now())
         .expect("dispatch offer")
         .expect("root frame");
-    let token = authority
-        .take_admission()
-        .expect("retained admission")
-        .encode_token()
-        .expect("encode admission");
-    std::fs::write(token_path, &token).expect("write admission");
-    let runtime = tokio::runtime::Runtime::new().expect("runtime");
-    assert_eq!(
-        runtime
-            .block_on(authority.bind(command("bind-1"), bind(&token)))
-            .expect("bind once")
-            .new_version,
-        2
+    let parent_admission_digest = read_parent_admission_digest(
+        &std::path::Path::new(token_path).with_extension("admission-digest"),
     );
-    assert!(
-        runtime
-            .block_on(authority.bind(command("bind-2"), bind(&token)))
-            .is_err()
-    );
-    authority.fence().expect("fence");
-    assert!(
-        authority
-            .verify(gocode_api::RootHandleAdmission::decode_token(&token).expect("decode"))
-            .is_err()
+    assert_ne!(parent_admission_digest, [0; 32]);
+    publish_exact(
+        &std::path::Path::new(token_path).with_extension("outcome"),
+        b"durably_recorded_root_bound",
     );
     let second = channel.read_control_frame().expect("read shutdown");
     authority
@@ -85,6 +71,7 @@ pub fn run_inherited_root_admission_fixture(token_path: &OsStr) {
         )
         .expect("dispatch shutdown")
         .expect("shutdown frame");
+    let runtime = tokio::runtime::Runtime::new().expect("runtime");
     runtime.block_on(authority.shutdown());
     authority
         .run_control(
@@ -146,23 +133,6 @@ fn child_authority(
         "b1b-transport".into(),
         Arc::new(Mutex::new(session_service())),
     )
-}
-
-fn bind(token: &str) -> BindWorkspaceRootCommand {
-    BindWorkspaceRootCommand {
-        workspace_id: workspace(),
-        expected_version: 1,
-        root_admission: gocode_api::RootHandleAdmission::decode_token(token).expect("decode"),
-    }
-}
-
-fn command(key: &str) -> ProjectCommandContext {
-    ProjectCommandContext {
-        command_id: CommandId::from_bytes(*uuid::Uuid::now_v7().as_bytes()),
-        idempotency_key: IdempotencyKey::new(key).expect("key"),
-        principal: ApiPrincipalId::new("local-owner").expect("principal"),
-        actor: ApiActor::new("desktop").expect("actor"),
-    }
 }
 
 const fn workspace() -> WorkspaceId {

@@ -14,6 +14,7 @@ fn v6_to_v8_migration() {
          DROP TABLE projects;",
     )
     .unwrap();
+    drop_v17_snapshots(&conn);
     drop_v12_fences(&conn);
     drop_v13_provider_execution(&conn);
     conn.execute_batch(

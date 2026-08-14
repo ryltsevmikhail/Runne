@@ -196,7 +196,13 @@ fn all_disposition_batches_replay_to_exact_final_state() {
         if let Some(event) = terminal_event {
             stream.push(envelope(9, event));
         }
-        assert_eq!(TaskRun::replay(&stream).unwrap().state(), expected_state);
+        let aggregate = TaskRun::replay(&stream).unwrap();
+        let snapshot = gocode_domain::task_run::TaskRunSnapshotV1::decode(
+            &aggregate.snapshot_v1().encode().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(snapshot, aggregate.snapshot_v1());
+        assert_eq!(aggregate.state(), expected_state);
     }
 }
 

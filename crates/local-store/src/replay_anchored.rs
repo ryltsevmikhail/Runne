@@ -1,8 +1,8 @@
 use super::{
-    Digest, LocalStore, OptionalExtension, ReplayApplyOutcome, ReplayScopeKey, ReplayStoreError,
-    ReplayTransition, Sha256, StoredJournalTransition, params, read_database_generation,
-    read_replay_state, validate_expected_transition, validate_replay_scope,
-    validate_replay_transition_payload, validate_replay_transition_shape,
+    LocalStore, OptionalExtension, ReplayApplyOutcome, ReplayScopeKey, ReplayStoreError,
+    ReplayTransition, StoredJournalTransition, params, read_database_generation, read_replay_state,
+    validate_expected_transition, validate_replay_scope, validate_replay_transition_payload,
+    validate_replay_transition_shape,
 };
 use gocode_secure_store::SecureStore;
 
@@ -15,6 +15,12 @@ impl LocalStore {
         transition: &ReplayTransition<'_>,
     ) -> Result<ReplayApplyOutcome, ReplayStoreError> {
         validate_replay_transition_shape(transition)?;
+        if let Some(shadow) =
+            crate::replay_shadow::selected_shadow(&self.connection, transition.scope)?
+        {
+            return self
+                .apply_selected_anchored_shadow_replay_transition(secure, &shadow, transition);
+        }
         let generation = i64::try_from(transition.generation)
             .map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
         let event_sequence = i64::try_from(transition.event_sequence)
@@ -23,6 +29,11 @@ impl LocalStore {
             .map_err(|_| ReplayStoreError::IntegerOutOfRange)?;
         let scope = transition.scope;
         let (outcome, _) = self.commit_anchored_security_write(secure, |transaction| {
+            let selected: Option<(String, Option<String>)> = transaction.query_row("SELECT selector,shadow_id FROM replay_active_generations WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4", params![scope.runtime_authority,scope.principal,scope.lineage,scope.scope], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+            if selected.is_some_and(|(selector, shadow)| selector != "legacy" || shadow.is_some()) {
+                return Err(ReplayStoreError::PromotionConflict);
+            }
+            transaction.execute("INSERT INTO replay_active_generations(runtime_authority,principal,lineage,scope,selector,shadow_id) VALUES(?1,?2,?3,?4,'legacy',NULL) ON CONFLICT(runtime_authority,principal,lineage,scope) DO NOTHING", params![scope.runtime_authority,scope.principal,scope.lineage,scope.scope])?;
             let existing: Option<StoredJournalTransition> = transaction
                 .query_row(
                     "SELECT binding_digest,cursor,generation,event_sequence,validated_event,event_digest,projection_revision,projection_digest,projected_payload FROM event_journal WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4 AND event_id=?5",
@@ -51,7 +62,7 @@ impl LocalStore {
                     ReplayApplyOutcome::AlreadyApplied {
                         database_generation: read_database_generation(transaction)?,
                     },
-                    None,
+                    false,
                 ));
             }
             validate_replay_transition_payload(transaction, transition)?;
@@ -71,7 +82,7 @@ impl LocalStore {
             )?;
             Ok((
                 ReplayApplyOutcome::Applied { database_generation: 0 },
-                Some(replay_transition_anchor_digest(transition)),
+                true,
             ))
         })?;
         match outcome {
@@ -90,13 +101,25 @@ impl LocalStore {
     ) -> Result<bool, ReplayStoreError> {
         validate_replay_scope(scope)?;
         let (changed, _) = self.commit_anchored_security_write(secure, |transaction| {
+            let selected: Option<(String, Option<String>)> = transaction.query_row("SELECT selector,shadow_id FROM replay_active_generations WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4", params![scope.runtime_authority,scope.principal,scope.lineage,scope.scope], |row| Ok((row.get(0)?, row.get(1)?))).optional()?;
+            let shadow_state: bool = transaction.query_row(
+                "SELECT EXISTS(SELECT 1 FROM replay_shadow_generations WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4 UNION ALL SELECT 1 FROM replay_promotion_pending WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4)",
+                params![scope.runtime_authority, scope.principal, scope.lineage, scope.scope],
+                |row| row.get(0),
+            )?;
+            if shadow_state {
+                return Err(ReplayStoreError::PromotionConflict);
+            }
+            if selected.is_some_and(|(selector, shadow)| selector != "legacy" || shadow.is_some()) {
+                return Err(ReplayStoreError::PromotionConflict);
+            }
             let count: i64 = transaction.query_row(
                 "SELECT (SELECT COUNT(*) FROM event_journal WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4)+(SELECT COUNT(*) FROM projections WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4)+(SELECT COUNT(*) FROM replay_cursors WHERE runtime_authority=?1 AND principal=?2 AND lineage=?3 AND scope=?4)",
                 params![scope.runtime_authority, scope.principal, scope.lineage, scope.scope],
                 |row| row.get(0),
             )?;
             if count == 0 {
-                return Ok::<_, ReplayStoreError>((false, None));
+                return Ok::<_, ReplayStoreError>((false, false));
             }
             for table in ["event_journal", "projections", "replay_cursors"] {
                 transaction.execute(
@@ -104,42 +127,8 @@ impl LocalStore {
                     params![scope.runtime_authority, scope.principal, scope.lineage, scope.scope],
                 )?;
             }
-            Ok::<_, ReplayStoreError>((true, Some(replay_reset_anchor_digest(scope))))
+            Ok::<_, ReplayStoreError>((true, true))
         })?;
         Ok(changed)
     }
-}
-
-fn replay_transition_anchor_digest(transition: &ReplayTransition<'_>) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gocode/local-store/anchored-replay-apply/v1\0");
-    for value in [
-        transition.scope.runtime_authority.as_bytes(),
-        transition.scope.principal.as_bytes(),
-        transition.scope.lineage.as_bytes(),
-        transition.scope.scope.as_bytes(),
-        transition.event_id.as_bytes(),
-        transition.event_digest.as_bytes(),
-        transition.projection_digest.as_bytes(),
-    ] {
-        hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
-        hasher.update(value);
-    }
-    hasher.finalize().into()
-}
-
-fn replay_reset_anchor_digest(scope: &ReplayScopeKey) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"gocode/local-store/anchored-replay-reset/v1\0");
-    for value in [
-        scope.runtime_authority.as_bytes(),
-        scope.principal.as_bytes(),
-        scope.lineage.as_bytes(),
-        scope.scope.as_bytes(),
-        scope.binding_digest.as_bytes(),
-    ] {
-        hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
-        hasher.update(value);
-    }
-    hasher.finalize().into()
 }

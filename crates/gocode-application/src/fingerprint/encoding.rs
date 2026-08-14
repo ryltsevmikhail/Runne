@@ -49,9 +49,9 @@ fn update_context_ref(hasher: &mut Sha256, value: &ContextManifestRef) {
 }
 
 fn update_result_ref(hasher: &mut Sha256, value: &ResultRef) {
-    hasher.update(value.result_id.as_bytes());
-    update_string(hasher, &value.media_type);
-    hasher.update(value.integrity_digest.as_bytes());
+    hasher.update(value.result_id().as_bytes());
+    update_string(hasher, value.media_type());
+    hasher.update(value.integrity_digest().as_bytes());
 }
 
 fn update_budget_ref(hasher: &mut Sha256, value: &BudgetReservationRef) {

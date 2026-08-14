@@ -26,7 +26,7 @@ fn local_runtime_profile_schema() -> Value {
             "principalId": {"const": "local-owner", "type": "string"},
             "profileId": {"const": BUNDLE_ID, "type": "string"},
             "schemaHash": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
-            "schemaVersion": {"const": 2, "type": "integer"},
+            "schemaVersion": {"const": 3, "type": "integer"},
             "transportProfileId": {"const": TRANSPORT_PROFILE_ID, "type": "string"},
         }),
         &[
@@ -50,10 +50,10 @@ fn local_runtime_profile_schema() -> Value {
     let object = schema.as_object_mut().unwrap();
     object.insert(
         "$id".to_owned(),
-        json!("gocode://schemas/local-runtime-profile-v2"),
+        json!("gocode://schemas/local-runtime-profile-v3"),
     );
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
-    object.insert("title".to_owned(), json!("Local Runtime Profile V2"));
+    object.insert("title".to_owned(), json!("Local Runtime Profile V3"));
     schema
 }
 

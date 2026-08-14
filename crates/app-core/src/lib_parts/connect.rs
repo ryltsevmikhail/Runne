@@ -9,10 +9,7 @@ impl AppCore {
     pub async fn connect_runtime(&self) -> Result<RuntimeAvailability, AppCoreError> {
         let _connect = self.runtime_connect.lock().await;
         let _operation = self.runtime_operation.lock().await;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = None;
+        self.replace_runtime_client(None)?;
         if self.runtime_mode == RuntimeMode::Bundled {
             self.invalidate_bundled_activation_lease()?;
             self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
@@ -51,12 +48,18 @@ impl AppCore {
         self.transition_runtime(RuntimeAvailability::PeerVerified)?;
         self.transition_runtime(RuntimeAvailability::BootstrapProved)?;
         self.transition_runtime(RuntimeAvailability::Authenticated)?;
-        *self
-            .runtime_client
-            .write()
-            .map_err(|_| AppCoreError::StateUnavailable)? = Some(client);
+        self.replace_runtime_client(Some(client))?;
         self.transition_runtime(RuntimeAvailability::Reconciling)?;
+        let mut recovery_fence = RuntimeRecoveryFence::new(self);
+        if self
+            .recover_anchored_mutations_v7_under_operation()
+            .await
+            .is_err()
+        {
+            return Err(AppCoreError::RuntimeUnavailable);
+        }
         self.transition_runtime(RuntimeAvailability::Live)?;
+        recovery_fence.disarm();
         Ok(RuntimeAvailability::Live)
     }
 
@@ -71,45 +74,49 @@ impl AppCore {
         project_id: i64,
     ) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
-        self.open_project_conversation_inner(project_id).await
+        let context = self.live_runtime_operation_context()?;
+        self.open_project_conversation_under_operation(project_id, &context)
+            .await
     }
 
-    async fn open_project_conversation_inner(
+    async fn open_project_conversation_under_operation(
         &self,
         project_id: i64,
+        context: &RuntimeOperationContext,
     ) -> Result<ConversationSnapshot, AppCoreError> {
-        let client = self.live_runtime_client()?;
         let reference = self.load_or_prepare_conversation_reference(project_id)?;
-        let identity = replay::StableRuntimeIdentity::from_client(&client);
         if reference
             .bound()
-            .is_some_and(|bound| !identity.matches_reference(bound))
+            .is_some_and(|bound| !context.identity.matches_reference(bound))
         {
             self.set_runtime_failure(RuntimeAvailability::Fatal)?;
             return Err(AppCoreError::RuntimeIdentityConflict);
         }
-        let identity = CommandIdentity::new(
-            reference.create_command_id(),
-            reference.idempotency_key().to_owned(),
-        )
-        .map_err(|_| AppCoreError::InvalidConversationReference)?;
-        let created = client
-            .create_conversation(CreateConversationRequest::new(
-                identity,
-                reference.conversation_id(),
-                reference.workspace_id(),
-            ))
-            .await
-            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
-        if created.conversation_id != reference.conversation_id()
-            || created.workspace_id != reference.workspace_id()
-        {
-            return Err(AppCoreError::RuntimeUnavailable);
+        if reference.bound().is_none() {
+            let identity = CommandIdentity::new(
+                reference.create_command_id(),
+                reference.idempotency_key().to_owned(),
+            )
+            .map_err(|_| AppCoreError::InvalidConversationReference)?;
+            let created = self
+                .dispatch_conversation_create_under_operation(
+                    context,
+                    reference.conversation_id(),
+                    reference.workspace_id(),
+                    identity,
+                    reference.idempotency_key().to_owned(),
+                )
+                .await?;
+            if created.conversation_id != reference.conversation_id()
+                || created.workspace_id != reference.workspace_id()
+            {
+                return Err(AppCoreError::RuntimeUnavailable);
+            }
         }
-        let stable_identity = replay::StableRuntimeIdentity::from_client(&client);
+        self.require_current_operation_context(context)?;
         let reference =
-            self.bind_conversation_reference(project_id, reference, &stable_identity)?;
-        self.reconcile_conversation(&client, &reference, &stable_identity, |_| {})
+            self.bind_conversation_reference(project_id, reference, &context.identity)?;
+        self.reconcile_conversation_under_operation(context, &reference, |_| {})
             .await
     }
 
@@ -124,63 +131,58 @@ impl AppCore {
         text: &str,
     ) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
-        let current = self.open_project_conversation_inner(project_id).await?;
+        let context = self.live_runtime_operation_context()?;
+        let current = self
+            .open_project_conversation_under_operation(project_id, &context)
+            .await?;
         let conversation_id = CanonicalId::parse(&current.conversation_id)
             .map_err(|_| AppCoreError::InvalidConversationReference)?;
-        let client = self.live_runtime_client()?;
-        let generated = client
-            .generate_text(
-                GenerateTextRequest::new(
-                    new_command_identity()?,
-                    conversation_id,
-                    current.stream_version,
-                    text,
-                )
-                .map_err(|_| AppCoreError::RuntimeUnavailable)?,
+        let generated = self
+            .dispatch_text_generation_under_operation(
+                &context,
+                conversation_id,
+                current.stream_version,
+                text,
             )
-            .await
-            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+            .await?;
         if generated.conversation_id != conversation_id {
             return Err(AppCoreError::RuntimeUnavailable);
         }
         let reference = self.load_or_prepare_conversation_reference(project_id)?;
-        let identity = replay::StableRuntimeIdentity::from_client(&client);
         if reference
             .bound()
-            .is_none_or(|bound| !identity.matches_reference(bound))
+            .is_none_or(|bound| !context.identity.matches_reference(bound))
         {
             self.set_runtime_failure(RuntimeAvailability::Fatal)?;
             return Err(AppCoreError::RuntimeIdentityConflict);
         }
-        self.reconcile_conversation(&client, &reference, &identity, |_| {})
+        self.require_current_operation_context(&context)?;
+        self.reconcile_conversation_under_operation(&context, &reference, |_| {})
             .await
     }
 
-    /// Explicitly discards only the affected retained replay projection and
-    /// rebuilds it from the runtime's current authoritative floor.
+    /// Reconciles an affected retained replay scope through the authenticated
+    /// V2 shadow-promotion path.
     ///
     /// # Errors
     ///
     /// This operation is admitted only from `resync_required`; identity
-    /// mismatch or local reset failure remains fail-closed.
+    /// mismatch or failed authenticated promotion remains fail-closed.
     pub async fn resync_project_conversation(
         &self,
         project_id: i64,
     ) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
-        let client = self
-            .runtime_client()?
-            .ok_or(AppCoreError::RuntimeUnavailable)?;
+        let context = self.resync_runtime_operation_context()?;
         let reference = self.load_or_prepare_conversation_reference(project_id)?;
-        let identity = replay::StableRuntimeIdentity::from_client(&client);
         let Some(bound) = reference.bound() else {
             return Err(AppCoreError::InvalidConversationReference);
         };
-        if !identity.matches_reference(bound) {
+        if !context.identity.matches_reference(bound) {
             self.set_runtime_failure(RuntimeAvailability::Fatal)?;
             return Err(AppCoreError::RuntimeIdentityConflict);
         }
-        let scope_key = identity.scope(&reference);
+        let scope_key = context.identity.scope(&reference);
         if matches!(
             self.runtime_availability()?,
             RuntimeAvailability::Fatal
@@ -190,18 +192,8 @@ impl AppCore {
         {
             return Err(AppCoreError::ReplayResyncRequired);
         }
-        {
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| AppCoreError::StateUnavailable)?;
-            store.reset_replay_scope(&scope_key).map_err(|_| {
-                let _ = self.set_runtime_failure(RuntimeAvailability::Fatal);
-                AppCoreError::LocalProjectionUnavailable
-            })?;
-        }
         match self
-            .reconcile_conversation(&client, &reference, &identity, |_| {})
+            .reconcile_conversation_under_operation(&context, &reference, |_| {})
             .await
         {
             Ok(snapshot) => {
@@ -216,5 +208,4 @@ impl AppCore {
             }
         }
     }
-
 }

@@ -65,7 +65,7 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
             self.assertEqual(checkout["with"], {"fetch-depth": 0, "persist-credentials": False})
         sign = data["jobs"]["sign"]["steps"]
         self.assertEqual(next(row for row in sign if row.get("id") == "gate_attest")["with"], {"subject-path": "${{ runner.temp }}/desktop-v1-signed/desktop-v1-contract-schema.json"})
-        self.assertEqual(next(row for row in sign if row.get("id") == "status_attest")["with"], {"subject-path": "${{ runner.temp }}/desktop-v1-signed/desktop-v1-capability-status-v1.json"})
+        self.assertEqual(next(row for row in sign if row.get("id") == "status_attest")["with"], {"subject-path": "${{ runner.temp }}/desktop-v1-signed/desktop-v1-capability-status-v2.json"})
         self.assertLess(next(i for i, row in enumerate(sign) if row.get("name") == "Construct bounded gate subject before attestation"), next(i for i, row in enumerate(sign) if row.get("id") == "gate_attest"))
         self.assertLess(next(i for i, row in enumerate(sign) if row.get("name") == "Verify gate, then construct status from trusted baseline"), next(i for i, row in enumerate(sign) if row.get("id") == "status_attest"))
         publish = data["jobs"]["verify-publish"]["steps"]
@@ -128,7 +128,7 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
             "gate row extra": lambda x: x["gates"][1].update(extra=True),
             "misbound gate": lambda x: x["gates"][1].update(gate_id="GATE-WRONG"),
         }
-        self._reject_package_mutations("desktop-v1-capability-status-v1.json", mutations)
+        self._reject_package_mutations("desktop-v1-capability-status-v2.json", mutations)
 
     def test_exact_final_verifier_rejects_manifest_closed_world_mutations(self) -> None:
         mutations = {

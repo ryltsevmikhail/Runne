@@ -14,6 +14,9 @@ _STATUS = {"schema_version", "manifest_id", "definition_sha256", "canonical_sour
 _GATE_KINDS = {"contract", "implementation", "integration", "functional", "recovery", "native_admission", "native_adapter", "native_integration", "native_packaged", "native_qualification"}
 _IDENTIFIER = re.compile(r"^[A-Z][A-Z0-9-]*$")
 _FOUNDATION = re.compile(r"^FOUND-[0-9]{2}$")
+_HISTORICAL_RUNTIME = "6311992cea0551dab406a93b855ce2c49507e07e"
+_HISTORICAL_BUNDLE_HASH = "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429"
+_NATIVE_BLOCKERS = {"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED", "LINUX_SECURE_IDENTITY_UNVERIFIED", "LINUX_PROTECTED_LAUNCH_UNVERIFIED", "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED", "RUNNER_TRUST_UNVERIFIED"}
 
 
 def _add(errors: list[str], code: str) -> None:
@@ -127,7 +130,7 @@ def validate_status(definition: Mapping[str, object], status: object) -> tuple[s
     errors: list[str] = []
     value = _closed(status, _STATUS, "STATUS_KEYS", errors)
     if value is None: return tuple(errors)
-    if value["schema_version"] != "desktop-v1-capability-status.v1" or value["manifest_id"] != definition.get("manifest_id"): _add(errors, "STATUS_IDENTITY")
+    if value["schema_version"] != "desktop-v1-capability-status.v2" or value["manifest_id"] != definition.get("manifest_id"): _add(errors, "STATUS_IDENTITY")
     if not all(is_sha256(value[key]) for key in ("definition_sha256", "canonical_source_content_sha256", "selector_list_sha256")): _add(errors, "STATUS_SELECTOR_DIGEST")
     recorded_at = value["recorded_at"]
     try:
@@ -135,7 +138,7 @@ def validate_status(definition: Mapping[str, object], status: object) -> tuple[s
         datetime.fromisoformat(recorded_at.replace("Z", "+00:00"))
     except ValueError: _add(errors, "STATUS_RECORDED_AT")
     contract = _closed(value["contract"], {"profile_id", "profile_sha256", "bundle_sha256"}, "STATUS_CONTRACT", errors)
-    if contract and (contract["profile_id"] != "gocode-ui-client/1" or not is_sha256(contract["profile_sha256"]) or not is_sha256(contract["bundle_sha256"])): _add(errors, "STATUS_CONTRACT")
+    if contract and (contract["profile_id"] != "gocode-ui-client/2" or not is_sha256(contract["profile_sha256"]) or not is_sha256(contract["bundle_sha256"])): _add(errors, "STATUS_CONTRACT")
     toolchain = _closed(value["toolchain_identity"], {"status", "name", "version"}, "STATUS_TOOLCHAIN", errors)
     runner = _closed(value["runner_identity"], {"status", "runner_id", "image_sha256"}, "STATUS_RUNNER", errors)
     if toolchain:
@@ -161,7 +164,8 @@ def validate_status(definition: Mapping[str, object], status: object) -> tuple[s
         for row in rows if isinstance(rows, list) else []:
             extra = {"gate_id", "disposition", "blocker_code", "evidence_ref", "provenance"} if group == "gates" and isinstance(row, dict) and row.get("disposition") == "verified" else {field, "disposition", "blocker_code"}
             item = _closed(row, extra, f"STATUS_{group[:-1].upper()}_KEYS", errors)
-            if item is None or item["disposition"] not in dispositions or item["blocker_code"] not in {None, "EVIDENCE_NOT_RECORDED"}: _add(errors, f"STATUS_{group[:-1].upper()}_VALUE")
+            blockers = {None, "EVIDENCE_NOT_RECORDED"} | (_NATIVE_BLOCKERS if group == "platforms" else set())
+            if item is None or item["disposition"] not in dispositions or item["blocker_code"] not in blockers: _add(errors, f"STATUS_{group[:-1].upper()}_VALUE")
             if group == "gates" and item and item["disposition"] == "verified":
                 proof = item["provenance"]
                 if item["blocker_code"] is not None or item["evidence_ref"] not in evidence or not _closed(proof, {"subject_sha256", "predicate_sha256"}, "STATUS_PROVENANCE", errors) or not all(is_sha256(proof[key]) for key in ("subject_sha256", "predicate_sha256")):
@@ -173,10 +177,37 @@ def validate_status(definition: Mapping[str, object], status: object) -> tuple[s
     return tuple(sorted(set(errors)))
 
 
+def validate_documented_profile_provenance(root: Path, current_hash: str) -> tuple[str, ...]:
+    """Keep historical commit/profile/hash tuples distinct from the active wave."""
+
+    errors: list[str] = []
+    paths = {
+        "OQ": root / "docs/desktop/decisions/OPEN_QUESTIONS.md",
+        "CONTRACT": root / "docs/desktop/05-runtime-integration/CLIENT_RUNTIME_CONTRACT.md",
+        "MATRIX": root / "docs/desktop/05-runtime-integration/COMPATIBILITY_MATRIX.md",
+    }
+    historical = ("gocode-ui-client/1", _HISTORICAL_RUNTIME, _HISTORICAL_BUNDLE_HASH)
+    current = ("gocode-ui-client/2", current_hash)
+    try:
+        texts = {name: path.read_text(encoding="utf-8") for name, path in paths.items()}
+    except OSError:
+        return ("PROFILE_PROVENANCE_READ_ERROR",)
+    oq_row = next((line for line in texts["OQ"].splitlines() if "OQ-009" in line), "")
+    contract_history = texts["CONTRACT"].split("Current Task 8D contract", 1)[0]
+    matrix_history = next((line for line in texts["MATRIX"].splitlines() if "UI Phase 0" in line), "")
+    for name, text in (("OQ", oq_row), ("CONTRACT", contract_history), ("MATRIX", matrix_history)):
+        if not all(value in text for value in historical):
+            _add(errors, f"PROFILE_PROVENANCE_HISTORICAL:{name}")
+    for name in ("OQ", "CONTRACT", "MATRIX"):
+        if not all(value in texts[name] for value in current):
+            _add(errors, f"PROFILE_PROVENANCE_CURRENT:{name}")
+    return tuple(sorted(set(errors)))
+
+
 def validate_repository(root: Path, *, verify_source_ref: str | None = None, status_path: Path | None = None) -> tuple[str, ...]:
     """Validate the definition and one selected status/evidence wave on disk."""
 
-    profile = root / "docs/profiles/desktop-v1-capabilities-v1.json"; selected = status_path or root / "docs/evidence/desktop-v1-capability-status-v1.json"; errors: list[str] = []
+    profile = root / "docs/profiles/desktop-v1-capabilities-v1.json"; selected = status_path or root / "docs/evidence/desktop-v1-capability-status-v2.json"; errors: list[str] = []
     try:
         definition = load_json(profile); status = load_json(selected)
         if not has_raw_sha256(profile.read_bytes(), profile.with_suffix(".digest").read_text(encoding="utf-8")): _add(errors, "DEFINITION_RAW_DIGEST_MISMATCH")
@@ -185,8 +216,9 @@ def validate_repository(root: Path, *, verify_source_ref: str | None = None, sta
         if isinstance(definition, Mapping): errors.extend(validate_status(definition, status))
         else: _add(errors, "DEFINITION_KEYS")
         if not isinstance(status, dict) or status.get("definition_sha256") != sha256_file(profile): _add(errors, "STATUS_DEFINITION_DIGEST_MISMATCH")
-        bundle = root / "contracts/gocode-ui-client-1/bundle.json"; sidecar = root / "contracts/gocode-ui-client-1/bundle.sha256"; digest = sha256_file(bundle)
+        bundle = root / "contracts/gocode-ui-client-2/bundle.json"; sidecar = root / "contracts/gocode-ui-client-2/bundle.sha256"; digest = sha256_file(bundle)
         if sidecar.read_text(encoding="utf-8").strip() != digest or not isinstance(status, dict) or not isinstance(status.get("contract"), dict) or status["contract"].get("profile_sha256") != digest or status["contract"].get("bundle_sha256") != digest: _add(errors, "STATUS_CONTRACT_WAVE_MISMATCH")
+        errors.extend(validate_documented_profile_provenance(root, digest))
         for row in status.get("evidence_refs", []) if isinstance(status, dict) else []:
             path = selected.parent / row.get("id", "") if isinstance(row, dict) else None
             if not isinstance(path, Path) or path.parent != selected.parent or not path.is_file() or row.get("sha256") != sha256_file(path): _add(errors, "EVIDENCE_DIGEST_MISMATCH")

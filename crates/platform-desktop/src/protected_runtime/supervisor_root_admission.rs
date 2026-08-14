@@ -1,4 +1,4 @@
-use gocode_api::{RootHandleAdmission, WorkspaceId};
+use gocode_api::{ProtectedRootHandleAdmission, WorkspaceId};
 
 use crate::VerifiedRootHandle;
 
@@ -13,7 +13,7 @@ impl ProtectedBundledRuntimeSupervisor {
         root: &VerifiedRootHandle,
         workspace_id: WorkspaceId,
         expected_version: u64,
-    ) -> Result<RootHandleAdmission, ProtectedBundledRuntimeError> {
+    ) -> Result<ProtectedRootHandleAdmission, ProtectedBundledRuntimeError> {
         if self.state != BundledRuntimeLifecycleState::Ready || self.pending_profile.is_some() {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }

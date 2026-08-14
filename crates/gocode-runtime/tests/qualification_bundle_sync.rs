@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 
 const BUNDLE_JSON_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../contracts/gocode-ui-client-1/bundle.json"
+    "/../../contracts/gocode-ui-client-2/bundle.json"
 );
 
 /// Digest of `PUBLISHED_RUNTIME_CAPABILITIES` computed with the domain and
@@ -17,7 +17,7 @@ const BUNDLE_JSON_PATH: &str = concat!(
 /// at the pinned base SHA; pins reproducibility of `ordered_capability_digest`
 /// without any external source.
 const EXPECTED_CAPABILITY_DIGEST: &str =
-    "259e7e6a46aa8998ebb93964acd4b616cfe8fade2786fb3fcdd85a3d3546d551";
+    "31deccc648240956f4bd0e28fb5c1fb675abc7ffe92e9762447a006ce04f9d08";
 
 #[test]
 fn bundle_json_sha256_matches_published_hash() {
@@ -31,6 +31,18 @@ fn bundle_json_sha256_matches_published_hash() {
 fn operational_telemetry_capability_is_published_and_catalogued() {
     assert!(PUBLISHED_RUNTIME_CAPABILITIES.contains(&"runtime.operational-telemetry.v1"));
     assert!(RUNTIME_CAPABILITY_CATALOG.contains(&"runtime.operational-telemetry.v1"));
+}
+
+#[test]
+fn retention_baseline_resume_v2_is_published_after_v1() {
+    let v1 = PUBLISHED_RUNTIME_CAPABILITIES
+        .iter()
+        .position(|value| *value == "replay.aggregate.retention_baseline.v1")
+        .unwrap();
+    assert_eq!(
+        PUBLISHED_RUNTIME_CAPABILITIES.get(v1 + 1),
+        Some(&"replay.aggregate.retention_baseline_resume.v2")
+    );
 }
 
 #[test]

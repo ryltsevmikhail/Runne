@@ -76,7 +76,7 @@ impl NativeRootAdmissionLifecycle for BundledRuntimeController {
     }
 }
 
-const fn map_protected_failure(error: ProtectedBundledRuntimeError) -> RuntimeFailureCode {
+fn map_protected_failure(error: ProtectedBundledRuntimeError) -> RuntimeFailureCode {
     match error {
         ProtectedBundledRuntimeError::UnsupportedPlatformBackend => {
             RuntimeFailureCode::UnsupportedPlatformBackend
@@ -104,6 +104,27 @@ const fn map_protected_failure(error: ProtectedBundledRuntimeError) -> RuntimeFa
         | ProtectedBundledRuntimeError::InvalidState
         | ProtectedBundledRuntimeError::LaunchAuthority(_) => {
             RuntimeFailureCode::ProtectedActivationUnavailable
+        }
+        ProtectedBundledRuntimeError::ProviderActivationNotReady(readiness) => {
+            match readiness {
+                ProviderActivationReadinessV1::CredentialMissing => {
+                    RuntimeFailureCode::ConfigurationRequired
+                }
+                ProviderActivationReadinessV1::CredentialAccessDenied
+                | ProviderActivationReadinessV1::CredentialIdentityMismatch => {
+                    RuntimeFailureCode::BundledExecutableIdentityMismatch
+                }
+                ProviderActivationReadinessV1::SecureStoreUnavailable => {
+                    RuntimeFailureCode::ProtectedActivationUnavailable
+                }
+                ProviderActivationReadinessV1::Ready => {
+                    debug_assert!(
+                        false,
+                        "authenticated Ready never produces a not-ready error"
+                    );
+                    RuntimeFailureCode::ProtectedActivationUnavailable
+                }
+            }
         }
     }
 }

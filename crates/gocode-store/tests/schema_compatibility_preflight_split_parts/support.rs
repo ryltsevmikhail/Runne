@@ -52,7 +52,13 @@ fn released_v8_database(name: &str) -> PathBuf {
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE provider_effect_authorities;
+            "DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_insert;
+             DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_update;
+             DROP TRIGGER schema_v12_fence_aggregate_state_snapshots_delete;
+             DROP TRIGGER aggregate_state_snapshots_bind_insert;
+             DROP TRIGGER aggregate_state_snapshots_bind_update;
+             DROP TABLE aggregate_state_snapshots;
+             DROP TABLE provider_effect_authorities;
              DROP TABLE provider_dispatch_attempts;
              DROP TABLE provider_prepared_requests;
              DROP TABLE schema_lineage;

@@ -37,7 +37,7 @@ fn tombstoned_workspace_serialization_commits_only_project_delete() {
     let (create, delete) = race_create_and_delete(&database, repository, 69, 70);
 
     assert!(create.is_err());
-    assert_eq!(delete, Ok(2));
+    assert_eq!(delete, Ok(4));
     assert_origin_counts(&database, command(69), (0, 0, false, false));
 }
 
@@ -74,7 +74,7 @@ fn race_create_and_delete(
             command(delete_tail),
             &key("racing-project-delete"),
             ProjectId::from_bytes(PROJECT),
-            1,
+            3,
         )
     });
     barrier.wait();

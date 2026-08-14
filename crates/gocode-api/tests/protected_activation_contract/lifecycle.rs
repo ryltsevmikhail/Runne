@@ -19,7 +19,7 @@ fn v2_readiness_renewal_and_shutdown_bind_provider_to_owned_session() {
         vec!["conversation-replay-v2".to_owned()],
     )
     .unwrap();
-    let mut ready = ProtectedReadyV2::new(base_ready, openai_binding()).unwrap();
+    let mut ready = ProtectedReadyV2::new(base_ready, openai_binding(), ProviderActivationReadinessV1::Ready).unwrap();
     ready.sign(&keys);
     ready
         .verify_exact(&request, &keys)
@@ -45,7 +45,7 @@ fn v2_readiness_renewal_and_shutdown_bind_provider_to_owned_session() {
     )
     .unwrap();
     let mut changed_ready =
-        ProtectedReadyV2::new(changed_ready_base, deterministic_binding()).unwrap();
+        ProtectedReadyV2::new(changed_ready_base, deterministic_binding(), ProviderActivationReadinessV1::Ready).unwrap();
     changed_ready.sign(&keys);
     assert_eq!(
         changed_ready.verify_exact(&request, &keys).unwrap_err(),

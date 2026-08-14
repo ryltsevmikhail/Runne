@@ -9,8 +9,8 @@ use gocode_domain::event::Sensitivity;
 use gocode_domain::id::{
     AggregateId, ConversationId, EventId, EventLogLineageId, IntegrityDigest, TaskRunId,
 };
+use gocode_domain::replay::RetentionManifest;
 use gocode_domain::replay::{CURSOR_SCHEMA_VERSION, CatchUpCompletion, ReplayCursor, ReplayScope};
-use gocode_domain::replay::{GapRangeRef, RetentionManifest};
 use gocode_domain::task_run::TaskRunEvent;
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
@@ -27,12 +27,17 @@ include!("replay_service/measurement.rs");
 include!("replay_service/types.rs");
 include!("replay_service/authorization.rs");
 include!("replay_service/store_port.rs");
+include!("replay_service/replay_baseline_v2.rs");
+include!("replay_service/replay_accepted_v2.rs");
 include!("replay_service/errors.rs");
 include!("replay_service/authorized_guard.rs");
 include!("replay_service/service_setup.rs");
 include!("replay_service/service_cursor.rs");
 include!("replay_service/service_open.rs");
+include!("replay_service/service_resume_v2.rs");
 include!("replay_service/service_read_ack.rs");
 include!("replay_service/service_catch_up.rs");
 include!("replay_service/service_live.rs");
 include!("replay_service/noop_guard.rs");
+#[cfg(test)]
+include!("replay_service/service_open_tests.rs");

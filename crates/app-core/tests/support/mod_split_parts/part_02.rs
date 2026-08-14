@@ -130,6 +130,11 @@ async fn open_session(
             .expect("unavailable response");
     }
     if body.get("fromCursor").is_some_and(|value| !value.is_null())
+        && state.retention_v2_gap_once.swap(false, Ordering::SeqCst)
+    {
+        return retention_v2_response(&state, body["aggregateType"].as_str());
+    }
+    if body.get("fromCursor").is_some_and(|value| !value.is_null())
         && state.retention_gap_once.swap(false, Ordering::SeqCst)
     {
         return Response::builder()
@@ -199,11 +204,28 @@ async fn complete_catch_up(Path(_session_id): Path<String>) -> axum::Json<Value>
     }))
 }
 
-async fn continue_live(Path(_session_id): Path<String>) -> axum::Json<Value> {
+async fn continue_live(
+    State(state): State<Arc<MockState>>,
+    Path(_session_id): Path<String>,
+) -> axum::Json<Value> {
+    let live_delivery_id = if state.bad_live_id_once.swap(false, Ordering::SeqCst) {
+        "not-a-uuid"
+    } else {
+        LIVE_DELIVERY_ID
+    };
     axum::Json(json!({
-        "liveDeliveryId": LIVE_DELIVERY_ID,
+        "liveDeliveryId": live_delivery_id,
         "sessionState": "live"
     }))
+}
+
+async fn close_session(
+    State(state): State<Arc<MockState>>,
+    Path(_session_id): Path<String>,
+) -> axum::Json<Value> {
+    state.close_count.fetch_add(1, Ordering::SeqCst);
+    state.close_changed.notify_waiters();
+    axum::Json(json!({"closed": true}))
 }
 
 async fn live_events(
@@ -248,6 +270,14 @@ fn event(conversation_id: &str, sequence: u64, event_type: &str, payload: &Value
 
 fn event_cursor(event: &Value) -> String {
     let sequence = event["sequence"].as_u64().expect("sequence");
-    let bytes = serde_json::to_vec(&json!({"sequence": sequence})).expect("cursor JSON");
+    let aggregate = event["aggregateId"].as_str().expect("aggregate id");
+    let id = uuid::Uuid::parse_str(aggregate)
+        .expect("aggregate UUID")
+        .into_bytes();
+    let bytes = serde_json::to_vec(&json!({
+        "scope":{"Aggregate":{"aggregate_id":id,"aggregate_type":2}},
+        "event_id":event["eventId"],"sequence":sequence,"global_position":sequence,
+    }))
+    .expect("cursor JSON");
     format!("gocode-replay-cursor-v1.{}", hex::encode(bytes))
 }

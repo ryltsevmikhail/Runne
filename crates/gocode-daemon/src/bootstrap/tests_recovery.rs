@@ -65,7 +65,7 @@
                 [
                     0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0, 0, 0, 0, 0, 0, 2,
                 ],
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [0x20; 32],
                 [0x30; 32],
             )
@@ -74,7 +74,7 @@
             ProtectedRuntimeProfileV1::new(
                 "gocode-bundled-runtime/1",
                 1,
-                "gocode-ui-client/1",
+                "gocode-ui-client/2",
                 [0x20; 32],
                 [0x30; 32],
             )

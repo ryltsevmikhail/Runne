@@ -20,7 +20,17 @@ impl PreparedWorkspaceManager {
         let ttl = state_prepared_ttl(&self.state)?;
         let expires_at = now.checked_add(ttl).ok_or(SelectionError)?;
         let mut state = self.state.lock().map_err(|_| SelectionError)?;
-        state.prepared.retain(|_, entry| entry.expires_at > now);
+        state.prepared.retain(|_, entry| {
+            if entry.expires_at > now { return true; }
+            match entry.phase {
+                PreparedWorkspacePhase::Attempting { attempt_id, .. } => {
+                    entry.phase = PreparedWorkspacePhase::Attempting { attempt_id, revoked: true };
+                    true
+                }
+                PreparedWorkspacePhase::Ready | PreparedWorkspacePhase::Retained
+                | PreparedWorkspacePhase::Orphaned | PreparedWorkspacePhase::Opened => false,
+            }
+        });
         state.reservations.retain(|_, entry| entry.expires_at > now);
         if state.prepared.len() + state.reservations.len()
             >= crate::directory_selection::MAX_SELECTIONS
@@ -56,7 +66,7 @@ impl PreparedWorkspaceManager {
         &self,
         reference: &PreparedWorkspaceRef,
         root: VerifiedRootHandle,
-        admission: RootHandleAdmission,
+        admission: ProtectedRootHandleAdmission,
         operation_permit: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
         now: Instant,
     ) -> Result<(), SelectionError> {
@@ -79,12 +89,14 @@ impl PreparedWorkspaceManager {
                 window: entry.window,
                 generation: entry.generation,
                 request: entry.request,
-                root,
-                admission,
+                root: Some(root),
+                admission: Some(admission),
                 workspace_id: entry.workspace_id,
                 expected_version: entry.expected_version,
                 expires_at: entry.expires_at,
                 operation_permit: operation_permit.take(),
+                prepared_open: None,
+                phase: PreparedWorkspacePhase::Ready,
             },
         );
         drop(state);

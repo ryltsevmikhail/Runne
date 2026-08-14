@@ -1,5 +1,5 @@
 fn project_workspace_openapi(document: &mut Value) {
-    let schema = "schemas/project-workspace-v1.schema.json#/$defs/";
+    let schema = "schemas/project-workspace-v2.schema.json#/$defs/";
     let response = |name: &str| json!({"description": "Canonical response", "headers": {"X-Request-Id": {"required": true, "schema": {"maxLength": 36, "pattern": UUID_V7_PATTERN, "type": "string"}}}, "content": {"application/json": {"schema": {"$ref": format!("{schema}{name}")}}}});
     let id = |name: &str| json!({"in": "path", "name": name, "required": true, "schema": {"maxLength": 36, "pattern": UUID_V7_PATTERN, "type": "string"}});
     let page = |length: usize, pattern: &str| json!([

@@ -4,7 +4,7 @@ mod protected_runtime;
 mod root_handle_broker;
 
 pub use gocode_api::WorkspaceId;
-pub use gocode_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, RootHandleAdmission};
+pub use gocode_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
 pub use protected_runtime::{
@@ -51,6 +51,7 @@ include!("desktop_support.rs");
 #[cfg(test)]
 mod tests {
     include!("tests/support.rs");
+    include!("tests/capability_tuple.rs");
     include!("tests/supervisor.rs");
     include!("tests/recovery.rs");
     include!("tests/backoff_and_geometry.rs");

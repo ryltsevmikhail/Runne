@@ -3,6 +3,8 @@ use super::*;
 use gocode_api::{DaemonInstanceId, RuntimeSessionBinding};
 use gocode_domain::id::EventLogLineageId;
 
+mod replay_authorization_resume_v2;
+
 fn replay_binding() -> RuntimeSessionBinding {
     let authority = [
         0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 1,
@@ -20,7 +22,7 @@ fn replay_binding() -> RuntimeSessionBinding {
             EventLogLineageId::from_bytes([
                 0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 4,
             ]),
-            "gocode-ui-client/1",
+            "gocode-ui-client/2",
             [0x33; 32],
             [0x44; 32],
         )
@@ -70,5 +72,33 @@ fn production_replay_authorization_reads_live_local_session_state() {
             .unwrap()
             .authorization_epoch(),
         4
+    );
+}
+
+#[test]
+fn replay_admission_callback_completes_while_daemon_authorization_holds_session_fence() {
+    let local_session = Arc::new(Mutex::new(LocalSessionService::new(
+        replay_binding(),
+        [0x88; 32],
+    )));
+    let request = ReplayAuthorizationRequest {
+        principal_id: "local-owner".to_owned(),
+        authority_id: [0x99; 16],
+        session_generation: 7,
+        expected_epoch: 3,
+        session_id: None,
+        scope: None,
+    };
+    let (sent, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let authorization = DaemonReplayAuthorization::new([0x99; 16], local_session);
+        let result = authorization
+            .mutate_session_admission(&request, &mut |_| Err(ReplayError::AuthorizationRevoked));
+        sent.send(matches!(result, Err(ReplayError::AuthorizationRevoked)))
+            .unwrap();
+    });
+    assert!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        "admission callback must not recursively lock LocalSessionService"
     );
 }

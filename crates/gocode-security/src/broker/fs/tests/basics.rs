@@ -92,3 +92,25 @@
             Err(FsBrokerError::PermissionDenied)
         ));
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn root_handle_keeps_operations_inside_the_admitted_directory_after_path_replacement() {
+        let broker = test_broker();
+        let root = broker.open_root("ws1").unwrap();
+        let workspace = broker.find_root("ws1").unwrap().canonical_path.clone();
+        let path = CanonicalPath::new("file.txt").unwrap();
+        fs::write(workspace.join("file.txt"), b"admitted").unwrap();
+        let moved = workspace.with_file_name(format!(
+            "gocode-fs-admitted-{}",
+            uuid::Uuid::now_v7()
+        ));
+        fs::rename(&workspace, &moved).unwrap();
+        fs::create_dir(&workspace).unwrap();
+        fs::write(workspace.join("file.txt"), b"replacement").unwrap();
+
+        let handle = broker.resolve(&root, &path).unwrap();
+
+        assert_eq!(broker.read(&handle).unwrap(), b"admitted");
+        assert_eq!(fs::read(workspace.join("file.txt")).unwrap(), b"replacement");
+    }

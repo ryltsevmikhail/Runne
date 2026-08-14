@@ -1,6 +1,6 @@
 use super::super::{CanonicalId, CommandIdentity, RuntimeApiError, RuntimeApiErrorKind};
 use gocode_api::{
-    MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES, ProjectWorkspaceDisplayNameInput, RootHandleAdmission,
+    ProjectWorkspaceDisplayNameInput, ProtectedRootBindTransport, ProtectedRootHandleAdmission,
 };
 
 /// Immutable Project snapshot returned by the authoritative runtime.
@@ -60,6 +60,9 @@ pub struct ProjectCommandAcknowledgement {
     pub(super) version: u64,
 }
 impl ProjectCommandAcknowledgement {
+    pub(crate) const fn observed(id: CanonicalId, version: u64) -> Self {
+        Self { id, version }
+    }
     pub const fn project_id(&self) -> CanonicalId {
         self.id
     }
@@ -75,6 +78,9 @@ pub struct WorkspaceCommandAcknowledgement {
     pub(super) version: u64,
 }
 impl WorkspaceCommandAcknowledgement {
+    pub(crate) const fn observed(id: CanonicalId, version: u64) -> Self {
+        Self { id, version }
+    }
     pub const fn workspace_id(&self) -> CanonicalId {
         self.id
     }
@@ -214,39 +220,41 @@ impl ExistingWorkspaceRequest {
     }
 }
 
-/// Opaque v2 root admission token; its claims are never available to callers.
-#[derive(Clone, Eq, PartialEq)]
-pub struct RootAdmissionToken(pub(super) String);
-impl std::fmt::Debug for RootAdmissionToken {
+/// Move-only runtime boundary over a verified protected host transfer.
+pub struct ProtectedRootAdmission(ProtectedRootBindTransport);
+impl std::fmt::Debug for ProtectedRootAdmission {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("RootAdmissionToken([REDACTED])")
+        formatter.write_str("ProtectedRootAdmission([REDACTED])")
     }
 }
-impl RootAdmissionToken {
-    pub fn parse(value: impl Into<String>) -> Result<Self, RuntimeApiError> {
-        let value = value.into();
-        if value.len() <= MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES
-            && RootHandleAdmission::decode_token(&value).is_ok()
-        {
-            Ok(Self(value))
-        } else {
-            Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))
-        }
+impl ProtectedRootAdmission {
+    pub fn from_verified(value: ProtectedRootHandleAdmission) -> Result<Self, RuntimeApiError> {
+        value
+            .into_root_bind_transport()
+            .map(Self)
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))
+    }
+    pub(crate) const fn transport(&self) -> &ProtectedRootBindTransport {
+        &self.0
+    }
+    #[must_use]
+    pub const fn admission_digest(&self) -> [u8; 32] {
+        self.0.admission_digest()
     }
 }
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct BindWorkspaceRootRequest {
+#[derive(Debug)]
+pub struct BindWorkspaceRootRequest<'a> {
     pub(super) identity: CommandIdentity,
     pub(super) id: CanonicalId,
     pub(super) expected_version: u64,
-    pub(super) admission: RootAdmissionToken,
+    pub(super) admission: &'a ProtectedRootAdmission,
 }
-impl BindWorkspaceRootRequest {
+impl<'a> BindWorkspaceRootRequest<'a> {
     pub fn new(
         identity: CommandIdentity,
         id: CanonicalId,
         expected_version: u64,
-        admission: RootAdmissionToken,
+        admission: &'a ProtectedRootAdmission,
     ) -> Result<Self, RuntimeApiError> {
         version(expected_version)?;
         Ok(Self {
