@@ -11,6 +11,7 @@ fn test_correlation_metadata_is_persisted_and_corruption_fails_closed() {
         available_guard(),
     )
     .unwrap();
+    validated_reopen::seed_canonical_workspace(&store, "test-principal", make_ws_id());
     let svc = TaskRunService::new(
         store.clone(),
         store.clone(),

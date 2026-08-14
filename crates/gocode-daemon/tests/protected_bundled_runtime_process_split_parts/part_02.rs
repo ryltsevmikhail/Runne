@@ -55,8 +55,13 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
     let desktop_database = temporary.path().join("desktop-profile.sqlite3");
     let project_directory = temporary.path().join("project");
     std::fs::create_dir(&project_directory).expect("project directory");
-    let core = AppCore::open_with_runtime_mode(&desktop_database, RuntimeMode::Bundled)
-        .expect("bundled AppCore");
+    let profile = [0x52; 32];
+    let core = AppCore::open_bundled_anchored(
+        &desktop_database,
+        Arc::new(gocode_secure_store::test_support::DeterministicSecureStore::new(profile)),
+        profile,
+    )
+    .expect("bundled AppCore");
     let initial_lease = core
         .begin_bundled_runtime_start()
         .await
@@ -70,11 +75,12 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
     let project = core
         .open_local_project(&project_directory)
         .expect("open local project");
-    core.open_project_conversation(project.id)
+    prepare_canonical_conversation_workspace(&core, project).await;
+    core.open_project_conversation(project)
         .await
         .expect("open runtime conversation");
     let before_restart = core
-        .send_project_message(project.id, "first protected message")
+        .send_project_message(project, "first protected message")
         .await
         .expect("send before restart");
     assert_eq!(before_restart.messages.len(), 2);
@@ -163,7 +169,7 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
         .expect("install restarted protected client");
 
     let resumed = core
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("resume conversation after restart");
     assert_eq!(
@@ -175,7 +181,7 @@ async fn real_bundled_process_rotates_session_restarts_and_stops_owned_child() {
         before_ids.iter().map(String::as_str).collect::<Vec<_>>()
     );
     let after_restart = core
-        .send_project_message(project.id, "second protected message")
+        .send_project_message(project, "second protected message")
         .await
         .expect("send after restart");
     assert_eq!(after_restart.messages.len(), 4);

@@ -53,6 +53,7 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
             "events",
             "command_receipts",
             "aggregate_streams",
+            "aggregate_state_snapshots",
             "event_log_state",
             "provider_credential_versions",
             "provider_credential_provisions",

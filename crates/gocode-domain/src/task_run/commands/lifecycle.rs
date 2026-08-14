@@ -59,6 +59,11 @@ impl TaskRun {
             }
             TaskRunCommand::CompleteRetry { attempt_id } => {
                 self.require_state(TaskRunState::Retrying, TaskRunEventKind::RetryCompleted)?;
+                if self.active_attempt != Some(attempt_id)
+                    || !self.attempt_history.contains(&attempt_id)
+                {
+                    return Err(Self::loop_error(LoopInvariantViolation::MissingActiveAttempt));
+                }
                 if self.pending_retry.is_some() {
                     return Err(Self::loop_error(LoopInvariantViolation::PendingRetryExists));
                 }

@@ -17,17 +17,17 @@ impl AppCore {
         Ok(())
     }
 
-    /// Persists a validated local directory as a project.
+    /// Records a native-only unresolved local root.
     ///
     /// # Errors
     ///
     /// Returns an error when locking, path validation or persistence fails.
-    pub fn open_local_project(&self, path: &Path) -> Result<ProjectSummary, AppCoreError> {
+    pub fn open_local_project(&self, path: &Path) -> Result<i64, AppCoreError> {
         let mut store = self
             .store
             .lock()
             .map_err(|_| AppCoreError::StateUnavailable)?;
-        Ok(store.open_local_project(path)?.into())
+        Ok(store.open_local_project(path)?.id)
     }
 
     /// Lists projects in most-recently-opened order.
@@ -41,23 +41,37 @@ impl AppCore {
             .lock()
             .map_err(|_| AppCoreError::StateUnavailable)?;
         Ok(store
-            .list_projects()?
+            .list_recent_roots()?
             .into_iter()
             .map(ProjectSummary::from)
             .collect())
     }
 
-    /// Loads one project by stable database id.
+    /// Lists every canonical Workspace root for one Project ID.
     ///
     /// # Errors
     ///
     /// Returns an error when locking or persistence fails.
-    pub fn get_project(&self, id: i64) -> Result<Option<ProjectSummary>, AppCoreError> {
+    pub fn get_project(&self, project_id: &str) -> Result<Vec<ProjectSummary>, AppCoreError> {
         let store = self
             .store
             .lock()
             .map_err(|_| AppCoreError::StateUnavailable)?;
-        Ok(store.get_project(id)?.map(ProjectSummary::from))
+        Ok(store
+            .list_project_roots(project_id)?
+            .into_iter()
+            .map(ProjectSummary::from)
+            .collect())
+    }
+
+    /// Loads exactly one canonical Workspace root.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when locking or canonical root storage fails.
+    pub fn get_workspace(&self, workspace_id: &str) -> Result<Option<ProjectSummary>, AppCoreError> {
+        let store = self.store.lock().map_err(|_| AppCoreError::StateUnavailable)?;
+        Ok(store.get_workspace_root(workspace_id)?.map(ProjectSummary::from))
     }
 
     /// Returns a bounded diagnostics snapshot without paths or content.

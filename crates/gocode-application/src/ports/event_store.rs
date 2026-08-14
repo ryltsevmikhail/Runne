@@ -17,6 +17,8 @@ pub trait ConversationRepository {
     ) -> Result<ConversationLoadedStream, EventStoreError>;
 
     /// Looks up the durable result of a create-conversation command.
+    /// A duplicate requires the exact command ID, scope, idempotency key, and
+    /// semantic fingerprint; changing any field is a conflict.
     fn lookup_conversation_receipt(
         &self,
         command_id: CommandId,
@@ -25,7 +27,8 @@ pub trait ConversationRepository {
         fingerprint: &CommandFingerprint,
     ) -> Result<ConversationReceiptLookup, CommitError>;
 
-    /// Atomically appends conversation events and stores their create receipt.
+    /// Atomically rechecks the full command identity, appends conversation
+    /// events, and stores their create receipt.
     fn commit_conversation(
         &self,
         payload: ConversationCommit,

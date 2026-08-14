@@ -49,6 +49,68 @@ fn delivered_replay_event_schema() -> Value {
     closed_object(properties, &required)
 }
 
+fn replay_retention_baseline_schema() -> Value {
+    closed_object(
+        json!({
+            "schemaVersion": {"const": 1, "type": "integer"},
+            "authorityId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
+            "principalId": {"maxLength": 256, "minLength": 1, "pattern": "^[^\\u{0000}-\\u{001F}\\u{007F}]+$", "type": "string"},
+            "lineageId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
+            "runtimeSessionBindingDigest": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
+            "replayScopeDigest": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
+            "aggregateKind": enum_schema(&["conversation", "taskRun"]),
+            "aggregateId": {"pattern": LOWER_HEX_16_PATTERN, "type": "string"},
+            "sequence": positive_integer_schema(),
+            "version": positive_integer_schema(),
+            "baselineGlobalPosition": {"maximum": i64::MAX, "minimum": 1, "type": "integer"},
+            "projectionCodec": {"const": 1, "type": "integer"},
+            "projectionBytes": {"maxLength": 699051, "minLength": 1, "pattern": BASE64_URL_PATTERN, "type": "string"},
+            "projectionDigest": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
+            "retainedFloor": {"maximum": i64::MAX, "minimum": 1, "type": "integer"},
+            "capturedHighWater": {"maximum": i64::MAX, "minimum": 1, "type": "integer"},
+            "retentionGeneration": positive_integer_schema(),
+            "retentionWitness": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
+            "issuedAtUnixMs": telemetry_u64_schema(),
+            "expiresAtUnixMs": telemetry_u64_schema(),
+            "witnessMac": {"pattern": LOWER_HEX_32_PATTERN, "type": "string"},
+        }),
+        &[
+            "schemaVersion",
+            "authorityId",
+            "principalId",
+            "lineageId",
+            "runtimeSessionBindingDigest",
+            "replayScopeDigest",
+            "aggregateKind",
+            "aggregateId",
+            "sequence",
+            "version",
+            "baselineGlobalPosition",
+            "projectionCodec",
+            "projectionBytes",
+            "projectionDigest",
+            "retainedFloor",
+            "capturedHighWater",
+            "retentionGeneration",
+            "retentionWitness",
+            "issuedAtUnixMs",
+            "expiresAtUnixMs",
+            "witnessMac",
+        ],
+    )
+}
+
+fn replay_retention_gap_response_schema() -> Value {
+    closed_object(
+        json!({
+            "code": {"const": "replay_retention_gap", "type": "string"},
+            "requestId": uuid_v7_schema(),
+            "baseline": {"$ref": "#/$defs/replayRetentionBaselineV1"},
+        }),
+        &["code", "requestId", "baseline"],
+    )
+}
+
 fn replay_schema() -> Value {
     let mut schema = delivered_replay_event_schema();
     let object = schema.as_object_mut().unwrap();
@@ -104,6 +166,15 @@ fn replay_schema() -> Value {
                 }),
                 &["events", "hasMore", "highWaterRef", "sessionId"],
             ),
+            "replayRetentionBaselineV1": replay_retention_baseline_schema(),
+            "resumeFromBaselineRequestV2": closed_object(
+                json!({"baseline": {"$ref": "#/$defs/replayRetentionBaselineV2"}}),
+                &["baseline"],
+            ),
+            "replayRetentionBaselineV2": replay_retention_baseline_v2_schema(),
+            "resumeFromBaselineResponseV2": resume_from_baseline_response_schema(),
+            "retentionGapResponse": replay_retention_gap_response_schema(),
+            "retentionGapResponseV2": replay_retention_gap_response_v2_schema(),
             "readPageRequest": closed_object(
                 json!({"limit": {"maximum": 256, "minimum": 1, "type": "integer"}}),
                 &["limit"],
@@ -125,3 +196,5 @@ fn replay_schema() -> Value {
     object.insert("title".to_owned(), json!("Canonical Replay Event V1"));
     schema
 }
+
+include!("replay_schema_v2.rs");

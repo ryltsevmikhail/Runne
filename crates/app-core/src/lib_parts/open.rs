@@ -53,16 +53,75 @@ impl AppCore {
         }
     }
 
+    /// Opens the mutation-capable core with an authenticated secure anchor.
+    ///
+    /// Legacy constructors intentionally remain read-only/offline compatible;
+    /// only this explicit construction path admits runtime mutations.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error when the secure anchor cannot admit the store.
+    pub fn open_anchored(
+        path: &Path,
+        secure: Arc<dyn SecureStore>,
+        profile: [u8; 32],
+    ) -> Result<Self, AppCoreError> {
+        let store = LocalStore::open_anchored(path, secure.as_ref(), profile)
+            .map_err(|_| AppCoreError::MutationUnavailable)?;
+        Ok(Self::open_store(
+            store,
+            RuntimeMode::ExternalLocal,
+            None,
+            Some(MutationSecurityContext { secure }),
+        ))
+    }
+
+    /// Opens a bundled core whose mutation ledger is secured before the
+    /// protected supervisor installs its authenticated client.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error when the secure anchor cannot admit the store.
+    pub fn open_bundled_anchored(
+        path: &Path,
+        secure: Arc<dyn SecureStore>,
+        profile: [u8; 32],
+    ) -> Result<Self, AppCoreError> {
+        let store = LocalStore::open_anchored(path, secure.as_ref(), profile)
+            .map_err(|_| AppCoreError::MutationUnavailable)?;
+        Ok(Self::open_store(
+            store,
+            RuntimeMode::Bundled,
+            None,
+            Some(MutationSecurityContext { secure }),
+        ))
+    }
+
     fn open_internal(
         path: &Path,
         runtime_mode: RuntimeMode,
         runtime_profile_path: Option<PathBuf>,
     ) -> Result<Self, AppCoreError> {
+        Ok(Self::open_store(
+            LocalStore::open(path)?,
+            runtime_mode,
+            runtime_profile_path,
+            None,
+        ))
+    }
+
+    fn open_store(
+        store: LocalStore,
+        runtime_mode: RuntimeMode,
+        runtime_profile_path: Option<PathBuf>,
+        mutation_security: Option<MutationSecurityContext>,
+    ) -> Self {
         let lifecycle = HostLifecycleState::new(runtime_mode);
         let (lifecycle_sender, lifecycle_receiver) =
             tokio::sync::mpsc::channel(HOST_LIFECYCLE_CHANNEL_CAPACITY_V1);
-        Ok(Self {
-            store: Mutex::new(LocalStore::open(path)?),
+        Self {
+            store: Mutex::new(store),
+            mutation_security,
             runtime_mode,
             runtime_profile_path,
             runtime_state: RwLock::new(RuntimeAvailability::Unconfigured),
@@ -79,61 +138,57 @@ impl AppCore {
             runtime_client: RwLock::new(None),
             runtime_connect: tokio::sync::Mutex::new(()),
             runtime_operation: tokio::sync::Mutex::new(()),
-        })
+            mutation_gate_epoch: AtomicU64::new(1),
+            #[cfg(any(test, feature = "test-support"))]
+            mutation_test_hold_before_canonical: AtomicBool::new(false),
+            #[cfg(any(test, feature = "test-support"))]
+            mutation_test_before_canonical_reached: tokio::sync::Notify::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            mutation_test_continue_canonical: tokio::sync::Notify::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            mutation_test_hold_before_dispatch: AtomicBool::new(false),
+            #[cfg(any(test, feature = "test-support"))]
+            mutation_test_before_dispatch: tokio::sync::Notify::new(),
+        }
     }
 
     /// Opens AppCore with a loopback mock client for transport-bound
-    /// integration tests. This hook is unavailable in release builds.
+    /// integration tests. This hook exists only with explicit test support.
     ///
     /// # Errors
     ///
     /// Returns a storage error when the profile database cannot be opened.
-    #[cfg(debug_assertions)]
+    #[cfg(any(test, feature = "test-support"))]
     #[doc(hidden)]
     pub fn open_with_mock_runtime(
         path: &Path,
         client: AuthenticatedRuntimeClient,
     ) -> Result<Self, AppCoreError> {
-        let lifecycle = HostLifecycleState::new(RuntimeMode::ExternalLocal);
-        let (lifecycle_sender, lifecycle_receiver) =
-            tokio::sync::mpsc::channel(HOST_LIFECYCLE_CHANNEL_CAPACITY_V1);
-        Ok(Self {
-            store: Mutex::new(LocalStore::open(path)?),
-            runtime_mode: RuntimeMode::ExternalLocal,
-            runtime_profile_path: None,
-            runtime_state: RwLock::new(RuntimeAvailability::Live),
-            host_lifecycle: RwLock::new(lifecycle),
-            lifecycle_sender,
-            lifecycle_event_pipeline: Mutex::new(HostLifecycleEventPipeline::new(lifecycle_receiver)),
-            lifecycle_pipeline_closed: AtomicBool::new(false),
-            lifecycle_producer_drops: AtomicU64::new(0),
-            lifecycle_producer_drop_saturated: AtomicBool::new(false),
-            lifecycle_evictions: AtomicU64::new(0),
-            lifecycle_eviction_saturated: AtomicBool::new(false),
-            bundled_activation_epoch: Mutex::new(0),
-            pending_resync_scopes: RwLock::new(HashSet::new()),
-            runtime_client: RwLock::new(Some(client)),
-            runtime_connect: tokio::sync::Mutex::new(()),
-            runtime_operation: tokio::sync::Mutex::new(()),
-        })
+        let profile = [0x41; 32];
+        let secure: Arc<dyn SecureStore> = Arc::new(
+            gocode_secure_store::test_support::DeterministicSecureStore::new(profile),
+        );
+        Self::open_with_test_runtime_secure(path, client, secure, profile)
     }
 
-    #[cfg(debug_assertions)]
-    #[doc(hidden)]
-    pub fn force_runtime_reconnecting_for_test(&self) -> Result<(), AppCoreError> {
-        self.set_runtime_failure(RuntimeAvailability::Reconnecting)
-    }
-
-    #[cfg(debug_assertions)]
-    #[doc(hidden)]
-    pub fn force_pending_resync_for_test(&self) -> Result<(), AppCoreError> {
-        self.set_resync_required_for_scope(ReplayScopeKey {
-            runtime_authority: "test-authority".to_owned(),
-            principal: "test-principal".to_owned(),
-            lineage: "test-lineage".to_owned(),
-            scope: "test-scope".to_owned(),
-            binding_digest: "11".repeat(32),
-        })
+    #[cfg(any(test, feature = "test-support"))]
+    fn open_with_test_runtime_secure(
+        path: &Path,
+        client: AuthenticatedRuntimeClient,
+        secure: Arc<dyn SecureStore>,
+        profile: [u8; 32],
+    ) -> Result<Self, AppCoreError> {
+        let core = Self::open_store(
+            LocalStore::open_anchored(path, secure.as_ref(), profile)
+                .map_err(|_| AppCoreError::MutationUnavailable)?,
+            RuntimeMode::ExternalLocal,
+            None,
+            Some(MutationSecurityContext { secure }),
+        );
+        *core.runtime_state.write().map_err(|_| AppCoreError::StateUnavailable)? =
+            RuntimeAvailability::Live;
+        *core.runtime_client.write().map_err(|_| AppCoreError::StateUnavailable)? = Some(client);
+        Ok(core)
     }
 
     /// Returns sanitized renderer bootstrap state.

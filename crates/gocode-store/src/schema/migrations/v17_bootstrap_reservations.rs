@@ -83,17 +83,35 @@ fn apply_v17_migration(conn: &Connection) -> SqliteResult<()> {
 }
 
 fn released_v17_matches(conn: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 17 || !v17_marker_matches(conn)? || !v17_inherited_v16_schema_matches(conn)? {
+    Ok(version == 17
+        && v17_marker_matches(conn)?
+        && released_v17_base_matches_with_additional_triggers(conn, version, &[])?
+        && v17_catalog_matches(conn)?)
+}
+
+/// Validates the immutable V17 bootstrap boundary before successor migrations
+/// add their own tables and triggers.
+pub(super) fn released_v17_base_matches_with_additional_triggers(
+    conn: &Connection,
+    version: i64,
+    additional_triggers: &[&str],
+) -> SqliteResult<bool> {
+    if version < 17 || !v17_inherited_v16_schema_matches(conn)? {
         return Ok(false);
     }
-    Ok(table_sql_matches_migration(conn, "bootstrap_reservations", MIGRATION_V17)?
-        && table_sql_matches_migration(conn, "bootstrap_reservation_tombstones", MIGRATION_V17)?
-        && table_sql_matches_migration(conn, "bootstrap_last_observed_clock", MIGRATION_V17)?
-        && v17_index_matches(conn)?
-        && v17_inherited_trigger_bodies_match(conn)?
-        && v17_triggers_match(conn)?
-        && v17_clock_matches(conn)?
-        && v17_catalog_matches(conn)?)
+    Ok(
+        table_sql_matches_migration(conn, "bootstrap_reservations", MIGRATION_V17)?
+            && table_sql_matches_migration(
+                conn,
+                "bootstrap_reservation_tombstones",
+                MIGRATION_V17,
+            )?
+            && table_sql_matches_migration(conn, "bootstrap_last_observed_clock", MIGRATION_V17)?
+            && v17_index_matches(conn)?
+            && v17_inherited_trigger_bodies_match(conn)?
+            && v17_triggers_match_with_additional(conn, additional_triggers)?
+            && v17_clock_matches(conn)?,
+    )
 }
 
 fn v17_inherited_v16_schema_matches(conn: &Connection) -> SqliteResult<bool> {
@@ -102,11 +120,7 @@ fn v17_inherited_v16_schema_matches(conn: &Connection) -> SqliteResult<bool> {
     let v14 = provider_schema::v14_base_matches(conn, v12, v13)?;
     Ok(provider_schema::v15_matches(conn, 15, v14)?
         && table_sql_matches_migration(conn, "provider_credential_versions", MIGRATION_V16)?
-        && table_sql_matches_migration(
-            conn,
-            "provider_credential_effect_bindings",
-            MIGRATION_V16,
-        )?
+        && table_sql_matches_migration(conn, "provider_credential_effect_bindings", MIGRATION_V16)?
         && table_sql_matches_migration(
             conn,
             "provider_credential_clock_high_water",
@@ -164,11 +178,15 @@ fn v17_index_matches(conn: &Connection) -> SqliteResult<bool> {
     }))
 }
 
-fn v17_triggers_match(conn: &Connection) -> SqliteResult<bool> {
+fn v17_triggers_match_with_additional(
+    conn: &Connection,
+    additional_triggers: &[&str],
+) -> SqliteResult<bool> {
     let expected_count = authoritative_v12_tables(conn)?.len() * 3
         + v12_guard_triggers().len()
         + V16_TRIGGERS.len()
-        + V17_TRIGGERS.len();
+        + V17_TRIGGERS.len()
+        + additional_triggers.len();
     let actual_count: usize = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger'",
         [],
@@ -177,9 +195,11 @@ fn v17_triggers_match(conn: &Connection) -> SqliteResult<bool> {
     if actual_count != expected_count {
         return Ok(false);
     }
-    V17_TRIGGERS.iter().try_fold(true, |matches, (name, expected)| {
-        Ok(matches && trigger_sql_matches(conn, name, expected)?)
-    })
+    V17_TRIGGERS
+        .iter()
+        .try_fold(true, |matches, (name, expected)| {
+            Ok(matches && trigger_sql_matches(conn, name, expected)?)
+        })
 }
 
 fn v17_clock_matches(conn: &Connection) -> SqliteResult<bool> {

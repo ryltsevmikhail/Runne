@@ -40,11 +40,12 @@ impl ReplayTerminalCode {
         match self {
             Self::SessionExpired | Self::Backpressure => ReplayRecoveryDisposition::Reconnectable,
             Self::UnsupportedSchema => ReplayRecoveryDisposition::Incompatible,
-            Self::RetentionGap => ReplayRecoveryDisposition::ResyncRequired,
+            // An SSE terminal contains no authenticated baseline witness, so
+            // it can never authorize local recovery or resynchronization.
+            Self::RetentionGap | Self::Integrity => ReplayRecoveryDisposition::Fatal,
             Self::AuthorizationRevoked | Self::SensitivityDenied => {
                 ReplayRecoveryDisposition::Revoked
             }
-            Self::Integrity => ReplayRecoveryDisposition::Fatal,
         }
     }
 }
@@ -287,3 +288,5 @@ impl ReplayLiveSession {
         }
     }
 }
+
+include!("session_drop.rs");

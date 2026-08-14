@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use sha2::{Digest, Sha256};
 
@@ -197,6 +200,9 @@ impl LocalSessionService {
                 authority: RuntimeSessionAuthority(zeroize::Zeroizing::new(authority_bytes)),
                 epoch: self.authorization_epoch,
                 generation: self.binding.ephemeral().launch_generation(),
+                issuer_state: Arc::new(super::ReplayBaselineIssuerState {
+                    revoked: AtomicBool::new(false),
+                }),
             },
         );
         if self.bootstrap_policy == super::BootstrapPolicy::OneTimeProtected {

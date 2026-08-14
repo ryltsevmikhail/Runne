@@ -42,8 +42,9 @@ chrono.workspace = true
 tokio-test = "0.4"
 hmac = "0.12"
 sha2 = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["test-util"] }
 reqwest = { version = "0.12", features = ["json"] }
 jsonschema = { version = "=0.18.0", default-features = false, features = ["draft202012"] }
 rusqlite = "=0.34.0"
 tempfile = "3"
+gocode-security = { path = "../gocode-security" }

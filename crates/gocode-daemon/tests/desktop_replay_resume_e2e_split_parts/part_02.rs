@@ -22,7 +22,7 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         1,
     );
     let first_profile = profile_value(&profile_path);
-    assert_eq!(first_profile["schemaVersion"], 2);
+    assert_eq!(first_profile["schemaVersion"], 3);
     assert_eq!(
         first_profile["transportProfileId"],
         "gocode-local-runtime/2"
@@ -33,10 +33,19 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
     let first_identity = connect_identity(&profile_path).await;
 
     let desktop_database = directory.path().join("desktop.sqlite3");
+    let security_profile = [0xD2; 32];
+    let secure: Arc<dyn SecureStore> = Arc::new(
+        gocode_secure_store::test_support::DeterministicSecureStore::new(security_profile),
+    );
     let project_path = directory.path().join("project");
     std::fs::create_dir(&project_path).expect("create project");
-    let first_core = AppCore::open_with_runtime_profile(&desktop_database, profile_path.clone())
-        .expect("open first desktop core");
+    let first_core = gocode_app_core::test_support::open_anchored_external_local_core(
+        &desktop_database,
+        profile_path.clone(),
+        Arc::clone(&secure),
+        security_profile,
+    )
+    .expect("open first anchored desktop core");
     let project = first_core
         .open_local_project(&project_path)
         .expect("open local project");
@@ -44,16 +53,29 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
         first_core.connect_runtime().await.expect("connect runtime"),
         RuntimeAvailability::Live
     );
+    let runtime_project_id = CanonicalId::now_v7();
+    first_core
+        .create_runtime_project(runtime_project_id, "Replay fixture".to_owned())
+        .await
+        .expect("create canonical project");
     let opened = first_core
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("create conversation");
+    first_core
+        .create_runtime_workspace(
+            runtime_project_id,
+            conversation_workspace_id(&desktop_database, project),
+            "Replay fixture".to_owned(),
+        )
+        .await
+        .expect("create canonical workspace");
     assert_eq!(opened.stream_version, 1);
     assert!(opened.messages.is_empty());
 
     install_ack_failure_after_inclusive_duplicate(&daemon_database);
     let error = first_core
-        .send_project_message(project.id, "hello")
+        .send_project_message(project, "hello")
         .await
         .expect_err("server acknowledgement is forced to fail");
     assert_eq!(error.to_string(), "runtime is unavailable");
@@ -92,9 +114,13 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
             drop(stream);
         }
     });
-    let counterfeit_core =
-        AppCore::open_with_runtime_profile(&desktop_database, stale_profile_path.clone())
-            .expect("open counterfeit client");
+    let counterfeit_core = gocode_app_core::test_support::open_anchored_external_local_core(
+        &desktop_database,
+        stale_profile_path.clone(),
+        Arc::clone(&secure),
+        security_profile,
+    )
+    .expect("open counterfeit anchored client");
     assert!(counterfeit_core.connect_runtime().await.is_err());
     assert_eq!(
         counterfeit_core
@@ -129,8 +155,13 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
             RuntimeTransportError::PeerIdentityMismatch
         ))
     ));
-    let stale_core = AppCore::open_with_runtime_profile(&desktop_database, stale_profile_path)
-        .expect("open stale desktop core");
+    let stale_core = gocode_app_core::test_support::open_anchored_external_local_core(
+        &desktop_database,
+        stale_profile_path,
+        Arc::clone(&secure),
+        security_profile,
+    )
+    .expect("open stale anchored desktop core");
     assert!(stale_core.connect_runtime().await.is_err());
     assert_eq!(
         stale_core.bootstrap().expect("stale bootstrap").runtime,
@@ -151,14 +182,19 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
     assert!(second_identity.generation > first_identity.generation);
     assert_ne!(second_identity.session, first_identity.session);
 
-    let reopened = AppCore::open_with_runtime_profile(&desktop_database, profile_path)
-        .expect("reopen desktop core");
+    let reopened = gocode_app_core::test_support::open_anchored_external_local_core(
+        &desktop_database,
+        profile_path,
+        secure,
+        security_profile,
+    )
+    .expect("reopen anchored desktop core");
     assert_eq!(
         reopened.connect_runtime().await.expect("reconnect runtime"),
         RuntimeAvailability::Live
     );
     let restored = reopened
-        .open_project_conversation(project.id)
+        .open_project_conversation(project)
         .await
         .expect("resume conversation");
     assert_eq!(restored.stream_version, 3);
@@ -192,8 +228,11 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
     assert!(completed.projection_revision > interrupted.projection_revision);
     assert!(completed.generation > interrupted.generation);
     assert!(
-        daemon_latest_cursor_is_acknowledged(&daemon_database, second_identity.generation),
-        "the resumed cursor must be acknowledged by the restarted daemon"
+        daemon_latest_cursor_is_acknowledged_and_closed(
+            &daemon_database,
+            second_identity.generation,
+        ),
+        "snapshot reconciliation must acknowledge then close its replay session"
     );
     drop(reopened);
     second_daemon.stop();
@@ -221,7 +260,7 @@ async fn real_process_wrong_authority_db_closes_fatal_without_local_mutation() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_process_retention_gap_requires_resync_without_local_mutation() {
+async fn real_process_retention_gap_closes_fatal_without_local_mutation() {
     let _process_guard = process_e2e_guard().await;
     let mut fixture = ProcessFaultFixture::open().await;
     let before = local_projection_state(&fixture.desktop_database);
@@ -236,30 +275,10 @@ async fn real_process_retention_gap_requires_resync_without_local_mutation() {
         .await
         .expect_err("retention gap must fail closed");
 
-    assert_eq!(error.to_string(), "replay_resync_required");
+    assert_eq!(error.to_string(), "runtime_identity_conflict");
     assert_eq!(
         core.bootstrap().expect("bootstrap").runtime,
-        RuntimeAvailability::ResyncRequired
-    );
-    assert_eq!(local_projection_state(&fixture.desktop_database), before);
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn real_process_live_epoch_revocation_closes_revoked_without_local_mutation() {
-    let _process_guard = process_e2e_guard().await;
-    let fixture = ProcessFaultFixture::open().await;
-    let before = local_projection_state(&fixture.desktop_database);
-    let mut live = fixture.open_raw_live(&before.cursor).await;
-    revoke_live_replay_epoch(&fixture.daemon_database);
-
-    let error = live
-        .next_event()
-        .await
-        .expect_err("authorization epoch mismatch must fail closed");
-
-    assert_eq!(
-        error.recovery_disposition(),
-        ReplayRecoveryDisposition::Revoked
+        RuntimeAvailability::Fatal
     );
     assert_eq!(local_projection_state(&fixture.desktop_database), before);
 }

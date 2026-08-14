@@ -100,7 +100,7 @@ fn v2_lifecycle_frames() -> Vec<(&'static str, u32, Vec<u8>)> {
         request.desktop_host_instance_id(),
         &keys,
     );
-    let mut ready = ProtectedReadyV2::new(base_ready, openai_binding()).unwrap();
+    let mut ready = ProtectedReadyV2::new(base_ready, openai_binding(), ProviderActivationReadinessV1::Ready).unwrap();
     ready.sign(&keys);
     let owned = ready.owned_launch();
     let mut renewal = ProtectedRenewRequestV2::new(owned.clone(), 1, [0x71; 32]).unwrap();

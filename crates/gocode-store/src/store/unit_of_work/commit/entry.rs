@@ -11,7 +11,11 @@ impl StoreTransaction {
             ));
         }
 
-        let mut conn = self.inner.writer.lock().unwrap();
+        let mut conn = self
+            .inner
+            .writer
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
         let taskrun_id = match payload.events[0].correlation_id() {
             AggregateId::TaskRun(taskrun_id) => *taskrun_id,
             _ => {

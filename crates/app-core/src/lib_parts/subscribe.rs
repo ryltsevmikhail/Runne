@@ -19,33 +19,36 @@ impl AppCore {
         let mut reconnect_policy = ReconnectPolicy::new();
         loop {
             let operation = self.runtime_operation.lock().await;
-            let client = self
-                .runtime_client()?
-                .ok_or(AppCoreError::RuntimeUnavailable)?;
+            let context = self.runtime_operation_context()?;
             if !matches!(
                 self.runtime_availability()?,
                 RuntimeAvailability::Live | RuntimeAvailability::Reconnecting
-            ) || !self.runtime_client_is_current(&client)?
+            ) || self.require_current_operation_context(&context).is_err()
             {
                 return Err(AppCoreError::RuntimeUnavailable);
             }
             let reference = self.load_or_prepare_conversation_reference(project_id)?;
-            let identity = replay::StableRuntimeIdentity::from_client(&client);
             let Some(bound) = reference.bound() else {
                 return Err(AppCoreError::InvalidConversationReference);
             };
-            if !identity.matches_reference(bound) {
+            if !context.identity.matches_reference(bound) {
                 self.set_runtime_failure(RuntimeAvailability::Fatal)?;
                 return Err(AppCoreError::RuntimeIdentityConflict);
             }
             self.transition_runtime(RuntimeAvailability::Reconciling)?;
-            let scope_key = identity.scope(&reference);
+            let scope_key = context.identity.scope(&reference);
             let checkpoint = {
-                let store = self
+                let mut store = self
                     .store
                     .lock()
                     .map_err(|_| AppCoreError::StateUnavailable)?;
-                match replay::checkpoint(&store, &scope_key) {
+                match replay::checkpoint(
+                    &mut store,
+                    self.mutation_security
+                        .as_ref()
+                        .map(|value| value.secure.as_ref()),
+                    &scope_key,
+                ) {
                     Ok(checkpoint) => checkpoint,
                     Err(error) => {
                         self.set_runtime_failure(RuntimeAvailability::Fatal)?;
@@ -59,7 +62,8 @@ impl AppCore {
             );
             let identities = ReplayIdentityTracker::new();
             let mut local_error = None;
-            let live_result = client
+            let live_result = context
+                .client
                 .catch_up_from_persisted_cursor(
                     replay_scope,
                     checkpoint.as_ref().map(|value| value.cursor.as_str()),
@@ -69,7 +73,13 @@ impl AppCore {
                             local_error = Some(AppCoreError::StateUnavailable);
                             return Err(());
                         };
-                        match replay::apply_delivery(&mut store, &reference, &identity, delivery) {
+                        match replay::apply_delivery(
+                            &mut store,
+                            self.mutation_security.as_ref().map(|value| value.secure.as_ref()),
+                            &reference,
+                            &context.identity,
+                            delivery,
+                        ) {
                             Ok(update) => Ok(update),
                             Err(error) => {
                                 local_error = Some(error);
@@ -118,7 +128,7 @@ impl AppCore {
                     Err(error) => break error.recovery_disposition(),
                 };
                 let _operation = self.runtime_operation.lock().await;
-                if !self.runtime_client_is_current(&client)? {
+                if self.require_current_operation_context(&context).is_err() {
                     return Err(AppCoreError::RuntimeUnavailable);
                 }
                 match event {
@@ -132,7 +142,13 @@ impl AppCore {
                                 .store
                                 .lock()
                                 .map_err(|_| AppCoreError::StateUnavailable)?;
-                            replay::apply_delivery(&mut store, &reference, &identity, &delivery)
+                            replay::apply_delivery(
+                                &mut store,
+                                self.mutation_security.as_ref().map(|value| value.secure.as_ref()),
+                                &reference,
+                                &context.identity,
+                                &delivery,
+                            )
                         };
                         let update = match update_result {
                             Ok(update) => update,
@@ -151,12 +167,12 @@ impl AppCore {
                     }
                 }
             };
+            let operation = self.runtime_operation.lock().await;
+            if self.require_current_operation_context(&context).is_err() {
+                return Err(AppCoreError::RuntimeUnavailable);
+            }
             if recovery != ReplayRecoveryDisposition::Reconnectable {
                 return Err(self.map_recovery_failure(recovery, &scope_key));
-            }
-            let operation = self.runtime_operation.lock().await;
-            if !self.runtime_client_is_current(&client)? {
-                return Err(AppCoreError::RuntimeUnavailable);
             }
             self.set_runtime_failure(RuntimeAvailability::Reconnecting)?;
             let delay = match reconnect_policy.record_failure() {

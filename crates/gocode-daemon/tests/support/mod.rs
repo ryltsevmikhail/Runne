@@ -16,6 +16,45 @@ pub struct TestSession {
     pub authorization: String,
 }
 
+// Each integration target compiles this shared support module independently.
+#[allow(dead_code)]
+pub async fn seed_project_workspace(
+    client: &Client,
+    address: std::net::SocketAddr,
+    authorization: &str,
+    project_id: &str,
+    workspace_id: &str,
+) {
+    let project = client
+        .post(format!("https://{address}/v1/projects"))
+        .header("authorization", authorization)
+        .header("x-command-id", "018f2e3a-7000-7000-8000-0000000000f1")
+        .header("idempotency-key", "canonical-project-create")
+        .json(&serde_json::json!({
+            "projectId": project_id,
+            "displayName": "Project",
+        }))
+        .send()
+        .await
+        .expect("create canonical project");
+    assert_eq!(project.status(), reqwest::StatusCode::ACCEPTED);
+    let workspace = client
+        .post(format!(
+            "https://{address}/v1/projects/{project_id}/workspaces"
+        ))
+        .header("authorization", authorization)
+        .header("x-command-id", "018f2e3a-7000-7000-8000-0000000000f2")
+        .header("idempotency-key", "canonical-workspace-create")
+        .json(&serde_json::json!({
+            "workspaceId": workspace_id,
+            "displayName": "Workspace",
+        }))
+        .send()
+        .await
+        .expect("create canonical workspace");
+    assert_eq!(workspace.status(), reqwest::StatusCode::ACCEPTED);
+}
+
 pub async fn connect_session(config: &ConfigurationSnapshot) -> TestSession {
     let profile_path =
         PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");

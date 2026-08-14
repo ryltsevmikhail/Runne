@@ -4,14 +4,12 @@ use std::fs;
 use std::fs;
 #[cfg(not(target_os = "windows"))]
 use std::io::Read;
-#[cfg(all(not(unix), not(target_os = "windows")))]
-use std::io::{Seek, SeekFrom, Write};
+#[cfg(not(target_os = "windows"))]
+use std::path::Path;
 use std::path::PathBuf;
 #[cfg(not(target_os = "windows"))]
 use std::sync::Arc;
 
-#[cfg(all(not(unix), not(target_os = "windows")))]
-use std::fs::OpenOptions;
 #[cfg(unix)]
 use std::os::fd::OwnedFd;
 
@@ -100,10 +98,14 @@ pub struct FsIdentity {
 /// };
 /// ```
 #[cfg(not(target_os = "windows"))]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct RootHandle {
     root_id: String,
     binding: BrokerBinding,
+    #[cfg(unix)]
+    fd: Option<OwnedFd>,
+    #[cfg(unix)]
+    identity: FsIdentity,
 }
 
 /// Opaque Windows marker: the backend always fails closed before using a handle.
@@ -148,18 +150,24 @@ pub struct FsHandle;
 /// };
 /// ```
 #[cfg(not(target_os = "windows"))]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CreatedFsHandle {
-    #[cfg(all(not(unix), not(target_os = "windows")))]
+    #[cfg(not(target_os = "windows"))]
     root_id: String,
     binding: BrokerBinding,
     #[cfg(all(not(unix), not(target_os = "windows")))]
     path: PathBuf,
+    #[cfg(unix)]
+    fd: Option<OwnedFd>,
+    #[cfg(unix)]
+    parent_fd: Option<OwnedFd>,
+    #[cfg(unix)]
+    final_name: String,
 }
 
 /// Opaque Windows marker: the backend always fails closed before using a handle.
 #[cfg(target_os = "windows")]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CreatedFsHandle;
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -203,3 +211,21 @@ const SENSITIVE_PATTERNS: &[&str] = &[
     "id_rsa",
     "id_ed25519",
 ];
+
+impl FilesystemBroker {
+    #[cfg(not(target_os = "windows"))]
+    fn validate_sensitive_path(&self, path: &Path) -> Result<(), FsBrokerError> {
+        let path_string = path.to_string_lossy();
+        for pattern in SENSITIVE_PATTERNS {
+            if pattern.contains('*') {
+                let extension = pattern.trim_start_matches('*');
+                if path_string.ends_with(extension) {
+                    return Err(FsBrokerError::SensitivePathDenied);
+                }
+            } else if path_string.contains(pattern) {
+                return Err(FsBrokerError::SensitivePathDenied);
+            }
+        }
+        Ok(())
+    }
+}

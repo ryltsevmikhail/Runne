@@ -6,19 +6,44 @@ use super::*;
 /// terminates the loop fail-closed. The caller uses loop completion as the
 /// daemon application's graceful-shutdown signal.
 #[cfg(unix)]
-pub fn run_control_loop(
+pub(crate) fn run_control_loop(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     mut owned_launch: ProtectedOwnedLaunchV1,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut last_root_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        if let Some(sequence) = dispatch_root_handle_control_frame(
+            &mut channel,
+            &frame,
+            &keys,
+            &owned_launch,
+            &mut used_root_transfers,
+            last_root_sequence,
+            unix_millis()?,
+            root_admission.as_deref(),
+        )? {
+            last_root_sequence = sequence;
+            continue;
+        }
         if let Ok(renewal) = ProtectedRenewRequestV1::decode_frame(&frame) {
             renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
+            #[cfg(feature = "desktop-protected")]
+            if let Some(authority) = &root_admission {
+                authority
+                    .fence()
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            }
 
             let current = local_session_service
                 .lock()
@@ -92,20 +117,45 @@ pub fn run_control_loop(
 
 /// Serves V2 control messages and rejects every V1 frame rather than allowing
 /// a provider-bound launch to downgrade its authenticated transcript.
-#[cfg(unix)]
-pub fn run_control_loop_v2(
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) fn run_control_loop_v2(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
     mut owned_launch: ProtectedOwnedLaunchV2,
     local_session_service: Arc<Mutex<LocalSessionService>>,
     session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    #[cfg(feature = "desktop-protected")] root_admission: Option<Arc<ProtectedRootControl>>,
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut last_root_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        if let Some(sequence) = dispatch_root_handle_control_frame(
+            &mut channel,
+            &frame,
+            &keys,
+            owned_launch.compatibility_owned_launch(),
+            &mut used_root_transfers,
+            last_root_sequence,
+            unix_millis()?,
+            root_admission.as_deref(),
+        )? {
+            last_root_sequence = sequence;
+            continue;
+        }
         if let Ok(renewal) = ProtectedRenewRequestV2::decode_frame(&frame) {
             renewal.verify_exact(&owned_launch, last_renew_sequence, &keys)?;
+            #[cfg(feature = "desktop-protected")]
+            if let Some(authority) = &root_admission {
+                authority
+                    .fence()
+                    .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?;
+            }
             let current = local_session_service
                 .lock()
                 .map_err(|_| LaunchAuthorityError::RenewalUnavailable)?
@@ -169,4 +219,13 @@ pub fn run_control_loop_v2(
         )?;
         return Ok(());
     }
+}
+
+#[cfg(all(unix, feature = "desktop-protected"))]
+fn unix_millis() -> Result<u64, LaunchAuthorityError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .and_then(|value| u64::try_from(value.as_millis()).ok())
+        .ok_or(LaunchAuthorityError::StaleLaunchAuthority)
 }

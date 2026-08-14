@@ -89,8 +89,15 @@ fn install_missing_v12_fence_triggers(conn: &Connection) -> SqliteResult<()> {
 }
 
 fn v12_fence_triggers_match(conn: &Connection) -> SqliteResult<bool> {
+    v12_fence_triggers_match_with_additional(conn, &[])
+}
+
+fn v12_fence_triggers_match_with_additional(
+    conn: &Connection,
+    additional: &[&str],
+) -> SqliteResult<bool> {
     let tables = authoritative_v12_tables(conn)?;
-    let expected = tables.len() * 3 + v12_guard_triggers().len();
+    let expected = tables.len() * 3 + v12_guard_triggers().len() + additional.len();
     let actual: usize = conn.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger'",
         [],
@@ -123,6 +130,16 @@ fn v12_fence_triggers_match(conn: &Connection) -> SqliteResult<bool> {
             )
             .optional()?;
         if actual.is_none_or(|actual| normalize_sql(&actual) != normalize_sql(sql)) {
+            return Ok(false);
+        }
+    }
+    for name in additional {
+        let exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?1)",
+            [name],
+            |row| row.get(0),
+        )?;
+        if !exists {
             return Ok(false);
         }
     }

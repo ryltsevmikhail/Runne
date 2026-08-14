@@ -27,25 +27,6 @@
     }
 
     #[test]
-    fn desktop_profile_requires_the_advertised_operational_telemetry_capability() {
-        assert_eq!(
-            gocode_runtime_client::REQUIRED_RUNTIME_CAPABILITIES,
-            [
-                "conversation.create.v1",
-                "conversation.generate_text.v1",
-                "conversation.list_messages.v1",
-                "replay.aggregate.open.v1",
-                "replay.aggregate.read_page.v1",
-                "replay.aggregate.acknowledge.v1",
-                "replay.aggregate.complete_catch_up.v1",
-                "replay.aggregate.continue_live.v1",
-                "replay.aggregate.sse.v1",
-                "runtime.operational-telemetry.v1",
-            ]
-        );
-    }
-
-    #[test]
     fn bundled_runtime_launch_spec_fails_closed_for_every_secret_transport() {
         for transport in [
             BundledRuntimeSecretTransport::Environment,
@@ -199,7 +180,6 @@
         supervisor
             .record_authenticated_ready(&authenticated_handshake())
             .expect("prove current owned launch");
-
         assert_eq!(
             supervisor.stop(
                 &authenticated_handshake(),
@@ -226,7 +206,6 @@
         supervisor
             .record_authenticated_ready(&authenticated_handshake())
             .expect("prove current owned launch");
-
         assert_eq!(
             supervisor.stop(
                 &authenticated_handshake(),

@@ -44,7 +44,7 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
     generate_ui_contract(output.path()).unwrap();
 
     for path in [
-        "schemas/local-runtime-profile-v2.schema.json",
+        "schemas/local-runtime-profile-v3.schema.json",
         "schemas/local-session-v2.schema.json",
         "schemas/replay-v1.schema.json",
         "schemas/sse-v1.schema.json",
@@ -131,4 +131,54 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
             }));
         }
     }
+}
+
+#[test]
+fn local_runtime_profile_schema_accepts_only_base_or_protected_capabilities() {
+    let output = tempfile::tempdir().unwrap();
+    generate_ui_contract(output.path()).unwrap();
+    let schema: Value = serde_json::from_slice(
+        &fs::read(
+            output
+                .path()
+                .join("schemas/local-runtime-profile-v3.schema.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let validator = JSONSchema::options()
+        .with_draft(Draft::Draft202012)
+        .compile(&schema)
+        .unwrap();
+    let profile = |capabilities: &[&str]| {
+        serde_json::json!({
+            "authorityId": "018f2e3a700070008000000000000001",
+            "bootstrapSecretPath": "/tmp/bootstrap.secret",
+            "capabilities": capabilities,
+            "capabilityDigest": "00".repeat(32),
+            "certificateDerBase64": "AA",
+            "certificateSha256": "00".repeat(32),
+            "daemonInstanceId": "018f2e3a-7000-7000-8000-000000000002",
+            "endpoint": "https://127.0.0.1:43123",
+            "eventLogLineageId": "018f2e3a-7000-7000-8000-000000000003",
+            "executableSha256": "00".repeat(32),
+            "launchAuthorityId": "00".repeat(16),
+            "launchGeneration": 1,
+            "principalId": "local-owner",
+            "profileId": "gocode-ui-client/2",
+            "schemaHash": "00".repeat(32),
+            "schemaVersion": 3,
+            "sessionId": "00".repeat(16),
+            "transportProfileId": "gocode-local-runtime/2",
+        })
+    };
+    assert!(validator.is_valid(&profile(BASE_RUNTIME_CAPABILITIES)));
+    assert!(validator.is_valid(&profile(PUBLISHED_RUNTIME_CAPABILITIES)));
+    assert!(!validator.is_valid(&profile(&BASE_RUNTIME_CAPABILITIES[..19])));
+    let mut reordered = BASE_RUNTIME_CAPABILITIES.to_vec();
+    reordered.swap(0, 1);
+    assert!(!validator.is_valid(&profile(&reordered)));
+    let mut extra = BASE_RUNTIME_CAPABILITIES.to_vec();
+    extra.push("unsupported.capability.v1");
+    assert!(!validator.is_valid(&profile(&extra)));
 }

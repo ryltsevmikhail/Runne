@@ -21,6 +21,7 @@ pub mod event;
 pub mod id;
 pub mod message;
 pub mod plan;
+pub mod project_workspace;
 pub mod recovery;
 pub mod reference;
 pub mod replay;

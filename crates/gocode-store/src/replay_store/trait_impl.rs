@@ -1,6 +1,22 @@
 #[async_trait]
 #[allow(clippy::too_many_arguments)]
 impl ReplayStorePort for ReplayStore {
+    async fn resume_session_from_baseline_v2(
+        &self,
+        request: gocode_application::ports::ReplayBaselineResumeRequestV2,
+        lineage_id: &EventLogLineageId,
+        server_secret: &[u8; 32],
+        delivery_guard: Arc<dyn ReplayDeliveryPrecommitGuard>,
+    ) -> Result<(ReplaySession, Vec<ReplayEvent>, ReplayEvent, gocode_application::ports::ReplayAcceptedPromotionV2), ReplayError> {
+        self.resume_session_from_baseline_v2_impl(
+            request,
+            lineage_id,
+            server_secret,
+            delivery_guard,
+        )
+        .await
+    }
+
     async fn open_session(
         &self,
         principal_id: &str,
@@ -34,7 +50,8 @@ impl ReplayStorePort for ReplayStore {
         lineage_id: &EventLogLineageId,
         server_secret: &[u8; 32],
     ) -> Result<RetentionManifest, ReplayError> {
-        self.retention_manifest_impl(lineage_id, server_secret).await
+        self.retention_manifest_impl(lineage_id, server_secret)
+            .await
     }
 
     async fn read_page(
@@ -151,13 +168,7 @@ impl ReplayStorePort for ReplayStore {
         authority_id: &[u8; 16],
         epoch: i64,
     ) -> Result<(), ReplayError> {
-        self.close_session_impl(
-            session_id,
-            principal_id,
-            generation,
-            authority_id,
-            epoch,
-        )
-        .await
+        self.close_session_impl(session_id, principal_id, generation, authority_id, epoch)
+            .await
     }
 }

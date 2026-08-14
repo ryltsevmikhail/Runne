@@ -11,24 +11,15 @@ fn openapi() -> Value {
             "description": "Canonical response",
         })
     };
-    let no_store = || {
-        json!({
-            "description": "Responses are never stored",
-            "schema": {"const": "no-store", "type": "string"},
-        })
-    };
-    let session_parameter = || {
-        json!({
-            "in": "path",
-            "name": "sessionId",
-            "required": true,
-            "schema": replay_session_id_schema(),
-        })
-    };
-    json!({
+    let no_store = || json!({"description": "Responses are never stored", "schema": {"const": "no-store", "type": "string"}});
+    let required_no_store = || json!({"description": "Responses are never stored", "required": true, "schema": {"const": "no-store", "type": "string"}});
+    let replay_request = |reference: &str| json!({"content": {"application/json": {"schema": {"$ref": reference}}}, "required": true, "x-gocode-maxBodyBytes": 8192});
+    let resume_request = |reference: &str| json!({"content": {"application/json": {"schema": {"$ref": reference}}}, "required": true, "x-gocode-maxBodyBytes": 1048576});
+    let session_parameter = || json!({"in": "path", "name": "sessionId", "required": true, "schema": replay_session_id_schema()});
+    let mut document = json!({
         "info": {
             "title": "GOCODE Local Runtime API",
-            "version": "1.0.0",
+            "version": "2.0.0",
         },
         "components": {
             "securitySchemes": {
@@ -69,38 +60,72 @@ fn openapi() -> Value {
             },
             "/v1/replay/open-session": {
                 "post": {
-                    "requestBody": request("schemas/replay-v1.schema.json#/$defs/openSessionRequest"),
-                    "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/openSessionResponse")},
+                    "requestBody": replay_request("schemas/replay-v1.schema.json#/$defs/openSessionRequest"),
+                    "security": [{"sessionAuth": []}],
+                    "responses": {
+                        "200": response("schemas/replay-v1.schema.json#/$defs/openSessionResponse"),
+                        "410": {
+                            "content": {"application/json": {"schema": {"oneOf": [
+                                {"$ref": "schemas/replay-v1.schema.json#/$defs/retentionGapResponse"},
+                                {"$ref": "schemas/replay-v1.schema.json#/$defs/retentionGapResponseV2"}
+                            ]}}},
+                            "description": "Authenticated replay retention baseline",
+                            "headers": {
+                                "Cache-Control": required_no_store(),
+                                "X-Request-Id": {"description": "Canonical request UUIDv7", "required": true, "schema": uuid_v7_schema()},
+                            },
+                        },
+                    },
+                }
+            },
+            "/v1/replay/resume-from-baseline": {
+                "post": {
+                    "requestBody": resume_request("schemas/replay-v1.schema.json#/$defs/resumeFromBaselineRequestV2"),
+                    "security": [{"sessionAuth": []}],
+                    "responses": {
+                        "200": {
+                            "content": {"application/json": {"schema": {"$ref": "schemas/replay-v1.schema.json#/$defs/resumeFromBaselineResponseV2"}}},
+                            "description": "Authenticated accepted replay baseline",
+                            "headers": {"Cache-Control": required_no_store(), "X-Request-Id": {"description": "Canonical request UUIDv7", "required": true, "schema": uuid_v7_schema()}},
+                        },
+                        "401": {"description": "Static unauthorized response", "headers": {"Cache-Control": required_no_store(), "X-Request-Id": {"description": "Canonical request UUIDv7", "required": true, "schema": uuid_v7_schema()}}},
+                        "410": {"description": "Authenticated replay retention gap", "headers": {"Cache-Control": required_no_store(), "X-Request-Id": {"description": "Canonical request UUIDv7", "required": true, "schema": uuid_v7_schema()}}},
+                    },
                 }
             },
             "/v1/replay/{sessionId}/acknowledge": {
                 "post": {
                     "parameters": [session_parameter()],
-                    "requestBody": request("schemas/replay-v1.schema.json#/$defs/acknowledgeRequest"),
+                    "requestBody": replay_request("schemas/replay-v1.schema.json#/$defs/acknowledgeRequest"),
+                    "security": [{"sessionAuth": []}],
                     "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/acknowledgeResponse")},
                 }
             },
             "/v1/replay/{sessionId}/close": {
                 "post": {
                     "parameters": [session_parameter()],
+                    "security": [{"sessionAuth": []}],
                     "responses": {"204": {"description": "Replay session closed"}}
                 }
             },
             "/v1/replay/{sessionId}/complete-catch-up": {
                 "post": {
                     "parameters": [session_parameter()],
+                    "security": [{"sessionAuth": []}],
                     "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/completeCatchUpResponse")}
                 }
             },
             "/v1/replay/{sessionId}/continue-live": {
                 "post": {
                     "parameters": [session_parameter()],
+                    "security": [{"sessionAuth": []}],
                     "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/continueLiveResponse")}
                 }
             },
             "/v1/replay/{sessionId}/events": {
                 "get": {
                     "parameters": [session_parameter()],
+                    "security": [{"sessionAuth": []}],
                     "responses": {
                         "200": {
                             "content": {"text/event-stream": {"schema": {"$ref": "schemas/sse-v1.schema.json"}}},
@@ -112,12 +137,15 @@ fn openapi() -> Value {
             "/v1/replay/{sessionId}/read-page": {
                 "post": {
                     "parameters": [session_parameter()],
-                    "requestBody": request("schemas/replay-v1.schema.json#/$defs/readPageRequest"),
+                    "requestBody": replay_request("schemas/replay-v1.schema.json#/$defs/readPageRequest"),
+                    "security": [{"sessionAuth": []}],
                     "responses": {"200": response("schemas/replay-v1.schema.json#/$defs/readPageResponse")},
                 }
             },
         },
-    })
+    });
+    project_workspace_openapi(&mut document);
+    document
 }
 
 fn local_session_golden() -> Value {

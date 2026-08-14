@@ -205,22 +205,22 @@ fn non_empty_v3_replay_state_is_rejected_before_any_mutation() {
 }
 
 #[test]
-fn schema_newer_than_v4_is_rejected_without_rewrite() {
+fn schema_newer_than_v5_is_rejected_without_rewrite() {
     let directory = tempfile::tempdir().expect("temp directory");
     let path = directory.path().join("profile.sqlite3");
     let connection = Connection::open(&path).expect("create database");
     connection
-        .pragma_update(None, "user_version", 5)
+        .pragma_update(None, "user_version", 6)
         .expect("set future version");
     drop(connection);
 
     let Err(error) = LocalStore::open(&path) else {
         panic!("future schema must fail");
     };
-    assert!(matches!(error, StoreOpenError::UnsupportedSchema(5)));
+    assert!(matches!(error, StoreOpenError::UnsupportedSchema(6)));
     let connection = Connection::open(path).expect("reopen future database");
     let version: i64 = connection
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("read future version");
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 }

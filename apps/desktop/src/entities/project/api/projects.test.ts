@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
-import { getProject, listProjects, openLocalProject } from './projects'
+import {
+  acquireRendererGeneration,
+  getProject,
+  listProjects,
+  prepareSelectedWorkspace,
+  requestDirectorySelection,
+} from './projects'
 
 const project = {
-  id: 7,
-  name: 'gocode-ui',
-  path: '/workspace/gocode-ui',
+  projectId: '01890e00-0000-7000-8000-000000000001',
+  workspaceId: '01890e00-0000-7000-8000-000000000002',
+  displayName: 'gocode-ui',
   lastOpenedAt: 1_753_500_000_000,
 } as const
 
@@ -16,26 +22,64 @@ describe('project IPC adapter', () => {
     expect(projects).toEqual([project])
   })
 
-  it('opens only the selected local directory', async () => {
+  it('requests an opaque host-owned directory selection', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = []
+    const reference = 'a'.repeat(64)
 
-    const opened = await openLocalProject('/workspace/gocode-ui', async (command, args) => {
+    const selection = await requestDirectorySelection('request-1', 0, async (command, args) => {
       calls.push([command, args])
-      return project
+      return { reference }
     })
 
-    expect(opened).toEqual(project)
+    expect(selection).toEqual({ reference })
     expect(calls).toEqual([
-      ['open_local_project', { path: '/workspace/gocode-ui' }],
+      ['request_directory_selection', { requestId: 'request-1', rendererGeneration: 0 }],
     ])
+  })
+
+  it('accepts only the redacted prepared workspace response', async () => {
+    const prepared = await prepareSelectedWorkspace({
+      selection: 'a'.repeat(64),
+      rendererGeneration: 7,
+      requestId: 'request-1',
+      workspaceId: '01890e00-0000-7000-8000-000000000001',
+      expectedVersion: 3,
+    }, async (command, args) => {
+      expect(command).toBe('prepare_selected_workspace')
+      expect(args).toEqual({
+        request: expect.objectContaining({ selection: 'a'.repeat(64), expectedVersion: 3 }),
+      })
+      return { reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' } }
+    })
+
+    expect(prepared.summary.displayName).toBe('Selected folder')
+  })
+
+  it('rejects malformed host generations and prepared path leaks', async () => {
+    await expect(acquireRendererGeneration(async () => '7')).rejects.toThrow(
+      'Invalid renderer generation response',
+    )
+    await expect(prepareSelectedWorkspace({
+      selection: 'a'.repeat(64), rendererGeneration: 7, requestId: 'request-1',
+      workspaceId: '01890e00-0000-7000-8000-000000000001', expectedVersion: 3,
+    }, async () => ({
+      reference: 'b'.repeat(64), summary: { displayName: 'Selected folder', path: '/private' },
+    }))).rejects.toThrow('Invalid prepared workspace response')
   })
 
   it('rejects malformed project data at the renderer boundary', async () => {
     await expect(
-      getProject(7, async () => ({
+      getProject(project.projectId, async () => ({
         ...project,
-        path: null,
+        workspaceId: '7',
       })),
     ).rejects.toThrow('Invalid project response')
+  })
+
+  it('rejects numeric IDs and raw paths at the renderer boundary', async () => {
+    await expect(getProject('7', async () => null)).rejects.toThrow('Invalid project identifier')
+    await expect(listProjects(async () => [{ ...project, path: '/private/root' }])).rejects.toThrow(
+      'Invalid projects response',
+    )
   })
 })

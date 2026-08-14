@@ -1,8 +1,10 @@
 //! Desktop implementations of native capability ports.
 
 mod protected_runtime;
+mod root_handle_broker;
 
-pub use gocode_api::PROTECTED_BUNDLED_SESSION_RENEW_AFTER;
+pub use gocode_api::WorkspaceId;
+pub use gocode_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
 pub use protected_runtime::{
@@ -10,6 +12,16 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
+#[cfg(all(unix, feature = "protected-channel-integration"))]
+pub use root_handle_broker::ProtectedRootHandleEndpoint;
+#[cfg(feature = "test-support")]
+pub use root_handle_broker::test_transfer_pair;
+pub use root_handle_broker::{
+    RootHandleBrokerError, RootHandleTransferBinding, RootHandleTransferReceiver,
+    RootHandleTransferSender, VerifiedRootHandle,
+};
+#[cfg(all(unix, feature = "test-support"))]
+pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -39,6 +51,7 @@ include!("desktop_support.rs");
 #[cfg(test)]
 mod tests {
     include!("tests/support.rs");
+    include!("tests/capability_tuple.rs");
     include!("tests/supervisor.rs");
     include!("tests/recovery.rs");
     include!("tests/backoff_and_geometry.rs");

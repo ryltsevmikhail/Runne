@@ -6,18 +6,23 @@ import re
 import subprocess
 import sys
 
-
 ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
-    "gocode-desktop": {"gocode-app-core", "gocode-platform-desktop"},
+    "gocode-desktop": {"gocode-api", "gocode-app-core", "gocode-platform-desktop"},
     "gocode-app-core": {
         "gocode-local-store",
+        "gocode-api",
         "gocode-platform-ports",
         "gocode-runtime-client",
         "gocode-secure-store",
     },
     "gocode-platform-desktop": {"gocode-api", "gocode-platform-ports", "gocode-runtime-client"},
     "gocode-platform-mobile": {"gocode-platform-ports"},
-    "gocode-local-store": {"gocode-secure-store"},
+    "gocode-local-store": {
+        "gocode-api",
+        "gocode-secure-store",
+        "gocode-sqlite-native-identity",
+        "gocode-windows-native-handle",
+    },
     "gocode-platform-ports": set(),
     "gocode-pairing-crypto": set(),
     "gocode-runtime-client": {"gocode-api", "gocode-pairing-crypto"},
@@ -41,9 +46,35 @@ PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
     Path("crates/gocode-store/src/provider/execution_store/decomposition/part_09.rs"),
     Path("crates/gocode-daemon/src/canonical_provider/runtime_store.rs"),
     Path("crates/gocode-daemon-loopback-fixture/src/ack_failure_store.rs"),
+    Path("crates/gocode-daemon/src/protected_activation/loopback_fixture/ack_failure_store.rs"),
 }
 PROVIDER_TERMINAL_TEST_FEATURE = "provider-terminal-test-support"
 RAW_PROVIDER_TERMINAL_TYPE = re.compile(r"\bProviderTerminalCommitRequest\b")
+PROTECTED_ADMISSION_SOURCE = Path("crates/gocode-api/src/protected_activation/root_admission.rs")
+PROTECTED_ADMISSION_CONTROL_SOURCE = Path(
+    "crates/gocode-api/src/protected_activation/root_handle_control.rs"
+)
+PROTECTED_ADMISSION_SERVER_CARRIER_SOURCE = Path(
+    "crates/gocode-api/src/protected_activation/root_bind_transport.rs"
+)
+PROTECTED_ADMISSION_EXPOSURE = re.compile(
+    r"pub\s+(?:const\s+)?fn\s+(?:admission_bytes|bytes|decode\w*|encode\w*|admission_string|as_str)\b"
+)
+PROTECTED_ADMISSION_FORBIDDEN_TRAIT = re.compile(
+    r"\bimpl(?:<[^>{}]+>)?\s+(?:(?:[\w:]+::)?(?:Clone|Serialize|Deserialize|Deref(?:Mut)?|Borrow(?:Mut)?)|(?:[\w:]+::)?As(?:Ref|Mut))(?:<[^>{}]+>)?\s+for\s+ProtectedRootHandleAdmission\b"
+)
+PROTECTED_ADMISSION_BORROWED_TRANSITION = re.compile(
+    r"pub\s+fn\s+into_root_bind_transport\s*\(\s*(?:&\s*(?:mut\s+)?self|self\s*:\s*&)",
+)
+ROOT_RESULT_ORDINARY_ADMISSION = re.compile(
+    r"(?s)pub\s+fn\s+admitted\s*\([^)]*\bRootHandleAdmission\b"
+)
+ROOT_RESULT_PUBLIC_PROMOTION = re.compile(
+    r"(?s)impl\s+RootHandleTransferResult\s*\{.*?pub\s+fn\s+into_admission\b"
+)
+SERVER_CARRIER_IMPLEMENTATION = re.compile(
+    r"(?ms)^impl\s+RootBindAdmission\s*\{(?P<body>.*?)(?=^impl|^#\[|\Z)"
+)
 IMPORT_SOURCE_PATTERN = re.compile(r"""\b(?:from|import)\s*(?:\(\s*)?["']([^"']+)["']""")
 TAURI_EVENT_IMPORT_PATTERN = re.compile(
     r"""import\s*\{(?P<imports>[^}]*)\}\s*from\s*["']@tauri-apps/api/event["']""", re.DOTALL
@@ -62,6 +93,14 @@ def find_rust_dependency_violations(dependencies: dict[str, set[str]]) -> list[s
             if dependency.startswith("gocode-") and dependency not in allowed:
                 violations.append(f"{package} -> {dependency} is forbidden")
     return violations
+
+
+def _tracked_dependency(package: str, dependency: dict) -> bool:
+    if not dependency["name"].startswith("gocode-"):
+        return False
+    if dependency["name"] == "gocode-windows-native-handle" and package in {"gocode-local-store", "gocode-platform-desktop"}:
+        return dependency.get("target") != "cfg(windows)"
+    return True
 
 
 def find_renderer_conversation_violations(root: Path) -> list[str]:
@@ -111,6 +150,60 @@ def find_provider_terminal_test_feature_violations(packages: list[dict]) -> list
                 and dependency.get("kind") != "dev"
             ):
                 violations.append(f"{package['name']} enables {PROVIDER_TERMINAL_TEST_FEATURE} outside dev-dependencies")
+    return violations
+
+
+def find_protected_admission_surface_violations(root: Path) -> list[str]:
+    """Keep the verified root-admission wrapper move-only and byte-redacted."""
+    source = root / PROTECTED_ADMISSION_SOURCE
+    if not source.exists():
+        return []
+    text = source.read_text(encoding="utf-8")
+    declaration = re.search(
+        r"(?s)(?P<attributes>(?:\s*#\[[^]]+\]\s*)*)pub\s+struct\s+ProtectedRootHandleAdmission\b",
+        text,
+    )
+    attributes = declaration.group("attributes") if declaration else ""
+    implementations = re.findall(
+        r"(?ms)^impl\s+ProtectedRootHandleAdmission\s*\{(?P<body>.*?)(?=^impl|\Z)",
+        text,
+    )
+    derives_forbidden = "derive" in attributes and any(
+        name in attributes for name in ("Clone", "Serialize", "Deserialize")
+    )
+    exposes_raw_surface = any(
+        PROTECTED_ADMISSION_EXPOSURE.search(body)
+        or PROTECTED_ADMISSION_BORROWED_TRANSITION.search(body)
+        for body in implementations
+    )
+    violations = []
+    if derives_forbidden or exposes_raw_surface or PROTECTED_ADMISSION_FORBIDDEN_TRAIT.search(text):
+        violations.append(
+            f"{PROTECTED_ADMISSION_SOURCE.as_posix()} exposes raw protected-admission surface"
+        )
+    control = root / PROTECTED_ADMISSION_CONTROL_SOURCE
+    if control.exists():
+        control_text = control.read_text(encoding="utf-8")
+        if ROOT_RESULT_ORDINARY_ADMISSION.search(control_text):
+            violations.append(
+                f"{PROTECTED_ADMISSION_CONTROL_SOURCE.as_posix()} accepts ordinary admission into a protected result"
+            )
+        if ROOT_RESULT_PUBLIC_PROMOTION.search(control_text):
+            violations.append(
+                f"{PROTECTED_ADMISSION_CONTROL_SOURCE.as_posix()} promotes an unverified result into protected provenance"
+            )
+    carrier = root / PROTECTED_ADMISSION_SERVER_CARRIER_SOURCE
+    if carrier.exists():
+        carrier_text = carrier.read_text(encoding="utf-8")
+        carrier_promotes = any(
+            "ProtectedRootHandleAdmission" in match.group("body")
+            or "into_protected" in match.group("body")
+            for match in SERVER_CARRIER_IMPLEMENTATION.finditer(carrier_text)
+        )
+        if carrier_promotes:
+            violations.append(
+                f"{PROTECTED_ADMISSION_SERVER_CARRIER_SOURCE.as_posix()} promotes the untrusted server carrier"
+            )
     return violations
 
 

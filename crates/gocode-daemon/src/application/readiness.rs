@@ -17,7 +17,7 @@ impl DaemonApplication {
     }
 
     /// Builds exact authenticated readiness without exposing legacy profile files.
-    pub fn protected_ready(
+    pub(crate) fn protected_ready(
         &self,
         request: &ProtectedLaunchRequestV1,
         keys: &ProtectedActivationKeys,
@@ -60,7 +60,7 @@ impl DaemonApplication {
                 .certificate_der()
                 .as_ref()
                 .to_vec(),
-            gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+            self.runtime_capabilities
                 .iter()
                 .map(|capability| (*capability).to_owned())
                 .collect(),
@@ -71,7 +71,7 @@ impl DaemonApplication {
     }
 
     /// Builds V2 readiness only for the exact protected provider binding.
-    pub fn protected_ready_v2(
+    pub(crate) fn protected_ready_v2(
         &self,
         request: &ProtectedLaunchRequestV2,
         keys: &ProtectedActivationKeys,
@@ -82,14 +82,18 @@ impl DaemonApplication {
             ));
         }
         let ready = self.protected_ready(request.compatibility_request(), keys)?;
-        let mut ready = ProtectedReadyV2::new(ready, request.provider_binding().clone())
-            .map_err(|_| DaemonError::Bootstrap("build provider-bound readiness".into()))?;
+        let mut ready = ProtectedReadyV2::new(
+            ready,
+            request.provider_binding().clone(),
+            self.provider_readiness,
+        )
+        .map_err(|_| DaemonError::Bootstrap("build provider-bound readiness".into()))?;
         ready.sign(keys);
         Ok(ready)
     }
 
     /// Shares the in-memory protected session service with the control loop.
-    pub fn protected_session_service(
+    pub(crate) fn protected_session_service(
         &self,
     ) -> Result<Arc<Mutex<LocalSessionService>>, DaemonError> {
         if !self.protected_activation {
@@ -101,7 +105,7 @@ impl DaemonApplication {
     }
 
     /// Shares the daemon monotonic clock used to enforce bootstrap deadlines.
-    pub fn protected_session_clock(
+    pub(crate) fn protected_session_clock(
         &self,
     ) -> Result<Arc<dyn Fn() -> Duration + Send + Sync>, DaemonError> {
         if !self.protected_activation {
@@ -110,5 +114,15 @@ impl DaemonApplication {
             ));
         }
         Ok(Arc::clone(&self.session_clock))
+    }
+
+    #[cfg(feature = "desktop-protected")]
+    pub(crate) fn protected_root_control(
+        &self,
+    ) -> Result<Arc<crate::protected_activation::ProtectedRootControl>, DaemonError> {
+        self.root_control
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| DaemonError::Bootstrap("protected root control is unavailable".into()))
     }
 }

@@ -3,6 +3,18 @@
 #[test]
 fn v6_to_v8_migration() {
     let conn = fresh_v8_db();
+    conn.execute_batch(
+        "DROP TRIGGER global_command_id_from_command_receipts;
+         DROP TRIGGER global_command_id_from_project_workspace_receipts;
+         DROP TABLE task_run_workspace_lineage;
+         DROP TABLE workspace_identity_history;
+         DROP TABLE root_admission_nonces;
+         DROP TABLE project_workspace_command_receipts;
+         DROP TABLE workspaces;
+         DROP TABLE projects;",
+    )
+    .unwrap();
+    drop_v17_snapshots(&conn);
     drop_v12_fences(&conn);
     drop_v13_provider_execution(&conn);
     conn.execute_batch(

@@ -89,6 +89,7 @@ async fn both_bootstrap_endpoints_have_one_exact_rejection_contract() {
                 ))
                 .collect::<std::collections::BTreeMap<_, _>>(),
             std::collections::BTreeMap::from([
+                ("cache-control".to_owned(), "no-store".to_owned()),
                 ("content-length".to_owned(), "80".to_owned()),
                 ("content-type".to_owned(), "application/json".to_owned()),
                 (

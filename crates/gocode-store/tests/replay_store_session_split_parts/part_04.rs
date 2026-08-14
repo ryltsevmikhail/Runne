@@ -152,7 +152,7 @@ async fn poll_live_advances_past_delivered_events() {
 }
 
 #[tokio::test]
-async fn replay_rejects_interior_sequence_gap() {
+async fn interior_gap_without_a_v17_snapshot_fails_closed() {
     let (store, writer, _directory) = file_store_with_events(3);
     writer
         .execute("DELETE FROM events WHERE global_position = 2", [])
@@ -173,10 +173,15 @@ async fn replay_rejects_interior_sequence_gap() {
         )
         .await;
 
-    assert!(matches!(
-        result,
-        Ok(gocode_application::ports::ReplayOpenResult::RetentionGap { .. })
-    ));
+    assert!(matches!(result, Err(ReplayError::Integrity(_))));
+    assert_eq!(
+        writer
+            .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+        0
+    );
 }
 
 #[tokio::test]

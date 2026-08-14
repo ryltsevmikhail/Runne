@@ -1,0 +1,61 @@
+"""Profile hard-cut documentation must not relabel historical evidence."""
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.desktop.capability_manifest_impl.validation import (
+    validate_documented_profile_provenance,
+)
+
+
+CURRENT_HASH = "a3644c77c658c81baa4503d51c8a4207799bea1c9673674f1963defc6f4b8e90"
+OLD_HASH = "bc9b2d46b617ae1ef7c0bfad6b5ce8655779d5299822421d999b3f2a0b181429"
+RUNTIME = "6311992cea0551dab406a93b855ce2c49507e07e"
+
+
+class DesktopProfileProvenanceTests(unittest.TestCase):
+    def fixture(self, root: Path) -> dict[str, Path]:
+        paths = {
+            "OQ": root / "docs/desktop/decisions/OPEN_QUESTIONS.md",
+            "CONTRACT": root / "docs/desktop/05-runtime-integration/CLIENT_RUNTIME_CONTRACT.md",
+            "MATRIX": root / "docs/desktop/05-runtime-integration/COMPATIBILITY_MATRIX.md",
+        }
+        for path in paths.values():
+            path.parent.mkdir(parents=True, exist_ok=True)
+        historical = f"gocode-ui-client/1 {RUNTIME} {OLD_HASH}"
+        current = f"Current Task 8D contract gocode-ui-client/2 {CURRENT_HASH}"
+        paths["OQ"].write_text(f"OQ-009 {historical}\n{current}\n", encoding="utf-8")
+        paths["CONTRACT"].write_text(f"{historical}\n{current}\n", encoding="utf-8")
+        paths["MATRIX"].write_text(
+            f"| UI Phase 0 | {historical} |\n{current}\n", encoding="utf-8"
+        )
+        return paths
+
+    def test_accepts_distinct_historical_and_current_tuples(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.fixture(root)
+            self.assertEqual(validate_documented_profile_provenance(root, CURRENT_HASH), ())
+
+    def test_rejects_partial_historical_relabel_and_current_hash_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = self.fixture(root)
+            paths["OQ"].write_text(
+                paths["OQ"].read_text(encoding="utf-8").replace(
+                    "gocode-ui-client/1", "gocode-ui-client/2", 1
+                ),
+                encoding="utf-8",
+            )
+            paths["MATRIX"].write_text(
+                paths["MATRIX"].read_text(encoding="utf-8").replace(CURRENT_HASH, "0" * 64),
+                encoding="utf-8",
+            )
+            errors = validate_documented_profile_provenance(root, CURRENT_HASH)
+            self.assertIn("PROFILE_PROVENANCE_HISTORICAL:OQ", errors)
+            self.assertIn("PROFILE_PROVENANCE_CURRENT:MATRIX", errors)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -21,6 +21,18 @@ pub enum StoreOpenError {
     LegacyReplayState,
     #[error("pre-v4 migration backup is unavailable")]
     MigrationBackupUnavailable,
+    #[error("pre-v5 migration backup recovery requires operator action")]
+    PreV5BackupRecoveryRequired,
+    #[error("pre-v5 migration backup artifacts conflict")]
+    PreV5BackupConflict,
+    #[error("pre-v5 migration backup is unsafe or invalid")]
+    PreV5BackupInvalid,
+    #[error("pre-v5 migration backup does not match the admitted source")]
+    PreV5BackupSourceMismatch,
+    #[error("recent root migration cannot be completed safely")]
+    RecentRootMigrationCorrupt,
+    #[error("local schema does not match the admitted version")]
+    SchemaCorrupt,
     #[error("client storage unavailable")]
     Storage(#[from] rusqlite::Error),
 }
@@ -37,12 +49,25 @@ pub struct PreV4MigrationBackup {
 ///
 /// Returns a redacted error when the database has no concrete file name.
 pub fn pre_v4_migration_backup_path(database_path: &Path) -> Result<PathBuf, StoreOpenError> {
+    migration_backup_path(database_path, "pre-v4")
+}
+
+/// Returns the stable side-by-side rollback backup path for a v4 database.
+///
+/// # Errors
+///
+/// Returns a redacted error when the database has no concrete file name.
+pub fn pre_v5_migration_backup_path(database_path: &Path) -> Result<PathBuf, StoreOpenError> {
+    migration_backup_path(database_path, "pre-v5")
+}
+
+fn migration_backup_path(database_path: &Path, label: &str) -> Result<PathBuf, StoreOpenError> {
     let file_name = database_path
         .file_name()
         .and_then(|value| value.to_str())
         .filter(|value| !value.is_empty())
         .ok_or(StoreOpenError::MigrationBackupUnavailable)?;
-    Ok(database_path.with_file_name(format!("{file_name}.pre-v4-backup.sqlite3")))
+    Ok(database_path.with_file_name(format!("{file_name}.{label}-backup.sqlite3")))
 }
 
 /// Reopens and integrity-checks the immutable pre-v4 rollback backup.
@@ -55,6 +80,18 @@ pub fn verify_pre_v4_migration_backup(
 ) -> Result<PreV4MigrationBackup, StoreOpenError> {
     let backup_path = pre_v4_migration_backup_path(database_path)?;
     verify_pre_v4_backup_path(&backup_path)
+}
+
+/// Reopens and integrity-checks the immutable pre-v5 rollback backup.
+///
+/// # Errors
+///
+/// Rejects missing, symlinked, corrupt, or non-v4 backup artifacts.
+pub fn verify_pre_v5_migration_backup(
+    database_path: &Path,
+) -> Result<PreV4MigrationBackup, StoreOpenError> {
+    let backup_path = pre_v5_migration_backup_path(database_path)?;
+    verify_pre_v5_backup_path(&backup_path)
 }
 
 #[derive(Debug, Error)]
@@ -73,10 +110,6 @@ pub enum ProjectOpenError {
 
 #[derive(Debug, Error)]
 pub enum SecurityTransactionError {
-    #[error("event identity conflict")]
-    EventIdentityConflict,
-    #[error("mutation identity conflict")]
-    MutationIdentityConflict,
     #[error("event generation is out of range")]
     GenerationOutOfRange,
     #[error("client storage unavailable")]
@@ -155,6 +188,16 @@ pub enum ReplayApplyOutcome {
 
 #[derive(Debug, Error)]
 pub enum ReplayStoreError {
+    #[error("anchored replay admission is required for this database")]
+    AnchoredAdmissionRequired,
+    #[error("replay baseline evidence is malformed or unavailable")]
+    InvalidBaseline,
+    #[error("shadow generation conflicts with authenticated evidence")]
+    ShadowConflict,
+    #[error("shadow generation is not promotable")]
+    ShadowNotPromotable,
+    #[error("promotion compare-and-swap failed")]
+    PromotionConflict,
     #[error("replay scope is invalid")]
     InvalidScope,
     #[error("replay digest must be 32-byte lower hex")]
@@ -183,15 +226,8 @@ pub enum ReplayStoreError {
     IntegerOutOfRange,
     #[error("client storage unavailable")]
     Storage(#[from] rusqlite::Error),
-}
-
-#[derive(Clone, Copy, Debug)]
-pub struct PreparedMutation<'a> {
-    pub runtime_authority: &'a str,
-    pub principal: &'a str,
-    pub operation_id: &'a str,
-    pub idempotency_key: &'a str,
-    pub target: &'a str,
+    #[error("security state transition failed")]
+    Security(#[from] SecurityStateError),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -218,7 +254,7 @@ pub const fn classify_database_recovery(
             DatabaseRecoveryState::RollbackDetected
         }
         (Some(database), Some(anchor))
-            if database == anchor.saturating_add(1) && valid_commit_marker =>
+            if database > anchor && database - anchor == 1 && valid_commit_marker =>
         {
             DatabaseRecoveryState::AdvanceAnchor
         }
@@ -230,4 +266,5 @@ pub const fn classify_database_recovery(
 
 pub struct LocalStore {
     connection: Connection,
+    security: Option<SecurityContext>,
 }

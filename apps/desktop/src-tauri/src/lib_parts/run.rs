@@ -1,10 +1,42 @@
+fn fence_page_load<R: tauri::Runtime>(
+    webview: &tauri::Webview<R>,
+    payload: &tauri::webview::PageLoadPayload<'_>,
+) {
+    if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+        let _ = webview
+            .try_state::<DirectorySelectionManager>()
+            .ok_or(())
+            .and_then(|selections| {
+                selections
+                    .renderer_generations()
+                    .page_loaded(webview.label())
+                    .map_err(|_| ())
+            });
+        if let Some(intents) = webview
+            .try_state::<crate::destructive_intent::DestructiveIntentManager>()
+        {
+            intents.invalidate_window(webview.label());
+        }
+    }
+}
+
 /// Starts the native desktop application.
 ///
 /// # Panics
 ///
-/// Panics when Tauri cannot initialize or run the application event loop.
+/// Panics when native desktop initialization or the event loop fails.
+#[allow(clippy::significant_drop_tightening, clippy::too_many_lines)]
 pub fn run() {
+    let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
+        .expect("fixed directory selection lifetime is valid");
+    let prepared = selections.prepared_workspaces();
+    let destructive_intents = crate::destructive_intent::DestructiveIntentManager::new(
+        std::time::Duration::from_secs(30),
+    ).expect("fixed destructive intent lifetime is valid");
     let app = tauri::Builder::default()
+        .manage(selections)
+        .manage(prepared)
+        .manage(destructive_intents)
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
@@ -13,11 +45,25 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .on_page_load(fence_page_load)
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::Destroyed) {
                 window
                     .state::<ConversationSubscriptionManager>()
                     .cancel_window(window.label());
+                let _ = window
+                    .try_state::<DirectorySelectionManager>()
+                        .and_then(|selections| {
+                        selections
+                            .renderer_generations()
+                            .fence_destroyed(window.label())
+                            .ok()
+                    });
+                if let Some(intents) = window
+                    .try_state::<crate::destructive_intent::DestructiveIntentManager>()
+                {
+                    intents.invalidate_window(window.label());
+                }
             }
         })
         .setup(|app| {
@@ -25,7 +71,7 @@ pub fn run() {
             std::fs::create_dir_all(&profile_directory)?;
             let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
             let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
-            let core = Arc::new(AppCore::open_with_runtime_mode(
+            let core = Arc::new(AppCore::open_production(
                 &profile_directory.join("profile.sqlite3"),
                 runtime_mode,
             )?);
@@ -44,7 +90,7 @@ pub fn run() {
                     match controller {
                         Ok(controller) => {
                             controller.spawn_monitor();
-                            RuntimeLifecycleManager::bundled(controller)
+                            RuntimeLifecycleManager::bundled_with_native_root(controller)
                         }
                         Err(failure) => {
                             tauri::async_runtime::block_on(
@@ -66,15 +112,16 @@ pub fn run() {
             set_theme,
             list_projects,
             get_project,
-            open_local_project,
+            get_workspace,
+            acquire_renderer_generation,
+            request_directory_selection,
+            prepare_selected_workspace,
+            open_selected_workspace,
+            retry_open_selected_workspace,
+            prepare_destructive_project_action,
+            dispatch_destructive_project_action,
             get_diagnostics,
             connect_runtime,
-            open_project_conversation,
-            resync_project_conversation,
-            send_project_message,
-            subscribe_project_conversation,
-            ack_conversation_update,
-            cancel_conversation_subscription
         ])
         .build(tauri::generate_context!())
         .expect("failed to initialize GOCODE desktop application");
@@ -82,6 +129,10 @@ pub fn run() {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
             let lifecycle = app.state::<RuntimeLifecycleManager>();
             if lifecycle.begin_explicit_quit() {
+                app.state::<DirectorySelectionManager>()
+                    .clear_pending_authority();
+                app.state::<crate::destructive_intent::DestructiveIntentManager>()
+                    .clear_pending();
                 app.state::<ConversationSubscriptionManager>().shutdown();
                 lifecycle.stop_owned_runtime();
             }

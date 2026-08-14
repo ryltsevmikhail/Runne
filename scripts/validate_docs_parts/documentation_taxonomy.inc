@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import unicodedata
 
 
 REPOSITORY_ROOT = Path(globals().get("BASE", Path(__file__).resolve().parents[2]))
@@ -18,16 +17,12 @@ FRONT_MATTER_SPEC = importlib.util.spec_from_file_location(
 )
 FRONT_MATTER = importlib.util.module_from_spec(FRONT_MATTER_SPEC)
 FRONT_MATTER_SPEC.loader.exec_module(FRONT_MATTER)
-RELEASE_PREFIXES = ("docs/release/", "docs/desktop/09-release/", "docs/desktop/03-desktop/")
-CLAIM_PATTERNS = (
-    ("RC0_QUALIFIED", re.compile(r"rc0qualified")),
-    ("CANDIDATE_PASS", re.compile(r"candidatepass")),
-    ("PRODUCTION_QUALIFICATION", re.compile(r"productionqualificationpass")),
-    ("RELEASE_PASS", re.compile(r"releasepass")),
-    ("SIGNING_PASS", re.compile(r"signingpass")),
-    ("NOTARIZATION_PASS", re.compile(r"notarizationpass")),
-    ("PUBLICATION_PASS", re.compile(r"publicationpass")),
+CLAIM_SPEC = importlib.util.spec_from_file_location(
+    "gocode_claim_outcomes", PARTS_DIR / "claim_outcomes.py"
 )
+CLAIM_OUTCOMES = importlib.util.module_from_spec(CLAIM_SPEC)
+CLAIM_SPEC.loader.exec_module(CLAIM_OUTCOMES)
+RELEASE_PREFIXES = ("docs/release/", "docs/desktop/09-release/", "docs/desktop/03-desktop/")
 EVIDENCE_PROFILE = "gocode.rc0.evidence-profile/3"
 CLAIM_SEMANTICS = {
     "blocked_status": ("BLOCKED", EVIDENCE_PROFILE),
@@ -162,10 +157,6 @@ def _scope_paths(raw):
     return raw["paths"]
 
 
-def _compact_claim_text(text: str) -> str:
-    return re.sub(r"[\s_-]+", "", unicodedata.normalize("NFKC", text).casefold())
-
-
 def validate_status_claims(
     universe: tuple[str, ...], scope: frozenset[str], claims: tuple[ClaimRecord, ...]
 ) -> list[str]:
@@ -269,12 +260,19 @@ def validate_document_universe(root: Path, *, index_file: Path | None = None) ->
         except UnicodeDecodeError:
             diagnostics.append(f"DOCUMENT_FRONT_MATTER:{path}:FM_INVALID_UTF8")
             continue
-        compact = _compact_claim_text(content)
-        for claim_id, pattern in CLAIM_PATTERNS:
-            if pattern.search(compact):
-                detected.add((path, claim_id))
-                if (path, claim_id) not in allowed:
-                    diagnostics.append(f"CLAIM_UNLISTED:{path}:{claim_id}")
+        try:
+            parsed = CLAIM_OUTCOMES.parse_claims(content)
+        except CLAIM_OUTCOMES.ClaimParseError as error:
+            diagnostics.append(f"CLAIM_PARSE:{path}:{error}")
+            continue
+        for claim_id in parsed.mentions:
+            detected.add((path, claim_id))
+            if (path, claim_id) not in allowed:
+                diagnostics.append(f"CLAIM_UNLISTED:{path}:{claim_id}")
+        diagnostics.extend(
+            f"CLAIM_POSITIVE_OUTCOME:{path}:{claim_id}"
+            for claim_id in parsed.positive_outcomes
+        )
     required_key = (REQUIRED_CLAIM["path"], REQUIRED_CLAIM["claim_id"])
     diagnostics.extend(
         f"CLAIM_RECORD_UNMATCHED:{path}:{claim_id}"

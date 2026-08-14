@@ -222,6 +222,13 @@ impl DevelopmentBundledRuntimeLauncher {
 
             let ready_frame = read_frame(&mut parent_channel)?;
             let ready = request.decode_ready(&ready_frame, &keys)?;
+            if let Some(readiness) = ready.provider_readiness()
+                && !readiness.is_ready()
+            {
+                return Err(ProtectedBundledRuntimeError::ProviderActivationNotReady(
+                    readiness,
+                ));
+            }
             controls.checkpoint(ActivationCheckpoint::AfterEventLogCreation)?;
             if prepared_pending
                 .as_ref()
@@ -255,6 +262,8 @@ impl DevelopmentBundledRuntimeLauncher {
                 activation,
                 runtime_profile: Some(runtime_profile),
                 renewal_sequence: 0,
+                #[cfg(all(unix, feature = "protected-channel-integration"))]
+                root_control_sequence: 0,
                 graceful_requested: false,
                 #[cfg(feature = "test-support")]
                 captured_stdout,

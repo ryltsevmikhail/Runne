@@ -47,7 +47,7 @@ fn replay_error_to_http(error: &ReplayError) -> ReplayHttpFailure {
         ReplayError::StaleGeneration | ReplayError::StreamTerminated => {
             ReplayHttpFailure::new(StatusCode::GONE, "replay_session_expired")
         }
-        ReplayError::ReplayRetentionGap { .. } => {
+        ReplayError::ReplayRetentionGap { .. } | ReplayError::ReplayRetentionGapV2 { .. } => {
             ReplayHttpFailure::new(StatusCode::GONE, "replay_retention_gap")
         }
         ReplayError::Storage(_) => {
@@ -72,6 +72,7 @@ fn replay_error_terminates_session(error: &ReplayError) -> bool {
             | ReplayError::AuthorizationRevoked
             | ReplayError::StaleGeneration
             | ReplayError::ReplayRetentionGap { .. }
+            | ReplayError::ReplayRetentionGapV2 { .. }
             | ReplayError::Integrity(_)
             | ReplayError::StreamTerminated
     )

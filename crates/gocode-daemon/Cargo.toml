@@ -7,7 +7,8 @@ publish = false
 
 [features]
 default = []
-test-support = []
+test-support = ["gocode-platform-desktop?/test-support", "dep:reqwest"]
+desktop-protected = ["dep:gocode-platform-desktop", "gocode-platform-desktop/protected-channel-integration", "dep:nix"]
 
 [dependencies]
 gocode-api = { path = "../gocode-api" }
@@ -21,6 +22,7 @@ gocode-secure-store = { path = "../secure-store", default-features = false }
 gocode-provider-openai = { path = "../gocode-provider-openai" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-platform = { path = "../gocode-platform" }
+gocode-platform-desktop = { path = "../platform-desktop", optional = true }
 gocode-http = { path = "../gocode-http" }
 gocode-daemon-openai-effect = { path = "../gocode-daemon-openai-effect" }
 axum = "0.8"
@@ -52,6 +54,7 @@ rusqlite = "=0.34.0"
 rcgen = { workspace = true }
 rustls = { workspace = true }
 tokio-rustls = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true }
 zeroize = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
@@ -61,18 +64,26 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 libc = "0.2"
 rustix = { version = "=1.1.4", features = ["process"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["socket"], optional = true }
+
 [dev-dependencies]
 gocode-pairing-crypto = { path = "../pairing-crypto" }
 aho-corasick = { workspace = true }
-gocode-app-core = { path = "../app-core" }
+gocode-app-core = { path = "../app-core", features = ["test-support"] }
 gocode-platform-desktop = { path = "../platform-desktop", features = ["test-support"] }
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
 tempfile = "3"
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 
 [[bin]]
 name = "gocode-daemon"
 path = "src/main.rs"
+
+[[test]]
+name = "protected_bundled_runtime_process"
+path = "tests/protected_bundled_runtime_process.rs"
+required-features = ["test-support", "desktop-protected"]
 
 [lib]
 name = "gocode_daemon"

@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use gocode_api::ProviderActivationBindingV1;
-use gocode_app_core::{AppCore, RuntimeAvailability, RuntimeMode};
+use gocode_app_core::{AppCore, CanonicalId, RuntimeAvailability};
 use gocode_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
@@ -108,6 +108,24 @@ fn assert_tracked_fixtures_absent(scanner: &secret_scan::SecretScanner) {
     }
 }
 
+async fn prepare_canonical_conversation_workspace(core: &AppCore, local_project_id: i64) {
+    let runtime_project_id = CanonicalId::now_v7();
+    let workspace_id = CanonicalId::now_v7();
+    core.create_runtime_project(runtime_project_id, "protected audit".into())
+        .await
+        .expect("create canonical audit project");
+    core.create_runtime_workspace(runtime_project_id, workspace_id, "protected audit".into())
+        .await
+        .expect("create canonical audit workspace");
+    gocode_app_core::test_support::install_unbound_conversation_reference_for_test(
+        core,
+        local_project_id,
+        CanonicalId::now_v7(),
+        workspace_id,
+    )
+    .expect("install canonical audit conversation reference");
+}
+
 #[test]
 fn early_child_exit_closes_the_inherited_channel_without_readiness_timeout() {
     let executable = owner_private::ControlledExecutable::copy_from("/usr/bin/false");
@@ -132,4 +150,13 @@ fn early_child_exit_closes_the_inherited_channel_without_readiness_timeout() {
         started.elapsed() < Duration::from_secs(5),
         "an exited child must not be reported as a readiness timeout"
     );
+}
+
+#[test]
+fn controlled_executable_fixture_has_a_secure_ancestor_for_launch_validation() {
+    let executable = owner_private::ControlledExecutable::copy_from("/usr/bin/false");
+    let runtime = owner_private::tempdir();
+
+    ProtectedBundledRuntimeLaunchSpec::new(executable.path(), runtime.path())
+        .expect("controlled executable fixture must satisfy protected launch validation");
 }

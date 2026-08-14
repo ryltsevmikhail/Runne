@@ -9,6 +9,11 @@ include!("protected_runtime/process.rs");
 include!("protected_runtime/supervisor.rs");
 include!("protected_runtime/helpers.rs");
 include!("protected_runtime/tests.rs");
+include!("protected_runtime/renewal.rs");
+#[cfg(feature = "test-support")]
+include!("protected_runtime/test_root_transport.rs");
+include!("protected_runtime/root_handle_transport.rs");
+include!("protected_runtime/supervisor_root_admission.rs");
 include!("protected_runtime_parts/port_08.rs");
 include!("protected_runtime_parts/port_09.rs");
 include!("protected_runtime_parts/port_10.rs");

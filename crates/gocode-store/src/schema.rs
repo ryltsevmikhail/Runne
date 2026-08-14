@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 17;
+pub const CURRENT_SCHEMA_VERSION: i64 = 20;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,7 +93,11 @@ include!("schema/migrations/v12.rs");
 include!("schema/migrations/v13.rs");
 include!("schema/migrations/v16.rs");
 include!("schema/migrations/v17_bootstrap_reservations.rs");
+mod project_workspace_backfill;
+mod project_workspace_schema;
 pub(crate) mod provider_schema;
+mod replay_promotion_snapshot_schema;
+mod replay_snapshot_schema;
 include!("schema/open.rs");
 include!("schema/authority_identity.rs");
 include!("schema/authority_launch.rs");
@@ -122,6 +126,7 @@ mod tests {
     }
 
     include!("schema/tests/admission.rs");
+    include!("schema/tests/actual_handle_identity.rs");
     include!("schema/tests/migrations.rs");
     include!("schema/tests/released.rs");
     include!("schema/tests/recovery_compatibility.rs");

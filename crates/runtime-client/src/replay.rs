@@ -16,7 +16,7 @@ use crate::sse::{RawSseFrame, SSE_SILENCE_TIMEOUT, SseDecodeError, SseDecoder};
 
 const MAXIMUM_REPLAY_REQUEST_BYTES: usize = 8 * 1024;
 const MAXIMUM_REPLAY_RESPONSE_BYTES: usize = 1024 * 1024;
-const MAXIMUM_ERROR_RESPONSE_BYTES: usize = 8 * 1024;
+const MAXIMUM_ERROR_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAXIMUM_CURSOR_BYTES: usize = 8 * 1024;
 const MAXIMUM_EVENT_TYPE_BYTES: usize = 128;
 const MAXIMUM_TEXT_BYTES: usize = 64 * 1024;
@@ -39,22 +39,38 @@ const RECONNECT_DELAYS: [Duration; 10] = [
     Duration::from_secs(5),
 ];
 
+mod accepted_v2_client;
+mod baseline;
+#[cfg(test)]
+mod baseline_tamper_tests;
+#[cfg(test)]
+mod baseline_tests;
 mod client;
+mod client_open;
 mod http;
+mod http_retention;
 mod identity;
 mod policy;
+mod resume;
 mod session;
+mod strict_json;
 #[cfg(test)]
 mod tests;
 mod types;
 mod validation;
 mod wire;
 
+pub use accepted_v2_client::ParsedAcceptedPromotionV2;
+pub use accepted_v2_client::ReplayAcceptedPromotionV2;
+pub use baseline::{
+    ReplayBaselineVerificationError, ReplayRetentionBaselineV1, ReplayRetentionBaselineV2,
+};
 pub use identity::ReplayIdentityTracker;
 pub use policy::{
     ReconnectDecision, ReconnectPolicy, ReconnectRuntime, ReplayClientError, ReplayClientErrorKind,
     ReplayRecoveryDisposition,
 };
+pub use resume::ReplayPendingBaselineResume;
 pub use session::{ReplayLiveSession, ReplayStreamEvent, ReplayTerminal, ReplayTerminalCode};
 pub use types::{
     CanonicalReplayEvent, CanonicalReplayPayload, ConversationReplayPayload, LiveDeliveryId,

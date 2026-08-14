@@ -5,6 +5,10 @@ pub trait UnitOfWork {
     /// Check whether a command with the given identity has already been
     /// committed.
     ///
+    /// `Duplicate` requires an exact match of command ID, scope,
+    /// idempotency key, and semantic fingerprint. Any changed identity field
+    /// is an idempotency conflict.
+    ///
     /// Returns a [`ReceiptLookup`]: `Miss`, `Duplicate`, or an error.
     fn lookup_receipt(
         &self,
@@ -16,9 +20,10 @@ pub trait UnitOfWork {
 
     /// Atomically commit a command's result and its resulting events.
     ///
-    /// On success, returns [`CommitResult::Committed`] with the new stream
-    /// version. On conflict (version mismatch, idempotency conflict),
-    /// returns the appropriate error.
+    /// The same exact identity rule is rechecked inside the writer
+    /// transaction so a concurrent preflight miss cannot replay a different
+    /// command. On success, returns [`CommitResult::Committed`] with the new
+    /// stream version. On conflict, returns the appropriate error.
     fn commit(&self, payload: CommandCommit) -> Result<CommitResult, CommitError>;
 }
 

@@ -8,10 +8,20 @@ pub fn preflight_existing_file(db_path: &Path) -> SqliteResult<()> {
 }
 
 fn open_classified_immutable_read_only(db_path: &Path) -> SqliteResult<Connection> {
+    open_classified_immutable_read_only_with_hook(db_path, |_| Ok(()))
+}
+
+fn open_classified_immutable_read_only_with_hook<F>(
+    db_path: &Path,
+    mut identity_hook: F,
+) -> SqliteResult<Connection>
+where
+    F: FnMut(IdentityHookStage) -> SqliteResult<()>,
+{
     if !path_is_safe(db_path) {
         return Err(diagnostic_error(SchemaOpenDiagnostic::UnsafePath));
     }
-    let identity = file_identity(db_path).map_err(diagnostic_error)?;
+    let identity = ConnectionIdentityGuard::main(db_path).map_err(diagnostic_error)?;
     let metadata = fs::metadata(db_path)
         .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     if metadata.len() == 0 {
@@ -20,6 +30,7 @@ fn open_classified_immutable_read_only(db_path: &Path) -> SqliteResult<Connectio
     if existing_sidecar_present(db_path) {
         return Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent));
     }
+    identity_hook(IdentityHookStage::Retained)?;
 
     let immutable_uri = immutable_read_only_uri(db_path).map_err(diagnostic_error)?;
     let conn = Connection::open_with_flags(
@@ -28,12 +39,11 @@ fn open_classified_immutable_read_only(db_path: &Path) -> SqliteResult<Connectio
             | OpenFlags::SQLITE_OPEN_URI
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
+    identity_hook(IdentityHookStage::Opened)?;
+    identity.verify(&conn)?;
     classify_existing_connection(&conn)?;
-    if file_identity(db_path).map_err(diagnostic_error)? != identity {
-        return Err(diagnostic_error(
-            SchemaOpenDiagnostic::FileIdentityUncertain,
-        ));
-    }
+    identity_hook(IdentityHookStage::Classified)?;
+    identity.verify(&conn)?;
     Ok(conn)
 }
 
@@ -60,33 +70,48 @@ pub fn reopen_managed_connection_validated<F>(
 where
     F: FnOnce(&Connection) -> SqliteResult<()>,
 {
+    reopen_managed_connection_validated_with_hook(db_path, mode, |_| Ok(()), validate)
+}
+
+fn reopen_managed_connection_validated_with_hook<F, H>(
+    db_path: &Path,
+    mode: ConnectionMode,
+    mut identity_hook: H,
+    validate: F,
+) -> SqliteResult<ManagedConnection>
+where
+    F: FnOnce(&Connection) -> SqliteResult<()>,
+    H: FnMut(IdentityHookStage) -> SqliteResult<()>,
+{
     if !matches!(mode, ConnectionMode::Reader | ConnectionMode::ValidatedReopen) {
         return Err(rusqlite::Error::InvalidQuery);
     }
     #[cfg(not(unix))]
     {
-        let _ = (db_path, mode, validate);
+        let _ = (db_path, mode, identity_hook, validate);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
     #[cfg(unix)]
     {
-        let file_set = owner_private_recovery_file_set(db_path).map_err(diagnostic_error)?;
+        let mut identity = ConnectionIdentityGuard::owner_private(db_path).map_err(diagnostic_error)?;
+        identity_hook(IdentityHookStage::Retained)?;
         let flags = if mode == ConnectionMode::Reader {
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX
         } else {
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX
         };
         let connection = Connection::open_with_flags(db_path, flags)?;
+        identity_hook(IdentityHookStage::Opened)?;
+        identity.retain_created_sidecars()?;
+        identity.verify(&connection)?;
         connection.execute_batch("PRAGMA query_only = ON;")?;
         classify_existing_connection(&connection)?;
+        identity_hook(IdentityHookStage::Classified)?;
         validate(&connection)?;
-        if !recovery_file_set_unchanged(db_path, &file_set).map_err(diagnostic_error)? {
-            return Err(diagnostic_error(
-                SchemaOpenDiagnostic::FileIdentityUncertain,
-            ));
-        }
+        identity.retain_created_sidecars()?;
+        identity.verify_with_sidecar_handle(&connection)?;
         connection.execute_batch("PRAGMA query_only = OFF;")?;
-        managed_after_profile(connection, mode, false)
+        managed_after_profile(connection, mode, false, Some(identity))
     }
 }
 
@@ -105,18 +130,16 @@ where
     }
     #[cfg(unix)]
     {
-        let file_set = owner_private_recovery_file_set(db_path).map_err(diagnostic_error)?;
+        let mut identity = ConnectionIdentityGuard::owner_private(db_path).map_err(diagnostic_error)?;
         let connection = Connection::open_with_flags(
             db_path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
+        identity.verify(&connection)?;
         classify_existing_connection(&connection)?;
         validate(&connection)?;
-        if !recovery_file_set_unchanged(db_path, &file_set).map_err(diagnostic_error)? {
-            return Err(diagnostic_error(
-                SchemaOpenDiagnostic::FileIdentityUncertain,
-            ));
-        }
+        identity.retain_created_sidecars()?;
+        identity.verify_with_sidecar_handle(&connection)?;
         Ok(())
     }
 }

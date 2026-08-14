@@ -1,9 +1,16 @@
 use std::path::{Path, PathBuf};
 
+use gocode_application::commands::CommandOutcome;
+use gocode_application::ports::{
+    AggregateScope, IdempotencyScope, OperationTag, PrincipalId, RuntimeAuthorityId,
+    TextGenerationPhase, TextGenerationReceipt,
+};
+use gocode_domain::id::{AttemptId, CommandId, ConversationId, MessageId, TaskRunId, WorkspaceId};
 use gocode_store::{
+    codec::{CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TextGenerationReceiptCodec},
     provider::SqliteProviderExecutionStore,
     schema::{
-        CURRENT_SCHEMA_VERSION, ConnectionMode, apply_migrations, open_managed_connection,
+        CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v15_for_test,
         preflight_existing_file,
     },
 };
@@ -12,33 +19,93 @@ use rusqlite::{Connection, params};
 fn released_v15_database() -> (tempfile::TempDir, PathBuf) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("released-v15.sqlite");
-    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
-    apply_migrations(&connection).unwrap();
-    connection
-        .execute_batch(
-            "DROP TABLE IF EXISTS bootstrap_reservation_tombstones;
-             DROP TABLE IF EXISTS bootstrap_reservations;
-             DROP TABLE IF EXISTS bootstrap_last_observed_clock;
-             DELETE FROM schema_version WHERE version = 17;
-             DROP TRIGGER IF EXISTS provider_credential_transition_order;
-             DROP TRIGGER IF EXISTS provider_credential_identity_immutable;
-             DROP TRIGGER IF EXISTS provider_credential_insert_prepared;
-             DROP TRIGGER IF EXISTS provider_credential_tombstone_permanent;
-             DROP TRIGGER IF EXISTS provider_credential_provision_order;
-             DROP TRIGGER IF EXISTS provider_credential_provision_permanent;
-             DROP TRIGGER IF EXISTS provider_credential_clock_monotonic;
-             DROP TRIGGER IF EXISTS provider_credential_clock_permanent;
-             DROP INDEX IF EXISTS provider_credential_one_active;
-             DROP INDEX IF EXISTS provider_credential_one_pending_provision;
-             DROP TABLE IF EXISTS provider_credential_effect_bindings;
-             DROP TABLE IF EXISTS provider_credential_provisions;
-             DROP TABLE IF EXISTS provider_credential_clock_high_water;
-             DROP TABLE IF EXISTS provider_credential_versions;
-             DELETE FROM schema_version WHERE version = 16;",
-        )
-        .unwrap();
+    let connection = Connection::open(&path).unwrap();
+    apply_migrations_through_v15_for_test(&connection).unwrap();
+    seed_origin_receipts(&connection);
     drop(connection);
     (directory, path)
+}
+
+fn seed_origin_receipts(connection: &Connection) {
+    let workspace: WorkspaceId = "018f47a2-4f8c-7b52-8c35-7a3a14c2da01".parse().unwrap();
+    let conversation: ConversationId = "018f47a2-4f8c-7b52-8c35-7a3a14c2da02".parse().unwrap();
+    let direct_task: TaskRunId = "018f47a2-4f8c-7b52-8c35-7a3a14c2da03".parse().unwrap();
+    let text_task: TaskRunId = "018f47a2-4f8c-7b52-8c35-7a3a14c2da04".parse().unwrap();
+    for (task, version) in [(direct_task, 1_i64), (text_task, 4_i64)] {
+        connection
+            .execute(
+                "INSERT INTO aggregate_streams
+                 (aggregate_type, aggregate_id, current_version, created_at)
+                 VALUES (1, ?1, ?2, 1)",
+                params![task.as_bytes(), version],
+            )
+            .unwrap();
+    }
+    let direct_scope = IdempotencyScope {
+        runtime_authority_id: RuntimeAuthorityId("released-v15".into()),
+        principal_id: PrincipalId("owner".into()),
+        operation: OperationTag::CreateTaskRun,
+        aggregate_scope: AggregateScope::NewTaskRun {
+            conversation_id: conversation,
+            workspace_id: workspace,
+        },
+    };
+    insert_receipt(
+        connection,
+        "018f47a2-4f8c-7b52-8c35-7a3a14c2da05".parse().unwrap(),
+        "direct",
+        IdempotencyScopeCodec.encode(&direct_scope).unwrap(),
+        CommandOutcomeCodec
+            .encode(&CommandOutcome::TaskRunCreated {
+                taskrun_id: direct_task,
+                new_version: 1,
+            })
+            .unwrap(),
+    );
+    let text_scope = IdempotencyScope {
+        runtime_authority_id: RuntimeAuthorityId("released-v15".into()),
+        principal_id: PrincipalId("owner".into()),
+        operation: OperationTag::GenerateConversationText,
+        aggregate_scope: AggregateScope::ExistingConversation {
+            conversation_id: conversation,
+        },
+    };
+    let text = TextGenerationReceipt {
+        phase: TextGenerationPhase::Started,
+        conversation_id: conversation,
+        workspace_id: workspace,
+        taskrun_id: text_task,
+        attempt_id: "018f47a2-4f8c-7b52-8c35-7a3a14c2da06"
+            .parse::<AttemptId>()
+            .unwrap(),
+        user_message_id: "018f47a2-4f8c-7b52-8c35-7a3a14c2da07"
+            .parse::<MessageId>()
+            .unwrap(),
+        assistant_message_id: "018f47a2-4f8c-7b52-8c35-7a3a14c2da08"
+            .parse::<MessageId>()
+            .unwrap(),
+        conversation_version: 2,
+        taskrun_version: 4,
+    };
+    insert_receipt(
+        connection,
+        "018f47a2-4f8c-7b52-8c35-7a3a14c2da09".parse().unwrap(),
+        "text",
+        IdempotencyScopeCodec.encode(&text_scope).unwrap(),
+        TextGenerationReceiptCodec.encode(&text).unwrap(),
+    );
+}
+
+fn insert_receipt(
+    connection: &Connection,
+    command: CommandId,
+    key: &str,
+    scope: Vec<u8>,
+    outcome: Vec<u8>,
+) {
+    connection.execute("INSERT INTO command_receipts
+        (command_id, idempotency_scope_bytes, idempotency_key, fingerprint, command_outcome, committed_at)
+        VALUES (?1, ?2, ?3, zeroblob(32), ?4, 1)", params![command.as_bytes(), scope, key.as_bytes(), outcome]).unwrap();
 }
 
 fn replace_table_ddl(path: &Path, table: &str, old: &str, new: &str) {
@@ -72,40 +139,6 @@ fn replace_table_ddl(path: &Path, table: &str, old: &str, new: &str) {
         .unwrap();
 }
 
-fn replace_trigger_ddl(path: &Path, trigger: &str, old: &str, new: &str) {
-    let connection = Connection::open(path).unwrap();
-    let ddl: String = connection
-        .query_row(
-            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
-            [trigger],
-            |row| row.get(0),
-        )
-        .unwrap();
-    assert!(
-        ddl.contains(old),
-        "fixture did not find {old:?} in {trigger}"
-    );
-    let cookie: i64 = connection
-        .pragma_query_value(None, "schema_version", |row| row.get(0))
-        .unwrap();
-    connection
-        .execute_batch("PRAGMA writable_schema = ON;")
-        .unwrap();
-    connection
-        .execute(
-            "UPDATE sqlite_master SET sql = replace(sql, ?2, ?3)
-             WHERE type = 'trigger' AND name = ?1",
-            params![trigger, old, new],
-        )
-        .unwrap();
-    connection
-        .execute_batch("PRAGMA writable_schema = OFF;")
-        .unwrap();
-    connection
-        .execute_batch(&format!("PRAGMA schema_version = {};", cookie + 1))
-        .unwrap();
-}
-
 #[test]
 fn preflight_rejects_v15_with_tampered_inherited_v14_activation_binding() {
     let (_directory, path) = released_v15_database();
@@ -120,18 +153,37 @@ fn preflight_rejects_v15_with_tampered_inherited_v14_activation_binding() {
 }
 
 #[test]
-fn preflight_accepts_released_v15_shape() {
+fn v20_rejects_released_v15_fixture_without_complete_replay_histories() {
     let (_directory, path) = released_v15_database();
+    let released = Connection::open(&path).unwrap();
+    assert_eq!(
+        released
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        15
+    );
+    assert!(
+        !released
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master
+             WHERE type = 'table' AND name = 'task_run_workspace_lineage')",
+                [],
+                |row| row.get::<_, bool>(0),
+            )
+            .unwrap()
+    );
+    drop(released);
     preflight_existing_file(&path).unwrap();
-    SqliteProviderExecutionStore::open(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 17);
+    assert!(apply_migrations(&connection).is_err());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        CURRENT_SCHEMA_VERSION
+        18
     );
     assert!(connection
         .query_row(
@@ -140,18 +192,42 @@ fn preflight_accepts_released_v15_shape() {
             |row| row.get::<_, bool>(0),
         )
         .unwrap());
+    let lineage = connection
+        .prepare("SELECT classification, origin_operation FROM task_run_workspace_lineage ORDER BY origin_operation")
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    assert_eq!(
+        lineage,
+        vec![("legacy_unbound".into(), 1), ("legacy_unbound".into(), 18)]
+    );
+    let history = connection
+        .query_row(
+            "SELECT classification, project_id, principal_id
+             FROM workspace_identity_history",
+            [],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<Vec<u8>>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(history, ("legacy_unbound".into(), None, None));
 }
 
 #[test]
-fn v15_to_v16_catalog_reopens_after_restart() {
+fn corrupt_v15_origin_rolls_back_v18_atomically() {
     let (_directory, path) = released_v15_database();
-    preflight_existing_file(&path).unwrap();
-
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    preflight_existing_file(&path).unwrap();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-
     let connection = Connection::open(&path).unwrap();
+    connection
+        .execute("UPDATE command_receipts SET command_outcome = x'00' WHERE idempotency_key = x'74657874'", [])
+        .unwrap();
+    assert!(apply_migrations(&connection).is_err());
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
@@ -159,140 +235,25 @@ fn v15_to_v16_catalog_reopens_after_restart() {
             .unwrap(),
         17
     );
-    assert!(connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_credential_versions')",
-            [],
-            |row| row.get::<_, bool>(0),
-        )
-        .unwrap());
-    assert!(connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'provider_credential_effect_bindings')",
-            [],
-            |row| row.get::<_, bool>(0),
-        )
-        .unwrap());
+    assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'task_run_workspace_lineage')", [], |row| row.get::<_, bool>(0)).unwrap());
+    assert!(!connection.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'workspace_identity_history')", [], |row| row.get::<_, bool>(0)).unwrap());
 }
 
 #[test]
-fn corrupt_v16_catalog_is_rejected_before_open() {
+fn preflight_rejects_tampered_v18_global_command_trigger() {
     let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    replace_table_ddl(
-        &path,
-        "provider_credential_versions",
-        "CHECK(length(ref_digest) = 32)",
-        "CHECK(length(ref_digest) <= 32)",
-    );
-
-    assert!(preflight_existing_file(&path).is_err());
-    assert!(SqliteProviderExecutionStore::open(&path).is_err());
-}
-
-#[test]
-fn corrupt_v16_effect_binding_catalog_is_rejected_before_open() {
-    let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    replace_table_ddl(
-        &path,
-        "provider_credential_effect_bindings",
-        "CHECK(credential_version > 0)",
-        "CHECK(credential_version >= 0)",
-    );
-
-    assert!(preflight_existing_file(&path).is_err());
-    assert!(SqliteProviderExecutionStore::open(&path).is_err());
-}
-
-#[test]
-fn corrupt_v16_clock_catalog_is_rejected_before_open() {
-    let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    replace_table_ddl(
-        &path,
-        "provider_credential_clock_high_water",
-        "CHECK(observed_at >= 0)",
-        "CHECK(observed_at > -2)",
-    );
-
-    assert!(preflight_existing_file(&path).is_err());
-    assert!(SqliteProviderExecutionStore::open(&path).is_err());
-}
-
-#[test]
-fn corrupt_v16_provision_catalog_is_rejected_before_open() {
-    let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    replace_table_ddl(
-        &path,
-        "provider_credential_provisions",
-        "CHECK(length(source_revision_id) = 16)",
-        "CHECK(length(source_revision_id) <= 16)",
-    );
-
-    assert!(preflight_existing_file(&path).is_err());
-    assert!(SqliteProviderExecutionStore::open(&path).is_err());
-}
-
-#[test]
-fn corrupt_v16_clock_trigger_is_rejected_before_open() {
-    let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    replace_trigger_ddl(
-        &path,
-        "provider_credential_clock_monotonic",
-        "NEW.observed_at < OLD.observed_at",
-        "NEW.observed_at + 1 < OLD.observed_at",
-    );
-
-    assert!(preflight_existing_file(&path).is_err());
-    assert!(SqliteProviderExecutionStore::open(&path).is_err());
-}
-
-#[test]
-fn corrupt_v16_tombstone_trigger_is_rejected_before_open() {
-    let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    replace_trigger_ddl(
-        &path,
-        "provider_credential_identity_immutable",
-        "OLD.lifecycle_state = 'DELETED' OR ",
-        "",
-    );
-
-    assert!(preflight_existing_file(&path).is_err());
-    assert!(SqliteProviderExecutionStore::open(&path).is_err());
-}
-
-#[test]
-fn v15_to_v16_to_v17_catalog_reopens_after_restart() {
-    let (_directory, path) = released_v15_database();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-    preflight_existing_file(&path).unwrap();
-    drop(SqliteProviderExecutionStore::open(&path).unwrap());
-
     let connection = Connection::open(&path).unwrap();
+    assert!(apply_migrations(&connection).is_err());
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        17
+        18,
     );
-    for table in [
-        "bootstrap_reservations",
-        "bootstrap_reservation_tombstones",
-        "bootstrap_last_observed_clock",
-    ] {
-        assert!(
-            connection
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)",
-                    [table],
-                    |row| row.get::<_, bool>(0),
-                )
-                .unwrap()
-        );
-    }
+    connection
+        .execute_batch("DROP TRIGGER global_command_id_from_command_receipts")
+        .unwrap();
+    drop(connection);
+    assert!(preflight_existing_file(&path).is_err());
 }

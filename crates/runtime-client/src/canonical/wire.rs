@@ -158,6 +158,12 @@ where
 
 async fn read_error(response: reqwest::Response) -> RuntimeApiError {
     let status = response.status().as_u16();
+    let request_id_header = response
+        .headers()
+        .get("x-request-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|value| CanonicalId::parse(value).is_ok())
+        .map(str::to_owned);
     let body = match read_bounded(response, MAXIMUM_ERROR_RESPONSE_BYTES).await {
         Ok(body) => body,
         Err(error) => return error,
@@ -165,7 +171,9 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
     let Ok(envelope) = serde_json::from_slice::<ErrorEnvelope>(&body) else {
         return RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse);
     };
-    if CanonicalId::parse(&envelope.request_id).is_err() {
+    if CanonicalId::parse(&envelope.request_id).is_err()
+        || request_id_header.as_deref() != Some(envelope.request_id.as_str())
+    {
         return RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse);
     }
     let kind = match (status, envelope.code.as_str()) {
@@ -174,14 +182,19 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
             "invalid_request"
             | "invalid_conversation_id"
             | "invalid_workspace_id"
+            | "invalid_project_id"
+            | "invalid_display_name"
+            | "invalid_expected_version"
+            | "invalid_page"
+            | "invalid_root_admission"
             | "invalid_command_id"
             | "invalid_idempotency_key"
             | "message_text_empty"
             | "message_text_too_large",
         ) => RuntimeApiErrorKind::InvalidRequest,
         (401, "unauthorized") => RuntimeApiErrorKind::Unauthorized,
-        (404, "conversation_not_found") => RuntimeApiErrorKind::NotFound,
-        (409, "conversation_conflict") => RuntimeApiErrorKind::Conflict,
+        (404, "conversation_not_found" | "project_workspace_not_found") => RuntimeApiErrorKind::NotFound,
+        (409, "conversation_conflict" | "project_workspace_conflict" | "command_conflict") => RuntimeApiErrorKind::Conflict,
         (429 | 503, "runtime_backpressure") => RuntimeApiErrorKind::Backpressure,
         (503, "runtime_unavailable") => RuntimeApiErrorKind::Unavailable,
         _ => RuntimeApiErrorKind::InvalidResponse,

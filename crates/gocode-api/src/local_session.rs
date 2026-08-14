@@ -193,6 +193,34 @@ impl RuntimeSessionBinding {
         })
     }
 
+    /// Creates a binding from the exact closed sensitivity label carried by
+    /// the authenticated local-session profile.
+    pub fn new_with_sensitivity_label(
+        stable: StableRuntimeBinding,
+        daemon_instance_id: DaemonInstanceId,
+        launch_generation: u64,
+        session_id: [u8; 16],
+        authorization_epoch: u64,
+        sensitivity_ceiling: &str,
+        certificate_sha256: [u8; 32],
+    ) -> Result<Self, LocalSessionContractError> {
+        let sensitivity = match sensitivity_ceiling {
+            "public" => Sensitivity::Public,
+            "internal" => Sensitivity::Internal,
+            "sensitive" => Sensitivity::Sensitive,
+            _ => return Err(LocalSessionContractError::InvalidSensitivityCeiling),
+        };
+        Self::new(
+            stable,
+            daemon_instance_id,
+            launch_generation,
+            session_id,
+            authorization_epoch,
+            sensitivity,
+            certificate_sha256,
+        )
+    }
+
     pub const fn stable(&self) -> &StableRuntimeBinding {
         &self.stable
     }
@@ -212,6 +240,8 @@ impl core::fmt::Debug for RuntimeSessionBinding {
             .finish_non_exhaustive()
     }
 }
+
+include!("local_session/digest.rs");
 
 /// Stable validation failures for local session contracts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -238,4 +268,6 @@ pub enum LocalSessionContractError {
     AuthorizationEpochMismatch,
     /// A replay contract named a different sensitivity ceiling.
     SensitivityCeilingMismatch,
+    /// A transport profile named an unknown sensitivity ceiling.
+    InvalidSensitivityCeiling,
 }

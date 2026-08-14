@@ -16,6 +16,10 @@ impl AuthenticatedRuntimeClient {
         &self.session
     }
 
+    pub(crate) const fn replay_authority(&self) -> &RuntimeSessionAuthority {
+        &self.authority
+    }
+
     /// Returns the native-only transport class accepted during authentication.
     #[must_use]
     pub const fn transport_kind(&self) -> RuntimeTransportKind {
@@ -30,12 +34,13 @@ impl AuthenticatedRuntimeClient {
         self.authority.test_material()
     }
 
-    pub(crate) const fn from_local_session(
+    pub(crate) fn from_local_session(
         client: reqwest::Client,
         origin: String,
         authority: RuntimeSessionAuthority,
         session: RuntimeSessionInfo,
     ) -> Self {
+        let authority = authority.bind_replay_session(session.replay_binding());
         Self {
             client,
             origin,
@@ -45,12 +50,13 @@ impl AuthenticatedRuntimeClient {
         }
     }
 
-    pub(crate) const fn from_protected_bundled_session(
+    pub(crate) fn from_protected_bundled_session(
         client: reqwest::Client,
         origin: String,
         authority: RuntimeSessionAuthority,
         session: RuntimeSessionInfo,
     ) -> Self {
+        let authority = authority.bind_replay_session(session.replay_binding());
         Self {
             client,
             origin,

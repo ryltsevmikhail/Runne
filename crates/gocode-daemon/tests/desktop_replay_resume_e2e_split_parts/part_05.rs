@@ -51,7 +51,7 @@ fn daemon_has_unacknowledged_delivery(database_path: &Path, generation: u64) -> 
         .expect("read interrupted replay session")
 }
 
-fn daemon_latest_cursor_is_acknowledged(database_path: &Path, generation: u64) -> bool {
+fn daemon_latest_cursor_is_acknowledged_and_closed(database_path: &Path, generation: u64) -> bool {
     let generation = i64::try_from(generation).expect("generation range");
     Connection::open(database_path)
         .expect("open daemon database")
@@ -64,7 +64,7 @@ fn daemon_latest_cursor_is_acknowledged(database_path: &Path, generation: u64) -
                   AND last_delivered_position IS NOT NULL
                   AND last_acked_position IS NOT NULL
                   AND last_delivered_position = last_acked_position
-                  AND state = 'live'
+                  AND state = 'closed'
             )
             ",
             [generation],
@@ -90,4 +90,23 @@ fn set_owner_only(path: &Path) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
         .expect("set owner-only directory permissions");
     assert_owner_only(path);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn real_process_live_epoch_revocation_closes_revoked_without_local_mutation() {
+    let _process_guard = process_e2e_guard().await;
+    let fixture = ProcessFaultFixture::open().await;
+    let before = local_projection_state(&fixture.desktop_database);
+    let mut live = fixture.open_raw_live(&before.cursor).await;
+    revoke_live_replay_epoch(&fixture.daemon_database);
+
+    let error = live
+        .next_event()
+        .await
+        .expect_err("authorization epoch mismatch must fail closed");
+
+    assert_eq!(
+        error.recovery_disposition(),
+        ReplayRecoveryDisposition::Revoked
+    );
+    assert_eq!(local_projection_state(&fixture.desktop_database), before);
 }

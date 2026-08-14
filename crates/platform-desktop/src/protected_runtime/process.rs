@@ -66,6 +66,15 @@ impl DesktopReady {
         }
     }
 
+    /// Returns the authenticated provider readiness disposition for V2, or
+    /// `None` for the V1 deterministic protocol which carries no disposition.
+    const fn provider_readiness(&self) -> Option<ProviderActivationReadinessV1> {
+        match self {
+            Self::V1(_) => None,
+            Self::V2(ready) => Some(ready.provider_readiness()),
+        }
+    }
+
     fn into_process_activation(
         self,
         request: DesktopLaunchRequest,
@@ -105,14 +114,20 @@ enum ProtectedProcessActivation {
         ready: ProtectedReadyV2,
         owned: ProtectedOwnedLaunchV2,
     },
+    #[cfg(feature = "test-support")]
+    #[allow(dead_code)]
+    Test { owned: ProtectedOwnedLaunchV1 },
 }
 
 #[cfg(unix)]
 impl ProtectedProcessActivation {
-    const fn compatibility_ready(&self) -> &ProtectedReadyV1 {
+    #[allow(clippy::missing_const_for_fn)]
+    fn compatibility_ready(&self) -> &ProtectedReadyV1 {
         match self {
             Self::V1 { ready, .. } => ready,
             Self::V2 { ready, .. } => ready.compatibility_ready(),
+            #[cfg(feature = "test-support")]
+            Self::Test { .. } => unreachable!("transport-only test process has no readiness"),
         }
     }
 
@@ -120,6 +135,8 @@ impl ProtectedProcessActivation {
         match self {
             Self::V1 { owned, .. } => owned,
             Self::V2 { owned, .. } => owned.compatibility_owned_launch(),
+            #[cfg(feature = "test-support")]
+            Self::Test { owned } => owned,
         }
     }
 
@@ -127,6 +144,8 @@ impl ProtectedProcessActivation {
         match self {
             Self::V1 { .. } => None,
             Self::V2 { request, .. } => Some(request.provider_binding()),
+            #[cfg(feature = "test-support")]
+            Self::Test { .. } => None,
         }
     }
 }

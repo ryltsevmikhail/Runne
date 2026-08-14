@@ -47,7 +47,6 @@ fn protected_rotation_revokes_old_authority_and_requires_exact_launch_tuple() {
             Duration::ZERO,
         )
         .unwrap();
-
     let next_secret = [0x66; 32];
     let rotated = runtime_binding_with_session(
         7,

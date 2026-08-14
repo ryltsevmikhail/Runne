@@ -36,6 +36,7 @@ pub struct ConnectionProfileCapability {
 pub struct ManagedConnection {
     connection: Connection,
     _validated: ConnectionProfileCapability,
+    identity: Option<ConnectionIdentityGuard>,
 }
 
 mod managed_authority {
@@ -49,6 +50,13 @@ impl managed_authority::Sealed for ManagedConnection {}
 impl ManagedConnectionAuthority for ManagedConnection {}
 
 impl ManagedConnection {
+    pub(crate) fn with_connection_mut<T>(
+        &mut self,
+        operation: impl FnOnce(&mut Connection) -> T,
+    ) -> T {
+        operation(&mut self.connection)
+    }
+
     pub(crate) fn transaction(&mut self) -> SqliteResult<Transaction<'_>> {
         self.connection.transaction()
     }
@@ -87,15 +95,17 @@ pub fn open_managed_connection(
     if mode == ConnectionMode::ValidatedReopen {
         return Err(rusqlite::Error::InvalidQuery);
     }
-    let connection = open_connection_for_profile(path, mode)?;
-    managed_after_profile(connection, mode, path == Path::new(":memory:"))
+    let (connection, identity) = open_connection_for_profile(path, mode)?;
+    managed_after_profile(connection, mode, path == Path::new(":memory:"), identity)
 }
 
 fn managed_after_profile(
     connection: Connection,
     mode: ConnectionMode,
     memory_database: bool,
+    mut identity: Option<ConnectionIdentityGuard>,
 ) -> SqliteResult<ManagedConnection> {
+    verify_connection_identity(&connection, identity.as_ref())?;
     connection.execute_batch(
         "PRAGMA synchronous = FULL;
          PRAGMA foreign_keys = ON;
@@ -111,9 +121,14 @@ fn managed_after_profile(
         memory_database,
     };
     verify_managed_profile(&connection, &capability)?;
+    if let Some(identity) = identity.as_mut() {
+        identity.retain_created_sidecars()?;
+    }
+    verify_connection_identity(&connection, identity.as_ref())?;
     Ok(ManagedConnection {
         connection,
         _validated: capability,
+        identity,
     })
 }
 
@@ -145,25 +160,33 @@ fn verify_managed_profile(
 
 /// Runs integrity/schema gates only for a factory-managed connection.
 pub fn readiness_from_managed(connection: &ManagedConnection) -> SqliteResult<Readiness> {
+    verify_connection_identity(&connection.connection, connection.identity.as_ref())?;
     verify_managed_profile(&connection.connection, &connection._validated)?;
     run_startup_gates_raw(&connection.connection, "")?;
     Ok(Readiness { _private: () })
 }
 
 /// Re-verifies the managed profile and schema before publication.
-pub fn publication_from_managed(
-    connection: &ManagedConnection,
-) -> SqliteResult<PublicationPermit> {
+pub fn publication_from_managed(connection: &ManagedConnection) -> SqliteResult<PublicationPermit> {
+    verify_connection_identity(&connection.connection, connection.identity.as_ref())?;
     verify_managed_profile(&connection.connection, &connection._validated)?;
     run_startup_gates_raw(&connection.connection, "")?;
     Ok(PublicationPermit { _private: () })
 }
 
+fn verify_connection_identity(
+    connection: &Connection,
+    identity: Option<&ConnectionIdentityGuard>,
+) -> SqliteResult<()> {
+    match identity {
+        Some(identity) => identity.verify_with_sidecar_handle(connection),
+        None => Ok(()),
+    }
+}
+
 fn profile_mismatch(name: &str, actual: &str, expected: &str) -> rusqlite::Error {
     rusqlite::Error::SqliteFailure(
         rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISMATCH),
-        Some(format!(
-            "PRAGMA {name} = '{actual}', expected '{expected}'"
-        )),
+        Some(format!("PRAGMA {name} = '{actual}', expected '{expected}'")),
     )
 }

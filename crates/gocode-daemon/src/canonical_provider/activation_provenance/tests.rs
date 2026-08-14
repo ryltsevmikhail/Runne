@@ -2,7 +2,7 @@ use super::*;
 use crate::application::VerifiedOwnerPrivateConfig;
 use crate::bootstrap::bootstrap;
 use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 use crate::provider_activation::ProviderActivation;
 use gocode_api::ProviderActivationBindingV1;
@@ -62,7 +62,7 @@ fn authority_config(provenance: DaemonActivationProvenance) -> ProviderRuntimeAu
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 fn protected_token() -> (tempfile::TempDir, VerifiedProtectedApplicationStart) {
     let directory = tempfile::tempdir().unwrap();
     let mut config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
@@ -119,7 +119,7 @@ fn external_provenance_changes_only_for_stable_bound_inputs() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 #[test]
 fn protected_provenance_uses_the_protected_kind() {
     let (directory, start) = protected_token();
@@ -187,7 +187,7 @@ fn external_digest_cannot_be_relabelled_as_protected_without_effect() {
     assert_eq!(effect_count(&path), 0);
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "desktop-protected"))]
 #[test]
 fn protected_digest_cannot_be_relabelled_as_external_without_effect() {
     let (directory, start) = protected_token();

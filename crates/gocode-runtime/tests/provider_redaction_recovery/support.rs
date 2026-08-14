@@ -106,8 +106,14 @@ impl ScannerRecoveryPersistence for FailingPersistence<'_> {
     fn advance_checkpoint(&self, checkpoint: ScannerCheckpoint) -> Result<(), ScannerRecoveryPersistenceError> {
         if matches!(self.phase, FailPhase::Advance) { Err(ScannerRecoveryPersistenceError::Unavailable) } else { self.inner.advance_checkpoint(checkpoint) }
     }
+    fn advance_final_checkpoint(&self, checkpoint: ScannerCheckpoint) -> Result<(), ScannerRecoveryPersistenceError> {
+        if matches!(self.phase, FailPhase::Advance) { Err(ScannerRecoveryPersistenceError::Unavailable) } else { self.inner.advance_final_checkpoint(checkpoint) }
+    }
     fn commit_terminal(&self, binding: TailBinding, disposition: ScannerTerminalDisposition) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
         self.inner.commit_terminal(binding, disposition)
+    }
+    fn terminalize_corrupt_checkpoint(&self, binding: TailBinding) -> Result<ScannerTerminalDisposition, ScannerRecoveryPersistenceError> {
+        self.inner.terminalize_corrupt_checkpoint(binding)
     }
     fn load(&self, attempt: DispatchAttemptId) -> Result<Option<ScannerRecoveryRecord>, ScannerRecoveryPersistenceError> {
         self.inner.load(attempt)

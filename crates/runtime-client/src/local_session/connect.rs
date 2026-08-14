@@ -25,7 +25,7 @@ fn session_peer_from_ready(
             .capabilities()
             .iter()
             .map(String::as_str)
-            .eq(crate::REQUIRED_RUNTIME_CAPABILITIES.iter().copied())
+            .eq(crate::PROTECTED_RUNTIME_CAPABILITIES.iter().copied())
         || ordered_capability_digest(ready.capabilities()) != *profile.capability_digest()
     {
         return Err(LaunchAuthorityError::ProfileHashMismatch);

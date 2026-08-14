@@ -1,4 +1,4 @@
-//! Deterministic generation of the checked-in local runtime UI contract.
+//! Deterministic generation of the checked-in `gocode-ui-client/2` contract.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::bundle::{
-    BUNDLE_ID, GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES,
+    BASE_RUNTIME_CAPABILITIES, BUNDLE_ID, GENERATOR_SCHEMA_VERSION, PUBLISHED_RUNTIME_CAPABILITIES,
     RUNTIME_CAPABILITY_CATALOG, TRANSPORT_PROFILE_ID,
 };
 use gocode_api::{ApiReplayBindingId, CanonicalReplayPayloadV1};
@@ -20,6 +20,14 @@ use gocode_domain::task_run::TaskRunEvent;
 const DRAFT_2020_12: &str = "https://json-schema.org/draft/2020-12/schema";
 const UUID_V7_PATTERN: &str =
     "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$";
+const PROJECT_PAGE_CURSOR_LENGTH: usize = 119;
+const WORKSPACE_PAGE_CURSOR_LENGTH: usize = 153;
+const PROJECT_PAGE_CURSOR_PATTERN: &str =
+    "^gocode-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$";
+const WORKSPACE_PAGE_CURSOR_PATTERN: &str = concat!(
+    "^gocode-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}",
+    "[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$"
+);
 const LOWER_HEX_16_PATTERN: &str = "^[0-9a-f]{32}$";
 const LOWER_HEX_32_PATTERN: &str = "^[0-9a-f]{64}$";
 const BASE64_URL_PATTERN: &str = "^[A-Za-z0-9_-]+$";
@@ -31,13 +39,18 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "bundle.sha256",
     "golden/local-session-v2.json",
     "golden/operational-telemetry.json",
+    "golden/project-workspace.json",
     "golden/replay-conversation.json",
+    "golden/replay-resume-v2.json",
+    "golden/replay-retention-gap-v2.json",
+    "golden/replay-retention-gap.json",
     "golden/replay-taskrun.json",
     "golden/sse-delivery.json",
     "openapi.json",
-    "schemas/local-runtime-profile-v2.schema.json",
+    "schemas/local-runtime-profile-v3.schema.json",
     "schemas/local-session-v2.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
+    "schemas/project-workspace-v2.schema.json",
     "schemas/replay-v1.schema.json",
     "schemas/sse-v1.schema.json",
 ];
@@ -65,4 +78,7 @@ include!("contract_generation/payload_schema.rs");
 include!("contract_generation/replay_schema.rs");
 include!("contract_generation/local_schemas.rs");
 include!("contract_generation/operational_telemetry_schema.rs");
+include!("contract_generation/project_workspace_schema.rs");
+include!("contract_generation/project_workspace_openapi.rs");
 include!("contract_generation/openapi.rs");
+include!("contract_generation/replay_retention_goldens.rs");

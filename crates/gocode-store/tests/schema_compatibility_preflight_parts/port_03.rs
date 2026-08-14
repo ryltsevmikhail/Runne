@@ -1,7 +1,7 @@
 #[test]
 fn preflight_rejects_v11_authority_table_with_same_columns_and_missing_constraints() {
     let path = current_database("v11-authority-constraints");
-    let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
+    let connection = Connection::open(&path).unwrap();
     apply_migrations(&connection).unwrap();
     connection
         .execute_batch(
@@ -68,25 +68,20 @@ fn shared_opener_admits_new_released_v8_and_canonical_v9_files() {
     }
     v8_conn
         .execute_batch(
-            "DROP TABLE bootstrap_reservation_tombstones;
+            "DROP TABLE aggregate_state_snapshots;
+             DROP TABLE task_run_workspace_lineage;
+             DROP TABLE workspace_identity_history;
+             DROP TABLE project_workspace_command_receipts;
+             DROP TABLE root_admission_nonces;
+             DROP TABLE workspaces;
+             DROP TABLE projects;
+             DROP TABLE bootstrap_reservation_tombstones;
              DROP TABLE bootstrap_reservations;
              DROP TABLE bootstrap_last_observed_clock;
              DROP TABLE provider_credential_effect_bindings;
              DROP TABLE provider_credential_provisions;
              DROP TABLE provider_credential_clock_high_water;
              DROP TABLE provider_credential_versions;
-             DROP TABLE provider_effect_starts;
-             DROP TABLE provider_terminal_outbox;
-             DROP TABLE provider_accounting_settlements;
-             DROP TABLE provider_stream_journal;
-             DROP TABLE provider_poll_flights;
-             DROP TABLE provider_encryption_nonces;
-             DROP TABLE provider_journal_key_refs;
-             DROP TABLE provider_budget_reservations;
-             DROP TABLE provider_execution_admissions;
-             DROP TABLE provider_runtime_authority_state;
-             DROP TABLE schema_upgrade_write_latch;
-             DROP TABLE schema_upgrade_fence;
              DROP TABLE provider_effect_authorities;
              DROP TABLE provider_dispatch_attempts;
              DROP TABLE provider_prepared_requests;

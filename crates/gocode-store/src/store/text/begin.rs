@@ -35,6 +35,14 @@ impl StoreTransaction {
             return Ok(TextGenerationCommitResult::Duplicate { stored_result });
         }
 
+        crate::project_workspace::lineage::record_text_taskrun_lineage(
+            &transaction,
+            taskrun_id,
+            payload.receipt.workspace_id,
+            payload.command_id,
+            &payload.idempotency_scope,
+        )?;
+
         let (conversation_version, conversation_last_event, conversation_last_timestamp) =
             transaction
                 .query_row(
@@ -200,6 +208,16 @@ impl StoreTransaction {
             payload.receipt.conversation_version,
             *payload.conversation_events[0].event_id(),
             now,
+        )?;
+        crate::store::snapshot::refresh_aggregate_snapshot(
+            &transaction,
+            CORRELATION_TYPE_CONVERSATION,
+            conversation_id.as_bytes(),
+        )?;
+        crate::store::snapshot::refresh_aggregate_snapshot(
+            &transaction,
+            CORRELATION_TYPE_TASK_RUN,
+            taskrun_id.as_bytes(),
         )?;
         update_global_position(&transaction, next_global_position)?;
         let outcome = TextGenerationReceiptCodec

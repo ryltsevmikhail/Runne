@@ -128,43 +128,7 @@
         assert_eq!(agg.state(), TaskRunState::Running);
     }
 
-    // ─── Retry cycle ──────────────────────────────────────────────────────
-
-    #[test]
-    fn test_retry_cycle() {
-        let mut agg = create_aggregate();
-        agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
-        agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
-        let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
-        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
-            .unwrap();
-
-        // running → retrying
-        let aid2: AttemptId = ATTEMPT_ID2.parse().unwrap();
-        let drafts = agg
-            .decide(TaskRunCommand::StartRetry { attempt_id: aid2 })
-            .unwrap();
-        assert!(matches!(
-            drafts[0].payload(),
-            TaskRunEvent::RetryStarted { .. }
-        ));
-        agg.apply_payload(&TaskRunEvent::RetryStarted { attempt_id: aid2 })
-            .unwrap();
-        assert_eq!(agg.state(), TaskRunState::Retrying);
-        assert_eq!(agg.active_attempt(), Some(&aid2));
-
-        // retrying → running
-        let drafts = agg
-            .decide(TaskRunCommand::CompleteRetry { attempt_id: aid2 })
-            .unwrap();
-        assert_eq!(
-            drafts[0].payload(),
-            &TaskRunEvent::RetryCompleted { attempt_id: aid2 }
-        );
-        agg.apply_payload(&TaskRunEvent::RetryCompleted { attempt_id: aid2 })
-            .unwrap();
-        assert_eq!(agg.state(), TaskRunState::Running);
-    }
+    include!("lifecycle/retry.rs");
 
     // ─── Checkpoint cycle ─────────────────────────────────────────────────
 

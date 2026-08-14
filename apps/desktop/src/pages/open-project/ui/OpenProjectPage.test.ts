@@ -4,12 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import OpenProjectPage from './OpenProjectPage.vue'
 
-const project = {
-  id: 7,
-  name: 'gocode-ui',
-  path: '/workspace/gocode-ui',
-  lastOpenedAt: 1_753_500_000_000,
-} as const
+const selection = { reference: 'a'.repeat(64) } as const
 
 function createTestRouter() {
   return createRouter({
@@ -17,7 +12,7 @@ function createTestRouter() {
     routes: [
       { path: '/projects/open', component: OpenProjectPage },
       {
-        path: '/projects/:id',
+        path: '/projects/:projectId',
         name: 'project-details',
         component: { template: '<div>Project details</div>' },
       },
@@ -26,19 +21,20 @@ function createTestRouter() {
 }
 
 describe('open project page', () => {
-  it('persists the selected directory and opens project details', async () => {
+  it('retains only an opaque host selection pending workspace preparation', async () => {
     const router = createTestRouter()
     await router.push('/projects/open')
     await router.isReady()
     const wrapper = mount(OpenProjectPage, {
-      props: { openProject: async () => project },
+      props: { openProject: async () => selection },
       global: { plugins: [router] },
     })
 
     await wrapper.get('[aria-label="Choose project folder"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/projects/7')
+    expect(router.currentRoute.value.fullPath).toBe('/projects/open')
+    expect(wrapper.text()).toContain('Folder selected. Choose a workspace to continue.')
   })
 
   it('fails closed without exposing a rejected local path', async () => {

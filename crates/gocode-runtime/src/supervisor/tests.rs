@@ -5,12 +5,18 @@ mod tests {
     use std::time::Duration;
 
     use gocode_application::commands::{CommandOutcome, CreateTaskRunInput};
-    use gocode_application::ports::{ApplicationCommandContext, PrincipalId, RuntimeAuthorityId};
+    use gocode_application::ports::{
+        ApplicationCommandContext, PrincipalId, ProjectWorkspaceRepository, RuntimeAuthorityId,
+    };
     use gocode_application::prohibited_content::ProhibitedContentPort;
     use gocode_domain::event::Actor;
-    use gocode_domain::id::{ConversationId, IdempotencyKey, WorkspaceId};
+    use gocode_domain::id::{ConversationId, IdempotencyKey, ProjectId, WorkspaceId};
+    use gocode_domain::project_workspace::{
+        Project, ProjectWorkspaceDisplayName as DisplayName, Workspace,
+    };
     use gocode_security::SecretBroker;
     use gocode_store::store::StoreTransaction;
+    use gocode_store::ProjectWorkspaceStore;
 
     type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 
@@ -29,6 +35,33 @@ mod tests {
             available_guard(),
         )
         .unwrap();
+        let project_id = "018f2e3a-7000-7000-8000-00000000000c"
+            .parse::<ProjectId>()
+            .unwrap();
+        let workspace_id = "018f2e3a-7000-7000-8000-00000000000b"
+            .parse::<WorkspaceId>()
+            .unwrap();
+        let projects = ProjectWorkspaceStore::from_store(store.clone());
+        projects
+            .create_project(
+                "test",
+                "018f2e3a-7000-7000-8000-00000000000d".parse().unwrap(),
+                &IdempotencyKey::new("fixture-project").unwrap(),
+                Project::create(project_id, DisplayName::new("Fixture".into()).unwrap()),
+            )
+            .unwrap();
+        projects
+            .create_workspace(
+                "test",
+                "018f2e3a-7000-7000-8000-00000000000e".parse().unwrap(),
+                &IdempotencyKey::new("fixture-workspace").unwrap(),
+                Workspace::create(
+                    workspace_id,
+                    project_id,
+                    DisplayName::new("Fixture".into()).unwrap(),
+                ),
+            )
+            .unwrap();
         let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
             store.clone(),
             store.clone(),
@@ -57,9 +90,7 @@ mod tests {
                         conversation_id: "018f2e3a-7000-7000-8000-00000000000a"
                             .parse::<ConversationId>()
                             .unwrap(),
-                        workspace_id: "018f2e3a-7000-7000-8000-00000000000b"
-                            .parse::<WorkspaceId>()
-                            .unwrap(),
+                        workspace_id,
                     },
                     reply: reply_tx,
                 },

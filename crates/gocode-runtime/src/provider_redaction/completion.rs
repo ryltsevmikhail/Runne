@@ -87,7 +87,11 @@ where
             self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable)?;
             return Err(ProviderRedactionError::PersistenceUnavailable);
         }
-        if self.persistence.advance_checkpoint(checkpoint).is_err() {
+        if self
+            .persistence
+            .advance_final_checkpoint(checkpoint)
+            .is_err()
+        {
             let terminal = self.fail(ScannerUncertainReason::CheckpointSecretStateUnavailable);
             let _ = self.tail_store.delete_tail(&reference);
             terminal?;

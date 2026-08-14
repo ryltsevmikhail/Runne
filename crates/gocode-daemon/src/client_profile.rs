@@ -13,10 +13,10 @@ use crate::launch_identity::LaunchIdentity;
 
 pub(crate) const LOCAL_RUNTIME_PROFILE_V2: &str = "gocode-local-runtime/2";
 
-/// Strict profile-v2 wire representation for pinned TLS clients.
+/// Strict profile-v3 wire representation for pinned TLS clients.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct ClientProfileV2Wire {
+pub(crate) struct ClientProfileV3Wire {
     schema_version: u32,
     transport_profile_id: String,
     profile_id: String,
@@ -37,8 +37,8 @@ pub(crate) struct ClientProfileV2Wire {
     session_id: String,
 }
 
-impl ClientProfileV2Wire {
-    /// Serializes the exact profile-v2 wire shape.
+impl ClientProfileV3Wire {
+    /// Serializes the exact profile-v3 wire shape.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         endpoint: SocketAddr,
@@ -52,6 +52,7 @@ impl ClientProfileV2Wire {
         daemon_instance_id: uuid::Uuid,
         launch_generation: u64,
         session_id: [u8; 16],
+        capabilities: &[&str],
     ) -> Result<Self, DaemonError> {
         if executable_sha256 == [0; 32]
             || launch_authority_id == [0; 16]
@@ -59,21 +60,19 @@ impl ClientProfileV2Wire {
             || launch_generation == 0
             || session_id == daemon_instance_id.into_bytes()
         {
-            return Err(DaemonError::Bootstrap("invalid profile-v2 identity".into()));
+            return Err(DaemonError::Bootstrap("invalid profile-v3 identity".into()));
         }
         Ok(Self {
-            schema_version: 2,
+            schema_version: 3,
             transport_profile_id: LOCAL_RUNTIME_PROFILE_V2.to_owned(),
             profile_id: gocode_runtime::bundle::BUNDLE_ID.to_owned(),
             schema_hash: gocode_runtime::bundle::PUBLISHED_BUNDLE_HASH.to_owned(),
-            capabilities: gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+            capabilities: capabilities
                 .iter()
                 .map(|capability| (*capability).to_owned())
                 .collect(),
             capability_digest: hex::encode(
-                gocode_http::runtime_profile::ordered_capability_digest(
-                    gocode_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES,
-                ),
+                gocode_http::runtime_profile::ordered_capability_digest(capabilities),
             ),
             endpoint: format!("https://{endpoint}"),
             certificate_der_base64,
@@ -91,15 +90,15 @@ impl ClientProfileV2Wire {
     }
 }
 
-/// Lifetime guard for one active v2 profile and its bootstrap secret.
-pub(crate) struct PublishedClientProfileV2 {
+/// Lifetime guard for one active v3 profile and its bootstrap secret.
+pub(crate) struct PublishedClientProfileV3 {
     profile_path: PathBuf,
     profile_bytes: Vec<u8>,
     secret_path: PathBuf,
     secret_bytes: [u8; 32],
 }
 
-impl PublishedClientProfileV2 {
+impl PublishedClientProfileV3 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn publish(
         directory: &Path,
@@ -110,9 +109,10 @@ impl PublishedClientProfileV2 {
         authority_id: [u8; 16],
         lineage_id: uuid::Uuid,
         session_id: [u8; 16],
+        capabilities: &[&str],
     ) -> Result<Self, DaemonError> {
         let directory = std::fs::canonicalize(directory)
-            .map_err(|_| DaemonError::Bootstrap("canonicalize v2 profile directory".into()))?;
+            .map_err(|_| DaemonError::Bootstrap("canonicalize v3 profile directory".into()))?;
         let secret_path = directory.join(format!(
             "bootstrap-{}.secret",
             identity.daemon_instance_id()
@@ -124,7 +124,7 @@ impl PublishedClientProfileV2 {
             .map_err(|_| DaemonError::Bootstrap("read v2 bootstrap secret".into()))?
             .try_into()
             .map_err(|_| DaemonError::Bootstrap("invalid v2 bootstrap secret".into()))?;
-        let wire = ClientProfileV2Wire::new(
+        let wire = ClientProfileV3Wire::new(
             endpoint,
             identity.profile_certificate_der_base64(),
             *identity.certificate_sha256(),
@@ -136,9 +136,10 @@ impl PublishedClientProfileV2 {
             uuid::Uuid::from_bytes(identity.daemon_instance_id().into_bytes()),
             identity.launch_generation(),
             session_id,
+            capabilities,
         )?;
         let profile_bytes = serde_json::to_vec(&wire)
-            .map_err(|_| DaemonError::Bootstrap("serialize v2 profile".into()))?;
+            .map_err(|_| DaemonError::Bootstrap("serialize v3 profile".into()))?;
         let profile_path = directory.join("client-profile.json");
         let temporary = directory.join(format!(".client-profile.{}.tmp", uuid::Uuid::now_v7()));
         if let Err(error) = write_owner_only(&temporary, &profile_bytes)
@@ -150,7 +151,7 @@ impl PublishedClientProfileV2 {
             remove_if_matches(&secret_path, &secret_bytes);
             let _ = sync_directory(&directory);
             return Err(DaemonError::Bootstrap(format!(
-                "publish v2 local client profile: {error}"
+                "publish v3 local client profile: {error}"
             )));
         }
         Ok(Self {
@@ -171,7 +172,7 @@ fn remove_if_matches(path: &Path, bytes: &[u8]) {
     }
 }
 
-impl Drop for PublishedClientProfileV2 {
+impl Drop for PublishedClientProfileV3 {
     fn drop(&mut self) {
         for (path, bytes) in [
             (&self.profile_path, self.profile_bytes.as_slice()),
@@ -235,21 +236,32 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let (identity, marker) =
             LaunchIdentity::generate_with_private_key_marker_for_test(1).unwrap();
-        let published = PublishedClientProfileV2::publish(
+        let authority_id = *uuid::Uuid::now_v7().as_bytes();
+        let session_id = *uuid::Uuid::now_v7().as_bytes();
+        let published = PublishedClientProfileV3::publish(
             directory.path(),
             "127.0.0.1:3000".parse().unwrap(),
             &identity,
-            [0x0f; 16],
-            [0x0e; 32],
-            [1; 16],
+            authority_id,
+            [1; 32],
+            authority_id,
             uuid::Uuid::now_v7(),
-            *uuid::Uuid::now_v7().as_bytes(),
+            session_id,
+            gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES,
         )
         .unwrap();
         for entry in std::fs::read_dir(directory.path()).unwrap() {
             let bytes = std::fs::read(entry.unwrap().path()).unwrap();
             assert!(!bytes.windows(marker.len()).any(|part| part == marker));
         }
+        let profile: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(directory.path().join("client-profile.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            profile["capabilities"],
+            serde_json::json!(gocode_runtime::bundle::BASE_RUNTIME_CAPABILITIES)
+        );
         drop(published);
     }
 }

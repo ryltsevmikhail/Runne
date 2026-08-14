@@ -1,35 +1,53 @@
 const SCANNER_SIDECAR_KIND: &str = "gocode.provider-scanner-recovery";
-const SCANNER_SIDECAR_VERSION: i64 = 1;
+const SCANNER_SIDECAR_VERSION: i64 = 2;
 
-pub(crate) const SCANNER_IDENTITY_SQL: &str = "CREATE TABLE scanner_recovery_schema (id INTEGER PRIMARY KEY CHECK(id = 1), schema_kind TEXT NOT NULL CHECK(schema_kind = 'gocode.provider-scanner-recovery'), schema_version INTEGER NOT NULL CHECK(schema_version = 1), authority_id BLOB NOT NULL CHECK(length(authority_id) = 16))";
-pub(crate) const SCANNER_RECOVERY_SQL: &str = "CREATE TABLE provider_scanner_recovery (attempt_id BLOB PRIMARY KEY CHECK(length(attempt_id) = 16), fencing_token INTEGER NOT NULL CHECK(fencing_token > 0), policy_epoch INTEGER NOT NULL CHECK(policy_epoch > 0), matcher_epoch INTEGER NOT NULL CHECK(matcher_epoch > 0), algorithm_version INTEGER NOT NULL CHECK(algorithm_version > 0), tail_id BLOB CHECK(tail_id IS NULL OR length(tail_id) = 16), tail_version INTEGER CHECK(tail_version IS NULL OR tail_version > 0), binding_digest BLOB CHECK(binding_digest IS NULL OR length(binding_digest) = 32), checkpoint_sequence INTEGER CHECK(checkpoint_sequence IS NULL OR checkpoint_sequence > 0), checkpoint_cursor INTEGER CHECK(checkpoint_cursor IS NULL OR checkpoint_cursor >= 0), checkpoint_safe_high_water INTEGER CHECK(checkpoint_safe_high_water IS NULL OR checkpoint_safe_high_water >= 0), checkpoint_id BLOB CHECK(checkpoint_id IS NULL OR length(checkpoint_id) = 16), checkpoint_digest BLOB CHECK(checkpoint_digest IS NULL OR length(checkpoint_digest) = 32), durable_cursor INTEGER NOT NULL DEFAULT 0 CHECK(durable_cursor >= 0), durable_safe_high_water INTEGER NOT NULL DEFAULT 0 CHECK(durable_safe_high_water >= 0), durable_checkpoint_digest BLOB CHECK(durable_checkpoint_digest IS NULL OR length(durable_checkpoint_digest) = 32), disposition INTEGER CHECK(disposition IS NULL OR disposition BETWEEN 1 AND 6), CHECK((tail_id IS NULL AND tail_version IS NULL AND binding_digest IS NULL AND checkpoint_sequence IS NULL AND checkpoint_cursor IS NULL AND checkpoint_safe_high_water IS NULL AND checkpoint_id IS NULL AND checkpoint_digest IS NULL) OR (tail_id IS NOT NULL AND tail_version IS NOT NULL AND binding_digest IS NOT NULL AND checkpoint_sequence IS NOT NULL AND checkpoint_cursor IS NOT NULL AND checkpoint_safe_high_water IS NOT NULL AND checkpoint_id IS NOT NULL AND checkpoint_digest IS NOT NULL)))";
+pub(crate) const SCANNER_IDENTITY_SQL: &str = "CREATE TABLE scanner_recovery_schema (id INTEGER PRIMARY KEY CHECK(id = 1), schema_kind TEXT NOT NULL CHECK(schema_kind = 'gocode.provider-scanner-recovery'), schema_version INTEGER NOT NULL CHECK(schema_version = 2), authority_id BLOB NOT NULL CHECK(length(authority_id) = 16))";
+pub(crate) const SCANNER_RECOVERY_SQL: &str = "CREATE TABLE provider_scanner_recovery (attempt_id BLOB PRIMARY KEY CHECK(length(attempt_id) = 16), fencing_token INTEGER NOT NULL CHECK(fencing_token > 0), policy_epoch INTEGER NOT NULL CHECK(policy_epoch > 0), matcher_epoch INTEGER NOT NULL CHECK(matcher_epoch > 0), algorithm_version INTEGER NOT NULL CHECK(algorithm_version > 0), tail_id BLOB CHECK(tail_id IS NULL OR length(tail_id) = 16), tail_version INTEGER CHECK(tail_version IS NULL OR tail_version > 0), binding_digest BLOB CHECK(binding_digest IS NULL OR length(binding_digest) = 32), checkpoint_sequence INTEGER CHECK(checkpoint_sequence IS NULL OR checkpoint_sequence > 0), checkpoint_cursor INTEGER CHECK(checkpoint_cursor IS NULL OR checkpoint_cursor >= 0), checkpoint_safe_high_water INTEGER CHECK(checkpoint_safe_high_water IS NULL OR checkpoint_safe_high_water >= 0), checkpoint_id BLOB CHECK(checkpoint_id IS NULL OR length(checkpoint_id) = 16), checkpoint_digest BLOB CHECK(checkpoint_digest IS NULL OR length(checkpoint_digest) = 32), durable_cursor INTEGER NOT NULL DEFAULT 0 CHECK(durable_cursor >= 0), durable_safe_high_water INTEGER NOT NULL DEFAULT 0 CHECK(durable_safe_high_water >= 0), durable_checkpoint_digest BLOB CHECK(durable_checkpoint_digest IS NULL OR length(durable_checkpoint_digest) = 32), completion_checkpoint_digest BLOB CHECK(completion_checkpoint_digest IS NULL OR length(completion_checkpoint_digest) = 32), disposition INTEGER CHECK(disposition IS NULL OR disposition BETWEEN 1 AND 6), CHECK(completion_checkpoint_digest IS NULL OR completion_checkpoint_digest = durable_checkpoint_digest), CHECK((tail_id IS NULL AND tail_version IS NULL AND binding_digest IS NULL AND checkpoint_sequence IS NULL AND checkpoint_cursor IS NULL AND checkpoint_safe_high_water IS NULL AND checkpoint_id IS NULL AND checkpoint_digest IS NULL) OR (tail_id IS NOT NULL AND tail_version IS NOT NULL AND binding_digest IS NOT NULL AND checkpoint_sequence IS NOT NULL AND checkpoint_cursor IS NOT NULL AND checkpoint_safe_high_water IS NOT NULL AND checkpoint_id IS NOT NULL AND checkpoint_digest IS NOT NULL)))";
 
 pub(crate) fn reopen_managed_scanner_sidecar(
     path: &Path,
     expected_authority: [u8; 16],
 ) -> SqliteResult<ManagedConnection> {
+    reopen_managed_scanner_sidecar_with_hook(path, expected_authority, |_| Ok(()))
+}
+
+fn reopen_managed_scanner_sidecar_with_hook<F>(
+    path: &Path,
+    expected_authority: [u8; 16],
+    mut identity_hook: F,
+) -> SqliteResult<ManagedConnection>
+where
+    F: FnMut(IdentityHookStage) -> SqliteResult<()>,
+{
     #[cfg(not(unix))]
     {
-        let _ = (path, expected_authority);
+        let _ = (path, expected_authority, identity_hook);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
     #[cfg(unix)]
     {
-        let file_set = owner_private_recovery_file_set(path).map_err(diagnostic_error)?;
+        let mut identity = ConnectionIdentityGuard::owner_private(path).map_err(diagnostic_error)?;
+        identity_hook(IdentityHookStage::Retained)?;
         let connection = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
+        identity_hook(IdentityHookStage::Opened)?;
+        identity.retain_created_sidecars()?;
+        identity.verify(&connection)?;
         connection.execute_batch("PRAGMA query_only = ON;")?;
         classify_scanner_sidecar(&connection)?;
+        identity_hook(IdentityHookStage::Classified)?;
         validate_scanner_authority(&connection, expected_authority)?;
-        if !recovery_file_set_unchanged(path, &file_set).map_err(diagnostic_error)? {
-            return Err(diagnostic_error(
-                SchemaOpenDiagnostic::FileIdentityUncertain,
-            ));
-        }
+        identity.retain_created_sidecars()?;
+        identity.verify_with_sidecar_handle(&connection)?;
         connection.execute_batch("PRAGMA query_only = OFF;")?;
-        managed_after_profile(connection, ConnectionMode::ValidatedReopen, false)
+        managed_after_profile(
+            connection,
+            ConnectionMode::ValidatedReopen,
+            false,
+            Some(identity),
+        )
     }
 }
 

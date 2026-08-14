@@ -221,5 +221,5 @@ export function parseSseDelivery(value: unknown): JsonObject {
 }
 
 export function golden(name: string): unknown {
-  return JSON.parse(readFileSync(resolve(process.cwd(), 'contracts/gocode-ui-client-1/golden', name), 'utf8'))
+  return JSON.parse(readFileSync(resolve(process.cwd(), 'contracts/gocode-ui-client-2/golden', name), 'utf8'))
 }

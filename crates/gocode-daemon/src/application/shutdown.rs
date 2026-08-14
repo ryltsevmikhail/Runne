@@ -18,11 +18,15 @@ impl DaemonApplication {
             session_clock,
             protected_activation,
             provider_activation,
+            provider_readiness: _,
             runtime_liveness,
             mut runtime_controller,
             _secret_broker,
             task_supervisor,
             shutdown_timeout,
+            #[cfg(feature = "desktop-protected")]
+            root_control,
+            runtime_capabilities,
         } = self;
 
         let http_result = http_host.start().run_until(shutdown).await;
@@ -36,7 +40,12 @@ impl DaemonApplication {
         drop(binding);
         drop(local_session_service);
         drop(session_clock);
+        #[cfg(feature = "desktop-protected")]
+        if let Some(control) = root_control {
+            control.shutdown();
+        }
         let _ = protected_activation;
+        let _ = runtime_capabilities;
         drop(provider_activation);
         drop(_secret_broker);
         drop(_bootstrap_reservation_store);

@@ -34,7 +34,7 @@ fn replay_session_id_schema() -> Value {
 }
 
 fn positive_integer_schema() -> Value {
-    json!({"minimum": 1, "type": "integer"})
+    json!({"maximum": u64::MAX, "minimum": 1, "type": "integer"})
 }
 
 fn telemetry_u64_schema() -> Value {

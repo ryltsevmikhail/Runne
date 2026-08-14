@@ -5,7 +5,8 @@ use gocode_api::CanonicalReplayPayloadV1;
 use gocode_domain::command::TerminalResult;
 use gocode_domain::task_run::TaskRunEvent;
 use gocode_runtime::bundle::{
-    PUBLISHED_BUNDLE_HASH, PUBLISHED_RUNTIME_CAPABILITIES, RUNTIME_CAPABILITY_CATALOG,
+    BASE_RUNTIME_CAPABILITIES, PUBLISHED_BUNDLE_HASH, PUBLISHED_RUNTIME_CAPABILITIES,
+    RUNTIME_CAPABILITY_CATALOG,
 };
 use gocode_runtime::contract_generation::{
     GENERATED_ARTIFACT_PATHS, check_ui_contract, generate_ui_contract,

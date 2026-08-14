@@ -9,10 +9,14 @@ use crate::schema::ManagedConnection;
 
 #[derive(Clone, Copy)]
 pub(super) struct Head {
-    pub(super) fence: u64,
+    pub(super) binding: TailBinding,
     pub(super) sequence: Option<u64>,
+    pub(super) checkpoint_high_water: Option<u64>,
     pub(super) digest: Option<[u8; 32]>,
+    pub(super) durable_cursor: u64,
+    pub(super) durable_high_water: u64,
     pub(super) durable_digest: Option<[u8; 32]>,
+    pub(super) completion_digest: Option<[u8; 32]>,
     pub(super) disposition: Option<ScannerTerminalDisposition>,
 }
 
@@ -21,8 +25,11 @@ pub(super) fn current_head(
     attempt: DispatchAttemptId,
 ) -> Result<Option<Head>, ScannerRecoveryPersistenceError> {
     transaction.query_row(
-        "SELECT fencing_token,checkpoint_sequence,checkpoint_digest,durable_checkpoint_digest,disposition FROM provider_scanner_recovery WHERE attempt_id=?1",
-        [attempt.as_bytes()], |row| Ok(Head { fence: as_u64(row.get(0)?)?, sequence: optional_u64(row.get(1)?)?, digest: optional_fixed(row.get(2)?)?, durable_digest: optional_fixed(row.get(3)?)?, disposition: decode_optional_disposition(row.get(4)?)? }),
+        "SELECT fencing_token,policy_epoch,matcher_epoch,algorithm_version,checkpoint_cursor,checkpoint_sequence,checkpoint_safe_high_water,checkpoint_digest,durable_cursor,durable_safe_high_water,durable_checkpoint_digest,completion_checkpoint_digest,disposition FROM provider_scanner_recovery WHERE attempt_id=?1",
+        [attempt.as_bytes()], |row| {
+            let binding = TailBinding::new(attempt, as_u64(row.get(0)?)?, as_u64(row.get(1)?)?, as_u64(row.get(2)?)?, u32::try_from(row.get::<_, i64>(3)?).map_err(|_| rusqlite::Error::InvalidQuery)?, optional_u64(row.get(4)?)?.unwrap_or(0)).map_err(|_| rusqlite::Error::InvalidQuery)?;
+            Ok(Head { binding, sequence: optional_u64(row.get(5)?)?, checkpoint_high_water: optional_u64(row.get(6)?)?, digest: optional_fixed(row.get(7)?)?, durable_cursor: as_u64(row.get(8)?)?, durable_high_water: as_u64(row.get(9)?)?, durable_digest: optional_fixed(row.get(10)?)?, completion_digest: optional_fixed(row.get(11)?)?, disposition: decode_optional_disposition(row.get(12)?)? })
+        },
     ).optional().map_err(map_sql)
 }
 
@@ -46,7 +53,7 @@ pub(super) fn update_checkpoint(
     let binding = checkpoint.binding();
     let reference = checkpoint.tail_reference();
     let changed = transaction.execute(
-        "UPDATE provider_scanner_recovery SET tail_id=?1,tail_version=?2,binding_digest=?3,checkpoint_sequence=?4,checkpoint_cursor=?5,checkpoint_safe_high_water=?6,checkpoint_id=?7,checkpoint_digest=?8 WHERE attempt_id=?9 AND fencing_token=?10 AND policy_epoch=?11 AND matcher_epoch=?12 AND algorithm_version=?13 AND disposition IS NULL",
+        "UPDATE provider_scanner_recovery SET tail_id=?1,tail_version=?2,binding_digest=?3,checkpoint_sequence=?4,checkpoint_cursor=?5,checkpoint_safe_high_water=?6,checkpoint_id=?7,checkpoint_digest=?8,completion_checkpoint_digest=NULL WHERE attempt_id=?9 AND fencing_token=?10 AND policy_epoch=?11 AND matcher_epoch=?12 AND algorithm_version=?13 AND disposition IS NULL",
         params![reference.id(),i64::from(reference.version()),reference.binding_digest(),as_i64(checkpoint.sequence())?,as_i64(binding.cursor())?,as_i64(checkpoint.safe_prefix_high_water())?,checkpoint.checkpoint_id(),checkpoint.digest(),binding.attempt_id().as_bytes(),as_i64(binding.fencing_token())?,as_i64(binding.policy_epoch())?,as_i64(binding.matcher_epoch())?,i64::from(binding.algorithm_version())],
     ).map_err(map_sql)?;
     if changed == 1 {
@@ -109,13 +116,31 @@ pub(super) fn decode_record(
         }
         _ => return Ok(Err(ScannerRecoveryPersistenceError::Corrupt)),
     };
+    let durable_cursor = as_u64(row.get(12)?)?;
+    let durable_high_water = as_u64(row.get(13)?)?;
+    let durable_digest = optional_fixed(row.get(14)?)?;
+    let completion_digest = optional_fixed(row.get(15)?)?;
+    let disposition = decode_optional_disposition(row.get(16)?)?;
+    let completion_valid = completion_digest.is_none()
+        || (checkpoint.is_some()
+            && completion_digest == durable_digest
+            && completion_digest == checkpoint.map(|value| value.digest())
+            && durable_cursor == binding.cursor()
+            && durable_high_water == checkpoint.map_or(0, |value| value.safe_prefix_high_water()));
+    if !completion_valid
+        || (disposition == Some(ScannerTerminalDisposition::Completed)
+            && completion_digest.is_none())
+    {
+        return Ok(Err(ScannerRecoveryPersistenceError::Corrupt));
+    }
     Ok(Ok(ScannerRecoveryRecord::new(
         binding,
         checkpoint,
-        as_u64(row.get(12)?)?,
-        as_u64(row.get(13)?)?,
-        optional_fixed(row.get(14)?)?,
-        decode_optional_disposition(row.get(15)?)?,
+        durable_cursor,
+        durable_high_water,
+        durable_digest,
+        completion_digest,
+        disposition,
     )))
 }
 
@@ -135,7 +160,7 @@ pub(super) fn encode_disposition(value: ScannerTerminalDisposition) -> i64 {
         ScannerTerminalDisposition::Completed => 6,
     }
 }
-fn decode_optional_disposition(
+pub(super) fn decode_optional_disposition(
     value: Option<i64>,
 ) -> rusqlite::Result<Option<ScannerTerminalDisposition>> {
     value

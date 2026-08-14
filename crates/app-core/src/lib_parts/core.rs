@@ -1,5 +1,6 @@
 pub struct AppCore {
     store: Mutex<LocalStore>,
+    mutation_security: Option<MutationSecurityContext>,
     runtime_mode: RuntimeMode,
     runtime_profile_path: Option<PathBuf>,
     runtime_state: RwLock<RuntimeAvailability>,
@@ -16,4 +17,26 @@ pub struct AppCore {
     runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
     runtime_connect: tokio::sync::Mutex<()>,
     runtime_operation: tokio::sync::Mutex<()>,
+    mutation_gate_epoch: AtomicU64,
+    #[cfg(any(test, feature = "test-support"))]
+    mutation_test_hold_before_canonical: AtomicBool,
+    #[cfg(any(test, feature = "test-support"))]
+    mutation_test_before_canonical_reached: tokio::sync::Notify,
+    #[cfg(any(test, feature = "test-support"))]
+    mutation_test_continue_canonical: tokio::sync::Notify,
+    #[cfg(any(test, feature = "test-support"))]
+    mutation_test_hold_before_dispatch: AtomicBool,
+    #[cfg(any(test, feature = "test-support"))]
+    mutation_test_before_dispatch: tokio::sync::Notify,
+}
+
+struct MutationSecurityContext {
+    secure: Arc<dyn SecureStore>,
+}
+
+#[derive(Clone)]
+struct RuntimeOperationContext {
+    client: AuthenticatedRuntimeClient,
+    gate_epoch: u64,
+    identity: replay::StableRuntimeIdentity,
 }

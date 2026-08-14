@@ -7,7 +7,7 @@ use gocode_api::{
     ProtectedLaunchRequestV2, ProtectedOwnedLaunchV2, ProtectedReadyV1, ProtectedReadyV2,
     ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
     ProtectedRenewTicketV2, ProtectedRuntimeProfileV1, ProtectedShutdownAckV1,
-    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1,
+    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1, ProviderActivationReadinessV1,
     ProviderActivationModeV1, StableRuntimeBindingV1,
 };
 use sha2::{Digest, Sha256};
@@ -36,7 +36,7 @@ fn profile() -> ProtectedRuntimeProfileV1 {
     ProtectedRuntimeProfileV1::new(
         "gocode-bundled-runtime/1",
         1,
-        "gocode-ui-client/1",
+        "gocode-ui-client/2",
         [0x21; 32],
         [0x22; 32],
     )
@@ -48,7 +48,7 @@ fn stable() -> StableRuntimeBindingV1 {
         AUTHORITY_ID,
         "local-owner",
         LINEAGE_ID,
-        "gocode-ui-client/1",
+        "gocode-ui-client/2",
         [0x21; 32],
         [0x22; 32],
     )
@@ -157,7 +157,7 @@ fn credential_first_profile_is_rejected_for_bundled_activation() {
     let external = ProtectedRuntimeProfileV1::new(
         "gocode-local-runtime/2",
         2,
-        "gocode-ui-client/1",
+        "gocode-ui-client/2",
         [0x21; 32],
         [0x22; 32],
     )

@@ -1,12 +1,27 @@
 pub fn snapshot(
-    store: &LocalStore,
+    store: &mut LocalStore,
+    secure: Option<&dyn gocode_secure_store::SecureStore>,
     scope: &ReplayScopeKey,
     reference: &StoredConversationReference,
 ) -> Result<ConversationSnapshot, AppCoreError> {
-    let stored = store
-        .conversation_projection(scope)
-        .map_err(|error| map_store_error(&error))?
-        .ok_or(AppCoreError::LocalProjectionUnavailable)?;
+    let stored = match secure {
+        Some(secure) => store.authenticated_conversation_projection(secure, scope),
+        None => store.conversation_projection(scope),
+    }
+    .map_err(|error| map_store_error(&error))?
+    .ok_or(AppCoreError::LocalProjectionUnavailable)?;
+    if let Ok(snapshot) = generic_projection::conversation_snapshot(
+        &stored.payload,
+        stored.revision,
+        stored.event_sequence,
+        reference,
+    ) {
+        if digest(&stored.payload) == stored.digest && stored.binding_digest == scope.binding_digest
+        {
+            return Ok(snapshot);
+        }
+        return Err(AppCoreError::LocalProjectionUnavailable);
+    }
     let projection: StoredConversationProjection = serde_json::from_slice(&stored.payload)
         .map_err(|_| AppCoreError::LocalProjectionUnavailable)?;
     if projection.schema_version != PROJECTION_SCHEMA_VERSION
@@ -22,16 +37,21 @@ pub fn snapshot(
 }
 
 pub fn checkpoint(
-    store: &LocalStore,
+    store: &mut LocalStore,
+    secure: Option<&dyn gocode_secure_store::SecureStore>,
     scope: &ReplayScopeKey,
 ) -> Result<Option<ReplayCheckpoint>, AppCoreError> {
-    store
-        .replay_checkpoint(scope)
-        .map_err(|error| map_store_error(&error))
+    match secure {
+        Some(secure) => store.authenticated_replay_checkpoint(secure, scope),
+        None => store.replay_checkpoint(scope),
+    }
+    .map_err(|error| map_store_error(&error))
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn apply_delivery(
     store: &mut LocalStore,
+    secure: Option<&dyn gocode_secure_store::SecureStore>,
     reference: &StoredConversationReference,
     identity: &StableRuntimeIdentity,
     delivery: &ReplayDelivery,
@@ -43,20 +63,32 @@ pub fn apply_delivery(
         return Err(AppCoreError::RuntimeIdentityConflict);
     }
     let scope = identity.scope(reference);
-    let checkpoint = store
-        .replay_checkpoint(&scope)
-        .map_err(|error| map_store_error(&error))?;
-    let stored_projection = store
-        .conversation_projection(&scope)
-        .map_err(|error| map_store_error(&error))?;
+    let checkpoint = match secure {
+        Some(secure) => store.authenticated_replay_checkpoint(secure, &scope),
+        None => store.replay_checkpoint(&scope),
+    }
+    .map_err(|error| map_store_error(&error))?;
+    let stored_projection = match secure {
+        Some(secure) => store.authenticated_conversation_projection(secure, &scope),
+        None => store.conversation_projection(&scope),
+    }
+    .map_err(|error| map_store_error(&error))?;
     if checkpoint.is_some() != stored_projection.is_some() {
         return Err(AppCoreError::LocalProjectionUnavailable);
     }
 
     let mut projection = match stored_projection {
         Some(stored) => {
-            let projection: StoredConversationProjection = serde_json::from_slice(&stored.payload)
-                .map_err(|_| AppCoreError::LocalProjectionUnavailable)?;
+            let projection: StoredConversationProjection =
+                match serde_json::from_slice(&stored.payload) {
+                    Ok(projection) => projection,
+                    Err(_) => generic_projection::legacy_projection(
+                        &stored.payload,
+                        stored.revision,
+                        stored.event_sequence,
+                        reference,
+                    )?,
+                };
             if projection.projection_revision != stored.revision
                 || projection.stream_version != stored.event_sequence
                 || !valid_projection(&projection, reference)
@@ -76,7 +108,7 @@ pub fn apply_delivery(
         .is_some_and(|current| event.sequence() < current.event_sequence)
     {
         let confirmed = delivery.persist_with(|handoff| {
-            store.confirm_replay_event_applied(&AppliedReplayEvent {
+            let applied = AppliedReplayEvent {
                 scope: &scope,
                 event_id: &event.event_id().to_string(),
                 cursor: handoff.cursor_value(),
@@ -84,7 +116,11 @@ pub fn apply_delivery(
                 event_sequence: event.sequence(),
                 event_bytes: handoff.canonical_event_bytes(),
                 event_digest: handoff.event_digest(),
-            })
+            };
+            match secure {
+                Some(secure) => store.authenticated_confirm_replay_event_applied(secure, &applied),
+                None => store.confirm_replay_event_applied(&applied),
+            }
         });
         return match confirmed.map_err(|error| map_store_error(&error))? {
             ReplayApplyOutcome::AlreadyApplied { .. } => Ok(None),
@@ -108,7 +144,7 @@ pub fn apply_delivery(
         identity.launch_generation
     };
     let outcome = delivery.persist_with(|handoff| {
-        store.apply_replay_transition(&ReplayTransition {
+        let transition = ReplayTransition {
             scope: &scope,
             expected_checkpoint: checkpoint.as_ref(),
             event_id: &event_id,
@@ -120,7 +156,11 @@ pub fn apply_delivery(
             projection_revision: projection.projection_revision,
             projection_bytes: &projection_bytes,
             projection_digest,
-        })
+        };
+        match secure {
+            Some(secure) => store.apply_anchored_replay_transition(secure, &transition),
+            None => store.apply_replay_transition(&transition),
+        }
     });
     match outcome.map_err(|error| map_store_error(&error))? {
         ReplayApplyOutcome::AlreadyApplied { .. } => Ok(None),
