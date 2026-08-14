@@ -208,8 +208,14 @@ ROOT_STATUS = EVIDENCE_PATH.parents[0] / "desktop-v1-capability-status-v2.json"
 class NativeQualificationWorkflowTests(unittest.TestCase):
     def test_native_workflow_installs_dependencies_and_runs_protected_process_gate(self) -> None:
         workflow = (EVIDENCE_PATH.parents[2] / ".github/workflows/desktop-native-qualification.yml").read_text(encoding="utf-8")
+        command = "cargo test -p gocode-daemon --test protected_bundled_runtime_process --locked --features test-support,desktop-protected"
         self.assertIn("pnpm install --frozen-lockfile", workflow)
-        self.assertIn("cargo test -p gocode-daemon --test protected_bundled_runtime_process --locked", workflow)
+        self.assertIn(command, workflow)
+        local_ci = (EVIDENCE_PATH.parents[2] / "scripts/ci-local-inputs.sh").read_text(encoding="utf-8")
+        self.assertIn("cargo test -p gocode-daemon --test protected_bundled_runtime_process", local_ci)
+        self.assertIn("--locked --features test-support,desktop-protected", local_ci)
+        daemon_manifest = (EVIDENCE_PATH.parents[2] / "crates/gocode-daemon/Cargo.toml").read_text(encoding="utf-8")
+        self.assertIn('required-features = ["test-support", "desktop-protected"]', daemon_manifest)
         self.assertIn("macos-13-arm64", workflow)
         self.assertIn("windows-10-22h2-x86_64", workflow)
 
