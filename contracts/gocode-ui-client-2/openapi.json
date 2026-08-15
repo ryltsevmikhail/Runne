@@ -2312,6 +2312,98 @@
         ]
       }
     },
+    "/v1/task-runs/{taskRunId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskRunId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/task-run-v1.schema.json"
+                }
+              }
+            },
+            "description": "Canonical response"
+          },
+          "400": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
     "/v1/workspaces/{workspaceId}": {
       "get": {
         "parameters": [],

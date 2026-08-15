@@ -16,8 +16,8 @@
       "oneOf": [
         {
           "items": false,
-          "maxItems": 22,
-          "minItems": 22,
+          "maxItems": 23,
+          "minItems": 23,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -29,6 +29,10 @@
             },
             {
               "const": "conversation.list_messages.v1",
+              "type": "string"
+            },
+            {
+              "const": "task_run.get.v1",
               "type": "string"
             },
             {
@@ -112,8 +116,8 @@
         },
         {
           "items": false,
-          "maxItems": 23,
-          "minItems": 23,
+          "maxItems": 24,
+          "minItems": 24,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -125,6 +129,10 @@
             },
             {
               "const": "conversation.list_messages.v1",
+              "type": "string"
+            },
+            {
+              "const": "task_run.get.v1",
               "type": "string"
             },
             {

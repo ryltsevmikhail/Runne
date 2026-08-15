@@ -39,11 +39,11 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "99adf7b0ff2594d93becb90054b563114264f4451d45f0e63de2395bde8ecc49"
+      "sha256": "23ebfc5355c0a1d3448188708b2e970f3704941258db95b11aad1c3ffd6aed85"
     },
     {
       "path": "schemas/local-runtime-profile-v3.schema.json",
-      "sha256": "891eceb583613baef2a96bbe914339277922a7b69bf951127ad990c86039f243"
+      "sha256": "79754959a72611c0137fc11d812dfcd8c5eeb8a81c3e14bb6464c593becf3117"
     },
     {
       "path": "schemas/local-session-v2.schema.json",
@@ -64,12 +64,17 @@
     {
       "path": "schemas/sse-v1.schema.json",
       "sha256": "0211eb00a832ea7e9a7664faff442f56e9e1a0626931d0f2dd29bf51de444738"
+    },
+    {
+      "path": "schemas/task-run-v1.schema.json",
+      "sha256": "46fea35a75f50f7cbc0e79f70c1b0c2e30d2631b8ecdf16cac799ebb1975394c"
     }
   ],
   "capabilityCatalog": [
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.get.v1",
     "replay.aggregate.open.v1",
     "replay.aggregate.retention_baseline.v1",
     "replay.aggregate.retention_baseline_resume.v2",
@@ -96,6 +101,7 @@
     "conversation.create.v1",
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
+    "task_run.get.v1",
     "replay.aggregate.open.v1",
     "replay.aggregate.retention_baseline.v1",
     "replay.aggregate.retention_baseline_resume.v2",

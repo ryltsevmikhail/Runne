@@ -53,6 +53,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "schemas/project-workspace-v2.schema.json",
     "schemas/replay-v1.schema.json",
     "schemas/sse-v1.schema.json",
+    "schemas/task-run-v1.schema.json",
 ];
 
 /// Contract generation or byte-check failure.
@@ -78,6 +79,8 @@ include!("contract_generation/payload_schema.rs");
 include!("contract_generation/replay_schema.rs");
 include!("contract_generation/local_schemas.rs");
 include!("contract_generation/operational_telemetry_schema.rs");
+include!("contract_generation/task_run_schema.rs");
+include!("contract_generation/task_run_openapi.rs");
 include!("contract_generation/project_workspace_schema.rs");
 include!("contract_generation/project_workspace_openapi.rs");
 include!("contract_generation/openapi.rs");

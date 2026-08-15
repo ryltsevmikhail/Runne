@@ -21,7 +21,8 @@ pub use canonical::{
     ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
     CreateConversationRequest, GenerateTextRequest, PROTECTED_RUNTIME_CAPABILITIES,
     REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError, RuntimeApiErrorKind, RuntimeSessionAuthority,
-    RuntimeSessionInfo, RuntimeTransportKind, protected_profile_matches,
+    RuntimeSessionInfo, RuntimeTransportKind, TaskRunSnapshot, TaskRunState, TaskRunTerminalResult,
+    protected_profile_matches,
 };
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
