@@ -34,9 +34,8 @@ async fn wait_for_subscription_count(fixture: &RetentionGapFixture, expected: i6
 async fn wait_for_cancelled_admission_cleanup(fixture: &RetentionGapFixture) {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            // Reads the test-only audit table this test injects; the strict
-            // released-schema classification of managed reopens rejects extra
-            // objects, so the probe stays on a raw test connection.
+            // Test-only audit table this test injects; managed reopens reject
+            // extra objects, so the probe stays on a raw test connection.
             let connection = rusqlite::Connection::open(fixture.database_path()).unwrap();
             let inserted: i64 = connection
                 .query_row(
@@ -104,10 +103,8 @@ async fn cancelled_blocked_resume_releases_durable_session_and_ninth_quota_slot(
     let fixture = retention_gap_fixture().await;
     let app = fixture.v2_app();
     let baseline = signed_v2_baseline(&fixture, &app).await;
-    // Race-simulation lock that also injects test-only audit tables/triggers.
-    // Managed reopen validation classifies against the released schema and
-    // rejects these extra objects, so the test DDL must run on a raw test
-    // connection; it never touches production admission paths.
+    // Race-simulation lock also injecting test-only audit tables/triggers;
+    // managed reopens reject them, so the DDL runs on a raw test connection.
     let lock = rusqlite::Connection::open(fixture.database_path()).unwrap();
     lock.execute_batch(
         "CREATE TABLE resume_cleanup_audit(action TEXT NOT NULL);
