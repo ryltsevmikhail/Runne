@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
+
 use super::*;
 
 /// Owned daemon side of the inherited full-duplex activation channel.

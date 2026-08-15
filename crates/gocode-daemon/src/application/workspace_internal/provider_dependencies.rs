@@ -19,6 +19,7 @@ pub(crate) struct ProtectedProviderDependencyCapsule(ProviderDependencyState);
 
 pub(crate) enum ProviderDependencyState {
     Production,
+    #[cfg_attr(not(test), allow(dead_code))]
     LoopbackFixture {
         effect: Arc<dyn OpenAiEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
@@ -32,6 +33,7 @@ impl ProtectedProviderDependencyCapsule {
         Self(ProviderDependencyState::Production)
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn from_loopback_fixture(
         effect: Arc<dyn OpenAiEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,

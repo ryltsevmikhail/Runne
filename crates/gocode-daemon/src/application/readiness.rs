@@ -17,6 +17,7 @@ impl DaemonApplication {
     }
 
     /// Builds exact authenticated readiness without exposing legacy profile files.
+    #[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
     pub(crate) fn protected_ready(
         &self,
         request: &ProtectedLaunchRequestV1,
@@ -71,6 +72,7 @@ impl DaemonApplication {
     }
 
     /// Builds V2 readiness only for the exact protected provider binding.
+    #[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
     pub(crate) fn protected_ready_v2(
         &self,
         request: &ProtectedLaunchRequestV2,
@@ -93,6 +95,7 @@ impl DaemonApplication {
     }
 
     /// Shares the in-memory protected session service with the control loop.
+    #[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
     pub(crate) fn protected_session_service(
         &self,
     ) -> Result<Arc<Mutex<LocalSessionService>>, DaemonError> {
@@ -105,6 +108,7 @@ impl DaemonApplication {
     }
 
     /// Shares the daemon monotonic clock used to enforce bootstrap deadlines.
+    #[cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
     pub(crate) fn protected_session_clock(
         &self,
     ) -> Result<Arc<dyn Fn() -> Duration + Send + Sync>, DaemonError> {

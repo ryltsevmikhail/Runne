@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
+
 use super::*;
 
 pub(super) fn expected_profile() -> Result<ProtectedRuntimeProfileV1, LaunchAuthorityError> {
