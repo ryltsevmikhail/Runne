@@ -211,7 +211,7 @@ async fn run_health_command(
         HealthError::ProfileIncompatible => CliError::ProfileIncompatible,
         HealthError::ConnectionFailed | HealthError::HealthCheckFailed => CliError::Runtime,
     })?;
-    health_command_output(health_info, format)
+    health_command_output(&health_info, format)
 }
 
 async fn run_doctor_command(

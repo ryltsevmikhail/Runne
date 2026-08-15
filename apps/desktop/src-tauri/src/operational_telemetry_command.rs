@@ -16,13 +16,13 @@ pub async fn get_operational_telemetry(
     operational_telemetry_from_core(Arc::clone(state.inner())).await
 }
 
-pub(crate) async fn operational_telemetry_from_core(
+pub async fn operational_telemetry_from_core(
     core: Arc<AppCore>,
 ) -> Result<OperationalTelemetrySnapshotV1, IpcError> {
     operational_telemetry_from_core_with_gate(core, Arc::clone(telemetry_gate())).await
 }
 
-pub(crate) async fn operational_telemetry_from_core_with_gate(
+pub async fn operational_telemetry_from_core_with_gate(
     core: Arc<AppCore>,
     gate: Arc<Semaphore>,
 ) -> Result<OperationalTelemetrySnapshotV1, IpcError> {
@@ -37,7 +37,7 @@ pub(crate) async fn operational_telemetry_from_core_with_gate(
     .await
 }
 
-pub(crate) async fn run_telemetry_blocking<T, F>(
+pub async fn run_telemetry_blocking<T, F>(
     permit: OwnedSemaphorePermit,
     projection: F,
 ) -> Result<T, IpcError>
@@ -58,7 +58,7 @@ fn telemetry_gate() -> &'static Arc<Semaphore> {
     GATE.get_or_init(|| Arc::new(Semaphore::new(1)))
 }
 
-pub(crate) fn operational_telemetry_at(
+pub fn operational_telemetry_at(
     core: &AppCore,
     observed_at_unix_seconds: u64,
 ) -> Result<OperationalTelemetrySnapshotV1, IpcError> {

@@ -126,8 +126,8 @@ pub fn format_health(info: &HealthInfo, format: OutputFormat) -> String {
     }
 }
 
-fn health_command_output(info: HealthInfo, format: OutputFormat) -> Result<String, CliError> {
-    let output = format_health(&info, format);
+fn health_command_output(info: &HealthInfo, format: OutputFormat) -> Result<String, CliError> {
+    let output = format_health(info, format);
     if info.healthy {
         Ok(output)
     } else {
@@ -166,7 +166,7 @@ mod tests {
             ("shutting_down", 1),
         ] {
             let outcome = process_outcome(
-                health_command_output(health("1.2.3", status), OutputFormat::Text),
+                health_command_output(&health("1.2.3", status), OutputFormat::Text),
                 OutputFormat::Text,
             );
             assert_eq!(outcome.exit_code, expected_code, "{status}");
@@ -184,7 +184,7 @@ mod tests {
             ("shutting_down", 1),
         ] {
             let outcome = process_outcome(
-                health_command_output(health("1.2.3", status), OutputFormat::Json),
+                health_command_output(&health("1.2.3", status), OutputFormat::Json),
                 OutputFormat::Json,
             );
             assert_eq!(outcome.exit_code, expected_code, "{status}");
