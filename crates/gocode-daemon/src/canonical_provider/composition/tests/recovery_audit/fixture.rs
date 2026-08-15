@@ -1,5 +1,5 @@
 use gocode_application::provider::ProviderAuthorityIssueRequest;
-use gocode_domain::id::{AttemptId, ConversationId, TaskRunId};
+use gocode_domain::id::{AttemptId, ConversationId, EventLogLineageId, TaskRunId};
 use gocode_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallDigestVersion, ProviderCallId, ProviderId, ProviderStreamId,
@@ -7,6 +7,8 @@ use gocode_provider::{
 use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 
 pub(super) use super::super::managed_test_connection;
 use super::super::*;
@@ -16,6 +18,7 @@ pub(super) struct Harness {
     _directory: tempfile::TempDir,
     pub(super) db_path: String,
     authority: [u8; 16],
+    lineage: EventLogLineageId,
     generation: u64,
     profile_digest: [u8; 32],
     provenance: DaemonActivationProvenance,
@@ -28,6 +31,8 @@ pub(super) struct Harness {
 impl Harness {
     pub(super) async fn new() -> Self {
         let directory = tempfile::tempdir().unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut config = crate::config::ConfigurationSnapshot::from_defaults(
             &BuiltInDefaults::new(directory.path()),
         );
@@ -37,7 +42,14 @@ impl Harness {
         let profile_digest = *config.provider_activation.binding().profile_digest();
         let db_path = config.db_path.clone();
         let bootstrap = bootstrap(&config).unwrap();
-        gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(
+            std::path::Path::new(&db_path).parent().unwrap(),
+            std::fs::Permissions::from_mode(0o700),
+        )
+        .unwrap();
+        let lineage =
+            gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
         let authority = bootstrap.authority_id;
         let generation = bootstrap.launch_generation;
         let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
@@ -45,8 +57,20 @@ impl Harness {
         );
         let prohibited: Arc<dyn ProhibitedContentPort> =
             Arc::new(SecretBroker::new().prohibited_content_guard());
-        let store = StoreTransaction::open(
+        let store = StoreTransaction::open_with_connections(
             &db_path,
+            managed_test_connection(
+                &db_path,
+                authority,
+                lineage,
+                gocode_store::schema::ConnectionMode::ValidatedReopen,
+            ),
+            managed_test_connection(
+                &db_path,
+                authority,
+                lineage,
+                gocode_store::schema::ConnectionMode::Reader,
+            ),
             RuntimeAuthorityId(hex::encode(authority)),
             Arc::clone(&prohibited),
         )
@@ -66,6 +90,7 @@ impl Harness {
             _directory: directory,
             db_path,
             authority,
+            lineage,
             generation,
             profile_digest,
             provenance,
@@ -102,9 +127,9 @@ impl Harness {
         });
         DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
             db_path: self.db_path.clone(),
-            dispatch_connection: managed_test_connection(&self.db_path),
-            execution_connection: managed_test_connection(&self.db_path),
-            credential_connection: managed_test_connection(&self.db_path),
+            dispatch_connection: self.writer_connection(),
+            execution_connection: self.writer_connection(),
+            credential_connection: self.writer_connection(),
             runtime_authority_id: self.authority,
             runtime_generation: generation,
             activation_provenance: self.provenance,
@@ -210,6 +235,24 @@ impl Harness {
 
     pub(super) fn prohibited(&self) -> Arc<dyn ProhibitedContentPort> {
         Arc::clone(&self.prohibited)
+    }
+
+    pub(super) fn query_connection(&self) -> gocode_store::schema::ManagedConnection {
+        managed_test_connection(
+            &self.db_path,
+            self.authority,
+            self.lineage,
+            gocode_store::schema::ConnectionMode::Reader,
+        )
+    }
+
+    pub(super) fn writer_connection(&self) -> gocode_store::schema::ManagedConnection {
+        managed_test_connection(
+            &self.db_path,
+            self.authority,
+            self.lineage,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+        )
     }
 
     pub(super) fn begin(

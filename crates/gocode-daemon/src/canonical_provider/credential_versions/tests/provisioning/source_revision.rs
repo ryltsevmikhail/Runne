@@ -153,7 +153,7 @@ struct ProvisionFixture {
     store: SqliteProviderCredentialLifecycleStore,
     native: ProvisioningNative,
     provider: ProviderId,
-    access: ProviderCredentialAccessPolicy,
+    access: TestCredentialAccess,
 }
 
 impl ProvisionFixture {
@@ -164,13 +164,12 @@ impl ProvisionFixture {
         let store =
             SqliteProviderCredentialLifecycleStore::open_at_with_authority(&path, lifecycle, 100)
                 .unwrap();
-        let executable = std::env::current_exe().unwrap();
         Self {
             _directory: directory,
             store,
             native: ProvisioningNative::new(native_authority),
             provider: ProviderId::new("openai").unwrap(),
-            access: ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap(),
+            access: TestCredentialAccess::new(label),
         }
     }
 

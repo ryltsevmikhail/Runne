@@ -1,3 +1,4 @@
+mod dispatch_snapshot;
 mod fixture;
 mod oracle;
 mod part_01;

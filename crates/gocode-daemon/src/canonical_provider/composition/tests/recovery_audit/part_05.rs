@@ -20,7 +20,7 @@ async fn restart_does_not_decrypt_or_apply_outbox_without_scanner_completed() {
             .unwrap(),
         ScannerTerminalDisposition::Uncertain(ScannerUncertainReason::SecretDetected)
     );
-    let before = snapshot(&harness.db_path);
+    let before = snapshot(&harness);
     drop(service);
 
     assert!(
@@ -29,9 +29,9 @@ async fn restart_does_not_decrypt_or_apply_outbox_without_scanner_completed() {
             .await
             .is_err()
     );
-    let after = snapshot(&harness.db_path);
+    let after = snapshot(&harness);
     assert_unchanged_except(&before, &after, &["provider_runtime_authority_state"]);
-    let connection = rusqlite::Connection::open(&harness.db_path).unwrap();
+    let connection = harness.query_connection();
     assert_eq!(
         connection
             .query_row("SELECT state FROM provider_terminal_outbox", [], |row| {

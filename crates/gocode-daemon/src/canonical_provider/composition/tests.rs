@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 use std::sync::{Arc, Mutex};
 
 use gocode_api::CreateConversationInput;
@@ -38,39 +40,12 @@ use crate::operational_telemetry::DaemonOperationalTelemetryQueryService;
 use crate::operational_telemetry::compose_operational_telemetry_query;
 use crate::provider_activation::ProviderActivation;
 
+mod managed_connection;
 mod pending;
 mod recovery_audit;
 mod workspace;
+use managed_connection::managed_test_connection;
 use workspace::seed_canonical_workspace;
-
-fn managed_test_connection(path: &str) -> gocode_store::schema::ManagedConnection {
-    let observer = rusqlite::Connection::open_with_flags(
-        path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .unwrap();
-    let authority = gocode_store::schema::read_authority_id(&observer)
-        .unwrap()
-        .unwrap();
-    let lineage = gocode_store::schema::read_event_log_lineage_id(&observer)
-        .unwrap()
-        .unwrap();
-    drop(observer);
-    gocode_store::schema::reopen_managed_connection_validated(
-        std::path::Path::new(path),
-        gocode_store::schema::ConnectionMode::ValidatedReopen,
-        |connection| {
-            if gocode_store::schema::read_authority_id(connection)? == Some(authority)
-                && gocode_store::schema::read_event_log_lineage_id(connection)? == Some(lineage)
-            {
-                Ok(())
-            } else {
-                Err(rusqlite::Error::InvalidQuery)
-            }
-        },
-    )
-    .unwrap()
-}
 
 struct FixedClock;
 
@@ -136,6 +111,8 @@ impl ProviderJournalKeyring for Keyring {
 #[tokio::test(flavor = "current_thread")]
 async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mismatched() {
     let directory = tempfile::tempdir().unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut config = crate::config::ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(
         directory.path(),
     ));
@@ -144,7 +121,13 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     let profile_digest = *config.provider_activation.binding().profile_digest();
     let db_path = config.db_path.clone();
     let bootstrap = bootstrap(&config).unwrap();
-    gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
+    #[cfg(unix)]
+    std::fs::set_permissions(
+        std::path::Path::new(&db_path).parent().unwrap(),
+        std::fs::Permissions::from_mode(0o700),
+    )
+    .unwrap();
+    let lineage = gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
     let authority = bootstrap.authority_id;
     let generation = bootstrap.launch_generation;
     let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
@@ -152,8 +135,20 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     );
     let prohibited: Arc<dyn ProhibitedContentPort> =
         Arc::new(SecretBroker::new().prohibited_content_guard());
-    let store = StoreTransaction::open(
+    let store = StoreTransaction::open_with_connections(
         &db_path,
+        managed_test_connection(
+            &db_path,
+            authority,
+            lineage,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+        ),
+        managed_test_connection(
+            &db_path,
+            authority,
+            lineage,
+            gocode_store::schema::ConnectionMode::Reader,
+        ),
         RuntimeAuthorityId(hex::encode(authority)),
         Arc::clone(&prohibited),
     )
@@ -209,9 +204,24 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     });
     let service = DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
         db_path: db_path.clone(),
-        dispatch_connection: managed_test_connection(&db_path),
-        execution_connection: managed_test_connection(&db_path),
-        credential_connection: managed_test_connection(&db_path),
+        dispatch_connection: managed_test_connection(
+            &db_path,
+            authority,
+            lineage,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+        ),
+        execution_connection: managed_test_connection(
+            &db_path,
+            authority,
+            lineage,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+        ),
+        credential_connection: managed_test_connection(
+            &db_path,
+            authority,
+            lineage,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+        ),
         runtime_authority_id: authority,
         runtime_generation: generation,
         activation_provenance: provenance,

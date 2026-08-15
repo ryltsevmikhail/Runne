@@ -3,7 +3,9 @@ use std::sync::Mutex;
 
 use super::*;
 
+mod access;
 mod source_revision;
+use access::TestCredentialAccess;
 
 struct ProvisioningNative {
     authority: NativeCredentialAuthority,
@@ -141,8 +143,7 @@ fn restart_after_native_create_replays_exact_version_and_activates() {
         .unwrap();
     let native = ProvisioningNative::new(native_authority);
     let material = ProviderCredentialMaterial::new(b"crash-replay-material".to_vec()).unwrap();
-    let executable = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap();
+    let access = TestCredentialAccess::new("credential-native-restart");
     native
         .create_version(
             store.claim_native_create(&provision).unwrap(),
@@ -197,8 +198,7 @@ fn provisioning_rejects_conflicting_operation_and_native_payload() {
     let native = ProvisioningNative::new(native_authority);
     let original = ProviderCredentialMaterial::new(b"original-material".to_vec()).unwrap();
     let conflicting = ProviderCredentialMaterial::new(b"conflicting-material".to_vec()).unwrap();
-    let executable = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap();
+    let access = TestCredentialAccess::new("credential-provision-conflict");
     native
         .create_version(
             store.claim_native_create(&provision).unwrap(),

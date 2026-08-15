@@ -4,9 +4,9 @@ fn column(columns: &[String], name: &str) -> usize {
     columns.iter().position(|column| column == name).unwrap()
 }
 
-pub(super) fn assert_refreshed(before: &Snapshot, after: &Snapshot, path: &str) {
-    let snapshot_columns = table_columns(path, "aggregate_state_snapshots");
-    let event_columns = table_columns(path, "events");
+pub(super) fn assert_refreshed(before: &Snapshot, after: &Snapshot, harness: &Harness) {
+    let snapshot_columns = table_columns(harness, "aggregate_state_snapshots");
+    let event_columns = table_columns(harness, "events");
     let aggregate_type = column(&snapshot_columns, "aggregate_type");
     let aggregate_id = column(&snapshot_columns, "aggregate_id");
     let version = column(&snapshot_columns, "aggregate_version");

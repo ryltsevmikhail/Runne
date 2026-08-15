@@ -17,17 +17,17 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
     let service = harness.compose().await;
     let (begin, started) = harness.begin();
     super::super::pending::create(&service, started.clone()).await;
-    let before = snapshot(&harness.db_path);
+    let before = snapshot(&harness);
     let keyring = harness.keyring();
     let prohibited = harness.prohibited();
     let store_a = SqliteProviderExecutionStore::open_with_connection(
         &harness.db_path,
-        managed_test_connection(&harness.db_path),
+        harness.writer_connection(),
     )
     .unwrap();
     let store_b = SqliteProviderExecutionStore::open_with_connection(
         &harness.db_path,
-        managed_test_connection(&harness.db_path),
+        harness.writer_connection(),
     )
     .unwrap();
     let matcher = ProhibitedContentCredentialMatcher::new(prohibited.as_ref());
@@ -74,16 +74,16 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
     store_a
         .acknowledge_terminal_outbox(pending_a[0].record().outbox_id, receipt_a)
         .unwrap();
-    let after_first_ack = snapshot(&harness.db_path);
+    let after_first_ack = snapshot(&harness);
     store_b
         .acknowledge_terminal_outbox(pending_b[0].record().outbox_id, receipt_b)
         .unwrap();
-    let after = snapshot(&harness.db_path);
+    let after = snapshot(&harness);
     assert_eq!(after, after_first_ack);
     assert_expected_terminal_recovery_delta(
         &before,
         &after,
-        &harness.db_path,
+        &harness,
         begin.command_id,
         &started,
         false,
@@ -94,10 +94,10 @@ async fn two_reconcilers_preloaded_before_ack_converge_to_single_receipt() {
         .load_text_generation_receipt_by_command(begin.command_id, &begin.idempotency_key)
         .unwrap();
     assert_completed_receipt(&receipt, &started);
-    let before_conflict = snapshot(&harness.db_path);
+    let before_conflict = snapshot(&harness);
     assert_eq!(
         store_b.acknowledge_terminal_outbox(pending_b[0].record().outbox_id, [9; 32]),
         Err(ProviderExecutionError::OutboxConflict)
     );
-    assert_eq!(snapshot(&harness.db_path), before_conflict);
+    assert_eq!(snapshot(&harness), before_conflict);
 }

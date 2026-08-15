@@ -16,33 +16,33 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
     super::super::pending::create(&service, started.clone()).await;
     let issued = harness.issue_incomplete(&service, 11, false);
     let streaming = harness.issue_incomplete(&service, 12, true);
-    let before = snapshot(&harness.db_path);
-    let pending_terminal = dispatch_attempt_for_state(&before, &harness.db_path, 4);
+    let before = snapshot(&harness);
+    let pending_terminal = dispatch_attempt_for_state(&before, &harness, 4);
     let issued = dispatch_attempt_key(issued);
     let streaming = dispatch_attempt_key(streaming);
     let utilization_before = service.execution_store.utilization().unwrap();
     drop(service);
 
     let composed = harness.compose_at_generation(generation + 1).await;
-    let after = snapshot(&harness.db_path);
+    let after = snapshot(&harness);
 
     assert_expected_terminal_recovery_delta(
         &before,
         &after,
-        &harness.db_path,
+        &harness,
         begin.command_id,
         &started,
         true,
         true,
     );
-    assert_authority_renewal(&before, &after, &harness.db_path, generation + 1);
+    assert_authority_renewal(&before, &after, &harness, generation + 1);
     assert_dispatch_rows(
         &before,
         &after,
-        &harness.db_path,
+        &harness,
         &[(pending_terminal, 4, 5), (issued, 1, 6), (streaming, 3, 6)],
     );
-    assert_credential_rotation(&before, &after, &harness.db_path, generation);
+    assert_credential_rotation(&before, &after, &harness, generation);
     assert_unchanged_except(
         &before,
         &after,
@@ -64,8 +64,8 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
         after["provider_budget_reservations"],
         before["provider_budget_reservations"]
     );
-    assert_active_reservations(&after, &harness.db_path, "rotation-incomplete-11");
-    assert_active_reservations(&after, &harness.db_path, "rotation-incomplete-12");
+    assert_active_reservations(&after, &harness, "rotation-incomplete-11");
+    assert_active_reservations(&after, &harness, "rotation-incomplete-12");
     assert_eq!(
         composed.execution_store.utilization().unwrap(),
         utilization_before
@@ -85,8 +85,8 @@ async fn rotation_restart_applies_pre_rotation_outbox_and_freezes_stale() {
     );
 }
 
-fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, path: &str, fence: u64) {
-    let columns = table_columns(path, "provider_credential_versions");
+fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, harness: &Harness, fence: u64) {
+    let columns = table_columns(harness, "provider_credential_versions");
     let version = column_index(&columns, "credential_version");
     let state = column_index(&columns, "lifecycle_state");
     let lease_fence = column_index(&columns, "lease_fencing_token");
@@ -111,7 +111,7 @@ fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, path: &str, f
     assert_eq!(replacement[revocation], "0");
     assert_eq!(replacement[tombstone], "NULL");
 
-    let provision_columns = table_columns(path, "provider_credential_provisions");
+    let provision_columns = table_columns(harness, "provider_credential_provisions");
     let provision_version = column_index(&provision_columns, "credential_version");
     let provision_state = column_index(&provision_columns, "provision_state");
     assert_eq!(before["provider_credential_provisions"].len(), 1);
@@ -124,7 +124,7 @@ fn assert_credential_rotation(before: &Snapshot, after: &Snapshot, path: &str, f
         ("2", "'ACTIVATED'")
     );
 
-    let clock_columns = table_columns(path, "provider_credential_clock_high_water");
+    let clock_columns = table_columns(harness, "provider_credential_clock_high_water");
     let observed = column_index(&clock_columns, "observed_at");
     let before_clock = before["provider_credential_clock_high_water"][0][observed]
         .parse::<i64>()
@@ -151,8 +151,8 @@ fn assert_remaining(
     );
 }
 
-fn dispatch_attempt_for_state(snapshot: &Snapshot, path: &str, state: i64) -> String {
-    let columns = table_columns(path, "provider_dispatch_attempts");
+fn dispatch_attempt_for_state(snapshot: &Snapshot, harness: &Harness, state: i64) -> String {
+    let columns = table_columns(harness, "provider_dispatch_attempts");
     let attempt = column_index(&columns, "attempt_id");
     let state_index = column_index(&columns, "state");
     let rows = snapshot["provider_dispatch_attempts"]
@@ -174,10 +174,10 @@ fn dispatch_attempt_key(attempt_id: DispatchAttemptId) -> String {
 fn assert_dispatch_rows(
     before: &Snapshot,
     after: &Snapshot,
-    path: &str,
+    harness: &Harness,
     expected: &[(String, i64, i64)],
 ) {
-    let columns = table_columns(path, "provider_dispatch_attempts");
+    let columns = table_columns(harness, "provider_dispatch_attempts");
     let attempt = column_index(&columns, "attempt_id");
     let state = column_index(&columns, "state");
     let before = dispatch_rows_by_attempt(before, attempt);
@@ -227,8 +227,8 @@ fn column_index(columns: &[String], name: &str) -> usize {
     columns.iter().position(|column| column == name).unwrap()
 }
 
-fn assert_active_reservations(snapshot: &Snapshot, path: &str, idempotency_key: &str) {
-    let state = table_columns(path, "provider_budget_reservations")
+fn assert_active_reservations(snapshot: &Snapshot, harness: &Harness, idempotency_key: &str) {
+    let state = table_columns(harness, "provider_budget_reservations")
         .iter()
         .position(|column| column == "state")
         .unwrap();

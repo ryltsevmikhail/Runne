@@ -1,6 +1,7 @@
 use gocode_application::ports::{TextGenerationPhase, TextGenerationReceipt};
 use gocode_domain::id::CommandId;
 
+use super::dispatch_snapshot::dispatch_row_for_state;
 use super::fixture::*;
 
 const LIFECYCLE_TABLES: &[&str] = &[
@@ -27,20 +28,6 @@ fn singleton_row<'a>(snapshot: &'a Snapshot, table: &str) -> &'a Vec<String> {
     &rows[0]
 }
 
-fn dispatch_row_for_state<'a>(snapshot: &'a Snapshot, path: &str, state: i64) -> &'a Vec<String> {
-    let state_column = column(&table_columns(path, "provider_dispatch_attempts"), "state");
-    let rows = snapshot["provider_dispatch_attempts"]
-        .iter()
-        .filter(|row| row[state_column] == state.to_string())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        rows.len(),
-        1,
-        "unexpected dispatch state {state} cardinality"
-    );
-    rows[0]
-}
-
 pub(super) fn assert_completed_receipt(
     receipt: &TextGenerationReceipt,
     started: &TextGenerationReceipt,
@@ -62,7 +49,7 @@ pub(super) fn assert_completed_receipt(
 pub(super) fn assert_expected_terminal_recovery_delta(
     before: &Snapshot,
     after: &Snapshot,
-    path: &str,
+    harness: &Harness,
     command_id: CommandId,
     started: &TextGenerationReceipt,
     allow_authority_renewal: bool,
@@ -78,8 +65,8 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         allowed.push("provider_credential_clock_high_water");
     }
     assert_unchanged_except(before, after, &allowed);
-    let outbox_columns = table_columns(path, "provider_terminal_outbox");
-    let dispatch_columns = table_columns(path, "provider_dispatch_attempts");
+    let outbox_columns = table_columns(harness, "provider_terminal_outbox");
+    let dispatch_columns = table_columns(harness, "provider_dispatch_attempts");
     let before_outbox = singleton_row(before, "provider_terminal_outbox");
     let after_outbox = singleton_row(after, "provider_terminal_outbox");
     for (index, name) in outbox_columns.iter().enumerate() {
@@ -100,8 +87,8 @@ pub(super) fn assert_expected_terminal_recovery_delta(
     assert_eq!(before_outbox[column(&outbox_columns, "applied_at")], "NULL");
     assert_ne!(after_outbox[column(&outbox_columns, "applied_at")], "NULL");
 
-    let before_dispatch = dispatch_row_for_state(before, path, 4);
-    let after_dispatch = dispatch_row_for_state(after, path, 5);
+    let before_dispatch = dispatch_row_for_state(before, harness, 4);
+    let after_dispatch = dispatch_row_for_state(after, harness, 5);
     for (index, name) in dispatch_columns.iter().enumerate() {
         if name != "state" {
             assert_eq!(
@@ -113,7 +100,7 @@ pub(super) fn assert_expected_terminal_recovery_delta(
     assert_eq!(before_dispatch[column(&dispatch_columns, "state")], "4");
     assert_eq!(after_dispatch[column(&dispatch_columns, "state")], "5");
 
-    let event_columns = table_columns(path, "events");
+    let event_columns = table_columns(harness, "events");
     let before_events = &before["events"];
     let after_events = &after["events"];
     assert!(after_events.starts_with(before_events));
@@ -158,7 +145,7 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         )));
     }
 
-    let receipt_columns = table_columns(path, "command_receipts");
+    let receipt_columns = table_columns(harness, "command_receipts");
     let command_column = column(&receipt_columns, "command_id");
     let expected_command = blob(command_id.as_bytes());
     let before_receipts = &before["command_receipts"];
@@ -187,7 +174,7 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         1
     );
 
-    let aggregate_columns = table_columns(path, "aggregate_streams");
+    let aggregate_columns = table_columns(harness, "aggregate_streams");
     let version = column(&aggregate_columns, "current_version");
     let aggregate_type = column(&aggregate_columns, "aggregate_type");
     let aggregate_id = column(&aggregate_columns, "aggregate_id");
@@ -240,8 +227,8 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         assert_eq!(after[last_event_id], event[event_id]);
         assert_eq!(after[last_timestamp], event[timestamp]);
     }
-    super::projection_snapshot::assert_refreshed(before, after, path);
-    let state_columns = table_columns(path, "event_log_state");
+    super::projection_snapshot::assert_refreshed(before, after, harness);
+    let state_columns = table_columns(harness, "event_log_state");
     let position = column(&state_columns, "next_global_position");
     let before_state = singleton_row(before, "event_log_state");
     let after_state = singleton_row(after, "event_log_state");
@@ -262,10 +249,10 @@ pub(super) fn assert_expected_terminal_recovery_delta(
 pub(super) fn assert_authority_renewal(
     before: &Snapshot,
     after: &Snapshot,
-    path: &str,
+    harness: &Harness,
     generation: u64,
 ) {
-    let columns = table_columns(path, "provider_runtime_authority_state");
+    let columns = table_columns(harness, "provider_runtime_authority_state");
     let before = singleton_row(before, "provider_runtime_authority_state");
     let after = singleton_row(after, "provider_runtime_authority_state");
     let renewable = [
