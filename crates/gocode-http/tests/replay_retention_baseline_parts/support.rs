@@ -24,7 +24,8 @@ use gocode_http::replay::{ReplayHttpBinding, ReplayHttpState, replay_router};
 use gocode_store::replay_store::ReplayStore;
 use gocode_store::schema::{
     ConnectionMode, apply_migrations, ensure_authority_id, ensure_exact_event_log_lineage_id,
-    read_authority_id, read_event_log_lineage_id, reopen_managed_connection_validated,
+    open_managed_connection, read_authority_id, read_event_log_lineage_id,
+    reopen_managed_connection_validated,
 };
 use tower::ServiceExt;
 
@@ -117,16 +118,18 @@ async fn retention_gap_fixture_with_shape(
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let path = daemon.join("replay.sqlite");
-    let connection = rusqlite::Connection::open(&path).unwrap();
-    apply_migrations(&connection).unwrap();
-    ensure_authority_id(&connection, &AUTHORITY).unwrap();
-    ensure_exact_event_log_lineage_id(&connection, EventLogLineageId::from_bytes(LINEAGE)).unwrap();
-    drop(connection);
+    let writer = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
+    apply_migrations(&writer).unwrap();
+    ensure_authority_id(&writer, &AUTHORITY).unwrap();
+    ensure_exact_event_log_lineage_id(&writer, EventLogLineageId::from_bytes(LINEAGE)).unwrap();
+    let reader = open_validated_reader(&path);
 
     let authority = RuntimeAuthorityId("retention-http-test".into());
     let guard: Arc<dyn ProhibitedContentPort> = Arc::new(AvailableGuard);
-    let store = StoreTransaction::open(
+    let store = StoreTransaction::open_with_connections(
         path.to_str().unwrap(),
+        writer,
+        reader,
         authority.clone(),
         Arc::clone(&guard),
     )
@@ -194,7 +197,7 @@ async fn retention_gap_fixture_with_shape(
             .to_owned();
     drop(pre_gap_app);
 
-    let connection = rusqlite::Connection::open(&path).unwrap();
+    let connection = open_validated_writer(&path);
     let snapshot_head: i64 = connection.query_row(
         "SELECT head_global_position FROM aggregate_state_snapshots WHERE aggregate_type = 1 AND aggregate_id = ?1",
         [taskrun_id.as_bytes()], |row| row.get(0),
@@ -241,18 +244,7 @@ fn replay_app_with_v2(
     replay_guard: Arc<dyn ProhibitedContentPort>,
     v2: bool,
 ) -> axum::Router {
-    let connection =
-        reopen_managed_connection_validated(path, ConnectionMode::ValidatedReopen, |connection| {
-            if read_authority_id(connection)? == Some(AUTHORITY)
-                && read_event_log_lineage_id(connection)?
-                    == Some(EventLogLineageId::from_bytes(LINEAGE))
-            {
-                Ok(())
-            } else {
-                Err(rusqlite::Error::InvalidQuery)
-            }
-        })
-        .unwrap();
+    let connection = open_validated_writer(path);
     let service = ReplayService::new(
         Arc::new(ReplayStore::new(connection)),
         [0x46; 32],
@@ -268,6 +260,29 @@ fn replay_app_with_v2(
     replay_router(state.with_baseline_resume_v2(v2))
         .layer(session_layer(binding))
         .layer(axum::middleware::from_fn(request_id_middleware))
+}
+
+pub(super) fn open_validated_writer(
+    path: &std::path::Path,
+) -> gocode_store::schema::ManagedConnection {
+    reopen_managed_connection_validated(path, ConnectionMode::ValidatedReopen, validate_identity)
+        .unwrap()
+}
+
+pub(super) fn open_validated_reader(
+    path: &std::path::Path,
+) -> gocode_store::schema::ManagedConnection {
+    reopen_managed_connection_validated(path, ConnectionMode::Reader, validate_identity).unwrap()
+}
+
+fn validate_identity(connection: &rusqlite::Connection) -> rusqlite::Result<()> {
+    if read_authority_id(connection)? == Some(AUTHORITY)
+        && read_event_log_lineage_id(connection)? == Some(EventLogLineageId::from_bytes(LINEAGE))
+    {
+        Ok(())
+    } else {
+        Err(rusqlite::Error::InvalidQuery)
+    }
 }
 
 include!("session.rs");
