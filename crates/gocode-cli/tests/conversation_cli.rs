@@ -151,6 +151,8 @@ async fn cli_rejects_profile_v1_without_http_fallback_or_secret_disclosure() {
         profile.to_str().expect("profile path"),
         "conversation",
         "create",
+        "--workspace-id",
+        "018f2e3a-7000-7000-8000-000000000001",
     ])
     .await;
 
@@ -160,6 +162,26 @@ async fn cli_rejects_profile_v1_without_http_fallback_or_secret_disclosure() {
     assert_eq!(stderr, "local runtime profile is incompatible\n");
     assert!(!stderr.contains(marker));
     assert!(!stderr.contains(profile.to_str().expect("profile path")));
+}
+
+#[tokio::test]
+async fn cli_requires_workspace_id_for_conversation_create() {
+    let directory = tempfile::tempdir().expect("temp directory");
+    let profile = directory.path().join("profile.json");
+    std::fs::write(&profile, r#"{}"#).expect("write placeholder profile");
+
+    let output = run_cli([
+        "--profile",
+        profile.to_str().expect("profile path"),
+        "conversation",
+        "create",
+    ])
+    .await;
+
+    assert_eq!(output.status.code(), Some(2), "usage error exit code");
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 error");
+    assert!(stderr.contains("Usage:"), "usage text expected: {stderr}");
 }
 
 async fn run_cli<const N: usize>(arguments: [&str; N]) -> std::process::Output {

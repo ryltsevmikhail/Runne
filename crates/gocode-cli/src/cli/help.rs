@@ -48,13 +48,12 @@ pub const CONVERSATION_CREATE_HELP: &str = "\
 Create a new conversation.
 
 Usage:
-  gocode [--profile PATH] conversation create [options]
+  gocode [--profile PATH] conversation create --workspace-id UUID
 
 Options:
-  --workspace-id UUID   Workspace identifier (default: new UUID)
+  --workspace-id UUID   Workspace identifier (required)
 
 Examples:
-  gocode conversation create
   gocode conversation create --workspace-id 018f2e3a-7000-7000-8000-000000000001";
 
 /// Help text for `conversation send`.
