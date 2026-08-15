@@ -81,21 +81,25 @@ fn verified_from_handle(handle: File) -> Result<VerifiedRootHandle, RootHandleBr
         return Err(RootHandleBrokerError::Rejected);
     }
     let stat = fstat(&handle).map_err(|_| RootHandleBrokerError::Rejected)?;
+    let device = u64::try_from(stat.st_dev).map_err(|_| RootHandleBrokerError::Rejected)?;
     let mut hasher = Sha256::new();
-    hasher.update((stat.st_dev as u64).to_be_bytes());
+    hasher.update(device.to_be_bytes());
     hasher.update((stat.st_ino as u64).to_be_bytes());
     Ok(VerifiedRootHandle {
         handle,
         identity: StableFilesystemIdentity {
             digest: hasher.finalize().into(),
-            device: stat.st_dev as u64,
+            device,
         },
     })
 }
 
 #[cfg(not(target_os = "linux"))]
 fn device(handle: &File) -> Result<u64, RootHandleBrokerError> {
-    Ok(fstat(handle)
-        .map_err(|_| RootHandleBrokerError::Rejected)?
-        .st_dev as u64)
+    u64::try_from(
+        fstat(handle)
+            .map_err(|_| RootHandleBrokerError::Rejected)?
+            .st_dev,
+    )
+    .map_err(|_| RootHandleBrokerError::Rejected)
 }

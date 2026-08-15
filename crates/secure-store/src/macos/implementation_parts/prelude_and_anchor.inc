@@ -9,13 +9,25 @@ use gocode_macos_keychain_acl::{
 use security_framework::os::macos::keychain::SecKeychain;
 use security_framework::os::macos::keychain_item::SecKeychainItem;
 
-use crate::provider_credential::{ProviderCredentialMetadata, StoredProviderCredential};
+use crate::provider_credential::{
+    ProviderCredentialMetadata, StoredProviderCredential, generate_provider_credential_source_revision,
+    source_update::{
+        commit_provider_credential_source_update, committed_provider_credential_source_slot,
+        recover_provider_credential_record, ProviderCredentialSourceSlot,
+        ProviderCredentialSourceSlotBackend,
+    },
+};
 use crate::{
-    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyDeletionProof,
-    ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
-    ProviderJournalKeyring, SecureStore, SecureStoreError, SecurityAnchorV1, SecurityProfileLock,
-    StoredSecurityAnchor, SealedTransactionTag,
+    NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialStatus,
+    ProviderCredentialStore, ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial,
+    ProviderJournalKeyRef, ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore,
+    SecureStoreError, SecurityAnchorV1, SecurityProfileLock, StoredSecurityAnchor,
+    SealedTransactionTag,
+};
+use gocode_provider::{
+    CredentialDispatchCapability, CredentialGcClaim, CredentialNativeCreateClaim,
+    CredentialVersionRef, NativeCredentialAuthority, NativeCredentialDeletionProof,
 };
 use zeroize::Zeroizing;
 
@@ -34,6 +46,7 @@ const ACCOUNT_PREFIX: &str = "db_generation";
 const SECURITY_ANCHOR_MAGIC: &[u8; 8] = b"GCSA1\0\0\0";
 const PROVIDER_JOURNAL_KEY_MAGIC: &[u8; 8] = b"GCPJKV1\0";
 const PROVIDER_CREDENTIAL_MIGRATION_SUFFIX: &str = ".migration-backup";
+const PROVIDER_CREDENTIAL_SOURCE_ALTERNATE_SUFFIX: &str = ".source-alternate";
 const ERR_SEC_AUTH_FAILED: i32 = -25_293;
 const ERR_SEC_ITEM_NOT_FOUND: i32 = -25_300;
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
@@ -74,6 +87,7 @@ pub struct MacOsKeychainStore {
 pub struct MacOsProviderCredentialStore {
     service: String,
     account: String,
+    version_authority: Option<NativeCredentialAuthority>,
 }
 
 impl MacOsProviderCredentialStore {
@@ -83,12 +97,26 @@ impl MacOsProviderCredentialStore {
         Self {
             service: crate::PROVIDER_CREDENTIAL_SERVICE.to_owned(),
             account: ProviderCredentialId::OpenAi.account().to_owned(),
+            version_authority: None,
+        }
+    }
+
+    /// Constructs the fail-closed backend bound to a lifecycle authority.
+    #[must_use]
+    pub fn new_versioned(authority: NativeCredentialAuthority) -> Self {
+        Self {
+            version_authority: Some(authority),
+            ..Self::new()
         }
     }
 
     #[cfg(test)]
     const fn with_test_item(service: String, account: String) -> Self {
-        Self { service, account }
+        Self {
+            service,
+            account,
+            version_authority: None,
+        }
     }
 }
 impl Default for MacOsProviderCredentialStore {
@@ -135,6 +163,31 @@ impl MacOsKeychainStore {
         let encoded = encode_security_anchor(anchor);
         security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
             .map_err(|_| SecureStoreError::OperationFailed("security anchor keychain write".into()))
+    }
+
+    #[cfg(test)]
+    fn store_anchor(&self, generation: u64) -> Result<(), SecureStoreError> {
+        let value = generation.to_le_bytes();
+        security_framework::passwords::set_generic_password(SERVICE_NAME, &self.account_name, &value)
+            .map_err(|_| SecureStoreError::OperationFailed("legacy anchor keychain write".into()))
+    }
+
+    #[cfg(test)]
+    fn read_anchor(&self) -> Result<Option<u64>, SecureStoreError> {
+        match self.load_security_anchor()? {
+            StoredSecurityAnchor::Missing => Ok(None),
+            StoredSecurityAnchor::LegacyGeneration(generation) => Ok(Some(generation)),
+            StoredSecurityAnchor::V1(_) => Err(SecureStoreError::Unavailable),
+        }
+    }
+
+    #[cfg(test)]
+    fn delete_anchor(&self) -> Result<(), SecureStoreError> {
+        match security_framework::passwords::delete_generic_password(SERVICE_NAME, &self.account_name) {
+            Ok(()) => Ok(()),
+            Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(()),
+            Err(_) => Err(SecureStoreError::Unavailable),
+        }
     }
 
     pub(crate) fn provider_recovery_profile_scope(&self) -> &str {
