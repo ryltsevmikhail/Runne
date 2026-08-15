@@ -108,11 +108,11 @@ def prepare_pre_authority_overlay_admission(repo: Path, transaction: str, change
         paths = {path: _admission_record(repo, record, width) for path, record in _overlay_raw_diff(repo, index, parent).items()}
         _admission_expected(transaction, paths, width)
         snapshot = CandidateSnapshot.capture(repo, index_file=index)
-        expected_mode = {"OVERLAY_V3_REPAIR": "overlay_v3", "OVERLAY_V4_DESKTOP_FOUNDATION": "overlay_v4"}.get(transaction, "overlay")
+        expected_mode = {"OVERLAY_V3_REPAIR": "overlay_v3", "OVERLAY_V4_DESKTOP_FOUNDATION": "overlay_v4", "OVERLAY_V5_DOCS_SYNC_2026_08_16": "overlay_v5"}.get(transaction, "overlay")
         if snapshot.head_oid != parent or _overlay_ref(repo) != (ref, parent) or _select(snapshot) != expected_mode:
             raise ValueError("OVERLAY_ADMISSION_HEAD")
         try:
-            {"overlay": _validate_pre_authority_document_overlay_v2, "overlay_v3": _validate_pre_authority_document_overlay_v3, "overlay_v4": _validate_pre_authority_document_overlay_v4}[expected_mode](snapshot)
+            {"overlay": _validate_pre_authority_document_overlay_v2, "overlay_v3": _validate_pre_authority_document_overlay_v3, "overlay_v4": _validate_pre_authority_document_overlay_v4, "overlay_v5": _validate_pre_authority_document_overlay_v5}[expected_mode](snapshot)
         except ValueError as error:
             raise ValueError("OVERLAY_ADMISSION_VALIDATION") from error
         tree = git_bytes(repo, ["write-tree"], index).decode().strip()
@@ -145,13 +145,13 @@ def _overlay_checked(repo, prepared, digest_value):
         raise ValueError("OVERLAY_ADMISSION_MANIFEST") from error
     if _overlay_ref(repo) != (value["ref"], value["parent_head_oid"]) or paths != value["paths"] or git_bytes(repo, ["write-tree"], prepared["index_file"]).decode().strip() != value["candidate_tree_oid"]:
         raise ValueError("OVERLAY_ADMISSION_HEAD")
-    if value["transaction_id"] in {"OVERLAY_V3_REPAIR", "OVERLAY_V4_DESKTOP_FOUNDATION"}:
+    if value["transaction_id"] in {"OVERLAY_V3_REPAIR", "OVERLAY_V4_DESKTOP_FOUNDATION", "OVERLAY_V5_DOCS_SYNC_2026_08_16"}:
         snapshot = CandidateSnapshot.capture(repo, index_file=prepared["index_file"])
-        expected_mode = "overlay_v4" if value["transaction_id"] == "OVERLAY_V4_DESKTOP_FOUNDATION" else "overlay_v3"
+        expected_mode = {"OVERLAY_V3_REPAIR": "overlay_v3", "OVERLAY_V4_DESKTOP_FOUNDATION": "overlay_v4", "OVERLAY_V5_DOCS_SYNC_2026_08_16": "overlay_v5"}[value["transaction_id"]]
         if _select(snapshot) != expected_mode:
             raise ValueError("OVERLAY_ADMISSION_VALIDATION")
         try:
-            {"overlay_v3": _validate_pre_authority_document_overlay_v3, "overlay_v4": _validate_pre_authority_document_overlay_v4}[expected_mode](snapshot)
+            {"overlay_v3": _validate_pre_authority_document_overlay_v3, "overlay_v4": _validate_pre_authority_document_overlay_v4, "overlay_v5": _validate_pre_authority_document_overlay_v5}[expected_mode](snapshot)
         except ValueError as error:
             raise ValueError("OVERLAY_ADMISSION_VALIDATION") from error
     return value

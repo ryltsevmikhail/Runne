@@ -41,10 +41,21 @@ _overlay_v4_part = _parts_root / "pre_authority_overlay_v4.inc"
 _OVERLAY_V4_AVAILABLE = _overlay_v4_part.is_file()
 if _OVERLAY_V4_AVAILABLE:
     exec(_overlay_v4_part.read_text(encoding="utf-8"))
+OVERLAY_V5_ARTIFACT_PATH = "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V5.json"
+_overlay_v5_part = _parts_root / "pre_authority_overlay_v5.inc"
+_OVERLAY_V5_AVAILABLE = _overlay_v5_part.is_file()
+if _OVERLAY_V5_AVAILABLE:
+    exec(_overlay_v5_part.read_text(encoding="utf-8"))
 
 
 def _mode(snapshot):
-    pre, overlay, successor, v4, composed = ARTIFACT_PATH in snapshot.entries, OVERLAY_ARTIFACT_PATH in snapshot.entries, OVERLAY_V3_ARTIFACT_PATH in snapshot.entries, OVERLAY_V4_ARTIFACT_PATH in snapshot.entries, COMPOSED_PATH in snapshot.entries
+    pre, overlay, successor, v4, v5, composed = ARTIFACT_PATH in snapshot.entries, OVERLAY_ARTIFACT_PATH in snapshot.entries, OVERLAY_V3_ARTIFACT_PATH in snapshot.entries, OVERLAY_V4_ARTIFACT_PATH in snapshot.entries, OVERLAY_V5_ARTIFACT_PATH in snapshot.entries, COMPOSED_PATH in snapshot.entries
+    if v5:
+        if not _OVERLAY_V5_AVAILABLE:
+            raise ValueError("OVERLAY_V5_IMPLEMENTATION_MISSING")
+        if pre or composed:
+            raise ValueError("DOCS_MODE_CONFLICT")
+        return "overlay_v5"
     if v4:
         if not _OVERLAY_V4_AVAILABLE:
             raise ValueError("OVERLAY_V4_IMPLEMENTATION_MISSING")
@@ -62,7 +73,13 @@ def _mode(snapshot):
 
 def _predecessor_mode(snapshot):
     paths = snapshot.head_paths()
-    pre, overlay, successor, v4, composed = ARTIFACT_PATH in paths, OVERLAY_ARTIFACT_PATH in paths, OVERLAY_V3_ARTIFACT_PATH in paths, OVERLAY_V4_ARTIFACT_PATH in paths, COMPOSED_PATH in paths
+    pre, overlay, successor, v4, v5, composed = ARTIFACT_PATH in paths, OVERLAY_ARTIFACT_PATH in paths, OVERLAY_V3_ARTIFACT_PATH in paths, OVERLAY_V4_ARTIFACT_PATH in paths, OVERLAY_V5_ARTIFACT_PATH in paths, COMPOSED_PATH in paths
+    if v5:
+        if not _OVERLAY_V5_AVAILABLE:
+            raise ValueError("OVERLAY_V5_IMPLEMENTATION_MISSING")
+        if pre or composed:
+            raise ValueError("DOCS_MODE_CONFLICT")
+        return "overlay_v5"
     if v4:
         if not _OVERLAY_V4_AVAILABLE:
             raise ValueError("OVERLAY_V4_IMPLEMENTATION_MISSING")
@@ -92,7 +109,9 @@ def _select(snapshot):
         raise ValueError("DOCS_MODE_DOWNGRADE")
     if previous == "overlay_v3" and mode not in {"overlay_v3", "overlay_v4"}:
         raise ValueError("DOCS_MODE_DOWNGRADE")
-    if previous == "overlay_v4" and mode != "overlay_v4":
+    if previous == "overlay_v4" and mode not in {"overlay_v4", "overlay_v5"}:
+        raise ValueError("DOCS_MODE_DOWNGRADE")
+    if previous == "overlay_v5" and mode != "overlay_v5":
         raise ValueError("DOCS_MODE_DOWNGRADE")
     if previous == "composed" and mode != "composed":
         raise ValueError("DOCS_MODE_DOWNGRADE")
@@ -267,6 +286,8 @@ def validate_documentation_mode(repo: Path, *, index_file: Path | None = None) -
             _validate_pre_authority_document_overlay_v3(snapshot)
         elif mode == "overlay_v4":
             _validate_pre_authority_document_overlay_v4(snapshot)
+        elif mode == "overlay_v5":
+            _validate_pre_authority_document_overlay_v5(snapshot)
         else:
             _validate_pre(snapshot)
         return []
