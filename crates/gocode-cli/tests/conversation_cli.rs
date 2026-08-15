@@ -8,7 +8,9 @@ use std::time::Duration;
 use gocode_daemon::application::DaemonApplication;
 use gocode_daemon::config::{BuiltInDefaults, ConfigurationSnapshot};
 use gocode_daemon::error::DaemonError;
-use gocode_runtime_client::CanonicalId;
+use gocode_runtime_client::{
+    CanonicalId, CommandIdentity, CreateProjectRequest, CreateWorkspaceRequest, LocalRuntimeProfile,
+};
 use tokio::sync::oneshot;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -34,12 +36,16 @@ async fn cli_creates_sends_and_reads_a_conversation_through_the_real_daemon() {
     });
     let profile =
         PathBuf::from(&config.replay_integrity_key_path).with_file_name("client-profile.json");
+    let workspace_id = seed_workspace(&profile).await;
+    let workspace_id = workspace_id.to_string();
 
     let created = run_cli([
         "--profile",
         profile.to_str().expect("profile path"),
         "conversation",
         "create",
+        "--workspace-id",
+        &workspace_id,
     ])
     .await;
     assert!(
@@ -163,4 +169,43 @@ async fn run_cli<const N: usize>(arguments: [&str; N]) -> std::process::Output {
         .await
         .expect("join CLI")
         .expect("run CLI")
+}
+
+async fn seed_workspace(profile: &PathBuf) -> CanonicalId {
+    let client = LocalRuntimeProfile::load(profile)
+        .expect("load runtime profile")
+        .connect(Duration::from_secs(5))
+        .await
+        .expect("connect runtime client");
+    let project_id = CanonicalId::now_v7();
+    let workspace_id = CanonicalId::now_v7();
+    client
+        .create_project(
+            CreateProjectRequest::new(
+                command_identity(),
+                project_id,
+                "CLI conversation test project",
+            )
+            .expect("create project request"),
+        )
+        .await
+        .expect("create test project");
+    client
+        .create_workspace(
+            CreateWorkspaceRequest::new(
+                command_identity(),
+                project_id,
+                workspace_id,
+                "CLI conversation test workspace",
+            )
+            .expect("create workspace request"),
+        )
+        .await
+        .expect("create test workspace");
+    workspace_id
+}
+
+fn command_identity() -> CommandIdentity {
+    let command_id = CanonicalId::now_v7();
+    CommandIdentity::new(command_id, command_id.to_string()).expect("command identity")
 }
