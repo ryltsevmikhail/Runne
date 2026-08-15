@@ -12,6 +12,15 @@ pub(super) struct StartupProvider {
     root_admission_keys: Option<gocode_api::ProtectedActivationKeys>,
 }
 
+type StartupProviderParts = (
+    ProviderActivation,
+    Option<DaemonActivationProvenance>,
+    Option<[u8; 16]>,
+    bool,
+    Option<ProtectedProviderDependencyCapsule>,
+    Option<gocode_api::ProtectedActivationKeys>,
+);
+
 impl StartupProvider {
     pub(super) fn deterministic(config: &ConfigurationSnapshot) -> Result<Self, DaemonError> {
         if config.provider_activation.requires_openai_execution() {
@@ -65,16 +74,7 @@ impl StartupProvider {
             .is_some_and(|provenance| provenance.is_protected())
     }
 
-    pub(super) fn into_parts(
-        self,
-    ) -> (
-        ProviderActivation,
-        Option<DaemonActivationProvenance>,
-        Option<[u8; 16]>,
-        bool,
-        Option<ProtectedProviderDependencyCapsule>,
-        Option<gocode_api::ProtectedActivationKeys>,
-    ) {
+    pub(super) fn into_parts(self) -> StartupProviderParts {
         let protected = self.is_protected();
         (
             self.activation,
