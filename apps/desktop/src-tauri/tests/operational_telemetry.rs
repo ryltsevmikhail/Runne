@@ -122,7 +122,7 @@ async fn stalled_telemetry_peer_is_single_flight_and_keeps_ipc_responsive() {
         .expect("stalled peer received telemetry request");
     telemetry.abort();
     let _ = telemetry.await;
-    let excess = match tokio::time::timeout(
+    let Err(excess) = tokio::time::timeout(
         Duration::from_millis(100),
         operational_telemetry_command::operational_telemetry_from_core_with_gate(
             Arc::clone(&core),
@@ -130,10 +130,8 @@ async fn stalled_telemetry_peer_is_single_flight_and_keeps_ipc_responsive() {
         ),
     )
     .await
-    .expect("burst telemetry must not queue")
-    {
-        Ok(_) => panic!("burst telemetry must be rejected"),
-        Err(error) => error,
+    .expect("burst telemetry must not queue") else {
+        panic!("burst telemetry must be rejected");
     };
     assert_eq!(
         serde_json::to_value(excess).expect("serialize static error"),
