@@ -172,8 +172,6 @@ def _inventory(root: Path) -> tuple[set[Path], set[Path], set[Path]]:
                 elif stat.S_ISDIR(metadata.st_mode):
                     directories.add(relative)
                     pending.append(path)
-                elif stat.S_ISREG(metadata.st_mode):
-                    files.add(relative)
                 else:
-                    raise LocalInputReceiptError("execution namespace contains special file")
+                    files.add(relative)
     return directories, links, files
