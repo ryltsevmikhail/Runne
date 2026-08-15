@@ -23,11 +23,22 @@ run_runtime() {
 }
 
 run_frontend() {
-    pnpm --filter @gocode/desktop test
-    pnpm typecheck
-    pnpm exec playwright test tests/desktop/e2e/replay-resume.spec.ts
+    run_pnpm --filter @gocode/desktop test
+    run_pnpm typecheck
+    run_pnpm exec playwright test tests/desktop/e2e/replay-resume.spec.ts
     python3 scripts/desktop/validate_architecture.py
-    pnpm validate:docs
+    run_pnpm validate:docs
+}
+
+run_pnpm() {
+    if [ -n "${GOCODE_TRUSTED_NODE:-}" ] && [ -n "${GOCODE_TRUSTED_PNPM:-}" ]; then
+        trusted_node_dir="$(dirname -- "$GOCODE_TRUSTED_NODE")"
+        trusted_pnpm_dir="$(dirname -- "$GOCODE_TRUSTED_PNPM")"
+        PATH="$trusted_pnpm_dir:$trusted_node_dir:$PATH" \
+            "$GOCODE_TRUSTED_NODE" "$GOCODE_TRUSTED_PNPM" "$@"
+    else
+        pnpm "$@"
+    fi
 }
 
 if [ "$#" -ne 1 ]; then
