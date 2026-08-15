@@ -29,7 +29,6 @@ test-support = [
 axum = "0.8"
 base64.workspace = true
 gocode-runtime-client = { path = "../runtime-client", features = ["test-support"] }
-gocode-secure-store = { path = "../secure-store", default-features = false }
 hmac = "0.12"
 sha2.workspace = true
 tempfile = "=3.27.0"
