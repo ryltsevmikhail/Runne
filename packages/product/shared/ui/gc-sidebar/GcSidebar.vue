@@ -19,7 +19,10 @@ defineEmits<{
 </script>
 
 <template>
-  <nav :class="['gc-sidebar', collapsed && 'gc-sidebar--collapsed']" :aria-label="ariaLabel ?? 'Primary'">
+  <nav
+    :class="['gc-sidebar', collapsed && 'gc-sidebar--collapsed']"
+    :aria-label="ariaLabel ?? 'Primary'"
+  >
     <button
       v-for="item in items"
       :key="item.id"
@@ -28,9 +31,18 @@ defineEmits<{
       :aria-label="collapsed ? item.label : undefined"
       @click="$emit('navigate', item.id)"
     >
-      <span v-if="item.icon" class="gc-sidebar-icon">{{ item.icon }}</span>
-      <span v-if="!collapsed" class="gc-sidebar-label">{{ item.label }}</span>
-      <span v-if="!collapsed && item.badge" class="gc-sidebar-badge">{{ item.badge }}</span>
+      <span
+        v-if="item.icon"
+        class="gc-sidebar-icon"
+      >{{ item.icon }}</span>
+      <span
+        v-if="!collapsed"
+        class="gc-sidebar-label"
+      >{{ item.label }}</span>
+      <span
+        v-if="!collapsed && item.badge"
+        class="gc-sidebar-badge"
+      >{{ item.badge }}</span>
     </button>
   </nav>
 </template>

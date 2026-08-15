@@ -73,7 +73,10 @@ async function returnToProjects() {
     >
       The saved local project could not be restored.
     </GcAlert>
-    <GcButton variant="secondary" @click="returnToProjects">
+    <GcButton
+      variant="secondary"
+      @click="returnToProjects"
+    >
       Back to projects
     </GcButton>
   </section>
@@ -98,10 +101,10 @@ async function returnToProjects() {
         <span>Local</span>
       </div>
       <button
-        class="project-card project-card--workspace"
-        type="button"
         v-for="project in projects"
         :key="project.workspaceId"
+        class="project-card project-card--workspace"
+        type="button"
         :aria-label="`Open workspace ${project.displayName}`"
         @click="openWorkspace(project.workspaceId)"
       >

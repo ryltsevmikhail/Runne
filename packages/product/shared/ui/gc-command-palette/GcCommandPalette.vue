@@ -41,15 +41,25 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <Teleport to="body">
-    <div v-if="open" class="gc-palette-overlay" @click="emit('close')">
-      <div class="gc-palette" role="dialog" aria-label="Command palette" @click.stop @keydown="onKeydown">
+    <div
+      v-if="open"
+      class="gc-palette-overlay"
+      @click="emit('close')"
+    >
+      <div
+        class="gc-palette"
+        role="dialog"
+        aria-label="Command palette"
+        @click.stop
+        @keydown="onKeydown"
+      >
         <input
           v-model="search"
           class="gc-palette-search"
           placeholder="Type a command or search..."
           aria-label="Search commands"
           autofocus
-        />
+        >
         <div class="gc-palette-results">
           <button
             v-for="(item, i) in filtered"
@@ -60,9 +70,17 @@ function onKeydown(e: KeyboardEvent) {
             @mouseenter="activeIndex = i"
           >
             <span class="gc-palette-label">{{ item.label }}</span>
-            <kbd v-if="item.shortcut" class="gc-palette-shortcut">{{ item.shortcut }}</kbd>
+            <kbd
+              v-if="item.shortcut"
+              class="gc-palette-shortcut"
+            >{{ item.shortcut }}</kbd>
           </button>
-          <div v-if="filtered.length === 0" class="gc-palette-empty">No results</div>
+          <div
+            v-if="filtered.length === 0"
+            class="gc-palette-empty"
+          >
+            No results
+          </div>
         </div>
       </div>
     </div>

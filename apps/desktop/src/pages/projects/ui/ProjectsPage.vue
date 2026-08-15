@@ -56,12 +56,15 @@ async function openProjectDetails(project: Project) {
         </h1>
         <p>Choose a workspace and continue where you left off.</p>
       </div>
-      <GcButton aria-label="Open local project" @click="openProjectPicker">
-          <Plus
-            :size="16"
-            aria-hidden="true"
-          />
-          Open project
+      <GcButton
+        aria-label="Open local project"
+        @click="openProjectPicker"
+      >
+        <Plus
+          :size="16"
+          aria-hidden="true"
+        />
+        Open project
       </GcButton>
     </header>
 

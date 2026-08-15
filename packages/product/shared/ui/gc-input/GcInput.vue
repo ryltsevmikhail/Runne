@@ -22,14 +22,21 @@ defineEmits<{
 
 <template>
   <div :class="['gc-input-wrapper', state && `gc-input-wrapper--${state}`]">
-    <label v-if="label" class="gc-input-label" :for="inputId">{{ label }}</label>
+    <label
+      v-if="label"
+      class="gc-input-label"
+      :for="inputId"
+    >{{ label }}</label>
     <div class="gc-input-field">
-      <span v-if="$slots.leading" class="gc-input-icon gc-input-icon--leading">
+      <span
+        v-if="$slots.leading"
+        class="gc-input-icon gc-input-icon--leading"
+      >
         <slot name="leading" />
       </span>
       <input
-        :type="type ?? 'text'"
         :id="inputId"
+        :type="type ?? 'text'"
         :value="modelValue"
         :placeholder="placeholder"
         :disabled="state === 'disabled'"
@@ -37,12 +44,19 @@ defineEmits<{
         :aria-invalid="state === 'error' || undefined"
         class="gc-input"
         @input="$emit('update:modelValue', ($event.target as HTMLInputElement).value)"
-      />
-      <span v-if="$slots.trailing" class="gc-input-icon gc-input-icon--trailing">
+      >
+      <span
+        v-if="$slots.trailing"
+        class="gc-input-icon gc-input-icon--trailing"
+      >
         <slot name="trailing" />
       </span>
     </div>
-    <span v-if="helper" :id="helperId" :class="['gc-input-helper', state === 'error' && 'gc-input-helper--error']">
+    <span
+      v-if="helper"
+      :id="helperId"
+      :class="['gc-input-helper', state === 'error' && 'gc-input-helper--error']"
+    >
       {{ helper }}
     </span>
   </div>
