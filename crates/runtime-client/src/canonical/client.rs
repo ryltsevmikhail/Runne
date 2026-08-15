@@ -157,6 +157,30 @@ impl AuthenticatedRuntimeClient {
         Ok(snapshot)
     }
 
+    /// Reads the authoritative committed `TaskRun` snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed, redacted transport/API failure.
+    pub async fn get_task_run(
+        &self,
+        task_run_id: CanonicalId,
+    ) -> Result<TaskRunSnapshot, RuntimeApiError> {
+        let url = self.url(&format!("/v1/task-runs/{task_run_id}"));
+        let response = self
+            .authenticated_request(self.client.get(url))?
+            .send()
+            .await
+            .map_err(map_transport)?;
+        let snapshot = TaskRunSnapshot::try_from(
+            read_success_json::<TaskRunSnapshotWire>(response, &[200]).await?,
+        )?;
+        if snapshot.task_run_id() != task_run_id {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidResponse));
+        }
+        Ok(snapshot)
+    }
+
     pub(crate) fn url(&self, path: &str) -> String {
         format!("{}{path}", self.origin)
     }

@@ -203,6 +203,7 @@ fn supported_capability_profiles_are_exactly_ordered() {
             "conversation.create.v1",
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
+            "task_run.get.v1",
             "replay.aggregate.open.v1",
             "replay.aggregate.retention_baseline.v1",
             "replay.aggregate.retention_baseline_resume.v2",

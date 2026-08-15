@@ -48,6 +48,7 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
         "schemas/local-session-v2.schema.json",
         "schemas/replay-v1.schema.json",
         "schemas/sse-v1.schema.json",
+        "schemas/task-run-v1.schema.json",
     ] {
         let schema: Value =
             serde_json::from_slice(&fs::read(output.path().join(path)).unwrap()).unwrap();
@@ -174,7 +175,7 @@ fn local_runtime_profile_schema_accepts_only_base_or_protected_capabilities() {
     };
     assert!(validator.is_valid(&profile(BASE_RUNTIME_CAPABILITIES)));
     assert!(validator.is_valid(&profile(PUBLISHED_RUNTIME_CAPABILITIES)));
-    assert!(!validator.is_valid(&profile(&BASE_RUNTIME_CAPABILITIES[..19])));
+    assert!(!validator.is_valid(&profile(&BASE_RUNTIME_CAPABILITIES[..20])));
     let mut reordered = BASE_RUNTIME_CAPABILITIES.to_vec();
     reordered.swap(0, 1);
     assert!(!validator.is_valid(&profile(&reordered)));
