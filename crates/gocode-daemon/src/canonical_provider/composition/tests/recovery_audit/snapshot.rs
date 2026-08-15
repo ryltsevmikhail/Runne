@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
 
+use super::fixture::Harness;
+
 pub(super) type Snapshot = BTreeMap<String, Vec<Vec<String>>>;
 
-pub(super) fn snapshot(path: &str) -> Snapshot {
-    let connection = rusqlite::Connection::open(path).unwrap();
-    connection.execute_batch("PRAGMA query_only = ON;").unwrap();
+pub(super) fn snapshot(harness: &Harness) -> Snapshot {
+    let connection = harness.query_connection();
     let tables = connection
         .prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .unwrap()
@@ -43,8 +44,8 @@ pub(super) fn snapshot(path: &str) -> Snapshot {
         .collect()
 }
 
-pub(super) fn table_columns(path: &str, table: &str) -> Vec<String> {
-    table_columns_from(&rusqlite::Connection::open(path).unwrap(), table)
+pub(super) fn table_columns(harness: &Harness, table: &str) -> Vec<String> {
+    table_columns_from(&harness.query_connection(), table)
 }
 
 fn table_columns_from(connection: &rusqlite::Connection, table: &str) -> Vec<String> {

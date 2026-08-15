@@ -17,7 +17,7 @@ async fn duplicate_outbox_wakeup_second_recovery_applies_zero() {
         first.observed_count(),
         Some(before.observed_count().unwrap() + 1)
     );
-    let snapshot_after_first = snapshot(&harness.db_path);
+    let snapshot_after_first = snapshot(&harness);
     service.recover_pending().await.unwrap();
     let second = registry.snapshot_recovery_observation();
     assert!(second.availability() == first.availability());
@@ -27,7 +27,7 @@ async fn duplicate_outbox_wakeup_second_recovery_applies_zero() {
         second.drop_counter_saturated(),
         first.drop_counter_saturated()
     );
-    assert_eq!(snapshot(&harness.db_path), snapshot_after_first);
+    assert_eq!(snapshot(&harness), snapshot_after_first);
     let receipt = harness
         .store
         .load_text_generation_receipt_by_command(begin.command_id, &begin.idempotency_key)
@@ -41,24 +41,24 @@ async fn recovery_completes_before_compose_returns() {
     let first = harness.compose().await;
     let (begin, started) = harness.begin();
     super::super::pending::create(&first, started.clone()).await;
-    let before = snapshot(&harness.db_path);
+    let before = snapshot(&harness);
     drop(first);
 
     let composed = harness.compose().await;
-    let after = snapshot(&harness.db_path);
+    let after = snapshot(&harness);
     assert_expected_terminal_recovery_delta(
         &before,
         &after,
-        &harness.db_path,
+        &harness,
         begin.command_id,
         &started,
         true,
         false,
     );
-    assert_authority_renewal(&before, &after, &harness.db_path, harness.generation());
+    assert_authority_renewal(&before, &after, &harness, harness.generation());
     assert_eq!(
-        rusqlite::Connection::open(&harness.db_path)
-            .unwrap()
+        harness
+            .query_connection()
             .query_row("SELECT state FROM provider_terminal_outbox", [], |row| {
                 row.get::<_, i64>(0)
             })
@@ -66,8 +66,8 @@ async fn recovery_completes_before_compose_returns() {
         2
     );
     assert_eq!(
-        rusqlite::Connection::open(&harness.db_path)
-            .unwrap()
+        harness
+            .query_connection()
             .query_row("SELECT state FROM provider_dispatch_attempts", [], |row| {
                 row.get::<_, i64>(0)
             })
