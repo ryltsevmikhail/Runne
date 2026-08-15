@@ -9,7 +9,6 @@ use gocode_application::prohibited_content::ProhibitedContentPort;
 use gocode_runtime::RuntimeProjectWorkspaceHost;
 use gocode_security::SecretBroker;
 use gocode_store::{ProjectWorkspaceStore, store::StoreTransaction};
-use rusqlite::{Connection, OpenFlags};
 use std::{path::Path, sync::Arc};
 
 pub struct UnavailableAdmission;
@@ -70,9 +69,18 @@ pub fn repository_at(path: &Path) -> ProjectWorkspaceStore {
         Arc::new(SecretBroker::new().prohibited_content_guard());
     let authority = RuntimeAuthorityId("project-workspace-host-test".into());
     let store = if path.exists() {
-        let writer =
-            gocode_store::schema::open_existing_with_pragmas_validated(path, |_| Ok(())).unwrap();
-        let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let writer = gocode_store::schema::reopen_managed_connection_validated(
+            path,
+            gocode_store::schema::ConnectionMode::ValidatedReopen,
+            |_| Ok(()),
+        )
+        .unwrap();
+        let reader = gocode_store::schema::reopen_managed_connection_validated(
+            path,
+            gocode_store::schema::ConnectionMode::Reader,
+            |_| Ok(()),
+        )
+        .unwrap();
         StoreTransaction::open_with_connections(
             path.to_str().unwrap(),
             writer,
