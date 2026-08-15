@@ -55,18 +55,27 @@ function onKeydown(e: KeyboardEvent) {
       @keydown="onKeydown"
     >
       <div
+        ref="dialog"
         class="gc-dialog"
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
         :aria-describedby="description || $slots.default ? descriptionId : undefined"
         tabindex="-1"
-        ref="dialog"
         @click.stop
       >
         <div class="gc-dialog-header">
-          <h2 :id="titleId" class="gc-dialog-title">{{ title }}</h2>
-          <p v-if="description || $slots.default" :id="descriptionId" class="gc-dialog-description">
+          <h2
+            :id="titleId"
+            class="gc-dialog-title"
+          >
+            {{ title }}
+          </h2>
+          <p
+            v-if="description || $slots.default"
+            :id="descriptionId"
+            class="gc-dialog-description"
+          >
             {{ description }}
             <slot />
           </p>

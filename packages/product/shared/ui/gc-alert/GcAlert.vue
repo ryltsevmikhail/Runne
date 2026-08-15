@@ -13,8 +13,13 @@ defineEmits<{
 <template>
   <div :class="['gc-alert', `gc-alert--${level}`]">
     <div class="gc-alert-content">
-      <div class="gc-alert-title">{{ title }}</div>
-      <div v-if="$slots.default" class="gc-alert-description">
+      <div class="gc-alert-title">
+        {{ title }}
+      </div>
+      <div
+        v-if="$slots.default"
+        class="gc-alert-description"
+      >
         <slot />
       </div>
     </div>

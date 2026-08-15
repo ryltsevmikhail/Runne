@@ -12,16 +12,28 @@ defineEmits<{
 <template>
   <div class="gc-recovery-state">
     <!-- Restored state -->
-    <div v-if="state === 'restored'" class="gc-recovery-panel gc-recovery-panel--restored">
+    <div
+      v-if="state === 'restored'"
+      class="gc-recovery-panel gc-recovery-panel--restored"
+    >
       <span class="gc-recovery-icon">✓</span>
-      <p class="gc-recovery-title">Session restored</p>
-      <p class="gc-recovery-description">Your workspace has been recovered.</p>
+      <p class="gc-recovery-title">
+        Session restored
+      </p>
+      <p class="gc-recovery-description">
+        Your workspace has been recovered.
+      </p>
     </div>
 
     <!-- Conflict state -->
-    <div v-if="state === 'conflict'" class="gc-recovery-panel gc-recovery-panel--conflict">
+    <div
+      v-if="state === 'conflict'"
+      class="gc-recovery-panel gc-recovery-panel--conflict"
+    >
       <span class="gc-recovery-icon">⚡</span>
-      <p class="gc-recovery-title">Session conflict</p>
+      <p class="gc-recovery-title">
+        Session conflict
+      </p>
       <p class="gc-recovery-description">
         Your local session conflicts with the remote version. Choose which one to keep.
       </p>
@@ -44,9 +56,14 @@ defineEmits<{
     </div>
 
     <!-- Corrupt state -->
-    <div v-if="state === 'corrupt'" class="gc-recovery-panel gc-recovery-panel--corrupt">
+    <div
+      v-if="state === 'corrupt'"
+      class="gc-recovery-panel gc-recovery-panel--corrupt"
+    >
       <span class="gc-recovery-icon">✕</span>
-      <p class="gc-recovery-title">Session corrupt</p>
+      <p class="gc-recovery-title">
+        Session corrupt
+      </p>
       <p class="gc-recovery-description">
         Your session file is corrupt and cannot be recovered. You can start with a fresh workspace.
       </p>

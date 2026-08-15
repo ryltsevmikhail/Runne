@@ -21,18 +21,32 @@ defineEmits<{
     :class="['gc-project-card', project.status && `gc-project-card--${project.status}`]"
     @click.self="$emit('click')"
   >
-    <button class="gc-project-card-main" type="button" @click="$emit('click')">
+    <button
+      class="gc-project-card-main"
+      type="button"
+      @click="$emit('click')"
+    >
       <div class="gc-project-card-header">
-        <h3 class="gc-project-card-name">{{ project.name }}</h3>
-        <span v-if="project.status" :class="['gc-project-card-status', `gc-project-card-status--${project.status}`]">
+        <h3 class="gc-project-card-name">
+          {{ project.name }}
+        </h3>
+        <span
+          v-if="project.status"
+          :class="['gc-project-card-status', `gc-project-card-status--${project.status}`]"
+        >
           {{ project.status === 'ready' ? 'Ready' : project.status === 'stale' ? 'Attention' : 'Recovery' }}
         </span>
       </div>
-      <p class="gc-project-card-path">{{ project.path }}</p>
+      <p class="gc-project-card-path">
+        {{ project.path }}
+      </p>
     </button>
     <div class="gc-project-card-footer">
       <time class="gc-project-card-time">{{ project.modifiedAt }}</time>
-      <div v-if="$slots.actions" class="gc-project-card-actions">
+      <div
+        v-if="$slots.actions"
+        class="gc-project-card-actions"
+      >
         <slot name="actions" />
       </div>
     </div>

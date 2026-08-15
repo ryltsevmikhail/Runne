@@ -6,7 +6,10 @@ defineProps<{
 
 <template>
   <span :class="['gc-badge', `gc-badge--${status}`]">
-    <span v-if="status === 'running' || status === 'streaming'" class="gc-badge-dot" />
+    <span
+      v-if="status === 'running' || status === 'streaming'"
+      class="gc-badge-dot"
+    />
     <slot />
   </span>
 </template>

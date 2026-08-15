@@ -22,10 +22,14 @@ defineEmits<{
 
 <template>
   <div :class="['gc-input-wrapper', state && `gc-input-wrapper--${state}`]">
-    <label v-if="label" class="gc-input-label" :for="textareaId">{{ label }}</label>
+    <label
+      v-if="label"
+      class="gc-input-label"
+      :for="textareaId"
+    >{{ label }}</label>
     <textarea
-      :value="modelValue"
       :id="textareaId"
+      :value="modelValue"
       :placeholder="placeholder"
       :disabled="state === 'disabled'"
       :aria-describedby="helperId"
@@ -34,7 +38,11 @@ defineEmits<{
       class="gc-textarea"
       @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
     />
-    <span v-if="helper" :id="helperId" :class="['gc-input-helper', state === 'error' && 'gc-input-helper--error']">
+    <span
+      v-if="helper"
+      :id="helperId"
+      :class="['gc-input-helper', state === 'error' && 'gc-input-helper--error']"
+    >
       {{ helper }}
     </span>
   </div>
