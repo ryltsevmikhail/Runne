@@ -46,6 +46,8 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         fail_command: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
+        environment.pop("GOCODE_TRUSTED_NODE", None)
+        environment.pop("GOCODE_TRUSTED_PNPM", None)
         environment["PATH"] = f"{self.bin_directory}{os.pathsep}{environment['PATH']}"
         environment["FAKE_COMMAND_LOG"] = str(self.command_log)
         environment["SECURE_REPLAY_TEST_SENTINEL"] = "must-not-be-printed"
