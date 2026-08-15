@@ -51,11 +51,9 @@ impl CliError {
             Self::Help(_) | Self::Version(_) => 0,
             Self::Usage | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
-            Self::Runtime | Self::Api(_) => 1,
             Self::CredentialInput
             | Self::CredentialOperation
             | Self::UnsupportedCredentialBackend => 4,
-            Self::HealthNonHealthy(_) => 1,
             _ => 1,
         }
     }
@@ -67,12 +65,10 @@ impl CliError {
             Self::Usage | Self::AuthorityUsage => Some(ErrorCode::InvalidArguments),
             Self::Profile => Some(ErrorCode::ProfileUnavailable),
             Self::ProfileIncompatible => Some(ErrorCode::ProfileIncompatible),
-            Self::Runtime => Some(ErrorCode::RuntimeUnavailable),
-            Self::Api(_) => Some(ErrorCode::ApiError),
+            Self::Runtime | Self::HealthNonHealthy(_) => Some(ErrorCode::RuntimeUnavailable),
             Self::CredentialInput => Some(ErrorCode::CredentialInputInvalid),
             Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
-            Self::HealthNonHealthy(_) => Some(ErrorCode::RuntimeUnavailable),
             _ => Some(ErrorCode::ApiError),
         }
     }

@@ -160,19 +160,19 @@ async fn stalled_telemetry_peer_is_single_flight_and_keeps_ipc_responsive() {
 }
 
 #[tokio::test]
+#[allow(clippy::significant_drop_tightening)]
 async fn worker_panic_closes_to_the_static_telemetry_error() {
     let gate = Arc::new(Semaphore::new(1));
     let permit = Arc::clone(&gate)
         .try_acquire_owned()
         .expect("worker admission");
-    let error = match operational_telemetry_command::run_telemetry_blocking::<
+    let Err(error) = operational_telemetry_command::run_telemetry_blocking::<
         gocode_app_core::OperationalTelemetrySnapshotV1,
         _,
     >(permit, || panic!("test worker panic"))
     .await
-    {
-        Ok(_) => panic!("worker panic must close"),
-        Err(error) => error,
+    else {
+        panic!("worker panic must close");
     };
 
     assert_eq!(
