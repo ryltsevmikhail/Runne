@@ -1,10 +1,12 @@
 //! Authenticated canonical command/query transport.
 
 include!("canonical/types.rs");
+include!("canonical/task_run.rs");
 include!("canonical/session_authority_baseline.rs");
 include!("canonical/session_binding.rs");
 include!("canonical/transport_kind.rs");
 include!("canonical/client.rs");
+include!("canonical/capabilities.rs");
 include!("canonical/requests.rs");
 include!("canonical/errors.rs");
 include!("canonical/wire.rs");

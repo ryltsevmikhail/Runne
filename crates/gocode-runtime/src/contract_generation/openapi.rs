@@ -144,6 +144,7 @@ fn openapi() -> Value {
             },
         },
     });
+    task_run_openapi(&mut document);
     project_workspace_openapi(&mut document);
     document
 }
