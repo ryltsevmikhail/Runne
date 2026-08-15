@@ -121,6 +121,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&replay_schema())?,
         ),
         ("schemas/sse-v1.schema.json", canonical_json(&sse_schema())?),
+        (
+            "schemas/task-run-v1.schema.json",
+            canonical_json(&task_run_schema())?,
+        ),
     ]);
 
     let artifact_digests = artifacts
