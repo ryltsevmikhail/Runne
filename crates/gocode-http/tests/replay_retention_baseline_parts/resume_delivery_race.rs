@@ -62,7 +62,7 @@ async fn wait_for_session_state(
     let session_id = uuid::Uuid::parse_str(session_id).unwrap().into_bytes();
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let connection = rusqlite::Connection::open(fixture.database_path()).unwrap();
+            let connection = open_validated_reader(fixture.database_path());
             let state: String = connection
                 .query_row(
                     "SELECT state FROM _replay_subscriptions WHERE session_id = ?1",
@@ -137,7 +137,10 @@ async fn blocked_admission_cannot_extend_the_original_delivery_deadline() {
     let fixture = retention_gap_fixture().await;
     let app = fixture.v2_app();
     let baseline = signed_v2_baseline(&fixture, &app).await;
-    let lock = rusqlite::Connection::open(fixture.database_path()).unwrap();
+    // Race-simulation lock: holds BEGIN IMMEDIATE to block the app writer, as a
+    // competing admission writer would. The managed writable reopen keeps the
+    // authority+lineage validation — no production admission escape hatch.
+    let lock = open_validated_writer(fixture.database_path());
     lock.execute_batch("BEGIN IMMEDIATE;").unwrap();
     let request = tokio::spawn(app.clone().oneshot(resume_request(&baseline)));
     for _ in 0..100 {

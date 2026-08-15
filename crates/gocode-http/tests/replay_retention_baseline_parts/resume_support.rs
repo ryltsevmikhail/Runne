@@ -54,6 +54,9 @@ impl RetentionGapFixture {
     }
 
     pub(super) fn subscriptions(&self) -> i64 {
+        // Some cleanup tests inject test-only audit tables/triggers which the
+        // strict released-schema classification of managed reopens rejects, so
+        // this count probe stays on a raw read-only test connection.
         rusqlite::Connection::open(&self.path)
             .unwrap()
             .query_row("SELECT COUNT(*) FROM _replay_subscriptions", [], |row| {
