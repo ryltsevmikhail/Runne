@@ -59,7 +59,17 @@ fn created_write_failure_never_publishes_the_final_name() {
     assert!(directory_entry_names(&workspace_root.canonical_path).is_empty());
 }
 
-#[cfg(unix)]
+// This adversarial test is gated to Linux/Android because both of its
+// non-regular-file fixtures behave differently on macOS:
+// 1. The FIFO is created via rustix `mkfifoat`, which is Linux/Android-only
+//    (`mkfifoat`/`mknodat` are gated out on `apple`). macOS has no portable
+//    safe `mkfifo` in rustix, and the workspace forbids `unsafe`, so a raw
+//    `libc::mkfifo` is not an option.
+// 2. On macOS, `openat` on a socket returns `EOPNOTSUPP`, which
+//    `map_open_error` does not map to `FsBrokerError::PermissionDenied`
+//    (only `NXIO` is mapped), so the socket assertion would fail with
+//    `FsBrokerError::Io` instead of `PermissionDenied`.
+#[cfg(any(target_os = "linux", target_os = "android"))]
 #[test]
 fn resolve_rejects_fifo_and_socket_without_opening_a_blocking_stream() {
     use std::os::unix::net::UnixListener;

@@ -193,12 +193,16 @@ pub(super) fn receive_borrowed(
     let mut iov = [IoSliceMut::new(&mut frame)];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
     let mut control = RecvAncillaryBuffer::new(&mut space);
-    let received = recvmsg(&stream, &mut iov, &mut control, RecvFlags::CMSG_CLOEXEC)
+    let received = recvmsg(&stream, &mut iov, &mut control, RecvFlags::empty())
         .map_err(|_| RootHandleBrokerError::Unavailable)?;
     if received.bytes == 0 || received.flags.intersects(rustix::net::ReturnFlags::CTRUNC) {
         return Err(RootHandleBrokerError::Rejected);
     }
     let descriptor = received_descriptor(&mut control)?;
+    // `RecvFlags::CMSG_CLOEXEC` is Linux-only; set close-on-exec portably after
+    // receipt so the descriptor can never leak across `exec`.
+    rustix::io::fcntl_setfd(&descriptor, rustix::io::FdFlags::CLOEXEC)
+        .map_err(|_| RootHandleBrokerError::Unavailable)?;
     if received.bytes < frame.len() {
         stream
             .read_exact(&mut frame[received.bytes..])

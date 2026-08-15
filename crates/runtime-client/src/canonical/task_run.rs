@@ -182,7 +182,7 @@ fn validate_terminal_result(
     }
 }
 
-fn valid_task_run_snapshot(
+const fn valid_task_run_snapshot(
     state: TaskRunState,
     active_attempt_id: Option<CanonicalId>,
     terminal_result: Option<&TaskRunTerminalResult>,
