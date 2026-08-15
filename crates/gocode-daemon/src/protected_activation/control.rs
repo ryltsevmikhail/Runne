@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
+
 use super::*;
 
 /// Serves authenticated session renewal and exact-owned shutdown requests.

@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
+
 use super::*;
 
 /// Validated protected launch retained only by the daemon native host.

@@ -1,7 +1,7 @@
 #![cfg(unix)]
 
 use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -168,7 +168,7 @@ async fn cli_rejects_profile_v1_without_http_fallback_or_secret_disclosure() {
 async fn cli_requires_workspace_id_for_conversation_create() {
     let directory = tempfile::tempdir().expect("temp directory");
     let profile = directory.path().join("profile.json");
-    std::fs::write(&profile, r#"{}"#).expect("write placeholder profile");
+    std::fs::write(&profile, r"{}").expect("write placeholder profile");
 
     let output = run_cli([
         "--profile",
@@ -193,7 +193,7 @@ async fn run_cli<const N: usize>(arguments: [&str; N]) -> std::process::Output {
         .expect("run CLI")
 }
 
-async fn seed_workspace(profile: &PathBuf) -> CanonicalId {
+async fn seed_workspace(profile: &Path) -> CanonicalId {
     let client = LocalRuntimeProfile::load(profile)
         .expect("load runtime profile")
         .connect(Duration::from_secs(5))

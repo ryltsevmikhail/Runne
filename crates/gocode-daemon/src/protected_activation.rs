@@ -1,5 +1,7 @@
 //! Protected inherited-channel admission for bundled daemon launches.
 
+#![cfg_attr(not(feature = "desktop-protected"), allow(dead_code, unused_imports))]
+
 #[cfg(unix)]
 use std::io::{Read, Write};
 #[cfg(unix)]

@@ -94,6 +94,7 @@ impl SecurityAnchorV1 {
         })
     }
 
+    #[cfg_attr(not(feature = "test-support"), allow(dead_code))]
     pub(crate) fn is_valid(&self) -> bool {
         self.profile_identity_digest != [0; 32]
             && self.database_identity != [0; 32]
@@ -118,6 +119,10 @@ impl SecurityAnchorV1 {
 }
 
 #[allow(clippy::redundant_pub_crate)]
+#[cfg_attr(
+    all(not(target_os = "macos"), not(feature = "test-support")),
+    allow(dead_code)
+)]
 pub(crate) trait SecurityProfileLockBackend {
     fn seal(
         &self,
@@ -137,12 +142,20 @@ pub(crate) trait SecurityProfileLockBackend {
 }
 
 /// An opaque, profile-bound guard retained across the SQLite/security-store CAS.
+#[cfg_attr(
+    all(not(target_os = "macos"), not(feature = "test-support")),
+    allow(dead_code)
+)]
 pub struct SecurityProfileLock<'a> {
     profile_identity_digest: [u8; 32],
     held: Box<dyn SecurityProfileLockBackend + 'a>,
 }
 
 impl<'a> SecurityProfileLock<'a> {
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(feature = "test-support")),
+        allow(dead_code)
+    )]
     pub(crate) fn new(
         profile_identity_digest: [u8; 32],
         held: impl SecurityProfileLockBackend + 'a,
@@ -153,10 +166,18 @@ impl<'a> SecurityProfileLock<'a> {
         }
     }
 
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(feature = "test-support")),
+        allow(dead_code)
+    )]
     pub(crate) fn matches(&self, profile_identity_digest: [u8; 32]) -> bool {
         self.profile_identity_digest == profile_identity_digest
     }
 
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(feature = "test-support")),
+        allow(dead_code)
+    )]
     pub(crate) fn seal(
         &self,
         database: [u8; 32],
@@ -166,6 +187,10 @@ impl<'a> SecurityProfileLock<'a> {
     ) -> Result<SealedTransactionTag, SecureStoreError> {
         self.held.seal(database, generation, transaction, previous)
     }
+    #[cfg_attr(
+        all(not(target_os = "macos"), not(feature = "test-support")),
+        allow(dead_code)
+    )]
     pub(crate) fn verify(
         &self,
         database: [u8; 32],

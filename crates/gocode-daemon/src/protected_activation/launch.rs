@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "desktop-protected"), allow(dead_code))]
+
 use super::first_activation::{
     expected_profile, preflight_existing, preflight_resume_first_activation,
     prepare_first_activation, validate_runtime_root, verify_pending_request,
