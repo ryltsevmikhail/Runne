@@ -130,9 +130,10 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     let lineage = gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
     let authority = bootstrap.authority_id;
     let generation = bootstrap.launch_generation;
-    let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
-        &VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap),
-    );
+    // Production DaemonApplication keeps the owner-private bootstrap (authority
+    // lock) alive for the whole process; hold it for the whole scenario.
+    let verified = VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap);
+    let provenance = DaemonActivationProvenance::from_verified_owner_private_config(&verified);
     let prohibited: Arc<dyn ProhibitedContentPort> =
         Arc::new(SecretBroker::new().prohibited_content_guard());
     let store = StoreTransaction::open_with_connections(
@@ -283,6 +284,8 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
             .observed_outbox_recoveries_in_generation(),
         Some(1)
     );
+    // BootstrapOutcome must outlive compose/recovery; dropped at scenario end.
+    drop(verified);
 }
 
 fn command_context(command: &str, key: &str) -> ApplicationCommandContext {
