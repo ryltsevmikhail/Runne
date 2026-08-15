@@ -22,6 +22,8 @@ pub(super) struct Harness {
     generation: u64,
     profile_digest: [u8; 32],
     provenance: DaemonActivationProvenance,
+    /// Owner-private bootstrap (authority lock) alive for the whole scenario.
+    verified: VerifiedOwnerPrivateConfig,
     pub(super) store: StoreTransaction,
     conversation_service: Arc<dyn ConversationTextCommandService>,
     prohibited: Arc<dyn ProhibitedContentPort>,
@@ -52,9 +54,8 @@ impl Harness {
             gocode_store::schema::ensure_event_log_lineage_id(&bootstrap.db_conn).unwrap();
         let authority = bootstrap.authority_id;
         let generation = bootstrap.launch_generation;
-        let provenance = DaemonActivationProvenance::from_verified_owner_private_config(
-            &VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap),
-        );
+        let verified = VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap);
+        let provenance = DaemonActivationProvenance::from_verified_owner_private_config(&verified);
         let prohibited: Arc<dyn ProhibitedContentPort> =
             Arc::new(SecretBroker::new().prohibited_content_guard());
         let store = StoreTransaction::open_with_connections(
@@ -94,6 +95,7 @@ impl Harness {
             generation,
             profile_digest,
             provenance,
+            verified,
             store,
             conversation_service,
             prohibited,
