@@ -34,6 +34,9 @@ async fn wait_for_subscription_count(fixture: &RetentionGapFixture, expected: i6
 async fn wait_for_cancelled_admission_cleanup(fixture: &RetentionGapFixture) {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
+            // Reads the test-only audit table this test injects; the strict
+            // released-schema classification of managed reopens rejects extra
+            // objects, so the probe stays on a raw test connection.
             let connection = rusqlite::Connection::open(fixture.database_path()).unwrap();
             let inserted: i64 = connection
                 .query_row(
@@ -76,6 +79,8 @@ async fn wait_for_cleanup_audit(
 ) {
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
+            // The audited tables are test-only DDL this test injects; managed
+            // reopens reject non-released objects, so read via raw connection.
             let connection = rusqlite::Connection::open(fixture.database_path()).unwrap();
             let count: i64 = connection
                 .query_row(
@@ -99,6 +104,10 @@ async fn cancelled_blocked_resume_releases_durable_session_and_ninth_quota_slot(
     let fixture = retention_gap_fixture().await;
     let app = fixture.v2_app();
     let baseline = signed_v2_baseline(&fixture, &app).await;
+    // Race-simulation lock that also injects test-only audit tables/triggers.
+    // Managed reopen validation classifies against the released schema and
+    // rejects these extra objects, so the test DDL must run on a raw test
+    // connection; it never touches production admission paths.
     let lock = rusqlite::Connection::open(fixture.database_path()).unwrap();
     lock.execute_batch(
         "CREATE TABLE resume_cleanup_audit(action TEXT NOT NULL);
@@ -149,6 +158,8 @@ async fn denied_final_resume_response_aborts_session_and_releases_quota() {
     let available = fixture.v2_app();
     let baseline = signed_v2_baseline(&fixture, &available).await;
     let denied = fixture.v2_app_with_guard(std::sync::Arc::new(ResumeResponseDeniedGuard));
+    // Injects test-only audit table/trigger; managed reopens reject these
+    // non-released objects, so the DDL runs on a raw test connection.
     let connection = rusqlite::Connection::open(fixture.database_path()).unwrap();
     connection
         .execute_batch(
@@ -262,6 +273,8 @@ async fn v2_delivery_lease_retries_a_failed_server_close() {
         .unwrap();
     assert_eq!(response.status(), axum::http::StatusCode::OK);
     drop(response);
+    // Injects a test-only trigger; managed reopens reject non-released objects,
+    // so the DDL runs on a raw test connection.
     let connection = rusqlite::Connection::open(fixture.database_path()).unwrap();
     connection
         .execute_batch(
