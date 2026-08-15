@@ -4,11 +4,7 @@ fn parse_create(mut arguments: VecDeque<OsString>) -> Result<ConversationCommand
         return Err(CliError::Help(CONVERSATION_CREATE_HELP.to_owned()));
     }
 
-    if arguments.is_empty() {
-        return Ok(ConversationCommand::Create {
-            workspace_id: CanonicalId::now_v7(),
-        });
-    }
+    // --workspace-id is required; the CLI must never invent a workspace.
     expect_token(&mut arguments, "--workspace-id")?;
     let workspace_id = parse_id(&pop_string(&mut arguments)?)?;
     expect_end(&arguments)?;
