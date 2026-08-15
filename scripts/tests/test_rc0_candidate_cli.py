@@ -101,6 +101,43 @@ class Rc0CandidateCliTests(unittest.TestCase):
                 )
             self.assertTrue(receipt.exists())
 
+    def test_receipt_namespace_cleanup_allows_scratch_fifo_and_socket(self):
+        receipt_module = importlib.import_module("scripts.ci_local_receipt")
+        with tempfile.TemporaryDirectory() as location:
+            fixture_root = Path(location) / "repository"
+            self._receipt_fixture(fixture_root)
+            script = fixture_root / "scripts/ci-local-inputs.sh"
+            script.write_text(
+                "\n".join(
+                    (
+                        "#!/bin/sh",
+                        "python3 - <<'PY'",
+                        "import os, socket",
+                        "tmp = os.environ['TMPDIR']",
+                        "os.mkfifo(os.path.join(tmp, 'receipt-test.pipe'))",
+                        "sock = socket.socket(socket.AF_UNIX)",
+                        "sock.bind(os.path.join(tmp, 'receipt-test.sock'))",
+                        "sock.close()",
+                        "PY",
+                    )
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "-C", str(fixture_root), "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", str(fixture_root), "commit", "--quiet", "-m", "scratch-special"],
+                check=True,
+            )
+            before = set(Path(tempfile.gettempdir()).glob("gocode-local-gate-*"))
+            receipt_directory = Path(location) / "receipt"
+            receipt_directory.mkdir(mode=0o700)
+            receipt = receipt_directory / "receipt.json"
+            receipt_module.run_local_input_gates(fixture_root, receipt)
+            after = set(Path(tempfile.gettempdir()).glob("gocode-local-gate-*"))
+            self.assertEqual(after - before, set())
+            self.assertTrue(receipt.exists())
+
     def test_receipt_rejects_expired_canonical_record(self):
         receipt_module = importlib.import_module("scripts.ci_local_receipt")
         canonical = importlib.import_module("scripts.rc0_policy.canonical")
