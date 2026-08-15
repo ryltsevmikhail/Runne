@@ -25,7 +25,7 @@ cargo test -p gocode-http --all-targets --locked
 cargo test -p gocode-daemon --all-targets --locked
 cargo test -p gocode-runtime-client --all-targets --locked
 cargo test -p gocode-cli --all-targets --locked
-cargo test -p gocode-app-core --all-targets --locked
+cargo test -p gocode-app-core --all-targets --features test-support --locked
 cargo test -p gocode-desktop --all-targets --locked
 python3 scripts/validate-docs.py --strict
 git diff --check
