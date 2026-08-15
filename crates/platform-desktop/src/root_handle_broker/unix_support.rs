@@ -81,6 +81,7 @@ fn verified_from_handle(handle: File) -> Result<VerifiedRootHandle, RootHandleBr
         return Err(RootHandleBrokerError::Rejected);
     }
     let stat = fstat(&handle).map_err(|_| RootHandleBrokerError::Rejected)?;
+    #[allow(clippy::useless_conversion)]
     let device = u64::try_from(stat.st_dev).map_err(|_| RootHandleBrokerError::Rejected)?;
     let mut hasher = Sha256::new();
     hasher.update(device.to_be_bytes());
