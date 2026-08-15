@@ -1,14 +1,19 @@
 use gocode_runtime_client::{
     AuthenticatedRuntimeClient, CanonicalId, CanonicalReplayEvent, CanonicalReplayPayload,
     CommandIdentity, ConversationMessageRole, ConversationMessages, CreateConversationRequest,
-    GenerateTextRequest, ReplayAggregateKind, ReplayDeliveryDisposition, ReplayIdentityTracker,
-    ReplayScope, RuntimeApiErrorKind,
+    CreateProjectRequest, CreateWorkspaceRequest, GenerateTextRequest, ReplayAggregateKind,
+    ReplayDeliveryDisposition, ReplayIdentityTracker, ReplayScope, RuntimeApiErrorKind,
 };
 
 const CONVERSATION_ID: &str = "018f2e3a-7000-7000-8000-000000000801";
+const PROJECT_ID: &str = "018f2e3a-7000-7000-8000-000000000800";
 const WORKSPACE_ID: &str = "018f2e3a-7000-7000-8000-000000000802";
+const PROJECT_COMMAND_ID: &str = "018f2e3a-7000-7000-8000-000000000805";
+const WORKSPACE_COMMAND_ID: &str = "018f2e3a-7000-7000-8000-000000000806";
 const CREATE_COMMAND_ID: &str = "018f2e3a-7000-7000-8000-000000000803";
 const GENERATE_COMMAND_ID: &str = "018f2e3a-7000-7000-8000-000000000804";
+const PROJECT_IDEMPOTENCY_KEY: &str = "fixture-project-idempotency-v1";
+const WORKSPACE_IDEMPOTENCY_KEY: &str = "fixture-workspace-idempotency-v1";
 const CREATE_IDEMPOTENCY_KEY: &str = "fixture-create-idempotency-v1";
 const GENERATE_IDEMPOTENCY_KEY: &str = "fixture-generate-idempotency-v1";
 const USER_TEXT: &str = "fixture input";
@@ -78,7 +83,9 @@ pub async fn send_canonical_conversation(
     client: &AuthenticatedRuntimeClient,
 ) -> ConversationExpectation {
     let conversation_id = id(CONVERSATION_ID);
+    let project_id = id(PROJECT_ID);
     let workspace_id = id(WORKSPACE_ID);
+    seed_workspace(client, project_id, workspace_id).await;
     let create_command_id = id(CREATE_COMMAND_ID);
     let generate_command_id = id(GENERATE_COMMAND_ID);
     let created = client
@@ -132,6 +139,40 @@ pub async fn send_canonical_conversation(
         last_cursor,
         replay_tracker: tracker,
     }
+}
+
+async fn seed_workspace(
+    client: &AuthenticatedRuntimeClient,
+    project_id: CanonicalId,
+    workspace_id: CanonicalId,
+) {
+    let project = client
+        .create_project(
+            CreateProjectRequest::new(
+                identity(id(PROJECT_COMMAND_ID), PROJECT_IDEMPOTENCY_KEY),
+                project_id,
+                "Fixture project",
+            )
+            .expect("canonical Project request"),
+        )
+        .await
+        .expect("create canonical Project");
+    assert_eq!(project.project_id(), project_id);
+    assert_eq!(project.new_version(), 1);
+    let workspace = client
+        .create_workspace(
+            CreateWorkspaceRequest::new(
+                identity(id(WORKSPACE_COMMAND_ID), WORKSPACE_IDEMPOTENCY_KEY),
+                project_id,
+                workspace_id,
+                "Fixture workspace",
+            )
+            .expect("canonical Workspace request"),
+        )
+        .await
+        .expect("create canonical Workspace");
+    assert_eq!(workspace.workspace_id(), workspace_id);
+    assert_eq!(workspace.new_version(), 1);
 }
 
 pub async fn replay_from(

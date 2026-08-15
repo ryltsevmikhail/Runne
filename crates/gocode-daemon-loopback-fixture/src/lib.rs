@@ -2,7 +2,6 @@
 
 mod ack_failure_store;
 mod bootstrap;
-mod credential_versions;
 mod fixed_response;
 #[cfg(unix)]
 mod protected_process;
