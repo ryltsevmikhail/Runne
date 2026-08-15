@@ -23,7 +23,7 @@ pub(super) struct Harness {
     profile_digest: [u8; 32],
     provenance: DaemonActivationProvenance,
     /// Owner-private bootstrap (authority lock) alive for the whole scenario.
-    verified: VerifiedOwnerPrivateConfig,
+    _verified: VerifiedOwnerPrivateConfig,
     pub(super) store: StoreTransaction,
     conversation_service: Arc<dyn ConversationTextCommandService>,
     prohibited: Arc<dyn ProhibitedContentPort>,
@@ -95,7 +95,7 @@ impl Harness {
             generation,
             profile_digest,
             provenance,
-            verified,
+            _verified: verified,
             store,
             conversation_service,
             prohibited,
