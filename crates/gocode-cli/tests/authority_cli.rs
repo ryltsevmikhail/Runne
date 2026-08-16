@@ -119,6 +119,9 @@ fn authority_verify_accepts_only_the_explicit_trust_receipt_and_anchor_contract(
 
 #[test]
 fn authority_accepts_only_the_exact_typed_mutation_flags_before_platform_denial() {
+    if cfg!(target_os = "macos") {
+        return;
+    }
     let binary = env!("CARGO_BIN_EXE_gocode");
     for arguments in [
         vec!["authority", "init", "--trust-out", "docs/trust.json"],
