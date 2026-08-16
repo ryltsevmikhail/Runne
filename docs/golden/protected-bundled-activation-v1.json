@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "protocol_schema_version": 1,
+  "message_type_id": 1,
+  "frame_length": 483,
+  "frame_sha256": "8f1e38603a33e3283faa65852406a6130131dfde8574c6d734eeb2df42a52f30",
+  "canonical_launch_platform": "unix",
+  "platform_launch_frames": {
+    "unix": {
+      "message_type_id": 1,
+      "frame_length": 483,
+      "frame_sha256": "8f1e38603a33e3283faa65852406a6130131dfde8574c6d734eeb2df42a52f30"
+    },
+    "windows": {
+      "message_type_id": 1,
+      "frame_length": 473,
+      "frame_sha256": "8c75890d59056765428ab3e57b8deb136d99de28f5e358ee146c3b556cf7a66f"
+    }
+  },
+  "lifecycle_messages": {
+    "launch": {
+      "message_type_id": 1,
+      "frame_length": 483,
+      "frame_sha256": "8f1e38603a33e3283faa65852406a6130131dfde8574c6d734eeb2df42a52f30"
+    },
+    "ready": {
+      "message_type_id": 2,
+      "frame_length": 547,
+      "frame_sha256": "025e04f263ca668be333db272d44486cfd35d83ea4d2adfb29d85a0f44783ce5"
+    },
+    "renew_request": {
+      "message_type_id": 3,
+      "frame_length": 495,
+      "frame_sha256": "34db350502bf44828db042b6f6aa2e31289e71f6c13d7cbec731183f8f546d13"
+    },
+    "renew_ticket": {
+      "message_type_id": 4,
+      "frame_length": 556,
+      "frame_sha256": "28bc0c109bf9f9bf9c9da024c8f5afb84fa9f62d7b7b3ceaf2b09abf39354288"
+    },
+    "shutdown": {
+      "message_type_id": 5,
+      "frame_length": 458,
+      "frame_sha256": "aba94c03814b700600eca5ab1fc217c300d5b724bb02b5d68b45ffd328f8daa7"
+    },
+    "shutdown_ack": {
+      "message_type_id": 6,
+      "frame_length": 460,
+      "frame_sha256": "a3c935139812869ef81ac72d406800cb305fa987c634bed0ca6365b4ffa2f758"
+    },
+    "first_activation_prepared": {
+      "message_type_id": 7,
+      "frame_length": 473,
+      "frame_sha256": "fea70fa7509ba25ea41fa64668081ed374ef2a7bea32b3fa7f97268cf856c9c8"
+    },
+    "first_activation_commit": {
+      "message_type_id": 8,
+      "frame_length": 473,
+      "frame_sha256": "3f3ac62d9aa760b6353b7a325c86201b979c2409645ebdec25b8425c987318aa"
+    }
+  },
+  "content_policy": "digest-only; launch secrets are never stored in golden fixtures"
+}
