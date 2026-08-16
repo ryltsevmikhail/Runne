@@ -1,4 +1,5 @@
 """Pinned V3 successor for the exact post-repair documentation candidate."""
+from __future__ import annotations
 OVERLAY_V3_SCHEMA_PATH = "docs/schemas/pre-authority-document-overlay-v3.schema.json"
 OVERLAY_V3_ARTIFACT_PATH = "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V3.json"
 OVERLAY_V3_SCHEMA_SHA256 = "e74905818e36e9de9b0773f2d5c58304ca78e3c31a7ddd6e1e0bd40cec6a4273"

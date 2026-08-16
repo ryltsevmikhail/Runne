@@ -15,6 +15,7 @@ import tempfile
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import Union
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -69,7 +70,7 @@ class InventoryError(ValueError):
     """An inventory is incomplete, unsafe, or not exact-run evidence."""
 
 
-Command = Callable[[tuple[str, ...]], bytes | str]
+Command = Callable[[tuple[str, ...]], Union[bytes, str]]
 
 
 def rust_record(record: dict) -> bool:

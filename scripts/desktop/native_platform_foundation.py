@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fail-closed source-bound Desktop V1 native qualification validator."""
+from __future__ import annotations
 
 import argparse
 import hashlib

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fail-closed native packaged application probe for protected CI runners."""
+from __future__ import annotations
 
 import argparse
 import hashlib

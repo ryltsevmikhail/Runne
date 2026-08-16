@@ -1,4 +1,5 @@
 """Pre-authority documentation mode dispatcher; all candidate bytes are frozen."""
+from __future__ import annotations
 from pathlib import Path
 import re
 

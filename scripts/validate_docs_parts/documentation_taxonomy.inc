@@ -1,4 +1,5 @@
 """Closed-set taxonomy, Markdown inventory, and status-claim validation."""
+from __future__ import annotations
 from dataclasses import dataclass
 import importlib.util
 import json

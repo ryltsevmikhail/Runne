@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Verify that a strict Rust test inventory contains required test names."""
 
+from __future__ import annotations
+
 import pathlib
 import sys
 import unittest

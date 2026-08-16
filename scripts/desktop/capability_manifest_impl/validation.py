@@ -1,4 +1,5 @@
 """Fail-closed semantic validation of Desktop v1 capability artifacts."""
+from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import datetime

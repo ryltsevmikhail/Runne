@@ -1,4 +1,5 @@
 """Pinned upgrade-only V5 overlay for the 2026-08-16 docs-sync document set."""
+from __future__ import annotations
 OVERLAY_V5_SCHEMA_PATH = "docs/schemas/pre-authority-document-overlay-v5.schema.json"
 OVERLAY_V5_ARTIFACT_PATH = "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V5.json"
 OVERLAY_V5_SCHEMA_SHA256 = "078b361246f18e15bc15cc98e3b8d5d0ec201b04841333c444b09357b25000b7"

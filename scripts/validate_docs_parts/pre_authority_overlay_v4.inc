@@ -1,4 +1,5 @@
 """Pinned upgrade-only V4 overlay for the desktop-foundation document set."""
+from __future__ import annotations
 OVERLAY_V4_SCHEMA_PATH = "docs/schemas/pre-authority-document-overlay-v4.schema.json"
 OVERLAY_V4_ARTIFACT_PATH = "docs/authority/PRE_AUTHORITY_DOCUMENT_OVERLAY_V4.json"
 OVERLAY_V4_SCHEMA_SHA256 = "b01e86ddda666752664e9967e8aa2b57a91a9968edeecdb63a046651e2379670"

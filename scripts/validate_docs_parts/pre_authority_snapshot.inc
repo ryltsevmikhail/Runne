@@ -1,4 +1,5 @@
 """Immutable candidate-index capture primitives for pre-authority validation."""
+from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
