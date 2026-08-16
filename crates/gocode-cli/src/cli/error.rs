@@ -24,24 +24,26 @@ enum CliError {
     AuthorityUnsupportedPlatform,
     AuthorityGit,
     #[cfg(any(test, target_os = "macos"))]
+    #[cfg_attr(all(target_os = "macos", not(test)), expect(dead_code, reason = "constructed only by the intentionally un-wired macOS authority lifecycle"))]
     AuthorityDirtyWorktree,
     #[cfg(test)]
     AuthorityNonInteractive,
     #[cfg(test)]
     AuthorityConfirmationFailed,
     #[cfg(any(test, target_os = "macos"))]
+    #[cfg_attr(all(target_os = "macos", not(test)), expect(dead_code, reason = "constructed only by the intentionally un-wired macOS authority lifecycle"))]
     AuthorityBackupTamperedOrWrongPassphrase,
     AuthorityUnavailable,
     AuthorityTrustInvalid,
     AuthorityAnchorMismatch,
-    #[cfg_attr(not(any(test, target_os = "macos")), expect(dead_code, reason = "mutation store failures are macOS-only"))]
+    #[cfg_attr(not(test), expect(dead_code, reason = "mutation store failures are macOS-only"))]
     AuthorityStoreUnavailable,
-    #[cfg_attr(not(any(test, target_os = "macos")), expect(dead_code, reason = "publication is macOS-only"))]
+    #[cfg_attr(not(test), expect(dead_code, reason = "publication is macOS-only"))]
     AuthorityArtifactExists,
-    #[cfg_attr(not(any(test, target_os = "macos")), expect(dead_code, reason = "publication is macOS-only"))]
+    #[cfg_attr(not(test), expect(dead_code, reason = "publication is macOS-only"))]
     AuthorityArtifactIo,
     AuthorityVerifyFailed,
-    #[cfg_attr(not(any(test, target_os = "macos")), expect(dead_code, reason = "trust reset is macOS-only"))]
+    #[cfg_attr(not(test), expect(dead_code, reason = "trust reset is macOS-only"))]
     AuthorityTrustResetRebootstrapRequired,
 }
 
