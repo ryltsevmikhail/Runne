@@ -26,8 +26,11 @@ fn rejects_symbolic_link_and_directory_artifacts() {
 fn rejects_fifo_without_waiting_for_a_writer() {
     let temporary = tempfile::tempdir().expect("temporary repository");
     let fifo = temporary.path().join("authority.fifo");
+    // `-m` is the portable short form accepted by both GNU and BSD `mkfifo`;
+    // GNU-only `--mode` is rejected by the BSD implementation on macOS.
     let status = std::process::Command::new("mkfifo")
-        .arg("--mode=600")
+        .arg("-m")
+        .arg("600")
         .arg(&fifo)
         .status()
         .expect("start mkfifo");
