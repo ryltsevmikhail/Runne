@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.project-owner.key-rotation/1",
+  "title": "GOCODE Project Owner Key Rotation V1",
+  "description": "Public rotation proof binding an old authorization to a new key proof-of-possession.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "role", "predecessor_config_sha256", "old_key_id", "old_epoch", "new_key_id", "new_public_key", "new_epoch", "old_authorization", "new_proof_of_possession"],
+  "properties": {
+    "schema_version": {"const": "gocode.project-owner.key-rotation/1"},
+    "repository_id": {"const": "gocode"},
+    "role": {"const": "PROJECT_OWNER"},
+    "predecessor_config_sha256": {"$ref": "#/$defs/sha256"},
+    "old_key_id": {"$ref": "#/$defs/sha256"},
+    "old_epoch": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "new_key_id": {"$ref": "#/$defs/sha256"},
+    "new_public_key": {"$ref": "#/$defs/public_key"},
+    "new_epoch": {"type": "integer", "minimum": 2, "maximum": 18446744073709551615},
+    "old_authorization": {"$ref": "#/$defs/signature"},
+    "new_proof_of_possession": {"$ref": "#/$defs/signature"}
+  },
+  "$defs": {
+    "base64url": {"type": "string", "pattern": "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$"},
+    "public_key": {"$ref": "#/$defs/base64url", "minLength": 43, "maxLength": 43},
+    "signature": {"$ref": "#/$defs/base64url", "minLength": 86, "maxLength": 86},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

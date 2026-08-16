@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/v1-platform-scope-decision-v1.schema.json",
+  "title": "V1 Platform Scope Decision",
+  "description": "Closed canonical cross-owner decision for the v1 platform scope.",
+  "type": "object",
+  "required": ["artifact_slots", "platform_scopes", "repository_id", "schema_version", "unsupported_tuples"],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_slots": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "prefixItems": [
+        {"$ref": "#/$defs/linux_appimage"},
+        {"$ref": "#/$defs/linux_deb"},
+        {"$ref": "#/$defs/macos_app"},
+        {"$ref": "#/$defs/macos_dmg"},
+        {"$ref": "#/$defs/windows_installer"}
+      ],
+      "items": false
+    },
+    "platform_scopes": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "prefixItems": [
+        {"$ref": "#/$defs/linux_scope"},
+        {"$ref": "#/$defs/macos_scope"},
+        {"$ref": "#/$defs/windows_scope"}
+      ],
+      "items": false
+    },
+    "repository_id": {"type": "string", "enum": ["gocode"]},
+    "schema_version": {"type": "string", "enum": ["gocode.governance.v1-platform-scope-decision/1"]},
+    "unsupported_tuples": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "prefixItems": [
+        {"type": "string", "enum": ["android"]},
+        {"type": "string", "enum": ["ios-ipados"]},
+        {"type": "string", "enum": ["macos-13"]},
+        {"type": "string", "enum": ["macos-x86_64"]},
+        {"type": "string", "enum": ["ubuntu-22.04"]},
+        {"type": "string", "enum": ["windows-10-22h2"]},
+        {"type": "string", "enum": ["windows-server"]}
+      ],
+      "items": false
+    }
+  },
+  "$defs": {
+    "linux_appimage": {
+      "type": "object",
+      "required": ["artifact_slot_id", "platform_scope_id"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_slot_id": {"type": "string", "enum": ["linux-appimage"]},
+        "platform_scope_id": {"type": "string", "enum": ["linux-ubuntu-24_04-x86_64-production"]}
+      }
+    },
+    "linux_deb": {
+      "type": "object",
+      "required": ["artifact_slot_id", "platform_scope_id"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_slot_id": {"type": "string", "enum": ["linux-deb"]},
+        "platform_scope_id": {"type": "string", "enum": ["linux-ubuntu-24_04-x86_64-production"]}
+      }
+    },
+    "linux_scope": {
+      "type": "object",
+      "required": ["architecture", "os_family", "os_version", "platform_scope_id", "qualification_class"],
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {"type": "string", "enum": ["x86_64"]},
+        "os_family": {"type": "string", "enum": ["Ubuntu"]},
+        "os_version": {"type": "string", "enum": ["24.04"]},
+        "platform_scope_id": {"type": "string", "enum": ["linux-ubuntu-24_04-x86_64-production"]},
+        "qualification_class": {"type": "string", "enum": ["production"]}
+      }
+    },
+    "macos_app": {
+      "type": "object",
+      "required": ["artifact_slot_id", "platform_scope_id"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_slot_id": {"type": "string", "enum": ["macos-app-development-adhoc"]},
+        "platform_scope_id": {"type": "string", "enum": ["macos-14-arm64-development-preview"]}
+      }
+    },
+    "macos_dmg": {
+      "type": "object",
+      "required": ["artifact_slot_id", "platform_scope_id"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_slot_id": {"type": "string", "enum": ["macos-dmg-development-adhoc"]},
+        "platform_scope_id": {"type": "string", "enum": ["macos-14-arm64-development-preview"]}
+      }
+    },
+    "macos_scope": {
+      "type": "object",
+      "required": ["architecture", "os_family", "os_version", "platform_scope_id", "qualification_class"],
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {"type": "string", "enum": ["arm64"]},
+        "os_family": {"type": "string", "enum": ["macOS"]},
+        "os_version": {"type": "string", "enum": ["14"]},
+        "platform_scope_id": {"type": "string", "enum": ["macos-14-arm64-development-preview"]},
+        "qualification_class": {"type": "string", "enum": ["development_preview"]}
+      }
+    },
+    "windows_installer": {
+      "type": "object",
+      "required": ["artifact_slot_id", "platform_scope_id"],
+      "additionalProperties": false,
+      "properties": {
+        "artifact_slot_id": {"type": "string", "enum": ["windows-installer-unsigned"]},
+        "platform_scope_id": {"type": "string", "enum": ["windows-11-24h2-x86_64-production"]}
+      }
+    },
+    "windows_scope": {
+      "type": "object",
+      "required": ["architecture", "os_family", "os_version", "platform_scope_id", "qualification_class"],
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {"type": "string", "enum": ["x86_64"]},
+        "os_family": {"type": "string", "enum": ["Windows"]},
+        "os_version": {"type": "string", "enum": ["11-24H2-client"]},
+        "platform_scope_id": {"type": "string", "enum": ["windows-11-24h2-x86_64-production"]},
+        "qualification_class": {"type": "string", "enum": ["production"]}
+      }
+    }
+  }
+}

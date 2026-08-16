@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.native-host-evidence-record/1",
+  "title": "GOCODE RC0 Native Host Evidence Record V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository_id",
+    "mapping_policy_envelope_sha256",
+    "adjunct_trust_registry_envelope_sha256",
+    "adjunct_trust_registry_payload_sha256",
+    "rc0_qualification_policy_digest",
+    "active_activation_snapshot_envelope_sha256",
+    "common_binding_group",
+    "common_binding_group_payload_sha256",
+    "platform_scope_id",
+    "os_family",
+    "os_version",
+    "os_build",
+    "kernel_or_image_sha256",
+    "architecture",
+    "native_mode",
+    "backend_id",
+    "backend_version",
+    "probe_set_payload_sha256",
+    "enforcement_descriptor_payload_sha256",
+    "workflow_run_id",
+    "executed_artifacts",
+    "control_results",
+    "observed_at",
+    "freshness_deadline"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "gocode.rc0.native-host-evidence-record/1"
+    },
+    "repository_id": {
+      "const": "gocode"
+    },
+    "mapping_policy_envelope_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "adjunct_trust_registry_envelope_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "adjunct_trust_registry_payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "rc0_qualification_policy_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "active_activation_snapshot_envelope_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "common_binding_group": {
+      "$ref": "#/$defs/common"
+    },
+    "common_binding_group_payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "platform_scope_id": {
+      "$ref": "#/$defs/scope_id"
+    },
+    "os_family": {
+      "enum": [
+        "Ubuntu",
+        "Windows",
+        "macOS"
+      ]
+    },
+    "os_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "os_build": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "kernel_or_image_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "architecture": {
+      "enum": [
+        "x86_64",
+        "arm64"
+      ]
+    },
+    "native_mode": {
+      "const": "native"
+    },
+    "backend_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "backend_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "probe_set_payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "enforcement_descriptor_payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "executed_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
+    "control_results": {
+      "type": "array",
+      "minItems": 21,
+      "maxItems": 21,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/control_result"
+      }
+    },
+    "observed_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "freshness_deadline": {
+      "$ref": "#/$defs/timestamp"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope_id": {
+      "enum": [
+        "linux-ubuntu-24_04-x86_64-production",
+        "windows-11-24h2-x86_64-production",
+        "macos-14-arm64-development-preview"
+      ]
+    },
+    "slot_id": {
+      "enum": [
+        "linux-appimage",
+        "linux-deb",
+        "windows-installer-unsigned",
+        "macos-app-development-adhoc",
+        "macos-dmg-development-adhoc"
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 20,
+          "maxLength": 20
+        },
+        {
+          "type": "string",
+          "minLength": 27,
+          "maxLength": 27
+        }
+      ],
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{6})?Z$"
+    },
+    "common": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository_id",
+        "candidate_source_sha",
+        "evidence_attempt_id",
+        "observed_evidence_revision",
+        "evidence_bundle_digest",
+        "policy_revision",
+        "policy_digest",
+        "profile",
+        "exact_artifact_bindings"
+      ],
+      "properties": {
+        "repository_id": {
+          "const": "gocode"
+        },
+        "candidate_source_sha": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40,
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "evidence_attempt_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "observed_evidence_revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "evidence_bundle_digest": {"$ref": "#/$defs/sha256"},
+        "policy_revision": {"type": "integer", "minimum": 1
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "profile": {
+          "const": "gocode.rc0.evidence-profile/3"
+        },
+        "exact_artifact_bindings": {
+          "type": "array", "minItems": 1, "maxItems": 4096, "uniqueItems": true,
+          "items": {"type": "object", "additionalProperties": false, "required": ["relative_path", "sha256", "size", "locator"], "properties": {"relative_path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*[\\u0000-\\u001f\\u007f])(?!.*[<>:\"|?*]).+$"}, "sha256": {"$ref": "#/$defs/sha256"}, "size": {"type": "integer", "minimum": 0, "maximum": 18446744073709551615}, "locator": {"type": "string", "pattern": "^(?:cas:sha256:[0-9a-f]{64}|git:[0-9a-f]{40}:(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*//)(?!\\.\\.?(?:/|$))(?!.*?/\\.\\.?(?:/|$))(?!.*[\\u0000-\\u001f\\u007f])(?!.*[<>:\"|?*])(?!.*\\/$).+)$"}}}
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_slot_id",
+        "artifact_kind",
+        "relative_path",
+        "sha256",
+        "size",
+        "locator",
+        "artifact_manifest_payload_sha256",
+        "product_manifest_payload_sha256"
+      ],
+      "properties": {
+        "artifact_slot_id": {
+          "$ref": "#/$defs/slot_id"
+        },
+        "artifact_kind": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "relative_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "locator": {
+          "type": "string",
+          "minLength": 75,
+          "maxLength": 75,
+          "pattern": "^cas:sha256:[0-9a-f]{64}$"
+        },
+        "artifact_manifest_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "product_manifest_payload_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "control_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "control_id",
+        "result"
+      ],
+      "properties": {
+        "control_id": {
+          "enum": [
+            "linux_protected_transport",
+            "linux_landlock",
+            "linux_seccomp",
+            "linux_cgroups_v2",
+            "linux_descendant_cleanup",
+            "linux_direct_egress_denial",
+            "windows_owner_acl",
+            "windows_owner_dacl",
+            "windows_reparse_safe",
+            "windows_appcontainer",
+            "windows_job_object_cleanup",
+            "windows_descendant_cleanup",
+            "windows_direct_egress_denial",
+            "macos_protected_transport",
+            "macos_cleanup",
+            "macos_direct_egress_denial",
+            "macos_no_login_keychain",
+            "macos_no_ssh_material",
+            "macos_no_workspace",
+            "macos_no_credential_environment",
+            "macos_no_inherited_handles"
+          ]
+        },
+        "result": {
+          "enum": [
+            "PASS",
+            "FAILED",
+            "NOT_APPLICABLE"
+          ]
+        }
+      }
+    }
+  }
+}

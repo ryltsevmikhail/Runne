@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.platform-scope-mapping-policy/2",
+  "title": "GOCODE Solo Owner Platform Scope Mapping Policy V2",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "project_owner_authority_receipt_sha256", "adjunct_trust_schema_registry_envelope_sha256", "mapping_policy_envelope_sha256", "runtime_adr_document_sha256", "desktop_adr_document_sha256", "activation_epoch", "predecessor_mapping_policy_envelope_sha256"],
+  "properties": {
+    "schema_version": {"const": "gocode.rc0.platform-scope-mapping-policy/2"}, "repository_id": {"const": "gocode"},
+    "project_owner_authority_receipt_sha256": {"$ref": "#/$defs/sha256"}, "adjunct_trust_schema_registry_envelope_sha256": {"$ref": "#/$defs/sha256"}, "mapping_policy_envelope_sha256": {"$ref": "#/$defs/sha256"}, "runtime_adr_document_sha256": {"$ref": "#/$defs/sha256"}, "desktop_adr_document_sha256": {"$ref": "#/$defs/sha256"},
+    "activation_epoch": {"type": "integer", "minimum": 1}, "predecessor_mapping_policy_envelope_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

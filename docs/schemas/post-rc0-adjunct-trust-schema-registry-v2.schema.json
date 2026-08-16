@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.post-rc0-adjunct-trust-schema-registry/2",
+  "title": "GOCODE Solo Owner Post-RC0 Schema Registry V2",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "registry_revision", "project_owner_authority_receipt_sha256", "adjunct_trust_schema_registry_envelope_sha256", "adjunct_schema_digests"],
+  "properties": {
+    "schema_version": {"const": "gocode.rc0.post-rc0-adjunct-trust-schema-registry/2"},
+    "repository_id": {"const": "gocode"}, "registry_revision": {"type": "integer", "minimum": 1},
+    "project_owner_authority_receipt_sha256": {"$ref": "#/$defs/sha256"}, "adjunct_trust_schema_registry_envelope_sha256": {"$ref": "#/$defs/sha256"},
+    "adjunct_schema_digests": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/schema_digest"}}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "schema_digest": {"type": "object", "additionalProperties": false, "required": ["schema_id", "schema_sha256"], "properties": {"schema_id": {"enum": ["gocode.rc0.platform-scope-mapping-policy/2", "gocode.rc0.policy-activation-intent/2", "gocode.rc0.policy-activation-snapshot/2", "gocode.rc0.platform-qualified-subject/2", "gocode.release.platform-qualification-matrix/3"]}, "schema_sha256": {"$ref": "#/$defs/sha256"}}}
+  }
+}

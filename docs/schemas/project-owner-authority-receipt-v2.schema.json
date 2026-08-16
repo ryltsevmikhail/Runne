@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.project-owner.authority-receipt/2",
+  "title": "GOCODE Project Owner Authority Receipt V2",
+  "description": "Signed public binding to immutable Git objects. Excluded: username, email, hostname, account, session, lane, PID, absolute paths, document bodies, private comments, secret, passphrase and key material.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "repository_id", "role", "purpose", "trust_config_sha256", "key_id", "key_epoch", "subject", "documents", "issued_at", "profile", "signature"],
+  "properties": {
+    "schema_version": {"const": "gocode.project-owner.authority-receipt/2"},
+    "repository_id": {"const": "gocode"},
+    "role": {"const": "PROJECT_OWNER"},
+    "purpose": {"const": "V1_PLATFORM_SCOPE_AUTHORIZATION"},
+    "trust_config_sha256": {"$ref": "#/$defs/sha256"},
+    "key_id": {"$ref": "#/$defs/sha256"},
+    "key_epoch": {"type": "integer", "minimum": 1},
+    "subject": {"$ref": "#/$defs/git_subject"},
+    "documents": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "prefixItems": [
+        {"$ref": "#/$defs/runtime_adr_document"},
+        {"$ref": "#/$defs/decision_document"},
+        {"$ref": "#/$defs/desktop_adr_document"},
+        {"$ref": "#/$defs/decision_schema_document"}
+      ],
+      "items": false
+    },
+    "issued_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "profile": {"const": "gocode.project-owner.v1-platform-scope/2"},
+    "signature": {"$ref": "#/$defs/signature"}
+  },
+  "allOf": [
+    {"if": {"properties": {"subject": {"properties": {"object_format": {"const": "sha1"}}, "required": ["object_format"]}}}, "then": {"properties": {"documents": {"prefixItems": [{"properties": {"blob_oid": {"pattern": "^[0-9a-f]{40}$"}}}, {"properties": {"blob_oid": {"pattern": "^[0-9a-f]{40}$"}}}, {"properties": {"blob_oid": {"pattern": "^[0-9a-f]{40}$"}}}, {"properties": {"blob_oid": {"pattern": "^[0-9a-f]{40}$"}}}]}}}},
+    {"if": {"properties": {"subject": {"properties": {"object_format": {"const": "sha256"}}, "required": ["object_format"]}}}, "then": {"properties": {"documents": {"prefixItems": [{"properties": {"blob_oid": {"pattern": "^[0-9a-f]{64}$"}}}, {"properties": {"blob_oid": {"pattern": "^[0-9a-f]{64}$"}}}, {"properties": {"blob_oid": {"pattern": "^[0-9a-f]{64}$"}}}, {"properties": {"blob_oid": {"pattern": "^[0-9a-f]{64}$"}}}]}}}}
+  ],
+  "$defs": {
+    "base64url": {"type": "string", "pattern": "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$"},
+    "signature": {"$ref": "#/$defs/base64url", "minLength": 86, "maxLength": 86},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "oid": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "safe_path": {"type": "string", "pattern": "^(?!/)(?!.*\\\\)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^\\x00-\\x1F]+$"},
+    "git_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["object_format", "commit_oid", "tree_oid"],
+      "properties": {"object_format": {"enum": ["sha1", "sha256"]}, "commit_oid": {"$ref": "#/$defs/oid"}, "tree_oid": {"$ref": "#/$defs/oid"}},
+      "allOf": [
+        {"if": {"properties": {"object_format": {"const": "sha1"}}}, "then": {"properties": {"commit_oid": {"pattern": "^[0-9a-f]{40}$"}, "tree_oid": {"pattern": "^[0-9a-f]{40}$"}}}},
+        {"if": {"properties": {"object_format": {"const": "sha256"}}}, "then": {"properties": {"commit_oid": {"pattern": "^[0-9a-f]{64}$"}, "tree_oid": {"pattern": "^[0-9a-f]{64}$"}}}}
+      ]
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "mode", "blob_oid", "content_sha256", "byte_length"],
+      "properties": {
+        "path": {"$ref": "#/$defs/safe_path"},
+        "mode": {"const": "100644"},
+        "blob_oid": {"$ref": "#/$defs/oid"},
+        "content_sha256": {"$ref": "#/$defs/sha256"},
+        "byte_length": {"type": "integer", "minimum": 0},
+        "schema_id": {"type": "string", "pattern": "^gocode\\.[a-z0-9.-]+/[0-9]+$"}
+      }
+    },
+    "runtime_adr_document": {"type": "object", "additionalProperties": false, "required": ["path", "mode", "blob_oid", "content_sha256", "byte_length"], "properties": {"path": {"const": "docs/adr/ADR-0027-v1-platform-scope.md"}, "mode": {"const": "100644"}, "blob_oid": {"$ref": "#/$defs/oid"}, "content_sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 0}}},
+    "decision_document": {"$ref": "#/$defs/document", "required": ["path", "mode", "blob_oid", "content_sha256", "byte_length", "schema_id"], "properties": {"path": {"const": "docs/decisions/v1-platform-scope-v1.json"}, "mode": {"const": "100644"}, "blob_oid": {"$ref": "#/$defs/oid"}, "content_sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 0}, "schema_id": {"const": "gocode.governance.v1-platform-scope-decision/1"}}},
+    "desktop_adr_document": {"type": "object", "additionalProperties": false, "required": ["path", "mode", "blob_oid", "content_sha256", "byte_length"], "properties": {"path": {"const": "docs/desktop/adr/ADR-0015-v1-platform-scope.md"}, "mode": {"const": "100644"}, "blob_oid": {"$ref": "#/$defs/oid"}, "content_sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 0}}},
+    "decision_schema_document": {"type": "object", "additionalProperties": false, "required": ["path", "mode", "blob_oid", "content_sha256", "byte_length"], "properties": {"path": {"const": "docs/schemas/v1-platform-scope-decision-v1.schema.json"}, "mode": {"const": "100644"}, "blob_oid": {"$ref": "#/$defs/oid"}, "content_sha256": {"$ref": "#/$defs/sha256"}, "byte_length": {"type": "integer", "minimum": 0}}}
+  }
+}

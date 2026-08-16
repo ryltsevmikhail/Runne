@@ -23,6 +23,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/target/**',
       'upstream/**',
+      'outputs/**',
       'apps/**/src-tauri/gen/**',
       'scripts/**/*.py',
     ],

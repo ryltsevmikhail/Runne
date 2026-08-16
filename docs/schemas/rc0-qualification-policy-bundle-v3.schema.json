@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.schema.qualification-policy-bundle/3",
+  "title": "GOCODE RC0 Qualification Policy Bundle V3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "repository_id", "policy_revision", "policy_digest", "profile", "issuer_id", "key_id", "signature", "issued_at", "not_before", "expires_at", "runner_contract", "required_gates", "expected_schema_digests", "trusted_evidence_issuers", "workflow_policy_digests", "freshness_policy"],
+  "properties": {
+    "schema_id": {"const": "gocode.rc0.schema.qualification-policy-bundle/3"},
+    "repository_id": {"type": "string", "minLength": 1},
+    "policy_revision": {"type": "integer", "minimum": 1},
+    "policy_digest": {"$ref": "#/$defs/sha256"},
+    "profile": {"const": "gocode.rc0.evidence-profile/3"},
+    "issuer_id": {"type": "string", "minLength": 1},
+    "key_id": {"type": "string", "minLength": 1},
+    "signature": {"type": "string", "minLength": 1},
+    "issued_at": {"$ref": "#/$defs/timestamp"},
+    "not_before": {"$ref": "#/$defs/timestamp"},
+    "expires_at": {"$ref": "#/$defs/timestamp"},
+    "runner_contract": {"$ref": "#/$defs/runner"},
+    "required_gates": {"type": "array", "minItems": 2, "maxItems": 4096, "uniqueItems": true, "items": {"$ref": "#/$defs/gate"}},
+    "expected_schema_digests": {"type": "array", "minItems": 11, "maxItems": 11, "uniqueItems": true, "items": {"$ref": "#/$defs/schemaDigest"}},
+    "trusted_evidence_issuers": {"type": "array", "maxItems": 4096, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "workflow_policy_digests": {"type": "array", "maxItems": 4096, "uniqueItems": true, "items": {"$ref": "#/$defs/sha256"}},
+    "freshness_policy": {"$ref": "#/$defs/freshness"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"},
+    "runner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner_class", "executable_digest", "dependency_inventory_digest"],
+      "properties": {
+        "runner_class": {"type": "string", "minLength": 1},
+        "executable_digest": {"$ref": "#/$defs/sha256"},
+        "dependency_inventory_digest": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "expectedCounts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executed", "passed", "ignored"],
+      "properties": {
+        "executed": {"type": "integer", "minimum": 0},
+        "passed": {"type": "integer", "minimum": 0},
+        "ignored": {"type": "integer", "minimum": 0}
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gate_id", "stage", "required", "identity_profile_bindings", "verification_mode", "selectors", "toolchain", "timeout_seconds", "exit_semantics", "signal_semantics", "expected_counts"],
+      "properties": {
+        "gate_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$"},
+        "stage": {"enum": ["SOURCE_CANDIDATE", "PRODUCTION_QUALIFICATION"]},
+        "required": {"const": true},
+        "identity_profile_bindings": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "uniqueItems": true,
+          "prefixItems": [
+            {"const": "repository_id"}, {"const": "candidate_source_sha"},
+            {"const": "evidence_attempt_id"}, {"const": "observed_evidence_revision"},
+            {"const": "evidence_bundle_digest"}, {"const": "policy_revision"},
+            {"const": "policy_digest"}, {"const": "profile"},
+            {"const": "exact_artifact_bindings"}
+          ],
+          "items": false
+        },
+        "verification_mode": {"enum": ["DIRECT_RUN", "TRUSTED_ATTESTATION"]},
+        "selectors": {"type": "array", "minItems": 1, "maxItems": 4096, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "toolchain": {"type": "string", "minLength": 1},
+        "timeout_seconds": {"type": "integer", "minimum": 1},
+        "exit_semantics": {"enum": ["ZERO_ONLY"]},
+        "signal_semantics": {"enum": ["ANY_SIGNAL_BLOCKS"]},
+        "expected_counts": {"$ref": "#/$defs/expectedCounts"}
+      }
+    },
+    "schemaDigest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_id", "sha256"],
+      "properties": {
+        "schema_id": {"enum": ["gocode.rc0.schema.candidate-record/3", "gocode.rc0.schema.source-gate-results/3", "gocode.rc0.schema.test-inventory/3", "gocode.rc0.schema.security-validation/3", "gocode.rc0.schema.documentation-validation/3", "gocode.rc0.schema.fail-closed-disposition/3", "gocode.rc0.schema.artifact-inventory/3", "gocode.rc0.schema.sbom-spdx-2.3/3", "gocode.rc0.schema.checksums-text/3", "gocode.rc0.schema.qualification-policy-bundle/3", "gocode.rc0.schema.verification-report/3"]},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maximum_age_seconds", "clock_skew_seconds"],
+      "properties": {
+        "maximum_age_seconds": {"type": "integer", "minimum": 1},
+        "clock_skew_seconds": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

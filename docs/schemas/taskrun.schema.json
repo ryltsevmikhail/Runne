@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gocode.dev/schemas/taskrun.schema.json",
+  "title": "TaskRun",
+  "description": "TaskRun aggregate snapshot aligned with the Orchestration domain model.",
+  "type": "object",
+  "properties": {
+    "taskrun_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parent_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "conversation_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "created",
+        "queued",
+        "admitted",
+        "running",
+        "waiting",
+        "retrying",
+        "checkpointing",
+        "reconciling",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "budget_exhausted",
+        "policy_denied",
+        "unrecoverable"
+      ]
+    },
+    "active_attempt": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "terminal_result": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "budget_context": {
+      "type": "object"
+    },
+    "capability_context": {
+      "type": "object"
+    },
+    "event_position": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "taskrun_id",
+    "parent_id",
+    "conversation_ref",
+    "state",
+    "active_attempt",
+    "terminal_result",
+    "budget_context",
+    "capability_context",
+    "event_position"
+  ],
+  "additionalProperties": false,
+  "$comment": "Target schema. State/terminal consistency and one-active-attempt rules remain semantic validation beyond JSON Schema."
+}
