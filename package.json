@@ -9,6 +9,7 @@
   "scripts": {
     "build": "pnpm --filter @gocode/desktop build",
     "ci:local": "bash scripts/ci-local.sh",
+    "ci:local:scoped": "bash scripts/ci-local-scoped.sh",
     "dev": "pnpm --filter @gocode/desktop dev",
     "lint": "eslint .",
     "lint:architecture": "python3 scripts/desktop/validate_architecture.py",
