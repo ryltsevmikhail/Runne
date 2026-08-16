@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Validate and score the immutable Desktop v1 capability registry."""
+from __future__ import annotations
 
 import argparse
 import hashlib

@@ -1,4 +1,5 @@
 """Strict local I/O and Git source identity helpers."""
+from __future__ import annotations
 
 import hashlib
 import json

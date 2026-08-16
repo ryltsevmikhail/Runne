@@ -1,5 +1,7 @@
 """Execute trusted Desktop qualification workflow commands in a local fixture."""
 
+from __future__ import annotations
+
 import copy
 import hashlib
 import json

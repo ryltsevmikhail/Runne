@@ -1,5 +1,5 @@
-#!/usr/bin/env python3
 """Dependency-boundary checks for the desktop architecture validator."""
+from __future__ import annotations
 import json
 from pathlib import Path
 import re

@@ -1,4 +1,5 @@
 """Pinned v2 overlay for the immutable pre-authority document set."""
+from __future__ import annotations
 
 
 OVERLAY_SCHEMA_PATH = "docs/schemas/pre-authority-document-overlay-v2.schema.json"
