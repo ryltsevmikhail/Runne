@@ -103,6 +103,7 @@ fn delayed_first_activation_commit_cannot_outlive_launch_authority_ttl() {
     );
 }
 
+#[cfg(feature = "desktop-protected")]
 #[test]
 fn inherited_socket_commits_first_activation_before_bootstrap() {
     let runtime_root = tempfile::tempdir().unwrap();
