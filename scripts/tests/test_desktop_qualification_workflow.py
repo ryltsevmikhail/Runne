@@ -26,7 +26,7 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_runtime_ci_runs_posix_workflow_test_only_on_linux(self) -> None:
-        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        ci = (ROOT / ".github/workflows.disabled/ci.yml").read_text(encoding="utf-8")
         marker = "python3 -m unittest scripts.tests.test_desktop_qualification_workflow -v"
         self.assertEqual(ci.count(marker), 1)
         step_start = ci.rfind("      - name:", 0, ci.index(marker))
@@ -37,7 +37,7 @@ class DesktopQualificationWorkflowTests(unittest.TestCase):
         manifest_step = ci[manifest_start : ci.find("\n      - name:", ci.index(manifest))]
         self.assertIn("if: matrix.mode == 'pinned'", manifest_step)
         self.assertNotIn("runner.os", manifest_step)
-        for path in (".github/workflows/desktop-ci.yml", ".github/workflows/desktop-qualification.yml"):
+        for path in (".github/workflows.disabled/desktop-ci.yml", ".github/workflows.disabled/desktop-qualification.yml"):
             self.assertIn(marker, (ROOT / path).read_text(encoding="utf-8"), path)
         local_inputs = (ROOT / "scripts/ci-local-inputs.sh").read_text(encoding="utf-8")
         self.assertIn(
