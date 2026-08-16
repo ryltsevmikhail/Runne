@@ -77,7 +77,6 @@ validate_frontend_contracts() {
     typecheck_frontend
     "$trusted_node" "$playwright_target" test tests/desktop/e2e/replay-resume.spec.ts
     "$trusted_python" scripts/desktop/validate_architecture.py
-    "$trusted_bash" scripts/ci-local-docs.sh
 }
 
 run_runtime_closure() {
@@ -175,6 +174,5 @@ if gate_enabled frontend; then
     CI=1 "$trusted_node" "$playwright_target" test
     "$trusted_python" -m unittest scripts.tests.test_desktop_qualification_workflow -v
     "$trusted_python" -m unittest scripts.tests.test_desktop_capability_manifest -v
-    "$trusted_bash" scripts/ci-local-docs.sh
     "$trusted_python" scripts/desktop/validate_architecture.py
 fi

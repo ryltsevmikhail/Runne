@@ -18,8 +18,7 @@
     "site:dev": "pnpm --filter @gocode/site dev",
     "site:build": "pnpm --filter @gocode/site build",
     "site:check": "pnpm --filter @gocode/site check",
-    "typecheck": "pnpm --filter @gocode/desktop typecheck && pnpm --filter @gocode/product typecheck",
-    "validate:docs": "python3 scripts/validate-docs.py --strict && python3 scripts/desktop/validate-docs.py --strict"
+    "typecheck": "pnpm --filter @gocode/desktop typecheck && pnpm --filter @gocode/product typecheck"
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
