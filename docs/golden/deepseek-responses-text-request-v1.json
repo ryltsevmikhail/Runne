@@ -1,0 +1,1 @@
+{"model":"deepseek-chat","service_tier":"default","input":[{"role":"user","content":[{"type":"input_text","text":"hello"}]}],"max_output_tokens":1,"reasoning":{"effort":"none"},"tools":[],"tool_choice":"none","background":false,"store":false,"stream":true}
