@@ -164,6 +164,19 @@ include!("cli/provider_credential.rs");
 include!("cli/parsing.rs");
 include!("cli/token_parsing.rs");
 include!("cli/error.rs");
+// The macOS authority lifecycle (init/sign/rotate/backup/restore/trust-reset)
+// is compiled only on macOS and under tests, but `execute_transport` returns
+// `AuthorityUnavailable` for those commands until a reviewed hidden-input/TTY
+// adapter lands (see authority/command.rs). The implementations are therefore
+// reachable only from unit tests; silence the macOS non-test dead-code claim
+// with the same expectation style used across the workspace.
+#[cfg_attr(
+    all(target_os = "macos", not(test)),
+    expect(
+        dead_code,
+        reason = "macOS authority lifecycle is intentionally un-wired until a reviewed hidden-input adapter lands; exercised only from unit tests"
+    )
+)]
 mod authority;
 mod release;
 
