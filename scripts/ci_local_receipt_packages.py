@@ -18,6 +18,7 @@ def _frontend_platform() -> str:
         ("darwin", "arm64"): "darwin-arm64",
         ("darwin", "x86_64"): "darwin-x64",
         ("linux", "x86_64"): "linux-x64",
+        ("linux", "aarch64"): "linux-arm64",
     }.get((sys.platform, platform.machine()))
     if tag is None:
         raise LocalInputReceiptError("frontend platform is unsupported")
