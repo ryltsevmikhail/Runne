@@ -1,9 +1,12 @@
 """Static safety tests for the isolated structural gate workflow.
 
-Parses ``.github/workflows/release-structural-gate.yml`` as plain text with
-stdlib ``re`` only; no YAML dependency is allowed.  The suite fails with an
-explicit reason while the isolated workflow does not exist (RED phase) and
-guards every hard requirement of Task 14.
+Parses ``.github/workflows.disabled/release-structural-gate.yml`` as plain
+text with stdlib ``re`` only; no YAML dependency is allowed.  The suite fails
+with an explicit reason while the isolated workflow does not exist (RED
+phase) and guards every hard requirement of Task 14.
+
+The GitHub-hosted workflows are retained as reference artifacts under
+``.github/workflows.disabled/`` after the CI migration to SourceCraft.
 """
 
 from __future__ import annotations
@@ -14,9 +17,9 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW_REL = Path(".github/workflows/release-structural-gate.yml")
+WORKFLOW_REL = Path(".github/workflows.disabled/release-structural-gate.yml")
 WORKFLOW = REPO_ROOT / WORKFLOW_REL
-CI_WORKFLOW_REL = ".github/workflows/ci.yml"
+CI_WORKFLOW_REL = ".github/workflows.disabled/ci.yml"
 CHECKOUT_SHA = "11bd71901bbe5b1630ceea73d27597364c9af683"
 
 PROHIBITED_WORDS = ("curl", "deploy", "notary", "publish", "release", "sign", "wget")
