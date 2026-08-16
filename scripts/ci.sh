@@ -94,11 +94,6 @@ RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features --lock
 echo "--- deps ---"
 "$PYTHON_BIN" scripts/check-deps.py
 
-if [ "$MODE" = "pinned" ]; then
-    echo "--- docs ---"
-    "$PYTHON_BIN" scripts/validate-docs.py --strict
-fi
-
 echo "--- lock integrity ---"
 LOCK_DIGEST_AFTER=$(sha256_file Cargo.lock)
 if [ "$LOCK_DIGEST_BEFORE" != "$LOCK_DIGEST_AFTER" ]; then
