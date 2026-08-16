@@ -4,30 +4,78 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import stat
+import sys
 from pathlib import Path
 
 from scripts.ci_local_receipt_common import LocalInputReceiptError
 
 
+def _frontend_platform() -> str:
+    """Exact platform tag for gate host binaries (esbuild and browsers)."""
+    tag = {
+        ("darwin", "arm64"): "darwin-arm64",
+        ("darwin", "x86_64"): "darwin-x64",
+        ("linux", "x86_64"): "linux-x64",
+    }.get((sys.platform, platform.machine()))
+    if tag is None:
+        raise LocalInputReceiptError("frontend platform is unsupported")
+    return tag
+
+
+def _esbuild_binary(root: Path, tag: str) -> Path:
+    candidates = list(
+        root.glob(
+            f"node_modules/.pnpm/@esbuild+{tag}@*/node_modules/@esbuild/{tag}/bin/esbuild"
+        )
+    )
+    if len(candidates) != 1:
+        raise LocalInputReceiptError("esbuild platform package is unavailable or ambiguous")
+    return candidates[0]
+
+
+def _chromium_binary(browser_root: Path, revision: str, headless: bool) -> Path:
+    if sys.platform == "darwin":
+        tag = "mac-arm64" if platform.machine() == "arm64" else "mac-x64"
+        if headless:
+            return browser_root / (
+                f"chromium_headless_shell-{revision}/"
+                f"chrome-headless-shell-{tag}/chrome-headless-shell"
+            )
+        bundle_root = browser_root / f"chromium-{revision}/chrome-{tag}"
+        executables = list(
+            bundle_root.glob("*.app/Contents/MacOS/*")
+        )
+        if len(executables) != 1:
+            raise LocalInputReceiptError("Chromium bundle executable is unavailable or ambiguous")
+        return executables[0]
+    if headless:
+        return browser_root / (
+            f"chromium_headless_shell-{revision}/"
+            "chrome-headless-shell-linux64/chrome-headless-shell"
+        )
+    return browser_root / f"chromium-{revision}/chrome-linux64/chrome"
+
+
 def frontend_targets(root: Path, home: Path) -> dict[str, Path]:
+    tag = _frontend_platform()
     relative = {
         "eslint": "node_modules/eslint/bin/eslint.js",
         "vitest": "node_modules/vitest/vitest.mjs",
         "vue_tsc": "apps/desktop/node_modules/vue-tsc/bin/vue-tsc.js",
         "vite": "node_modules/vite/bin/vite.js",
         "playwright": "node_modules/@playwright/test/cli.js",
-        "esbuild": "node_modules/.pnpm/@esbuild+linux-x64@0.28.1/node_modules/@esbuild/linux-x64/bin/esbuild",
     }
     targets = {name: _load_target(root / path, root) for name, path in relative.items()}
+    targets["esbuild"] = _load_target(_esbuild_binary(root, tag), root)
     revision = _chromium_revision(root)
     browser_root = home / ".cache/ms-playwright"
     targets["playwright_chromium"] = _load_target(
-        browser_root / f"chromium-{revision}/chrome-linux64/chrome", browser_root
+        _chromium_binary(browser_root, revision, headless=False), browser_root
     )
     targets["playwright_headless_shell"] = _load_target(
-        browser_root / f"chromium_headless_shell-{revision}/chrome-headless-shell-linux64/chrome-headless-shell",
-        browser_root,
+        _chromium_binary(browser_root, revision, headless=True), browser_root
     )
     return targets
 

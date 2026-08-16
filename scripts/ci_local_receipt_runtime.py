@@ -8,6 +8,7 @@ import pwd
 import re
 import stat
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,6 +19,27 @@ from scripts.rc0_candidate.verify_rust_inventory import _valid_toolchain
 
 _RUST_VERSIONS = {"pinned": "1.97.1", "msrv": "1.95.0"}
 _SYSTEM_NAMES = ("bash", "python3", "git", "grep", "sed", "cut", "mktemp", "rm", "dirname", "sh")
+
+
+def _system_directories() -> tuple[Path, ...]:
+    """Root-owned system command directories for the current platform.
+
+    Linux merges every system tool into /usr/bin. macOS keeps a subset
+    (bash, rm, sh, chmod and friends) in /bin with the rest in /usr/bin.
+    """
+    directories = [Path("/usr/bin")]
+    if sys.platform == "darwin":
+        directories.append(Path("/bin"))
+    return tuple(directories)
+
+
+def _system_command(name: str) -> Path:
+    for directory in _system_directories():
+        if (directory / name).exists():
+            return _trusted_file(directory / name)
+    raise LocalInputReceiptError("trusted executable is unavailable")
+
+
 _RUST_NAMES = ("rustc", "cargo", "rustdoc", "rustfmt", "cargo-fmt", "cargo-clippy", "clippy-driver")
 _CORE_KEYS = set(_SYSTEM_NAMES) | {"node", "pnpm"} | {
     f"{lane}_{name.replace('-', '_')}" for lane in _RUST_VERSIONS for name in _RUST_NAMES
@@ -66,10 +88,10 @@ def resolve_trusted_runtime(root: Path | None = None) -> TrustedRuntime:
     account = pwd.getpwuid(os.geteuid())
     home = Path(account.pw_dir).resolve(strict=True)
     cargo_bin, rustup_home = home / ".cargo/bin", home / ".rustup"
-    for directory in (home, cargo_bin, rustup_home, Path("/usr/bin")):
+    for directory in (home, cargo_bin, rustup_home, *_system_directories()):
         _trusted_directory(directory)
     base_environment = _identity_environment()
-    base_commands = {name: _trusted_file(Path("/usr/bin") / name) for name in _SYSTEM_NAMES}
+    base_commands = {name: _system_command(name) for name in _SYSTEM_NAMES}
     records = {
         name: _file_record(path, f"system {name}")
         for name, path in base_commands.items()
@@ -96,8 +118,14 @@ def resolve_trusted_runtime(root: Path | None = None) -> TrustedRuntime:
         toolchains[lane] = identity
 
     node, pnpm = _node_and_pnpm(home, base_environment)
+    # pnpm's bootstrap re-executes its launcher and resolves `node` through
+    # PATH; expose only the pinned node directory for version probes.
+    probe_environment = dict(base_environment)
+    probe_environment["PATH"] = os.pathsep.join(
+        (os.fspath(node.parent), probe_environment["PATH"])
+    )
     records["node"] = _record(node, (node, "--version"), base_environment)
-    records["pnpm"] = _record(pnpm, (node, pnpm, "--version"), base_environment)
+    records["pnpm"] = _record(pnpm, (node, pnpm, "--version"), probe_environment)
     if records["pnpm"]["version"] != "11.10.0" or _node_major(records["node"]["version"]) < 22:
         raise LocalInputReceiptError("canonical Node.js or pnpm version changed")
     _reject_system_shadows((node.parent, cargo_bin))
@@ -115,8 +143,9 @@ def resolve_trusted_runtime(root: Path | None = None) -> TrustedRuntime:
 
 
 def _identity_environment() -> dict[str, str]:
+    system_path = os.pathsep.join(os.fspath(directory) for directory in _system_directories())
     return {
-        "PATH": "/usr/bin", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+        "PATH": system_path, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
         "HOME": "/var/empty", "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1",
         "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
         "NPM_CONFIG_USERCONFIG": "/dev/null", "NPM_CONFIG_GLOBALCONFIG": "/dev/null",
@@ -200,7 +229,15 @@ def _node_and_pnpm(home: Path, environment: dict[str, str]) -> tuple[Path, Path]
             node, pnpm = _trusted_file(node_path), _trusted_file(node_path.parent / "pnpm")
             version = _run((node, "--version"), environment)
             parsed = tuple(int(part) for part in version.removeprefix("v").split("."))
-            if parsed[0] >= 22 and _run((node, pnpm, "--version"), environment) == "11.10.0":
+            # pnpm re-executes its launcher during bootstrap and resolves `node`
+            # through PATH; expose only the pinned node directory for the probe.
+            probe_environment = dict(environment)
+            probe_environment["PATH"] = os.pathsep.join(
+                (os.fspath(node.parent), probe_environment["PATH"])
+            )
+            if parsed[0] >= 22 and _run(
+                (node, pnpm, "--version"), probe_environment
+            ) == "11.10.0":
                 candidates.append((parsed, node, pnpm))
         except (LocalInputReceiptError, OSError, ValueError):
             continue
