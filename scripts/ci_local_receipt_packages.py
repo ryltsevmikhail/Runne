@@ -51,6 +51,14 @@ def _chromium_binary(browser_root: Path, revision: str, headless: bool) -> Path:
         if len(executables) != 1:
             raise LocalInputReceiptError("Chromium bundle executable is unavailable or ambiguous")
         return executables[0]
+    if platform.machine() == "aarch64":
+        # Playwright's arm64 Linux builds use the arch-agnostic chrome-linux
+        # directory and name the headless shell binary headless_shell.
+        if headless:
+            return browser_root / (
+                f"chromium_headless_shell-{revision}/chrome-linux/headless_shell"
+            )
+        return browser_root / f"chromium-{revision}/chrome-linux/chrome"
     if headless:
         return browser_root / (
             f"chromium_headless_shell-{revision}/"
