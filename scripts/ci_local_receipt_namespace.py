@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterator
 
 from scripts.ci_local_receipt_common import LocalInputReceiptError
-from scripts.ci_local_receipt_runtime import TrustedRuntime
+from scripts.ci_local_receipt_runtime import TrustedRuntime, _system_directories
 
 
 @dataclass(frozen=True)
@@ -81,7 +81,8 @@ def _symlink(target: Path, link: Path, root: Path, allowed: set[Path]) -> None:
 
 
 def _environment(runtime: TrustedRuntime, paths: dict[str, Path]) -> dict[str, str]:
-    base_path = os.pathsep.join((os.fspath(paths["base-shim"]), "/usr/bin"))
+    system_path = os.pathsep.join(os.fspath(directory) for directory in _system_directories())
+    base_path = os.pathsep.join((os.fspath(paths["base-shim"]), system_path))
     pinned_path = os.pathsep.join((os.fspath(paths["pinned-shim"]), base_path))
     environment = {
         "PATH": pinned_path,

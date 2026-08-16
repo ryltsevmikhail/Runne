@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 from scripts.ci_local_receipt_common import LocalInputReceiptError, digest
+from scripts.ci_local_receipt_runtime import _system_directories
 from scripts.rc0_candidate.git_layout import GitLayout
 from scripts.rc0_candidate.git_policy import GitInspectionError
 from scripts.rc0_policy.canonical import canonical_bytes
@@ -19,7 +20,8 @@ _ENVIRONMENT = {
     "GIT_CONFIG_SYSTEM": os.devnull, "GIT_NO_LAZY_FETCH": "1",
     "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat",
     "GIT_TERMINAL_PROMPT": "0", "GIT_NO_REPLACE_OBJECTS": "1",
-    "LC_ALL": "C", "LANG": "C", "PATH": "/usr/bin",
+    "LC_ALL": "C", "LANG": "C",
+    "PATH": os.pathsep.join(os.fspath(directory) for directory in _system_directories()),
 }
 _OVERRIDES = (
     "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false",
