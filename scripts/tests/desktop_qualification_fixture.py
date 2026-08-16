@@ -12,7 +12,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOW = ROOT / ".github/workflows/desktop-qualification.yml"
+WORKFLOW = ROOT / ".github/workflows.disabled/desktop-qualification.yml"
 ANCHORS = (
     "docs/profiles/desktop-v1-capabilities-v1.json",
     "docs/profiles/desktop-v1-capabilities-v1.digest",
