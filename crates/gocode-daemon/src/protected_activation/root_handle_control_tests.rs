@@ -62,7 +62,6 @@ fn fixture() -> (ProtectedActivationKeys, ProtectedOwnedLaunchV1) {
     (keys, ready.owned_launch())
 }
 
-#[ignore = "broken on main: VerifiedRootHandle::open returns Rejected (root admission reworked in uncommitted WIP)"]
 #[test]
 fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejections() {
     if std::env::var_os("GOCODE_B1A_ROOT_CHILD").is_some() {
@@ -153,7 +152,6 @@ fn session_service() -> LocalSessionService {
     LocalSessionService::new(binding, [7; 32])
 }
 
-#[ignore = "broken on main: VerifiedRootHandle::open returns Rejected (root admission reworked in uncommitted WIP)"]
 #[test]
 fn peer_close_after_offer_poison_reaps_the_exact_child() {
     if std::env::var_os("GOCODE_B1A_PARTIAL_CHILD").is_some() {
@@ -189,7 +187,6 @@ fn peer_close_after_offer_poison_reaps_the_exact_child() {
     );
 }
 
-#[ignore = "broken on main: VerifiedRootHandle::open returns Rejected (root admission reworked in uncommitted WIP)"]
 #[test]
 fn invalid_preflight_keeps_the_inherited_channel_healthy() {
     if std::env::var_os("GOCODE_B1A_PREFLIGHT_CHILD").is_some() {
