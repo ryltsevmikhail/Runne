@@ -165,6 +165,8 @@ pub enum ProviderActivationModeV1 {
     DeterministicV1,
     /// Exact bounded OpenAI Responses text provider.
     OpenAiResponsesTextV1,
+    /// Exact bounded DeepSeek Responses text provider.
+    DeepSeekResponsesTextV1,
 }
 
 impl ProviderActivationModeV1 {
@@ -174,6 +176,7 @@ impl ProviderActivationModeV1 {
         match self {
             Self::DeterministicV1 => "deterministic_v1",
             Self::OpenAiResponsesTextV1 => "openai_responses_text_v1",
+            Self::DeepSeekResponsesTextV1 => "deepseek_responses_text_v1",
         }
     }
 
@@ -181,6 +184,7 @@ impl ProviderActivationModeV1 {
         match self {
             Self::DeterministicV1 => 1,
             Self::OpenAiResponsesTextV1 => 2,
+            Self::DeepSeekResponsesTextV1 => 3,
         }
     }
 
@@ -188,6 +192,7 @@ impl ProviderActivationModeV1 {
         match code {
             1 => Ok(Self::DeterministicV1),
             2 => Ok(Self::OpenAiResponsesTextV1),
+            3 => Ok(Self::DeepSeekResponsesTextV1),
             key => Err(DecodeError::UnknownField { key }),
         }
     }
@@ -200,6 +205,7 @@ impl TryFrom<&str> for ProviderActivationModeV1 {
         match value {
             "deterministic_v1" => Ok(Self::DeterministicV1),
             "openai_responses_text_v1" => Ok(Self::OpenAiResponsesTextV1),
+            "deepseek_responses_text_v1" => Ok(Self::DeepSeekResponsesTextV1),
             _ => Err(LaunchAuthorityError::ProviderModeMismatch),
         }
     }

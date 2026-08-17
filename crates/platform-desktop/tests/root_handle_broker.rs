@@ -32,7 +32,8 @@ fn binding() -> RootHandleTransferBinding {
 }
 
 fn open(path: &Path) -> VerifiedRootHandle {
-    VerifiedRootHandle::open(path).unwrap()
+    let canonical = std::fs::canonicalize(path).unwrap();
+    VerifiedRootHandle::open(&canonical).unwrap()
 }
 
 #[test]

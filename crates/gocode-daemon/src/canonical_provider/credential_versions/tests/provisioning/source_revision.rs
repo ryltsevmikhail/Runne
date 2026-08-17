@@ -30,6 +30,7 @@ fn crash_after_prepared_with_unchanged_source_revision_completes() {
         &fixture.store,
         &fixture.native,
         &fixture.provider,
+        ProviderCredentialId::OpenAi,
         activation([0x32; 16]),
         &LegacySourceFixture {
             revision: Some([0x31; 16]),
@@ -64,6 +65,7 @@ fn changed_source_revision_conflicts_before_native_create() {
             &fixture.store,
             &fixture.native,
             &fixture.provider,
+            ProviderCredentialId::OpenAi,
             activation([0x34; 16]),
             &LegacySourceFixture {
                 revision: Some([0x35; 16]),
@@ -90,6 +92,7 @@ fn missing_source_revision_blocks_before_native_create() {
             &fixture.store,
             &fixture.native,
             &fixture.provider,
+            ProviderCredentialId::OpenAi,
             activation([0x37; 16]),
             &LegacySourceFixture { revision: None },
             &fixture.access,
@@ -123,6 +126,7 @@ fn crash_after_native_created_does_not_request_another_create_claim() {
         &fixture.store,
         &fixture.native,
         &fixture.provider,
+        ProviderCredentialId::OpenAi,
         activation([0x39; 16]),
         &LegacySourceFixture {
             revision: Some([0x38; 16]),

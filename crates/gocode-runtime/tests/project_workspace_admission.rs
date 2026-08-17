@@ -104,18 +104,31 @@ fn claims(
     gocode_api::test_support::claims(context, workspace, 1, [nonce; 16], expiry, [nonce; 32])
 }
 
-fn store() -> (tempfile::TempDir, StoreTransaction) {
+fn test_database_path(directory: &tempfile::TempDir, name: &str) -> std::path::PathBuf {
+    let runtime = directory.path().join("runtime");
+    let daemon = runtime.join("gocode-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    daemon.join(name)
+}
+
+fn store() -> (tempfile::TempDir, std::path::PathBuf, StoreTransaction) {
     let directory = tempfile::tempdir().unwrap();
     let guard: Arc<dyn ProhibitedContentPort> =
         Arc::new(SecretBroker::new().prohibited_content_guard());
-    let path = directory.path().join("admission.sqlite");
+    let path = test_database_path(&directory, "admission.sqlite");
     let store = StoreTransaction::open(
         path.to_str().unwrap(),
         RuntimeAuthorityId("admission-test".into()),
         guard,
     )
     .unwrap();
-    (directory, store)
+    (directory, path, store)
 }
 
 async fn create_workspace(store: StoreTransaction, workspace: WorkspaceId) {
@@ -148,7 +161,7 @@ async fn create_workspace(store: StoreTransaction, workspace: WorkspaceId) {
 
 #[tokio::test]
 async fn root_admission_is_single_use_but_exact_receipt_retry_replays() {
-    let (_directory, store) = store();
+    let (_directory, _path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let first = host(
@@ -191,8 +204,7 @@ async fn root_admission_is_single_use_but_exact_receipt_retry_replays() {
 
 #[tokio::test]
 async fn store_rejects_a_verified_claim_for_another_runtime_authority_without_mutation() {
-    let (directory, store) = store();
-    let path = directory.path().join("admission.sqlite");
+    let (_directory, path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let foreign = RootAdmissionVerificationContext::new(

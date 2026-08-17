@@ -86,7 +86,7 @@ async fn failed_commit_reaps_under_its_permit_without_global_shutdown() {
         2
     );
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     assert!(
         commit_prepared_admission(
             &prepared,
@@ -104,7 +104,7 @@ async fn failed_commit_reaps_under_its_permit_without_global_shutdown() {
     assert!(mock.0.try_lock().is_ok());
     assert!(!lifecycle.is_shutting_down());
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     drop(
         lifecycle
             .prepare_root_admission(root, WorkspaceId::from_bytes([4; 16]), 1)
@@ -154,7 +154,7 @@ async fn prepared_workspace_retains_its_operation_permit_until_consumed_value_dr
         )
         .unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     let response = commit_prepared_admission(
         &prepared,
         reservation,
@@ -193,7 +193,7 @@ async fn page_load_and_expiry_drop_retained_prepared_operation_permits() {
         )
         .unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     let mut permit = Some(Arc::clone(&operations).lock_owned().await);
     prepared
         .commit(
@@ -216,7 +216,7 @@ async fn page_load_and_expiry_drop_retained_prepared_operation_permits() {
         )
         .unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     let mut permit = Some(Arc::clone(&operations).lock_owned().await);
     let now = Instant::now();
     prepared

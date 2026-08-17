@@ -4,8 +4,9 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
         reference: &CredentialVersionRef,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        let provider = provider_id_from_version_ref(reference)?;
         self.version_store(reference)?
-            .provider_credential_status(ProviderCredentialId::OpenAi, access)
+            .provider_credential_status(provider, access)
     }
 
     fn create_version(
@@ -40,8 +41,9 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
             .version_authority()?
             .authorize_load(capability)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let provider = provider_id_from_version_ref(reference)?;
         self.version_store(reference)?
-            .load_provider_credential(ProviderCredentialId::OpenAi, access)
+            .load_provider_credential(provider, access)
     }
 
     fn delete_version(
@@ -52,8 +54,9 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
         let reference = authority
             .authorize_delete(&claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
+        let provider = provider_id_from_version_ref(reference)?;
         self.version_store(reference)?
-            .delete_provider_credential(ProviderCredentialId::OpenAi)?;
+            .delete_provider_credential(provider)?;
         authority
             .prove_deletion(claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)
@@ -144,9 +147,12 @@ impl MacOsProviderCredentialStore {
         &self,
         reference: &CredentialVersionRef,
     ) -> Result<Self, SecureStoreError> {
-        if reference.provider().as_str() != ProviderCredentialId::OpenAi.account() {
-            return Err(SecureStoreError::ProviderCredentialOperationFailed);
-        }
+        let provider = provider_id_from_version_ref(reference)?;
+        let account = if self.account == ProviderCredentialId::OpenAi.account() {
+            provider.account().to_owned()
+        } else {
+            self.account.clone()
+        };
         Ok(Self {
             service: format!(
                 "{}.version.{}.{}",
@@ -154,7 +160,7 @@ impl MacOsProviderCredentialStore {
                 reference.version(),
                 encode_hex(reference.ref_digest())
             ),
-            account: self.account.clone(),
+            account,
             version_authority: self.version_authority.clone(),
         })
     }
@@ -163,5 +169,15 @@ impl MacOsProviderCredentialStore {
         self.version_authority
             .as_ref()
             .ok_or(SecureStoreError::CredentialAccessDenied)
+    }
+}
+
+fn provider_id_from_version_ref(
+    reference: &CredentialVersionRef,
+) -> Result<ProviderCredentialId, SecureStoreError> {
+    match reference.provider().as_str() {
+        "openai" => Ok(ProviderCredentialId::OpenAi),
+        "deepseek" => Ok(ProviderCredentialId::DeepSeek),
+        _ => Err(SecureStoreError::ProviderCredentialOperationFailed),
     }
 }

@@ -20,7 +20,7 @@ pub(super) async fn start_http_and_runtime(
     secret_broker: Arc<Mutex<SecretBroker>>,
     prohibited_content: Arc<dyn ProhibitedContentPort>,
     provider_activation: ProviderActivation,
-    provider_service: Option<Arc<DaemonCanonicalOpenAiService>>,
+    provider_service: Option<Arc<DaemonCanonicalProviderService>>,
     protected_activation: bool,
     launch_authority_id: [u8; 16],
     executable_sha256: [u8; 32],
@@ -67,7 +67,9 @@ pub(super) async fn start_http_and_runtime(
     let runtime_liveness = handle.clone();
 
     let task_run_host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
-    let conversation_host = if provider_activation.requires_openai_execution() {
+    let conversation_host = if provider_activation.requires_openai_execution()
+        || provider_activation.requires_deepseek_execution()
+    {
         RuntimeCanonicalConversationHost::<_, _, _, DeterministicTextProvider>::new_provider(
             handle,
             conversation_service,
@@ -282,7 +284,7 @@ fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
 }
 
 fn operational_telemetry_state(
-    provider_service: Option<&Arc<DaemonCanonicalOpenAiService>>,
+    provider_service: Option<&Arc<DaemonCanonicalProviderService>>,
     binding: &RuntimeSessionBinding,
 ) -> OperationalTelemetryHttpState {
     OperationalTelemetryHttpState::new(compose_operational_telemetry_query(

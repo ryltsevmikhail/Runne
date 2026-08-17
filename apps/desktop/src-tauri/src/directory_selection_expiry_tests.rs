@@ -31,7 +31,7 @@ async fn idle_prepared_expiry_releases_the_operation_permit_without_followup_ipc
         )
         .unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     let mut permit = Some(Arc::clone(&operations).lock_owned().await);
     prepared
         .commit(
@@ -76,7 +76,7 @@ async fn clearing_pending_authority_releases_a_live_prepared_operation_permit() 
         )
         .unwrap();
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     let mut permit = Some(Arc::clone(&operations).lock_owned().await);
     prepared
         .commit(
@@ -116,7 +116,7 @@ async fn old_expiry_tick_preserves_a_newer_consumed_then_replaced_reference() {
     prepared
         .commit(
             &first,
-            VerifiedRootHandle::open(directory.path()).unwrap(),
+            crate::directory_selection_test_support::test_root_handle(directory.path()),
             test_admission(),
             &mut None,
             Instant::now(),
@@ -140,7 +140,7 @@ async fn old_expiry_tick_preserves_a_newer_consumed_then_replaced_reference() {
     prepared
         .commit(
             &second,
-            VerifiedRootHandle::open(directory.path()).unwrap(),
+            crate::directory_selection_test_support::test_root_handle(directory.path()),
             test_admission(),
             &mut None,
             Instant::now(),

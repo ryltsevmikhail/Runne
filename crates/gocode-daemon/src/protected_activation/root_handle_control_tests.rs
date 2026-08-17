@@ -96,7 +96,7 @@ fn inherited_stdin_child_runs_production_root_dispatcher_for_sequential_rejectio
         return;
     }
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = VerifiedRootHandle::open(&std::fs::canonicalize(directory.path()).unwrap()).unwrap();
     let (parent, child_channel) = UnixStream::pair().unwrap();
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -160,7 +160,7 @@ fn peer_close_after_offer_poison_reaps_the_exact_child() {
         return;
     }
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = VerifiedRootHandle::open(&std::fs::canonicalize(directory.path()).unwrap()).unwrap();
     let (parent, child_channel) = UnixStream::pair().unwrap();
     let child = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -210,7 +210,7 @@ fn invalid_preflight_keeps_the_inherited_channel_healthy() {
         return;
     }
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = VerifiedRootHandle::open(&std::fs::canonicalize(directory.path()).unwrap()).unwrap();
     let (parent, child_channel) = UnixStream::pair().unwrap();
     let child = Command::new(std::env::current_exe().unwrap())
         .args([

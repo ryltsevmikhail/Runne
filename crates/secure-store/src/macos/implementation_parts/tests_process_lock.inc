@@ -152,6 +152,8 @@
             std::process::id()
         ));
         std::fs::create_dir(&child_temp).unwrap();
+        let ready_marker = child_temp.join("ready");
+        let configured_marker = child_temp.join("configured");
         // Keep sibling tests from winning the user-wide lock after the parent
         // releases it but before the child can acquire it. The child has its
         // own process-local mutex, so this serializes only this test binary.
@@ -166,32 +168,26 @@
             .env("GOCODE_PROVIDER_LOCK_TEST_CHILD", "1")
             .env("GOCODE_PROVIDER_LOCK_SERVICE", &store.service)
             .env("GOCODE_PROVIDER_LOCK_ACCOUNT", &store.account)
+            .env("GOCODE_PROVIDER_LOCK_MARKER_DIR", &child_temp)
             .env("TMPDIR", &child_temp)
             .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
             .spawn()
             .expect("spawn lock contender");
-        let mut child_stdout = BufReader::new(child.stdout.take().unwrap());
-        read_child_marker(&mut child_stdout, "READY").unwrap();
-        child.stdin.as_mut().unwrap().write_all(b"GO\n").unwrap();
-        let (acquired_tx, acquired_rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            let result = read_child_marker(&mut child_stdout, "CONFIGURED");
-            let _ = acquired_tx.send((result, child_stdout));
-        });
+        wait_for_marker_file(&ready_marker, std::time::Duration::from_secs(5)).unwrap();
+        {
+            let mut child_stdin = child.stdin.take().unwrap();
+            child_stdin.write_all(b"GO\n").unwrap();
+            child_stdin.flush().unwrap();
+        }
         assert!(
-            acquired_rx
-                .recv_timeout(std::time::Duration::from_millis(500))
-                .is_err(),
+            !configured_marker.exists() && child.try_wait().unwrap().is_none(),
             "child with a different TMPDIR bypassed the process lock"
         );
         drop(process_lock);
-        let (operation, _child_stdout) = acquired_rx
-            .recv_timeout(std::time::Duration::from_secs(5))
-            .unwrap();
-        operation.unwrap();
+        wait_for_marker_file(&configured_marker, std::time::Duration::from_secs(5)).unwrap();
         assert!(child.wait().unwrap().success());
-        std::fs::remove_dir(child_temp).unwrap();
+        std::fs::remove_dir_all(child_temp).unwrap();
     }
 
     #[test]
@@ -199,8 +195,9 @@
         if std::env::var_os("GOCODE_PROVIDER_LOCK_TEST_CHILD").is_none() {
             return;
         }
-        println!("READY");
-        std::io::stdout().flush().unwrap();
+        let marker_dir =
+            std::path::PathBuf::from(std::env::var_os("GOCODE_PROVIDER_LOCK_MARKER_DIR").unwrap());
+        std::fs::write(marker_dir.join("ready"), b"").unwrap();
         let mut go = String::new();
         std::io::stdin().read_line(&mut go).unwrap();
         assert_eq!(go, "GO\n");
@@ -215,6 +212,5 @@
                 .unwrap(),
             ProviderCredentialStatus::Configured
         );
-        println!("CONFIGURED");
-        std::io::stdout().flush().unwrap();
+        std::fs::write(marker_dir.join("configured"), b"").unwrap();
     }

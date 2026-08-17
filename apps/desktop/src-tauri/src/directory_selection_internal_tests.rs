@@ -7,7 +7,7 @@ use crate::prepared_workspace::PreparedWorkspaceRef;
 
 fn test_root() -> (tempfile::TempDir, VerifiedRootHandle) {
     let directory = tempfile::tempdir().unwrap();
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     (directory, root)
 }
 

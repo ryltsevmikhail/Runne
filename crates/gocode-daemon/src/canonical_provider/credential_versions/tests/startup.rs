@@ -32,6 +32,7 @@ fn expired_active_pending_command_completes_before_gc_and_uses_next_version() {
         connection,
         [0x74; 16],
         2,
+        ProviderCredentialId::OpenAi,
         true,
         Some(Arc::new(fixture_native)),
     )
@@ -76,8 +77,15 @@ fn explicit_fixture_native_dependency_rotates_across_two_launch_generations() {
         gocode_store::schema::ConnectionMode::Writer,
     )
     .unwrap();
-    let first =
-        compose_credential_lifecycle(connection, owner, 1, true, Some(factory.clone())).unwrap();
+    let first = compose_credential_lifecycle(
+        connection,
+        owner,
+        1,
+        ProviderCredentialId::OpenAi,
+        true,
+        Some(factory.clone()),
+    )
+    .unwrap();
     let first_ref = first
         .store
         .active_lease(&provider)
@@ -92,8 +100,15 @@ fn explicit_fixture_native_dependency_rotates_across_two_launch_generations() {
         gocode_store::schema::ConnectionMode::Writer,
     )
     .unwrap();
-    let second =
-        compose_credential_lifecycle(connection, owner, 2, true, Some(factory.clone())).unwrap();
+    let second = compose_credential_lifecycle(
+        connection,
+        owner,
+        2,
+        ProviderCredentialId::OpenAi,
+        true,
+        Some(factory.clone()),
+    )
+    .unwrap();
     assert_eq!(
         second.store.version_state(&first_ref).unwrap(),
         CredentialVersionState::Deleted

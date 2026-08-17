@@ -28,12 +28,13 @@ fn provision_active_from_legacy_source(
     store: &SqliteProviderCredentialLifecycleStore,
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,
+    credential_id: ProviderCredentialId,
     activation: ProvisionActivation,
     legacy: &dyn LegacyCredentialSource,
     access: &ProviderCredentialAccessPolicy,
 ) -> Result<(), DaemonError> {
     let source = legacy
-        .load_source(ProviderCredentialId::OpenAi, access)
+        .load_source(credential_id, access)
         .map_err(|_| unavailable())?;
     provision_active_with_material(
         store,

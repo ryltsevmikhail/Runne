@@ -11,10 +11,10 @@ use super::{
     DaemonOperationalTelemetryClock, DaemonOperationalTelemetryQueryService,
     unavailable_operational_telemetry_query,
 };
-use crate::canonical_provider::DaemonCanonicalOpenAiService;
+use crate::canonical_provider::DaemonCanonicalProviderService;
 
 pub(crate) fn compose_operational_telemetry_query(
-    provider_service: Option<&Arc<DaemonCanonicalOpenAiService>>,
+    provider_service: Option<&Arc<DaemonCanonicalProviderService>>,
     authenticated_launch_generation: u64,
 ) -> Arc<dyn OperationalTelemetryQueryPort> {
     let Some(provider_service) = provider_service else {

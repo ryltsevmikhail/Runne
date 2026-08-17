@@ -107,7 +107,7 @@ fn process_outcome(result: Result<String, CliError>, format: OutputFormat) -> Pr
                         exit_code,
                     };
                 }
-                CliError::HealthNonHealthy(stdout) => {
+                CliError::HealthNonHealthy(stdout) | CliError::DoctorNonHealthy(stdout) => {
                     let stdout = match format {
                         OutputFormat::Text => format!("{stdout}\n"),
                         OutputFormat::Json => {
@@ -157,6 +157,8 @@ include!("cli/help.rs");
 include!("cli/status.rs");
 include!("cli/health.rs");
 include!("cli/doctor.rs");
+include!("cli/provider_readiness.rs");
+include!("cli/provider_checks.rs");
 include!("cli/format.rs");
 include!("cli/completion.rs");
 include!("cli/conversation.rs");

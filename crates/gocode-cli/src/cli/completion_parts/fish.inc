@@ -37,7 +37,7 @@ complete -c gocode -n '__fish_seen_subcommand_from credential' -a set -d 'Store 
 complete -c gocode -n '__fish_seen_subcommand_from credential' -a status -d 'Check status'
 complete -c gocode -n '__fish_seen_subcommand_from credential' -a delete -d 'Delete credential'
 complete -c gocode -n '__fish_seen_subcommand_from credential' -l help -d 'Show help'
-complete -c gocode -n '__fish_seen_subcommand_from credential' -l provider -xa 'openai' -d 'Provider name'
+complete -c gocode -n '__fish_seen_subcommand_from credential' -l provider -xa 'openai deepseek' -d 'Provider name'
 complete -c gocode -n '__fish_seen_subcommand_from credential' -l stdin -d 'Read from stdin'
 
 # Completion subcommands

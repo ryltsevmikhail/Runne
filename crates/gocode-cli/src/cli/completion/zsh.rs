@@ -64,7 +64,7 @@ _gocode() {
                     _arguments \
                         '1:subcommand:((set:"Store credential" status:"Check status" delete:"Delete credential"))' \
                         '--help[Show help]' \
-                        '--provider[Provider name]:provider:(openai)' \
+                        '--provider[Provider name]:provider:(openai deepseek)' \
                         '--stdin[Read from stdin]'
                     ;;
                 completion)

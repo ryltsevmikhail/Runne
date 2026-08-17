@@ -118,7 +118,7 @@ async fn retained_fixture(ttl: Duration) -> RetainedFixture {
     prepared
         .commit(
             &reference,
-            VerifiedRootHandle::open(root.path()).expect("root"),
+            crate::directory_selection_test_support::test_root_handle(root.path()),
             test_admission(),
             &mut permit,
             Instant::now(),

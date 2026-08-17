@@ -65,13 +65,14 @@
             let (encoded, primary) = store
                 .find_primary_item(keychain)?
                 .expect("complete primary before replacement crash");
+            let (metadata, _) = store
+                .find_named_metadata(keychain, &store.service)?
+                .expect("complete primary metadata before replacement crash");
             let current_access = ExactKeychainAccess::new(
                 current_policy.writer_path(),
                 current_policy.reader_path(),
             )
             .map_err(map_acl_error)?;
-            let metadata =
-                ProviderCredentialMetadata::from_access(&current_policy, current_access.digest());
             create_populated_provider_item(
                 keychain,
                 &store.migration_service(),

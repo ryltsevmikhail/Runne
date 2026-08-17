@@ -11,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
-use crate::canonical_provider::RuntimeStoreDecorator;
+use crate::canonical_provider::{RuntimeStoreDecorator, openai_effect_adapter};
 use crate::error::DaemonError;
 use ack_failure_store::AckFailureStore;
 use bootstrap::RetainedFixtureKeyring;
@@ -45,6 +45,7 @@ pub(crate) async fn dependencies(
         .map_err(|_| DaemonError::Bootstrap("fixture client".into()))?;
     let (effect, _) = gocode_daemon_openai_effect::effect_from_loopback_fixture(client)
         .map_err(|_| DaemonError::Bootstrap("fixture effect".into()))?;
+    let effect = openai_effect_adapter(effect);
     Ok((
         ProtectedProviderDependencyCapsule::from_loopback_fixture(
             effect,

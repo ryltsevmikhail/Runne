@@ -226,9 +226,9 @@ async fn run_doctor_command(
     let report = run_doctor(profile_path).await?;
     let output = format_diagnostic_report(&report, OutputFormat::Text);
 
-    // Return error if any check failed
+    // Always print the full report; failing checks only change the exit code.
     if report.overall_status == CheckStatus::Error {
-        return Err(CliError::Runtime);
+        return Err(CliError::DoctorNonHealthy(output));
     }
 
     Ok(output)

@@ -157,7 +157,7 @@ async fn prepared_value(
         )
         .expect("reserve");
     let directory = tempfile::tempdir().expect("directory");
-    let root = VerifiedRootHandle::open(directory.path()).expect("root");
+    let root = crate::directory_selection_test_support::test_root_handle(directory.path());
     let mut permit = Some(Arc::clone(&operations).lock_owned().await);
     prepared
         .commit(

@@ -16,6 +16,10 @@ impl ProviderActivationBindingV1 {
                 OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID,
                 OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
             ),
+            ProviderActivationModeV1::DeepSeekResponsesTextV1 => (
+                DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID,
+                DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
+            ),
         };
         if !valid_text(&profile_id, MAX_PROFILE_ID_BYTES)
             || profile_id != expected.0
@@ -47,6 +51,16 @@ impl ProviderActivationBindingV1 {
             mode: ProviderActivationModeV1::OpenAiResponsesTextV1,
             profile_id: OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID.to_owned(),
             profile_digest: OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
+        }
+    }
+
+    /// Returns the released exact DeepSeek Responses text provider binding.
+    #[must_use]
+    pub fn deepseek_responses_text_v1() -> Self {
+        Self {
+            mode: ProviderActivationModeV1::DeepSeekResponsesTextV1,
+            profile_id: DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID.to_owned(),
+            profile_digest: DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
         }
     }
 

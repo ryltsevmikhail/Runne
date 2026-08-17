@@ -9,6 +9,7 @@ pub mod canonical_provider;
 mod canonical_provider_factory;
 mod client_profile;
 pub mod config;
+pub mod doctor;
 pub mod error;
 pub mod host;
 pub mod launch_identity;

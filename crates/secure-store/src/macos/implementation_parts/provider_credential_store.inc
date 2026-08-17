@@ -4,7 +4,8 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         provider: ProviderCredentialId,
         expected_access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
-        self.validate_provider(provider)?;
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
         expected_access
             .validate_writer_or_reader_current()
             .map_err(map_identity_access_error)?;
@@ -18,8 +19,8 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             .remeasure()
             .map_err(map_identity_access_error)?;
         Self::with_noninteractive(|keychain| {
-            self.ensure_no_access_migration(keychain)?;
-            let mut slots = self.source_slots(keychain, &exact_access);
+            store.ensure_no_access_migration(keychain)?;
+            let mut slots = store.source_slots(keychain, &exact_access);
             committed_provider_credential_source_slot(
                 &mut slots,
                 expected_access,
@@ -41,7 +42,8 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        self.validate_provider(provider)?;
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
         access
             .validate_writer_current()
             .map_err(map_identity_access_error)?;
@@ -50,10 +52,10 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
             let exact_access = ExactKeychainAccess::new(access.writer_path(), access.reader_path())
                 .map_err(map_acl_error)?;
             access.remeasure().map_err(map_identity_access_error)?;
-            self.ensure_no_access_migration(keychain)?;
+            store.ensure_no_access_migration(keychain)?;
             let source_revision = generate_provider_credential_source_revision()?;
             commit_provider_credential_source_update(
-                &mut self.source_slots(keychain, &exact_access),
+                &mut store.source_slots(keychain, &exact_access),
                 credential,
                 access,
                 exact_access.digest(),
@@ -85,14 +87,15 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         &self,
         provider: ProviderCredentialId,
     ) -> Result<(), SecureStoreError> {
-        self.validate_provider(provider)?;
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
         Self::with_noninteractive(|keychain| {
             for service in [
-                self.source_alternate_service(),
-                self.migration_service(),
-                self.service.clone(),
+                store.source_alternate_service(),
+                store.migration_service(),
+                store.service.clone(),
             ] {
-                let Some((metadata, item)) = self.find_named_metadata(keychain, &service)? else {
+                let Some((metadata, item)) = store.find_named_metadata(keychain, &service)? else {
                     continue;
                 };
                 metadata.validate_writer_current()?;

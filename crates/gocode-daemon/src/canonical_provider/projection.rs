@@ -4,7 +4,10 @@ use super::*;
 pub(super) fn project_call(
     store: &StoreTransaction,
     job: &CanonicalProviderExecutionJob,
-    profile: &OpenAiResponsesTextProfile,
+    profile: &dyn TextProviderProfile,
+    provider_id: &str,
+    model_id: &str,
+    model_revision: &str,
 ) -> Result<ProviderCall, CanonicalProviderExecutionError> {
     let stream = store
         .load_conversation(job.started.conversation_id)
@@ -37,14 +40,18 @@ pub(super) fn project_call(
     ProviderCall::new(
         call_id,
         ModelRef::new(
-            ProviderId::new("openai").map_err(|_| CanonicalProviderExecutionError::Conflict)?,
-            OPENAI_MODEL_ID,
-            OPENAI_MODEL_REVISION,
+            ProviderId::new(provider_id).map_err(|_| CanonicalProviderExecutionError::Conflict)?,
+            model_id,
+            model_revision,
         )
         .map_err(|_| CanonicalProviderExecutionError::Conflict)?,
         manifest.finalize().into(),
         profile.max_output_tokens(),
-        profile.binding_extension(),
+        serde_json::json!({
+            "profile_id": profile.profile_id(),
+            "profile_digest": hex::encode(profile.profile_digest()),
+            "pricing_revision_digest": hex::encode(profile.pricing_revision_digest()),
+        }),
     )
     .and_then(|call| call.with_text_inputs(inputs))
     .map(|call| call.with_required_capabilities(vec![ProviderCapability::Streaming]))
@@ -73,7 +80,7 @@ fn derived_bytes16(domain: &[u8], input: &[u8]) -> [u8; 16] {
 
 pub(super) fn policy_binding_digest(
     activation_identity: [u8; 32],
-    profile: &OpenAiResponsesTextProfile,
+    profile: &dyn TextProviderProfile,
 ) -> [u8; 32] {
     Sha256::new()
         .chain_update(b"GOCODE_PROVIDER_POLICY_BINDING_V1\0")

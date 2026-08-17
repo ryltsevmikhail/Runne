@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::bootstrap::{BootstrapOutcome, bootstrap};
 use crate::canonical_provider::{
-    DaemonActivationProvenance, DaemonCanonicalOpenAiComposition, DaemonCanonicalOpenAiService,
+    DaemonActivationProvenance, DaemonCanonicalProviderComposition, DaemonCanonicalProviderService,
     compose_selected_provider,
 };
 use crate::client_profile::PublishedClientProfileV3;
@@ -64,6 +64,7 @@ type SqliteConversationService = ConversationService<StoreTransaction, StoreTran
 
 mod executable_identity;
 mod http_startup;
+mod provider_selection;
 mod provider_startup;
 mod readiness;
 mod replay_authorization;

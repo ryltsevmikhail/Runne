@@ -1,5 +1,6 @@
-use std::sync::Arc;
-
+use super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
+use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
+use crate::error::DaemonError;
 use gocode_provider::{
     CredentialAuthorityPair, CredentialLease, NativeCredentialAuthority,
     ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
@@ -11,15 +12,9 @@ use gocode_secure_store::{
 };
 use gocode_store::provider::SqliteProviderCredentialLifecycleStore;
 use gocode_store::schema::ManagedConnection;
-
-use super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
-use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
-use crate::error::DaemonError;
-
+use std::sync::Arc;
 include!("credential_versions/source.rs");
-
 const FIXTURE_SOURCE_REVISION: [u8; 16] = [0xF1; 16];
-
 pub(super) struct ComposedCredentialLifecycle {
     pub(super) store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) native_authority: NativeCredentialAuthority,
@@ -29,6 +24,7 @@ pub(super) fn compose_credential_lifecycle(
     connection: ManagedConnection,
     owner: [u8; 16],
     fencing_token: u64,
+    credential_id: ProviderCredentialId,
     fixture: bool,
     fixture_native: Option<Arc<LoopbackCredentialVersionStoreFactory>>,
 ) -> Result<ComposedCredentialLifecycle, DaemonError> {
@@ -49,15 +45,18 @@ pub(super) fn compose_credential_lifecycle(
         |factory| factory(native_authority.clone()),
     );
     let now = chrono::Utc::now().timestamp();
-    let provider =
-        ProviderId::new(ProviderCredentialId::OpenAi.account()).map_err(|_| unavailable())?;
+    let provider = ProviderId::new(credential_id.account()).map_err(|_| unavailable())?;
+    let activation = ProvisionActivation {
+        owner,
+        fencing_token,
+        now,
+    };
     resolve_pending_provision(
         store.as_ref(),
         native.as_ref(),
         &provider,
-        owner,
-        fencing_token,
-        now,
+        activation,
+        credential_id,
         fixture,
     )?;
     reconcile_native(store.as_ref(), native.as_ref(), now)?;
@@ -69,16 +68,15 @@ pub(super) fn compose_credential_lifecycle(
             store.as_ref(),
             native.as_ref(),
             &provider,
-            fencing_token,
-            now,
+            activation.fencing_token,
+            activation.now,
         )?;
         provision_active(
             store.as_ref(),
             native.as_ref(),
             &provider,
-            owner,
-            fencing_token,
-            now,
+            activation,
+            credential_id,
             fixture,
         )?;
     }
@@ -95,9 +93,8 @@ fn resolve_pending_provision(
     store: &SqliteProviderCredentialLifecycleStore,
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,
-    owner: [u8; 16],
-    fencing_token: u64,
-    now: i64,
+    activation: ProvisionActivation,
+    credential_id: ProviderCredentialId,
     fixture: bool,
 ) -> Result<(), DaemonError> {
     finish_completed_provision(store, provider)?;
@@ -106,7 +103,7 @@ fn resolve_pending_provision(
         .map_err(|_| unavailable())?
         .is_some()
     {
-        provision_active(store, native, provider, owner, fencing_token, now, fixture)?;
+        provision_active(store, native, provider, activation, credential_id, fixture)?;
     }
     Ok(())
 }
@@ -137,16 +134,10 @@ fn provision_active(
     store: &SqliteProviderCredentialLifecycleStore,
     native: &dyn NativeProviderCredentialVersionStore,
     provider: &ProviderId,
-    owner: [u8; 16],
-    fencing_token: u64,
-    now: i64,
+    activation: ProvisionActivation,
+    credential_id: ProviderCredentialId,
     fixture: bool,
 ) -> Result<(), DaemonError> {
-    let activation = ProvisionActivation {
-        owner,
-        fencing_token,
-        now,
-    };
     if fixture {
         return provision_active_with_material(
             store,
@@ -162,6 +153,7 @@ fn provision_active(
         store,
         native,
         provider,
+        credential_id,
         activation,
         &NativeProviderCredentialStore::new(),
         &access,

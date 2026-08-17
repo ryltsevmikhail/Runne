@@ -24,8 +24,7 @@ async fn bind(
 
 #[tokio::test]
 async fn duplicate_nonce_for_a_different_workspace_rolls_back_all_three_admission_tables() {
-    let (directory, store) = store();
-    let path = directory.path().join("admission.sqlite");
+    let (_directory, path, store) = store();
     let first: WorkspaceId = WORKSPACE.parse().unwrap();
     let second = WorkspaceId::from_bytes([0x42; 16]);
     create_workspace(store.clone(), first).await;
@@ -59,8 +58,7 @@ async fn duplicate_nonce_for_a_different_workspace_rolls_back_all_three_admissio
 
 #[tokio::test]
 async fn changed_admission_digest_for_the_same_command_is_not_an_exact_retry() {
-    let (directory, store) = store();
-    let path = directory.path().join("admission.sqlite");
+    let (_directory, path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let keys = barrier::keys();
@@ -90,8 +88,7 @@ async fn changed_admission_digest_for_the_same_command_is_not_an_exact_retry() {
 
 #[tokio::test]
 async fn exact_admission_retry_replays_without_consuming_the_nonce_again() {
-    let (directory, store) = store();
-    let path = directory.path().join("admission.sqlite");
+    let (_directory, path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let keys = barrier::keys();

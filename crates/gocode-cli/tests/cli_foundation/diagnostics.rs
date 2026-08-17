@@ -71,6 +71,21 @@ fn doctor_without_runtime_returns_error() {
     assert_eq!(code, 1);
 }
 
+#[test]
+fn doctor_without_runtime_still_prints_the_full_report() {
+    // Diagnostics must stay readable even when checks fail: the report goes
+    // to stdout, the exit code carries the failure.
+    let output = run_cli(&["doctor"]);
+    assert!(!output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Active provider"), "stdout: {stdout}");
+    assert!(stdout.contains("Credential (openai)"), "stdout: {stdout}");
+    assert!(stdout.contains("Credential (deepseek)"), "stdout: {stdout}");
+    assert!(stdout.contains("Some checks failed"), "stdout: {stdout}");
+    // The failing report must not leak credential material (statuses only).
+    assert!(!stdout.contains("sk-"), "stdout: {stdout}");
+}
+
 // ===== Messages formatting tests =====
 
 #[test]

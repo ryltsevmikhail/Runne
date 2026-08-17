@@ -1,12 +1,85 @@
 //! GOCODE Runtime Daemon.
 
+use std::ffi::OsString;
+
 use gocode_daemon::application::DaemonApplication;
+use gocode_daemon::doctor::{format_report, run_doctor};
 #[cfg(unix)]
 use gocode_daemon::protected_activation::{
     ProtectedActivationChannel, run_verified_protected_channel,
 };
 
+const DAEMON_HELP: &str = "\
+GOCODE runtime daemon.
+
+Usage:
+  gocode-daemon            Start the daemon (canonical runtime)
+  gocode-daemon doctor     Show provider readiness diagnostics without bootstrapping
+  gocode-daemon --help     Show this help
+  gocode-daemon --version  Show version information
+
+`doctor` runs without a credential and never prints secrets. It reports the
+active provider, selected profile/model, and per-provider credential status.
+
+Doctor exit codes:
+  0  Execution-ready (deterministic mode or active provider credential configured)
+  1  Active provider credential missing/denied, backend unsupported, or config unreadable
+";
+
+/// Parsed first-process decision: diagnostics never bootstrap the daemon.
+enum Invocation {
+    Run,
+    Help,
+    Version,
+    Doctor,
+    Invalid(String),
+}
+
+/// Parses daemon arguments without echoing argument values into errors
+/// (arguments may accidentally contain secret material).
+fn parse_invocation(arguments: &[OsString]) -> Invocation {
+    match arguments {
+        [] => Invocation::Run,
+        [one] => match one.to_str() {
+            Some("-h" | "--help") => Invocation::Help,
+            Some("-V" | "--version") => Invocation::Version,
+            Some("doctor") => Invocation::Doctor,
+            Some(_) | None => Invocation::Invalid(
+                "unknown argument (run 'gocode-daemon --help' for usage)".to_owned(),
+            ),
+        },
+        [_, ..] => Invocation::Invalid(
+            "unexpected extra arguments (run 'gocode-daemon --help' for usage)".to_owned(),
+        ),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    match parse_invocation(&arguments) {
+        Invocation::Run => {}
+        Invocation::Help => {
+            print!("{DAEMON_HELP}");
+            return Ok(());
+        }
+        Invocation::Version => {
+            println!("gocode-daemon {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Invocation::Doctor => {
+            let report = run_doctor();
+            print!("{}", format_report(&report));
+            if !report.execution_ready() {
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
+        Invocation::Invalid(message) => {
+            eprintln!("error: {message}");
+            std::process::exit(2);
+        }
+    }
+
     tracing_subscriber::fmt::init();
 
     #[cfg(unix)]

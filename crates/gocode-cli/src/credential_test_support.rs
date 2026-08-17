@@ -1,7 +1,8 @@
 use super::{
     CliError, CredentialBackend, CredentialIdentityResolver, CredentialOutcome, OsString,
-    OutputFormat, ProcessOutcome, ProviderCredentialAccessPolicy, ProviderCredentialMaterial, Read,
-    SecureStoreError, VecDeque, process_outcome, run_provider_credential_with,
+    OutputFormat, ProcessOutcome, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialMaterial, Read, SecureStoreError, VecDeque, process_outcome,
+    run_provider_credential_with,
 };
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
@@ -97,6 +98,7 @@ struct Backend {
 impl CredentialBackend for Backend {
     fn status(
         &self,
+        _id: ProviderCredentialId,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError> {
         if self.failure {
@@ -113,6 +115,7 @@ impl CredentialBackend for Backend {
 
     fn store(
         &mut self,
+        _id: ProviderCredentialId,
         credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
@@ -127,7 +130,7 @@ impl CredentialBackend for Backend {
         Ok(())
     }
 
-    fn delete(&mut self) -> Result<(), SecureStoreError> {
+    fn delete(&mut self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
         self.delete_calls += 1;
         self.configured = false;
         Ok(())
