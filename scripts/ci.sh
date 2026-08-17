@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The macOS self-hosted worker runs under launchd, which applies a default
+# soft RLIMIT_NOFILE of 256 (unlike an interactive shell). The parallel daemon
+# integration suite spawns in-process daemons plus many loopback TLS/TCP
+# connections per test binary and legitimately exceeds that ceiling, so the
+# connection-heavy tests fail with EMFILE ("Too many open files") and the
+# store open path maps the same condition onto FileIdentityUncertain.
+# Raise the soft limit before any cargo invocation.
+ulimit -n 4096
+
 MODE="${1:-}"
 if [ "$MODE" != "pinned" ] && [ "$MODE" != "msrv" ]; then
     echo "Usage: bash scripts/ci.sh <pinned|msrv>"
