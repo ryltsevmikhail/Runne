@@ -87,9 +87,16 @@ impl PreparedWorkspaceOpenAttempt {
         self.root.take(); self.admission.take(); self.permit.take(); self.prepared.take();
         let mut state = self.manager.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(entry) = state.prepared.get_mut(&self.reference)
-            && matches!(entry.phase, PreparedWorkspacePhase::Attempting { attempt_id, revoked: false } if attempt_id == self.attempt_id)
+            && matches!(entry.phase, PreparedWorkspacePhase::Attempting { attempt_id, .. } if attempt_id == self.attempt_id)
         {
-            entry.phase = PreparedWorkspacePhase::Opened;
+            if self.expires_at <= Instant::now() {
+                state.prepared.remove(&self.reference);
+            } else {
+                entry.phase = PreparedWorkspacePhase::Opened;
+                if self.manager.start_expiry_sweeper(&mut state).is_err() {
+                    state.prepared.remove(&self.reference);
+                }
+            }
         }
     }
 

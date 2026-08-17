@@ -67,7 +67,7 @@ async fn opened_reference_is_terminal_and_swept_at_its_original_deadline_without
     let address = listener.local_addr().expect("address");
     let server_requests = Arc::clone(&requests);
     let server = tokio::spawn(async move {
-        for (status, body) in [
+        for (index, (status, body)) in [
             (200, snapshot(1, false)),
             (
                 202,
@@ -80,12 +80,18 @@ async fn opened_reference_is_terminal_and_swept_at_its_original_deadline_without
             ),
             (200, reconcile("open_workspace", 3)),
             (200, snapshot(3, true)),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let (mut stream, _) = listener.accept().await.expect("request");
             server_requests.fetch_add(1, Ordering::AcqRel);
             let mut bytes = [0; 4096];
             let count = stream.read(&mut bytes).await.expect("read");
             assert!(count > 0, "request must not be empty");
+            if index == 0 {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
             stream.write_all(format!("HTTP/1.1 {status} ok\r\ncontent-type: application/json\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.expect("response");
         }
     });
