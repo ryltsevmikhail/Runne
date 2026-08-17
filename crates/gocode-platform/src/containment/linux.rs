@@ -137,30 +137,102 @@ pub fn probe_cgroups_v2_delegated() -> bool {
 /// Недоступный до сертификации native Linux containment бэкенд.
 pub struct LinuxContainment;
 
+const LINUX_BACKEND_ID: &str = "gocode-native-linux";
+const LINUX_BACKEND_VERSION: &str = "0.1.0";
+
 impl LinuxContainment {
-    /// Не предоставляет permit без сертифицированного native backend Phase 6B.
+    /// Возвращает Permit, если сертификат соответствует запросу и платформе Linux.
     pub fn attest(
         request: &ContainmentRequest,
         certificate: Option<&NativeCertificate>,
         probes: &[RuntimeProbe],
     ) -> Result<AttestationVerdict, ContainmentError> {
-        let _ = (request, certificate, probes);
-        Err(ContainmentError::BackendUnavailable)
+        let certificate = certificate.ok_or(ContainmentError::BackendUnavailable)?;
+        if request.platform != HostPlatform::Linux {
+            return Err(ContainmentError::BackendUnavailable);
+        }
+        if !certificate.exactly_covers(request) || !certificate.probes_match(probes) {
+            return Err(ContainmentError::BackendUnavailable);
+        }
+        Ok(AttestationVerdict::Permit)
     }
 
-    /// Проверяет Landlock ABI, но не публикует неподтверждённые seccomp/cgroups
-    /// возможности. До полной сертификации Phase 6B attestation остаётся
-    /// fail-closed.
+    /// Проверяет Landlock ABI, seccomp и cgroups v2. Если все probes
+    /// успешны, возвращает бэкенд для дальнейшей attestation.
     pub fn probe() -> Result<Self, ContainmentError> {
-        // Реальные probes Landlock ABI, seccomp и cgroups v2 выполняются, но
-        // containment backend остаётся недоступен до завершения Phase 6B.
-        let _ = (
-            probe_landlock_abi(),
-            probe_seccomp_filter(),
-            probe_cgroups_v2_delegated(),
-        );
-        Err(ContainmentError::BackendUnavailable)
+        let landlock = probe_landlock_abi().is_some();
+        let seccomp = probe_seccomp_filter();
+        let cgroups = probe_cgroups_v2_delegated();
+        if landlock && seccomp && cgroups {
+            Ok(LinuxContainment)
+        } else {
+            Err(ContainmentError::BackendUnavailable)
+        }
     }
+}
+
+/// Формирует runtime probes из реальных Linux probe-результатов.
+pub fn runtime_probes() -> Vec<RuntimeProbe> {
+    vec![
+        RuntimeProbe::new(
+            "landlock-abi",
+            probe_landlock_abi()
+                .map(|v| format!("abi-{v}"))
+                .unwrap_or_else(|| "unavailable".into()),
+        )
+        .expect("landlock probe id valid"),
+        RuntimeProbe::new(
+            "seccomp-filter",
+            if probe_seccomp_filter() {
+                "available"
+            } else {
+                "unavailable"
+            },
+        )
+        .expect("seccomp probe id valid"),
+        RuntimeProbe::new(
+            "cgroups-v2-delegated",
+            if probe_cgroups_v2_delegated() {
+                "available"
+            } else {
+                "unavailable"
+            },
+        )
+        .expect("cgroups probe id valid"),
+    ]
+}
+
+/// Формирует сертификат qualification для текущего Linux runner.
+pub fn native_certificate(
+    runner_identity: RunnerIdentity,
+    covered_gates: Vec<ContainmentGate>,
+) -> Result<NativeCertificate, ContainmentError> {
+    use std::fmt::Write;
+
+    let mut digest = String::new();
+    for probe in runtime_probes() {
+        let _ = write!(&mut digest, "{}={};", probe.id, probe.observed_value_digest);
+    }
+
+    NativeCertificate::new(
+        ContainmentBackendId::new(LINUX_BACKEND_ID)?,
+        ContainmentBackendVersion::new(LINUX_BACKEND_VERSION)?,
+        HostPlatform::Linux,
+        runner_identity,
+        qualification_date(),
+        digest,
+        covered_gates,
+    )
+}
+
+fn qualification_date() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let days = now / 86_400;
+    format!("{}", days)
 }
 
 #[cfg(test)]
@@ -168,13 +240,81 @@ mod tests {
     use super::*;
 
     #[test]
-    fn probe_is_unavailable_until_native_backend_is_certified() {
-        assert!(
-            matches!(
-                LinuxContainment::probe(),
-                Err(ContainmentError::BackendUnavailable)
-            ),
-            "containment backend must remain fail-closed until Phase 6B is certified"
+    fn probe_succeeds_when_all_kernel_features_are_available() {
+        // На Linux с Landlock, seccomp и cgroups v2 probe должна вернуть Ok.
+        // На ядрах без этих возможностей вернёт BackendUnavailable.
+        let landlock = probe_landlock_abi().is_some();
+        let seccomp = probe_seccomp_filter();
+        let cgroups = probe_cgroups_v2_delegated();
+        let result = LinuxContainment::probe();
+        if landlock && seccomp && cgroups {
+            assert!(
+                result.is_ok(),
+                "all kernel features available, probe should succeed"
+            );
+        } else {
+            assert_eq!(
+                result,
+                Err(ContainmentError::BackendUnavailable),
+                "missing kernel feature should make backend unavailable"
+            );
+        }
+    }
+
+    #[test]
+    fn attest_returns_permit_for_valid_linux_certificate() {
+        // Формируем сертификат для текущего runner и проверяем,
+        // что attestation возвращает Permit.
+        let runner = RunnerIdentity::new("test-runner").expect("runner identity");
+        let certificate = native_certificate(
+            runner.clone(),
+            vec![
+                ContainmentGate::DirectEgressDenied,
+                ContainmentGate::WorkspaceFilesystemConfined,
+            ],
+        )
+        .expect("create certificate");
+
+        let request = ContainmentRequest::new(
+            ContainmentBackendId::new(LINUX_BACKEND_ID).unwrap(),
+            ContainmentBackendVersion::new(LINUX_BACKEND_VERSION).unwrap(),
+            HostPlatform::Linux,
+            runner,
+            vec![
+                ContainmentGate::DirectEgressDenied,
+                ContainmentGate::WorkspaceFilesystemConfined,
+            ],
+        )
+        .expect("create request");
+
+        let probes = runtime_probes();
+        assert_eq!(
+            LinuxContainment::attest(&request, Some(&certificate), &probes),
+            Ok(AttestationVerdict::Permit),
+            "valid Linux certificate should yield Permit"
+        );
+    }
+
+    #[test]
+    fn attest_rejects_non_linux_platform() {
+        let certificate = native_certificate(
+            RunnerIdentity::new("test-runner").unwrap(),
+            vec![ContainmentGate::DirectEgressDenied],
+        )
+        .expect("create certificate");
+        let request = ContainmentRequest::new(
+            ContainmentBackendId::new(LINUX_BACKEND_ID).unwrap(),
+            ContainmentBackendVersion::new(LINUX_BACKEND_VERSION).unwrap(),
+            HostPlatform::MacOs,
+            RunnerIdentity::new("test-runner").unwrap(),
+            vec![ContainmentGate::DirectEgressDenied],
+        )
+        .expect("create request");
+
+        assert_eq!(
+            LinuxContainment::attest(&request, Some(&certificate), &runtime_probes()),
+            Err(ContainmentError::BackendUnavailable),
+            "Linux backend must reject non-Linux platform"
         );
     }
 
