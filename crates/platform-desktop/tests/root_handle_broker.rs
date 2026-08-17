@@ -119,7 +119,7 @@ fn sender_rejects_a_wrong_effective_uid_before_the_challenge() {
     let directory = tempdir().unwrap();
     let root = open(directory.path());
     let uid = rustix::process::getuid().as_raw() as u32;
-    let wrong_uid = uid.checked_add(1).unwrap_or(uid - 1);
+    let wrong_uid = uid.wrapping_add(1);
     let binding = RootHandleTransferBinding::test_binding(
         [7; 16],
         1,
