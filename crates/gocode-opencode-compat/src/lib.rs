@@ -9,6 +9,7 @@ pub mod binding;
 pub mod classify;
 pub mod error;
 pub mod inventory;
+pub mod jsonc_import;
 pub mod profile;
 pub mod service;
 pub mod translate;
