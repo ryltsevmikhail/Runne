@@ -1,9 +1,17 @@
 //! seccomp-bpf enforcement tests: mount kill-on-syscall and direct-egress denial.
 
+use super::super::probe_seccomp_filter;
+
 #[test]
 fn seccomp_filter_kills_on_disallowed_syscall() {
-    // Устанавливаем seccomp-bpf filter, который убивает
-    // процесс при вызове mount. Тест выполняется в forked child.
+    // Устанавливаем seccomp-bpf filter, который убивает процесс при вызове
+    // mount. Тест выполняется в forked child. Если seccomp filter недоступен
+    // (например, в контейнере с ограниченным seccomp), тест пропускается.
+    if !probe_seccomp_filter() {
+        eprintln!("skipping: seccomp filter not available in this environment");
+        return;
+    }
+
     const PR_SET_SECCOMP: libc::c_int = 22;
     const SECCOMP_MODE_FILTER: libc::c_uint = 2;
 
@@ -98,8 +106,14 @@ fn seccomp_filter_kills_on_disallowed_syscall() {
 
 #[test]
 fn seccomp_filter_blocks_direct_egress() {
-    // seccomp-bpf filter запрещает системные вызовы connect и bind,
-    // что доказывает direct egress denial.
+    // seccomp-bpf filter запрещает системные вызовы connect и bind, что
+    // доказывает direct egress denial. Если seccomp filter недоступен, тест
+    // пропускается.
+    if !probe_seccomp_filter() {
+        eprintln!("skipping: seccomp filter not available in this environment");
+        return;
+    }
+
     const PR_SET_SECCOMP: libc::c_int = 22;
     const SECCOMP_MODE_FILTER: libc::c_uint = 2;
 

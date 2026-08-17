@@ -2,15 +2,16 @@
 
 #[test]
 fn cgroups_v2_pids_limit_enforced() {
-    // Создаём дочернюю cgroup, ограничиваем pids.max = 2,
-    // перемещаем туда forked child и проверяем,
-    // что второй fork() в ней завершается ошибкой EAGAIN.
+    // Создаём дочернюю cgroup, ограничиваем pids.max = 2, перемещаем туда
+    // forked child и проверяем, что второй fork() в ней завершается ошибкой
+    // EAGAIN. Если cgroups v2 недоступен или смонтирован только для чтения
+    // (как в Docker-контейнерах), тест пропускается.
     use std::fs;
     use std::path::PathBuf;
 
     let cgroup_root = PathBuf::from("/sys/fs/cgroup");
     if !cgroup_root.join("cgroup.controllers").exists() {
-        // cgroups v2 не доступен — тест не пройдёт, но и не упадёт.
+        eprintln!("skipping: cgroups v2 not available");
         return;
     }
 
@@ -18,13 +19,20 @@ fn cgroups_v2_pids_limit_enforced() {
         libc::getpid()
     }));
     let _ = fs::remove_dir(&child_cgroup);
-    fs::create_dir(&child_cgroup).expect("create child cgroup");
+    if fs::create_dir(&child_cgroup).is_err() {
+        eprintln!("skipping: cannot create child cgroup (read-only cgroupfs?)");
+        return;
+    }
 
-    // Включаем pids controller в родительской cgroup.
+    // Включаем pids controller в родительской cgroup (может быть запрещено).
     let _ = fs::write(cgroup_root.join("cgroup.subtree_control"), "+pids\n");
 
     // Ограничиваем дочернюю cgroup двумя процессами.
-    fs::write(child_cgroup.join("pids.max"), "2\n").expect("write pids.max");
+    if fs::write(child_cgroup.join("pids.max"), "2\n").is_err() {
+        let _ = fs::remove_dir(&child_cgroup);
+        eprintln!("skipping: cannot write pids.max (read-only cgroupfs?)");
+        return;
+    }
 
     let pid = unsafe { libc::fork() };
     assert!(pid >= 0, "fork failed");
@@ -32,8 +40,10 @@ fn cgroups_v2_pids_limit_enforced() {
     if pid == 0 {
         // Child moves itself into the child cgroup.
         let self_pid = unsafe { libc::getpid() };
-        fs::write(child_cgroup.join("cgroup.procs"), format!("{}\n", self_pid))
-            .expect("move self to child cgroup");
+        if fs::write(child_cgroup.join("cgroup.procs"), format!("{}\n", self_pid)).is_err() {
+            eprintln!("cannot move self to child cgroup");
+            unsafe { libc::exit(4) };
+        }
 
         // First fork succeeds: child + grandchild = 2 pids.
         let grandchild = unsafe { libc::fork() };
