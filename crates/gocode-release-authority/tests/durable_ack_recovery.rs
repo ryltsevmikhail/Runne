@@ -46,8 +46,7 @@ impl ThresholdVerificationContext for CrashAfterRemote<'_> {
 
 #[test]
 fn acknowledged_remote_tombstone_recovers_once_after_both_files_reopen() {
-    let root = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-ack-recovery-{}", std::process::id()));
+    let root = std::env::temp_dir().join(format!("gocode-ack-recovery-{}", std::process::id()));
     let promotion = root.with_extension("promotion");
     let threshold = root.with_extension("threshold");
     for path in [

@@ -89,7 +89,7 @@ pub fn fixture() -> (crate::InMemoryPromotionStore, PublicationEffectScope) {
 }
 
 fn path() -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-authority-publication-effect-crash-{}",
         std::process::id()
     ))
@@ -158,7 +158,7 @@ fn self_consistent_successor_with_foreign_freeze_rejects_before_anchor_repair() 
         Box::new(|scope| scope.revocation_epoch = 2),
     ];
     for (index, mutate) in mutations.into_iter().enumerate() {
-        let path = std::path::Path::new("/dev/shm").join(format!(
+        let path = std::env::temp_dir().join(format!(
             "gocode-authority-foreign-successor-{index}-{}",
             std::process::id()
         ));

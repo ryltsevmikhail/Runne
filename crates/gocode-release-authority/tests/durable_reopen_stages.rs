@@ -18,7 +18,7 @@ mod verified_stage_support;
 
 #[test]
 fn durable_store_reopens_and_continues_non_authorizing_stage() {
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-durable-reopen-stage-{}",
         std::process::id()
     ));
@@ -45,7 +45,7 @@ fn durable_store_reopens_and_continues_non_authorizing_stage() {
 
 #[test]
 fn durable_single_record_store_leaves_raw_stage_commit_unprovisioned_after_reopen() {
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-durable-stage-reservation-{}",
         std::process::id()
     ));
@@ -73,7 +73,7 @@ fn durable_single_record_store_leaves_raw_stage_commit_unprovisioned_after_reope
 
 #[test]
 fn durable_store_reopens_full_release_facts_for_exact_rc2_authorization() {
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-durable-release-facts-{}",
         std::process::id()
     ));
@@ -144,7 +144,7 @@ fn durable_store_reopens_full_release_facts_for_exact_rc2_authorization() {
     );
     drop(reopened);
     std::fs::remove_file(path).unwrap();
-    let _ = std::fs::remove_file(std::path::Path::new("/dev/shm").join(format!(
+    let _ = std::fs::remove_file(std::env::temp_dir().join(format!(
         "gocode-durable-release-facts-{}.lease",
         std::process::id()
     )));
@@ -152,7 +152,7 @@ fn durable_store_reopens_full_release_facts_for_exact_rc2_authorization() {
 
 #[test]
 fn durable_reopen_rejects_mutated_release_fact_artifact_and_profile() {
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-durable-release-facts-mutation-{}",
         std::process::id()
     ));

@@ -21,7 +21,7 @@ mod verified_stage_support;
 #[test]
 fn same_journal_key_with_any_changed_scope_field_is_immutable_after_reopen() {
     for field in 4..10 {
-        let path = std::path::Path::new("/dev/shm").join(format!(
+        let path = std::env::temp_dir().join(format!(
             "gocode-threshold-unique-{field}-{}",
             std::process::id()
         ));
@@ -61,7 +61,7 @@ fn same_journal_key_with_any_changed_scope_field_is_immutable_after_reopen() {
 #[test]
 fn reopen_rejects_duplicate_logical_journal_keys_before_recovery() {
     for divergent in [false, true] {
-        let path = std::path::Path::new("/dev/shm").join(format!(
+        let path = std::env::temp_dir().join(format!(
             "gocode-threshold-duplicate-{divergent}-{}",
             std::process::id()
         ));
@@ -88,8 +88,8 @@ fn reopen_rejects_duplicate_logical_journal_keys_before_recovery() {
 
 #[test]
 fn rotated_root_requires_old_and_new_quorums_then_reopens_existing_same() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-threshold-rotation-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-threshold-rotation-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let instance = Digest::fixture([0x23; 32]);
     let (mut store, id, payloads) = signing_support::signing_authorized_in_authority("p", instance);

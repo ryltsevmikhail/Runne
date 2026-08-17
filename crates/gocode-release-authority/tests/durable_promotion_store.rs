@@ -22,7 +22,7 @@ mod verified_stage_support;
 #[test]
 #[rustfmt::skip]
 fn durable_store_reopens_an_exact_verify_reservation() {
-    let path = std::path::Path::new("/dev/shm")
+    let path = std::env::temp_dir()
         .join(format!("gocode-promotion-store-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut memory, id, payloads) = signing_support::signing_authorized();
@@ -46,7 +46,7 @@ fn durable_store_reopens_an_exact_verify_reservation() {
 #[test]
 #[rustfmt::skip]
 fn durable_store_rejects_a_second_live_path_owner() {
-    let path = std::path::Path::new("/dev/shm").join(format!("gocode-promotion-lease-{}", std::process::id())); let _ = std::fs::remove_file(&path); let _ = std::fs::remove_file(path.with_extension("lease"));
+    let path = std::env::temp_dir().join(format!("gocode-promotion-lease-{}", std::process::id())); let _ = std::fs::remove_file(&path); let _ = std::fs::remove_file(path.with_extension("lease"));
     let (memory, _id, _) = signing_support::signing_authorized();
     let binding = ThresholdFixtureStoreBinding::new(Digest::fixture(verified_stage_support::bootstrap_digest()), "fixture-v1", 1).unwrap(); let owner = DurableFixturePromotionAuthority::create_from_in_memory(&path, binding.clone(), &memory).unwrap(); assert!(matches!(DurableFixturePromotionAuthority::reopen(&path, binding), Err(gocode_release_authority::AuthorityError::DurableStateUnavailable))); drop(owner); std::fs::remove_file(path).unwrap();
 }
@@ -125,7 +125,7 @@ impl ThresholdVerificationContext for FlakyRemote {
 
 #[test]
 fn persisted_delivering_reopens_only_for_the_exact_ack_claim() {
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-promotion-delivering-{}",
         std::process::id()
     ));
@@ -193,8 +193,7 @@ fn persisted_delivering_reopens_only_for_the_exact_ack_claim() {
 
 #[test]
 fn durable_store_converges_after_each_threshold_crash_boundary() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-promotion-crash-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("gocode-promotion-crash-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut memory, id, payloads) = signing_support::signing_authorized();
     let bundle = signing_support::leased_bundle(&mut memory, &id, &payloads);
@@ -251,8 +250,8 @@ fn durable_store_converges_after_each_threshold_crash_boundary() {
 
 #[test]
 fn durable_snapshot_digest_excludes_lf_and_chains_after_reopen() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-promotion-snapshot-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-promotion-snapshot-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut memory, id, payloads) = signing_support::signing_authorized();
     let bundle = signing_support::leased_bundle(&mut memory, &id, &payloads);

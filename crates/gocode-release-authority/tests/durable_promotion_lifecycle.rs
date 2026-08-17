@@ -51,8 +51,8 @@ impl ThresholdVerificationContext for Remote {
 
 #[test]
 fn global_durable_authority_reopens_before_fixture_publication_attempt() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-promotion-lifecycle-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-promotion-lifecycle-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut memory, id, payloads) = signing_support::signing_authorized();
     let binding = ThresholdFixtureStoreBinding::new(

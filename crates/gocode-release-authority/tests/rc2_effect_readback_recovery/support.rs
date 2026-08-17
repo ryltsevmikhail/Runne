@@ -123,8 +123,8 @@ fn binding() -> ThresholdFixtureStoreBinding {
     .unwrap()
 }
 pub fn path(name: &str) -> std::path::PathBuf {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-rc2-readback-{name}-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-rc2-readback-{name}-{}", std::process::id()));
     cleanup(&path);
     path
 }

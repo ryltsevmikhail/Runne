@@ -180,13 +180,13 @@ fn state() -> ThresholdVerificationState {
     }
 }
 fn promotion_path(case: &str) -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-promotion-boundary-{case}-{}",
         std::process::id()
     ))
 }
 fn threshold_path(case: &str) -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-threshold-boundary-{case}-{}",
         std::process::id()
     ))

@@ -17,8 +17,7 @@ mod verified_stage_support;
 
 #[test]
 fn durable_legacy_rc3_ingress_is_superseded_without_file_mutation() {
-    let path =
-        std::path::Path::new("/dev/shm").join(format!("gocode-rc3-v2-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("gocode-rc3-v2-{}", std::process::id()));
     cleanup(&path);
     let (memory, promotion, payloads) = signing_support::qualified_unsigned_with("legacy-ingress");
     let mut store =

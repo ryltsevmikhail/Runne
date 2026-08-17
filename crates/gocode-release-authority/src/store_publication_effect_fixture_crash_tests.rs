@@ -15,7 +15,7 @@ const CONTEXT: PublicationEffectContext = PublicationEffectContext {
 };
 
 fn path(name: &str) -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-authority-publication-cut-{name}-{}",
         std::process::id()
     ))
