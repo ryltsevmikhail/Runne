@@ -25,13 +25,20 @@ const V3_SCHEMA_PATH: &str = "../../docs/schemas/opencode-baseline-inventory-v3.
 
 #[test]
 fn test_inventory_completeness() {
-    // All 5 baseline routes must be present
+    // Baseline session routes plus Phase 8 event/permission mappings must be
+    // explicitly inventoried (even when classified unsupported).
     let routes = vec![
         ("POST", "/session"),
         ("POST", "/session/:sessionID/message"),
         ("POST", "/session/:sessionID/prompt_async"),
         ("GET", "/session/status"),
         ("POST", "/session/:sessionID/abort"),
+        ("GET", "/session/:sessionID/events"),
+        ("POST", "/session/:sessionID/permission"),
+        (
+            "POST",
+            "/session/:sessionID/permission/:permissionID/respond",
+        ),
     ];
     for (method, path) in routes {
         let sel = OperationSelector {
