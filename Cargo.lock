@@ -2295,6 +2295,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "gocode-sandbox-helper"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "gocode-secure-store"
 version = "0.1.0"
 dependencies = [
