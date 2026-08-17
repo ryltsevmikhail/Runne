@@ -7,34 +7,40 @@
 
 #![allow(unsafe_code)]
 
-use std::env;
-use std::ffi::{CStr, CString};
 use std::process::ExitCode;
 
-unsafe extern "C" {
-    /// Applies a Seatbelt profile to the current process.
-    fn sandbox_init(
-        profile: *const libc::c_char,
-        flags: u64,
-        errorbuf: *mut *mut libc::c_char,
-    ) -> libc::c_int;
-}
-
-/// Exit codes used by the helper to report results to the parent.
-#[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-enum HelperExit {
-    /// Sandbox applied and target file access was denied as expected.
-    DenyWorked = 0,
-    /// Missing arguments or invalid usage.
-    BadUsage = 1,
-    /// `sandbox_init` failed.
-    SandboxInitFailed = 2,
-    /// The sandbox did not deny access to `/etc/passwd`.
-    DenyFailed = 3,
-}
-
+#[cfg(target_os = "macos")]
 fn main() -> ExitCode {
+    run_macos_main()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn main() -> ExitCode {
+    // The helper is macOS-only. On other platforms we compile a stub so the
+    // workspace builds on Linux/Windows CI, but the binary is a no-op.
+    eprintln!("gocode-sandbox-helper: macOS-only binary");
+    ExitCode::from(1)
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_main() -> ExitCode {
+    use std::env;
+
+    /// Exit codes used by the helper to report results to the parent.
+    #[derive(Clone, Copy, Debug)]
+    #[repr(u8)]
+    #[allow(dead_code)]
+    enum HelperExit {
+        /// Sandbox applied and target file access was denied as expected.
+        DenyWorked = 0,
+        /// Missing arguments or invalid usage.
+        BadUsage = 1,
+        /// `sandbox_init` failed.
+        SandboxInitFailed = 2,
+        /// The sandbox did not deny access to `/etc/passwd`.
+        DenyFailed = 3,
+    }
+
     // For the spike we do not exec a real tool. Instead we verify that the
     // sandbox denies read access to `/etc/passwd`.
     let args: Vec<String> = env::args().collect();
@@ -53,7 +59,32 @@ fn main() -> ExitCode {
     ExitCode::from(HelperExit::BadUsage as u8)
 }
 
+#[cfg(target_os = "macos")]
 fn run_self_test() -> ExitCode {
+    use std::ffi::{CStr, CString};
+
+    unsafe extern "C" {
+        /// Applies a Seatbelt profile to the current process.
+        fn sandbox_init(
+            profile: *const libc::c_char,
+            flags: u64,
+            errorbuf: *mut *mut libc::c_char,
+        ) -> libc::c_int;
+    }
+
+    /// Exit codes used by the helper to report results to the parent.
+    #[derive(Clone, Copy, Debug)]
+    #[repr(u8)]
+    #[allow(dead_code)]
+    enum HelperExit {
+        /// Sandbox applied and target file access was denied as expected.
+        DenyWorked = 0,
+        /// `sandbox_init` failed.
+        SandboxInitFailed = 2,
+        /// The sandbox did not deny access to `/etc/passwd`.
+        DenyFailed = 3,
+    }
+
     // Minimal profile that denies read access to `/etc/passwd`. This proves the
     // sandbox is active after explicit sandbox_init.
     let profile = CString::new("(version 1)\n(debug deny)\n(deny file-read*)\n")
