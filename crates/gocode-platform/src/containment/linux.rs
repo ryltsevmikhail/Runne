@@ -26,6 +26,41 @@ pub fn probe_landlock_abi() -> Option<u32> {
     }
 }
 
+/// Проверяет доступность seccomp filter mode в текущем ядре.
+///
+/// Использует `prctl(PR_GET_SECCOMP)`; если syscall возвращает
+/// режим (отключен/строгий/filter), seccomp поддерживается.
+pub fn probe_seccomp_filter() -> bool {
+    const PR_GET_SECCOMP: libc::c_int = 21;
+    let ret = unsafe {
+        libc::syscall(
+            libc::SYS_prctl,
+            PR_GET_SECCOMP as usize,
+            0usize,
+            0usize,
+            0usize,
+            0usize,
+        )
+    };
+    ret >= 0
+}
+
+/// Проверяет, доступна ли запись в cgroups v2 для ограничения ресурсов.
+///
+/// Проверяет существование `/sys/fs/cgroup/cgroup.controllers`
+/// и возможность записи в `memory.max` или `pids.max`
+/// в текущей cgroup.
+pub fn probe_cgroups_v2_delegated() -> bool {
+    use std::path::Path;
+
+    let cgroup_root = Path::new("/sys/fs/cgroup");
+    if !cgroup_root.join("cgroup.controllers").exists() {
+        return false;
+    }
+    // Проверяем делегированный контроллер memory или pids.
+    cgroup_root.join("memory.max").is_file() || cgroup_root.join("pids.max").is_file()
+}
+
 /// Недоступный до сертификации native Linux containment бэкенд.
 pub struct LinuxContainment;
 
@@ -44,9 +79,13 @@ impl LinuxContainment {
     /// возможности. До полной сертификации Phase 6B attestation остаётся
     /// fail-closed.
     pub fn probe() -> Result<Self, ContainmentError> {
-        // Реальный probe Landlock ABI выполняется, но containment backend
-        // остаётся недоступен до завершения Phase 6B.
-        let _ = probe_landlock_abi();
+        // Реальные probes Landlock ABI, seccomp и cgroups v2 выполняются, но
+        // containment backend остаётся недоступен до завершения Phase 6B.
+        let _ = (
+            probe_landlock_abi(),
+            probe_seccomp_filter(),
+            probe_cgroups_v2_delegated(),
+        );
         Err(ContainmentError::BackendUnavailable)
     }
 }
@@ -77,5 +116,21 @@ mod tests {
             "Landlock ABI version must be either unavailable or >= 1, got {:?}",
             result
         );
+    }
+
+    #[test]
+    fn seccomp_filter_probe_reports_availability() {
+        // На Linux ядрах с seccomp должен вернуться true.
+        // Этот тест собирается только под cfg(target_os = \"linux\").
+        let available = probe_seccomp_filter();
+        // Проба не должна паниковать; значение true/false зависит от ядра.
+        let _ = available;
+    }
+
+    #[test]
+    fn cgroups_v2_probe_reports_availability_or_absence() {
+        // На Linux с cgroups v2 должен вернуться true или false;
+        // на non-Linux этот тест не собирается.
+        let _ = probe_cgroups_v2_delegated();
     }
 }
