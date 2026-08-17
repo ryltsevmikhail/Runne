@@ -224,5 +224,6 @@ fn current_platform_admission(
 
     match verdict {
         AttestationVerdict::Unavailable => Err(ContainmentError::BackendUnavailable),
+        AttestationVerdict::Permit => Ok(()),
     }
 }

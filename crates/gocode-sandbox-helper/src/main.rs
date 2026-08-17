@@ -28,7 +28,7 @@ enum HelperExit {
     DenyWorked = 0,
     /// Missing arguments or invalid usage.
     BadUsage = 1,
-    /// sandbox_init failed.
+    /// `sandbox_init` failed.
     SandboxInitFailed = 2,
     /// The sandbox did not deny access to `/etc/passwd`.
     DenyFailed = 3,
@@ -60,7 +60,7 @@ fn run_self_test() -> ExitCode {
         .expect("profile contains no interior nul bytes");
 
     let mut errmsg: *mut libc::c_char = std::ptr::null_mut();
-    let ret = unsafe { sandbox_init(profile.as_ptr(), 0, &mut errmsg) };
+    let ret = unsafe { sandbox_init(profile.as_ptr(), 0, std::ptr::addr_of_mut!(errmsg)) };
     if ret != 0 {
         if !errmsg.is_null() {
             let c_str = unsafe { CStr::from_ptr(errmsg) };
