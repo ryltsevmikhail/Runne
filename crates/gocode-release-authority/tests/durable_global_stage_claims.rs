@@ -17,8 +17,8 @@ mod verified_stage_support;
 
 #[test]
 fn raw_stage_nonce_cannot_cross_promotion_records_after_reopen() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-global-stage-claims-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-global-stage-claims-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(path.with_extension("lease"));
     let (one, first, payloads) = signing_support::rc1_review_with("first");
@@ -51,8 +51,8 @@ fn raw_stage_nonce_cannot_cross_promotion_records_after_reopen() {
 
 #[test]
 fn global_ledger_rejects_second_live_owner_and_tampering_after_crash() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-global-stage-tamper-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-global-stage-tamper-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(path.with_extension("lease"));
     let (store, _, _) = signing_support::qualified_unsigned_with("tamper");

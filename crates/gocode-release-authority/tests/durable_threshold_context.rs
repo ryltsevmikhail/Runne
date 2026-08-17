@@ -9,8 +9,8 @@ use std::fs;
 
 #[test]
 fn durable_threshold_context_reopens_the_exact_canonical_state() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-threshold-context-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-threshold-context-{}", std::process::id()));
     let _ = fs::remove_file(&path);
     let state = fixture_state();
     let binding =

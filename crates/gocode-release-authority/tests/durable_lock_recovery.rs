@@ -10,8 +10,7 @@ use std::time::Duration;
 
 #[test]
 fn durable_threshold_context_rejects_a_second_live_path_owner() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-threshold-lock-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("gocode-threshold-lock-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let binding =
         ThresholdFixtureStoreBinding::new(Digest::fixture([7; 32]), "fixture-v1", 1).unwrap();
@@ -33,7 +32,7 @@ fn killed_threshold_owner_releases_the_os_lock() {
             std::thread::sleep(Duration::from_secs(1));
         }
     }
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-threshold-killed-lock-{}",
         std::process::id()
     ));

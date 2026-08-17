@@ -18,8 +18,8 @@ mod verified_stage_support;
 
 #[test]
 fn reopen_rejects_self_consistent_snapshot_field_substitutions() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-snapshot-validation-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-snapshot-validation-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (memory, id, _) = signing_support::signing_authorized();
     let binding = ThresholdFixtureStoreBinding::new(
@@ -80,8 +80,7 @@ fn source(
     memory: &gocode_release_authority::InMemoryPromotionStore,
     id: &gocode_release_authority::PromotionId,
 ) -> Vec<u8> {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-snapshot-source-{}", std::process::id()));
+    let path = std::env::temp_dir().join(format!("gocode-snapshot-source-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let store =
         DurableFixturePromotionStore::create_from_in_memory(&path, binding.clone(), memory, id)

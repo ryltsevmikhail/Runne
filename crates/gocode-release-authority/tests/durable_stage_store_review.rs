@@ -277,7 +277,7 @@ fn binding() -> ThresholdFixtureStoreBinding {
 }
 
 fn path(case: &str) -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-durable-stage-review-{case}-{}",
         std::process::id()
     ))

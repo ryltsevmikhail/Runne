@@ -52,8 +52,8 @@ impl ThresholdVerificationContext for Remote {
 
 #[test]
 fn completed_stage_commands_require_exact_durable_claims_after_reopen() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-stage-claim-replay-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-stage-claim-replay-{}", std::process::id()));
     cleanup(&path);
     let (mut memory, id, payloads) = signing_support::signing_authorized();
     let binding = binding();
@@ -213,7 +213,7 @@ fn binding() -> ThresholdFixtureStoreBinding {
 }
 
 fn path() -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-stage-claim-bijection-{}",
         std::process::id()
     ))

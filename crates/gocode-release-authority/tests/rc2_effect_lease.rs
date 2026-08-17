@@ -52,8 +52,8 @@ fn store_only_leased_raw_effect_native_and_bundle_consumes_all_three_claims() {
 
 #[test]
 fn global_durable_authority_reopens_exact_reservation_before_dispatch() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-global-rc2-effect-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-global-rc2-effect-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (memory, id, _) = signing_support::signing_authorized();
     let binding = ThresholdFixtureStoreBinding::new(
@@ -80,8 +80,8 @@ fn global_durable_authority_reopens_exact_reservation_before_dispatch() {
 
 #[test]
 fn bundled_effect_namespace_remains_consumed_after_durable_reopen() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-global-rc2-consumed-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-global-rc2-consumed-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut consumed, consumed_id, consumed_payloads) = signing_support::signing_authorized();
     let _bundle = signing_support::leased_bundle(&mut consumed, &consumed_id, &consumed_payloads);
@@ -106,8 +106,8 @@ fn bundled_effect_namespace_remains_consumed_after_durable_reopen() {
 
 #[test]
 fn durable_authority_keeps_claimed_effect_ledger_from_one_source() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-global-rc2-claimed-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-global-rc2-claimed-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut source, id, _) = signing_support::signing_authorized();
     source.reserve_rc2_signing_effects(&id, 4).unwrap();
@@ -133,8 +133,8 @@ fn durable_authority_keeps_claimed_effect_ledger_from_one_source() {
 
 #[test]
 fn durable_authority_keeps_claimed_effect_ledger_when_merging_sources() {
-    let path = std::path::Path::new("/dev/shm")
-        .join(format!("gocode-global-rc2-merged-{}", std::process::id()));
+    let path =
+        std::env::temp_dir().join(format!("gocode-global-rc2-merged-{}", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let (mut claimed, id, _) = signing_support::signing_authorized_with("claimed");
     let (other, _, _) = signing_support::rc1_review_with("other");
@@ -162,7 +162,7 @@ fn durable_authority_keeps_claimed_effect_ledger_when_merging_sources() {
 #[test]
 #[allow(clippy::too_many_lines)] // Crash/reopen assertions intentionally share one exact ledger.
 fn durable_raw_effect_and_native_replay_after_reopen_is_idempotent() {
-    let path = std::path::Path::new("/dev/shm").join(format!(
+    let path = std::env::temp_dir().join(format!(
         "gocode-global-rc2-raw-replay-{}",
         std::process::id()
     ));

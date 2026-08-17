@@ -16,7 +16,7 @@ mod support;
 mod verified_stage_support;
 
 fn path(name: &str) -> std::path::PathBuf {
-    std::path::Path::new("/dev/shm").join(format!(
+    std::env::temp_dir().join(format!(
         "gocode-publication-anchor-{name}-{}",
         std::process::id()
     ))
