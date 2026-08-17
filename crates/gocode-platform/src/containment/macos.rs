@@ -69,7 +69,36 @@ impl MacOsContainment {
 
 #[cfg(test)]
 mod tests {
+    use std::process::Command;
+
     use super::*;
+
+    /// Возвращает путь к собранному `gocode-sandbox-helper` binary.
+    fn helper_binary_path() -> std::path::PathBuf {
+        // Тест запускается из `crates/gocode-platform`, поэтому workspace target
+        // находится в `../../target/debug`.
+        std::env::current_dir()
+            .expect("current dir")
+            .join("../../target/debug/gocode-sandbox-helper")
+    }
+
+    fn build_and_sign_helper() {
+        let status = Command::new("cargo")
+            .args(["build", "-p", "gocode-sandbox-helper"])
+            .status()
+            .expect("spawn cargo build");
+        assert!(status.success(), "cargo build gocode-sandbox-helper failed");
+
+        // Ad-hoc sign the helper. The entitlements file in the helper crate is
+        // provided for production Developer ID signing; the spike uses explicit
+        // sandbox_init and therefore signs without the app-sandbox entitlement.
+        let helper = helper_binary_path();
+        let status = Command::new("codesign")
+            .args(["--sign", "-", "--force", helper.to_str().unwrap()])
+            .status()
+            .expect("spawn codesign");
+        assert!(status.success(), "codesign failed");
+    }
 
     #[test]
     fn sandbox_api_probe_reports_availability() {
@@ -79,6 +108,23 @@ mod tests {
         assert!(
             available,
             "sandbox API should be available on macOS; ad-hoc/test mode only"
+        );
+    }
+
+    #[test]
+    fn sandboxed_helper_denies_etc_passwd() {
+        // Собираем и ad-hoc подписываем helper, затем запускаем
+        // --self-test. В production-режиме подпись должна
+        // использовать Developer ID.
+        build_and_sign_helper();
+
+        let status = Command::new(helper_binary_path())
+            .arg("--self-test")
+            .status()
+            .expect("spawn helper");
+        assert!(
+            status.success(),
+            "sandboxed helper self-test should deny /etc/passwd"
         );
     }
 }
