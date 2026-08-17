@@ -203,11 +203,12 @@ class NativePlatformFoundationTests(unittest.TestCase):
 
 
 ROOT_STATUS = EVIDENCE_PATH.parents[0] / "desktop-v1-capability-status-v2.json"
+DISABLED_NATIVE_WORKFLOW = EVIDENCE_PATH.parents[2] / ".github/workflows.disabled/desktop-native-qualification.yml"
 
 
 class NativeQualificationWorkflowTests(unittest.TestCase):
     def test_native_workflow_installs_dependencies_and_runs_protected_process_gate(self) -> None:
-        workflow = (EVIDENCE_PATH.parents[2] / ".github/workflows/desktop-native-qualification.yml").read_text(encoding="utf-8")
+        workflow = DISABLED_NATIVE_WORKFLOW.read_text(encoding="utf-8")
         command = "cargo test -p gocode-daemon --test protected_bundled_runtime_process --locked --features test-support,desktop-protected"
         self.assertIn("pnpm install --frozen-lockfile", workflow)
         self.assertIn(command, workflow)
@@ -220,7 +221,7 @@ class NativeQualificationWorkflowTests(unittest.TestCase):
         self.assertIn("windows-10-22h2-x86_64", workflow)
 
     def test_native_workflow_binds_protected_source_and_verified_attestation_output(self) -> None:
-        workflow = (EVIDENCE_PATH.parents[2] / ".github/workflows/desktop-native-qualification.yml").read_text(encoding="utf-8")
+        workflow = DISABLED_NATIVE_WORKFLOW.read_text(encoding="utf-8")
         for required in ('INPUT_SOURCE_REF: ${{ inputs.source_ref }}', 'test "$INPUT_SOURCE_REF" = "$GITHUB_SHA"', 'ref: "${{ github.sha }}"', "persist-credentials: false", "GOCODE_NATIVE_PROVENANCE_ISSUER", "--bundle", "native-package-verified-attestation.json"):
             self.assertIn(required, workflow)
         self.assertNotIn("--native-secure-store-probe", workflow)
@@ -232,7 +233,7 @@ class NativeQualificationWorkflowTests(unittest.TestCase):
             self.assertIn(required, workflow)
 
     def test_native_workflow_never_interpolates_dispatch_inputs_in_shell(self) -> None:
-        workflow = (EVIDENCE_PATH.parents[2] / ".github/workflows/desktop-native-qualification.yml").read_text(encoding="utf-8")
+        workflow = DISABLED_NATIVE_WORKFLOW.read_text(encoding="utf-8")
         lines = workflow.splitlines()
         run_bodies = []
         for index, line in enumerate(lines):
