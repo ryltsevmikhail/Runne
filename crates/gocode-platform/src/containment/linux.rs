@@ -26,6 +26,29 @@ pub fn probe_landlock_abi() -> Option<u32> {
     }
 }
 
+/// Создаёт Landlock ruleset с заданными handled_access_fs правами.
+///
+/// Это реальный OS probe: если ruleset создаётся,
+/// ядро поддерживает Landlock с указанными правами.
+/// Функция не вызывает `restrict_self` — она только проверяет,
+/// что syscalls работают.
+pub fn create_landlock_ruleset(handled_access_fs: u64) -> Result<libc::c_int, ContainmentError> {
+    // landlock_ruleset_attr: { handled_access_fs: u64 }
+    let attr = handled_access_fs;
+    let fd = unsafe {
+        libc::syscall(
+            libc::SYS_landlock_create_ruleset,
+            &attr as *const u64 as usize,
+            std::mem::size_of::<u64>(),
+            0u32,
+        )
+    };
+    if fd < 0 {
+        return Err(ContainmentError::BackendUnavailable);
+    }
+    Ok(fd as libc::c_int)
+}
+
 /// Проверяет доступность seccomp filter mode в текущем ядре.
 ///
 /// Использует `prctl(PR_GET_SECCOMP)`; если syscall возвращает
@@ -132,5 +155,20 @@ mod tests {
         // На Linux с cgroups v2 должен вернуться true или false;
         // на non-Linux этот тест не собирается.
         let _ = probe_cgroups_v2_delegated();
+    }
+
+    #[test]
+    fn landlock_ruleset_can_be_created_with_abi_v1_rights() {
+        // Проверяем, что ядро позволяет создать ruleset с
+        // базовыми filesystem access rights ABI v1.
+        const ACCESS_FS_READ_FILE: u64 = 1 << 2;
+        const ACCESS_FS_READ_DIR: u64 = 1 << 3;
+        match create_landlock_ruleset(ACCESS_FS_READ_FILE | ACCESS_FS_READ_DIR) {
+            Ok(fd) => unsafe { libc::close(fd) },
+            Err(ContainmentError::BackendUnavailable) => {
+                // Landlock не доступен — это допустимо для старых ядер.
+            }
+            Err(other) => panic!("unexpected error: {other}"),
+        }
     }
 }
