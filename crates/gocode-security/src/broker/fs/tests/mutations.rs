@@ -170,9 +170,9 @@ fn write_created_writes_only_the_fd_bound_created_file() {
         b"original",
     )
     .unwrap();
-    let created = broker
-        .create(&root, &CanonicalPath::new("created.txt").unwrap())
-        .unwrap();
+    let Some(created) = create_or_skip_unsupported_tmpfile(&broker, &root, "created.txt") else {
+        return;
+    };
 
     let result = broker.write_created(created, b"replacement");
 
@@ -193,9 +193,9 @@ fn write_created_rejects_a_handle_from_another_broker_without_partial_mutation()
     let broker = test_broker();
     let root = broker.open_root("ws1").unwrap();
     let workspace_root = broker.find_root("ws1").unwrap();
-    let created = broker
-        .create(&root, &CanonicalPath::new("created.txt").unwrap())
-        .unwrap();
+    let Some(created) = create_or_skip_unsupported_tmpfile(&broker, &root, "created.txt") else {
+        return;
+    };
 
     let other_broker = FilesystemBroker::new(vec![WorkspaceRoot {
         root_id: "ws1".into(),

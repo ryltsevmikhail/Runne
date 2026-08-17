@@ -17,9 +17,9 @@ fn created_stage_cannot_be_substituted_before_publication() {
     let root = broker.open_root("ws1").unwrap();
     let workspace_root = broker.find_root("ws1").unwrap();
     let final_path = workspace_root.canonical_path.join("created.txt");
-    let created = broker
-        .create(&root, &CanonicalPath::new("created.txt").unwrap())
-        .unwrap();
+    let Some(created) = create_or_skip_unsupported_tmpfile(&broker, &root, "created.txt") else {
+        return;
+    };
     if let Some(stage) = directory_entry_names(&workspace_root.canonical_path)
         .into_iter()
         .find(|entry| entry.starts_with(".gocode-fs-"))
@@ -46,9 +46,9 @@ fn created_write_failure_never_publishes_the_final_name() {
     let root = broker.open_root("ws1").unwrap();
     let workspace_root = broker.find_root("ws1").unwrap();
     let final_path = workspace_root.canonical_path.join("created.txt");
-    let created = broker
-        .create(&root, &CanonicalPath::new("created.txt").unwrap())
-        .unwrap();
+    let Some(created) = create_or_skip_unsupported_tmpfile(&broker, &root, "created.txt") else {
+        return;
+    };
     assert!(!final_path.exists());
     crate::broker::fs_unix::fail_next_commit_for_test();
 
