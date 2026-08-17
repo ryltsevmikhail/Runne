@@ -132,25 +132,23 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         self.assertFalse(has_raw_sha256(PROFILE.read_bytes(), "sha256:" + "0" * 64 + "\n"))
         self.assertEqual(PROFILE_DIGEST.read_text(encoding="utf-8").strip().split(":", 1)[1], hashlib.sha256(PROFILE.read_bytes()).hexdigest())
 
-    def test_docs_entrypoint_rejects_invalid_capability_manifest(self) -> None:
+    def test_capability_manifest_entrypoint_rejects_invalid_manifest(self) -> None:
         with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers") as directory:
-            root = Path(directory)
-            docs = root / "docs"
+            root = Path(directory); docs = root / "docs"
             docs.mkdir()
             (docs / "desktop").symlink_to(ROOT / "docs/desktop", target_is_directory=True)
-            (docs / "profiles").mkdir()
-            (docs / "evidence").mkdir()
+            (docs / "profiles").mkdir(); (docs / "evidence").mkdir()
             shutil.copy2(PROFILE, docs / "profiles" / PROFILE.name)
             shutil.copy2(STATUS, docs / "evidence" / STATUS.name)
             (docs / "profiles" / PROFILE_DIGEST.name).write_text("sha256:" + "0" * 64 + "\n", encoding="utf-8")
             for name in ("contracts", "upstream"):
                 (root / name).symlink_to(ROOT / name, target_is_directory=True)
-            validator = root / "scripts/desktop/validate-docs.py"
-            validator.parent.mkdir(parents=True)
-            shutil.copy2(ROOT / "scripts/desktop/validate-docs.py", validator)
-            (validator.parent / "capability_manifest_impl").symlink_to(ROOT / "scripts/desktop/capability_manifest_impl", target_is_directory=True)
+            entrypoint = root / "scripts/desktop/capability_manifest.py"
+            entrypoint.parent.mkdir(parents=True)
+            shutil.copy2(ROOT / "scripts/desktop/capability_manifest.py", entrypoint)
+            (entrypoint.parent / "capability_manifest_impl").symlink_to(ROOT / "scripts/desktop/capability_manifest_impl", target_is_directory=True)
 
-            result = subprocess.run((sys.executable, str(validator), "--strict"), cwd=root, capture_output=True, text=True)
+            result = subprocess.run((sys.executable, str(entrypoint), "validate"), cwd=root, capture_output=True, text=True)
 
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("DEFINITION_RAW_DIGEST_MISMATCH", result.stdout)
@@ -277,9 +275,11 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output): self.assertEqual(main(["validate", "--source-ref", "does-not-exist"]), 1)
         self.assertIn("REPOSITORY_READ_ERROR", output.getvalue())
-        output = io.StringIO()
-        with redirect_stdout(output): self.assertEqual(main(["score", "--status", str(STATUS), "--status-provenance", str(ROOT / "missing-bundle"), "--source-ref", "0d095d26", "--verify-provenance", "--format", "json"]), 1)
-        self.assertIn("SOURCE_CONTENT_DIGEST_MISMATCH", output.getvalue())
+        with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers") as directory:
+            bad_status = Path(directory) / "status.json"; value = status(); value["canonical_source_content_sha256"] = "0" * 64
+            bad_status.write_text(json.dumps(value), encoding="utf-8"); output = io.StringIO()
+            with redirect_stdout(output): self.assertEqual(main(["score", "--status", str(bad_status), "--source-ref", "HEAD", "--format", "json"]), 1)
+            self.assertIn("SOURCE_CONTENT_DIGEST_MISMATCH", output.getvalue())
 
     def test_current_wave_defaults_to_v2_status_and_contract_bundle(self) -> None:
         from scripts.desktop import capability_manifest as manifest
