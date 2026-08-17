@@ -19,6 +19,7 @@ enum CliError {
     CredentialOperation,
     UnsupportedCredentialBackend,
     HealthNonHealthy(String),
+    DoctorNonHealthy(String),
     AuthorityUsage,
     #[cfg(not(target_os = "macos"))]
     AuthorityUnsupportedPlatform,
@@ -67,7 +68,9 @@ impl CliError {
             Self::Usage | Self::AuthorityUsage => Some(ErrorCode::InvalidArguments),
             Self::Profile => Some(ErrorCode::ProfileUnavailable),
             Self::ProfileIncompatible => Some(ErrorCode::ProfileIncompatible),
-            Self::Runtime | Self::HealthNonHealthy(_) => Some(ErrorCode::RuntimeUnavailable),
+            Self::Runtime | Self::HealthNonHealthy(_) | Self::DoctorNonHealthy(_) => {
+                Some(ErrorCode::RuntimeUnavailable)
+            }
             Self::CredentialInput => Some(ErrorCode::CredentialInputInvalid),
             Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
@@ -99,6 +102,7 @@ impl fmt::Display for CliError {
                 formatter.write_str("provider credential backend is unsupported")
             }
             Self::HealthNonHealthy(_) => formatter.write_str("runtime health check failed"),
+            Self::DoctorNonHealthy(_) => formatter.write_str("diagnostics found failing checks"),
             Self::AuthorityUsage => formatter.write_str("USAGE"),
             #[cfg(not(target_os = "macos"))]
             Self::AuthorityUnsupportedPlatform => formatter.write_str("UNSUPPORTED_PLATFORM"),

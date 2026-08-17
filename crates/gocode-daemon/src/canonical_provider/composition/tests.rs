@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use gocode_api::CreateConversationInput;
 use gocode_api::{
@@ -25,10 +24,7 @@ use gocode_domain::{
     message::MessageText,
 };
 use gocode_runtime::provider_execution::ProviderTerminalPersistence;
-use gocode_secure_store::{
-    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
-    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
-};
+use gocode_secure_store::ProviderJournalKeyring;
 use gocode_security::SecretBroker;
 use gocode_store::store::StoreTransaction;
 
@@ -42,9 +38,11 @@ use crate::provider_activation::ProviderActivation;
 
 mod managed_connection;
 mod pending;
+mod provider_fixture;
 mod recovery_audit;
 mod workspace;
 use managed_connection::managed_test_connection;
+use provider_fixture::{Keyring, fixture_adapter_factory, openai_profile};
 use workspace::seed_canonical_workspace;
 
 struct FixedClock;
@@ -52,59 +50,6 @@ struct FixedClock;
 impl Clock for FixedClock {
     fn now(&self) -> Result<Timestamp, ClockError> {
         Ok(Timestamp::from_unix_micros(1_000_000))
-    }
-}
-
-#[derive(Default)]
-struct Keyring(Mutex<HashMap<ProviderJournalKeyRef, [u8; 32]>>);
-
-impl ProviderJournalKeyring for Keyring {
-    fn retains_multiple_provider_journal_keys(&self) -> bool {
-        true
-    }
-
-    fn provider_journal_key_status(
-        &self,
-        key: ProviderJournalKeyRef,
-    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
-        Ok(if self.0.lock().unwrap().contains_key(&key) {
-            ProviderJournalKeyStatus::Available
-        } else {
-            ProviderJournalKeyStatus::Missing
-        })
-    }
-
-    fn store_provider_journal_key(
-        &self,
-        key: &ProviderJournalKeyMaterial,
-    ) -> Result<(), SecureStoreError> {
-        self.0
-            .lock()
-            .unwrap()
-            .insert(key.key_ref(), key.with_bytes(|bytes| *bytes));
-        Ok(())
-    }
-
-    fn load_provider_journal_key(
-        &self,
-        key: ProviderJournalKeyRef,
-    ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
-        let bytes = self
-            .0
-            .lock()
-            .unwrap()
-            .get(&key)
-            .copied()
-            .ok_or(SecureStoreError::ProviderJournalKeyNotFound)?;
-        ProviderJournalKeyMaterial::new(key, bytes)
-    }
-
-    fn delete_provider_journal_key(
-        &self,
-        _: ProviderJournalKeyRef,
-        _: ProviderJournalKeyDeletionProof,
-    ) -> Result<(), SecureStoreError> {
-        Err(SecureStoreError::DeletionDenied)
     }
 }
 
@@ -198,12 +143,13 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     let effect = gocode_daemon_openai_effect::effect_from_loopback_fixture(reqwest::Client::new())
         .unwrap()
         .0;
+    let effect = crate::canonical_provider::openai_effect_adapter(effect);
     let decorator = Arc::new(|store: Arc<SqliteProviderExecutionStore>, _: u64| {
         let execution: Arc<dyn ProviderExecutionStore> = store.clone();
         let terminal: Arc<dyn ProviderTerminalPersistence> = store;
         (execution, terminal)
     });
-    let service = DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
+    let service = DaemonCanonicalProviderService::compose(DaemonCanonicalProviderComposition {
         db_path: db_path.clone(),
         dispatch_connection: managed_test_connection(
             &db_path,
@@ -230,6 +176,13 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         conversation_store: store,
         conversation_service,
         prohibited_content: prohibited,
+        profile: openai_profile(),
+        adapter_factory: fixture_adapter_factory(),
+        provider_id: "openai",
+        model_id: gocode_provider_openai::OPENAI_MODEL_ID,
+        model_revision: gocode_provider_openai::OPENAI_MODEL_REVISION,
+        scope: "provider.openai.responses.text",
+        credential_id: ProviderCredentialId::OpenAi,
         dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
             effect,
             keyring,

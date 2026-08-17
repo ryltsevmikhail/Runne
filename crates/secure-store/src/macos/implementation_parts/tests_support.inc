@@ -1,5 +1,5 @@
     use super::*;
-    use std::io::{BufReader, Write as _};
+    use std::io::Write as _;
     use std::os::unix::fs::PermissionsExt as _;
     use std::path::{Path, PathBuf};
 
@@ -120,19 +120,18 @@
         )
     }
 
-    fn read_child_marker(reader: &mut impl std::io::BufRead, marker: &str) -> std::io::Result<()> {
-        loop {
-            let mut line = String::new();
-            if reader.read_line(&mut line)? == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    format!("child exited before {marker}"),
-                ));
-            }
-            if line.trim() == marker {
+    fn wait_for_marker_file(path: &Path, timeout: std::time::Duration) -> std::io::Result<()> {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if path.exists() {
                 return Ok(());
             }
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            format!("timed out waiting for {}", path.display()),
+        ))
     }
 
     fn seed_incomplete_provider_item(

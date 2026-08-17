@@ -1754,6 +1754,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "dirs",
  "ed25519-dalek",
  "gocode-daemon",
  "gocode-project-owner-authority",
@@ -1767,6 +1768,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "tokio",
+ "toml 0.8.2",
  "zeroize",
 ]
 
@@ -1786,6 +1788,7 @@ dependencies = [
  "gocode-api",
  "gocode-app-core",
  "gocode-application",
+ "gocode-daemon-deepseek-effect",
  "gocode-daemon-openai-effect",
  "gocode-domain",
  "gocode-http",
@@ -1794,6 +1797,7 @@ dependencies = [
  "gocode-platform",
  "gocode-platform-desktop",
  "gocode-provider",
+ "gocode-provider-deepseek",
  "gocode-provider-openai",
  "gocode-runtime",
  "gocode-runtime-client",
@@ -1826,6 +1830,31 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "windows-sys 0.61.2",
+ "zeroize",
+]
+
+[[package]]
+name = "gocode-daemon-deepseek-effect"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "gocode-application",
+ "gocode-domain",
+ "gocode-provider",
+ "gocode-provider-deepseek",
+ "gocode-secure-store",
+ "gocode-store",
+ "h2",
+ "http",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "rustls",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
  "zeroize",
 ]
 
@@ -2138,6 +2167,25 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
+ "zeroize",
+]
+
+[[package]]
+name = "gocode-provider-deepseek"
+version = "0.1.0"
+dependencies = [
+ "gocode-provider",
+ "hex",
+ "jsonschema",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
  "zeroize",
 ]
 

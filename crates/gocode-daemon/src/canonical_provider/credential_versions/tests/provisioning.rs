@@ -111,6 +111,7 @@ fn restart_after_durable_prepare_reuses_exact_prepared_version() {
         connection,
         [0xC1; 16],
         1,
+        ProviderCredentialId::OpenAi,
         true,
         Some(Arc::new(fixture_native)),
     )

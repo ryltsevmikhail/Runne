@@ -227,12 +227,9 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
     assert_eq!(completed.event_sequence, 3);
     assert!(completed.projection_revision > interrupted.projection_revision);
     assert!(completed.generation > interrupted.generation);
-    assert!(
-        daemon_latest_cursor_is_acknowledged_and_closed(
-            &daemon_database,
-            second_identity.generation,
-        ),
-        "snapshot reconciliation must acknowledge then close its replay session"
+    wait_for_daemon_latest_cursor_acknowledged_and_closed(
+        &daemon_database,
+        second_identity.generation,
     );
     drop(reopened);
     second_daemon.stop();

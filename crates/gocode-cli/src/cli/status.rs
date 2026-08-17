@@ -86,7 +86,8 @@ pub async fn run_status_async(profile_path: PathBuf) -> Result<String, StatusErr
         daemon_instance_id: session_info.daemon_instance_id.clone(),
     };
 
-    Ok(format_status(&status))
+    let provider_lines = format_status_lines(&probe_active_provider());
+    Ok(format!("{}\n{provider_lines}", format_status(&status)))
 }
 
 fn format_status(status: &StatusInfo) -> String {

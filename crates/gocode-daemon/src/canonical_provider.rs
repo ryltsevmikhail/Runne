@@ -12,10 +12,9 @@ use gocode_application::provider::{
 use gocode_domain::conversation::ConversationEvent;
 use gocode_provider::{
     ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderId, ProviderInputRole,
-    ProviderStreamEventKind, ProviderTerminalDisposition, ProviderTextInput, ProviderUsage,
-    StreamCursor, WithheldTailStore,
+    ProviderPort, ProviderStreamEventKind, ProviderTerminalDisposition, ProviderTextInput,
+    ProviderUsage, StreamCursor, TextProviderProfile, WithheldTailStore,
 };
-use gocode_provider_openai::{OPENAI_MODEL_ID, OPENAI_MODEL_REVISION, OpenAiResponsesTextProfile};
 use gocode_runtime::canonical_provider_execution::{
     CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
     CanonicalProviderExecutionService,
@@ -29,11 +28,11 @@ use gocode_runtime::provider_redaction::{
 };
 use gocode_secure_store::{
     NativeProviderCredentialStore, NativeWithheldTailStore, ProviderCredentialAccessPolicy,
-    ProviderCredentialStatus, ProviderCredentialStore, ProviderJournalKeyStatus,
-    ProviderJournalKeyring,
+    ProviderCredentialId, ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
 use gocode_store::provider::{
-    ProviderCoordinatorOutcome, ProviderRuntimeAuthorityConfig,
+    ProviderCoordinatorOutcome, ProviderEffectPort, ProviderRuntimeAuthorityConfig,
     SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore, SqliteProviderRecoveryStore,
 };
@@ -47,20 +46,28 @@ mod activation_provenance;
 mod composition;
 mod composition_telemetry;
 mod credential_versions;
+mod effect_adapter;
 mod execution;
 mod loopback_tail;
+mod openai_profile;
 mod projection;
-mod readiness;
+pub(crate) mod readiness;
 mod recovery;
 mod runtime_store;
+mod shared_profile;
 
 use loopback_tail::LoopbackWithheldTailStore;
 
 pub(crate) use activation_provenance::DaemonActivationProvenance;
-pub(crate) use composition::DaemonCanonicalOpenAiComposition;
-pub use composition::{DaemonCanonicalOpenAiService, compose_selected_provider};
+pub(crate) use composition::DaemonCanonicalProviderComposition;
+pub use composition::{DaemonCanonicalProviderService, compose_selected_provider};
+pub(crate) use effect_adapter::{
+    CanonicalProviderEffect, ProviderEffectFactory, deepseek_effect_adapter, openai_effect_adapter,
+};
+pub(crate) use openai_profile::OpenAiTextProviderProfile;
 pub(crate) use readiness::probe_provider_readiness;
-pub use readiness::{OpenAiReadinessError, OpenAiReadinessEvidence};
+pub use readiness::{ProviderReadinessError, ProviderReadinessEvidence};
+pub(crate) use shared_profile::SharedTextProviderProfile;
 
 pub(crate) type RuntimeStoreDecorator = dyn Fn(
         Arc<SqliteProviderExecutionStore>,

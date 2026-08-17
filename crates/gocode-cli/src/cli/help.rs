@@ -117,16 +117,18 @@ Store a provider credential.
 
 Usage:
   gocode provider credential set --provider openai --stdin
+  gocode provider credential set --provider deepseek --stdin
 
 Options:
-  --provider openai   Provider name (currently only 'openai' is supported)
+  --provider <provider>   Provider name: openai or deepseek
   --stdin             Read credential from standard input
 
 The credential is read from stdin as raw bytes. It must not contain
 null bytes, carriage returns, or newlines. Maximum size is 4096 bytes.
 
 Examples:
-  echo -n \"sk-...\" | gocode provider credential set --provider openai --stdin";
+  echo -n \"sk-...\" | gocode provider credential set --provider openai --stdin
+  echo -n \"sk-...\" | gocode provider credential set --provider deepseek --stdin";
 
 /// Help text for `provider credential status`.
 pub const PROVIDER_CREDENTIAL_STATUS_HELP: &str = "\
@@ -134,9 +136,10 @@ Check credential status.
 
 Usage:
   gocode provider credential status --provider openai
+  gocode provider credential status --provider deepseek
 
 Options:
-  --provider openai   Provider name (currently only 'openai' is supported)
+  --provider <provider>   Provider name: openai or deepseek
 
 Output:
   configured    Credential is stored
@@ -144,7 +147,8 @@ Output:
   unsupported   Credential backend is not available
 
 Examples:
-  gocode provider credential status --provider openai";
+  gocode provider credential status --provider openai
+  gocode provider credential status --provider deepseek";
 
 /// Help text for `provider credential delete`.
 pub const PROVIDER_CREDENTIAL_DELETE_HELP: &str = "\
@@ -152,12 +156,14 @@ Delete a stored credential.
 
 Usage:
   gocode provider credential delete --provider openai
+  gocode provider credential delete --provider deepseek
 
 Options:
-  --provider openai   Provider name (currently only 'openai' is supported)
+  --provider <provider>   Provider name: openai or deepseek
 
 Examples:
-  gocode provider credential delete --provider openai";
+  gocode provider credential delete --provider openai
+  gocode provider credential delete --provider deepseek";
 
 /// Help text for the `status` command.
 pub const STATUS_HELP: &str = "\
@@ -171,7 +177,8 @@ Options:
 
 This command verifies the local runtime profile and attempts to connect
 to the runtime daemon. It reports the connection status, principal,
-and generation information.
+generation, the active provider selection, and the active provider's
+credential status. No credential material is printed.
 
 Examples:
   gocode status
@@ -250,7 +257,12 @@ Usage:
 This command performs a complete health check of the GOCODE CLI system:
   - Profile: Checks if the runtime profile exists and is valid
   - Runtime: Verifies connectivity and health status
-  - Credentials: Checks if provider credentials are configured
+  - Active provider: Reports the exact provider selection
+    (deterministic mode or live provider with model/profile)
+  - Credentials: Checks per-provider credential status (openai, deepseek)
+
+No credential material is printed. Diagnostics work without a stored
+credential; provider execution fails closed separately.
 
 Exit codes:
   0  All checks passed

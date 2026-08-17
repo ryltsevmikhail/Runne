@@ -14,6 +14,7 @@ mod prepared;
 mod pricing;
 mod recovery;
 mod stream;
+mod text_profile;
 
 pub use coordination::{
     PreparedProviderRecord, ProviderDispatchClaim, ProviderDispatchRepository,
@@ -58,3 +59,4 @@ pub use stream::{
     ProviderStreamEventKind, ProviderStreamItem, ProviderStreamValidator,
     ProviderTerminalDisposition, ProviderUsage, ProviderUsageError, StreamCursor, StreamError,
 };
+pub use text_profile::TextProviderProfile;

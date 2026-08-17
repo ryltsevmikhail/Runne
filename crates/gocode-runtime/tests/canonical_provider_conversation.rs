@@ -109,10 +109,23 @@ fn available_guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
 }
 
+fn test_database_path(directory: &tempfile::TempDir, name: &str) -> std::path::PathBuf {
+    let runtime = directory.path().join("runtime");
+    let daemon = runtime.join("gocode-daemon");
+    std::fs::create_dir_all(&daemon).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    daemon.join(name)
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn runtime_owns_provider_job_after_local_waiter_is_cancelled_and_drains_on_shutdown() {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("canonical-provider.sqlite");
+    let database = test_database_path(&directory, "canonical-provider.sqlite");
     let authority = RuntimeAuthorityId("canonical-provider-test".into());
     let store = StoreTransaction::open(
         database.to_str().unwrap(),
@@ -163,7 +176,7 @@ async fn runtime_owns_provider_job_after_local_waiter_is_cancelled_and_drains_on
 #[tokio::test(flavor = "current_thread")]
 async fn global_in_flight_limit_is_held_until_provider_job_replies() {
     let directory = tempfile::tempdir().unwrap();
-    let database = directory.path().join("canonical-provider-limit.sqlite");
+    let database = test_database_path(&directory, "canonical-provider-limit.sqlite");
     let authority = RuntimeAuthorityId("canonical-provider-limit-test".into());
     let store = StoreTransaction::open(
         database.to_str().unwrap(),

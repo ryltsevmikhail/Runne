@@ -114,7 +114,7 @@ async fn cancellation_after_possible_bind_send_retains_the_exact_child_for_retry
     prepared
         .commit(
             &reference,
-            VerifiedRootHandle::open(root.path()).expect("root"),
+            crate::directory_selection_test_support::test_root_handle(root.path()),
             test_admission(),
             &mut permit,
             Instant::now(),
@@ -179,7 +179,7 @@ async fn initial_and_retry_are_single_attempt_exact_bindings() {
     prepared
         .commit(
             &reference,
-            VerifiedRootHandle::open(directory.path()).expect("root"),
+            crate::directory_selection_test_support::test_root_handle(directory.path()),
             test_admission(),
             &mut permit,
             Instant::now(),

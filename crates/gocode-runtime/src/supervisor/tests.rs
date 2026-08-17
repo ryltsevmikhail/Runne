@@ -20,6 +20,19 @@ mod tests {
 
     type SqliteService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 
+    fn test_database_path(directory: &tempfile::TempDir, name: &str) -> std::path::PathBuf {
+        let runtime = directory.path().join("runtime");
+        let daemon = runtime.join("gocode-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+            std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        daemon.join(name)
+    }
+
     fn available_guard() -> Arc<dyn ProhibitedContentPort> {
         Arc::new(SecretBroker::new().prohibited_content_guard())
     }
@@ -27,7 +40,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn graceful_shutdown_completes_ingress_accepted_before_the_fence() {
         let directory = tempfile::tempdir().unwrap();
-        let database_path = directory.path().join("runtime.sqlite");
+        let database_path = test_database_path(&directory, "runtime.sqlite");
         let authority = RuntimeAuthorityId("graceful-ingress-test".to_owned());
         let store = StoreTransaction::open(
             database_path.to_str().unwrap(),

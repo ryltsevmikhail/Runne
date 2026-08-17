@@ -121,7 +121,7 @@ async fn opened_reference_is_terminal_and_swept_at_its_original_deadline_without
     prepared
         .commit(
             &reference,
-            VerifiedRootHandle::open(root.path()).expect("root"),
+            crate::directory_selection_test_support::test_root_handle(root.path()),
             test_admission(),
             &mut permit,
             Instant::now(),

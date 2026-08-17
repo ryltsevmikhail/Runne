@@ -20,11 +20,13 @@ gocode-observability = { path = "../gocode-observability" }
 gocode-security = { path = "../gocode-security" }
 gocode-secure-store = { path = "../secure-store", default-features = false }
 gocode-provider-openai = { path = "../gocode-provider-openai" }
+gocode-provider-deepseek = { path = "../gocode-provider-deepseek" }
 gocode-provider = { path = "../gocode-provider" }
 gocode-platform = { path = "../gocode-platform" }
 gocode-platform-desktop = { path = "../platform-desktop", optional = true }
 gocode-http = { path = "../gocode-http" }
 gocode-daemon-openai-effect = { path = "../gocode-daemon-openai-effect" }
+gocode-daemon-deepseek-effect = { path = "../gocode-daemon-deepseek-effect" }
 axum = "0.8"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["http1", "server", "tokio"] }

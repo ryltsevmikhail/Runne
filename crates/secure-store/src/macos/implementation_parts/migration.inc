@@ -8,7 +8,8 @@ impl MacOsProviderCredentialStore {
         replacement: &ProviderCredentialAccessPolicy,
         failpoint: Option<CredentialMigrationFailpoint>,
     ) -> Result<(), SecureStoreError> {
-        self.validate_provider(provider)?;
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
         current
             .validate_writer_current()
             .map_err(map_identity_access_error)?;
@@ -18,10 +19,10 @@ impl MacOsProviderCredentialStore {
         current.remeasure().map_err(map_identity_access_error)?;
         replacement.remeasure().map_err(map_identity_access_error)?;
         Self::with_noninteractive(|keychain| {
-            self.reconcile_migration_backup(keychain, current, replacement)?;
-            let source_service = self.source_service_for_migration(keychain)?;
+            store.reconcile_migration_backup(keychain, current, replacement)?;
+            let source_service = store.source_service_for_migration(keychain)?;
             let Some((metadata, metadata_item)) =
-                self.find_named_metadata(keychain, &source_service)?
+                store.find_named_metadata(keychain, &source_service)?
             else {
                 return Err(SecureStoreError::ProviderCredentialNotFound);
             };
@@ -46,7 +47,7 @@ impl MacOsProviderCredentialStore {
             if !metadata.is_complete() {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }
-            let Some((encoded, item)) = self.find_named_item(keychain, &source_service)? else {
+            let Some((encoded, item)) = store.find_named_item(keychain, &source_service)? else {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             };
             let stored = StoredProviderCredential::decode(&encoded)
@@ -67,12 +68,12 @@ impl MacOsProviderCredentialStore {
             }
             let source_revision = metadata.source_revision();
             let material = stored.into_material();
-            for inactive_service in [self.service.clone(), self.source_alternate_service()] {
+            for inactive_service in [store.service.clone(), store.source_alternate_service()] {
                 if inactive_service == source_service {
                     continue;
                 }
                 let Some((inactive_metadata, inactive_item)) =
-                    self.find_named_metadata(keychain, &inactive_service)?
+                    store.find_named_metadata(keychain, &inactive_service)?
                 else {
                     continue;
                 };
@@ -118,11 +119,11 @@ impl MacOsProviderCredentialStore {
                         )?,
                     )
                 };
-            let migration_service = self.migration_service();
+            let migration_service = store.migration_service();
             let backup_result = create_populated_provider_item(
                 keychain,
                 &migration_service,
-                &self.account,
+                &store.account,
                 &current_metadata,
                 &current_access,
                 &encoded,
@@ -144,8 +145,8 @@ impl MacOsProviderCredentialStore {
             }
             let replacement_result = create_populated_provider_item(
                 keychain,
-                &self.service,
-                &self.account,
+                &store.service,
+                &store.account,
                 &replacement_metadata,
                 &replacement_access,
                 &replacement_encoded,
@@ -156,14 +157,14 @@ impl MacOsProviderCredentialStore {
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }
             let Ok(replacement_item) = replacement_result else {
-                gocode_macos_keychain_acl::rename_item_service(&backup_item, &self.service)
+                gocode_macos_keychain_acl::rename_item_service(&backup_item, &store.service)
                     .map_err(|_| SecureStoreError::CredentialMigrationIncomplete)?;
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             };
             if verify_item_acl(&replacement_item, replacement_access.digest()).is_err() {
                 if gocode_macos_keychain_acl::delete_item(&replacement_item).is_ok() {
                     let _ =
-                        gocode_macos_keychain_acl::rename_item_service(&backup_item, &self.service);
+                        gocode_macos_keychain_acl::rename_item_service(&backup_item, &store.service);
                 }
                 return Err(SecureStoreError::CredentialMigrationIncomplete);
             }

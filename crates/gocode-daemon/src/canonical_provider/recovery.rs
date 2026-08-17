@@ -1,6 +1,6 @@
 use super::*;
 
-impl DaemonCanonicalOpenAiService {
+impl DaemonCanonicalProviderService {
     pub(super) async fn recover_pending(&self) -> Result<(), DaemonError> {
         let runtime_store = Arc::clone(&self.runtime_store);
         let profile = Arc::clone(&self.profile);

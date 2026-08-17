@@ -6,17 +6,17 @@ use gocode_provider::{
     ProviderCallId, ProviderFinishReason, ProviderFuture, ProviderId, ProviderPort,
     ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem,
     ProviderTerminalDisposition, ProviderUsage, ReconcileRequest, ReconciliationDisposition,
-    StreamCursor, StreamError,
+    StreamCursor, StreamError, TextProviderProfile,
 };
 use gocode_runtime::provider_execution::{ProviderEventJournalContext, RuntimeProviderExecution};
 use gocode_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
 };
 
-use super::super::DaemonCanonicalOpenAiService;
+use super::super::DaemonCanonicalProviderService;
 
 pub(super) async fn create(
-    service: &DaemonCanonicalOpenAiService,
+    service: &DaemonCanonicalProviderService,
     started: TextGenerationReceipt,
 ) -> gocode_provider::DispatchAttemptId {
     let call = ProviderCall::new(

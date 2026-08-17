@@ -101,7 +101,8 @@ impl ProtectedLaunchRequestV1 {
     ) -> Result<(), LaunchAuthorityError> {
         match mode {
             ProviderActivationModeV1::DeterministicV1 => Ok(()),
-            ProviderActivationModeV1::OpenAiResponsesTextV1 => {
+            ProviderActivationModeV1::OpenAiResponsesTextV1
+            | ProviderActivationModeV1::DeepSeekResponsesTextV1 => {
                 Err(LaunchAuthorityError::MissingProviderBinding)
             }
         }

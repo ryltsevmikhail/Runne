@@ -19,7 +19,7 @@ fn a_reference_collision_does_not_replace_the_original_handle() {
             "main",
             1,
             "request",
-            VerifiedRootHandle::open(first.path()).unwrap(),
+            crate::directory_selection_test_support::test_root_handle(first.path()),
             now,
             reference.clone(),
         )
@@ -29,7 +29,7 @@ fn a_reference_collision_does_not_replace_the_original_handle() {
             "main",
             1,
             "request-2",
-            VerifiedRootHandle::open(second.path()).unwrap(),
+            crate::directory_selection_test_support::test_root_handle(second.path()),
             now,
             reference,
         )

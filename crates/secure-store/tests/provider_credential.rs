@@ -104,6 +104,7 @@ fn credential_material_is_bounded_single_line_and_redacted() {
 #[test]
 fn provider_identity_and_status_vocabulary_are_exact() {
     assert_eq!(ProviderCredentialId::OpenAi.account(), "openai");
+    assert_eq!(ProviderCredentialId::DeepSeek.account(), "deepseek");
     assert_eq!(
         ProviderCredentialStatus::Configured.to_string(),
         "configured"
@@ -127,6 +128,21 @@ fn provider_identity_and_status_vocabulary_are_exact() {
             .load_provider_credential_source(ProviderCredentialId::OpenAi, &executable.access)
             .unwrap_err(),
         SecureStoreError::ProviderCredentialSourceRevisionUnavailable
+    );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn native_store_routes_deepseek_to_distinct_missing_account() {
+    use gocode_secure_store::NativeProviderCredentialStore;
+
+    let store = NativeProviderCredentialStore::new();
+    let executable = controlled_executable();
+    assert_eq!(
+        store
+            .provider_credential_status(ProviderCredentialId::DeepSeek, &executable.access)
+            .unwrap(),
+        ProviderCredentialStatus::Missing
     );
 }
 

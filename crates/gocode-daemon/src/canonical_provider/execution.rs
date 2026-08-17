@@ -1,7 +1,7 @@
 use super::projection::*;
 use super::*;
 
-impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
+impl CanonicalProviderExecutionService for DaemonCanonicalProviderService {
     fn execute(
         &self,
         job: CanonicalProviderExecutionJob,
@@ -10,7 +10,14 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
         Result<gocode_application::ports::TextGenerationReceipt, CanonicalProviderExecutionError>,
     > {
         Box::pin(async move {
-            let call = project_call(&self.conversation_store, &job, self.profile.as_ref())?;
+            let call = project_call(
+                &self.conversation_store,
+                &job,
+                self.profile.as_ref(),
+                self.provider_id,
+                self.model_id,
+                self.model_revision,
+            )?;
             let requested_input_tokens = u64::try_from(self.profile.max_input_bytes())
                 .map_err(|_| CanonicalProviderExecutionError::Conflict)?;
             let maximum_usage = ProviderUsage::new(
@@ -100,10 +107,11 @@ impl CanonicalProviderExecutionService for DaemonCanonicalOpenAiService {
                     )
                     .await
                     .map_err(map_execution_error)?;
-                match item.event().kind() {
+                let kind = item.event().kind().clone();
+                match kind {
                     ProviderStreamEventKind::Finished { disposition, .. }
                     | ProviderStreamEventKind::ScannerCompleted { disposition, .. } => {
-                        terminal_disposition = *disposition;
+                        terminal_disposition = disposition;
                         break;
                     }
                     _ => {}

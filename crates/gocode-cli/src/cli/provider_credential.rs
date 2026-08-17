@@ -1,8 +1,8 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProviderCredentialCommand {
-    Set,
-    Status,
-    Delete,
+    Set(ProviderCredentialId),
+    Status(ProviderCredentialId),
+    Delete(ProviderCredentialId),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -25,22 +25,25 @@ impl CredentialOutcome {
 trait CredentialBackend {
     fn status(
         &self,
+        id: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError>;
     fn store(
         &mut self,
+        id: ProviderCredentialId,
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError>;
-    fn delete(&mut self) -> Result<(), SecureStoreError>;
+    fn delete(&mut self, id: ProviderCredentialId) -> Result<(), SecureStoreError>;
 }
 
 impl<T: ProviderCredentialStore> CredentialBackend for T {
     fn status(
         &self,
+        id: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError> {
-        self.provider_credential_status(ProviderCredentialId::OpenAi, access)
+        self.provider_credential_status(id, access)
             .map(|status| match status {
                 ProviderCredentialStatus::Configured => CredentialOutcome::Configured,
                 ProviderCredentialStatus::Missing => CredentialOutcome::Missing,
@@ -50,14 +53,15 @@ impl<T: ProviderCredentialStore> CredentialBackend for T {
 
     fn store(
         &mut self,
+        id: ProviderCredentialId,
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        self.store_provider_credential(ProviderCredentialId::OpenAi, credential, access)
+        self.store_provider_credential(id, credential, access)
     }
 
-    fn delete(&mut self) -> Result<(), SecureStoreError> {
-        self.delete_provider_credential(ProviderCredentialId::OpenAi)
+    fn delete(&mut self, id: ProviderCredentialId) -> Result<(), SecureStoreError> {
+        self.delete_provider_credential(id)
     }
 }
 
@@ -148,25 +152,25 @@ fn parse_provider_credential(
             if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
                 return Err(CliError::Help(PROVIDER_CREDENTIAL_SET_HELP.to_owned()));
             }
-            parse_openai_provider(&mut arguments)?;
+            let provider = parse_provider(&mut arguments)?;
             expect_token(&mut arguments, "--stdin")?;
-            ProviderCredentialCommand::Set
+            ProviderCredentialCommand::Set(provider)
         }
         "status" => {
             // Check for --help
             if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
                 return Err(CliError::Help(PROVIDER_CREDENTIAL_STATUS_HELP.to_owned()));
             }
-            parse_openai_provider(&mut arguments)?;
-            ProviderCredentialCommand::Status
+            let provider = parse_provider(&mut arguments)?;
+            ProviderCredentialCommand::Status(provider)
         }
         "delete" => {
             // Check for --help
             if peek(&arguments).is_some_and(|s| s == "--help" || s == "-h") {
                 return Err(CliError::Help(PROVIDER_CREDENTIAL_DELETE_HELP.to_owned()));
             }
-            parse_openai_provider(&mut arguments)?;
-            ProviderCredentialCommand::Delete
+            let provider = parse_provider(&mut arguments)?;
+            ProviderCredentialCommand::Delete(provider)
         }
         _ => return Err(CliError::Usage),
     };
@@ -174,9 +178,13 @@ fn parse_provider_credential(
     Ok(command)
 }
 
-fn parse_openai_provider(arguments: &mut VecDeque<OsString>) -> Result<(), CliError> {
+fn parse_provider(arguments: &mut VecDeque<OsString>) -> Result<ProviderCredentialId, CliError> {
     expect_token(arguments, "--provider")?;
-    expect_token(arguments, "openai")
+    match pop_string(arguments)?.as_str() {
+        "openai" => Ok(ProviderCredentialId::OpenAi),
+        "deepseek" => Ok(ProviderCredentialId::DeepSeek),
+        _ => Err(CliError::Usage),
+    }
 }
 
 fn execute_provider_credential_on_platform(
@@ -188,13 +196,13 @@ fn execute_provider_credential_on_platform(
     native_backend_supported: bool,
 ) -> Result<String, CliError> {
     match command {
-        ProviderCredentialCommand::Set => {
+        ProviderCredentialCommand::Set(id) => {
             let credential = read_credential_bytes(stdin, stdin_is_terminal)?;
             if !native_backend_supported {
                 return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
             }
             let access = resolver.resolve()?;
-            match backend.store(&credential, &access) {
+            match backend.store(id, &credential, &access) {
                 Ok(()) => Ok(CredentialOutcome::Configured.stdout().to_owned()),
                 Err(
                     SecureStoreError::UnsupportedSecureStoreBackend | SecureStoreError::Unavailable,
@@ -202,21 +210,21 @@ fn execute_provider_credential_on_platform(
                 Err(error) => Err(map_credential_error(&error)),
             }
         }
-        ProviderCredentialCommand::Status => {
+        ProviderCredentialCommand::Status(id) => {
             if !native_backend_supported {
                 return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
             }
             let access = resolver.resolve()?;
             backend
-                .status(&access)
+                .status(id, &access)
                 .map(|outcome| outcome.stdout().to_owned())
                 .map_err(|error| map_credential_error(&error))
         }
-        ProviderCredentialCommand::Delete => {
+        ProviderCredentialCommand::Delete(id) => {
             if !native_backend_supported {
                 return Ok(CredentialOutcome::Unsupported.stdout().to_owned());
             }
-            match backend.delete() {
+            match backend.delete(id) {
                 Ok(()) => Ok(CredentialOutcome::Missing.stdout().to_owned()),
                 Err(
                     SecureStoreError::UnsupportedSecureStoreBackend | SecureStoreError::Unavailable,

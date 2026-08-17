@@ -180,8 +180,7 @@ pub(super) fn database_state(path: &Path) -> DatabaseState {
 
 #[tokio::test]
 async fn expiry_is_checked_after_the_writer_and_rotation_is_rejected_by_the_live_lease() {
-    let (directory, store) = store();
-    let path = directory.path().join("admission.sqlite");
+    let (_directory, path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let authority = MutableAuthority::new(admission_context());

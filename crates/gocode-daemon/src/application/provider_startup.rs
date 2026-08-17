@@ -1,9 +1,9 @@
 use super::VerifiedOwnerPrivateConfig;
+use super::provider_selection::{provider_credential_id, select_provider_runtime};
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
 #[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
-
 pub(super) struct StartupProvider {
     activation: ProviderActivation,
     provenance: Option<DaemonActivationProvenance>,
@@ -20,10 +20,11 @@ type StartupProviderParts = (
     Option<ProtectedProviderDependencyCapsule>,
     Option<gocode_api::ProtectedActivationKeys>,
 );
-
 impl StartupProvider {
     pub(super) fn deterministic(config: &ConfigurationSnapshot) -> Result<Self, DaemonError> {
-        if config.provider_activation.requires_openai_execution() {
+        if config.provider_activation.requires_openai_execution()
+            || config.provider_activation.requires_deepseek_execution()
+        {
             return Err(DaemonError::Bootstrap(
                 "verified provider activation provenance is unavailable".into(),
             ));
@@ -169,8 +170,10 @@ impl DaemonApplication {
         let launch_authority_id =
             launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
         let provider_profile_digest = *provider_activation.binding().profile_digest();
+        let readiness_credential_id = provider_credential_id(&provider_activation);
         let compose_result = match activation_provenance {
             Some(activation_provenance) => {
+                let selected_provider = select_provider_runtime(&provider_activation)?;
                 compose_selected_provider(&provider_activation, || {
                     let db_path = config.db_path.clone();
                     let dispatch_connection = open_runtime_connection(
@@ -204,20 +207,32 @@ impl DaemonApplication {
                         let dependencies = dependencies.ok_or_else(|| {
                             DaemonError::Bootstrap("provider dependencies unavailable".into())
                         })?;
-                        DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
-                            db_path,
-                            dispatch_connection,
-                            execution_connection,
-                            credential_connection,
-                            runtime_authority_id: bootstrap.authority_id,
-                            runtime_generation: bootstrap.launch_generation,
-                            activation_provenance,
-                            expected_profile_digest: provider_profile_digest,
-                            conversation_store,
-                            conversation_service,
-                            prohibited_content,
-                            dependencies,
-                        })
+                        let selected_provider = selected_provider.ok_or_else(|| {
+                            DaemonError::Bootstrap("provider selection unavailable".into())
+                        })?;
+                        DaemonCanonicalProviderService::compose(
+                            DaemonCanonicalProviderComposition {
+                                db_path,
+                                dispatch_connection,
+                                execution_connection,
+                                credential_connection,
+                                runtime_authority_id: bootstrap.authority_id,
+                                runtime_generation: bootstrap.launch_generation,
+                                activation_provenance,
+                                expected_profile_digest: provider_profile_digest,
+                                conversation_store,
+                                conversation_service,
+                                prohibited_content,
+                                profile: selected_provider.profile,
+                                adapter_factory: selected_provider.adapter_factory,
+                                provider_id: selected_provider.provider_id,
+                                model_id: selected_provider.model_id,
+                                model_revision: selected_provider.model_revision,
+                                scope: selected_provider.scope,
+                                credential_id: selected_provider.credential_id,
+                                dependencies,
+                            },
+                        )
                         .await
                     }
                 })
@@ -229,10 +244,17 @@ impl DaemonApplication {
             Ok(service) => (service, ProviderActivationReadinessV1::Ready),
             Err(error) => {
                 if protected_activation {
-                    // OpenAI compose failed: never sign `Ready` with its provider absent.
-                    let readiness =
-                        crate::canonical_provider::probe_provider_readiness(bootstrap.authority_id)
-                            .await;
+                    // Provider compose failed: never sign `Ready` with its provider absent.
+                    let readiness = match readiness_credential_id {
+                        Some(credential_id) => {
+                            crate::canonical_provider::probe_provider_readiness(
+                                bootstrap.authority_id,
+                                credential_id,
+                            )
+                            .await
+                        }
+                        None => ProviderActivationReadinessV1::SecureStoreUnavailable,
+                    };
                     let readiness = if readiness.is_ready() {
                         ProviderActivationReadinessV1::SecureStoreUnavailable
                     } else {

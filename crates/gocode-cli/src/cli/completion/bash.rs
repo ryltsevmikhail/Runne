@@ -45,7 +45,7 @@ _gocode() {
             return 0
             ;;
         --provider)
-            COMPREPLY=( $(compgen -W "openai" -- ${cur}) )
+            COMPREPLY=( $(compgen -W "openai deepseek" -- ${cur}) )
             return 0
             ;;
         --conversation-id|--workspace-id)

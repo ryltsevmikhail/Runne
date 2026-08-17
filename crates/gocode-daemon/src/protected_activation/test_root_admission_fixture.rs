@@ -88,7 +88,16 @@ fn child_authority(
     keys: &ProtectedActivationKeys,
     directory: &std::path::Path,
 ) -> RootAdmissionHarness {
-    let path = directory.join("event-log.db");
+    let daemon_directory = directory.join("daemon");
+    std::fs::create_dir(&daemon_directory).expect("daemon directory");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(&daemon_directory, std::fs::Permissions::from_mode(0o700))
+            .expect("daemon directory permissions");
+    }
+    let path = daemon_directory.join("event-log.db");
     let writer =
         schema::open_managed_connection(&path, schema::ConnectionMode::Writer).expect("writer");
     schema::apply_migrations(&writer).expect("migrations");

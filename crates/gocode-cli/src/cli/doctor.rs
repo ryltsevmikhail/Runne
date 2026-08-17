@@ -135,9 +135,24 @@ async fn run_doctor(profile_path: Option<PathBuf>) -> Result<DiagnosticReport, C
     };
     report.add_check(health_check);
 
-    // Check 3: Provider credentials
-    let credential_check = check_provider_credentials();
-    report.add_check(credential_check);
+    // Check 3: Active provider selection (mirrors the daemon's exact config)
+    let provider_probe = probe_active_provider();
+    let active_openai = matches!(&provider_probe, ActiveProviderProbe::Live(live) if live.provider == "openai");
+    let active_deepseek =
+        matches!(&provider_probe, ActiveProviderProbe::Live(live) if live.provider == "deepseek");
+    report.add_check(active_provider_check(&provider_probe));
+
+    // Check 4: Credential metadata per provider (no secret material)
+    report.add_check(credential_check(
+        ProviderCredentialId::OpenAi,
+        "openai",
+        active_openai,
+    ));
+    report.add_check(credential_check(
+        ProviderCredentialId::DeepSeek,
+        "deepseek",
+        active_deepseek,
+    ));
 
     Ok(report)
 }
@@ -162,58 +177,6 @@ async fn check_runtime_health(profile_path: &Path) -> Result<(String, String), (
     };
 
     Ok((status, version))
-}
-
-fn check_provider_credentials() -> DiagnosticCheck {
-    let store = NativeProviderCredentialStore::new();
-
-    // Try to get credential identity resolver
-    let Ok(access_policy) = get_access_policy() else {
-        return DiagnosticCheck {
-            name: "Credentials".to_string(),
-            status: CheckStatus::Warning,
-            message: "Cannot determine access policy".to_string(),
-            details: Some("Running on unsupported platform or missing permissions".to_string()),
-        };
-    };
-
-    match store.provider_credential_status(ProviderCredentialId::OpenAi, &access_policy) {
-        Ok(ProviderCredentialStatus::Configured) => DiagnosticCheck {
-            name: "Credentials".to_string(),
-            status: CheckStatus::Ok,
-            message: "OpenAI credentials configured".to_string(),
-            details: None,
-        },
-        Ok(ProviderCredentialStatus::Missing) => DiagnosticCheck {
-            name: "Credentials".to_string(),
-            status: CheckStatus::Warning,
-            message: "OpenAI credentials not configured".to_string(),
-            details: Some("Run: gocode provider credential set --provider openai".to_string()),
-        },
-        Ok(ProviderCredentialStatus::Unsupported) => DiagnosticCheck {
-            name: "Credentials".to_string(),
-            status: CheckStatus::Warning,
-            message: "Credential storage not supported on this platform".to_string(),
-            details: None,
-        },
-        Err(_e) => DiagnosticCheck {
-            name: "Credentials".to_string(),
-            status: CheckStatus::Warning,
-            message: "Cannot check credential status".to_string(),
-            details: None,
-        },
-    }
-}
-
-fn get_access_policy() -> Result<ProviderCredentialAccessPolicy, ()> {
-    let writer = std::env::current_exe().map_err(|_| ())?;
-    let writer = std::fs::canonicalize(writer).map_err(|_| ())?;
-    let Some(parent) = writer.parent() else {
-        return Err(());
-    };
-    let reader = parent.join("gocode-daemon");
-
-    ProviderCredentialAccessPolicy::new(&writer, &reader).map_err(|_| ())
 }
 
 /// Format diagnostic report for output.

@@ -127,7 +127,7 @@ async fn explicit_stop_fences_inflight_post_send_and_drop_cannot_reinsert() {
     prepared
         .commit(
             &reference,
-            VerifiedRootHandle::open(root.path()).expect("root"),
+            crate::directory_selection_test_support::test_root_handle(root.path()),
             test_admission(),
             &mut permit,
             Instant::now(),

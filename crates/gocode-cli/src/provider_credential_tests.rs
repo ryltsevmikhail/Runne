@@ -3,17 +3,22 @@ use super::*;
 use std::os::unix::fs::PermissionsExt as _;
 
 #[test]
-fn credential_commands_accept_only_the_exact_openai_forms() {
+fn credential_commands_accept_only_the_exact_provider_forms() {
+    assert_provider_forms("openai", ProviderCredentialId::OpenAi);
+    assert_provider_forms("deepseek", ProviderCredentialId::DeepSeek);
+}
+
+fn assert_provider_forms(provider: &str, id: ProviderCredentialId) {
     assert!(matches!(
         parse_provider_credential(args(&[
             "provider",
             "credential",
             "set",
             "--provider",
-            "openai",
+            provider,
             "--stdin"
         ])),
-        Ok(ProviderCredentialCommand::Set)
+        Ok(ProviderCredentialCommand::Set(parsed)) if parsed == id
     ));
     assert!(matches!(
         parse_provider_credential(args(&[
@@ -21,9 +26,9 @@ fn credential_commands_accept_only_the_exact_openai_forms() {
             "credential",
             "status",
             "--provider",
-            "openai"
+            provider
         ])),
-        Ok(ProviderCredentialCommand::Status)
+        Ok(ProviderCredentialCommand::Status(parsed)) if parsed == id
     ));
     assert!(matches!(
         parse_provider_credential(args(&[
@@ -31,10 +36,14 @@ fn credential_commands_accept_only_the_exact_openai_forms() {
             "credential",
             "delete",
             "--provider",
-            "openai"
+            provider
         ])),
-        Ok(ProviderCredentialCommand::Delete)
+        Ok(ProviderCredentialCommand::Delete(parsed)) if parsed == id
     ));
+}
+
+#[test]
+fn credential_commands_reject_open_or_ambiguous_provider_forms() {
     for invalid in [
         [
             "provider",
@@ -86,7 +95,7 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
     let mut backend = FakeBackend::default();
     assert_eq!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set,
+            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
             &mut b"secret".as_slice(),
             false,
             &mut backend,
@@ -98,7 +107,7 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
     );
     assert_eq!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Status,
+            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
             &mut b"".as_slice(),
             false,
             &mut backend,
@@ -110,7 +119,7 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
     );
     assert_eq!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Delete,
+            ProviderCredentialCommand::Delete(ProviderCredentialId::OpenAi),
             &mut b"".as_slice(),
             false,
             &mut backend,
@@ -122,7 +131,7 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
     );
     backend.failure = true;
     let error = execute_provider_credential_on_platform(
-        ProviderCredentialCommand::Status,
+        ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
         &mut b"sensitive-marker".as_slice(),
         false,
         &mut backend,
@@ -142,7 +151,7 @@ fn unsupported_backend_never_reports_persistence() {
     let resolver = FakeResolver::new();
     assert_eq!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set,
+            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
             &mut b"secret".as_slice(),
             false,
             &mut backend,
@@ -161,7 +170,7 @@ fn unsupported_platform_validates_set_input_before_returning_unsupported() {
     let resolver = FakeResolver::new();
     assert!(matches!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set,
+            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
             &mut b"invalid\ncredential".as_slice(),
             false,
             &mut backend,
@@ -172,7 +181,7 @@ fn unsupported_platform_validates_set_input_before_returning_unsupported() {
     ));
     assert!(matches!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set,
+            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
             &mut b"credential".as_slice(),
             true,
             &mut backend,
@@ -183,7 +192,7 @@ fn unsupported_platform_validates_set_input_before_returning_unsupported() {
     ));
     assert_eq!(
         execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set,
+            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
             &mut vec![b'x'; 4_096].as_slice(),
             false,
             &mut backend,
@@ -252,6 +261,7 @@ impl FakeBackend {
 impl CredentialBackend for FakeBackend {
     fn status(
         &self,
+        _id: ProviderCredentialId,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError> {
         if self.failure {
@@ -268,6 +278,7 @@ impl CredentialBackend for FakeBackend {
 
     fn store(
         &mut self,
+        _id: ProviderCredentialId,
         _credential: &ProviderCredentialMaterial,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
@@ -278,7 +289,7 @@ impl CredentialBackend for FakeBackend {
         Ok(())
     }
 
-    fn delete(&mut self) -> Result<(), SecureStoreError> {
+    fn delete(&mut self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
         self.configured = false;
         Ok(())
     }

@@ -12,7 +12,8 @@ async fn daemon_composes_managed_bootstrap_reservation_store() {
 
     let directory = tempfile::tempdir().unwrap();
     secure_directory(directory.path());
-    let config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
+    let mut config = ConfigurationSnapshot::from_defaults(&BuiltInDefaults::new(directory.path()));
+    config.http_bind = "127.0.0.1:0".into();
     let profile_path = Path::new(&config.replay_integrity_key_path)
         .parent()
         .unwrap()

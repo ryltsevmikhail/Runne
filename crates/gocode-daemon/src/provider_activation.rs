@@ -9,6 +9,8 @@ pub enum ProviderActivation {
     Deterministic(ProviderActivationBindingV1),
     /// Exact OpenAI Responses text mode. Execution wiring is admitted separately.
     OpenAiResponsesText(ProviderActivationBindingV1),
+    /// Exact DeepSeek Responses text mode. Execution wiring is admitted separately.
+    DeepSeekResponsesText(ProviderActivationBindingV1),
 }
 
 impl ProviderActivation {
@@ -24,6 +26,9 @@ impl ProviderActivation {
         match binding.mode() {
             ProviderActivationModeV1::DeterministicV1 => Self::Deterministic(binding),
             ProviderActivationModeV1::OpenAiResponsesTextV1 => Self::OpenAiResponsesText(binding),
+            ProviderActivationModeV1::DeepSeekResponsesTextV1 => {
+                Self::DeepSeekResponsesText(binding)
+            }
         }
     }
 
@@ -31,7 +36,9 @@ impl ProviderActivation {
     #[must_use]
     pub const fn binding(&self) -> &ProviderActivationBindingV1 {
         match self {
-            Self::Deterministic(binding) | Self::OpenAiResponsesText(binding) => binding,
+            Self::Deterministic(binding)
+            | Self::OpenAiResponsesText(binding)
+            | Self::DeepSeekResponsesText(binding) => binding,
         }
     }
 
@@ -39,5 +46,11 @@ impl ProviderActivation {
     #[must_use]
     pub const fn requires_openai_execution(&self) -> bool {
         matches!(self, Self::OpenAiResponsesText(_))
+    }
+
+    /// Reports whether the exact DeepSeek execution path is required.
+    #[must_use]
+    pub const fn requires_deepseek_execution(&self) -> bool {
+        matches!(self, Self::DeepSeekResponsesText(_))
     }
 }

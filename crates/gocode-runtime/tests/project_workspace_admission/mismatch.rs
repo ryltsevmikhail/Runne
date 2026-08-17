@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn root_admission_rejects_every_stale_or_mismatched_binding() {
-    let (_directory, store) = store();
+    let (_directory, _path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let current = admission_context();

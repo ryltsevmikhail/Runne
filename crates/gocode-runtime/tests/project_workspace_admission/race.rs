@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn root_admission_nonce_race_has_one_winner_and_no_partial_loser() {
-    let (_directory, store) = store();
+    let (_directory, _path, store) = store();
     let workspace = WORKSPACE.parse().unwrap();
     create_workspace(store.clone(), workspace).await;
     let one = host(

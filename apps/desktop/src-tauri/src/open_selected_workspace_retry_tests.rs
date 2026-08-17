@@ -55,7 +55,7 @@ async fn post_bind_failure_retains_the_exact_prepared_open_for_retry() {
     let reference = prepared.reserve(PreparedWorkspaceBinding::new("main", 1, "request", WORKSPACE_ID.parse().expect("workspace"), 1).expect("binding"), Instant::now()).expect("reserve");
     let root = tempfile::tempdir().expect("root");
     let mut permit = Some(Arc::clone(&operations).lock_owned().await);
-    prepared.commit(&reference, VerifiedRootHandle::open(root.path()).expect("root"), test_admission(), &mut permit, Instant::now()).expect("commit");
+    prepared.commit(&reference, crate::directory_selection_test_support::test_root_handle(root.path()), test_admission(), &mut permit, Instant::now()).expect("commit");
     drop(selections);
     let attempt = prepared.consume_for_open(&reference, "main", 1, "request", Instant::now(), &lifecycle).expect("consume");
     assert!(open_prepared_workspace(&core, &lifecycle, attempt).await.is_err());

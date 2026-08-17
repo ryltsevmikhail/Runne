@@ -2,9 +2,9 @@ use super::*;
 use gocode_api::ProviderActivationReadinessV1;
 use gocode_secure_store::{ProviderCredentialId, SecureStoreError};
 
-/// Typed pre-readiness failures for exact OpenAI composition.
+/// Typed pre-readiness failures for exact provider composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum OpenAiReadinessError {
+pub enum ProviderReadinessError {
     /// Exact profile artifact or activation binding differs.
     #[error("provider profile binding mismatch")]
     ProfileBinding,
@@ -19,9 +19,9 @@ pub enum OpenAiReadinessError {
     JournalKey,
 }
 
-/// Non-secret evidence required before OpenAI readiness can be emitted.
+/// Non-secret evidence required before provider readiness can be emitted.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenAiReadinessEvidence {
+pub struct ProviderReadinessEvidence {
     /// Parsed exact profile identity.
     pub profile_id: String,
     /// Parsed exact profile digest.
@@ -44,29 +44,28 @@ pub struct OpenAiReadinessEvidence {
     pub database_generation: u64,
 }
 
-impl OpenAiReadinessEvidence {
+impl ProviderReadinessEvidence {
     /// Validates every exact non-secret gate.
-    pub fn validate(&self) -> Result<(), OpenAiReadinessError> {
-        if self.profile_id != gocode_provider_openai::OPENAI_RESPONSES_PROFILE_ID
-            || self.profile_id != self.activation_profile_id
+    pub fn validate(&self) -> Result<(), ProviderReadinessError> {
+        if self.profile_id != self.activation_profile_id
             || self.profile_digest != self.activation_profile_digest
         {
-            return Err(OpenAiReadinessError::ProfileBinding);
+            return Err(ProviderReadinessError::ProfileBinding);
         }
         if !self.retained_key_backend {
-            return Err(OpenAiReadinessError::SecureStoreBackend);
+            return Err(ProviderReadinessError::SecureStoreBackend);
         }
         if self.credential_status != ProviderCredentialStatus::Configured {
-            return Err(OpenAiReadinessError::Credential);
+            return Err(ProviderReadinessError::Credential);
         }
         let binding = self
             .journal_binding
-            .ok_or(OpenAiReadinessError::JournalKey)?;
+            .ok_or(ProviderReadinessError::JournalKey)?;
         if self.journal_key_status != ProviderJournalKeyStatus::Available
             || binding.runtime_authority_id() != self.runtime_authority_id
             || binding.database_generation() != self.database_generation
         {
-            return Err(OpenAiReadinessError::JournalKey);
+            return Err(ProviderReadinessError::JournalKey);
         }
         Ok(())
     }
@@ -77,18 +76,19 @@ impl OpenAiReadinessEvidence {
 /// the returned disposition.
 pub(crate) async fn probe_provider_readiness(
     runtime_authority_id: [u8; 16],
+    credential_id: ProviderCredentialId,
 ) -> ProviderActivationReadinessV1 {
     let keyring = native_journal_keyring(runtime_authority_id);
     if !keyring.retains_multiple_provider_journal_keys() {
         return ProviderActivationReadinessV1::SecureStoreUnavailable;
     }
-    let access = match credential_access_policy() {
+    let access = match credential_access_policy(credential_id) {
         Ok(access) => access,
         Err(_) => return ProviderActivationReadinessV1::CredentialIdentityMismatch,
     };
     let store: Arc<dyn ProviderCredentialStore> = Arc::new(NativeProviderCredentialStore::new());
     let probe = tokio::task::spawn_blocking(move || {
-        store.provider_credential_status(ProviderCredentialId::OpenAi, &access)
+        store.provider_credential_status(credential_id, &access)
     })
     .await;
     match probe {
@@ -109,7 +109,9 @@ pub(crate) async fn probe_provider_readiness(
     }
 }
 
-pub(super) fn credential_access_policy() -> Result<ProviderCredentialAccessPolicy, DaemonError> {
+pub(crate) fn credential_access_policy(
+    _credential_id: ProviderCredentialId,
+) -> Result<ProviderCredentialAccessPolicy, DaemonError> {
     let reader = std::env::current_exe()
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
     let reader = std::fs::canonicalize(reader)

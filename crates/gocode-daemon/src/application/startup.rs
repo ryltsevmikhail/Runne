@@ -13,7 +13,9 @@ pub(crate) struct VerifiedOwnerPrivateConfig {
 impl VerifiedOwnerPrivateConfig {
     fn load_fixed_source() -> Result<Self, DaemonError> {
         let config = load_external_config()?;
-        if config.provider_activation.requires_openai_execution() {
+        if config.provider_activation.requires_openai_execution()
+            || config.provider_activation.requires_deepseek_execution()
+        {
             let source = config
                 .provenance
                 .get("provider_activation")

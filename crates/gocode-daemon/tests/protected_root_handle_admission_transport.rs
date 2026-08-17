@@ -30,8 +30,9 @@ fn inherited_child_binds_the_exact_admission_once() {
         return;
     }
     let directory = tempfile::tempdir().unwrap();
-    let token_path = directory.path().join("admission.token");
-    let root = VerifiedRootHandle::open(directory.path()).unwrap();
+    let directory_path = std::fs::canonicalize(directory.path()).unwrap();
+    let token_path = directory_path.join("admission.token");
+    let root = VerifiedRootHandle::open(&directory_path).unwrap();
     let (parent, child_channel) = UnixStream::pair().unwrap();
     let child = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "inherited_child_binds_the_exact_admission_once"])

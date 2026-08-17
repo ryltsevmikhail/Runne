@@ -1,14 +1,15 @@
 use std::sync::Arc;
 
 use gocode_observability::operational::RecoveryObservationRegistry;
+use gocode_provider::TextProviderProfile;
 use gocode_store::provider::SqliteProviderExecutionStore;
 
-use super::DaemonCanonicalOpenAiService;
+use super::DaemonCanonicalProviderService;
 use crate::operational_telemetry::{
     DaemonOperationalTelemetryCompositionError, DaemonTelemetryLaunchContext,
 };
 
-impl DaemonCanonicalOpenAiService {
+impl DaemonCanonicalProviderService {
     pub(crate) fn operational_telemetry_store(&self) -> Arc<SqliteProviderExecutionStore> {
         Arc::clone(&self.execution_store)
     }

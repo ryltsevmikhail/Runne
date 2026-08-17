@@ -103,31 +103,32 @@ impl Harness {
         }
     }
 
-    pub(super) async fn compose(&self) -> Arc<DaemonCanonicalOpenAiService> {
+    pub(super) async fn compose(&self) -> Arc<DaemonCanonicalProviderService> {
         self.compose_at_generation(self.generation).await
     }
 
     pub(super) async fn compose_at_generation(
         &self,
         generation: u64,
-    ) -> Arc<DaemonCanonicalOpenAiService> {
+    ) -> Arc<DaemonCanonicalProviderService> {
         self.try_compose_at_generation(generation).await.unwrap()
     }
 
     pub(super) async fn try_compose_at_generation(
         &self,
         generation: u64,
-    ) -> Result<Arc<DaemonCanonicalOpenAiService>, DaemonError> {
+    ) -> Result<Arc<DaemonCanonicalProviderService>, DaemonError> {
         let effect =
             gocode_daemon_openai_effect::effect_from_loopback_fixture(reqwest::Client::new())
                 .unwrap()
                 .0;
+        let effect = crate::canonical_provider::openai_effect_adapter(effect);
         let decorator = Arc::new(|store: Arc<SqliteProviderExecutionStore>, _: u64| {
             let execution: Arc<dyn ProviderExecutionStore> = store.clone();
             let terminal: Arc<dyn ProviderTerminalPersistence> = store;
             (execution, terminal)
         });
-        DaemonCanonicalOpenAiService::compose(DaemonCanonicalOpenAiComposition {
+        DaemonCanonicalProviderService::compose(DaemonCanonicalProviderComposition {
             db_path: self.db_path.clone(),
             dispatch_connection: self.writer_connection(),
             execution_connection: self.writer_connection(),
@@ -139,6 +140,13 @@ impl Harness {
             conversation_store: self.store.clone(),
             conversation_service: Arc::clone(&self.conversation_service),
             prohibited_content: Arc::clone(&self.prohibited),
+            profile: openai_profile(),
+            adapter_factory: fixture_adapter_factory(),
+            provider_id: "openai",
+            model_id: gocode_provider_openai::OPENAI_MODEL_ID,
+            model_revision: gocode_provider_openai::OPENAI_MODEL_REVISION,
+            scope: "provider.openai.responses.text",
+            credential_id: ProviderCredentialId::OpenAi,
             dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
                 effect,
                 Arc::clone(&self.keyring),
@@ -151,7 +159,7 @@ impl Harness {
 
     pub(super) fn issue_incomplete(
         &self,
-        service: &DaemonCanonicalOpenAiService,
+        service: &DaemonCanonicalProviderService,
         seed: u8,
         streaming: bool,
     ) -> gocode_provider::DispatchAttemptId {
@@ -216,84 +224,6 @@ impl Harness {
         }
         admitted.claim().attempt_id
     }
-
-    pub(super) const fn generation(&self) -> u64 {
-        self.generation
-    }
-
-    pub(super) fn terminal_application(
-        &self,
-    ) -> gocode_runtime::provider_execution::ConversationProviderTerminalApplication<StoreTransaction>
-    {
-        gocode_runtime::provider_execution::ConversationProviderTerminalApplication::new(
-            self.store.clone(),
-            Arc::clone(&self.conversation_service),
-        )
-    }
-
-    pub(super) fn keyring(&self) -> Arc<dyn ProviderJournalKeyring> {
-        Arc::clone(&self.keyring)
-    }
-
-    pub(super) fn prohibited(&self) -> Arc<dyn ProhibitedContentPort> {
-        Arc::clone(&self.prohibited)
-    }
-
-    pub(super) fn query_connection(&self) -> gocode_store::schema::ManagedConnection {
-        managed_test_connection(
-            &self.db_path,
-            self.authority,
-            self.lineage,
-            gocode_store::schema::ConnectionMode::Reader,
-        )
-    }
-
-    pub(super) fn writer_connection(&self) -> gocode_store::schema::ManagedConnection {
-        managed_test_connection(
-            &self.db_path,
-            self.authority,
-            self.lineage,
-            gocode_store::schema::ConnectionMode::ValidatedReopen,
-        )
-    }
-
-    pub(super) fn begin(
-        &self,
-    ) -> (
-        ApplicationCommandContext,
-        gocode_application::ports::TextGenerationReceipt,
-    ) {
-        let conversation_id = "018f2e3a-7000-7000-8000-000000000091".parse().unwrap();
-        let create = command_context("018f2e3a-7000-7000-8000-000000000092", "audit-create");
-        ConversationService::new(
-            self.store.clone(),
-            self.store.clone(),
-            RuntimeAuthorityId(hex::encode(self.authority)),
-        )
-        .create_from_application(
-            &create,
-            CreateConversationInput {
-                conversation_id,
-                workspace_id: "018f2e3a-7000-7000-8000-000000000093"
-                    .parse::<WorkspaceId>()
-                    .unwrap(),
-                command_id: create.command_id,
-                idempotency_key: create.idempotency_key.clone(),
-            },
-        )
-        .unwrap();
-        let begin = command_context("018f2e3a-7000-7000-8000-000000000094", "audit-begin");
-        let started = self
-            .conversation_service
-            .begin_text(
-                &begin,
-                BeginConversationTextInput {
-                    conversation_id,
-                    expected_version: 1,
-                    text: MessageText::new("fixture input").unwrap(),
-                },
-            )
-            .unwrap();
-        (begin, started)
-    }
 }
+
+include!("fixture_accessors.rs");

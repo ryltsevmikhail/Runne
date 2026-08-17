@@ -7,18 +7,12 @@ use crate::application::workspace_internal::{
     ProtectedProviderDependencyCapsule, ProviderDependencyState,
 };
 use gocode_observability::operational::RecoveryObservationRegistry;
-/// Normative cumulative provider token budget for development/ad-hoc policy V1.
+
 pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
-/// Normative cumulative provider cost budget in micro-USD.
 pub(super) const PROVIDER_POLICY_V1_COST_BUDGET_MICROS: u64 = 10_000_000;
-/// Normative single-effect authority lifetime.
 pub(super) const PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS: u64 = 120;
-/// Normative capability and approval lease.
 pub(super) const PROVIDER_POLICY_V1_LEASE_SECONDS: u64 = 600;
-/// Normative policy revision and revocation epoch.
 pub(super) const PROVIDER_POLICY_V1_REVISION: u64 = 1;
-/// Runs concrete OpenAI composition only for the exact selected activation.
-/// Deterministic mode returns without evaluating the probe future.
 pub async fn compose_selected_provider<T, F, Fut>(
     activation: &ProviderActivation,
     compose: F,
@@ -27,22 +21,24 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = Result<T, DaemonError>>,
 {
-    if activation.requires_openai_execution() {
+    if activation.requires_openai_execution() || activation.requires_deepseek_execution() {
         compose().await.map(Some)
     } else {
         Ok(None)
     }
 }
-/// Fully composed canonical OpenAI service. Concrete adapters remain here.
-pub struct DaemonCanonicalOpenAiService {
+pub struct DaemonCanonicalProviderService {
     pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
     pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) runtime_store: Arc<runtime_store::DaemonProviderRuntimeStore>,
     pub(super) conversation_store: StoreTransaction,
     pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
-    pub(super) adapter: Arc<dyn gocode_daemon_openai_effect::OpenAiEffect>,
-    pub(super) profile: Arc<OpenAiResponsesTextProfile>,
+    pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
+    pub(super) profile: Arc<SharedTextProviderProfile>,
+    pub(super) provider_id: &'static str,
+    pub(super) model_id: &'static str,
+    pub(super) model_revision: &'static str,
     pub(super) keyring: Arc<dyn ProviderJournalKeyring>,
     pub(super) prohibited_content: Arc<dyn ProhibitedContentPort>,
     pub(super) scanner_store: Arc<SqliteProviderRecoveryStore>,
@@ -54,7 +50,7 @@ pub struct DaemonCanonicalOpenAiService {
     pub(super) recovery_registry: Arc<RecoveryObservationRegistry>,
 }
 
-pub(crate) struct DaemonCanonicalOpenAiComposition {
+pub(crate) struct DaemonCanonicalProviderComposition {
     pub(crate) db_path: String,
     pub(crate) dispatch_connection: gocode_store::schema::ManagedConnection,
     pub(crate) execution_connection: gocode_store::schema::ManagedConnection,
@@ -66,15 +62,22 @@ pub(crate) struct DaemonCanonicalOpenAiComposition {
     pub(crate) conversation_store: StoreTransaction,
     pub(crate) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(crate) prohibited_content: Arc<dyn ProhibitedContentPort>,
+    pub(crate) profile: Arc<SharedTextProviderProfile>,
+    pub(crate) adapter_factory: Arc<ProviderEffectFactory>,
+    pub(crate) provider_id: &'static str,
+    pub(crate) model_id: &'static str,
+    pub(crate) model_revision: &'static str,
+    pub(crate) scope: &'static str,
+    pub(crate) credential_id: ProviderCredentialId,
     pub(crate) dependencies: ProtectedProviderDependencyCapsule,
 }
 
-impl DaemonCanonicalOpenAiService {
+impl DaemonCanonicalProviderService {
     /// Performs every metadata-only pre-readiness gate and composes production adapters.
     pub(crate) async fn compose(
-        composition: DaemonCanonicalOpenAiComposition,
+        composition: DaemonCanonicalProviderComposition,
     ) -> Result<Arc<Self>, DaemonError> {
-        let DaemonCanonicalOpenAiComposition {
+        let DaemonCanonicalProviderComposition {
             db_path,
             dispatch_connection,
             execution_connection,
@@ -86,6 +89,13 @@ impl DaemonCanonicalOpenAiService {
             conversation_store,
             conversation_service,
             prohibited_content,
+            profile,
+            adapter_factory,
+            provider_id,
+            model_id,
+            model_revision,
+            scope,
+            credential_id,
             dependencies,
         } = composition;
         let (effect_source, retained_keyring, terminal_store_decorator, credential_versions) =
@@ -103,12 +113,6 @@ impl DaemonCanonicalOpenAiService {
                     Some(credential_versions),
                 ),
             };
-        let profile = Arc::new(
-            OpenAiResponsesTextProfile::from_json(include_bytes!(
-                "../../../../docs/profiles/openai-responses-text-v1.json"
-            ))
-            .map_err(|_| DaemonError::Bootstrap("provider profile unavailable".into()))?,
-        );
         if profile.profile_digest() != expected_profile_digest {
             return Err(DaemonError::Bootstrap(
                 "provider profile binding mismatch".into(),
@@ -117,11 +121,15 @@ impl DaemonCanonicalOpenAiService {
         let status = if effect_source.is_some() {
             ProviderCredentialStatus::Configured
         } else {
-            let access = credential_access_policy()?;
+            let access = credential_access_policy(credential_id)?;
             let credential_store: Arc<dyn ProviderCredentialStore> =
                 Arc::new(NativeProviderCredentialStore::new());
-            crate::canonical_provider_factory::provider_credential_status(credential_store, access)
-                .await?
+            crate::canonical_provider_factory::provider_credential_status(
+                credential_store,
+                credential_id,
+                access,
+            )
+            .await?
         };
         if status != ProviderCredentialStatus::Configured {
             return Err(DaemonError::Bootstrap(
@@ -155,7 +163,7 @@ impl DaemonCanonicalOpenAiService {
                 database_generation: 1,
                 principal_id: "local-owner".to_owned(),
                 owner_id: derived_identity("owner", policy_binding),
-                scope: "provider.openai.responses.text".to_owned(),
+                scope: scope.to_owned(),
                 generation: runtime_generation,
                 fencing_token,
                 capability_grant_id: derived_identity("capability", policy_binding),
@@ -193,6 +201,7 @@ impl DaemonCanonicalOpenAiService {
             credential_connection,
             runtime_authority_id,
             runtime_generation,
+            credential_id,
             effect_source.is_some(),
             credential_versions,
         )?;
@@ -242,10 +251,10 @@ impl DaemonCanonicalOpenAiService {
                 .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?,
             )
             .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
-        OpenAiReadinessEvidence {
+        ProviderReadinessEvidence {
             profile_id: profile.profile_id().to_owned(),
             profile_digest: profile.profile_digest(),
-            activation_profile_id: gocode_provider_openai::OPENAI_RESPONSES_PROFILE_ID.to_owned(),
+            activation_profile_id: profile.profile_id().to_owned(),
             activation_profile_digest: expected_profile_digest,
             retained_key_backend: keyring.retains_multiple_provider_journal_keys(),
             credential_status: status,
@@ -258,10 +267,7 @@ impl DaemonCanonicalOpenAiService {
         .map_err(|error| DaemonError::Bootstrap(error.to_string()))?;
         let adapter = match effect_source {
             Some(effect) => effect,
-            None => <dyn gocode_daemon_openai_effect::OpenAiEffect>::production(
-                credentials.native_authority,
-            )
-            .map_err(|_| DaemonError::Bootstrap("provider adapter unavailable".into()))?,
+            None => adapter_factory(credentials.native_authority)?,
         };
         let service = Arc::new(Self {
             dispatch_store,
@@ -272,6 +278,9 @@ impl DaemonCanonicalOpenAiService {
             conversation_service,
             adapter,
             profile,
+            provider_id,
+            model_id,
+            model_revision,
             keyring,
             prohibited_content,
             scanner_store,

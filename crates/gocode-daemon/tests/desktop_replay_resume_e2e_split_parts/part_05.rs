@@ -73,6 +73,20 @@ fn daemon_latest_cursor_is_acknowledged_and_closed(database_path: &Path, generat
         .expect("read resumed replay session")
 }
 
+fn wait_for_daemon_latest_cursor_acknowledged_and_closed(database_path: &Path, generation: u64) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if daemon_latest_cursor_is_acknowledged_and_closed(database_path, generation) {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "snapshot reconciliation must acknowledge then close its replay session"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn assert_owner_only(path: &Path) {
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(

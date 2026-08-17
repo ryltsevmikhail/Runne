@@ -9,6 +9,8 @@ pub const MAX_PROVIDER_CREDENTIAL_BYTES: usize = 4_096;
 pub enum ProviderCredentialId {
     /// `OpenAI` Responses API credential.
     OpenAi,
+    /// `DeepSeek` Responses API credential.
+    DeepSeek,
 }
 
 impl ProviderCredentialId {
@@ -17,6 +19,7 @@ impl ProviderCredentialId {
     pub const fn account(self) -> &'static str {
         match self {
             Self::OpenAi => "openai",
+            Self::DeepSeek => "deepseek",
         }
     }
 }

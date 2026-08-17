@@ -118,6 +118,19 @@ impl MacOsProviderCredentialStore {
             version_authority: None,
         }
     }
+
+    fn scoped_provider_store(&self, provider: ProviderCredentialId) -> Self {
+        let account = if self.account == ProviderCredentialId::OpenAi.account() {
+            provider.account().to_owned()
+        } else {
+            self.account.clone()
+        };
+        Self {
+            service: self.service.clone(),
+            account,
+            version_authority: self.version_authority.clone(),
+        }
+    }
 }
 impl Default for MacOsProviderCredentialStore {
     fn default() -> Self {

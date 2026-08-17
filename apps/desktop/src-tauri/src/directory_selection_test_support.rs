@@ -4,6 +4,11 @@ use gocode_api::{
     RootHandleTransferResult, WorkspaceId,
 };
 
+pub fn test_root_handle(path: &std::path::Path) -> gocode_platform_desktop::VerifiedRootHandle {
+    let canonical = std::fs::canonicalize(path).expect("canonical root path");
+    gocode_platform_desktop::VerifiedRootHandle::open(&canonical).expect("root")
+}
+
 pub fn test_admission() -> gocode_platform_desktop::ProtectedRootHandleAdmission {
     let context = RootHandleTransferContext::new(
         [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1],

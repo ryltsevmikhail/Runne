@@ -11,6 +11,8 @@
     "ci:local": "bash scripts/ci-local.sh",
     "ci:local:scoped": "bash scripts/ci-local-scoped.sh",
     "dev": "pnpm --filter @gocode/desktop dev",
+    "install:local": "bash scripts/install-local.sh",
+    "live-smoke:deepseek": "bash scripts/live-smoke-deepseek.sh",
     "lint": "eslint .",
     "lint:architecture": "python3 scripts/desktop/validate_architecture.py",
     "test": "pnpm -r --if-present test",
