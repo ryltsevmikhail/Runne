@@ -78,7 +78,7 @@ pub fn strip_jsonc_comments(input: &str) -> Result<String, JsoncImportError> {
             '/' => match chars.peek() {
                 Some('/') => {
                     // Line comment: skip until newline.
-                    while let Some(ch) = chars.next() {
+                    for ch in chars.by_ref() {
                         if ch == '\n' {
                             output.push('\n');
                             break;
@@ -129,9 +129,7 @@ pub fn import_opencode_jsonc(input: &str) -> Result<NativeConfigImport, JsoncImp
             imported.server_host = Some(host.to_owned());
         }
         if let Some(port) = server.get("port").and_then(|v| v.as_u64()) {
-            if port <= u16::MAX as u64 {
-                imported.server_port = Some(port as u16);
-            }
+            imported.server_port = (port <= u16::MAX as u64).then_some(port as u16);
         }
     }
 
