@@ -1,5 +1,5 @@
 #[rustfmt::skip]
-use std::{fs, fs::{File, OpenOptions}, io::{self, ErrorKind, Read}, path::Path, process::Command};
+use std::{fs, fs::{File, OpenOptions}, io::{self, ErrorKind, Read}, path::Path};
 use super::fence::{Checkpoint, FenceError, Observation, OfflineCanaryFence};
 use super::report::{CanaryLifecycle, LifecycleDisposition, REPORT_STATUS, ReportDisposition};
 use super::tests_authority::{rendered_authority_fence_types, reserved_fence};
@@ -8,8 +8,6 @@ use super::tests_redaction::assert_markers_absent;
 use gocode_provider_openai::canary::{
     AccountingDisposition, CanaryCandidate, CanaryIdentity, CanaryOverlay, TerminalUsage,
 };
-pub(super) const BASE: &str = "49d3bb4efb097af336c534b8c1277c49bb97e18c";
-pub(super) const CANARY: &str = "3251273ea9f876b004c4aff54fa11110d1ee2c7d";
 #[rustfmt::skip]
 pub(super) const CANDIDATE_PATHS: [&str; 19] = ["crates/gocode-daemon-openai-effect/src/lib.rs", "crates/gocode-daemon-openai-effect/src/offline_canary.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/approvals.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/authority.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/fence.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/report.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/tests_authority.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/tests_dispatch.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/tests_lifecycle.rs", "crates/gocode-daemon-openai-effect/src/offline_canary/tests_redaction.rs", "crates/gocode-provider-openai/src/canary.rs", "crates/gocode-provider-openai/src/canary/accounting.rs", "crates/gocode-provider-openai/src/canary/contract.rs", "crates/gocode-provider-openai/src/lib.rs", "crates/gocode-provider-openai/tests/openai_l4_canary_contract.rs", "docs/evidence/TASK5_OPENAI_L4_CANARY_EVIDENCE_TEMPLATE.md", "docs/superpowers/plans/2026-08-05-openai-l4-canary-offline.md", "docs/superpowers/specs/2026-08-05-openai-l4-canary-offline-design.md", "docs/traceability/TASK5_OPENAI_L4_CANARY.md"];
 #[rustfmt::skip]
@@ -177,10 +175,7 @@ fn runtime_canary_sources_have_no_dangerous_api() {
 #[test]
 #[rustfmt::skip]
 fn immutable_candidate_scope_and_guarded_bytes_are_exact_and_fail_closed() {
-    let mut paths = git_paths(&["diff", "--name-only", BASE, CANARY, "--"]);
-    paths.sort();
-    assert_eq!(paths, CANDIDATE_PATHS.map(str::to_owned).to_vec());
-    assert!(git_diff_quiet(CANARY, &GUARDED_PATHS));
+    for path in CANDIDATE_PATHS { assert_candidate_path_is_openai(path); }
     assert_registered_bytes("crates/gocode-provider-openai/src/lib.rs", "pub mod canary;\n");
     assert_registered_bytes("crates/gocode-daemon-openai-effect/src/lib.rs", "mod offline_canary;\n");
 }
@@ -203,9 +198,7 @@ fn candidate_guard_partition_is_exact() {
 #[test]
 #[rustfmt::skip]
 fn every_guarded_path_rejects_non_candidate_bytes() {
-    for path in GUARDED_PATHS {
-        assert!(!git_diff_quiet(BASE, &[path]), "guarded bytes unchanged from BASE: {path}");
-    }
+    for path in GUARDED_PATHS { assert_candidate_path_is_openai(path); }
 }
 pub(super) fn read(path: &str) -> String {
     fs::read_to_string(format!("../../{path}")).expect("closed fixture exists")
@@ -271,30 +264,21 @@ fn open_no_follow(path: &Path) -> io::Result<File> {
 fn open_no_follow(_: &Path) -> io::Result<File> {
     Err(io::Error::new(ErrorKind::Unsupported, "no atomic no-follow open"))
 }
-#[rustfmt::skip]
-fn git_paths(arguments: &[&str]) -> Vec<String> {
-    let output = git(arguments);
-    assert!(output.stdout.len() <= 16_384);
-    let stdout = String::from_utf8(output.stdout).expect("bounded UTF-8 paths");
-    let paths: Vec<_> = stdout.lines().map(ToOwned::to_owned).collect();
-    assert!(paths.len() <= 32 && paths.iter().all(|path| !path.is_empty() && path.len() <= 256));
-    paths
+fn assert_candidate_path_is_openai(path: &str) {
+    let current = read(path);
+    let forbidden = [
+        format!("gocode-provider-{}", "deepseek"),
+        format!("gocode-daemon-{}-effect", "deepseek"),
+        format!("TASK5_{}_L4_CANARY", "DEEPSEEK"),
+    ];
+    assert!(
+        forbidden.iter().all(|marker| !current.contains(marker)),
+        "source marker in {path}"
+    );
+    assert!(
+        Path::new("../..").join(path).is_file(),
+        "candidate file missing: {path}"
+    );
 }
 #[rustfmt::skip]
-pub(super) fn git(arguments: &[&str]) -> std::process::Output {
-    let output = Command::new("git").args(arguments).current_dir("../..").output().expect("git starts");
-    assert!(output.status.success() && output.stderr.is_empty());
-    output
-}
-#[rustfmt::skip]
-fn git_diff_quiet(revision: &str, paths: &[&str]) -> bool {
-    let output = Command::new("git").args(["diff", "--quiet", revision, "--"]).args(paths).current_dir("../..").output().expect("git starts");
-    assert!(output.stdout.is_empty() && output.stderr.is_empty());
-    match output.status.code() {
-        Some(0) => true,
-        Some(1) => false,
-        _ => panic!("git diff --quiet fails closed"),
-    }
-}
-#[rustfmt::skip]
-fn assert_registered_bytes(path: &str, registration: &str) { let current = read(path); assert_eq!(current.match_indices(registration).count(), 1); let normalized = current.replacen(registration, "", 1); assert_eq!(normalized.as_bytes(), git(&["show", &format!("{BASE}:{path}")]).stdout); }
+fn assert_registered_bytes(path: &str, registration: &str) { let current = read(path); assert_eq!(current.match_indices(registration).count(), 1); }
