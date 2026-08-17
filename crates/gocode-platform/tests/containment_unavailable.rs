@@ -161,10 +161,17 @@ mod containment_unavailable {
     }
 
     #[test]
-    fn matching_certificate_has_only_unavailable_verdict() {
+    fn matching_certificate_verdict_is_platform_specific() {
         let request = containment_request_for_current_platform();
         let certificate = native_certificate_for(current_platform());
 
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            StartupAttestor::attest(&request, Some(&certificate), &runtime_probes()),
+            Ok(gocode_platform::AttestationVerdict::Permit),
+        );
+
+        #[cfg(not(target_os = "linux"))]
         assert_eq!(
             StartupAttestor::attest(&request, Some(&certificate), &runtime_probes()),
             Ok(gocode_platform::AttestationVerdict::Unavailable),
@@ -173,14 +180,35 @@ mod containment_unavailable {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn platform_backend_is_unconditionally_unavailable() {
+    fn platform_backend_yields_permit_for_valid_certificate() {
+        let runner = RunnerIdentity::new("test-runner").unwrap();
+        let certificate = gocode_platform::containment::linux::native_certificate(
+            runner.clone(),
+            vec![
+                ContainmentGate::DirectEgressDenied,
+                ContainmentGate::WorkspaceFilesystemConfined,
+            ],
+        )
+        .unwrap();
+        let request = ContainmentRequest::new(
+            ContainmentBackendId::new("gocode-native-linux").unwrap(),
+            ContainmentBackendVersion::new("0.1.0").unwrap(),
+            HostPlatform::Linux,
+            runner,
+            vec![
+                ContainmentGate::DirectEgressDenied,
+                ContainmentGate::WorkspaceFilesystemConfined,
+            ],
+        )
+        .unwrap();
+
         assert_eq!(
             gocode_platform::containment::linux::LinuxContainment::attest(
-                &containment_request_for_current_platform(),
-                Some(&native_certificate_for(current_platform())),
-                &runtime_probes(),
+                &request,
+                Some(&certificate),
+                &gocode_platform::containment::linux::runtime_probes(),
             ),
-            Err(ContainmentError::BackendUnavailable),
+            Ok(gocode_platform::AttestationVerdict::Permit),
         );
     }
 

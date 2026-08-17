@@ -181,13 +181,16 @@ impl NativeCertificate {
 pub enum AttestationVerdict {
     /// Бэкенд не может быть разрешён до Phase 6B.
     Unavailable,
+    /// Сертификат qualification подтверждён — containment разрешён.
+    Permit,
 }
 
 /// Fail-closed classifier для startup-attestation.
 pub struct StartupAttestor;
 
 impl StartupAttestor {
-    /// Проверяет предъявленные evidence и всегда возвращает unavailable в Phase 6A.
+    /// Проверяет предъявленные evidence и делегирует платформе-специфичному
+    /// бэкенду. До Phase 6B все бэкенды остаются fail-closed.
     pub fn attest(
         request: &ContainmentRequest,
         certificate: Option<&NativeCertificate>,
@@ -197,7 +200,15 @@ impl StartupAttestor {
         if !certificate.exactly_covers(request) || !certificate.probes_match(probes) {
             return Err(ContainmentError::BackendUnavailable);
         }
-        Ok(AttestationVerdict::Unavailable)
+
+        #[cfg(target_os = "linux")]
+        return linux::LinuxContainment::attest(request, Some(certificate), probes);
+
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = ();
+            Ok(AttestationVerdict::Unavailable)
+        }
     }
 }
 
