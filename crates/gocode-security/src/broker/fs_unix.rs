@@ -109,7 +109,13 @@ pub(super) fn create_unnamed(parent: &OwnedFd) -> Result<OwnedFd, FsBrokerError>
         OFlags::RDWR | OFlags::TMPFILE | OFlags::CLOEXEC | OFlags::NOFOLLOW,
         Mode::from_raw_mode(0o600),
     )
-    .map_err(io_error)
+    .map_err(|error| {
+        if error == rustix::io::Errno::OPNOTSUPP {
+            FsBrokerError::MutationUnavailable
+        } else {
+            io_error(error)
+        }
+    })
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]

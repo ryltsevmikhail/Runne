@@ -20,3 +20,16 @@
             },
         }])
     }
+
+    #[cfg(unix)]
+    fn create_or_skip_unsupported_tmpfile(
+        broker: &FilesystemBroker,
+        root: &RootHandle,
+        path: &str,
+    ) -> Option<CreatedFsHandle> {
+        match broker.create(root, &CanonicalPath::new(path).unwrap()) {
+            Ok(handle) => Some(handle),
+            Err(FsBrokerError::BackendUnavailable | FsBrokerError::MutationUnavailable) => None,
+            Err(error) => panic!("created file setup failed unexpectedly: {error:?}"),
+        }
+    }
