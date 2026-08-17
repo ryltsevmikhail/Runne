@@ -260,6 +260,120 @@ pub static INVENTORY: LazyLock<Vec<InventoryEntry>> = LazyLock::new(|| {
             supported_fields: vec!["sessionID".into()],
             unsupported_fields: vec!["directory".into(), "workspace".into()],
         },
+        // Phase 8: event/permission mappings beyond text-only session profile.
+        // These entries are classified as unsupported in v1 but explicitly
+        // inventoried so the adapter remains fail-closed and future profile
+        // revisions can promote them to planned/implemented.
+        InventoryEntry {
+            inventory_id: "event.stream".into(),
+            upstream_operation_id: Some("event.stream".into()),
+            selector: OperationSelector {
+                transport: Transport::HTTP,
+                method: "GET".into(),
+                normalized_path: "/session/:sessionID/events".into(),
+            },
+            transport: Transport::HTTP,
+            request_schema_ref: SchemaRef {
+                path: "packages/schema/src/session-event.ts".into(),
+                digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
+            },
+            success_schema_ref: SchemaRef {
+                path: "packages/schema/src/session-event.ts".into(),
+                digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
+            },
+            error_schema_refs: vec![],
+            stream_semantics: Some(StreamSemantics {
+                stream_type: "SSE".into(),
+                event_types: vec![
+                    "session.created".into(),
+                    "session.message".into(),
+                    "session.idle".into(),
+                    "session.next.*".into(),
+                ],
+            }),
+            auth_scope: AuthScope::Session,
+            side_effects: vec![],
+            source: SourceRef {
+                path: "packages/schema/src/session-event.ts".into(),
+                lines: (0, 0),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
+                observed_date: "2026-07-24".into(),
+            },
+            confidence: Confidence::Observed,
+            classification: CompatibilityClass::Unsupported,
+            implementation_status: ImplementationStatus::Planned,
+            rationale: Some(RejectionRationale::MissingReadModel),
+            supported_fields: vec![],
+            unsupported_fields: vec!["all event types".into()],
+        },
+        InventoryEntry {
+            inventory_id: "permission.request".into(),
+            upstream_operation_id: Some("permission.request".into()),
+            selector: OperationSelector {
+                transport: Transport::HTTP,
+                method: "POST".into(),
+                normalized_path: "/session/:sessionID/permission".into(),
+            },
+            transport: Transport::HTTP,
+            request_schema_ref: SchemaRef {
+                path: "packages/opencode/src/permission".into(),
+                digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
+            },
+            success_schema_ref: SchemaRef {
+                path: "packages/opencode/src/permission".into(),
+                digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
+            },
+            error_schema_refs: vec![],
+            stream_semantics: None,
+            auth_scope: AuthScope::Session,
+            side_effects: vec![SideEffect::MutatesState],
+            source: SourceRef {
+                path: "packages/opencode/src/permission".into(),
+                lines: (0, 0),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
+                observed_date: "2026-07-24".into(),
+            },
+            confidence: Confidence::Observed,
+            classification: CompatibilityClass::Unsupported,
+            implementation_status: ImplementationStatus::Planned,
+            rationale: Some(RejectionRationale::MissingCapabilityEngine),
+            supported_fields: vec![],
+            unsupported_fields: vec!["ruleset".into(), "question".into(), "approval".into()],
+        },
+        InventoryEntry {
+            inventory_id: "permission.respond".into(),
+            upstream_operation_id: Some("permission.respond".into()),
+            selector: OperationSelector {
+                transport: Transport::HTTP,
+                method: "POST".into(),
+                normalized_path: "/session/:sessionID/permission/:permissionID/respond".into(),
+            },
+            transport: Transport::HTTP,
+            request_schema_ref: SchemaRef {
+                path: "packages/opencode/src/permission".into(),
+                digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
+            },
+            success_schema_ref: SchemaRef {
+                path: "packages/opencode/src/permission".into(),
+                digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000".into(),
+            },
+            error_schema_refs: vec![],
+            stream_semantics: None,
+            auth_scope: AuthScope::Session,
+            side_effects: vec![SideEffect::MutatesState],
+            source: SourceRef {
+                path: "packages/opencode/src/permission".into(),
+                lines: (0, 0),
+                sha: "66495a2a22cd0a57efcc4f721e65532f0987b4e8".into(),
+                observed_date: "2026-07-24".into(),
+            },
+            confidence: Confidence::Observed,
+            classification: CompatibilityClass::Unsupported,
+            implementation_status: ImplementationStatus::Planned,
+            rationale: Some(RejectionRationale::MissingCapabilityEngine),
+            supported_fields: vec![],
+            unsupported_fields: vec!["approved".into(), "denied".into(), "auto".into()],
+        },
     ]
 });
 
