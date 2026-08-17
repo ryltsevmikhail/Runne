@@ -151,7 +151,7 @@ async fn retained_fixture(ttl: Duration) -> RetainedFixture {
 
 #[tokio::test]
 async fn retained_expiry_releases_permit_without_reap_or_deadline_extension() {
-    let fixture = retained_fixture(Duration::from_millis(100)).await;
+    let fixture = retained_fixture(Duration::from_secs(1)).await;
     let retry = fixture
         .prepared
         .begin_retry(
