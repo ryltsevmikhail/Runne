@@ -679,4 +679,52 @@ mod tests {
 
         let _ = fs::remove_file(&pid_file);
     }
+
+    #[test]
+    fn timeout_termination_enforced() {
+        // Проверяем, что можем дождаться завершения процесса с timeout
+        // и при необходимости прибить его SIGKILL.
+        const TIMEOUT_MS: u128 = 200;
+
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0, "fork failed");
+
+        if pid == 0 {
+            // Child sleeps forever.
+            loop {
+                unsafe { libc::sleep(10) };
+            }
+        }
+
+        let start = std::time::Instant::now();
+        let timeout = std::time::Duration::from_millis(TIMEOUT_MS as u64);
+        let mut status = 0;
+
+        loop {
+            let ret = unsafe { libc::waitpid(pid, &mut status, libc::WNOHANG) };
+            assert!(ret >= 0, "waitpid failed");
+            if ret == pid {
+                panic!("child exited before timeout");
+            }
+            if start.elapsed() >= timeout {
+                break;
+            }
+            unsafe { libc::usleep(10_000) };
+        }
+
+        let ret = unsafe { libc::kill(pid, libc::SIGKILL) };
+        assert_eq!(ret, 0, "SIGKILL failed");
+
+        let ret = unsafe { libc::waitpid(pid, &mut status, 0) };
+        assert_eq!(ret, pid, "waitpid after kill failed");
+        assert!(
+            libc::WIFSIGNALED(status),
+            "child should have been killed by timeout"
+        );
+        assert_eq!(
+            libc::WTERMSIG(status),
+            libc::SIGKILL,
+            "child should have been killed by SIGKILL"
+        );
+    }
 }
