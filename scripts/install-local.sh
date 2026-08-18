@@ -76,6 +76,9 @@ for binary in gocode gocode-daemon; do
     exit 1
   fi
   install -m 0755 "$source_path" "$bin_dir/$binary"
+  if [[ "$(uname -s)" == "Darwin" && -n "${GOCODE_MACOS_SIGNING_IDENTITY:-}" ]]; then
+    "$repo_root/scripts/sign-macos-binary.sh" --identity "$GOCODE_MACOS_SIGNING_IDENTITY" "$bin_dir/$binary"
+  fi
 done
 
 cat <<EOF

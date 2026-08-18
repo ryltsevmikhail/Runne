@@ -126,6 +126,16 @@ def validate_repository() -> str:
     return revision
 
 
+def sign_macos_binary(binary: Path, repo_root: Path) -> None:
+    identity = os.environ.get("GOCODE_MACOS_SIGNING_IDENTITY", "")
+    if not identity:
+        return
+    if sys.platform != "darwin":
+        fail("macOS signing requested on a non-Darwin host")
+    script = repo_root / "scripts" / "sign-macos-binary.sh"
+    subprocess.run([str(script), "--identity", identity, str(binary)], check=True)
+
+
 def build_candidate(
     version: str, target: str, platform: str, output: Path, revision: str, epoch: int
 ) -> Path:
@@ -141,6 +151,8 @@ def build_candidate(
         binary = Path("target") / target / "release" / binary_name
         if not binary.is_file():
             fail(f"required daemon artifact is missing: {binary}")
+        if platform == "macos":
+            sign_macos_binary(binary, Path.cwd())
         candidate = output / f"gocode-runtime-{version}-{target}"
         output.mkdir(parents=True, exist_ok=True)
         if candidate.exists():
