@@ -1,7 +1,7 @@
 //! Linux containment backend: Landlock, seccomp-bpf and cgroups v2.
 //!
 //! Platform-specific OS syscalls require `unsafe`; all unsafe blocks are
-//! isolated in the [`probes`] submodule with safety comments.
+//! isolated in the private `probes` submodule with safety comments.
 
 mod probes;
 
