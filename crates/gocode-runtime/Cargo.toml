@@ -23,7 +23,7 @@ sha2 = { workspace = true }
 ring = { workspace = true }
 tempfile = "=3.27.0"
 thiserror.workspace = true
-tokio = { version = "=1.44.0", features = ["sync", "rt", "macros", "time"] }
+tokio = { version = "=1.44.2", features = ["sync", "rt", "macros", "time"] }
 tokio-util = { version = "=0.7.14", features = ["rt"] }
 zeroize.workspace = true
 
