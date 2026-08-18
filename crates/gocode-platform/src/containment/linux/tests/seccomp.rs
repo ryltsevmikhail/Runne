@@ -1,17 +1,14 @@
 //! seccomp-bpf enforcement tests: mount kill-on-syscall and direct-egress denial.
 
-use super::super::probe_seccomp_filter;
+/// Exit code a forked child uses to signal "seccomp filter unavailable — skip".
+const EXIT_SKIP: libc::c_int = 77;
 
 #[test]
 fn seccomp_filter_kills_on_disallowed_syscall() {
     // Устанавливаем seccomp-bpf filter, который убивает процесс при вызове
-    // mount. Тест выполняется в forked child. Если seccomp filter недоступен
-    // (например, в контейнере с ограниченным seccomp), тест пропускается.
-    if !probe_seccomp_filter() {
-        eprintln!("skipping: seccomp filter not available in this environment");
-        return;
-    }
-
+    // mount. Тест выполняется в forked child. Если установка seccomp filter
+    // недоступна (например, в контейнере с ограниченным seccomp), тест
+    // пропускается.
     const PR_SET_SECCOMP: libc::c_int = 22;
     const SECCOMP_MODE_FILTER: libc::c_uint = 2;
 
@@ -76,8 +73,7 @@ fn seccomp_filter_kills_on_disallowed_syscall() {
             )
         };
         if ret < 0 {
-            eprintln!("prctl(PR_SET_SECCOMP) failed");
-            unsafe { libc::exit(1) };
+            unsafe { libc::exit(EXIT_SKIP) };
         }
 
         // Вызываем запрещённый syscall. Должен прийти SIGSYS.
@@ -93,6 +89,10 @@ fn seccomp_filter_kills_on_disallowed_syscall() {
     let mut status = 0;
     let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
     assert_eq!(waited, pid, "waitpid failed");
+    if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == EXIT_SKIP {
+        eprintln!("skipping: seccomp filter installation unavailable");
+        return;
+    }
     assert!(
         libc::WIFSIGNALED(status),
         "child should have been killed by seccomp"
@@ -107,13 +107,8 @@ fn seccomp_filter_kills_on_disallowed_syscall() {
 #[test]
 fn seccomp_filter_blocks_direct_egress() {
     // seccomp-bpf filter запрещает системные вызовы connect и bind, что
-    // доказывает direct egress denial. Если seccomp filter недоступен, тест
-    // пропускается.
-    if !probe_seccomp_filter() {
-        eprintln!("skipping: seccomp filter not available in this environment");
-        return;
-    }
-
+    // доказывает direct egress denial. Если установка seccomp filter
+    // недоступна, тест пропускается.
     const PR_SET_SECCOMP: libc::c_int = 22;
     const SECCOMP_MODE_FILTER: libc::c_uint = 2;
 
@@ -190,8 +185,7 @@ fn seccomp_filter_blocks_direct_egress() {
             )
         };
         if ret < 0 {
-            eprintln!("prctl(PR_SET_SECCOMP) failed");
-            unsafe { libc::exit(1) };
+            unsafe { libc::exit(EXIT_SKIP) };
         }
 
         // connect(2) on an invalid fd — должен прийти SIGSYS до того,
@@ -205,6 +199,10 @@ fn seccomp_filter_blocks_direct_egress() {
     let mut status = 0;
     let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
     assert_eq!(waited, pid, "waitpid failed");
+    if libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == EXIT_SKIP {
+        eprintln!("skipping: seccomp filter installation unavailable");
+        return;
+    }
     assert!(
         libc::WIFSIGNALED(status),
         "child should have been killed by seccomp"
