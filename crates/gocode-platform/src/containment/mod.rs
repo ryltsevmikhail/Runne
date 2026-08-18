@@ -170,10 +170,24 @@ impl NativeCertificate {
     fn probes_match(&self, probes: &[RuntimeProbe]) -> bool {
         !probes.is_empty()
             && probes.windows(2).all(|pair| pair[0].id < pair[1].id)
-            && probes
-                .iter()
-                .all(|probe| probe.observed_value_digest == self.evidence_digest)
+            && self.evidence_digest == combined_probe_digest(probes)
     }
+}
+
+/// Канонический комбинированный дайджест отсортированного списка probes.
+///
+/// Формат: `id=digest;` для каждого probe в порядке их идентификаторов.
+/// Используется и при формировании сертификата, и при attestation, чтобы
+/// evidence_digest сертификата точно совпадал с runtime probes.
+pub(crate) fn combined_probe_digest(probes: &[RuntimeProbe]) -> String {
+    let mut acc = String::new();
+    for probe in probes {
+        acc.push_str(&probe.id);
+        acc.push('=');
+        acc.push_str(&probe.observed_value_digest);
+        acc.push(';');
+    }
+    acc
 }
 
 /// Результат startup-attestation в Phase 6A.

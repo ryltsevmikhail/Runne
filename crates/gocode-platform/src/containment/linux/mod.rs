@@ -55,8 +55,20 @@ impl LinuxContainment {
 }
 
 /// Формирует runtime probes из реальных Linux probe-результатов.
+///
+/// Возвращаются в каноническом порядке по идентификатору (как требует
+/// `NativeCertificate::probes_match`).
 pub fn runtime_probes() -> Vec<RuntimeProbe> {
     vec![
+        RuntimeProbe::new(
+            "cgroups-v2-delegated",
+            if probe_cgroups_v2_delegated() {
+                "available"
+            } else {
+                "unavailable"
+            },
+        )
+        .expect("cgroups probe id valid"),
         RuntimeProbe::new(
             "landlock-abi",
             probe_landlock_abi()
@@ -73,15 +85,6 @@ pub fn runtime_probes() -> Vec<RuntimeProbe> {
             },
         )
         .expect("seccomp probe id valid"),
-        RuntimeProbe::new(
-            "cgroups-v2-delegated",
-            if probe_cgroups_v2_delegated() {
-                "available"
-            } else {
-                "unavailable"
-            },
-        )
-        .expect("cgroups probe id valid"),
     ]
 }
 
@@ -90,12 +93,7 @@ pub fn native_certificate(
     runner_identity: RunnerIdentity,
     covered_gates: Vec<ContainmentGate>,
 ) -> Result<NativeCertificate, ContainmentError> {
-    use std::fmt::Write;
-
-    let mut digest = String::new();
-    for probe in runtime_probes() {
-        let _ = write!(&mut digest, "{}={};", probe.id, probe.observed_value_digest);
-    }
+    let digest = super::combined_probe_digest(&runtime_probes());
 
     NativeCertificate::new(
         ContainmentBackendId::new(LINUX_BACKEND_ID)?,
