@@ -269,8 +269,7 @@ fn qualification_date() -> String {
 }
 
 fn evidence_digest() -> String {
-    // Канонический комбинированный дайджест, совпадающий с
-    // `combined_probe_digest(&runtime_probes())`: формат `id=digest;`.
+    // Совпадает с combined_probe_digest(&runtime_probes()): формат `id=digest;`.
     "kernel=probe-digest;".into()
 }
 
