@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.project-owner.pre-authority-document-overlay/4",
+  "$id": "runne.project-owner.pre-authority-document-overlay/4",
   "title": "Pre-authority desktop-foundation document overlay",
   "type": "object",
   "additionalProperties": false,
@@ -16,8 +16,8 @@
   ],
   "properties": {
     "schema_version": {"const": 4},
-    "repository_id": {"const": "gocode"},
-    "policy_id": {"const": "gocode.project-owner.pre-authority-document-overlay-policy/4"},
+    "repository_id": {"const": "runne"},
+    "policy_id": {"const": "runne.project-owner.pre-authority-document-overlay-policy/4"},
     "mode": {"const": "pre_authority_overlay_desktop_foundation"},
     "predecessor_commit_oid": {"const": "6d19701767edd8ee9c6487bfe7105ca7d3dc8a4e"},
     "predecessor_tree_oid": {"const": "2fcf58abb3da24b83e3605e8fd66d42530a15dad"},

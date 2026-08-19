@@ -13,14 +13,14 @@ Options:
   -h, --help       Show this help
 
 Environment:
-  GOCODE_MACOS_SIGNING_IDENTITY  Override default signing identity.
+  RUNNE_MACOS_SIGNING_IDENTITY  Override default signing identity.
 
 Example:
   scripts/sign-macos-binary.sh target/release/gocode-daemon
 USAGE
 }
 
-identity="${GOCODE_MACOS_SIGNING_IDENTITY:-}"
+identity="${RUNNE_MACOS_SIGNING_IDENTITY:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,7 +69,7 @@ if [[ -z "$identity" ]]; then
     | awk '/Developer ID Application/ { print $2; exit }')
   if [[ -z "$identity" ]]; then
     echo "error: no valid Developer ID Application identity found" >&2
-    echo "Set GOCODE_MACOS_SIGNING_IDENTITY or import a Developer ID certificate into keychain." >&2
+    echo "Set RUNNE_MACOS_SIGNING_IDENTITY or import a Developer ID certificate into keychain." >&2
     exit 1
   fi
 fi

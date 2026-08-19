@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gocode.dev/schemas/event.schema.json",
+  "$id": "https://runne.dev/schemas/event.schema.json",
   "title": "EventEnvelope",
   "description": "Canonical immutable event envelope aligned with the Events domain model.",
   "type": "object",

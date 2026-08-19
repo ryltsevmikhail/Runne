@@ -1,7 +1,7 @@
 use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use gocode_app_core::{AppCore, OperationalTelemetrySnapshotV1};
+use runne_app_core::{AppCore, OperationalTelemetrySnapshotV1};
 use tauri::State;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 

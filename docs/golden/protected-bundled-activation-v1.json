@@ -1,63 +1,63 @@
 {
-  "schema_version": 1,
-  "protocol_schema_version": 1,
-  "message_type_id": 1,
-  "frame_length": 483,
-  "frame_sha256": "8f1e38603a33e3283faa65852406a6130131dfde8574c6d734eeb2df42a52f30",
   "canonical_launch_platform": "unix",
+  "content_policy": "digest-only; launch secrets are never stored in golden fixtures",
+  "frame_length": 478,
+  "frame_sha256": "716692cdf5683522810ebdd11c95bf7d9afc3b3ce7b2eeaef24ce5914d06ae66",
+  "lifecycle_messages": {
+    "first_activation_commit": {
+      "frame_length": 469,
+      "frame_sha256": "df0a6ee527e76b9c7249e98c5157d6779e46251d7e185227a9f982c37227855a",
+      "message_type_id": 8
+    },
+    "first_activation_prepared": {
+      "frame_length": 469,
+      "frame_sha256": "0beea726087908f053731ee8f8bc811d1df39aa7b605be16c7e9ad8859fe6f93",
+      "message_type_id": 7
+    },
+    "launch": {
+      "frame_length": 478,
+      "frame_sha256": "716692cdf5683522810ebdd11c95bf7d9afc3b3ce7b2eeaef24ce5914d06ae66",
+      "message_type_id": 1
+    },
+    "ready": {
+      "frame_length": 543,
+      "frame_sha256": "6639ced05173ecb2ed8db4c899af624ba2fcdc46726fb21b26be651cee9604ea",
+      "message_type_id": 2
+    },
+    "renew_request": {
+      "frame_length": 491,
+      "frame_sha256": "d703b7c755990529760b760d78042157352210c9ca331505158789a462086696",
+      "message_type_id": 3
+    },
+    "renew_ticket": {
+      "frame_length": 552,
+      "frame_sha256": "095fb641fc703f5745e8a79f27e3844998293c3b8efb11f68a684197db9303c8",
+      "message_type_id": 4
+    },
+    "shutdown": {
+      "frame_length": 454,
+      "frame_sha256": "4eb83f2a694591cf8c5caa72ea91ec4a5aa98b84f2f8e1275b4c00a9486a0553",
+      "message_type_id": 5
+    },
+    "shutdown_ack": {
+      "frame_length": 456,
+      "frame_sha256": "03633fb227a3db5fe7258d4b61dc878ee12f80c6425e731b6f51e14c60a55b7e",
+      "message_type_id": 6
+    }
+  },
+  "message_type_id": 1,
   "platform_launch_frames": {
     "unix": {
-      "message_type_id": 1,
-      "frame_length": 483,
-      "frame_sha256": "8f1e38603a33e3283faa65852406a6130131dfde8574c6d734eeb2df42a52f30"
+      "frame_length": 478,
+      "frame_sha256": "716692cdf5683522810ebdd11c95bf7d9afc3b3ce7b2eeaef24ce5914d06ae66",
+      "message_type_id": 1
     },
     "windows": {
       "message_type_id": 1,
-      "frame_length": 473,
-      "frame_sha256": "8c75890d59056765428ab3e57b8deb136d99de28f5e358ee146c3b556cf7a66f"
+      "frame_length": 468,
+      "frame_sha256": "daa57198607da1a0c66b37c3d6b163e0c0da2d1cdaf4f202d87219ad5a0ffea8"
     }
   },
-  "lifecycle_messages": {
-    "launch": {
-      "message_type_id": 1,
-      "frame_length": 483,
-      "frame_sha256": "8f1e38603a33e3283faa65852406a6130131dfde8574c6d734eeb2df42a52f30"
-    },
-    "ready": {
-      "message_type_id": 2,
-      "frame_length": 547,
-      "frame_sha256": "025e04f263ca668be333db272d44486cfd35d83ea4d2adfb29d85a0f44783ce5"
-    },
-    "renew_request": {
-      "message_type_id": 3,
-      "frame_length": 495,
-      "frame_sha256": "34db350502bf44828db042b6f6aa2e31289e71f6c13d7cbec731183f8f546d13"
-    },
-    "renew_ticket": {
-      "message_type_id": 4,
-      "frame_length": 556,
-      "frame_sha256": "28bc0c109bf9f9bf9c9da024c8f5afb84fa9f62d7b7b3ceaf2b09abf39354288"
-    },
-    "shutdown": {
-      "message_type_id": 5,
-      "frame_length": 458,
-      "frame_sha256": "aba94c03814b700600eca5ab1fc217c300d5b724bb02b5d68b45ffd328f8daa7"
-    },
-    "shutdown_ack": {
-      "message_type_id": 6,
-      "frame_length": 460,
-      "frame_sha256": "a3c935139812869ef81ac72d406800cb305fa987c634bed0ca6365b4ffa2f758"
-    },
-    "first_activation_prepared": {
-      "message_type_id": 7,
-      "frame_length": 473,
-      "frame_sha256": "fea70fa7509ba25ea41fa64668081ed374ef2a7bea32b3fa7f97268cf856c9c8"
-    },
-    "first_activation_commit": {
-      "message_type_id": 8,
-      "frame_length": 473,
-      "frame_sha256": "3f3ac62d9aa760b6353b7a325c86201b979c2409645ebdec25b8425c987318aa"
-    }
-  },
-  "content_policy": "digest-only; launch secrets are never stored in golden fixtures"
+  "protocol_schema_version": 1,
+  "schema_version": 1
 }

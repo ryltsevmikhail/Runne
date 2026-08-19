@@ -1,15 +1,15 @@
-use gocode_api::{
+use runne_api::{
     LaunchSecret, RootAdmissionAuthenticator, RootAdmissionRequest, RootAdmissionVerificationContext, RootHandleControlFrame, RootHandleTransferAuthenticator,
     RootHandleTransferContext, RootHandleTransferOffer, RootHandleTransferReady,
     RootHandleTransferResult, WorkspaceId,
 };
 
-pub fn test_root_handle(path: &std::path::Path) -> gocode_platform_desktop::VerifiedRootHandle {
+pub fn test_root_handle(path: &std::path::Path) -> runne_platform_desktop::VerifiedRootHandle {
     let canonical = std::fs::canonicalize(path).expect("canonical root path");
-    gocode_platform_desktop::VerifiedRootHandle::open(&canonical).expect("root")
+    runne_platform_desktop::VerifiedRootHandle::open(&canonical).expect("root")
 }
 
-pub fn test_admission() -> gocode_platform_desktop::ProtectedRootHandleAdmission {
+pub fn test_admission() -> runne_platform_desktop::ProtectedRootHandleAdmission {
     let context = RootHandleTransferContext::new(
         [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1],
         [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 2],
@@ -38,7 +38,7 @@ pub fn test_admission() -> gocode_platform_desktop::ProtectedRootHandleAdmission
         context.workspace_id(), 1, [4; 32], offer.digest(), [5; 16], 30_100,
     ).expect("request")).expect("raw admission");
     let frame = RootHandleControlFrame::Result(RootHandleTransferResult::admitted(&ready, raw, &keys));
-    let gocode_api::VerifiedRootHandleControlFrame::Result(result) =
+    let runne_api::VerifiedRootHandleControlFrame::Result(result) =
         RootHandleControlFrame::decode_and_verify(&frame.encode_frame(), &keys, &context, 2, 100)
             .expect("verified result")
     else {

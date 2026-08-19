@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gocode.dev/schemas/desktop-native-platform-foundation-v1.schema.json",
-  "title": "GOCODE Desktop V1 Native Platform Foundation Evidence",
+  "$id": "https://runne.dev/schemas/desktop-native-platform-foundation-v1.schema.json",
+  "title": "RUNNE Desktop V1 Native Platform Foundation Evidence",
   "type": "object",
   "additionalProperties": false,
   "required": [

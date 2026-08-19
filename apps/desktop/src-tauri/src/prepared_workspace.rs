@@ -3,7 +3,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use gocode_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
+use runne_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
 use crate::directory_selection::{
@@ -84,7 +84,7 @@ pub struct PreparedWorkspaceEntry {
     expected_version: u64,
     expires_at: Instant,
     pub(super) operation_permit: Option<tokio::sync::OwnedMutexGuard<()>>,
-    pub(super) prepared_open: Option<gocode_app_core::PreparedWorkspaceOpen>,
+    pub(super) prepared_open: Option<runne_app_core::PreparedWorkspaceOpen>,
     pub(super) phase: PreparedWorkspacePhase,
 }
 

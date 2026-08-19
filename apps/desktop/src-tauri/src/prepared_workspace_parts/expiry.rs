@@ -12,7 +12,7 @@ impl PreparedWorkspaceManager {
         }
         let sweep_state = std::sync::Arc::clone(&self.state);
         if std::thread::Builder::new()
-            .name("gocode-prepared-expiry".into())
+            .name("runne-prepared-expiry".into())
             .spawn(move || {
                 loop {
                     let deadline = match sweep_state.lock() {

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gocode.dev/schemas/budget.schema.json",
+  "$id": "https://runne.dev/schemas/budget.schema.json",
   "title": "BudgetPolicySnapshot",
   "description": "Immutable typed hard-limit policy for one TaskRun, as accepted by ADR-0012.",
   "type": "object",

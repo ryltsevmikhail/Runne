@@ -34,9 +34,9 @@ tokio = { version = "1", features = ["full"] }
 tokio-rustls = { version = "=0.26.4", default-features = false, features = ["ring", "tls12"] }
 uuid = { version = "1", features = ["v7"] }
 zeroize = "=1.9.0"
-gocode-release-authority = { path = "crates/gocode-release-authority" }
-gocode-promotion-contracts = { path = "crates/gocode-promotion-contracts" }
-gocode-project-owner-authority = { path = "crates/project-owner-authority" }
+runne-release-authority = { path = "crates/runne-release-authority" }
+runne-promotion-contracts = { path = "crates/runne-promotion-contracts" }
+runne-project-owner-authority = { path = "crates/runne-project-owner-authority" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

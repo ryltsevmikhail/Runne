@@ -14,12 +14,6 @@ pub use bundled_runtime::{BundledRuntimeController, BundledShutdownOutcome};
 use conversation_channel::ConversationSubscriptionManager;
 use directory_selection::{DirectorySelectionManager, DirectorySelectionRef};
 pub use directory_selection_response::DirectorySelectionResponse;
-use gocode_app_core::{
-    AppCore, AppCoreError, BootstrapState, DiagnosticsSnapshot, ProjectSummary,
-    RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
-};
-use gocode_platform_desktop::ProfileLock;
-use gocode_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
 use open_selected_workspace_request::{
     OpenSelectedWorkspaceRequest, RetryOpenSelectedWorkspaceRequest,
 };
@@ -28,6 +22,12 @@ use prepared_workspace::{
     PreparedWorkspaceBinding, PreparedWorkspaceManager, PreparedWorkspaceReservationGuard,
     PreparedWorkspaceResponse,
 };
+use runne_app_core::{
+    AppCore, AppCoreError, BootstrapState, DiagnosticsSnapshot, ProjectSummary,
+    RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
+};
+use runne_platform_desktop::ProfileLock;
+use runne_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
 use serde::Serialize;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
