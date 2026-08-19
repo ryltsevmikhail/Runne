@@ -14,30 +14,30 @@ SPEC.loader.exec_module(checker)
 
 
 class CheckDepsTests(unittest.TestCase):
-    def test_gocode_platform_allows_platform_ports(self) -> None:
-        self.assertIn("gocode-platform-ports", checker.POLICIES["gocode-platform"])
+    def test_runne_platform_allows_platform_ports(self) -> None:
+        self.assertIn("runne-platform-ports", checker.POLICIES["runne-platform"])
 
     def test_project_owner_authority_dependencies_are_exact_and_isolated(self) -> None:
-        name = "gocode-project-owner-authority"
-        forbidden = {"gocode-cli", "gocode-store", "gocode-runtime"}
+        name = "runne-project-owner-authority"
+        forbidden = {"runne-cli", "runne-store", "runne-runtime"}
         self.assertEqual(checker.EXACT_VERSION_POLICIES[name], checker.POLICIES[name])
         self.assertFalse(checker.POLICIES[name] & forbidden)
 
     def test_release_authority_dependencies_are_exact_and_isolated(self) -> None:
-        name = "gocode-release-authority"
-        forbidden = {"gocode-cli", "gocode-store", "gocode-runtime"}
+        name = "runne-release-authority"
+        forbidden = {"runne-cli", "runne-store", "runne-runtime"}
         self.assertEqual(checker.EXACT_VERSION_POLICIES[name], checker.POLICIES[name])
         self.assertFalse(checker.POLICIES[name] & forbidden)
 
     def test_release_authority_boundary_requires_the_cli_only(self) -> None:
         packages = [
-            {"name": "gocode-release-authority", "manifest_path": __file__, "dependencies": []},
-            {"name": "gocode-cli", "dependencies": [{"name": "gocode-release-authority", "kind": None}]},
+            {"name": "runne-release-authority", "manifest_path": __file__, "dependencies": []},
+            {"name": "runne-cli", "dependencies": [{"name": "runne-release-authority", "kind": None}]},
         ]
         self.assertFalse(checker.release_authority_boundary_errors(packages))
 
     def test_internal_authority_edges_reject_rename_target_and_external_path(self) -> None:
-        good = {"name": "gocode-release-authority", "dependencies": [{"name": "gocode-promotion-contracts", "kind": None, "target": None, "rename": None, "optional": False, "path": "/repo/crates/gocode-promotion-contracts"}]}
+        good = {"name": "runne-release-authority", "dependencies": [{"name": "runne-promotion-contracts", "kind": None, "target": None, "rename": None, "optional": False, "path": "/repo/crates/runne-promotion-contracts"}]}
         self.assertFalse(checker.internal_authority_edge_errors([good]))
         for field, value in (("rename", "contracts"), ("target", "cfg(unix)"), ("path", "/external/promotion-contracts")):
             bad = {**good, "dependencies": [{**good["dependencies"][0], field: value}]}
@@ -51,7 +51,7 @@ class CheckDepsTests(unittest.TestCase):
         )
 
     def test_only_cli_enables_the_project_owner_store_feature(self) -> None:
-        self.assertEqual(checker.PROJECT_OWNER_STORE_OWNER, "gocode-cli")
+        self.assertEqual(checker.PROJECT_OWNER_STORE_OWNER, "runne-cli")
         self.assertEqual(checker.PROJECT_OWNER_STORE_FEATURE, "project-owner-key-store")
         manifests = list((SCRIPT_PATH.parents[1] / "crates").glob("*/Cargo.toml"))
         enabled = []
@@ -59,7 +59,7 @@ class CheckDepsTests(unittest.TestCase):
             text = manifest.read_text(encoding="utf-8")
             dependency_lines = [
                 line for line in text.splitlines()
-                if line.startswith("gocode-secure-store =")
+                if line.startswith("runne-secure-store =")
             ]
             if not dependency_lines:
                 continue
@@ -67,45 +67,45 @@ class CheckDepsTests(unittest.TestCase):
             self.assertIn("default-features = false", dependency_lines[0], manifest)
             if checker.PROJECT_OWNER_STORE_FEATURE in dependency_lines[0]:
                 enabled.append(manifest.parent.name)
-        self.assertEqual(enabled, ["gocode-cli"])
+        self.assertEqual(enabled, ["runne-cli"])
 
     def test_owner_declaration_policy_rejects_non_cli_dev_rename_target_and_missing_cli(self) -> None:
         owner = {
-            "name": "gocode-cli",
+            "name": "runne-cli",
             "dependencies": [{
-                "name": "gocode-secure-store", "kind": None, "target": None,
+                "name": "runne-secure-store", "kind": None, "target": None,
                 "rename": None, "optional": False, "uses_default_features": False,
-                "path": "/repo/crates/secure-store",
+                "path": "/repo/crates/runne-secure-store",
                 "features": [checker.PROJECT_OWNER_STORE_FEATURE],
             }],
         }
         self.assertFalse(checker.project_owner_store_declaration_errors([owner]))
         for mutation in (
-            {"name": "gocode-runtime", "kind": None, "target": None, "rename": None, "optional": False, "uses_default_features": False, "path": "/repo/crates/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
-            {"name": "gocode-cli", "kind": "dev", "target": None, "rename": None, "optional": False, "uses_default_features": False, "path": "/repo/crates/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
-            {"name": "gocode-cli", "kind": None, "target": None, "rename": "owner_store", "optional": False, "uses_default_features": False, "path": "/repo/crates/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
-            {"name": "gocode-cli", "kind": None, "target": "cfg(target_os = \"macos\")", "rename": None, "optional": False, "uses_default_features": False, "path": "/repo/crates/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
-            {"name": "gocode-cli", "kind": None, "target": None, "rename": None, "optional": True, "uses_default_features": False, "path": "/repo/crates/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
-            {"name": "gocode-cli", "kind": None, "target": None, "rename": None, "optional": False, "uses_default_features": False, "path": "/external/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
+            {"name": "runne-runtime", "kind": None, "target": None, "rename": None, "optional": False, "uses_default_features": False, "path": "/repo/crates/runne-secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
+            {"name": "runne-cli", "kind": "dev", "target": None, "rename": None, "optional": False, "uses_default_features": False, "path": "/repo/crates/runne-secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
+            {"name": "runne-cli", "kind": None, "target": None, "rename": "owner_store", "optional": False, "uses_default_features": False, "path": "/repo/crates/runne-secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
+            {"name": "runne-cli", "kind": None, "target": "cfg(target_os = \"macos\")", "rename": None, "optional": False, "uses_default_features": False, "path": "/repo/crates/runne-secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
+            {"name": "runne-cli", "kind": None, "target": None, "rename": None, "optional": True, "uses_default_features": False, "path": "/repo/crates/runne-secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
+            {"name": "runne-cli", "kind": None, "target": None, "rename": None, "optional": False, "uses_default_features": False, "path": "/external/secure-store", "features": [checker.PROJECT_OWNER_STORE_FEATURE]},
         ):
-            package = {"name": mutation.pop("name"), "dependencies": [{"name": "gocode-secure-store", **mutation}]}
+            package = {"name": mutation.pop("name"), "dependencies": [{"name": "runne-secure-store", **mutation}]}
             self.assertTrue(checker.project_owner_store_declaration_errors([package]))
 
     def test_owner_consumer_scan_rejects_all_metadata_target_consumers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             forbidden = root / "apps/desktop/src-tauri/src"
-            allowed = root / "crates/gocode-cli/src"
+            allowed = root / "crates/runne-cli/src"
             forbidden.mkdir(parents=True)
             allowed.mkdir(parents=True)
             manifest = forbidden.parent / "Cargo.toml"
             manifest.write_text("[package]", encoding="utf-8")
-            (forbidden / "main.rs").write_text("use gocode_secure_store::*;", encoding="utf-8")
+            (forbidden / "main.rs").write_text("use runne_secure_store::*;", encoding="utf-8")
             (forbidden / "authority.rs").write_text("store.sign_active(reference, transcript);", encoding="utf-8")
-            (allowed / "authority.rs").write_text("use gocode_secure_store::ProjectOwnerKeyStore;", encoding="utf-8")
+            (allowed / "authority.rs").write_text("use runne_secure_store::ProjectOwnerKeyStore;", encoding="utf-8")
             packages = [
-                {"name": "gocode-desktop", "manifest_path": str(manifest), "targets": [{"src_path": str(forbidden / "main.rs")} ]},
-                {"name": "gocode-cli", "manifest_path": str(allowed.parent / "Cargo.toml"), "targets": []},
+                {"name": "runne-desktop", "manifest_path": str(manifest), "targets": [{"src_path": str(forbidden / "main.rs")} ]},
+                {"name": "runne-cli", "manifest_path": str(allowed.parent / "Cargo.toml"), "targets": []},
             ]
             errors = checker.project_owner_store_consumer_errors(packages)
             self.assertEqual(len(errors), 2)

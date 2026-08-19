@@ -131,7 +131,7 @@ class PackageReleaseTests(ReleaseTestCase):
 
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(second.returncode, 0, second.stderr)
-        candidate_name = f"gocode-runtime-1.2.3-{SUPPORTED_TARGET}"
+        candidate_name = f"runne-runtime-1.2.3-{SUPPORTED_TARGET}"
         first_candidate = first_output / candidate_name
         second_candidate = second_output / candidate_name
         for name in ("release-manifest.v1.json", "checksums.sha256"):

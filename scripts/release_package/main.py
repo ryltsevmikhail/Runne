@@ -146,14 +146,14 @@ def build_candidate(
         profile_list.write_text("".join(f"{path}\n" for path in profiles), encoding="utf-8")
         run_module("profile_metadata.py", profile_list, metadata)
         cargo = os.environ.get("CARGO", "cargo")
-        subprocess.run([cargo, "build", "--locked", "--release", "-p", "gocode-daemon", "--bin", "gocode-daemon", "--target", target], check=True)
-        binary_name = "gocode-daemon.exe" if platform == "windows" else "gocode-daemon"
+        subprocess.run([cargo, "build", "--locked", "--release", "-p", "runne-daemon", "--bin", "runne-daemon", "--target", target], check=True)
+        binary_name = "runne-daemon.exe" if platform == "windows" else "runne-daemon"
         binary = Path("target") / target / "release" / binary_name
         if not binary.is_file():
             fail(f"required daemon artifact is missing: {binary}")
         if platform == "macos":
             sign_macos_binary(binary, Path.cwd())
-        candidate = output / f"gocode-runtime-{version}-{target}"
+        candidate = output / f"runne-runtime-{version}-{target}"
         output.mkdir(parents=True, exist_ok=True)
         if candidate.exists():
             fail("candidate staging directory already exists")

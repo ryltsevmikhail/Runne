@@ -18,7 +18,7 @@ class VerifyReleaseMixin:
         output = self.root / "output"
         result = self.run_package(output)
         self.assertEqual(result.returncode, 0, result.stderr)
-        return output / f"gocode-runtime-1.2.3-{SUPPORTED_TARGET}"
+        return output / f"runne-runtime-1.2.3-{SUPPORTED_TARGET}"
 
     def run_verify(self, candidate: pathlib.Path, fixture_only: bool = False) -> subprocess.CompletedProcess[str]:
         arguments: list[str] = []
@@ -46,11 +46,11 @@ class VerifyReleaseMixin:
     def make_approved_candidate(self) -> pathlib.Path:
         candidate = self.package_candidate()
         manifest = json.loads((candidate / "release-manifest.v1.json").read_text())
-        daemon = (candidate / "gocode-daemon").read_bytes()
+        daemon = (candidate / "runne-daemon").read_bytes()
         targets = {"linux": "x86_64-unknown-linux-gnu", "macos": SUPPORTED_TARGET, "windows": "x86_64-pc-windows-msvc"}
-        artifact_paths = {"linux": "linux-daemon", "macos": "gocode-daemon", "windows": "windows-daemon"}
+        artifact_paths = {"linux": "linux-daemon", "macos": "runne-daemon", "windows": "windows-daemon"}
         for platform, path in artifact_paths.items():
-            if path != "gocode-daemon":
+            if path != "runne-daemon":
                 (candidate / path).write_bytes(daemon + platform.encode("ascii"))
         artifacts = []
         for platform, path in artifact_paths.items():

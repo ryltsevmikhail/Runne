@@ -119,7 +119,7 @@ class ReleaseTestCase(unittest.TestCase):
             "done\n"
             "if [ -n \"${CARGO_INVOCATION_MARKER:-}\" ]; then printf invoked > \"$CARGO_INVOCATION_MARKER\"; fi\n"
             "mkdir -p \"target/$target/release\"\n"
-            "printf 'fixture daemon\\n' > \"target/$target/release/gocode-daemon\"\n"
+            "printf 'fixture daemon\\n' > \"target/$target/release/runne-daemon\"\n"
             .encode("utf-8")
         )
         cargo.chmod(0o755)

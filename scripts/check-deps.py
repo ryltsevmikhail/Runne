@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify gocode workspace dependency boundaries."""
+"""Verify runne workspace dependency boundaries."""
 import json
 import pathlib
 import re
@@ -8,48 +8,48 @@ import sys
 
 
 POLICIES = {
-    "gocode-domain": {"uuid", "sha2", "hex", "chrono", "serde"},
-    "gocode-plugin-protocol": set(),
-    "gocode-observability": {"gocode-application"},
-    "gocode-platform": {"gocode-application", "gocode-platform-ports", "libc", "thiserror", "uuid"},
-    "gocode-project-owner-authority": {
+    "runne-domain": {"uuid", "sha2", "hex", "chrono", "serde"},
+    "runne-plugin-protocol": set(),
+    "runne-observability": {"runne-application"},
+    "runne-platform": {"runne-application", "runne-platform-ports", "libc", "thiserror", "uuid"},
+    "runne-project-owner-authority": {
         "argon2", "base64", "chacha20poly1305", "ed25519-dalek", "serde",
-        "serde_json", "sha2", "thiserror", "zeroize", "gocode-promotion-contracts",
+        "serde_json", "sha2", "thiserror", "zeroize", "runne-promotion-contracts",
     },
-    "gocode-promotion-contracts": {"serde", "serde_json", "sha2", "thiserror"},
-    "gocode-release-authority": {
+    "runne-promotion-contracts": {"serde", "serde_json", "sha2", "thiserror"},
+    "runne-release-authority": {
         "ed25519-dalek",
         "fs2",
         "serde",
         "serde_json",
         "sha2",
         "thiserror",
-        "gocode-project-owner-authority",
-        "gocode-promotion-contracts",
+        "runne-project-owner-authority",
+        "runne-promotion-contracts",
     },
 }
 
 EXACT_VERSION_POLICIES = {
-    "gocode-project-owner-authority": POLICIES["gocode-project-owner-authority"],
-    "gocode-release-authority": POLICIES["gocode-release-authority"],
+    "runne-project-owner-authority": POLICIES["runne-project-owner-authority"],
+    "runne-release-authority": POLICIES["runne-release-authority"],
 }
 INTERNAL_AUTHORITY_EDGES = {
-    ("gocode-project-owner-authority", "gocode-promotion-contracts"),
-    ("gocode-release-authority", "gocode-project-owner-authority"),
-    ("gocode-release-authority", "gocode-promotion-contracts"),
+    ("runne-project-owner-authority", "runne-promotion-contracts"),
+    ("runne-release-authority", "runne-project-owner-authority"),
+    ("runne-release-authority", "runne-promotion-contracts"),
 }
 FORBIDDEN_PROJECT_OWNER_AUTHORITY_EDGES = {
-    "gocode-cli", "gocode-store", "gocode-runtime",
+    "runne-cli", "runne-store", "runne-runtime",
 }
 PROJECT_OWNER_STORE_FEATURE = "project-owner-key-store"
-PROJECT_OWNER_STORE_OWNER = "gocode-cli"
+PROJECT_OWNER_STORE_OWNER = "runne-cli"
 PROJECT_OWNER_STORE_SYMBOLS = re.compile(
     r"\b(?:PendingProjectOwnerKey|ProjectOwnerAnchorFloor|ProjectOwnerKey\w*|StoreStatus|"
     r"project_owner_key(?:_store)?|create_pending|sign_active|activate_pending|"
     r"read_anchor_floor|write_anchor_floor|export_active_for_backup|restore_active|"
     r"into_backup_seed|validate_transcript|MAX_PROJECT_OWNER_TRANSCRIPT_BYTES)\b"
 )
-PROJECT_OWNER_STORE_WILDCARD_IMPORT = re.compile(r"\buse\s+gocode_secure_store\s*::\s*\*")
+PROJECT_OWNER_STORE_WILDCARD_IMPORT = re.compile(r"\buse\s+runne_secure_store\s*::\s*\*")
 
 
 def main() -> int:
@@ -83,11 +83,11 @@ def main() -> int:
                 f"FAIL: {name} has disallowed production dependencies: "
                 f"{sorted(disallowed)}"
             )
-        if name == "gocode-project-owner-authority":
+        if name == "runne-project-owner-authority":
             forbidden = production_deps & FORBIDDEN_PROJECT_OWNER_AUTHORITY_EDGES
             if forbidden:
                 errors.append(
-                    "FAIL: gocode-project-owner-authority has forbidden core edges: "
+                    "FAIL: runne-project-owner-authority has forbidden core edges: "
                     f"{sorted(forbidden)}"
                 )
         if name in EXACT_VERSION_POLICIES:
@@ -111,11 +111,11 @@ def main() -> int:
 
     resolved = next(
         (node for node in metadata.get("resolve", {}).get("nodes", [])
-         if node["id"].startswith("path+file://") and "/crates/secure-store#" in node["id"]),
+         if node["id"].startswith("path+file://") and "/crates/runne-secure-store#" in node["id"]),
         None,
     )
     if resolved is None or PROJECT_OWNER_STORE_FEATURE not in resolved.get("features", []):
-        errors.append("FAIL: resolved gocode-secure-store feature is missing project-owner-key-store")
+        errors.append("FAIL: resolved runne-secure-store feature is missing project-owner-key-store")
 
     missing = set(POLICIES) - found
     if missing:
@@ -123,11 +123,11 @@ def main() -> int:
 
     # Check protocol does not depend on domain
     for pkg in metadata["packages"]:
-        if pkg["name"] != "gocode-plugin-protocol":
+        if pkg["name"] != "runne-plugin-protocol":
             continue
         for dep in pkg.get("dependencies", []):
-            if dep["name"] == "gocode-domain":
-                errors.append("FAIL: gocode-plugin-protocol depends on gocode-domain")
+            if dep["name"] == "runne-domain":
+                errors.append("FAIL: runne-plugin-protocol depends on runne-domain")
 
     if errors:
         for e in errors:
@@ -147,7 +147,7 @@ def project_owner_store_declaration_errors(packages: list[dict]) -> list[str]:
     for package in packages:
         package_name = package.get("name", "<unknown>")
         for dependency in package.get("dependencies", []):
-            if dependency.get("name") != "gocode-secure-store":
+            if dependency.get("name") != "runne-secure-store":
                 continue
             features = set(dependency.get("features", []))
             is_owner = (
@@ -158,23 +158,23 @@ def project_owner_store_declaration_errors(packages: list[dict]) -> list[str]:
                 and dependency.get("optional") is False
                 and dependency.get("uses_default_features") is False
                 and features == {PROJECT_OWNER_STORE_FEATURE}
-                and dependency.get("path", "").endswith("/crates/secure-store")
+                and dependency.get("path", "").endswith("/crates/runne-secure-store")
             )
             if is_owner:
                 owners += 1
                 continue
             if dependency.get("uses_default_features", True):
-                errors.append(f"FAIL: {package_name} must disable gocode-secure-store default features")
+                errors.append(f"FAIL: {package_name} must disable runne-secure-store default features")
             if package_name == PROJECT_OWNER_STORE_OWNER:
-                errors.append("FAIL: gocode-cli owner declaration must be normal, unrenamed, nonoptional, untargeted, workspace-path exact-feature and default-features=false")
+                errors.append("FAIL: runne-cli owner declaration must be normal, unrenamed, nonoptional, untargeted, workspace-path exact-feature and default-features=false")
             if features:
                 errors.append(f"FAIL: {package_name} must not enable secure-store features")
             if dependency.get("rename") is not None:
-                errors.append(f"FAIL: {package_name} must not rename gocode-secure-store")
+                errors.append(f"FAIL: {package_name} must not rename runne-secure-store")
             if dependency.get("target") is not None and PROJECT_OWNER_STORE_FEATURE in features:
                 errors.append(f"FAIL: {package_name} must not target-gate project-owner-key-store")
     if owners != 1:
-        errors.append(f"FAIL: require exactly one gocode-cli project-owner-key-store declaration, found {owners}")
+        errors.append(f"FAIL: require exactly one runne-cli project-owner-key-store declaration, found {owners}")
     return errors
 
 
@@ -182,7 +182,7 @@ def project_owner_store_consumer_errors(packages: list[dict]) -> list[str]:
     """Reject owner-key API mentions outside CLI and secure-store metadata targets."""
     errors: list[str] = []
     for package in packages:
-        if package.get("name") in {PROJECT_OWNER_STORE_OWNER, "gocode-secure-store"}:
+        if package.get("name") in {PROJECT_OWNER_STORE_OWNER, "runne-secure-store"}:
             continue
         manifest = pathlib.Path(package["manifest_path"])
         paths = {manifest}
@@ -207,22 +207,22 @@ def release_authority_boundary_errors(packages: list[dict]) -> list[str]:
         package["name"]
         for package in packages
         if any(
-            dependency["name"] == "gocode-release-authority"
+            dependency["name"] == "runne-release-authority"
             and dependency.get("kind") != "dev"
             for dependency in package.get("dependencies", [])
         )
     }
-    if consumers != {"gocode-cli"}:
+    if consumers != {"runne-cli"}:
         errors.append(
-            "FAIL: gocode-release-authority must be consumed only by gocode-cli; "
+            "FAIL: runne-release-authority must be consumed only by runne-cli; "
             f"found {sorted(consumers)}"
         )
-    authority = next((package for package in packages if package["name"] == "gocode-release-authority"), None)
+    authority = next((package for package in packages if package["name"] == "runne-release-authority"), None)
     if authority is None:
         return errors
     sources = pathlib.Path(authority["manifest_path"]).parent / "src"
-    if any("gocode_secure_store" in path.read_text(encoding="utf-8") for path in sources.rglob("*.rs")):
-        errors.append("FAIL: gocode-release-authority must not import gocode-secure-store APIs")
+    if any("runne_secure_store" in path.read_text(encoding="utf-8") for path in sources.rglob("*.rs")):
+        errors.append("FAIL: runne-release-authority must not import runne-secure-store APIs")
     return errors
 
 
@@ -239,7 +239,7 @@ def internal_authority_edge_errors(packages: list[dict]) -> list[str]:
             valid = (
                 dependency.get("kind") is None and dependency.get("target") is None
                 and dependency.get("rename") is None and not dependency.get("optional")
-                and path.endswith(f"/crates/{edge[1].replace('gocode-project-owner-authority', 'project-owner-authority')}")
+                and path.endswith(f"/crates/{edge[1]}")
             )
             if not valid:
                 errors.append(f"FAIL: invalid internal authority edge: {owner} -> {edge[1]}")

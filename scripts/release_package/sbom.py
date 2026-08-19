@@ -8,7 +8,7 @@ import sys
 path = pathlib.Path(sys.argv[1])
 payload = {
     "bomFormat": "CycloneDX",
-    "components": [{"name": "gocode-daemon", "type": "application", "version": sys.argv[2]}],
+    "components": [{"name": "runne-daemon", "type": "application", "version": sys.argv[2]}],
     "specVersion": "1.5",
 }
 path.write_bytes(
