@@ -6,15 +6,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gocode_app_core::{
+use runne_app_core::{
     AppCore, AppCoreError, ConversationMessageSummary, ConversationRecoveryDisposition,
     ConversationTimelineUpdate, RuntimeAvailability, RuntimeMode,
 };
-use gocode_desktop::conversation_channel::{
+use runne_desktop::conversation_channel::{
     ConversationChannelErrorCode, ConversationChannelEvent, ConversationSubscriptionManager,
     ConversationUpdateSource,
 };
-use gocode_desktop::{
+use runne_desktop::{
     OwnedRuntimeLifecycle, RuntimeConnectionFuture, RuntimeLifecycleManager, select_runtime_mode,
 };
 use serde_json::Value;

@@ -1,3 +1,3 @@
 fn main() {
-    gocode_desktop::run();
+    runne_desktop::run();
 }

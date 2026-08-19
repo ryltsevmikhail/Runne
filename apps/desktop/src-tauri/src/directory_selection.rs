@@ -3,8 +3,8 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use gocode_platform_desktop::VerifiedRootHandle;
 use rand::RngCore;
+use runne_platform_desktop::VerifiedRootHandle;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 

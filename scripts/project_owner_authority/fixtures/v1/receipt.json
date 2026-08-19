@@ -1,6 +1,6 @@
 {
-  "schema_version": "gocode.project-owner.authority-receipt/1",
-  "repository_id": "gocode",
+  "schema_version": "runne.project-owner.authority-receipt/1",
+  "repository_id": "runne",
   "role": "PROJECT_OWNER",
   "purpose": "V1_PLATFORM_SCOPE_AUTHORIZATION",
   "trust_config_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
@@ -9,9 +9,9 @@
   "subject": {"object_format": "sha1", "commit_oid": "3333333333333333333333333333333333333333", "tree_oid": "4444444444444444444444444444444444444444"},
   "documents": [
     {"path": "docs/adr/ADR-0027-v1-platform-scope.md", "mode": "100644", "blob_oid": "5555555555555555555555555555555555555555", "content_sha256": "6666666666666666666666666666666666666666666666666666666666666666", "byte_length": 1024},
-    {"path": "docs/decisions/v1-platform-scope-v1.json", "mode": "100644", "blob_oid": "7777777777777777777777777777777777777777", "content_sha256": "8888888888888888888888888888888888888888888888888888888888888888", "byte_length": 512, "schema_id": "gocode.governance.v1-platform-scope-decision/1"}
+    {"path": "docs/decisions/v1-platform-scope-v1.json", "mode": "100644", "blob_oid": "7777777777777777777777777777777777777777", "content_sha256": "8888888888888888888888888888888888888888888888888888888888888888", "byte_length": 512, "schema_id": "runne.governance.v1-platform-scope-decision/1"}
   ],
   "issued_at": "2026-08-12T00:00:00Z",
-  "profile": "gocode.project-owner.v1-platform-scope/1",
+  "profile": "runne.project-owner.v1-platform-scope/1",
   "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 }

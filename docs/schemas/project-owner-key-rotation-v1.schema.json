@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.project-owner.key-rotation/1",
-  "title": "GOCODE Project Owner Key Rotation V1",
+  "$id": "runne.project-owner.key-rotation/1",
+  "title": "RUNNE Project Owner Key Rotation V1",
   "description": "Public rotation proof binding an old authorization to a new key proof-of-possession.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "role", "predecessor_config_sha256", "old_key_id", "old_epoch", "new_key_id", "new_public_key", "new_epoch", "old_authorization", "new_proof_of_possession"],
   "properties": {
-    "schema_version": {"const": "gocode.project-owner.key-rotation/1"},
-    "repository_id": {"const": "gocode"},
+    "schema_version": {"const": "runne.project-owner.key-rotation/1"},
+    "repository_id": {"const": "runne"},
     "role": {"const": "PROJECT_OWNER"},
     "predecessor_config_sha256": {"$ref": "#/$defs/sha256"},
     "old_key_id": {"$ref": "#/$defs/sha256"},

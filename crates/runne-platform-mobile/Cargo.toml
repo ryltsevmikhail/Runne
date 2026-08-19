@@ -1,0 +1,12 @@
+[package]
+name = "runne-platform-mobile"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-platform-ports = { path = "../runne-platform-ports" }
+
+[lints]
+workspace = true

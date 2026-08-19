@@ -125,7 +125,7 @@ pub fn run() {
             connect_runtime,
         ])
         .build(tauri::generate_context!())
-        .expect("failed to initialize GOCODE desktop application");
+        .expect("failed to initialize Runne desktop application");
     app.run(|app, event| {
         if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
             let lifecycle = app.state::<RuntimeLifecycleManager>();

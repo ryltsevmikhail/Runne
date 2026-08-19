@@ -1,0 +1,11 @@
+[package]
+name = "runne-plugin-host"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-plugin-protocol = { path = "../runne-plugin-protocol" }
+runne-tools = { path = "../runne-tools" }
+serde_json = { workspace = true }
+sha2 = { workspace = true }

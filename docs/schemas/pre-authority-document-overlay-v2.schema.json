@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.project-owner.pre-authority-document-overlay/2",
+  "$id": "runne.project-owner.pre-authority-document-overlay/2",
   "title": "Pre-authority document overlay",
   "type": "object",
   "additionalProperties": false,
@@ -26,10 +26,10 @@
       "const": 2
     },
     "repository_id": {
-      "const": "gocode"
+      "const": "runne"
     },
     "policy_id": {
-      "const": "gocode.project-owner.pre-authority-document-overlay-policy/2"
+      "const": "runne.project-owner.pre-authority-document-overlay-policy/2"
     },
     "mode": {
       "const": "pre_authority_overlay"
@@ -260,7 +260,7 @@
           ]
         },
         "evidence_binding": {
-          "const": "gocode.rc0.evidence-profile/3"
+          "const": "runne.rc0.evidence-profile/3"
         }
       },
       "oneOf": [

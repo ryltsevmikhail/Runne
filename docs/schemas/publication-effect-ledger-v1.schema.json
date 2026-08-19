@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.release.publication-effect-ledger/1",
+  "$id": "runne.release.publication-effect-ledger/1",
   "title": "Publication Effect Ledger V1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "claims"],
   "properties": {
-    "schema_version": {"const": "gocode.release.publication-effect-ledger/1"},
+    "schema_version": {"const": "runne.release.publication-effect-ledger/1"},
     "claims": {"type": "array", "items": {"$ref": "#/$defs/claim"}}
   },
   "$defs": {

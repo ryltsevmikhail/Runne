@@ -1,7 +1,7 @@
 #[test]
 fn picker_ipc_has_no_raw_path_or_renderer_dialog_capability() {
     let commands = include_str!("../src/lib_parts/commands.rs");
-    let summaries = include_str!("../../../../crates/app-core/src/lib_parts/snapshots.rs");
+    let summaries = include_str!("../../../../crates/runne-app-core/src/lib_parts/snapshots.rs");
     let renderer =
         include_str!("../../src/features/open-local-project/model/open-local-project.ts");
     let projects = include_str!("../../src/entities/project/api/projects.ts");

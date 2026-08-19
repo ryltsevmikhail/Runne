@@ -1,4 +1,4 @@
-use gocode_app_core::{
+use runne_app_core::{
     DestructiveConfirmationContext, DestructiveConfirmationLease,
     DestructiveConfirmationFuture, DestructiveConfirmationPort, DestructiveProjectSummary,
     ProjectDestructiveOperation,
@@ -34,7 +34,7 @@ impl Drop for DesktopConfirmationPort {
 struct DesktopConfirmationLease {
     intents: DestructiveIntentManager,
     reference: DestructiveIntentRef,
-    binding: gocode_app_core::MutationAdmissionBinding,
+    binding: runne_app_core::MutationAdmissionBinding,
     digest: [u8; 32],
     decision: Option<tokio::sync::oneshot::Receiver<bool>>,
     committed: bool,
@@ -146,7 +146,7 @@ async fn prepare_destructive_project_action(
             != Some(request.renderer_generation) {
         return Err(rejected());
     }
-    let project_id = gocode_app_core::CanonicalId::parse(&request.project_id)
+    let project_id = runne_app_core::CanonicalId::parse(&request.project_id)
         .map_err(|_| rejected())?;
     let (issued, receive)=tokio::sync::oneshot::channel();
     let port=Arc::new(DesktopConfirmationPort { window: window.clone(), intents: (*intents).clone(), generation: request.renderer_generation, issued: std::sync::Mutex::new(Some(issued)), reference: std::sync::Mutex::new(None) });
@@ -229,8 +229,8 @@ const fn confirmed_for_test(_: DestructiveProjectSummary) -> bool { true }
 mod tests {
     use super::*;
 
-    fn binding() -> gocode_app_core::MutationAdmissionBinding {
-        gocode_app_core::MutationAdmissionBinding {
+    fn binding() -> runne_app_core::MutationAdmissionBinding {
+        runne_app_core::MutationAdmissionBinding {
             runtime_identity_digest: [1; 32], principal_digest: [2; 32], gate_epoch: 3,
         }
     }

@@ -1,4 +1,4 @@
-use gocode_app_core::{AppCore, RuntimeMode};
+use runne_app_core::{AppCore, RuntimeMode};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
@@ -102,7 +102,7 @@ async fn stalled_telemetry_peer_is_single_flight_and_keeps_ipc_responsive() {
     });
     let directory = tempfile::tempdir().expect("temporary profile directory");
     let core = Arc::new(
-        gocode_app_core::test_support::open_protected_bundled_workspace_core(
+        runne_app_core::test_support::open_protected_bundled_workspace_core(
             &directory.path().join("profile.sqlite3"),
             address,
         )
@@ -165,7 +165,7 @@ async fn worker_panic_closes_to_the_static_telemetry_error() {
         .try_acquire_owned()
         .expect("worker admission");
     let Err(error) = operational_telemetry_command::run_telemetry_blocking::<
-        gocode_app_core::OperationalTelemetrySnapshotV1,
+        runne_app_core::OperationalTelemetrySnapshotV1,
         _,
     >(permit, || panic!("test worker panic"))
     .await

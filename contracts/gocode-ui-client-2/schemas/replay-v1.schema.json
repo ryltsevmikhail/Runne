@@ -5,7 +5,7 @@
       "properties": {
         "cursor": {
           "maxLength": 8192,
-          "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+          "pattern": "^runne-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
           "type": "string"
         }
       },
@@ -934,7 +934,7 @@
         },
         "cursor": {
           "maxLength": 8192,
-          "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+          "pattern": "^runne-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
           "type": "string"
         },
         "eventId": {
@@ -1015,7 +1015,7 @@
           "oneOf": [
             {
               "maxLength": 8192,
-              "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+              "pattern": "^runne-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
               "type": "string"
             },
             {
@@ -1518,7 +1518,7 @@
       "type": "object"
     }
   },
-  "$id": "gocode://schemas/replay-v1",
+  "$id": "runne://schemas/replay-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -1557,7 +1557,7 @@
     },
     "cursor": {
       "maxLength": 8192,
-      "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+      "pattern": "^runne-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
       "type": "string"
     },
     "eventId": {

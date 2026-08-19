@@ -1,0 +1,28 @@
+[package]
+name = "runne-security"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-domain = { path = "../runne-domain" }
+runne-application = { path = "../runne-application" }
+runne-platform = { path = "../runne-platform" }
+runne-platform-ports = { path = "../runne-platform-ports" }
+serde = { version = "1", features = ["derive"] }
+uuid = { version = "1", features = ["v4", "v7"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+sha2.workspace = true
+base64.workspace = true
+hex.workspace = true
+zeroize.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1.4", features = ["fs"] }
+
+[dev-dependencies]
+runne-store = { path = "../runne-store" }
+rusqlite = { workspace = true }
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "macros", "sync", "test-util"] }

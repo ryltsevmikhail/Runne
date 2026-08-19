@@ -23,7 +23,7 @@ pub(super) struct PreparedWorkspaceOpenAttempt {
     root: Option<VerifiedRootHandle>,
     admission: Option<ProtectedRootHandleAdmission>,
     permit: Option<tokio::sync::OwnedMutexGuard<()>>,
-    prepared: Option<gocode_app_core::PreparedWorkspaceOpen>,
+    prepared: Option<runne_app_core::PreparedWorkspaceOpen>,
     reaper: Option<std::sync::Arc<dyn crate::NativeRootAdmissionLifecycle>>,
 }
 
@@ -56,20 +56,20 @@ impl PreparedWorkspaceManager {
 }
 
 impl PreparedWorkspaceOpenAttempt {
-    pub(super) async fn prepare(&mut self, core: &gocode_app_core::AppCore) -> Result<(), gocode_app_core::AppCoreError> {
+    pub(super) async fn prepare(&mut self, core: &runne_app_core::AppCore) -> Result<(), runne_app_core::AppCoreError> {
         if self.prepared.is_none() {
-            let admission = self.admission.take().ok_or(gocode_app_core::AppCoreError::InvalidMutation)?;
+            let admission = self.admission.take().ok_or(runne_app_core::AppCoreError::InvalidMutation)?;
             self.prepared = Some(core.prepare_open_selected_workspace(self.workspace_id, self.expected_version, admission).await?);
         }
         Ok(())
     }
 
-    pub(super) async fn dispatch(&mut self, core: &gocode_app_core::AppCore) -> Result<(), gocode_app_core::NativeMutationFailure> {
-        core.dispatch_prepared_workspace_open(self.prepared.as_mut().ok_or_else(gocode_app_core::NativeMutationFailure::pre_dispatch)?).await.map(|_| ())
+    pub(super) async fn dispatch(&mut self, core: &runne_app_core::AppCore) -> Result<(), runne_app_core::NativeMutationFailure> {
+        core.dispatch_prepared_workspace_open(self.prepared.as_mut().ok_or_else(runne_app_core::NativeMutationFailure::pre_dispatch)?).await.map(|_| ())
     }
 
     pub(super) fn possible_send(&self) -> bool {
-        self.prepared.as_ref().is_some_and(gocode_app_core::AppCore::prepared_workspace_open_possible_send)
+        self.prepared.as_ref().is_some_and(runne_app_core::AppCore::prepared_workspace_open_possible_send)
     }
 
     pub(super) async fn reap(mut self) {
