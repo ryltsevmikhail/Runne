@@ -17,8 +17,8 @@ use crate::schema::{
     publication_from_managed, readiness_from_managed,
 };
 
-const PREPARED_V1_DOMAIN: &[u8] = b"RUNNE_PROVIDER_PREPARED_V1\0";
-const PREPARED_V2_DOMAIN: &[u8] = b"RUNNE_PROVIDER_PREPARED_V2\0";
+const PREPARED_V1_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V1\0";
+const PREPARED_V2_DOMAIN: &[u8] = b"GOCODE_PROVIDER_PREPARED_V2\0";
 
 /// Durable metadata of one non-effecting prepared provider request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
