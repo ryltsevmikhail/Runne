@@ -80,7 +80,10 @@ def assert_live_runner_contract(case) -> None:
                 case.assertEqual(parse_codesign_result(LiveRunner(candidate.parent).run(malformed)), FailureCode.UNKNOWN_STATUS)
     run.assert_called_once()
     argv, = run.call_args.args
-    case.assertEqual(argv, ["/usr/bin/codesign", "--verify", "--strict", str(candidate.parent / app.relative_path)])
+    # The runner canonicalizes every candidate path via resolve(strict=True);
+    # on macOS the temporary directory lives under /private/var, so the
+    # expected argv must be the resolved path, not the literal one.
+    case.assertEqual(argv, ["/usr/bin/codesign", "--verify", "--strict", str((candidate.parent / app.relative_path).resolve(strict=True))])
     case.assertFalse(run.call_args.kwargs["shell"])
     case.assertEqual(set(run.call_args.kwargs["env"]), {"PATH", "LANG", "LC_ALL"})
     case.assertEqual(run.call_args.kwargs["timeout"], 60)
