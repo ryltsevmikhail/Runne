@@ -4228,6 +4228,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "runne-sqlite-handle-identity"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+]
+
+[[package]]
 name = "runne-sqlite-native-identity"
 version = "0.1.0"
 dependencies = [
@@ -4251,12 +4258,12 @@ dependencies = [
  "runne-runtime",
  "runne-secure-store",
  "runne-security",
+ "runne-sqlite-handle-identity",
  "rusqlite",
  "same-file",
  "serde",
  "serde_json",
  "sha2",
- "sqlite-handle-identity",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -4852,13 +4859,6 @@ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
 dependencies = [
  "base64ct",
  "der",
-]
-
-[[package]]
-name = "sqlite-handle-identity"
-version = "0.1.0"
-dependencies = [
- "rusqlite",
 ]
 
 [[package]]

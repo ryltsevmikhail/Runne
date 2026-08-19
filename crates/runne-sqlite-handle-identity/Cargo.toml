@@ -1,5 +1,5 @@
 [package]
-name = "sqlite-handle-identity"
+name = "runne-sqlite-handle-identity"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

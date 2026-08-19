@@ -150,7 +150,7 @@ impl ConnectionIdentityGuard {
     fn verify_with_sidecar_handle(&self, connection: &Connection) -> SqliteResult<()> {
         self.verify(connection)?;
         if self.owner_private && (self.wal.is_some() || self.shm.is_some()) {
-            match sqlite_handle_identity::journal_file_has_moved(connection) {
+            match runne_sqlite_handle_identity::journal_file_has_moved(connection) {
                 Ok(Some(false)) => {}
                 Ok(Some(true)) | Ok(None) | Err(_) => {
                     return Err(diagnostic_error(
@@ -249,7 +249,7 @@ fn optional_retained_unchanged(
 
 #[cfg(unix)]
 fn sqlite_main_has_moved(connection: &Connection) -> SqliteResult<bool> {
-    sqlite_handle_identity::main_file_has_moved(connection).map_err(|_| {
+    runne_sqlite_handle_identity::main_file_has_moved(connection).map_err(|_| {
         diagnostic_error(SchemaOpenDiagnostic::FileIdentityUncertain)
     })
 }
