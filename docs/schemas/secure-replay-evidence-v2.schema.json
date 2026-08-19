@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gocode.dev/schemas/secure-replay-evidence-v2.schema.json",
+  "$id": "https://runne.dev/schemas/secure-replay-evidence-v2.schema.json",
   "title": "Secure Replay Evidence V2",
   "type": "object",
   "additionalProperties": false,
@@ -57,8 +57,8 @@
             }
           }
         },
-        "contractProfileId": { "const": "gocode-ui-client/1" },
-        "transportProfileId": { "const": "gocode-local-runtime/2" },
+        "contractProfileId": { "const": "runne-ui-client/1" },
+        "transportProfileId": { "const": "runne-local-runtime/2" },
         "contractBundleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },

@@ -1,0 +1,40 @@
+[package]
+name = "runne-platform-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+protected-channel-integration = []
+test-support = ["runne-api/test-support", "runne-runtime-client/test-support"]
+
+[dependencies]
+runne-api = { path = "../runne-api" }
+runne-platform-ports = { path = "../runne-platform-ports" }
+runne-runtime-client = { path = "../runne-runtime-client" }
+hex.workspace = true
+rand = "0.8"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zeroize = "=1.9.0"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["socket"] }
+
+[target.'cfg(windows)'.dependencies]
+runne-windows-native-handle = { path = "../runne-windows-native-handle" }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+tempfile = "=3.27.0"

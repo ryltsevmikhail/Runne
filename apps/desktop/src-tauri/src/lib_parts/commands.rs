@@ -174,7 +174,7 @@ async fn open_prepared_workspace(core: &AppCore, _lifecycle: &RuntimeLifecycleMa
         if attempt.possible_send() {
             return Err(IpcError { code: if attempt.retain() == crate::prepared_workspace::PreparedWorkspaceRestoreOutcome::Retained { "prepared_workspace_retryable" } else { "prepared_workspace_rejected" } });
         }
-        if error.disposition() == gocode_app_core::NativeAuthorityDisposition::ReapBeforeDispatch {
+        if error.disposition() == runne_app_core::NativeAuthorityDisposition::ReapBeforeDispatch {
             attempt.reap().await;
         }
         return Err(IpcError { code: "prepared_workspace_rejected" });

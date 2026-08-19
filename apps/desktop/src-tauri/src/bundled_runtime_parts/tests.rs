@@ -5,9 +5,9 @@
         BundledRuntimeController, ProtectedSessionRenewalSchedule, RuntimeOperationFence,
         map_protected_failure,
     };
-    use gocode_api::ProviderActivationReadinessV1;
-    use gocode_app_core::{AppCore, RuntimeFailureCode, RuntimeMode};
-    use gocode_platform_desktop::ProtectedBundledRuntimeError;
+    use runne_api::ProviderActivationReadinessV1;
+    use runne_app_core::{AppCore, RuntimeFailureCode, RuntimeMode};
+    use runne_platform_desktop::ProtectedBundledRuntimeError;
 
     #[test]
     fn protected_failures_map_to_closed_renderer_codes() {
@@ -66,7 +66,7 @@
 
         let Err(failure) = BundledRuntimeController::discover(
             Arc::clone(&core),
-            temporary.path().join("gocode-desktop").as_path(),
+            temporary.path().join("runne-desktop").as_path(),
             temporary.path().join("bundled-runtime").as_path(),
         ) else {
             panic!("default bundled discovery must require configuration");
@@ -77,10 +77,10 @@
             .expect("mark configuration required");
 
         let bootstrap = core.bootstrap().expect("configuration bootstrap");
-        assert_eq!(bootstrap.runtime, gocode_app_core::RuntimeAvailability::Unconfigured);
+        assert_eq!(bootstrap.runtime, runne_app_core::RuntimeAvailability::Unconfigured);
         assert_eq!(
             bootstrap.runtime_lifecycle,
-            gocode_app_core::RuntimeLifecycleStatus::ConfigurationRequired
+            runne_app_core::RuntimeLifecycleStatus::ConfigurationRequired
         );
         assert_eq!(
             bootstrap.runtime_failure,

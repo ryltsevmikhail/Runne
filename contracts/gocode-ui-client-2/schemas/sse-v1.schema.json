@@ -830,7 +830,7 @@
       ]
     }
   },
-  "$id": "gocode://schemas/sse-v1",
+  "$id": "runne://schemas/sse-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -947,7 +947,7 @@
     },
     "replayCursor": {
       "maxLength": 8192,
-      "pattern": "^gocode-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
+      "pattern": "^runne-replay-cursor-v1\\.(?:[0-9a-f]{2})+$",
       "type": "string"
     },
     "replaySessionId": {

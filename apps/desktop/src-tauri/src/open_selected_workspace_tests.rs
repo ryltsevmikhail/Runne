@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use gocode_app_core::test_support::open_protected_bundled_workspace_core;
+use runne_app_core::test_support::open_protected_bundled_workspace_core;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,

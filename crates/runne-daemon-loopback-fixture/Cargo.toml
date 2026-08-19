@@ -1,0 +1,37 @@
+[package]
+name = "runne-daemon-loopback-fixture"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[dependencies]
+runne-application = { path = "../runne-application" }
+runne-api = { path = "../runne-api" }
+runne-daemon = { path = "../runne-daemon", features = ["desktop-protected", "test-support"] }
+runne-daemon-openai-effect = { path = "../runne-daemon-openai-effect" }
+runne-platform-desktop = { path = "../runne-platform-desktop" }
+runne-provider = { path = "../runne-provider" }
+runne-runtime = { path = "../runne-runtime" }
+runne-runtime-client = { path = "../runne-runtime-client" }
+runne-store = { path = "../runne-store" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+rand = "0.8"
+rcgen = { workspace = true }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+rustls = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true }
+tokio-rustls = { workspace = true }
+uuid = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "=1.1.4", features = ["fs", "process"] }
+
+[dev-dependencies]
+runne-app-core = { path = "../runne-app-core" }
+runne-desktop = { path = "../../apps/desktop/src-tauri", features = ["test-support"] }
+runne-provider-openai = { path = "../runne-provider-openai" }
+rusqlite = { workspace = true }
+tempfile = "3"

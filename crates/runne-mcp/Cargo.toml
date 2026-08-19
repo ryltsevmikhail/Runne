@@ -1,0 +1,10 @@
+[package]
+name = "runne-mcp"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-tools = { path = "../runne-tools" }
+serde_json.workspace = true
+sha2.workspace = true

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.release.rc2-threshold-update-metadata-set/2",
+  "$id": "runne.release.rc2-threshold-update-metadata-set/2",
   "title": "RC2 role-separated threshold update metadata",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "root", "targets", "snapshot", "timestamp"],
   "properties": {
-    "schema_version": {"const": "gocode.release.rc2-threshold-update-metadata-set/2"},
+    "schema_version": {"const": "runne.release.rc2-threshold-update-metadata-set/2"},
     "root": {"$ref": "#/$defs/root"},
     "targets": {"$ref": "#/$defs/targets"},
     "snapshot": {"$ref": "#/$defs/snapshot"},

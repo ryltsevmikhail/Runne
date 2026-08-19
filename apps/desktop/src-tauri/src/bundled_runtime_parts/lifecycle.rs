@@ -38,8 +38,8 @@ impl OwnedRuntimeLifecycle for BundledRuntimeController {
 impl NativeRootAdmissionLifecycle for BundledRuntimeController {
     fn prepare_root_admission(
         &self,
-        root: gocode_platform_desktop::VerifiedRootHandle,
-        workspace_id: gocode_platform_desktop::WorkspaceId,
+        root: runne_platform_desktop::VerifiedRootHandle,
+        workspace_id: runne_platform_desktop::WorkspaceId,
         expected_version: u64,
     ) -> RootAdmissionFuture {
         let supervisor = Arc::clone(&self.supervisor);

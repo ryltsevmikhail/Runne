@@ -2,13 +2,13 @@
   "components": {
     "securitySchemes": {
       "sessionAuth": {
-        "scheme": "GocodeSession",
+        "scheme": "RunneSession",
         "type": "http"
       }
     }
   },
   "info": {
-    "title": "GOCODE Local Runtime API",
+    "title": "Runne Local Runtime API",
     "version": "2.0.0"
   },
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
@@ -85,7 +85,7 @@
             "schema": {
               "maxLength": 119,
               "minLength": 119,
-              "pattern": "^gocode-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+              "pattern": "^runne-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             }
           }
@@ -299,7 +299,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -312,7 +312,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -525,7 +525,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -538,7 +538,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -965,7 +965,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -978,7 +978,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -1203,7 +1203,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -1216,7 +1216,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -1426,7 +1426,7 @@
             "schema": {
               "maxLength": 153,
               "minLength": 153,
-              "pattern": "^gocode-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+              "pattern": "^runne-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             }
           }
@@ -1652,7 +1652,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -1665,7 +1665,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -1867,7 +1867,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 8192
+          "x-runne-maxBodyBytes": 8192
         },
         "responses": {
           "200": {
@@ -1934,7 +1934,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 1048576
+          "x-runne-maxBodyBytes": 1048576
         },
         "responses": {
           "200": {
@@ -2037,7 +2037,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 8192
+          "x-runne-maxBodyBytes": 8192
         },
         "responses": {
           "200": {
@@ -2201,7 +2201,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 8192
+          "x-runne-maxBodyBytes": 8192
         },
         "responses": {
           "200": {
@@ -2642,7 +2642,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -2655,7 +2655,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {
@@ -2880,7 +2880,7 @@
               "minLength": 1,
               "pattern": "^[\\u0020-\\u007e]+$",
               "type": "string",
-              "x-gocode-maxUtf8Bytes": 256
+              "x-runne-maxUtf8Bytes": 256
             }
           }
         ],
@@ -2893,7 +2893,7 @@
             }
           },
           "required": true,
-          "x-gocode-maxBodyBytes": 16384
+          "x-runne-maxBodyBytes": 16384
         },
         "responses": {
           "202": {

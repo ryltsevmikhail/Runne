@@ -1,19 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.project-owner.key-rotation/2",
-  "title": "GOCODE Project Owner Key Rotation V2",
+  "$id": "runne.project-owner.key-rotation/2",
+  "title": "RUNNE Project Owner Key Rotation V2",
   "description": "Public V1-to-V2 or V2-to-V2 successor proof with exact successor pins.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "role", "old_trust_schema_version", "old_trust_config_sha256", "old_key_id", "old_epoch", "new_trust_schema_version", "new_key_id", "new_public_key", "new_epoch", "new_schema_digests", "old_authorization", "new_proof_of_possession"],
   "properties": {
-    "schema_version": {"const": "gocode.project-owner.key-rotation/2"}, "repository_id": {"const": "gocode"}, "role": {"const": "PROJECT_OWNER"},
-    "old_trust_schema_version": {"enum": ["gocode.project-owner.trust-config/1", "gocode.project-owner.trust-config/2"]}, "old_trust_config_sha256": {"$ref": "#/$defs/sha256"}, "old_key_id": {"$ref": "#/$defs/sha256"}, "old_epoch": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
-    "new_trust_schema_version": {"const": "gocode.project-owner.trust-config/2"}, "new_key_id": {"$ref": "#/$defs/sha256"}, "new_public_key": {"$ref": "#/$defs/public_key"}, "new_epoch": {"type": "integer", "minimum": 2, "maximum": 18446744073709551615},
+    "schema_version": {"const": "runne.project-owner.key-rotation/2"}, "repository_id": {"const": "runne"}, "role": {"const": "PROJECT_OWNER"},
+    "old_trust_schema_version": {"enum": ["runne.project-owner.trust-config/1", "runne.project-owner.trust-config/2"]}, "old_trust_config_sha256": {"$ref": "#/$defs/sha256"}, "old_key_id": {"$ref": "#/$defs/sha256"}, "old_epoch": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
+    "new_trust_schema_version": {"const": "runne.project-owner.trust-config/2"}, "new_key_id": {"$ref": "#/$defs/sha256"}, "new_public_key": {"$ref": "#/$defs/public_key"}, "new_epoch": {"type": "integer", "minimum": 2, "maximum": 18446744073709551615},
     "new_schema_digests": {"type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": {"$ref": "#/$defs/schema_digest"}}, "old_authorization": {"$ref": "#/$defs/signature"}, "new_proof_of_possession": {"$ref": "#/$defs/signature"}
   },
   "$defs": {
     "base64url": {"type": "string", "pattern": "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$"}, "public_key": {"$ref": "#/$defs/base64url", "minLength": 43, "maxLength": 43}, "signature": {"$ref": "#/$defs/base64url", "minLength": 86, "maxLength": 86}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "schema_digest": {"type": "object", "additionalProperties": false, "required": ["schema_id", "schema_sha256"], "properties": {"schema_id": {"type": "string", "pattern": "^gocode\\.[a-z0-9.-]+/[0-9]+$"}, "schema_sha256": {"$ref": "#/$defs/sha256"}}}
+    "schema_digest": {"type": "object", "additionalProperties": false, "required": ["schema_id", "schema_sha256"], "properties": {"schema_id": {"type": "string", "pattern": "^runne\\.[a-z0-9.-]+/[0-9]+$"}, "schema_sha256": {"$ref": "#/$defs/sha256"}}}
   }
 }

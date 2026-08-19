@@ -12,16 +12,16 @@ use crate::{
     NativeRootAdmission, NativeRootAdmissionLifecycle, OwnedRuntimeLifecycle, RootAdmissionFuture,
     RootAdmissionReapFuture, RuntimeConnectionFuture,
 };
-use gocode_api::ProviderActivationReadinessV1;
-use gocode_app_core::{
+use runne_api::ProviderActivationReadinessV1;
+use runne_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
 };
-use gocode_platform_desktop::{
+use runne_platform_desktop::{
     BundledRuntimeLifecycleState, BundledRuntimeStopDisposition, ProtectedBundledRuntimeError,
     ProtectedBundledRuntimeSupervisor,
 };
 #[cfg(feature = "test-support")]
-use gocode_platform_desktop::{
+use runne_platform_desktop::{
     DevelopmentBundledRuntimeLauncher, PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
     ProtectedBundledRuntimeLaunchSpec, discover_bundled_runtime,
 };

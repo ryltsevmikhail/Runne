@@ -1,0 +1,25 @@
+[package]
+name = "runne-release-authority"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+fixture-only = []
+
+[dependencies]
+ed25519-dalek.workspace = true
+fs2 = "=0.4.3"
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+runne-project-owner-authority.workspace = true
+runne-promotion-contracts.workspace = true
+
+[dev-dependencies]
+ed25519-dalek.workspace = true
+
+[lints]
+workspace = true
