@@ -10,7 +10,7 @@ runne-api = { path = "../runne-api" }
 runne-domain = { path = "../runne-domain" }
 runne-provider = { path = "../runne-provider" }
 runne-runtime = { path = "../runne-runtime" }
-sqlite-handle-identity = { path = "../sqlite-handle-identity" }
+runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
 rand = "0.8"
 rusqlite = { version = "=0.34.0", features = ["backup", "bundled"] }
 sha2 = "=0.10.8"
