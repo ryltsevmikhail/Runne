@@ -82,22 +82,84 @@ mod tests {
             .join("../../target/debug/gocode-sandbox-helper")
     }
 
-    fn build_and_sign_helper() {
+    fn build_helper() {
         let status = Command::new("cargo")
             .args(["build", "-p", "gocode-sandbox-helper"])
             .status()
             .expect("spawn cargo build");
         assert!(status.success(), "cargo build gocode-sandbox-helper failed");
+    }
 
-        // Ad-hoc sign the helper. The entitlements file in the helper crate is
-        // provided for production Developer ID signing; the spike uses explicit
-        // sandbox_init and therefore signs without the app-sandbox entitlement.
-        let helper = helper_binary_path();
-        let status = Command::new("codesign")
-            .args(["--sign", "-", "--force", helper.to_str().unwrap()])
-            .status()
-            .expect("spawn codesign");
+    /// Валидные codesigning identity из keychain пользователя.
+    fn valid_codesigning_identities() -> Vec<String> {
+        let output = Command::new("security")
+            .args(["find-identity", "-v", "-p", "codesigning"])
+            .output()
+            .expect("spawn security find-identity");
+        assert!(
+            output.status.success(),
+            "security find-identity failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter_map(|line| {
+                let (_, rest) = line.split_once('"')?;
+                Some(rest.trim_end_matches('"').to_string())
+            })
+            .collect()
+    }
+
+    /// Production identity для подписи helper.
+    ///
+    /// Явный `GOCODE_MACOS_SIGNING_IDENTITY` fail-closed: значение обязано
+    /// быть среди валидных identity keychain. Без переменной используется
+    /// первый найденный Developer ID Application. `None` означает, что
+    /// identity недоступна и caller обязан откатиться на ad-hoc test-signing.
+    fn resolve_developer_id_identity() -> Option<String> {
+        if let Some(requested) = std::env::var("GOCODE_MACOS_SIGNING_IDENTITY")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+        {
+            let identities = valid_codesigning_identities();
+            assert!(
+                identities.contains(&requested),
+                "GOCODE_MACOS_SIGNING_IDENTITY={requested} not found among valid identities"
+            );
+            return Some(requested);
+        }
+        valid_codesigning_identities()
+            .into_iter()
+            .find(|id| id.contains("Developer ID Application:"))
+    }
+
+    /// Подписывает helper.
+    ///
+    /// Production Developer ID path добавляет hardened runtime и secure
+    /// timestamp, зеркаля `scripts/sign-macos-binary.sh`. Ad-hoc `"-"`
+    /// остаётся только fallback-ом для окружений без identity (CI/development).
+    /// Entitlements не применяются: spike использует явный `sandbox_init`, а не
+    /// app-sandbox entitlement.
+    fn sign_helper(binary: &std::path::Path, identity: &str) {
+        let mut command = Command::new("codesign");
+        command.args(["--sign", identity, "--force"]);
+        if identity != "-" {
+            command.args(["--options", "runtime", "--timestamp"]);
+        }
+        let status = command.arg(binary).status().expect("spawn codesign");
         assert!(status.success(), "codesign failed");
+
+        if identity != "-" {
+            let status = Command::new("codesign")
+                .args(["--verify", "--verbose"])
+                .arg(binary)
+                .status()
+                .expect("spawn codesign --verify");
+            assert!(
+                status.success(),
+                "codesign --verify failed for identity {identity}"
+            );
+        }
     }
 
     #[test]
@@ -113,10 +175,12 @@ mod tests {
 
     #[test]
     fn sandboxed_helper_denies_etc_passwd() {
-        // Собираем и ad-hoc подписываем helper, затем запускаем
-        // --self-test. В production-режиме подпись должна
-        // использовать Developer ID.
-        build_and_sign_helper();
+        // Собираем и подписываем helper (Developer ID при доступности,
+        // иначе ad-hoc), затем запускаем --self-test.
+        build_helper();
+        let identity = resolve_developer_id_identity();
+        let identity = identity.as_deref().unwrap_or("-");
+        sign_helper(&helper_binary_path(), identity);
 
         let status = Command::new(helper_binary_path())
             .arg("--self-test")
@@ -125,6 +189,50 @@ mod tests {
         assert!(
             status.success(),
             "sandboxed helper self-test should deny /etc/passwd"
+        );
+    }
+
+    /// Production-signing путь: helper, подписанный реальным Developer ID
+    /// Application identity, проходит тот же sandbox self-test. На машинах без
+    /// identity тест пропускается (graceful skip, как у Linux cgroups probe).
+    #[test]
+    fn developer_id_signed_helper_passes_self_test() {
+        let Some(identity) = resolve_developer_id_identity() else {
+            eprintln!("skipping: no Developer ID Application identity in keychain");
+            return;
+        };
+        build_helper();
+
+        // Подписываем приватную копию, чтобы не соревноваться с другими
+        // тестами за общий target/debug binary.
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let copy = std::env::temp_dir().join(format!(
+            "gocode-sandbox-helper-dev-id-{unique}-{}",
+            std::process::id()
+        ));
+        std::fs::copy(helper_binary_path(), &copy).expect("copy helper");
+
+        struct RemoveOnDrop(std::path::PathBuf);
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = RemoveOnDrop(copy.clone());
+
+        sign_helper(&copy, &identity);
+
+        let status = Command::new(&copy)
+            .arg("--self-test")
+            .status()
+            .expect("spawn helper");
+        assert!(
+            status.success(),
+            "Developer ID signed helper self-test should deny /etc/passwd \
+             (identity {identity})"
         );
     }
 }
