@@ -17,7 +17,7 @@ TARGET = "aarch64-apple-darwin"
 ALLOWLIST = {
     "LICENSES/LICENSE",
     "checksums.sha256",
-    "gocode-daemon",
+    "runne-daemon",
     "profiles/example.json",
     "provenance-attestation.json",
     "release-manifest.v1.json",
@@ -80,7 +80,7 @@ def write_fake_cargo(path: pathlib.Path, include_forbidden: bool) -> None:
         "#!/usr/bin/env bash\nset -eu\nprintf 'build\\0' > \"$CARGO_ARGV\"\n"
         "printf '%s\\0' \"$@\" >> \"$CARGO_ARGV\"\n"
         "mkdir -p target/aarch64-apple-darwin/release\n"
-        "printf daemon > target/aarch64-apple-darwin/release/gocode-daemon\n" + forbidden
+        "printf daemon > target/aarch64-apple-darwin/release/runne-daemon\n" + forbidden
     )
     path.write_bytes(source.encode("utf-8"))
     path.chmod(0o755)
@@ -154,9 +154,9 @@ def initialize_fixture_repository(root: pathlib.Path, env: dict[str, str]) -> No
         [
             "git",
             "-c",
-            "user.name=GOCODE Fixture",
+            "user.name=RUNNE Fixture",
             "-c",
-            "user.email=fixture@gocode.invalid",
+            "user.email=fixture@runne.invalid",
             "commit",
             "-m",
             "fixture",
@@ -194,7 +194,7 @@ def main() -> None:
         write_fake_cargo(fake_cargo, include_forbidden=True)
         candidate = package(root, env, "output-with-forbidden-targets")
         if argv_path.read_bytes().split(b"\0")[:-1] != [
-            b"build", b"--locked", b"--release", b"-p", b"gocode-daemon", b"--bin", b"gocode-daemon", b"--target", TARGET.encode()
+            b"build", b"--locked", b"--release", b"-p", b"runne-daemon", b"--bin", b"runne-daemon", b"--target", TARGET.encode()
         ]:
             raise SystemExit("package-release Cargo argv is not daemon package/bin exact")
         require_allowlist(candidate)
