@@ -2,36 +2,36 @@
   "canonical_launch_platform": "unix",
   "content_policy": "digest-only; launch secrets are never stored in golden fixtures",
   "frame_length": 555,
-  "frame_sha256": "ac61c69aa38880c85e81592594db16d5a49a6b15e67914093a07af276becb883",
+  "frame_sha256": "f77fa706f6ed82ff0e4924fc3e625792434bf6c3bc4ac844c6c0470e1b4688b6",
   "lifecycle_messages": {
     "launch": {
       "frame_length": 555,
-      "frame_sha256": "ac61c69aa38880c85e81592594db16d5a49a6b15e67914093a07af276becb883",
+      "frame_sha256": "f77fa706f6ed82ff0e4924fc3e625792434bf6c3bc4ac844c6c0470e1b4688b6",
       "message_type_id": 21
     },
     "ready": {
       "frame_length": 657,
-      "frame_sha256": "c53923b85388e574ab38a8491efca824a902efc1cb8b6e803803d8d0c20160c4",
+      "frame_sha256": "d4b136d7916fc6b31d75bf78b272e21ec901fd7d77f0be6c9ca8fb3f0dc15689",
       "message_type_id": 22
     },
     "renew_request": {
       "frame_length": 564,
-      "frame_sha256": "0df87d6745f1fa69005325cffab2a6d7809a766515afcb4ec4b6a65b4c63b525",
+      "frame_sha256": "e87140198cee8346e88cd26e763731599735ec5d084253486679e63ee5446d5c",
       "message_type_id": 23
     },
     "renew_ticket": {
       "frame_length": 626,
-      "frame_sha256": "146d17b1e8eac185ef0bc948443bfb50357504772ded3e4649778189215e8c4e",
+      "frame_sha256": "db345b4eea4f0aa2a8d2c4e6f1dc55e8f95d0649530bb5cd70e628872b57c557",
       "message_type_id": 24
     },
     "shutdown": {
       "frame_length": 528,
-      "frame_sha256": "af7765e610ce206320d9032fbdd9a6b1d92e48d5e1154a9a1f88bd19b3aba74e",
+      "frame_sha256": "2c1296037470bbbd8554fc45c088235ec9123d8c6454d5c9baea7464adc5d035",
       "message_type_id": 25
     },
     "shutdown_ack": {
       "frame_length": 530,
-      "frame_sha256": "62f1964c52d00c54bd84d2fb60703b626f5b78291066ddb411ca99910b7188c1",
+      "frame_sha256": "ca2d2c5237aa9ffb0e485e6cd073a6b8fa4905aaaf6263523dfa8ee2a622ebf1",
       "message_type_id": 26
     }
   },
@@ -39,7 +39,7 @@
   "platform_launch_frames": {
     "unix": {
       "frame_length": 555,
-      "frame_sha256": "ac61c69aa38880c85e81592594db16d5a49a6b15e67914093a07af276becb883",
+      "frame_sha256": "f77fa706f6ed82ff0e4924fc3e625792434bf6c3bc4ac844c6c0470e1b4688b6",
       "message_type_id": 21
     },
     "windows": {
