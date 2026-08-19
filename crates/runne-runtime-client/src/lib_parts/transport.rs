@@ -1,6 +1,6 @@
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
 pub const GOLDEN_BUNDLE_HASH: &str =
-    "5cc38d8c1af72113ac0471b8ff8df8a6e13d343fbab5ef12606c12586d2e1989";
+    "e39cc811ff8d13c84c08b80379b97c6e4d04e7f852046bfc09b6d01756722b87";
 
 /// Bundle ID expected from the runtime.
 pub const EXPECTED_BUNDLE_ID: &str = "runne-ui-client/2";

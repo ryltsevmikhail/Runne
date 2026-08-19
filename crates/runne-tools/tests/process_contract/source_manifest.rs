@@ -9,6 +9,10 @@ pub(super) const LEGACY_TEST_SOURCES: [(&str, &str); 3] = [
 
 #[rustfmt::skip]
 pub(super) const PROCESS_CONTRACT_SOURCES: [(&str, &str); 40] = [
+    ("crates/runne-platform-ports/src/process.rs", include_str!("../../../runne-platform-ports/src/process.rs")),
+    ("crates/runne-platform-ports/src/process/port.rs", include_str!("../../../runne-platform-ports/src/process/port.rs")),
+    ("crates/runne-platform-ports/src/process/request.rs", include_str!("../../../runne-platform-ports/src/process/request.rs")),
+    ("crates/runne-platform-ports/src/process/types.rs", include_str!("../../../runne-platform-ports/src/process/types.rs")),
     ("crates/runne-platform/src/process_contract.rs", include_str!("../../../runne-platform/src/process_contract.rs")),
     ("crates/runne-platform/src/process_contract/linux.rs", include_str!("../../../runne-platform/src/process_contract/linux.rs")),
     ("crates/runne-platform/src/process_contract/macos.rs", include_str!("../../../runne-platform/src/process_contract/macos.rs")),
@@ -45,14 +49,11 @@ pub(super) const PROCESS_CONTRACT_SOURCES: [(&str, &str); 40] = [
     ("crates/runne-tools/src/process_contract/output/output_payload.rs", include_str!("../../src/process_contract/output/output_payload.rs")),
     ("crates/runne-tools/src/process_contract/output/output_types.rs", include_str!("../../src/process_contract/output/output_types.rs")),
     ("crates/runne-tools/src/process_contract/settlement.rs", include_str!("../../src/process_contract/settlement.rs")),
-    ("crates/runne-platform-ports/src/process.rs", include_str!("../../../runne-platform-ports/src/process.rs")),
-    ("crates/runne-platform-ports/src/process/port.rs", include_str!("../../../runne-platform-ports/src/process/port.rs")),
-    ("crates/runne-platform-ports/src/process/request.rs", include_str!("../../../runne-platform-ports/src/process/request.rs")),
-    ("crates/runne-platform-ports/src/process/types.rs", include_str!("../../../runne-platform-ports/src/process/types.rs")),
 ];
 
 #[rustfmt::skip]
 pub(super) const TASK6_TEST_FIXTURE_SOURCES: [(&str, &str); 46] = [
+    ("crates/runne-platform-ports/src/process/tests.rs", include_str!("../../../runne-platform-ports/src/process/tests.rs")),
     ("crates/runne-platform/src/process_contract/tests.rs", include_str!("../../../runne-platform/src/process_contract/tests.rs")),
     ("crates/runne-platform/tests/process_contract_stubs.rs", include_str!("../../../runne-platform/tests/process_contract_stubs.rs")),
     ("crates/runne-security/src/process_contract/tests.rs", include_str!("../../../runne-security/src/process_contract/tests.rs")),
@@ -98,19 +99,18 @@ pub(super) const TASK6_TEST_FIXTURE_SOURCES: [(&str, &str); 46] = [
     ("crates/runne-tools/tests/process_contract/public_api.rs", include_str!("public_api.rs")),
     ("crates/runne-tools/tests/process_contract/source_scan.rs", include_str!("source_scan.rs")),
     ("crates/runne-tools/tests/process_contract/source_scan_alias.rs", include_str!("source_scan_alias.rs")),
-    ("crates/runne-platform-ports/src/process/tests.rs", include_str!("../../../runne-platform-ports/src/process/tests.rs")),
 ];
 
 #[rustfmt::skip]
 pub(super) const TASK6_INTEGRATION_SURFACES: [(&str, &str); 8] = [
+    ("crates/runne-platform-ports/Cargo.toml", include_str!("../../../runne-platform-ports/Cargo.toml")),
+    ("crates/runne-platform-ports/src/lib.rs", include_str!("../../../runne-platform-ports/src/lib.rs")),
     ("crates/runne-platform/Cargo.toml", include_str!("../../../runne-platform/Cargo.toml")),
     ("crates/runne-platform/src/lib.rs", include_str!("../../../runne-platform/src/lib.rs")),
     ("crates/runne-security/Cargo.toml", include_str!("../../../runne-security/Cargo.toml")),
     ("crates/runne-security/src/lib.rs", include_str!("../../../runne-security/src/lib.rs")),
     ("crates/runne-tools/Cargo.toml", include_str!("../../Cargo.toml")),
     ("crates/runne-tools/src/lib.rs", include_str!("../../src/lib.rs")),
-    ("crates/runne-platform-ports/Cargo.toml", include_str!("../../../runne-platform-ports/Cargo.toml")),
-    ("crates/runne-platform-ports/src/lib.rs", include_str!("../../../runne-platform-ports/src/lib.rs")),
 ];
 
 pub(super) fn assert_sources_exclude(

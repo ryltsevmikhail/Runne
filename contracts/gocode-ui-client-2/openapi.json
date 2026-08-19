@@ -83,8 +83,8 @@
             "in": "query",
             "name": "cursor",
             "schema": {
-              "maxLength": 119,
-              "minLength": 119,
+              "maxLength": 118,
+              "minLength": 118,
               "pattern": "^runne-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             }
@@ -1424,8 +1424,8 @@
             "in": "query",
             "name": "cursor",
             "schema": {
-              "maxLength": 153,
-              "minLength": 153,
+              "maxLength": 152,
+              "minLength": 152,
               "pattern": "^runne-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             }
