@@ -1,0 +1,284 @@
+use runne_application::prohibited_content::{
+    CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
+};
+use runne_application::provider::{
+    ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderCoordinatorRequest,
+};
+use runne_provider::{
+    DispatchError, DispatchRequest, PreparedProviderRecord as ContractPreparedProviderRecord,
+    ProviderDispatchClaim, ProviderDispatchRepository, ProviderPort, ProviderPreEffectRejection,
+    ProviderRepositoryState,
+};
+
+use super::{
+    CredentialDispatchAuthority, MarkProviderStreaming, PreparedProviderRecord,
+    ProviderAuthorityIssueOutcome, ProviderEffectPort, ProviderExecutionBinding,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
+};
+
+/// Concrete SQLite provider dispatch outcome.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProviderCoordinatorOutcome {
+    /// New adapter stream was opened.
+    Streaming {
+        binding: Box<VersionedProviderExecutionBinding>,
+    },
+    /// Exact replay observed an existing durable state.
+    Existing { state: ProviderRepositoryState },
+    /// Adapter proved that no external provider effect began.
+    RejectedBeforeEffect {
+        /// Closed non-secret rejection reason.
+        reason: ProviderPreEffectRejection,
+    },
+    /// Post-claim disposition is ambiguous and progression must freeze.
+    Uncertain,
+}
+
+/// Concrete coordinator for the authoritative SQLite admission and dispatch path.
+pub struct SqliteProviderDispatchCoordinator<'a, P: ?Sized, E: ?Sized> {
+    dispatch_store: &'a SqliteProviderDispatchStore,
+    execution_store: &'a SqliteProviderExecutionStore,
+    credential: CredentialDispatchAuthority<'a>,
+    provider: &'a P,
+    effect: &'a E,
+    prohibited_content: &'a dyn ProhibitedContentPort,
+}
+
+impl<'a, P, E> SqliteProviderDispatchCoordinator<'a, P, E>
+where
+    P: ProviderPort + ?Sized,
+    E: ProviderEffectPort + ?Sized,
+{
+    /// Constructs the only production coordinator from concrete SQLite stores.
+    pub const fn new(
+        dispatch_store: &'a SqliteProviderDispatchStore,
+        execution_store: &'a SqliteProviderExecutionStore,
+        credential: CredentialDispatchAuthority<'a>,
+        provider: &'a P,
+        effect: &'a E,
+        prohibited_content: &'a dyn ProhibitedContentPort,
+    ) -> Self {
+        Self {
+            dispatch_store,
+            execution_store,
+            credential,
+            provider,
+            effect,
+            prohibited_content,
+        }
+    }
+
+    /// Executes ordered prepare, SQLite admission and one adapter dispatch.
+    pub async fn dispatch(
+        &self,
+        request: ProviderCoordinatorRequest,
+    ) -> Result<ProviderCoordinatorOutcome, ProviderAdmissionError> {
+        let call_bytes =
+            serde_json::to_vec(&request.call).map_err(|_| ProviderAdmissionError::PolicyDenied)?;
+        match self
+            .prohibited_content
+            .inspect(CanonicalContentBoundary::OutboundDelivery, &call_bytes)
+        {
+            Ok(ContentDisposition::Allowed { .. }) => {}
+            Ok(ContentDisposition::Prohibited { .. }) | Err(_) => {
+                return Err(ProviderAdmissionError::PolicyDenied);
+            }
+        }
+        let prepared = match self
+            .dispatch_store
+            .load_prepared(request.call.call_id())
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?
+        {
+            Some(record) => self
+                .provider
+                .prepare_for_digest_version(&request.call, record.call_digest_version),
+            None => self.provider.prepare(&request.call),
+        }
+        .map_err(|_| ProviderAdmissionError::PrepareRejected)?;
+        let prepared_record = PreparedProviderRecord {
+            call_id: request.call.call_id(),
+            call_digest_version: prepared.request_ref().digest_version(),
+            prepared_digest: *prepared.request_ref().as_bytes(),
+            render_digest: *prepared.render_digest(),
+            profile_digest: request.profile_digest,
+        };
+        self.dispatch_store
+            .persist_prepared(&prepared_record)
+            .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+        let issue = issue_request(
+            &request,
+            ContractPreparedProviderRecord {
+                call_id: prepared_record.call_id,
+                call_digest_version: prepared_record.call_digest_version,
+                prepared_digest: prepared_record.prepared_digest,
+                render_digest: prepared_record.render_digest,
+                profile_digest: prepared_record.profile_digest,
+            },
+        )?;
+        let credential = self
+            .credential
+            .store
+            .authorize_active(
+                request.call.model_ref().provider_id(),
+                self.credential.owner,
+                self.credential.fencing_token,
+                self.execution_store.credential_validation_time(),
+            )
+            .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
+        let admitted = match self.execution_store.issue(&issue)? {
+            ProviderAuthorityIssueOutcome::Winner(admitted) => admitted,
+            ProviderAuthorityIssueOutcome::Existing { state } => {
+                return Ok(ProviderCoordinatorOutcome::Existing { state });
+            }
+        };
+        let runtime_generation = admitted.runtime_generation();
+        let claim = admitted.into_claim();
+        let attempt_id = claim.attempt_id;
+        let fencing_token = claim.fencing_token;
+        if !claim_matches(&request, &issue, &claim) {
+            let _ = self
+                .dispatch_store
+                .mark_uncertain(attempt_id, fencing_token);
+            return Ok(ProviderCoordinatorOutcome::Uncertain);
+        }
+        let dispatch = match DispatchRequest::new(prepared, claim.clone()) {
+            Ok(dispatch) => dispatch,
+            Err(_) => {
+                let _ = self
+                    .dispatch_store
+                    .mark_uncertain(attempt_id, fencing_token);
+                return Ok(ProviderCoordinatorOutcome::Uncertain);
+            }
+        };
+
+        let ready = match self.effect.stage_effect(dispatch, credential.clone()).await {
+            Ok(ready) => ready,
+            Err(DispatchError::RejectedBeforeEffect(reason)) => {
+                return self.reject_before_effect(attempt_id, fencing_token, reason);
+            }
+            Err(_) => {
+                let _ = self
+                    .dispatch_store
+                    .mark_uncertain(attempt_id, fencing_token);
+                return Ok(ProviderCoordinatorOutcome::Uncertain);
+            }
+        };
+        let effect = match self.execution_store.start_effect(&claim, &credential) {
+            Ok(effect) => effect,
+            Err(ProviderAdmissionError::PostClaimUncertain) => {
+                let _ = self
+                    .dispatch_store
+                    .mark_uncertain(attempt_id, fencing_token);
+                return Ok(ProviderCoordinatorOutcome::Uncertain);
+            }
+            Err(_) => {
+                return self.reject_before_effect(
+                    attempt_id,
+                    fencing_token,
+                    ProviderPreEffectRejection::AdapterRejected,
+                );
+            }
+        };
+        match self.effect.dispatch_effect(ready, effect).await {
+            Ok(stream_id) => {
+                if self
+                    .dispatch_store
+                    .mark_streaming(&MarkProviderStreaming {
+                        attempt_id,
+                        fencing_token,
+                        stream_id,
+                    })
+                    .is_err()
+                {
+                    let _ = self
+                        .dispatch_store
+                        .mark_uncertain(attempt_id, fencing_token);
+                    return Ok(ProviderCoordinatorOutcome::Uncertain);
+                }
+                Ok(ProviderCoordinatorOutcome::Streaming {
+                    binding: Box::new(
+                        ProviderExecutionBinding::new(
+                            &claim,
+                            runtime_generation,
+                            prepared_record,
+                            stream_id,
+                        )
+                        .bind_active_credential(credential),
+                    ),
+                })
+            }
+            Err(DispatchError::RejectedBeforeEffect(_)) => {
+                let _ = self
+                    .dispatch_store
+                    .mark_uncertain(attempt_id, fencing_token);
+                Ok(ProviderCoordinatorOutcome::Uncertain)
+            }
+            Err(
+                DispatchError::MaybeDispatched
+                | DispatchError::AttemptConflict
+                | DispatchError::StreamNotFound,
+            ) => {
+                let _ = self
+                    .dispatch_store
+                    .mark_uncertain(attempt_id, fencing_token);
+                Ok(ProviderCoordinatorOutcome::Uncertain)
+            }
+        }
+    }
+
+    fn reject_before_effect(
+        &self,
+        attempt_id: runne_provider::DispatchAttemptId,
+        fencing_token: u64,
+        reason: ProviderPreEffectRejection,
+    ) -> Result<ProviderCoordinatorOutcome, ProviderAdmissionError> {
+        if self
+            .dispatch_store
+            .mark_rejected_before_effect(attempt_id, fencing_token, reason)
+            .is_err()
+        {
+            let _ = self
+                .dispatch_store
+                .mark_uncertain(attempt_id, fencing_token);
+            Ok(ProviderCoordinatorOutcome::Uncertain)
+        } else {
+            Ok(ProviderCoordinatorOutcome::RejectedBeforeEffect { reason })
+        }
+    }
+}
+
+fn issue_request(
+    request: &ProviderCoordinatorRequest,
+    prepared: ContractPreparedProviderRecord,
+) -> Result<ProviderAuthorityIssueRequest, ProviderAdmissionError> {
+    if request.requested_output_tokens != request.call.max_output_tokens() {
+        return Err(ProviderAdmissionError::InvalidSemanticContext);
+    }
+    let issue = ProviderAuthorityIssueRequest {
+        principal_id: request.principal_id.clone(),
+        conversation_id: request.conversation_id,
+        taskrun_id: request.taskrun_id,
+        execution_attempt_id: request.execution_attempt_id,
+        prepared,
+        pricing_revision_digest: request.pricing_revision_digest,
+        requested_input_tokens: request.requested_input_tokens,
+        requested_output_tokens: u64::from(request.requested_output_tokens),
+        max_cost_micros: request.max_cost_micros,
+        currency: request.currency.clone(),
+        provider_idempotency_key: request.provider_idempotency_key.clone(),
+    };
+    issue.validate()?;
+    Ok(issue)
+}
+
+fn claim_matches(
+    request: &ProviderCoordinatorRequest,
+    issue: &ProviderAuthorityIssueRequest,
+    claim: &ProviderDispatchClaim,
+) -> bool {
+    claim.call_id == request.call.call_id()
+        && claim.prepared_digest == issue.prepared.prepared_digest
+        && claim.render_digest == issue.prepared.render_digest
+        && claim.profile_digest == issue.prepared.profile_digest
+        && claim.provider_idempotency_key == issue.provider_idempotency_key
+}

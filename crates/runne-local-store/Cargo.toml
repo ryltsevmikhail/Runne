@@ -1,0 +1,26 @@
+[package]
+name = "runne-local-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-api = { path = "../runne-api" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+runne-sqlite-native-identity = { path = "../runne-sqlite-native-identity" }
+rusqlite.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+runne-windows-native-handle = { path = "../runne-windows-native-handle" }
+
+[features]
+test-support = []
+
+[dev-dependencies]
+tempfile = "=3.27.0"
+
+[lints]
+workspace = true

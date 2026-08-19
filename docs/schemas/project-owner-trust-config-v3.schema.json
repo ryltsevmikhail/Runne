@@ -1,24 +1,24 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.project-owner.trust-config/3",
-  "title": "GOCODE Project Owner Trust Config V3",
+  "$id": "runne.project-owner.trust-config/3",
+  "title": "RUNNE Project Owner Trust Config V3",
   "description": "Successor-only promotion trust configuration; exact promotion pins are enforced by semantic closure.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "role", "epoch", "key_id", "public_key", "schema_digests", "proof_of_possession", "predecessor", "predecessor_schema_version"],
   "properties": {
-    "schema_version": {"const": "gocode.project-owner.trust-config/3"},
-    "repository_id": {"const": "gocode"}, "role": {"const": "PROJECT_OWNER"},
+    "schema_version": {"const": "runne.project-owner.trust-config/3"},
+    "repository_id": {"const": "runne"}, "role": {"const": "PROJECT_OWNER"},
     "epoch": {"type": "integer", "minimum": 3, "maximum": 18446744073709551615},
     "key_id": {"$ref": "#/$defs/sha256"}, "public_key": {"$ref": "#/$defs/public_key"},
     "schema_digests": {"type": "array", "minItems": 17, "maxItems": 17, "uniqueItems": true, "items": {"$ref": "#/$defs/schema_digest"}},
     "proof_of_possession": {"$ref": "#/$defs/signature"}, "predecessor": {"$ref": "#/$defs/sha256"},
-    "predecessor_schema_version": {"const": "gocode.project-owner.trust-config/2"}
+    "predecessor_schema_version": {"const": "runne.project-owner.trust-config/2"}
   },
   "$defs": {
     "base64url": {"type": "string", "pattern": "^(?:[A-Za-z0-9_-]{4})*(?:[A-Za-z0-9_-]{2,3})?$"},
     "public_key": {"$ref": "#/$defs/base64url", "minLength": 43, "maxLength": 43}, "signature": {"$ref": "#/$defs/base64url", "minLength": 86, "maxLength": 86},
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "schema_digest": {"type": "object", "additionalProperties": false, "required": ["schema_id", "schema_sha256"], "properties": {"schema_id": {"type": "string", "pattern": "^gocode\\.[a-z0-9.-]+/[0-9]+$"}, "schema_sha256": {"$ref": "#/$defs/sha256"}}}
+    "schema_digest": {"type": "object", "additionalProperties": false, "required": ["schema_id", "schema_sha256"], "properties": {"schema_id": {"type": "string", "pattern": "^runne\\.[a-z0-9.-]+/[0-9]+$"}, "schema_sha256": {"$ref": "#/$defs/sha256"}}}
   }
 }

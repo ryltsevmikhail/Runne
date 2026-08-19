@@ -1,0 +1,40 @@
+[package]
+name = "runne-store"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-application = { path = "../runne-application" }
+runne-api = { path = "../runne-api" }
+runne-domain = { path = "../runne-domain" }
+runne-provider = { path = "../runne-provider" }
+runne-runtime = { path = "../runne-runtime" }
+sqlite-handle-identity = { path = "../sqlite-handle-identity" }
+rand = "0.8"
+rusqlite = { version = "=0.34.0", features = ["backup", "bundled"] }
+sha2 = "=0.10.8"
+hmac = "0.12"
+async-trait = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+thiserror.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+same-file = "1"
+
+[dev-dependencies]
+runne-api = { path = "../runne-api", features = ["test-support"] }
+runne-runtime = { path = "../runne-runtime", features = ["provider-terminal-test-support"] }
+runne-security = { path = "../runne-security" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+zeroize.workspace = true
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
+futures = "0.3"
+tokio = { workspace = true, features = ["macros", "rt"] }

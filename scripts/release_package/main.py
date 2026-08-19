@@ -127,7 +127,7 @@ def validate_repository() -> str:
 
 
 def sign_macos_binary(binary: Path, repo_root: Path) -> None:
-    identity = os.environ.get("GOCODE_MACOS_SIGNING_IDENTITY", "")
+    identity = os.environ.get("RUNNE_MACOS_SIGNING_IDENTITY", "")
     if not identity:
         return
     if sys.platform != "darwin":

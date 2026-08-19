@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.governance.platform-decision-acceptance/1",
-  "title": "GOCODE Platform Decision Acceptance V1",
+  "$id": "runne.governance.platform-decision-acceptance/1",
+  "title": "RUNNE Platform Decision Acceptance V1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "owner_domain", "owner_subject_id", "adr_id", "adr_document_sha256", "shared_decision_payload_sha256", "shared_decision_schema_sha256", "acceptance_revision", "accepted_at"],
   "properties": {
-    "schema_version": {"const": "gocode.governance.platform-decision-acceptance/1"},
-    "repository_id": {"const": "gocode"},
+    "schema_version": {"const": "runne.governance.platform-decision-acceptance/1"},
+    "repository_id": {"const": "runne"},
     "owner_domain": {"enum": ["runtime", "desktop"]},
     "owner_subject_id": {"$ref": "#/$defs/identifier"},
     "adr_id": {"enum": ["ADR-0027", "ADR-0015"]},

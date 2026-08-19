@@ -1,0 +1,59 @@
+[package]
+name = "runne-app-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+runne-local-store = { path = "../runne-local-store" }
+runne-api = { path = "../runne-api" }
+runne-runtime-client = { path = "../runne-runtime-client" }
+runne-secure-store = { path = "../runne-secure-store", default-features = false }
+hex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[features]
+test-support = [
+    "runne-api/test-support",
+    "runne-runtime-client/test-support",
+    "runne-secure-store/test-support",
+]
+
+[dev-dependencies]
+axum = "0.8"
+base64.workspace = true
+runne-runtime-client = { path = "../runne-runtime-client", features = ["test-support"] }
+hmac = "0.12"
+sha2.workspace = true
+tempfile = "=3.27.0"
+tokio-stream = "0.1"
+uuid.workspace = true
+
+[[test]]
+name = "conversation_replay"
+path = "tests/conversation_replay.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "conversation_subscription"
+path = "tests/conversation_subscription.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "conversation_v2_promotion"
+path = "tests/conversation_v2_promotion.rs"
+required-features = ["test-support"]
+
+[[test]]
+name = "operational_telemetry"
+path = "tests/operational_telemetry.rs"
+required-features = ["test-support"]
+
+[lints]
+workspace = true

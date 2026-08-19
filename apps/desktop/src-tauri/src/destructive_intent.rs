@@ -1,6 +1,6 @@
 use crate::directory_selection::{valid_binding, valid_reference};
-use gocode_app_core::MutationAdmissionBinding;
 use rand::RngCore;
+use runne_app_core::MutationAdmissionBinding;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,

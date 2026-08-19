@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.rc0.policy-activation-intent/2",
-  "title": "GOCODE Solo Owner Policy Activation Intent V2",
+  "$id": "runne.rc0.policy-activation-intent/2",
+  "title": "RUNNE Solo Owner Policy Activation Intent V2",
   "type": "object", "additionalProperties": false,
   "required": ["schema_version", "repository_id", "project_owner_authority_receipt_sha256", "mapping_policy_envelope_sha256", "activation_intent_envelope_sha256", "activation_epoch", "predecessor_activation_snapshot_envelope_sha256"],
   "properties": {
-    "schema_version": {"const": "gocode.rc0.policy-activation-intent/2"}, "repository_id": {"const": "gocode"},
+    "schema_version": {"const": "runne.rc0.policy-activation-intent/2"}, "repository_id": {"const": "runne"},
     "project_owner_authority_receipt_sha256": {"$ref": "#/$defs/sha256"}, "mapping_policy_envelope_sha256": {"$ref": "#/$defs/sha256"}, "activation_intent_envelope_sha256": {"$ref": "#/$defs/sha256"},
     "activation_epoch": {"type": "integer", "minimum": 1}, "predecessor_activation_snapshot_envelope_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
   }, "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}

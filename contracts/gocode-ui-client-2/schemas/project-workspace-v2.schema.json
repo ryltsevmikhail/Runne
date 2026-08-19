@@ -44,8 +44,8 @@
           "minLength": 1,
           "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
-          "x-gocode-displayNamePolicy": "project-workspace-v1",
-          "x-gocode-maxUtf8Bytes": 256
+          "x-runne-displayNamePolicy": "project-workspace-v1",
+          "x-runne-maxUtf8Bytes": 256
         },
         "projectId": {
           "maxLength": 36,
@@ -94,8 +94,8 @@
           "minLength": 1,
           "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
-          "x-gocode-displayNamePolicy": "project-workspace-v1",
-          "x-gocode-maxUtf8Bytes": 256
+          "x-runne-displayNamePolicy": "project-workspace-v1",
+          "x-runne-maxUtf8Bytes": 256
         },
         "projectId": {
           "maxLength": 36,
@@ -124,7 +124,7 @@
             {
               "maxLength": 119,
               "minLength": 119,
-              "pattern": "^gocode-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+              "pattern": "^runne-project-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             },
             {
@@ -148,11 +148,11 @@
           "type": "integer"
         },
         "rootAdmission": {
-          "maxLength": 411,
-          "minLength": 411,
-          "pattern": "^gocode-root-admission-v3\\.(?:[A-Za-z0-9_-]{4}){96}[A-Za-z0-9_-]{1}[AQgw]$",
+          "maxLength": 410,
+          "minLength": 410,
+          "pattern": "^runne-root-admission-v3\\.(?:[A-Za-z0-9_-]{4}){96}[A-Za-z0-9_-]{1}[AQgw]$",
           "type": "string",
-          "x-gocode-maxUtf8Bytes": 411
+          "x-runne-maxUtf8Bytes": 410
         }
       },
       "required": [
@@ -169,8 +169,8 @@
           "minLength": 1,
           "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
-          "x-gocode-displayNamePolicy": "project-workspace-v1",
-          "x-gocode-maxUtf8Bytes": 256
+          "x-runne-displayNamePolicy": "project-workspace-v1",
+          "x-runne-maxUtf8Bytes": 256
         },
         "open": {
           "type": "boolean"
@@ -228,8 +228,8 @@
           "minLength": 1,
           "pattern": "^[^\u0000-\u001f-­؀-؅؜۝܏࢐-࢑࣢᠎​-‏‪-‮⁠-⁤⁦-⁯﻿￹-￻𑂽𑃍𓐰-𓐿𛲠-𛲣𝅳-𝅺󠀁󠀠-󠁿]*$",
           "type": "string",
-          "x-gocode-displayNamePolicy": "project-workspace-v1",
-          "x-gocode-maxUtf8Bytes": 256
+          "x-runne-displayNamePolicy": "project-workspace-v1",
+          "x-runne-maxUtf8Bytes": 256
         },
         "workspaceId": {
           "maxLength": 36,
@@ -258,7 +258,7 @@
             {
               "maxLength": 153,
               "minLength": 153,
-              "pattern": "^gocode-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
+              "pattern": "^runne-workspace-page-v1\\.[0-9a-f]{64}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}[0-9a-f]{12}7[0-9a-f]{3}[89ab][0-9a-f]{15}$",
               "type": "string"
             },
             {
@@ -274,7 +274,7 @@
       "type": "object"
     }
   },
-  "$id": "gocode://schemas/project-workspace-v2",
+  "$id": "runne://schemas/project-workspace-v2",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

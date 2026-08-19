@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://gocode.dev/schemas/v1-platform-scope-decision-v1.schema.json",
+  "$id": "https://runne.dev/schemas/v1-platform-scope-decision-v1.schema.json",
   "title": "V1 Platform Scope Decision",
   "description": "Closed canonical cross-owner decision for the v1 platform scope.",
   "type": "object",
@@ -33,8 +33,8 @@
       ],
       "items": false
     },
-    "repository_id": {"type": "string", "enum": ["gocode"]},
-    "schema_version": {"type": "string", "enum": ["gocode.governance.v1-platform-scope-decision/1"]},
+    "repository_id": {"type": "string", "enum": ["runne"]},
+    "schema_version": {"type": "string", "enum": ["runne.governance.v1-platform-scope-decision/1"]},
     "unsupported_tuples": {
       "type": "array",
       "minItems": 7,

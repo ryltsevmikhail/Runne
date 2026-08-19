@@ -1,17 +1,17 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.rc0.schema.candidate-record/3",
-  "title": "GOCODE RC0 Candidate Record V3",
+  "$id": "runne.rc0.schema.candidate-record/3",
+  "title": "RUNNE RC0 Candidate Record V3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_id", "repository_id", "candidate_source_revision", "evidence_attempt_id", "policy_digest", "profile"],
   "properties": {
-    "schema_id": {"const": "gocode.rc0.schema.candidate-record/3"},
+    "schema_id": {"const": "runne.rc0.schema.candidate-record/3"},
     "repository_id": {"$ref": "#/$defs/repository"},
     "candidate_source_revision": {"$ref": "#/$defs/gitSha"},
     "evidence_attempt_id": {"$ref": "#/$defs/uuidV7"},
     "policy_digest": {"$ref": "#/$defs/sha256"},
-    "profile": {"const": "gocode.rc0.evidence-profile/3"}
+    "profile": {"const": "runne.rc0.evidence-profile/3"}
   },
   "$defs": {
     "repository": {"type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._/-]+$"},

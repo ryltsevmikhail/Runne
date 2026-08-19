@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "gocode.rc0.schema.qualification-policy-bundle/3",
-  "title": "GOCODE RC0 Qualification Policy Bundle V3",
+  "$id": "runne.rc0.schema.qualification-policy-bundle/3",
+  "title": "RUNNE RC0 Qualification Policy Bundle V3",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_id", "repository_id", "policy_revision", "policy_digest", "profile", "issuer_id", "key_id", "signature", "issued_at", "not_before", "expires_at", "runner_contract", "required_gates", "expected_schema_digests", "trusted_evidence_issuers", "workflow_policy_digests", "freshness_policy"],
   "properties": {
-    "schema_id": {"const": "gocode.rc0.schema.qualification-policy-bundle/3"},
+    "schema_id": {"const": "runne.rc0.schema.qualification-policy-bundle/3"},
     "repository_id": {"type": "string", "minLength": 1},
     "policy_revision": {"type": "integer", "minimum": 1},
     "policy_digest": {"$ref": "#/$defs/sha256"},
-    "profile": {"const": "gocode.rc0.evidence-profile/3"},
+    "profile": {"const": "runne.rc0.evidence-profile/3"},
     "issuer_id": {"type": "string", "minLength": 1},
     "key_id": {"type": "string", "minLength": 1},
     "signature": {"type": "string", "minLength": 1},
@@ -83,7 +83,7 @@
       "additionalProperties": false,
       "required": ["schema_id", "sha256"],
       "properties": {
-        "schema_id": {"enum": ["gocode.rc0.schema.candidate-record/3", "gocode.rc0.schema.source-gate-results/3", "gocode.rc0.schema.test-inventory/3", "gocode.rc0.schema.security-validation/3", "gocode.rc0.schema.documentation-validation/3", "gocode.rc0.schema.fail-closed-disposition/3", "gocode.rc0.schema.artifact-inventory/3", "gocode.rc0.schema.sbom-spdx-2.3/3", "gocode.rc0.schema.checksums-text/3", "gocode.rc0.schema.qualification-policy-bundle/3", "gocode.rc0.schema.verification-report/3"]},
+        "schema_id": {"enum": ["runne.rc0.schema.candidate-record/3", "runne.rc0.schema.source-gate-results/3", "runne.rc0.schema.test-inventory/3", "runne.rc0.schema.security-validation/3", "runne.rc0.schema.documentation-validation/3", "runne.rc0.schema.fail-closed-disposition/3", "runne.rc0.schema.artifact-inventory/3", "runne.rc0.schema.sbom-spdx-2.3/3", "runne.rc0.schema.checksums-text/3", "runne.rc0.schema.qualification-policy-bundle/3", "runne.rc0.schema.verification-report/3"]},
         "sha256": {"$ref": "#/$defs/sha256"}
       }
     },

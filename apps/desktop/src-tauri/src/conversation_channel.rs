@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use gocode_app_core::{AppCore, AppCoreError, ConversationTimelineUpdate};
+use runne_app_core::{AppCore, AppCoreError, ConversationTimelineUpdate};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tokio::sync::{Notify, mpsc};

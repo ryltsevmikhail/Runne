@@ -1,5 +1,5 @@
 {
-  "apiProfileId": "gocode-ui-client/2",
+  "apiProfileId": "runne-ui-client/2",
   "artifactDigests": [
     {
       "path": "golden/local-session-v2.json",
@@ -11,15 +11,15 @@
     },
     {
       "path": "golden/project-workspace.json",
-      "sha256": "ff16f1e8af8af2fa19031e29fcb926a9e96ec49ebf415b3ec65fbd46919a38c7"
+      "sha256": "37edf7e732057a5fa68c65eb3964c3f858e223b23330eeeea2a2e46a890edca9"
     },
     {
       "path": "golden/replay-conversation.json",
-      "sha256": "cfbee2bfc609386a884231c2df9f4f37e821c9a90dfac5b43b83eff28d116e68"
+      "sha256": "4aa477a83bff24a1e97ef807747d4cdd024e10e15aa495afc26f6679aca11d46"
     },
     {
       "path": "golden/replay-resume-v2.json",
-      "sha256": "3f036d395a43c7f7ec7ceac898c125b1cc8c6183f334fb6b4ddd125327865ed6"
+      "sha256": "780e8043e1dd675409de22d4507ef9c389fc7469db60b5b2243f97f15fdea240"
     },
     {
       "path": "golden/replay-retention-gap-v2.json",
@@ -31,43 +31,43 @@
     },
     {
       "path": "golden/replay-taskrun.json",
-      "sha256": "5f0b047695c3875e1a5eaa2ecfa5411f47c49524c793080c562b65c16485fdca"
+      "sha256": "6417dd0a96a3de2dbf431ed7c15c7f489ff200fd6d102d8e0bb3e5cca57c27d2"
     },
     {
       "path": "golden/sse-delivery.json",
-      "sha256": "20a5759042d7ec9de6630e951b859620eb49e1dc8483818f14be378a0a7e8078"
+      "sha256": "fdc0a2701d33bcf215600fe18a3cafd1c16d88727ec226b26ba1f3f84800ae31"
     },
     {
       "path": "openapi.json",
-      "sha256": "23ebfc5355c0a1d3448188708b2e970f3704941258db95b11aad1c3ffd6aed85"
+      "sha256": "7d89fe57b0873a170c27f52d2fa1a31a815745dc913dbc90982b61c44604c3ac"
     },
     {
       "path": "schemas/local-runtime-profile-v3.schema.json",
-      "sha256": "79754959a72611c0137fc11d812dfcd8c5eeb8a81c3e14bb6464c593becf3117"
+      "sha256": "38e84adcf16dfb362b7a0abf96bc17d15819f8270ccf58a9c13113850e9e1578"
     },
     {
       "path": "schemas/local-session-v2.schema.json",
-      "sha256": "542b55d189b1bbb53ada304125e9bf9ba99cc0e8789c377e1e897ae9973c9c65"
+      "sha256": "51d9ff3d125becef95cbf5cf4d26ffb9b1e801ff58427172cdb5fddf736ac53d"
     },
     {
       "path": "schemas/operational-telemetry-v1.schema.json",
-      "sha256": "570d224c258e732a6b44cbb666abcb136fab4c775aa9cada4068b9ed2ee18196"
+      "sha256": "cd632416ccab648852075c74b078c8fd29c00b6c6cb50e48ef855a1fe59e9541"
     },
     {
       "path": "schemas/project-workspace-v2.schema.json",
-      "sha256": "dd98570035a6878845a2019348825cc208f340828b3517de6de60785051d8515"
+      "sha256": "9ab9b54f3efe206b597fb355bd8e68b4f06dde873fec7da12fd55d806f6f1bff"
     },
     {
       "path": "schemas/replay-v1.schema.json",
-      "sha256": "ca90aba9da9ad6a2f7a2702dba22ee545ceb4f11de0d27ef532bb01a90e5377a"
+      "sha256": "4c3280b8ad2ab648644249e6490cc8788e95e942e646914afb62d882207a8914"
     },
     {
       "path": "schemas/sse-v1.schema.json",
-      "sha256": "0211eb00a832ea7e9a7664faff442f56e9e1a0626931d0f2dd29bf51de444738"
+      "sha256": "e09f89479f690127c9047c5f26069c425e3b46cf8db689a74270b4bb4a63aeb7"
     },
     {
       "path": "schemas/task-run-v1.schema.json",
-      "sha256": "46fea35a75f50f7cbc0e79f70c1b0c2e30d2631b8ecdf16cac799ebb1975394c"
+      "sha256": "c58259b96bae7ad8088f710647cd6536b48e04bef961179ca336e7fe7520cfe4"
     }
   ],
   "capabilityCatalog": [
@@ -123,5 +123,5 @@
     "workspace.open.v1",
     "workspace.bind_root.v3"
   ],
-  "transportProfileId": "gocode-local-runtime/2"
+  "transportProfileId": "runne-local-runtime/2"
 }

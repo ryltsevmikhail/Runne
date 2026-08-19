@@ -1,0 +1,127 @@
+{
+  "publication_manifest": {
+    "app_version": "1.0.0",
+    "bundle_identity": "runne.desktop",
+    "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "channel": "stable",
+    "channel_policy_id": "release.stable",
+    "effect_scope_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "human_artifacts": {
+      "changelog": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "checksums": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "compatibility_support": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "provenance": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "release_notes": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sbom": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "inventory_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "macos_preview_excluded": true,
+    "metadata_set_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "public_artifacts": [
+      {
+        "architecture": "x86_64",
+        "artifact_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "artifact_slot_id": "linux-appimage",
+        "byte_length": 1,
+        "checksum_sha256": "6666666666666666666666666666666666666666666666666666666666666666",
+        "platform": "linux"
+      },
+      {
+        "architecture": "x86_64",
+        "artifact_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+        "artifact_slot_id": "linux-deb",
+        "byte_length": 2,
+        "checksum_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+        "platform": "linux"
+      },
+      {
+        "architecture": "x86_64",
+        "artifact_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+        "artifact_slot_id": "windows-installer-unsigned",
+        "byte_length": 3,
+        "checksum_sha256": "abababababababababababababababababababababababababababababababab",
+        "platform": "windows"
+      }
+    ],
+    "release_sequence": 1,
+    "report_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "rollback_policy_sha256": "dededededededededededededededededededededededededededededededede",
+    "rollout_policy_sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
+    "schema_version": "runne.release.publication-manifest/2",
+    "destination": "releases/runne"
+  },
+  "final_review": {
+    "allowlist_generation": 1,
+    "allowlist_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "channel": "stable",
+    "decision": "approved",
+    "destination": "releases/runne",
+    "effect_scope_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "expires_at": 2,
+    "human_artifacts": {
+      "changelog": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "checksums": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "compatibility_support": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "provenance": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "release_notes": "1111111111111111111111111111111111111111111111111111111111111111",
+      "sbom": "2222222222222222222222222222222222222222222222222222222222222222"
+    },
+    "inventory_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "metadata_set_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "publication_manifest_sha256": "fa2aadc5ce3fb95df6a672acc1efc339628b16d791db33ed9af1049d00735874",
+    "report_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "reviewer": {
+      "account_id": "review-account",
+      "key_id": "3333333333333333333333333333333333333333333333333333333333333333",
+      "lane_id": "review-lane",
+      "principal_id": "review-principal",
+      "signature_profile_id": "review-profile"
+    },
+    "revocation_epoch": 1,
+    "schema_version": "runne.release.rc3-final-review/1",
+    "valid_from": 1
+  },
+  "authorization": {
+    "allowlist_generation": 1,
+    "allowlist_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "authorizer": {
+      "account_id": "authorizer-account",
+      "key_id": "4444444444444444444444444444444444444444444444444444444444444444",
+      "lane_id": "authorizer-lane",
+      "principal_id": "authorizer-principal",
+      "signature_profile_id": "authorizer-profile"
+    },
+    "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "channel": "stable",
+    "destination": "releases/runne",
+    "effect_scope_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "executor": {
+      "account_id": "executor-account",
+      "key_id": "5555555555555555555555555555555555555555555555555555555555555555",
+      "lane_id": "executor-lane",
+      "principal_id": "executor-principal",
+      "signature_profile_id": "executor-profile"
+    },
+    "expires_at": 2,
+    "final_review_sha256": "ea24749f4d4b28f2ce816397feedc03bf77af4c7c65bb4f062721274b98bd9f0",
+    "idempotency_namespace": "publication-v1",
+    "inventory_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "metadata_set_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "publication_manifest_sha256": "fa2aadc5ce3fb95df6a672acc1efc339628b16d791db33ed9af1049d00735874",
+    "report_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+    "revocation_epoch": 1,
+    "schema_version": "runne.release.rc3-publication-authorization/2",
+    "self_execution": false,
+    "self_execution_policy_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "valid_from": 1,
+    "workflow_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "mutations": [
+    "human_alias",
+    "invalid_window",
+    "identity_overlap",
+    "mixed_manifest_digest"
+  ]
+}

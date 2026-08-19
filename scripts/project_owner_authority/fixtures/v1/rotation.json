@@ -1,6 +1,6 @@
 {
-  "schema_version": "gocode.project-owner.key-rotation/1",
-  "repository_id": "gocode",
+  "schema_version": "runne.project-owner.key-rotation/1",
+  "repository_id": "runne",
   "role": "PROJECT_OWNER",
   "predecessor_config_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
   "old_key_id": "2222222222222222222222222222222222222222222222222222222222222222",
