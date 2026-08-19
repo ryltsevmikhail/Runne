@@ -50,7 +50,7 @@
   },
   "protocol_schema_version": 2,
   "provider_mode": "openai_responses_text_v1",
-  "provider_profile_digest": "d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80",
+  "provider_profile_digest": "9e04ed0d3cdeb99279433f01dfd44b2b67af80c076c5a63f45437f9880bae27e",
   "provider_profile_id": "runne-openai-responses-text/1",
   "schema_version": 1
 }

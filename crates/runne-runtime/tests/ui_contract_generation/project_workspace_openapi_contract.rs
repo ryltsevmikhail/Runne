@@ -145,14 +145,14 @@ fn openapi_cursor_and_idempotency_parameters_are_exact_wire_languages() {
             runne_api::ProjectPageCursor::new(principal.clone(), project)
                 .unwrap()
                 .encode_token(),
-            119,
+            runne_api::PROJECT_PAGE_CURSOR_TOKEN_LENGTH,
         ),
         (
             "/v1/projects/{projectId}/workspaces",
             runne_api::WorkspacePageCursor::new(principal.clone(), project, workspace)
                 .unwrap()
                 .encode_token(),
-            153,
+            runne_api::WORKSPACE_PAGE_CURSOR_TOKEN_LENGTH,
         ),
     ] {
         let parameters = openapi["paths"][path]["get"]["parameters"]

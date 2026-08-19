@@ -171,8 +171,8 @@ fn substitute_nonce(source: &str) -> String {
 
 fn substitute_fingerprint(source: &str) -> String {
     source.replacen(
-        "\"fingerprint\":\"bc8c9f5565b4ca935fc6c139596f9d6644fb80346fb0a0b0025c4f3fd698191d\"",
-        "\"fingerprint\":\"ac8c9f5565b4ca935fc6c139596f9d6644fb80346fb0a0b0025c4f3fd698191d\"",
+        "\"fingerprint\":\"1cf9f912d6cdb05b089b74164235ac7ce90158b84649ed1669a4721ca7b98b4d\"",
+        "\"fingerprint\":\"2cf9f912d6cdb05b089b74164235ac7ce90158b84649ed1669a4721ca7b98b4d\"",
         1,
     )
 }

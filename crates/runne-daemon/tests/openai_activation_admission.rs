@@ -17,7 +17,7 @@ async fn bare_owner_private_openai_snapshot_is_rejected_without_verified_provena
              http_bind = \"127.0.0.1:0\"\n[provider_activation]\n\
              mode = \"openai_responses_text_v1\"\n\
              profile_id = \"runne-openai-responses-text/1\"\n\
-             profile_digest = \"d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80\"\n",
+             profile_digest = \"9e04ed0d3cdeb99279433f01dfd44b2b67af80c076c5a63f45437f9880bae27e\"\n",
             temporary.path().join("event-log.db").display().to_string(),
             temporary.path().join("replay-integrity.key").display().to_string(),
         ),

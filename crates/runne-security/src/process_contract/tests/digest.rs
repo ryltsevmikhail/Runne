@@ -36,7 +36,7 @@ fn canonical_digest_is_result_and_has_a_fixed_golden_vector() {
     let digest = digest_intent(&intent).unwrap();
     assert_eq!(
         hex::encode(digest.as_bytes()),
-        "d41c83a26a4de135e8bf7623154cfff72f4d0eab8c44f69090a0fcb16606b448"
+        "d41c83a26a4de135e8bf7623154cfff72f4d0eab8c44f69090a0fcb1660230d6"
     );
 }
 

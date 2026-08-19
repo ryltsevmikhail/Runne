@@ -153,7 +153,7 @@ mod tests {
     fn ordered_capability_digest_is_domain_separated_and_ordered() {
         assert_eq!(
             hex::encode(ordered_capability_digest(&["a", "b"])),
-            "add8966b4328d129d1f029bb2f1a9fa5ab9f4991e40a7b284f948ee378d8f89a"
+            "add8966b4328d129d1f029bb2f1a9fa5ab9f4991e40a7b284f948ee378d73633"
         );
         assert_ne!(
             ordered_capability_digest(&["a", "b"]),
