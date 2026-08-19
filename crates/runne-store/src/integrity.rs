@@ -22,7 +22,7 @@ use runne_domain::task_run::TaskRunEvent;
 use sha2::{Digest, Sha256};
 
 /// Domain-separation prefix for integrity digests.
-const DOMAIN_PREFIX: &[u8] = b"runne-integrity\x01";
+const DOMAIN_PREFIX: &[u8] = b"gocode-integrity\x01";
 
 /// Current integrity profile version.
 const PROFILE_VERSION: u16 = 1;

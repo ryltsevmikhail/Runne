@@ -38,7 +38,7 @@ pub(crate) fn validate_provider_prepared(
                 return Err(FixtureValidationError::Corrupt);
             }
             let mut hasher = Sha256::new();
-            hasher.update(b"RUNNE_PROVIDER_PREPARED_V1\0");
+            hasher.update(b"GOCODE_PROVIDER_PREPARED_V1\0");
             hasher.update(&call_id);
             hasher.update(&prepared);
             hasher.update(&render);

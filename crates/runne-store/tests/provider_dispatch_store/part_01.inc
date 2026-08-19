@@ -137,7 +137,7 @@ fn prepared_outer_digest_domains_are_versioned_and_mismatch_fails_closed() {
     for (call_id, expected_hex) in [
         (
             [1_u8; 16],
-            "7f2b1aaa7ab098b4317e39b5b5bab4c97ade0c4ecc7a0b292459a2590f79ab5c",
+            "046077617ad82d9417faaa8f6d25a876417bf9845fb8edb73f531f257d533263",
         ),
         (
             [2_u8; 16],
