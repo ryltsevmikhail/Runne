@@ -122,6 +122,17 @@ class NativePlatformFoundationTests(unittest.TestCase):
             self.assertIn(platform, ALLOWED_BLOCKERS)
             self.assertTrue(ALLOWED_BLOCKERS[platform])
 
+    def test_runner_trust_blocker_accepts_package_probe_and_rejects_gocoder_alias(self) -> None:
+        from scripts.desktop.native_package_probe import preflight
+
+        probe = preflight("ubuntu-22.04-x86_64", "target/release/bundle/deb/wrong.deb")
+        self.assertEqual(probe["blocker_code"], "RUNNER_TRUST_UNVERIFIED")
+        row = copy.deepcopy(baseline()["platforms"][-1])
+        row["blocker_code"] = probe["blocker_code"]
+        self.assertEqual(row_errors(row), [])
+        row["blocker_code"] = "GOCODER_TRUST_UNVERIFIED"
+        self.assertTrue(row_errors(row))
+
     def test_provenance_rejects_self_authored_or_wrong_policy_bindings(self) -> None:
         package_sha = "a" * 64
         evidence = {"artifact_sha256": package_sha, "source_ref": "commit-1", "canonical_source_content_sha256": "b" * 64,
@@ -173,6 +184,10 @@ class NativePlatformFoundationTests(unittest.TestCase):
     def test_assemble_status_preserves_specific_native_blockers_in_v2_status(self) -> None:
         from scripts.desktop.capability_manifest_impl.validation import validate_status
         definition = load_json(EVIDENCE_PATH.parents[1] / "profiles/desktop-v1-capabilities-v1.json")
+        schema = load_json(EVIDENCE_PATH.parents[1] / "schemas/desktop-v1-capability-status-v2.schema.json")
+        blockers = schema["$defs"]["platform_status"]["properties"]["blocker_code"]["enum"]
+        self.assertIn("RUNNER_TRUST_UNVERIFIED", blockers)
+        self.assertNotIn("GOCODER_TRUST_UNVERIFIED", blockers)
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory); rows = directory / "rows"; rows.mkdir()
             accepted = []
@@ -182,7 +197,12 @@ class NativePlatformFoundationTests(unittest.TestCase):
             lifecycle = directory / "lifecycle.json"; lifecycle.write_text(json.dumps({"verified": True, "platforms": list(MANDATORY_PLATFORMS), "rows": accepted}), encoding="utf-8")
             output = directory / "status.json"
             self.assertEqual(assemble_status(rows, lifecycle, ROOT_STATUS, output), 0)
-            self.assertEqual(validate_status(definition, load_json(output)), ())
+            status = load_json(output)
+            self.assertTrue(all(row["blocker_code"] in blockers for row in status["platforms"]))
+            self.assertEqual(validate_status(definition, status), ())
+            status["platforms"][0]["blocker_code"] = "GOCODER_TRUST_UNVERIFIED"
+            self.assertNotIn(status["platforms"][0]["blocker_code"], blockers)
+            self.assertTrue(validate_status(definition, status))
 
     def test_assemble_status_reads_only_downloaded_row_files_and_binds_lifecycle_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

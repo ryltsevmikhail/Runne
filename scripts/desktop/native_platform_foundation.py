@@ -21,7 +21,7 @@ EVIDENCE_PATH = ROOT / "docs/evidence/desktop-native-platform-foundation-v1.json
 IN_TOTO_PATH = ROOT / "docs/evidence/desktop-native-platform-foundation-v1.intoto.jsonl"
 MANDATORY_PLATFORMS = ("MACOS-13-ARM64", "MACOS-13-X86-64", "WINDOWS-10-22H2-X86-64", "LINUX-UBUNTU-22-04-X86-64")
 PAIR_IDS = {"macos-13-arm64": MANDATORY_PLATFORMS[0], "macos-13-x86_64": MANDATORY_PLATFORMS[1], "windows-10-22h2-x86_64": MANDATORY_PLATFORMS[2], "ubuntu-22.04-x86_64": MANDATORY_PLATFORMS[3]}
-SPECIFIC_BLOCKERS = frozenset({"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED", "LINUX_SECURE_IDENTITY_UNVERIFIED", "LINUX_PROTECTED_LAUNCH_UNVERIFIED", "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED", "GOCODER_TRUST_UNVERIFIED"})
+SPECIFIC_BLOCKERS = frozenset({"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED", "LINUX_SECURE_IDENTITY_UNVERIFIED", "LINUX_PROTECTED_LAUNCH_UNVERIFIED", "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED", "RUNNER_TRUST_UNVERIFIED"})
 ALLOWED_BLOCKERS = {MANDATORY_PLATFORMS[0]: frozenset({"MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED"}), MANDATORY_PLATFORMS[1]: frozenset({"MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED"}), MANDATORY_PLATFORMS[2]: frozenset({"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED"}), MANDATORY_PLATFORMS[3]: frozenset({"LINUX_SECURE_IDENTITY_UNVERIFIED", "LINUX_PROTECTED_LAUNCH_UNVERIFIED"})}
 SIMULATED_MARKERS = ("simulated", "stub", "synthetic", "loopback", "fixture", "fake", "mock", "test-double")
 UNTRUSTED_SIGNING_MARKERS = ("ad-hoc", "adhoc", "self-signed", "unsigned")
@@ -75,7 +75,7 @@ def row_errors(row: dict[str, object]) -> list[str]:
     if disposition == "verified": return _verified_row_errors(row)
     if disposition not in ("blocked", "unsupported", "incompatible"): return [f"invalid disposition {disposition!r}"]
     errors = []
-    if row.get("blocker_code") not in ALLOWED_BLOCKERS[platform] and row.get("blocker_code") != "GOCODER_TRUST_UNVERIFIED": errors.append(f"{platform}: non-specific blocker_code {row.get('blocker_code')!r}")
+    if row.get("blocker_code") not in ALLOWED_BLOCKERS[platform] and row.get("blocker_code") != "RUNNER_TRUST_UNVERIFIED": errors.append(f"{platform}: non-specific blocker_code {row.get('blocker_code')!r}")
     if row.get("profile_sha256") != row.get("bundle_sha256"): errors.append(f"{platform}: profile and bundle digests disagree")
     if row.get("artifact_sha256") is not None: errors.append(f"{platform}: blocked row must not carry artifact_sha256")
     return errors
@@ -116,10 +116,10 @@ def _verified_predicate(result: object, package_sha256: str, evidence_sha256: st
 
 
 def verify_provenance_payload(evidence: object, package_sha256: str, source_ref: str | None, policy: dict[str, str] | None, gate: object, evidence_sha256: str | None = None) -> list[str]:
-    if not isinstance(evidence, dict) or policy is None or not is_sha256(package_sha256) or not is_sha256(evidence_sha256) or evidence.get("source_ref") != source_ref or evidence.get("artifact_sha256") != package_sha256 or not isinstance(gate, dict): return ["GOCODER_TRUST_UNVERIFIED"]
+    if not isinstance(evidence, dict) or policy is None or not is_sha256(package_sha256) or not is_sha256(evidence_sha256) or evidence.get("source_ref") != source_ref or evidence.get("artifact_sha256") != package_sha256 or not isinstance(gate, dict): return ["RUNNER_TRUST_UNVERIFIED"]
     package_predicate = _verified_predicate(gate.get("package"), package_sha256, evidence_sha256, source_ref, policy)
     evidence_predicate = _verified_predicate(gate.get("evidence"), package_sha256, evidence_sha256, source_ref, policy)
-    return [] if package_predicate is not None and evidence_predicate is not None else ["GOCODER_TRUST_UNVERIFIED"]
+    return [] if package_predicate is not None and evidence_predicate is not None else ["RUNNER_TRUST_UNVERIFIED"]
 
 
 def _verify_bundle(package: Path, bundle: Path, policy: dict[str, str], source_ref: str) -> object | None:
@@ -139,19 +139,19 @@ def verify_provenance_command(package: Path | None, evidence: Path | None, sourc
         gate = {"package": _verify_bundle(package, gate_bundle, policy, source_ref), "evidence": _verify_bundle(evidence, gate_bundle, policy, source_ref)} if package and evidence and gate_bundle and policy and source_ref else {}
         errors = verify_provenance_payload(value, package_sha, source_ref, policy, gate, evidence_sha)
         reviewed = value.get("reviewed_source_ref") if isinstance(value, dict) else None
-        if not errors and (value.get("canonical_source_content_sha256") != canonical_source_content_digest(ROOT, source_ref) or (isinstance(reviewed, str) and reviewed != source_ref and not evidence_only_difference(ROOT, reviewed, source_ref))): errors = ["GOCODER_TRUST_UNVERIFIED"]
-    except (OSError, ValueError, subprocess.CalledProcessError): errors = ["GOCODER_TRUST_UNVERIFIED"]
+        if not errors and (value.get("canonical_source_content_sha256") != canonical_source_content_digest(ROOT, source_ref) or (isinstance(reviewed, str) and reviewed != source_ref and not evidence_only_difference(ROOT, reviewed, source_ref))): errors = ["RUNNER_TRUST_UNVERIFIED"]
+    except (OSError, ValueError, subprocess.CalledProcessError): errors = ["RUNNER_TRUST_UNVERIFIED"]
     if output and not errors: output.write_text(json.dumps({"schema_version": "desktop-native-attestation-verification.v1", "verified": True, "package_sha256": package_sha, "evidence_sha256": evidence_sha, "source_ref": source_ref, "policy": policy, "verification": gate}, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps({"verified": not errors, "errors": errors}, sort_keys=True)); return 0 if not errors else 1
 
 
 def verify_provenance_errors(source_ref: str | None) -> list[str]:
-    return ["GOCODER_TRUST_UNVERIFIED: provenance requires protected CI"] if source_ref or not IN_TOTO_PATH.exists() or not _policy_from_env() else ["GOCODER_TRUST_UNVERIFIED: attestation verification required"]
+    return ["RUNNER_TRUST_UNVERIFIED: provenance requires protected CI"] if source_ref or not IN_TOTO_PATH.exists() or not _policy_from_env() else ["RUNNER_TRUST_UNVERIFIED: attestation verification required"]
 
 
 def _provisional_row(probe: dict[str, object], verification: dict[str, object]) -> dict[str, object]:
     platform = PAIR_IDS.get(str(probe.get("platform_id")), probe.get("platform_id"))
-    return {"platform_id": platform, "disposition": "blocked", "blocker_code": probe.get("blocker_code") or "GOCODER_TRUST_UNVERIFIED", "verification": verification, "runner": probe.get("runner", {}), "probe": probe}
+    return {"platform_id": platform, "disposition": "blocked", "blocker_code": probe.get("blocker_code") or "RUNNER_TRUST_UNVERIFIED", "verification": verification, "runner": probe.get("runner", {}), "probe": probe}
 
 
 def build_row(probe_path: Path, gate_bundle_path: Path | None, output: Path) -> int:

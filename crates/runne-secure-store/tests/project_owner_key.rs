@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 
 fn key_ref() -> ProjectOwnerKeyRef {
     ProjectOwnerKeyRef::new(
-        "runne",
+        "gocode",
         SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes(),
         1,
     )
@@ -21,16 +21,16 @@ fn key_ref() -> ProjectOwnerKeyRef {
 fn non_macos_stub_denies_every_project_owner_key_operation() {
     let store = StubStore::new();
     let reference = key_ref();
-    let floor = ProjectOwnerAnchorFloor::new("runne", 1, [8; 32]).expect("floor");
+    let floor = ProjectOwnerAnchorFloor::new("gocode", 1, [8; 32]).expect("floor");
 
     let mut build_pop =
         |_key: &ProjectOwnerKeyRef| -> Result<Vec<u8>, StoreStatus> { Ok(Vec::new()) };
     assert!(matches!(
-        store.create_pending(None, "runne", 1, &mut build_pop),
+        store.create_pending(None, "gocode", 1, &mut build_pop),
         Err(StoreStatus::Unsupported)
     ));
     assert!(matches!(
-        store.create_or_resume_pending(None, "runne", 1, &mut build_pop),
+        store.create_or_resume_pending(None, "gocode", 1, &mut build_pop),
         Err(StoreStatus::Unsupported)
     ));
     assert_eq!(
@@ -38,11 +38,11 @@ fn non_macos_stub_denies_every_project_owner_key_operation() {
         Err(StoreStatus::Unsupported)
     );
     assert_eq!(
-        store.read_anchor_floor("runne"),
+        store.read_anchor_floor("gocode"),
         Err(StoreStatus::Unsupported)
     );
     assert_eq!(
-        store.read_active_ref("runne"),
+        store.read_active_ref("gocode"),
         Err(StoreStatus::Unsupported)
     );
     assert_eq!(
@@ -73,11 +73,15 @@ fn public_types_reject_wrong_repository_zero_epoch_and_invalid_key_material() {
         Err(StoreStatus::Denied)
     );
     assert_eq!(
-        ProjectOwnerKeyRef::new("runne", key_ref().public_key(), 0),
+        ProjectOwnerKeyRef::new("runne", key_ref().public_key(), 1),
+        Err(StoreStatus::Denied)
+    );
+    assert_eq!(
+        ProjectOwnerKeyRef::new("gocode", key_ref().public_key(), 0),
         Err(StoreStatus::Denied)
     );
     assert!(matches!(
-        ProjectOwnerAnchorFloor::new("runne", 0, [8; 32]),
+        ProjectOwnerAnchorFloor::new("gocode", 0, [8; 32]),
         Err(StoreStatus::Denied)
     ));
 }
@@ -85,7 +89,7 @@ fn public_types_reject_wrong_repository_zero_epoch_and_invalid_key_material() {
 #[test]
 fn backup_material_derives_its_public_reference_and_consumes_its_seed() {
     let reference = ProjectOwnerKeyRef::new(
-        "runne",
+        "gocode",
         SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes(),
         3,
     )
