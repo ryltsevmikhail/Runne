@@ -40,7 +40,7 @@ fn valid_evidence_envelope_v2_verifies_full_raw_chain_and_calls_context_once() {
     assert_eq!(verified.trust_generation(), 4);
     assert_eq!(
         verified.payload_schema_id(),
-        "runne.release.rc3-final-review/1"
+        "gocode.release.rc3-final-review/1"
     );
     assert_eq!(
         verified.payload(),
@@ -67,7 +67,7 @@ fn rc3_final_review_specialization_requires_exact_role_scope_and_schema() {
     .unwrap();
     assert_eq!(
         verified.payload_schema_id(),
-        "runne.release.rc3-final-review/1"
+        "gocode.release.rc3-final-review/1"
     );
     assert_eq!(context.0.get(), 1);
     let (native, key) = evidence_envelope(&chain.receipt5, "RC2_NATIVE_EVIDENCE", "linux");
@@ -99,7 +99,7 @@ fn legacy_or_mixed_envelope_versions_are_rejected_before_context() {
     let chain = chain();
     let (mut envelope, key) =
         evidence_envelope(&chain.receipt5, "RC3_FINAL_REVIEWER", "final-review");
-    envelope.schema_version = "runne.release.post-rc0-stage-envelope/2".into();
+    envelope.schema_version = "gocode.release.post-rc0-stage-envelope/2".into();
     let bytes = signed_evidence_v2(&envelope, &key);
     let context = EnvelopeContext(Cell::new(0));
     assert_eq!(
@@ -218,6 +218,6 @@ fn verified_evidence_envelope_v2_is_move_only() {
     let _ = moved();
     assert_eq!(
         EVIDENCE_ENVELOPE_SCHEMA_V2,
-        "runne.release.post-rc0-evidence-envelope/2"
+        "gocode.release.post-rc0-evidence-envelope/2"
     );
 }

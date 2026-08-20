@@ -87,7 +87,7 @@ pub fn signed_readback(
     signature: u8,
 ) -> RawRc2Evidence {
     let mut raw = serde_json::to_vec(&json!({
-        "schema_version":"runne.release.rc2-signing-backend-readback/1", "signing_authorization_sha256":authorization,
+        "schema_version":"gocode.release.rc2-signing-backend-readback/1", "signing_authorization_sha256":authorization,
         "artifact_slot_id":slot, "pre_sign_artifact_sha256":artifact, "effect_generation":generation,
         "outcome":outcome, "runner":identity(runner), "valid_from":1, "expires_at":2, "revocation_epoch":1,
     })).unwrap();

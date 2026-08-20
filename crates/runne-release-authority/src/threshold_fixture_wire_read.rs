@@ -7,7 +7,7 @@ pub fn decode(
 ) -> Result<FileState, AuthorityError> {
     let text = std::str::from_utf8(bytes).map_err(|_| AuthorityError::NonCanonicalPayload)?;
     let mut lines = text.lines();
-    (lines.next() == Some("runne.release.durable-threshold-context/1"))
+    (lines.next() == Some("gocode.release.durable-threshold-context/1"))
         .then_some(())
         .ok_or(AuthorityError::NonCanonicalPayload)?;
     let bootstrap = value(&mut lines, "bootstrap")?;

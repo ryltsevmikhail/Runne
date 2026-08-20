@@ -147,7 +147,7 @@ impl VerifiedStageAdmission {
             .as_ref()
             .expect("transition-bound admission");
         let fields: [&[u8]; 17] = [
-            b"runne.release.stage-admission-command/1\0",
+            b"gocode.release.stage-admission-command/1\0",
             &self.bootstrap_sha256,
             self.role.as_bytes(),
             &self.payload_sha256,

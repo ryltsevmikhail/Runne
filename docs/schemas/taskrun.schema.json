@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/taskrun.schema.json",
+  "$id": "https://gocode.dev/schemas/taskrun.schema.json",
   "title": "TaskRun",
   "description": "TaskRun aggregate snapshot aligned with the Orchestration domain model.",
   "type": "object",

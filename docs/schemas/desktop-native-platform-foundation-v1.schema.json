@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/desktop-native-platform-foundation-v1.schema.json",
-  "title": "RUNNE Desktop V1 Native Platform Foundation Evidence",
+  "$id": "https://gocode.dev/schemas/desktop-native-platform-foundation-v1.schema.json",
+  "title": "GOCODE Desktop V1 Native Platform Foundation Evidence",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -59,7 +59,7 @@
         "LINUX_SECURE_IDENTITY_UNVERIFIED",
         "LINUX_PROTECTED_LAUNCH_UNVERIFIED",
         "MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED",
-        "RUNNER_TRUST_UNVERIFIED",
+        "GOCODER_TRUST_UNVERIFIED",
         null
       ]
     },

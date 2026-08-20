@@ -8,7 +8,7 @@ use sha2::{Digest as _, Sha256};
 use crate::Digest;
 use crate::publication_effect_types::PublicationEffectError;
 
-const SCHEMA: &str = "runne.release.publication-effect-settlement/1";
+const SCHEMA: &str = "gocode.release.publication-effect-settlement/1";
 
 /// Executor-signed publication-effect settlement payload.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

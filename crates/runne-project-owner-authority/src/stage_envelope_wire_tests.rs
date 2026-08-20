@@ -24,12 +24,12 @@ fn rc2_and_legacy_rc3_transition_envelopes_reach_validation_with_exact_pins() {
     for (role, schema_id, seed) in [
         (
             "RC2_SIGNING_AUTHORIZER",
-            "runne.release.rc2-signing-authorization/1",
+            "gocode.release.rc2-signing-authorization/1",
             12_u8,
         ),
         (
             "RC3_PUBLICATION_AUTHORIZER",
-            "runne.release.rc3-publication-authorization/1",
+            "gocode.release.rc3-publication-authorization/1",
             13,
         ),
     ] {
@@ -52,7 +52,7 @@ fn rc2_and_legacy_rc3_transition_envelopes_reach_validation_with_exact_pins() {
         let payload = serde_json::json!({"schema_version":schema_id});
         let envelope = StageAuthorityEnvelopeV1 {
             schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-            repository_id: "runne".into(),
+            repository_id: "gocode".into(),
             bootstrap_receipt_sha256: [1; 32],
             issuer_role: role.into(),
             issuer_principal_id: delegation.principal_id.clone(),
@@ -76,7 +76,7 @@ fn rc2_and_legacy_rc3_transition_envelopes_reach_validation_with_exact_pins() {
             revocation_epoch: 1,
             authorization_nonce: "nonce-2".into(),
         };
-        let domain = crate::SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, role, "runne").unwrap();
+        let domain = crate::SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, role, "gocode").unwrap();
         let signature = key
             .sign(&signing_transcript(
                 &domain,
@@ -96,7 +96,7 @@ fn rc2_and_legacy_rc3_transition_envelopes_reach_validation_with_exact_pins() {
             ),
             &TestContext,
         );
-        if schema_id == "runne.release.rc3-publication-authorization/1" {
+        if schema_id == "gocode.release.rc3-publication-authorization/1" {
             assert_eq!(outcome, Err(AuthorityError::AuthorityVersionSuperseded));
         } else {
             assert_eq!(outcome, Err(AuthorityError::InvalidStageEnvelope));
@@ -107,7 +107,7 @@ fn rc2_and_legacy_rc3_transition_envelopes_reach_validation_with_exact_pins() {
 #[test]
 fn legacy_rc3_publication_authorization_v1_envelope_is_superseded_before_verification() {
     let key = SigningKey::from_bytes(&[14; 32]);
-    let schema_id = "runne.release.rc3-publication-authorization/1";
+    let schema_id = "gocode.release.rc3-publication-authorization/1";
     let delegation = DelegationV1 {
         role: "RC3_PUBLICATION_AUTHORIZER".into(),
         principal_id: "principal-3".into(),
@@ -125,7 +125,7 @@ fn legacy_rc3_publication_authorization_v1_envelope_is_superseded_before_verific
     let payload = serde_json::json!({"schema_version":schema_id});
     let envelope = StageAuthorityEnvelopeV1 {
         schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         bootstrap_receipt_sha256: [1; 32],
         issuer_role: delegation.role.clone(),
         issuer_principal_id: delegation.principal_id.clone(),
@@ -150,7 +150,7 @@ fn legacy_rc3_publication_authorization_v1_envelope_is_superseded_before_verific
         authorization_nonce: "nonce-3".into(),
     };
     let domain =
-        SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "runne").unwrap();
+        SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "gocode").unwrap();
     let signature = key
         .sign(&signing_transcript(
             &domain,
@@ -190,13 +190,13 @@ fn rejects_schema_version_only_stage_payload() {
         not_before: "2026-08-13T00:00:00Z".into(),
         expires_at: "2026-08-13T00:00:04Z".into(),
         revocation_epoch: 1,
-        allowed_payload_schema_ids: vec!["runne.release.rc1-qualification-decision/1".into()],
+        allowed_payload_schema_ids: vec!["gocode.release.rc1-qualification-decision/1".into()],
     };
     let payload =
-        serde_json::json!({"schema_version":"runne.release.rc1-qualification-decision/1"});
+        serde_json::json!({"schema_version":"gocode.release.rc1-qualification-decision/1"});
     let envelope = StageAuthorityEnvelopeV1 {
         schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         bootstrap_receipt_sha256: [1; 32],
         issuer_role: delegation.role.clone(),
         issuer_principal_id: delegation.principal_id.clone(),
@@ -209,7 +209,7 @@ fn rejects_schema_version_only_stage_payload() {
         payload_schema_sha256: crate::v3_trust_schema_digests()
             .unwrap()
             .into_iter()
-            .find(|pin| pin.schema_id == "runne.release.rc1-qualification-decision/1")
+            .find(|pin| pin.schema_id == "gocode.release.rc1-qualification-decision/1")
             .unwrap()
             .schema_sha256,
         payload_sha256: Sha256::digest(canonical_stage_payload(&payload).unwrap()).into(),
@@ -221,7 +221,7 @@ fn rejects_schema_version_only_stage_payload() {
         authorization_nonce: "nonce-1".into(),
     };
     let domain =
-        SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "runne").unwrap();
+        SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "gocode").unwrap();
     let signature = key
         .sign(&signing_transcript(
             &domain,

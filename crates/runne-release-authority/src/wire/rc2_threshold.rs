@@ -4,7 +4,7 @@ use sha2::{Digest as _, Sha256};
 use super::common::{HexDigest, HexSignature, identifier, unique};
 use crate::AuthorityError;
 
-pub(super) const METADATA: &str = "runne.release.rc2-threshold-update-metadata-set/2";
+pub(super) const METADATA: &str = "gocode.release.rc2-threshold-update-metadata-set/2";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

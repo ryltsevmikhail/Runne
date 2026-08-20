@@ -7,7 +7,7 @@ use runne_project_owner_authority::{
 fn stage_envelope_canonical_bytes_bind_the_payload_without_an_envelope_hash_field() {
     let envelope = StageAuthorityEnvelopeV1 {
         schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         bootstrap_receipt_sha256: [1; 32],
         issuer_role: "RC1_QUALIFICATION_AUTHORIZER".into(),
         issuer_principal_id: "principal-1".into(),
@@ -16,10 +16,10 @@ fn stage_envelope_canonical_bytes_bind_the_payload_without_an_envelope_hash_fiel
         issuer_key_id: "2".repeat(64),
         issuer_key_epoch: 1,
         signature_profile_id: "profile-1".into(),
-        payload_schema_id: "runne.release.rc1-qualification-decision/1".into(),
+        payload_schema_id: "gocode.release.rc1-qualification-decision/1".into(),
         payload_schema_sha256: [3; 32],
         payload_sha256: [4; 32],
-        payload: serde_json::json!({"schema_version":"runne.release.rc1-qualification-decision/1"}),
+        payload: serde_json::json!({"schema_version":"gocode.release.rc1-qualification-decision/1"}),
         issued_at: "2026-08-13T00:00:01Z".into(),
         not_before: "2026-08-13T00:00:02Z".into(),
         expires_at: "2026-08-13T00:00:03Z".into(),

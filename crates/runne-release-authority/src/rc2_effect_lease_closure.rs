@@ -61,7 +61,7 @@ impl FixtureRc2EffectLeaseLedger {
 }
 
 fn identity(binding: &ClaimBinding) -> Digest {
-    let mut bytes = b"runne.release.rc2-effect-ledger-claim/1\0".to_vec();
+    let mut bytes = b"gocode.release.rc2-effect-ledger-claim/1\0".to_vec();
     for value in [
         binding.authority_instance.as_bytes().as_slice(),
         binding.promotion.as_bytes(),

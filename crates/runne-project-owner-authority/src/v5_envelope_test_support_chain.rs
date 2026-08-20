@@ -45,7 +45,7 @@ pub fn chain() -> Chain {
 pub fn trust(root: &SigningKey, predecessor: [u8; 32]) -> crate::VerifiedTrustConfigV4 {
     let mut config = crate::ProjectOwnerTrustConfigV4 {
         schema_version: crate::trust_v4::CONFIG_SCHEMA_V4.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 4,
         key_id: crate::key_id(&root.verifying_key().to_bytes()),
@@ -53,7 +53,7 @@ pub fn trust(root: &SigningKey, predecessor: [u8; 32]) -> crate::VerifiedTrustCo
         schema_digests: crate::v4_trust_schema_digests().unwrap(),
         proof_of_possession: [0; 64],
         predecessor,
-        predecessor_schema_version: "runne.project-owner.trust-config/3".into(),
+        predecessor_schema_version: "gocode.project-owner.trust-config/3".into(),
     };
     config.proof_of_possession = root
         .sign(
@@ -113,7 +113,7 @@ pub fn receipt(config: &crate::ProjectOwnerTrustConfigV4) -> PromotionAuthorityR
     };
     PromotionAuthorityReceiptV5 {
         schema_version: crate::RECEIPT_SCHEMA_V5.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         purpose: crate::PURPOSE_V5.into(),
         profile: crate::PROFILE_V5.into(),
@@ -159,7 +159,7 @@ pub fn signed_bytes(root: &SigningKey, receipt: &PromotionAuthorityReceiptV5) ->
     let signature = root
         .sign(
             &crate::framed_transcript(
-                b"runne.project-owner.authority-receipt/5",
+                b"gocode.project-owner.authority-receipt/5",
                 &crate::canonical_unsigned_receipt_v5(receipt).unwrap(),
             )
             .unwrap(),

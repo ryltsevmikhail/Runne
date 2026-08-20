@@ -212,7 +212,7 @@ fn raw(
     }
     let envelope = StageAuthorityEnvelopeV1 {
         schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         bootstrap_receipt_sha256: bootstrap.receipt_sha256(),
         issuer_role: role.into(),
         issuer_principal_id: delegation.principal_id,
@@ -237,7 +237,7 @@ fn raw(
         revocation_epoch: 1,
         authorization_nonce: authorization_nonce.into(),
     };
-    let domain = SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, role, "runne").expect("domain");
+    let domain = SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, role, "gocode").expect("domain");
     let signature = key
         .sign(&signing_transcript(
             &domain,
@@ -266,15 +266,15 @@ fn stage(number: u8) -> (&'static str, &'static str) {
     match number {
         1 => (
             "RC1_QUALIFICATION_AUTHORIZER",
-            "runne.release.rc1-qualification-decision/1",
+            "gocode.release.rc1-qualification-decision/1",
         ),
         2 => (
             "RC2_SIGNING_AUTHORIZER",
-            "runne.release.rc2-signing-authorization/1",
+            "gocode.release.rc2-signing-authorization/1",
         ),
         3 => (
             "RC3_PUBLICATION_AUTHORIZER",
-            "runne.release.rc3-publication-authorization/1",
+            "gocode.release.rc3-publication-authorization/1",
         ),
         _ => unreachable!("stage role"),
     }

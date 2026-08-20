@@ -10,8 +10,8 @@ use std::path::Path;
 fn old() -> (SigningKey, ProjectOwnerTrustConfigV1) {
     let key = SigningKey::from_bytes(&[7; 32]);
     let mut value = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&key.verifying_key().to_bytes()),
@@ -31,14 +31,14 @@ fn v2_rotation_preserves_the_exact_pins() {
     let (old_key, old) = old();
     let first_key = SigningKey::from_bytes(&[8; 32]);
     let mut first = KeyRotationV2 {
-        schema_version: "runne.project-owner.key-rotation/2".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/2".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),
         old_key_id: old.key_id,
         old_epoch: 1,
-        new_trust_schema_version: "runne.project-owner.trust-config/2".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/2".into(),
         new_key_id: key_id(&first_key.verifying_key().to_bytes()),
         new_public_key: first_key.verifying_key().to_bytes(),
         new_epoch: 2,
@@ -58,14 +58,14 @@ fn v2_rotation_preserves_the_exact_pins() {
     let v2 = verify_trust_upgrade_v1_to_v2(&old, &first).unwrap();
     let next_key = SigningKey::from_bytes(&[9; 32]);
     let mut second = KeyRotationV2 {
-        schema_version: "runne.project-owner.key-rotation/2".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/2".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: v2.schema_version.clone(),
         old_trust_config_sha256: v2.sha256().unwrap(),
         old_key_id: v2.key_id,
         old_epoch: v2.epoch,
-        new_trust_schema_version: "runne.project-owner.trust-config/2".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/2".into(),
         new_key_id: key_id(&next_key.verifying_key().to_bytes()),
         new_public_key: next_key.verifying_key().to_bytes(),
         new_epoch: 3,
@@ -103,23 +103,23 @@ fn target_schema_pins_match_the_exact_schema_files() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let expected = [
         (
-            "runne.governance.v1-platform-scope-decision/1",
+            "gocode.governance.v1-platform-scope-decision/1",
             "docs/schemas/v1-platform-scope-decision-v1.schema.json",
         ),
         (
-            "runne.project-owner.authority-receipt/2",
+            "gocode.project-owner.authority-receipt/2",
             "docs/schemas/project-owner-authority-receipt-v2.schema.json",
         ),
         (
-            "runne.project-owner.authority-receipt/3",
+            "gocode.project-owner.authority-receipt/3",
             "docs/schemas/project-owner-authority-receipt-v3.schema.json",
         ),
         (
-            "runne.rc0.post-rc0-platform-composed-universe/1",
+            "gocode.rc0.post-rc0-platform-composed-universe/1",
             "docs/schemas/post-rc0-platform-composed-universe-v1.schema.json",
         ),
         (
-            "runne.v1-platform-scope-claim-migration/1",
+            "gocode.v1-platform-scope-claim-migration/1",
             "docs/schemas/v1-platform-scope-claim-migration-v1.schema.json",
         ),
     ];
@@ -137,14 +137,14 @@ fn v1_to_v2_requires_exact_monotonic_pins_and_distinct_key() {
     let (old_key, old) = old();
     let new_key = SigningKey::from_bytes(&[8; 32]);
     let mut rotation = KeyRotationV2 {
-        schema_version: "runne.project-owner.key-rotation/2".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/2".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),
         old_key_id: old.key_id,
         old_epoch: old.epoch,
-        new_trust_schema_version: "runne.project-owner.trust-config/2".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/2".into(),
         new_key_id: key_id(&new_key.verifying_key().to_bytes()),
         new_public_key: new_key.verifying_key().to_bytes(),
         new_epoch: 2,
@@ -168,12 +168,12 @@ fn v1_to_v2_requires_exact_monotonic_pins_and_distinct_key() {
     assert_eq!(successor.predecessor, old.sha256().unwrap());
     assert_eq!(
         successor.predecessor_schema_version,
-        "runne.project-owner.trust-config/1"
+        "gocode.project-owner.trust-config/1"
     );
     assert_eq!(successor.schema_digests, pins());
     let mut injected = rotation;
     injected.new_schema_digests.push(SchemaDigest {
-        schema_id: "runne.extra/1".into(),
+        schema_id: "gocode.extra/1".into(),
         schema_sha256: [9; 32],
     });
     assert!(verify_trust_upgrade_v1_to_v2(&old, &injected).is_err());

@@ -33,7 +33,7 @@ fn raw_bootstrap_rejects_digest_predecessor_pins_and_signature_mutations() {
     let domain = SigningDomain::new(
         RECEIPT_SCHEMA_V4,
         "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP",
-        "runne",
+        "gocode",
     )
     .unwrap();
     let signature = root_key

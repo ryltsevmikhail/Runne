@@ -227,7 +227,7 @@ fn set(value: &mut serde_json::Value, path: &[serde_json::Value], next: serde_js
 
 #[test]
 fn threshold_metadata_rejects_the_superseded_aggregate_signature_body() {
-    let raw = b"{\"schema_version\":\"runne.release.rc2-threshold-update-metadata-set/1\",\"candidate_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n";
+    let raw = b"{\"schema_version\":\"gocode.release.rc2-threshold-update-metadata-set/1\",\"candidate_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n";
     assert_eq!(
         InspectedCanonicalPayload::parse(CanonicalPayloadKind::ThresholdMetadata, raw),
         Err(AuthorityError::NonCanonicalPayload)

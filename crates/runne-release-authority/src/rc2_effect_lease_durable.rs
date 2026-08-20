@@ -17,7 +17,7 @@ use super::{
 mod codec;
 pub(crate) use codec::{decode_ledger, encode_ledger};
 
-const SCHEMA: &str = "runne.release.rc2-effect-lease-ledger/1";
+const SCHEMA: &str = "gocode.release.rc2-effect-lease-ledger/1";
 
 /// File-backed fixture ledger. Its guarded transaction persists reservation state before dispatch.
 #[allow(dead_code)] // Global durable authority consumes the codec; standalone fixture is retained for recovery tests.

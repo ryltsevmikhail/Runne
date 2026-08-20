@@ -8,7 +8,7 @@ use crate::rc2_evidence_common::{
 use crate::{AuthorityError, Digest, InspectedCanonicalPayload};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA: &str = "runne.release.rc2-signing-review/1";
+const SCHEMA: &str = "gocode.release.rc2-signing-review/1";
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Review {

@@ -16,7 +16,7 @@ pub use crate::stage_context::{
 };
 
 /// Fixed schema identifier for post-RC0 stage envelopes.
-pub const STAGE_ENVELOPE_SCHEMA_V1: &str = "runne.release.post-rc0-stage-envelope/1";
+pub const STAGE_ENVELOPE_SCHEMA_V1: &str = "gocode.release.post-rc0-stage-envelope/1";
 
 /// Canonical unsigned stage envelope fields.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -254,7 +254,7 @@ pub(crate) fn validate_stage_fields(
     value: &StageAuthorityEnvelopeV1,
 ) -> Result<(), AuthorityError> {
     if value.schema_version != STAGE_ENVELOPE_SCHEMA_V1
-        || value.repository_id != "runne"
+        || value.repository_id != "gocode"
         || !hex_digest(&value.issuer_key_id)
         || !crate::receipt_v4_validation::safe_id(&value.authorization_nonce)
         || value.issuer_key_epoch == 0

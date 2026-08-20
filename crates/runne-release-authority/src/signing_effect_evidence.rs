@@ -10,8 +10,8 @@ use crate::rc2_evidence_common::{
 };
 use crate::{AuthorityError, CanonicalPayloadKind, Digest, InspectedCanonicalPayload};
 
-const SCHEMA: &str = "runne.release.rc2-signing-effect-claim/1";
-const READBACK_SCHEMA: &str = "runne.release.rc2-signing-backend-readback/1";
+const SCHEMA: &str = "gocode.release.rc2-signing-effect-claim/1";
+const READBACK_SCHEMA: &str = "gocode.release.rc2-signing-backend-readback/1";
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

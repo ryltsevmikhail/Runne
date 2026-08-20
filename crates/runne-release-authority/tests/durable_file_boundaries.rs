@@ -112,7 +112,7 @@ fn mutate(path: &std::path::Path, case: &str, json: bool) {
             if json {
                 b.pop();
                 b.extend_from_slice(
-                    b",\"schema_version\":\"runne.release.durable-promotion-store/1\"}\n",
+                    b",\"schema_version\":\"gocode.release.durable-promotion-store/1\"}\n",
                 );
             } else {
                 b.extend_from_slice(b"ack_count=0\n");

@@ -12,9 +12,9 @@ use crate::{
     trust_canonical::{canonical_config, hex},
 };
 
-const ROTATION_SCHEMA: &str = "runne.project-owner.key-rotation/1";
-const OLD_DOMAIN: &[u8] = b"runne.project-owner.rotation-old-authorization/1";
-const NEW_DOMAIN: &[u8] = b"runne.project-owner.rotation-new-proof-of-possession/1";
+const ROTATION_SCHEMA: &str = "gocode.project-owner.key-rotation/1";
+const OLD_DOMAIN: &[u8] = b"gocode.project-owner.rotation-old-authorization/1";
+const NEW_DOMAIN: &[u8] = b"gocode.project-owner.rotation-new-proof-of-possession/1";
 
 /// Public proof that the active owner key authorized exactly one successor key.
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.rc0.platform-qualified-subject/2",
-  "title": "RUNNE Solo Owner Platform Qualified Subject V2",
+  "$id": "gocode.rc0.platform-qualified-subject/2",
+  "title": "GOCODE Solo Owner Platform Qualified Subject V2",
   "type": "object", "additionalProperties": false,
   "required": ["schema_version", "repository_id", "project_owner_authority_receipt_sha256", "mapping_policy_envelope_sha256", "active_activation_snapshot_envelope_sha256", "platform_qualified_subject_envelope_sha256", "runtime_adr_document_sha256", "desktop_adr_document_sha256"],
   "properties": {
-    "schema_version": {"const": "runne.rc0.platform-qualified-subject/2"}, "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.rc0.platform-qualified-subject/2"}, "repository_id": {"const": "gocode"},
     "project_owner_authority_receipt_sha256": {"$ref": "#/$defs/sha256"}, "mapping_policy_envelope_sha256": {"$ref": "#/$defs/sha256"}, "active_activation_snapshot_envelope_sha256": {"$ref": "#/$defs/sha256"}, "platform_qualified_subject_envelope_sha256": {"$ref": "#/$defs/sha256"},
     "runtime_adr_document_sha256": {"$ref": "#/$defs/sha256"}, "desktop_adr_document_sha256": {"$ref": "#/$defs/sha256"}
   }, "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}

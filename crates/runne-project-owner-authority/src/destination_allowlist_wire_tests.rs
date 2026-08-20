@@ -59,8 +59,8 @@ fn legacy_or_mixed_allowlist_versions_are_rejected_before_context() {
     let bound = Sha256::digest(crate::canonical_unsigned_allowlist_v1(&allowlist).unwrap()).into();
     let receipt5 = allowlist_receipt5(&chain.root, &chain.trust, bound);
     for version in [
-        "runne.project-owner.publication-destination-allowlist/2",
-        "runne.other/1",
+        "gocode.project-owner.publication-destination-allowlist/2",
+        "gocode.other/1",
     ] {
         let mut changed = allowlist.clone();
         changed.schema_version = version.into();

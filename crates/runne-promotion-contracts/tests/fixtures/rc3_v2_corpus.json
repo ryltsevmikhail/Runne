@@ -1,7 +1,7 @@
 {
   "publication_manifest": {
     "app_version": "1.0.0",
-    "bundle_identity": "runne.desktop",
+    "bundle_identity": "gocode.desktop",
     "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "channel": "stable",
     "channel_policy_id": "release.stable",
@@ -47,8 +47,8 @@
     "report_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
     "rollback_policy_sha256": "dededededededededededededededededededededededededededededededede",
     "rollout_policy_sha256": "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef",
-    "schema_version": "runne.release.publication-manifest/2",
-    "destination": "releases/runne"
+    "schema_version": "gocode.release.publication-manifest/2",
+    "destination": "releases/gocode"
   },
   "final_review": {
     "allowlist_generation": 1,
@@ -56,7 +56,7 @@
     "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "channel": "stable",
     "decision": "approved",
-    "destination": "releases/runne",
+    "destination": "releases/gocode",
     "effect_scope_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "expires_at": 2,
     "human_artifacts": {
@@ -69,7 +69,7 @@
     },
     "inventory_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
     "metadata_set_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
-    "publication_manifest_sha256": "fa2aadc5ce3fb95df6a672acc1efc339628b16d791db33ed9af1049d00735874",
+    "publication_manifest_sha256": "9dad698fc62824ea3791b1f5ead4b6184a36126ff75aa9ee3a17b71959ba3aa7",
     "report_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
     "reviewer": {
       "account_id": "review-account",
@@ -79,7 +79,7 @@
       "signature_profile_id": "review-profile"
     },
     "revocation_epoch": 1,
-    "schema_version": "runne.release.rc3-final-review/1",
+    "schema_version": "gocode.release.rc3-final-review/1",
     "valid_from": 1
   },
   "authorization": {
@@ -94,7 +94,7 @@
     },
     "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "channel": "stable",
-    "destination": "releases/runne",
+    "destination": "releases/gocode",
     "effect_scope_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "executable_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
     "executor": {
@@ -105,14 +105,14 @@
       "signature_profile_id": "executor-profile"
     },
     "expires_at": 2,
-    "final_review_sha256": "ea24749f4d4b28f2ce816397feedc03bf77af4c7c65bb4f062721274b98bd9f0",
+    "final_review_sha256": "317093cc9b85b11d85297b697b3951d4e70e137c27b18b3d051a4cd57a5f65a8",
     "idempotency_namespace": "publication-v1",
     "inventory_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
     "metadata_set_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
-    "publication_manifest_sha256": "fa2aadc5ce3fb95df6a672acc1efc339628b16d791db33ed9af1049d00735874",
+    "publication_manifest_sha256": "9dad698fc62824ea3791b1f5ead4b6184a36126ff75aa9ee3a17b71959ba3aa7",
     "report_sha256": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
     "revocation_epoch": 1,
-    "schema_version": "runne.release.rc3-publication-authorization/2",
+    "schema_version": "gocode.release.rc3-publication-authorization/2",
     "self_execution": false,
     "self_execution_policy_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "valid_from": 1,

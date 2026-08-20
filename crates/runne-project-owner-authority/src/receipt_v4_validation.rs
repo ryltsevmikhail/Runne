@@ -33,7 +33,7 @@ pub(crate) fn validate_bootstrap(
     root: [u8; 32],
 ) -> Result<(), AuthorityError> {
     if value.schema_version != RECEIPT_SCHEMA_V4
-        || value.repository_id != "runne"
+        || value.repository_id != "gocode"
         || value.role != "PROJECT_OWNER"
         || value.purpose != PURPOSE_V4
         || value.profile != PROFILE_V4
@@ -114,11 +114,11 @@ pub(crate) fn validate_bootstrap(
 pub(crate) fn allowed(role: &str) -> Vec<String> {
     match role {
         "RC1_QUALIFICATION_AUTHORIZER" => {
-            vec!["runne.release.rc1-qualification-decision/1".into()]
+            vec!["gocode.release.rc1-qualification-decision/1".into()]
         }
-        "RC2_SIGNING_AUTHORIZER" => vec!["runne.release.rc2-signing-authorization/1".into()],
+        "RC2_SIGNING_AUTHORIZER" => vec!["gocode.release.rc2-signing-authorization/1".into()],
         "RC3_PUBLICATION_AUTHORIZER" => {
-            vec!["runne.release.rc3-publication-authorization/1".into()]
+            vec!["gocode.release.rc3-publication-authorization/1".into()]
         }
         _ => vec![],
     }

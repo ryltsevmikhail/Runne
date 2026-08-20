@@ -11,7 +11,7 @@ fn verified_v3_rotation_mints_only_a_proof_bound_v4_successor() {
     let old_key = SigningKey::from_bytes(&[31; 32]);
     let mut old = ProjectOwnerTrustConfigV3 {
         schema_version: crate::trust_v3::CONFIG_SCHEMA_V3.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 3,
         key_id: key_id(&old_key.verifying_key().to_bytes()),
@@ -19,7 +19,7 @@ fn verified_v3_rotation_mints_only_a_proof_bound_v4_successor() {
         schema_digests: crate::v3_trust_schema_digests().unwrap(),
         proof_of_possession: [0; 64],
         predecessor: [1; 32],
-        predecessor_schema_version: "runne.project-owner.trust-config/2".into(),
+        predecessor_schema_version: "gocode.project-owner.trust-config/2".into(),
     };
     old.proof_of_possession = old_key
         .sign(
@@ -33,8 +33,8 @@ fn verified_v3_rotation_mints_only_a_proof_bound_v4_successor() {
     let verified = crate::trust_v3::verified_v3(old.clone());
     let new_key = SigningKey::from_bytes(&[32; 32]);
     let mut rotation = KeyRotationV4 {
-        schema_version: "runne.project-owner.key-rotation/4".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/4".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),

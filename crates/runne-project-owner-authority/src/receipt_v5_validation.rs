@@ -13,7 +13,7 @@ pub fn validate(
     predecessor: &crate::v5_lineage::V4LineageView<'_>,
 ) -> Result<(), AuthorityError> {
     if value.schema_version != crate::RECEIPT_SCHEMA_V5
-        || value.repository_id != "runne"
+        || value.repository_id != "gocode"
         || value.role != "PROJECT_OWNER"
         || value.purpose != crate::PURPOSE_V5
         || value.profile != crate::PROFILE_V5
@@ -51,13 +51,13 @@ pub fn validate(
 #[must_use]
 pub fn allowed_payload_schemas(role: &str, scope: &str) -> Vec<String> {
     let schemas: &[&str] = match (role, scope) {
-        ("RC1_QUALIFICATION_AUTHORIZER", _) => &["runne.release.rc1-qualification-decision/1"],
-        ("RC2_SIGNING_AUTHORIZER", _) => &["runne.release.rc2-signing-authorization/1"],
-        ("RC3_PUBLICATION_AUTHORIZER", _) => &["runne.release.rc3-publication-authorization/2"],
-        ("RC2_NATIVE_EVIDENCE", "linux" | "windows") => &["runne.release.rc2-native-evidence/1"],
-        ("RC2_SIGNING_REVIEWER", "signing-review") => &["runne.release.rc2-signing-review/1"],
-        ("RC2_UPDATE_ISSUER", "update-issuer") => &["runne.release.rc2-update-metadata-issuance/1"],
-        ("RC3_FINAL_REVIEWER", "final-review") => &["runne.release.rc3-final-review/1"],
+        ("RC1_QUALIFICATION_AUTHORIZER", _) => &["gocode.release.rc1-qualification-decision/1"],
+        ("RC2_SIGNING_AUTHORIZER", _) => &["gocode.release.rc2-signing-authorization/1"],
+        ("RC3_PUBLICATION_AUTHORIZER", _) => &["gocode.release.rc3-publication-authorization/2"],
+        ("RC2_NATIVE_EVIDENCE", "linux" | "windows") => &["gocode.release.rc2-native-evidence/1"],
+        ("RC2_SIGNING_REVIEWER", "signing-review") => &["gocode.release.rc2-signing-review/1"],
+        ("RC2_UPDATE_ISSUER", "update-issuer") => &["gocode.release.rc2-update-metadata-issuance/1"],
+        ("RC3_FINAL_REVIEWER", "final-review") => &["gocode.release.rc3-final-review/1"],
         _ => &[],
     };
     schemas.iter().map(|value| (*value).to_owned()).collect()

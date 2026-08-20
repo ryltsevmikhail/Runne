@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.release.platform-qualification-matrix/3",
-  "title": "RUNNE Solo Owner Platform Qualification Matrix V3",
+  "$id": "gocode.release.platform-qualification-matrix/3",
+  "title": "GOCODE Solo Owner Platform Qualification Matrix V3",
   "type": "object", "additionalProperties": false,
   "required": ["schema_version", "repository_id", "project_owner_authority_receipt_sha256", "platform_qualified_subject_envelope_sha256", "normalized_platform_mapping_payload_sha256"],
   "properties": {
-    "schema_version": {"const": "runne.release.platform-qualification-matrix/3"}, "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.release.platform-qualification-matrix/3"}, "repository_id": {"const": "gocode"},
     "project_owner_authority_receipt_sha256": {"$ref": "#/$defs/sha256"}, "platform_qualified_subject_envelope_sha256": {"$ref": "#/$defs/sha256"}, "normalized_platform_mapping_payload_sha256": {"$ref": "#/$defs/sha256"}
   }, "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
 }

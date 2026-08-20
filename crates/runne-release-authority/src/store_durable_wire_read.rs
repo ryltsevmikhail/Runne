@@ -24,7 +24,7 @@ fn base_record(
     file: &FileState,
     binding: &ThresholdFixtureStoreBinding,
 ) -> Result<(PromotionId, crate::store_machine::Record), AuthorityError> {
-    if file.schema_version != "runne.release.durable-promotion-store/1"
+    if file.schema_version != "gocode.release.durable-promotion-store/1"
         || file.bootstrap != binding.bootstrap.to_hex()
         || file.profile != binding.profile
         || file.version != binding.version

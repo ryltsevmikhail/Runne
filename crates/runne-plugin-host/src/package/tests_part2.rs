@@ -3,9 +3,9 @@
         let source = PluginPackageCapture::capture(
             PluginPackageContent::new(
                 b"package-a".to_vec(),
-                b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
+                b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
                 b"entrypoint-a".to_vec(),
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
                 b"trust-binding-b".to_vec(),
             ),
             PluginClass::Extension,

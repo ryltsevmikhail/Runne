@@ -75,7 +75,7 @@ pub fn expected(value: &PromotionAuthorityReceiptV5) -> ExpectedReceiptV5Binding
 pub fn trust(root: &SigningKey, predecessor: [u8; 32]) -> crate::VerifiedTrustConfigV4 {
     let mut config = crate::ProjectOwnerTrustConfigV4 {
         schema_version: crate::trust_v4::CONFIG_SCHEMA_V4.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 4,
         key_id: crate::key_id(&root.verifying_key().to_bytes()),
@@ -83,7 +83,7 @@ pub fn trust(root: &SigningKey, predecessor: [u8; 32]) -> crate::VerifiedTrustCo
         schema_digests: crate::v4_trust_schema_digests().unwrap(),
         proof_of_possession: [0; 64],
         predecessor,
-        predecessor_schema_version: "runne.project-owner.trust-config/3".into(),
+        predecessor_schema_version: "gocode.project-owner.trust-config/3".into(),
     };
     config.proof_of_possession = root
         .sign(
@@ -114,7 +114,7 @@ pub fn signed_bytes(root: &SigningKey, receipt: &PromotionAuthorityReceiptV5) ->
     let signature = root
         .sign(
             &crate::framed_transcript(
-                b"runne.project-owner.authority-receipt/5",
+                b"gocode.project-owner.authority-receipt/5",
                 &crate::canonical_unsigned_receipt_v5(receipt).unwrap(),
             )
             .unwrap(),
@@ -133,17 +133,17 @@ pub fn subject() -> GitSubject {
 
 pub fn expected_schemas(role: &str, scope: &str) -> Vec<String> {
     match (role, scope) {
-        ("RC1_QUALIFICATION_AUTHORIZER", _) => vec!["runne.release.rc1-qualification-decision/1"],
-        ("RC2_SIGNING_AUTHORIZER", _) => vec!["runne.release.rc2-signing-authorization/1"],
-        ("RC3_PUBLICATION_AUTHORIZER", _) => vec!["runne.release.rc3-publication-authorization/2"],
+        ("RC1_QUALIFICATION_AUTHORIZER", _) => vec!["gocode.release.rc1-qualification-decision/1"],
+        ("RC2_SIGNING_AUTHORIZER", _) => vec!["gocode.release.rc2-signing-authorization/1"],
+        ("RC3_PUBLICATION_AUTHORIZER", _) => vec!["gocode.release.rc3-publication-authorization/2"],
         ("RC2_NATIVE_EVIDENCE", "linux" | "windows") => {
-            vec!["runne.release.rc2-native-evidence/1"]
+            vec!["gocode.release.rc2-native-evidence/1"]
         }
-        ("RC2_SIGNING_REVIEWER", "signing-review") => vec!["runne.release.rc2-signing-review/1"],
+        ("RC2_SIGNING_REVIEWER", "signing-review") => vec!["gocode.release.rc2-signing-review/1"],
         ("RC2_UPDATE_ISSUER", "update-issuer") => {
-            vec!["runne.release.rc2-update-metadata-issuance/1"]
+            vec!["gocode.release.rc2-update-metadata-issuance/1"]
         }
-        ("RC3_FINAL_REVIEWER", "final-review") => vec!["runne.release.rc3-final-review/1"],
+        ("RC3_FINAL_REVIEWER", "final-review") => vec!["gocode.release.rc3-final-review/1"],
         _ => panic!("unexpected role/scope"),
     }
     .into_iter()
@@ -174,7 +174,7 @@ pub fn receipt(config: &crate::ProjectOwnerTrustConfigV4) -> PromotionAuthorityR
     };
     PromotionAuthorityReceiptV5 {
         schema_version: crate::RECEIPT_SCHEMA_V5.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         purpose: crate::PURPOSE_V5.into(),
         profile: crate::PROFILE_V5.into(),

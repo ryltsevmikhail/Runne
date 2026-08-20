@@ -80,11 +80,11 @@ pub fn validate_stage_payload(
     canonical: &[u8],
 ) -> Result<ValidatedCanonicalStagePayload, ContractError> {
     let kind = match schema_id {
-        "runne.release.rc1-qualification-decision/1" => CanonicalPayloadKind::Rc1Decision,
-        "runne.release.rc2-signing-authorization/1" => CanonicalPayloadKind::Rc2Authorization,
+        "gocode.release.rc1-qualification-decision/1" => CanonicalPayloadKind::Rc1Decision,
+        "gocode.release.rc2-signing-authorization/1" => CanonicalPayloadKind::Rc2Authorization,
         // Legacy RC3 `/1` maps only for the legacy audit chain; every authority
         // admission path must reject it with `AuthorityVersionSuperseded` before use.
-        "runne.release.rc3-publication-authorization/1" => CanonicalPayloadKind::Rc3Authorization,
+        "gocode.release.rc3-publication-authorization/1" => CanonicalPayloadKind::Rc3Authorization,
         _ => return Err(ContractError::InvalidCanonicalPayload),
     };
     let value =
@@ -188,7 +188,7 @@ struct Rc3 {
     external_effects: Vec<String>,
 }
 fn valid_rc1(x: &Rc1) -> bool {
-    x.schema_version == "runne.release.rc1-qualification-decision/1"
+    x.schema_version == "gocode.release.rc1-qualification-decision/1"
         && x.valid_from < x.expires_at
         && x.revocation_epoch > 0
         && x.disposition == "qualified_unsigned"
@@ -213,7 +213,7 @@ fn valid_rc1(x: &Rc1) -> bool {
         ])
 }
 fn valid_rc3(x: &Rc3) -> bool {
-    x.schema_version == "runne.release.rc3-publication-authorization/1"
+    x.schema_version == "gocode.release.rc3-publication-authorization/1"
         && x.valid_from < x.expires_at
         && x.revocation_epoch > 0
         && x.no_effect

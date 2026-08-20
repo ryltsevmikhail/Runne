@@ -25,7 +25,7 @@ pub const fn reject_legacy_fixture_ingress(
 pub fn inspect_rc3_v2_leaf(schema_id: &str, raw: &[u8]) -> Result<(), AuthorityError> {
     if matches!(
         schema_id,
-        "runne.release.publication-manifest/1" | "runne.release.rc3-publication-authorization/1"
+        "gocode.release.publication-manifest/1" | "gocode.release.rc3-publication-authorization/1"
     ) {
         return Err(AuthorityError::AuthorityVersionSuperseded);
     }

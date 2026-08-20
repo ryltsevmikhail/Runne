@@ -26,7 +26,7 @@ fn opaque_independent_inputs_produce_expectations_and_all_mismatches_precede_con
     let predecessor =
         support::predecessor(&support::subject(), crate::trust_canonical::hex(&[1; 32]));
     let review_bytes =
-        br#"{"repository_id":"runne","schema_version":"runne.rc0.production-security-review/1"}"#;
+        br#"{"repository_id":"gocode","schema_version":"gocode.rc0.production-security-review/1"}"#;
     let review =
         crate::verify_production_security_review_instance(review_bytes, &ReviewContext).unwrap();
     let mut different_subject = support::subject();

@@ -11,11 +11,11 @@ fn delegation(role: &str, byte: u8) -> DelegationV1 {
         key_id: "0".repeat(64),
         public_key: [byte; 32],
         key_epoch: 1,
-        signature_profile_id: format!("runne.release.stage-signature/{byte}"),
+        signature_profile_id: format!("gocode.release.stage-signature/{byte}"),
         not_before: "2026-08-13T00:00:01Z".into(),
         expires_at: "2026-08-13T00:00:03Z".into(),
         revocation_epoch: 1,
-        allowed_payload_schema_ids: vec![format!("runne.release.stage-{byte}/1")],
+        allowed_payload_schema_ids: vec![format!("gocode.release.stage-{byte}/1")],
     }
 }
 
@@ -23,10 +23,10 @@ fn delegation(role: &str, byte: u8) -> DelegationV1 {
 fn v4_canonical_bootstrap_has_its_own_schema_and_preserves_delegation_order() {
     let bootstrap = PromotionBootstrapV4 {
         schema_version: RECEIPT_SCHEMA_V4.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         purpose: "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP".into(),
-        profile: "runne.project-owner.post-rc0-promotion/1".into(),
+        profile: "gocode.project-owner.post-rc0-promotion/1".into(),
         predecessor_receipt_sha256: [1; 32],
         platform_qualified_subject_sha256: [2; 32],
         platform_matrix_sha256: [3; 32],

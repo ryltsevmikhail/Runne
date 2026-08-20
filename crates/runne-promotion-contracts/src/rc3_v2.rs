@@ -55,9 +55,9 @@ impl ValidatedPayload {
 /// Returns an error for an unknown schema, malformed input, or failed structural invariant.
 pub fn validate(schema_id: &str, canonical: &[u8]) -> Result<ValidatedPayload, ContractError> {
     let kind = match schema_id {
-        "runne.release.publication-manifest/2" => PayloadKind::PublicationManifest,
-        "runne.release.rc3-final-review/1" => PayloadKind::FinalReview,
-        "runne.release.rc3-publication-authorization/2" => PayloadKind::Authorization,
+        "gocode.release.publication-manifest/2" => PayloadKind::PublicationManifest,
+        "gocode.release.rc3-final-review/1" => PayloadKind::FinalReview,
+        "gocode.release.rc3-publication-authorization/2" => PayloadKind::Authorization,
         _ => return Err(ContractError::InvalidCanonicalPayload),
     };
     let value = crate::strict_json::parse(canonical)
@@ -83,7 +83,7 @@ pub fn validate(schema_id: &str, canonical: &[u8]) -> Result<ValidatedPayload, C
 }
 
 fn manifest(value: &Manifest) -> bool {
-    value.schema_version == "runne.release.publication-manifest/2"
+    value.schema_version == "gocode.release.publication-manifest/2"
         && value.release_sequence > 0
         && value.macos_preview_excluded
         && nonempty(&value.app_version)
@@ -107,7 +107,7 @@ fn manifest(value: &Manifest) -> bool {
 }
 
 fn final_review(value: &FinalReview) -> bool {
-    value.schema_version == "runne.release.rc3-final-review/1"
+    value.schema_version == "gocode.release.rc3-final-review/1"
         && value.decision == "approved"
         && valid_window(value.valid_from, value.expires_at, value.revocation_epoch)
         && value.allowlist_generation > 0
@@ -127,7 +127,7 @@ fn final_review(value: &FinalReview) -> bool {
 }
 
 fn authorization(value: &Authorization) -> bool {
-    value.schema_version == "runne.release.rc3-publication-authorization/2"
+    value.schema_version == "gocode.release.rc3-publication-authorization/2"
         && !value.self_execution
         && valid_window(value.valid_from, value.expires_at, value.revocation_epoch)
         && value.allowlist_generation > 0

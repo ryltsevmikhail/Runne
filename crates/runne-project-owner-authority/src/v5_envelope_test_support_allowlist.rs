@@ -34,7 +34,7 @@ pub fn allowlist_receipt5(
 pub fn allowlist(trust: &crate::VerifiedTrustConfigV4) -> crate::PublicationDestinationAllowlistV1 {
     crate::PublicationDestinationAllowlistV1 {
         schema_version: crate::DESTINATION_ALLOWLIST_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         generation: 1,
         policy_id: "rc3-publication-policy".into(),
         destinations: vec![crate::PublicationDestinationV1 {
@@ -60,7 +60,7 @@ pub fn signed_allowlist_v1(
     let signature = root
         .sign(
             &crate::framed_transcript(
-                b"runne.project-owner.publication-destination-allowlist/1",
+                b"gocode.project-owner.publication-destination-allowlist/1",
                 &crate::canonical_unsigned_allowlist_v1(allowlist).unwrap(),
             )
             .unwrap(),

@@ -26,7 +26,7 @@ pub fn verify_one(
 
 fn verify(role: &str, unsigned: &[u8], key: &[u8; 32], signature: &[u8; 64]) -> bool {
     let mut transcript = Vec::with_capacity(48 + role.len() + unsigned.len());
-    transcript.extend_from_slice(b"runne.release.rc2-threshold-signature/1\0");
+    transcript.extend_from_slice(b"gocode.release.rc2-threshold-signature/1\0");
     transcript.extend_from_slice(role.as_bytes());
     transcript.push(0);
     transcript.extend_from_slice(unsigned);

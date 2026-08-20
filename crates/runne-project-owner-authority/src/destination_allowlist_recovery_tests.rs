@@ -135,7 +135,7 @@ fn verified_allowlist_is_move_only_and_rejects_divergent_recovery() {
     assert_eq!(context.0.get(), 0);
     assert_eq!(
         DESTINATION_ALLOWLIST_SCHEMA_V1,
-        "runne.project-owner.publication-destination-allowlist/1"
+        "gocode.project-owner.publication-destination-allowlist/1"
     );
 }
 

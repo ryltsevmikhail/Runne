@@ -8,10 +8,10 @@ use crate::{
     trust_canonical::{canonical_config, hex},
 };
 
-const CONFIG_SCHEMA: &str = "runne.project-owner.trust-config/1";
-const KEY_ID_DOMAIN: &[u8] = b"runne.project-owner.key-id/1";
-const POP_DOMAIN: &[u8] = b"runne.project-owner.genesis-pop/1";
-const ROTATION_POP_DOMAIN: &[u8] = b"runne.project-owner.rotation-new-proof-of-possession/1";
+const CONFIG_SCHEMA: &str = "gocode.project-owner.trust-config/1";
+const KEY_ID_DOMAIN: &[u8] = b"gocode.project-owner.key-id/1";
+const POP_DOMAIN: &[u8] = b"gocode.project-owner.genesis-pop/1";
+const ROTATION_POP_DOMAIN: &[u8] = b"gocode.project-owner.rotation-new-proof-of-possession/1";
 
 /// One pinned schema digest in a project-owner trust configuration.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -184,7 +184,7 @@ pub fn verify_active_trust_config(
 
 pub fn has_valid_fixed_fields(config: &ProjectOwnerTrustConfigV1) -> bool {
     config.schema_version == CONFIG_SCHEMA
-        && config.repository_id == "runne"
+        && config.repository_id == "gocode"
         && config.role == "PROJECT_OWNER"
 }
 

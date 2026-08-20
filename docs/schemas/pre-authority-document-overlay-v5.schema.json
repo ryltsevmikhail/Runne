@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.project-owner.pre-authority-document-overlay/5",
+  "$id": "gocode.project-owner.pre-authority-document-overlay/5",
   "title": "Pre-authority docs-sync document overlay",
   "type": "object",
   "additionalProperties": false,
@@ -16,8 +16,8 @@
   ],
   "properties": {
     "schema_version": {"const": 5},
-    "repository_id": {"const": "runne"},
-    "policy_id": {"const": "runne.project-owner.pre-authority-document-overlay-policy/5"},
+    "repository_id": {"const": "gocode"},
+    "policy_id": {"const": "gocode.project-owner.pre-authority-document-overlay-policy/5"},
     "mode": {"const": "pre_authority_overlay_docs_sync_2026_08_16"},
     "predecessor_commit_oid": {"const": "8fedcb8c6204a84b63d7d20e1884da466060d180"},
     "predecessor_tree_oid": {"const": "4e40dece48b34b5e40b410073040d3966b51b7ff"},

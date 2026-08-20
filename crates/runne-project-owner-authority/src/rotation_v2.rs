@@ -10,8 +10,8 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde_json::Value;
 use std::collections::BTreeMap;
-const ROTATION_SCHEMA_V2: &str = "runne.project-owner.key-rotation/2";
-const OLD_DOMAIN_V2: &[u8] = b"runne.project-owner.rotation-old-authorization/2";
+const ROTATION_SCHEMA_V2: &str = "gocode.project-owner.key-rotation/2";
+const OLD_DOMAIN_V2: &[u8] = b"gocode.project-owner.rotation-old-authorization/2";
 /// A rotation that binds an exact old trust configuration to an exact V2 successor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KeyRotationV2 {

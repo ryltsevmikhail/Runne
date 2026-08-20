@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/checkpoint.schema.json",
+  "$id": "https://gocode.dev/schemas/checkpoint.schema.json",
   "title": "Checkpoint",
   "description": "Immutable resumable TaskRun snapshot aligned with the Checkpoints domain model.",
   "type": "object",

@@ -57,7 +57,7 @@ fn verify(
     reservation: Option<runne_promotion_contracts::StageTransitionReservation>,
 ) -> Result<VerifiedStageEnvelope, AuthorityError> {
     let (value, signature) = envelope_from_bytes(bytes)?;
-    if value.payload_schema_id == "runne.release.rc3-publication-authorization/1" {
+    if value.payload_schema_id == "gocode.release.rc3-publication-authorization/1" {
         return Err(AuthorityError::AuthorityVersionSuperseded);
     }
     let canonical_envelope = bytes
@@ -110,7 +110,7 @@ fn verify(
         return Err(AuthorityError::InvalidStageEnvelope);
     }
     let domain =
-        crate::SigningDomain::new(crate::STAGE_ENVELOPE_SCHEMA_V1, &value.issuer_role, "runne")?;
+        crate::SigningDomain::new(crate::STAGE_ENVELOPE_SCHEMA_V1, &value.issuer_role, "gocode")?;
     VerifyingKey::from_bytes(&delegation.public_key)
         .map_err(|_| AuthorityError::InvalidStageEnvelope)?
         .verify_strict(

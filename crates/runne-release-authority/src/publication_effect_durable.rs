@@ -15,7 +15,7 @@ use crate::publication_effect_types::{
 mod codec;
 pub(crate) use codec::{decode_ledger, encode_ledger};
 
-const SCHEMA: &str = "runne.release.publication-effect-ledger/1";
+const SCHEMA: &str = "gocode.release.publication-effect-ledger/1";
 
 /// File-backed fixture publication-effect ledger. Mutations persist before returning.
 pub(crate) struct DurableFixturePublicationEffectLedger {

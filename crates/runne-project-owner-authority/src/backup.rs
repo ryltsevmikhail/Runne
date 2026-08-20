@@ -11,9 +11,9 @@ use zeroize::{Zeroize, Zeroizing};
 
 use crate::{AuthorityError, ProjectOwnerTrustConfigV1, framed_transcript};
 
-pub const BACKUP_SCHEMA: &str = "runne.project-owner.encrypted-key-backup/1";
-pub const AAD_DOMAIN: &[u8] = b"runne.project-owner.encrypted-key-backup-aad/1";
-const FINGERPRINT_DOMAIN: &[u8] = b"runne.project-owner.key-fingerprint/1";
+pub const BACKUP_SCHEMA: &str = "gocode.project-owner.encrypted-key-backup/1";
+pub const AAD_DOMAIN: &[u8] = b"gocode.project-owner.encrypted-key-backup-aad/1";
+const FINGERPRINT_DOMAIN: &[u8] = b"gocode.project-owner.key-fingerprint/1";
 
 /// Public, authenticated metadata for a passphrase-encrypted owner seed.
 pub struct BackupMetadataV1 {

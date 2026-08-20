@@ -74,7 +74,7 @@ impl Lease {
         let wire: AnchorWire =
             serde_json::from_slice(&bytes).map_err(|_| AuthorityError::DurableStateUnavailable)?;
         if encode_anchor(&wire)? != bytes
-            || wire.schema_version != "runne.release.durable-authority-anchor/1"
+            || wire.schema_version != "gocode.release.durable-authority-anchor/1"
             || wire.generation == 0
         {
             return Err(AuthorityError::DurableStateUnavailable);
@@ -105,7 +105,7 @@ impl Lease {
 
     fn write_anchor(&self, anchor: AuthorityAnchor) -> Result<(), AuthorityError> {
         let bytes = encode_anchor(&AnchorWire {
-            schema_version: "runne.release.durable-authority-anchor/1".into(),
+            schema_version: "gocode.release.durable-authority-anchor/1".into(),
             authority_instance_sha256: anchor.authority_instance.to_hex(),
             generation: anchor.generation,
             authority_file_sha256: anchor.authority_file.to_hex(),

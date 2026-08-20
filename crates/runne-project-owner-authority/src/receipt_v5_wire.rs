@@ -13,7 +13,7 @@ use crate::{
     VerifiedPromotionBootstrapV5, VerifiedTrustConfigV4, framed_transcript, trust_canonical::hex,
 };
 
-const DOMAIN: &[u8] = b"runne.project-owner.authority-receipt/5";
+const DOMAIN: &[u8] = b"gocode.project-owner.authority-receipt/5";
 
 /// Verify canonical raw receipt `/5` bytes and mint a move-only active bootstrap.
 ///

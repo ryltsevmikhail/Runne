@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.project-owner.encrypted-key-backup/1",
-  "title": "RUNNE Project Owner Encrypted Key Backup V1",
+  "$id": "gocode.project-owner.encrypted-key-backup/1",
+  "title": "GOCODE Project Owner Encrypted Key Backup V1",
   "description": "Public encrypted-backup metadata. The complete metadata is authenticated data. Excluded: plaintext, private keys, passphrases, username, email, hostname, account, session, lane, PID, absolute paths, document bodies and private comments.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "key_id", "key_epoch", "key_fingerprint", "kdf", "salt", "nonce", "ciphertext"],
   "properties": {
-    "schema_version": {"const": "runne.project-owner.encrypted-key-backup/1"},
-    "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.project-owner.encrypted-key-backup/1"},
+    "repository_id": {"const": "gocode"},
     "key_id": {"$ref": "#/$defs/sha256"},
     "key_epoch": {"type": "integer", "minimum": 1},
     "key_fingerprint": {"$ref": "#/$defs/sha256"},

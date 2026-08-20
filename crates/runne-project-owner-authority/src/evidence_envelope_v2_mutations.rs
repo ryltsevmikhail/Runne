@@ -88,13 +88,13 @@ vec![
     (
         "disallowed payload schema",
         Box::new(move |item| {
-            item.payload_schema_id = "runne.release.rc2-native-evidence/1".into()
+            item.payload_schema_id = "gocode.release.rc2-native-evidence/1".into()
         }),
         AuthorityError::InvalidEvidenceEnvelope,
     ),
     (
         "unknown payload schema",
-        Box::new(move |item| item.payload_schema_id = "runne.unknown.schema/1".into()),
+        Box::new(move |item| item.payload_schema_id = "gocode.unknown.schema/1".into()),
         AuthorityError::InvalidEvidenceEnvelope,
     ),
     (

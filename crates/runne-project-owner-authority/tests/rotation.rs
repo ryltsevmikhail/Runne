@@ -30,7 +30,7 @@ fn transcript_vectors_are_hand_authored_and_domains_are_not_substitutable() {
     assert_eq!(
         framed_transcript(OLD_DOMAIN, b"{}"),
         Ok([
-            &48_u32.to_be_bytes()[..],
+            &49_u32.to_be_bytes()[..],
             OLD_DOMAIN,
             &2_u64.to_be_bytes(),
             b"{}",
@@ -40,7 +40,7 @@ fn transcript_vectors_are_hand_authored_and_domains_are_not_substitutable() {
     assert_eq!(
         framed_transcript(NEW_DOMAIN, b"{}"),
         Ok([
-            &54_u32.to_be_bytes()[..],
+            &55_u32.to_be_bytes()[..],
             NEW_DOMAIN,
             &2_u64.to_be_bytes(),
             b"{}",
@@ -150,7 +150,7 @@ fn rejects_reused_keys_and_full_chain_aba_reuse() {
         verify_rotation_chain(
             &old,
             &[first, aba],
-            &TrustAnchorState::confirmed("runne".into(), 1, old.sha256().expect("sha"))
+            &TrustAnchorState::confirmed("gocode".into(), 1, old.sha256().expect("sha"))
         ),
         Err(AuthorityError::ReusedRotationKey)
     );
@@ -165,7 +165,7 @@ fn chain_rejects_final_rollback_and_fork_against_local_anchor() {
         verify_rotation_chain(
             &old,
             std::slice::from_ref(&first),
-            &TrustAnchorState::confirmed("runne".into(), 3, [0; 32]),
+            &TrustAnchorState::confirmed("gocode".into(), 3, [0; 32]),
         ),
         Err(AuthorityError::TrustEpochRollback)
     );
@@ -173,7 +173,7 @@ fn chain_rejects_final_rollback_and_fork_against_local_anchor() {
         verify_rotation_chain(
             &old,
             &[first],
-            &TrustAnchorState::confirmed("runne".into(), 2, [0; 32]),
+            &TrustAnchorState::confirmed("gocode".into(), 2, [0; 32]),
         ),
         Err(AuthorityError::TrustConfigFork)
     );
@@ -181,7 +181,7 @@ fn chain_rejects_final_rollback_and_fork_against_local_anchor() {
         verify_rotation_chain(
             &old,
             &[rotation(&old)],
-            &TrustAnchorState::confirmed("runne".into(), 2, successor.sha256().expect("sha")),
+            &TrustAnchorState::confirmed("gocode".into(), 2, successor.sha256().expect("sha")),
         )
         .map(|config| config.epoch),
         Ok(2)
@@ -199,7 +199,7 @@ fn rotation_rejects_unproved_predecessor_and_zero_anchor_floor() {
         verify_rotation_chain(
             &old,
             &[],
-            &TrustAnchorState::confirmed("runne".into(), 0, [0; 32]),
+            &TrustAnchorState::confirmed("gocode".into(), 0, [0; 32]),
         ),
         Err(AuthorityError::InvalidTrustAnchor)
     );
@@ -228,13 +228,13 @@ fn active_trust_rejects_a_self_signed_epoch_zero_successor_shape() {
 #[test]
 fn chain_requires_the_pinned_config_at_the_anchor_epoch() {
     let old = genesis();
-    let anchor = TrustAnchorState::confirmed("runne".into(), 1, old.sha256().expect("sha"));
+    let anchor = TrustAnchorState::confirmed("gocode".into(), 1, old.sha256().expect("sha"));
     let mut fork = old;
     fork.schema_digests[0].schema_sha256 = [4; 32];
     fork.proof_of_possession = SigningKey::from_bytes(&[7; 32])
         .sign(
             &framed_transcript(
-                b"runne.project-owner.genesis-pop/1",
+                b"gocode.project-owner.genesis-pop/1",
                 &canonical_genesis_without_pop(&fork).expect("canonical genesis"),
             )
             .expect("frame"),
@@ -256,7 +256,7 @@ fn compromise_reset_is_explicit_and_invalid_rotation_never_infers_it() {
         Err(AuthorityError::InvalidRotationEpoch)
     );
     let reset = after_explicit_compromise_declaration(&old);
-    assert_eq!(reset.repository_id, "runne");
+    assert_eq!(reset.repository_id, "gocode");
     assert_eq!(reset.compromised_key_id, old.key_id);
     assert_eq!(reset.compromised_epoch, 1);
 }

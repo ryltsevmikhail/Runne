@@ -6,8 +6,8 @@ use super::{
 };
 use crate::AuthorityError;
 
-pub(super) const RC1: &str = "runne.release.rc1-qualification-decision/1";
-pub(super) const MANIFEST: &str = "runne.release.unsigned-candidate-manifest/1";
+pub(super) const RC1: &str = "gocode.release.rc1-qualification-decision/1";
+pub(super) const MANIFEST: &str = "gocode.release.unsigned-candidate-manifest/1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

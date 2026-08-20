@@ -215,7 +215,7 @@ fn signed_settlement_verifies_against_exact_executor_key_and_rejects_forgery() {
     let key = SigningKey::from_bytes(&[77; 32]);
     let other = SigningKey::from_bytes(&[88; 32]);
     let settlement = PublicationSettlement {
-        schema_version: "runne.release.publication-effect-settlement/1".into(),
+        schema_version: "gocode.release.publication-effect-settlement/1".into(),
         idempotency_namespace: "ns-1".into(),
         generation: 1,
         destination_readback_sha256: "ab".repeat(32),
@@ -253,7 +253,7 @@ fn rust_settlement_bytes_match_the_full_schema_golden() {
     use ed25519_dalek::SigningKey;
 
     let settlement = PublicationSettlement {
-        schema_version: "runne.release.publication-effect-settlement/1".into(),
+        schema_version: "gocode.release.publication-effect-settlement/1".into(),
         idempotency_namespace: "ns-1".into(),
         generation: 1,
         destination_readback_sha256: "ab".repeat(32),
@@ -274,7 +274,7 @@ fn rust_settlement_rejects_schema_invalid_signed_payloads() {
     use ed25519_dalek::SigningKey;
     let key = SigningKey::from_bytes(&[77; 32]);
     let invalid = PublicationSettlement {
-        schema_version: "runne.release.publication-effect-settlement/1".into(),
+        schema_version: "gocode.release.publication-effect-settlement/1".into(),
         idempotency_namespace: "bad value".into(),
         generation: 0,
         destination_readback_sha256: "A".repeat(64),

@@ -13,7 +13,7 @@ pub fn from_record(
 ) -> Result<FileState, AuthorityError> {
     let b = record.binding.ok_or(AuthorityError::BindingMismatch)?;
     Ok(FileState {
-        schema_version: "runne.release.durable-promotion-store/1".into(),
+        schema_version: "gocode.release.durable-promotion-store/1".into(),
         bootstrap: binding.bootstrap.to_hex(),
         profile: binding.profile.clone(),
         version: binding.version,

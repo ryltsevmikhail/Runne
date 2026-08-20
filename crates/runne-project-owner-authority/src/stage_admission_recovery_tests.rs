@@ -74,7 +74,7 @@ fn invalid_neutral_payload_never_calls_stage_context() {
         Sha256::digest(canonical_stage_payload(&envelope.payload).unwrap()).into();
     let signature = SigningKey::from_bytes(&[42; 32])
         .sign(&signing_transcript(
-            &SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "runne").unwrap(),
+            &SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "gocode").unwrap(),
             &crate::canonical_unsigned_stage_envelope(&envelope).unwrap(),
         ))
         .to_bytes();
@@ -132,12 +132,12 @@ fn signed_rc1_envelope() -> (Vec<u8>, crate::VerifiedPromotionBootstrap) {
         not_before: "2026-08-13T00:00:00Z".into(),
         expires_at: "2026-08-13T00:00:04Z".into(),
         revocation_epoch: 1,
-        allowed_payload_schema_ids: vec!["runne.release.rc1-qualification-decision/1".into()],
+        allowed_payload_schema_ids: vec!["gocode.release.rc1-qualification-decision/1".into()],
     };
-    let payload = serde_json::json!({"schema_version":"runne.release.rc1-qualification-decision/1","candidate_binding_sha256":"a".repeat(64),"subject_sha256":"b".repeat(64),"matrix_sha256":"c".repeat(64),"bootstrap_sha256":"d".repeat(64),"candidate_sha256":"e".repeat(64),"policy_sha256":"f".repeat(64),"release_facts_sha256":"1".repeat(64),"approver":{"principal_id":"p","account_id":"a","lane_id":"l","key_id":"k","signature_profile_id":"q"},"valid_from":1,"expires_at":2,"revocation_epoch":1,"disposition":"qualified_unsigned","signing_allowed":false,"publication_allowed":false,"external_effects":[]});
+    let payload = serde_json::json!({"schema_version":"gocode.release.rc1-qualification-decision/1","candidate_binding_sha256":"a".repeat(64),"subject_sha256":"b".repeat(64),"matrix_sha256":"c".repeat(64),"bootstrap_sha256":"d".repeat(64),"candidate_sha256":"e".repeat(64),"policy_sha256":"f".repeat(64),"release_facts_sha256":"1".repeat(64),"approver":{"principal_id":"p","account_id":"a","lane_id":"l","key_id":"k","signature_profile_id":"q"},"valid_from":1,"expires_at":2,"revocation_epoch":1,"disposition":"qualified_unsigned","signing_allowed":false,"publication_allowed":false,"external_effects":[]});
     let envelope = StageAuthorityEnvelopeV1 {
         schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         bootstrap_receipt_sha256: [1; 32],
         issuer_role: delegation.role.clone(),
         issuer_principal_id: delegation.principal_id.clone(),
@@ -150,7 +150,7 @@ fn signed_rc1_envelope() -> (Vec<u8>, crate::VerifiedPromotionBootstrap) {
         payload_schema_sha256: crate::v3_trust_schema_digests()
             .unwrap()
             .into_iter()
-            .find(|pin| pin.schema_id == "runne.release.rc1-qualification-decision/1")
+            .find(|pin| pin.schema_id == "gocode.release.rc1-qualification-decision/1")
             .unwrap()
             .schema_sha256,
         payload_sha256: Sha256::digest(canonical_stage_payload(&payload).unwrap()).into(),
@@ -163,7 +163,7 @@ fn signed_rc1_envelope() -> (Vec<u8>, crate::VerifiedPromotionBootstrap) {
     };
     let signature = key
         .sign(&signing_transcript(
-            &SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "runne").unwrap(),
+            &SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "gocode").unwrap(),
             &crate::canonical_unsigned_stage_envelope(&envelope).unwrap(),
         ))
         .to_bytes();

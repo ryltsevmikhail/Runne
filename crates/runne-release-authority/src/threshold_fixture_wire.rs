@@ -26,7 +26,7 @@ pub struct Acknowledgement {
 }
 
 pub fn encode(file: &FileState, binding: &ThresholdFixtureStoreBinding) -> Vec<u8> {
-    let mut text = String::from("runne.release.durable-threshold-context/1\n");
+    let mut text = String::from("gocode.release.durable-threshold-context/1\n");
     line(&mut text, "bootstrap", &binding.bootstrap.to_hex());
     line(&mut text, "profile", &binding.profile);
     line(&mut text, "version", &binding.version.to_string());

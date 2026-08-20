@@ -63,7 +63,7 @@ pub fn admission_fingerprint(
 ) -> [u8; 32] {
     let scope = request.scope.reservation;
     let fields: [&[u8]; 21] = [
-        b"runne.release.stage-admission-command/1\0",
+        b"gocode.release.stage-admission-command/1\0",
         &request.scope.bootstrap_receipt_sha256,
         request.scope.role.as_bytes(),
         &request.scope.payload_sha256,
@@ -93,7 +93,7 @@ pub fn admission_fingerprint(
 
 pub fn stored_admission_fingerprint(claim: &StoredStageClaim) -> [u8; 32] {
     let fields: [&[u8]; 21] = [
-        b"runne.release.stage-admission-command/1\0",
+        b"gocode.release.stage-admission-command/1\0",
         &claim.bootstrap,
         claim.role.as_bytes(),
         &claim.payload,
@@ -122,7 +122,7 @@ pub fn stored_command_fingerprint(claim: &StoredStageClaim) -> [u8; 32] {
     // The command transcript intentionally excludes the store-observed role floor.
     // Durable-wire validation binds that floor to the signed envelope epoch.
     let fields: [&[u8]; 17] = [
-        b"runne.release.stage-admission-command/1\0",
+        b"gocode.release.stage-admission-command/1\0",
         &claim.bootstrap,
         claim.role.as_bytes(),
         &claim.payload,

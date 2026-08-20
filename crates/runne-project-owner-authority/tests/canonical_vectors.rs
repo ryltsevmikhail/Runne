@@ -5,8 +5,8 @@ use runne_project_owner_authority::{
 
 fn receipt() -> UnsignedReceipt {
     UnsignedReceipt {
-        schema_version: "runne.project-owner.authority-receipt/1".to_owned(),
-        repository_id: "runne".to_owned(),
+        schema_version: "gocode.project-owner.authority-receipt/1".to_owned(),
+        repository_id: "gocode".to_owned(),
         role: "PROJECT_OWNER".to_owned(),
         purpose: "V1_PLATFORM_SCOPE_AUTHORIZATION".to_owned(),
         trust_config_sha256: "a".repeat(64),
@@ -32,11 +32,11 @@ fn receipt() -> UnsignedReceipt {
                 blob_oid: "1".repeat(40),
                 content_sha256: "2".repeat(64),
                 byte_length: 1,
-                schema_id: Some("runne.example/1".to_owned()),
+                schema_id: Some("gocode.example/1".to_owned()),
             },
         ],
         issued_at: "2026-08-12T00:00:00Z".to_owned(),
-        profile: "runne.project-owner.v1-platform-scope/1".to_owned(),
+        profile: "gocode.project-owner.v1-platform-scope/1".to_owned(),
     }
 }
 
@@ -44,8 +44,8 @@ fn receipt() -> UnsignedReceipt {
 fn canonical_receipt_sorts_keys_documents_and_ends_with_one_lf() {
     let canonical = canonical_unsigned_receipt(&receipt()).expect("canonical receipt");
     let expected = concat!(
-        "{\"documents\":[{\"blob_oid\":\"1111111111111111111111111111111111111111\",\"byte_length\":1,\"content_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"mode\":\"100644\",\"path\":\"docs/a.json\",\"schema_id\":\"runne.example/1\"},{\"blob_oid\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"byte_length\":2,\"content_sha256\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mode\":\"100644\",\"path\":\"docs/z.json\"}],",
-        "\"issued_at\":\"2026-08-12T00:00:00Z\",\"key_epoch\":1,\"key_id\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"profile\":\"runne.project-owner.v1-platform-scope/1\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"role\":\"PROJECT_OWNER\",\"schema_version\":\"runne.project-owner.authority-receipt/1\",\"subject\":{\"commit_oid\":\"cccccccccccccccccccccccccccccccccccccccc\",\"object_format\":\"sha1\",\"tree_oid\":\"dddddddddddddddddddddddddddddddddddddddd\"},\"trust_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"
+        "{\"documents\":[{\"blob_oid\":\"1111111111111111111111111111111111111111\",\"byte_length\":1,\"content_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"mode\":\"100644\",\"path\":\"docs/a.json\",\"schema_id\":\"gocode.example/1\"},{\"blob_oid\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"byte_length\":2,\"content_sha256\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mode\":\"100644\",\"path\":\"docs/z.json\"}],",
+        "\"issued_at\":\"2026-08-12T00:00:00Z\",\"key_epoch\":1,\"key_id\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"profile\":\"gocode.project-owner.v1-platform-scope/1\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"gocode\",\"role\":\"PROJECT_OWNER\",\"schema_version\":\"gocode.project-owner.authority-receipt/1\",\"subject\":{\"commit_oid\":\"cccccccccccccccccccccccccccccccccccccccc\",\"object_format\":\"sha1\",\"tree_oid\":\"dddddddddddddddddddddddddddddddddddddddd\"},\"trust_config_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}\n"
     )
     .as_bytes();
 
@@ -104,19 +104,19 @@ fn strict_parser_rejects_duplicate_document_paths() {
 #[test]
 fn transcript_has_hand_authored_length_prefixes_and_domain_separation() {
     let domain = SigningDomain::new(
-        "runne.project-owner.authority-receipt/1",
+        "gocode.project-owner.authority-receipt/1",
         "V1_PLATFORM_SCOPE_AUTHORIZATION",
-        "runne",
+        "gocode",
     )
     .expect("bounded domain");
     let expected_bytes = [
-        &104_u32.to_be_bytes()[..],
-        &39_u32.to_be_bytes(),
-        b"runne.project-owner.authority-receipt/1",
+        &106_u32.to_be_bytes()[..],
+        &40_u32.to_be_bytes(),
+        b"gocode.project-owner.authority-receipt/1",
         &31_u32.to_be_bytes(),
         b"V1_PLATFORM_SCOPE_AUTHORIZATION",
-        &5_u32.to_be_bytes(),
-        b"runne",
+        &6_u32.to_be_bytes(),
+        b"gocode",
         &13_u32.to_be_bytes(),
         b"PROJECT_OWNER",
         &2_u64.to_be_bytes(),
@@ -126,9 +126,9 @@ fn transcript_has_hand_authored_length_prefixes_and_domain_separation() {
 
     assert_eq!(signing_transcript(&domain, b"{}"), expected_bytes);
     let changed = SigningDomain::new(
-        "runne.project-owner.authority-receipt/1",
+        "gocode.project-owner.authority-receipt/1",
         "OTHER_PURPOSE",
-        "runne",
+        "gocode",
     )
     .expect("bounded domain");
     assert_ne!(

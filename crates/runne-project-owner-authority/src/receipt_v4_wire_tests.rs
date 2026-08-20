@@ -19,19 +19,19 @@ fn receipt() -> PromotionBootstrapV4 {
         revocation_epoch: 1,
         allowed_payload_schema_ids: vec![
             match n {
-                1 => "runne.release.rc1-qualification-decision/1",
-                2 => "runne.release.rc2-signing-authorization/1",
-                _ => "runne.release.rc3-publication-authorization/1",
+                1 => "gocode.release.rc1-qualification-decision/1",
+                2 => "gocode.release.rc2-signing-authorization/1",
+                _ => "gocode.release.rc3-publication-authorization/1",
             }
             .into(),
         ],
     };
     PromotionBootstrapV4 {
         schema_version: RECEIPT_SCHEMA_V4.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         purpose: "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP".into(),
-        profile: "runne.project-owner.post-rc0-promotion/1".into(),
+        profile: "gocode.project-owner.post-rc0-promotion/1".into(),
         predecessor_receipt_sha256: [1; 32],
         platform_qualified_subject_sha256: [2; 32],
         platform_matrix_sha256: [3; 32],

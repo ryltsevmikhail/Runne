@@ -99,7 +99,7 @@ impl DurableFixturePromotionAuthority {
         let wire: AuthorityWire =
             serde_json::from_slice(&bytes).map_err(|_| AuthorityError::NonCanonicalPayload)?;
         if authority_wire::encode(&wire)? != bytes
-            || wire.schema_version != "runne.release.durable-promotion-authority/1"
+            || wire.schema_version != "gocode.release.durable-promotion-authority/1"
             || wire.bootstrap != self.binding.bootstrap.to_hex()
             || wire.profile != self.binding.profile
             || wire.version != self.binding.version
@@ -193,7 +193,7 @@ impl DurableFixturePromotionAuthority {
             .map(|(id, record)| crate::store_durable_wire::from_record(&self.binding, id, record))
             .collect::<Result<Vec<_>, _>>()?;
         authority_wire::encode(&authority_wire::seal(AuthorityWire {
-            schema_version: "runne.release.durable-promotion-authority/1".into(),
+            schema_version: "gocode.release.durable-promotion-authority/1".into(),
             bootstrap: self.binding.bootstrap.to_hex(),
             profile: self.binding.profile.clone(),
             version: self.binding.version,

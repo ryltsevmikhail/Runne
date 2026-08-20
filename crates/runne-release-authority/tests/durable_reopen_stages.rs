@@ -170,7 +170,7 @@ fn durable_reopen_rejects_mutated_release_fact_artifact_and_profile() {
     let source = String::from_utf8(std::fs::read(&path).unwrap()).unwrap();
     for prefix in [
         "\"artifact_sha256\":",
-        "\"profile_id\":\"runne-bundled-runtime\",\"bundle_sha256\":",
+        "\"profile_id\":\"gocode-bundled-runtime\",\"bundle_sha256\":",
     ] {
         std::fs::write(&path, &source).unwrap();
         mutate_release_fact(&path, prefix);

@@ -174,11 +174,11 @@
     fn fixture_source() -> crate::PluginPackageSource {
         crate::PluginPackageCapture::capture(
             crate::PluginPackageContent::new(
-                b"runne-plugin-host/builtin-package-v1".to_vec(),
-                b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=builtin\npackage_version=1.0.0\nhost_identity=host\nplugin_identity=plugin\ntarget_identity=target\nentrypoint=entrypoint\n".to_vec(),
-                b"runne-plugin-host/builtin-entrypoint-v1".to_vec(),
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=builtin-profile-v2\n".to_vec(),
-                b"runne-plugin-host/builtin-trust-binding-v1".to_vec(),
+                b"gocode-plugin-host/builtin-package-v1".to_vec(),
+                b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=builtin\npackage_version=1.0.0\nhost_identity=host\nplugin_identity=plugin\ntarget_identity=target\nentrypoint=entrypoint\n".to_vec(),
+                b"gocode-plugin-host/builtin-entrypoint-v1".to_vec(),
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=builtin-profile-v2\n".to_vec(),
+                b"gocode-plugin-host/builtin-trust-binding-v1".to_vec(),
             ),
             PluginClass::Extension,
         )

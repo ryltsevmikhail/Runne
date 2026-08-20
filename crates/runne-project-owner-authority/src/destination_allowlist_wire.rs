@@ -15,7 +15,7 @@ use crate::{
 };
 
 /// Length-framed domain separation for allowlist `/1` root detached signatures.
-const DOMAIN_V1: &[u8] = b"runne.project-owner.publication-destination-allowlist/1";
+const DOMAIN_V1: &[u8] = b"gocode.project-owner.publication-destination-allowlist/1";
 /// Verify canonical raw allowlist `/1` bytes and mint a move-only handle.
 ///
 /// The V4 root key identity and the receipt `/5` initial digest/generation are
@@ -137,7 +137,7 @@ pub fn bind_prevalidated_destination_allowlist_v1(
 
 fn validate(value: &PublicationDestinationAllowlistV1) -> Result<(), AuthorityError> {
     if value.schema_version != DESTINATION_ALLOWLIST_SCHEMA_V1
-        || value.repository_id != "runne"
+        || value.repository_id != "gocode"
         || value.generation == 0
         || value.revocation_epoch == 0
         || !valid_identifier(&value.policy_id, 128)
