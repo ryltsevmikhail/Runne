@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GcTitleBar } from '@gocode/product/shared/ui'
+import { GcTitleBar } from '@runne/product/shared/ui'
 </script>
 
 <template>

@@ -1,5 +1,5 @@
 {
-  "name": "@gocode/desktop",
+  "name": "@runne/desktop",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
     "typecheck": "vue-tsc -b"
   },
   "dependencies": {
-    "@gocode/platform-contract": "workspace:*",
-    "@gocode/product": "workspace:*",
+    "@runne/platform-contract": "workspace:*",
+    "@runne/product": "workspace:*",
     "@tauri-apps/api": "2.9.1",
     "@tauri-apps/plugin-dialog": "2.7.2",
     "lucide-vue-next": "0.536.0",

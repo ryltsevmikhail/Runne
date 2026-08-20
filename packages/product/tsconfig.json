@@ -10,7 +10,7 @@
     "jsx": "preserve",
     "jsxImportSource": "vue",
     "paths": {
-      "@gocode/product/*": ["./*"]
+      "@runne/product/*": ["./*"]
     },
     "baseUrl": "."
   },

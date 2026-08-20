@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GcAlert, GcButton, GcTextarea } from '@gocode/product/shared/ui'
+import { GcAlert, GcButton, GcTextarea } from '@runne/product/shared/ui'
 
 import {
   useConversationChat,
