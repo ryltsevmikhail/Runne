@@ -78,7 +78,7 @@ pub async fn held_status_client(
 
 pub fn session(includes_capability: bool, generation: u64) -> RuntimeSessionInfo {
     RuntimeSessionInfo {
-        profile_id: "runne-ui-client/2".to_owned(),
+        profile_id: "gocode-ui-client/2".to_owned(),
         schema_hash: "test".to_owned(),
         runtime_version: "test".to_owned(),
         capabilities: REQUIRED_RUNTIME_CAPABILITIES

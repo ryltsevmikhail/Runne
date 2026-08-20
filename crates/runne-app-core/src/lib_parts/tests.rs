@@ -109,7 +109,7 @@
             authority: "018f2e3a-7000-7000-8000-000000000120".to_owned(),
             principal: "local-owner".to_owned(),
             lineage: "018f2e3a-7000-7000-8000-000000000121".to_owned(),
-            profile_id: "runne-ui-client/2".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: "11".repeat(32),
             capability_digest: "22".repeat(32),
             binding_digest: "33".repeat(32),

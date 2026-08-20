@@ -9,7 +9,7 @@ use runne_runtime_client::{
 
 fn runtime_session(generation: u64, session_id: &str) -> RuntimeSessionInfo {
     RuntimeSessionInfo {
-        profile_id: "runne-ui-client/2".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
         schema_hash: GOLDEN_BUNDLE_HASH.to_owned(),
         runtime_version: "test".to_owned(),
         capabilities: REQUIRED_RUNTIME_CAPABILITIES

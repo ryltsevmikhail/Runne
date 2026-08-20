@@ -63,7 +63,7 @@ fn authenticated_runtime_session() -> AuthenticatedRuntimeSession {
                 ],
                 ApiPrincipalId::new("local-owner").unwrap(),
                 EventLogLineageId::from_bytes(LINEAGE),
-                "runne-ui-client/2",
+                "gocode-ui-client/2",
                 [0x31; 32],
                 [0x41; 32],
             )

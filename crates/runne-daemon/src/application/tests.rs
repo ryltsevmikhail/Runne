@@ -22,7 +22,7 @@ fn replay_binding() -> RuntimeSessionBinding {
             EventLogLineageId::from_bytes([
                 0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 4,
             ]),
-            "runne-ui-client/2",
+            "gocode-ui-client/2",
             [0x33; 32],
             [0x44; 32],
         )

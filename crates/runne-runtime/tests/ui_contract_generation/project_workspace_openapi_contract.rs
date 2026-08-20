@@ -83,7 +83,7 @@ fn project_workspace_openapi_is_structurally_exact_for_all_operations() {
             format!("schemas/project-workspace-v2.schema.json#/$defs/{success}")
         );
         if let Some(request) = request {
-            assert_eq!(operation["requestBody"]["x-runne-maxBodyBytes"], 16384);
+            assert_eq!(operation["requestBody"]["x-gocode-maxBodyBytes"], 16384);
             assert_eq!(
                 operation["requestBody"]["content"]["application/json"]["schema"]["$ref"],
                 format!("schemas/project-workspace-v2.schema.json#/$defs/{request}")
@@ -179,7 +179,7 @@ fn openapi_cursor_and_idempotency_parameters_are_exact_wire_languages() {
             .find(|item| item["name"] == "Idempotency-Key")
             .unwrap();
         assert_eq!(key["schema"]["pattern"], "^[\\u0020-\\u007e]+$");
-        assert_eq!(key["schema"]["x-runne-maxUtf8Bytes"], 256);
+        assert_eq!(key["schema"]["x-gocode-maxUtf8Bytes"], 256);
         let key_validator = JSONSchema::options().compile(&key["schema"]).unwrap();
         for valid in [" ".to_owned(), "~".to_owned(), "x".repeat(256)] {
             assert!(key_validator.is_valid(&Value::String(valid)));

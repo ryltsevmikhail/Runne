@@ -191,7 +191,7 @@ fn replay_schema() -> Value {
             ),
         }),
     );
-    object.insert("$id".to_owned(), json!("runne://schemas/replay-v1"));
+    object.insert("$id".to_owned(), json!("gocode://schemas/replay-v1"));
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert("title".to_owned(), json!("Canonical Replay Event V1"));
     schema

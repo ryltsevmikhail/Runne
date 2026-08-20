@@ -7,7 +7,7 @@ const RETENTION_REQUEST_ID: &str = "018f2e3a-7000-7000-8000-000000000190";
 impl MockRuntime {
     fn session() -> RuntimeSessionInfo {
         RuntimeSessionInfo {
-            profile_id: "runne-ui-client/2".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: GOLDEN_BUNDLE_HASH.to_owned(),
             runtime_version: "test".to_owned(),
             capabilities: REQUIRED_RUNTIME_CAPABILITIES
@@ -231,7 +231,7 @@ fn baseline_checkpoint_cursor(baseline: &Value) -> String {
         "global_position":baseline["baselineGlobalPosition"],
     });
     format!(
-        "runne-replay-cursor-v1.{}",
+        "gocode-replay-cursor-v1.{}",
         hex::encode(serde_json::to_vec(&cursor).expect("cursor"))
     )
 }

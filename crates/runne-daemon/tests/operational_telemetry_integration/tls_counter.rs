@@ -204,7 +204,7 @@ fn authenticated_header(
             Duration::ZERO,
         )
         .unwrap();
-    format!("RunneSession {}", URL_SAFE_NO_PAD.encode([10; 32]))
+    format!("GocodeSession {}", URL_SAFE_NO_PAD.encode([10; 32]))
         .parse()
         .unwrap()
 }
@@ -217,7 +217,7 @@ fn binding() -> RuntimeSessionBinding {
             "018f2e3a-7000-7000-8000-000000000003"
                 .parse::<EventLogLineageId>()
                 .unwrap(),
-            "runne-ui-client/2",
+            "gocode-ui-client/2",
             [3; 32],
             ordered_capability_digest(CAPABILITIES),
         )

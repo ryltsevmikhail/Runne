@@ -47,7 +47,7 @@ pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
     0xb8, 0xb2, 0x18, 0x27, 0x79, 0x78, 0xe3, 0x60, 0x46, 0x0e, 0x5b, 0xc5, 0x3a, 0x46, 0x08, 0x1d,
     0x3f, 0xd2, 0x44, 0xf9, 0x36, 0xd0, 0xc7, 0x72, 0xe8, 0xbd, 0x16, 0x51, 0xed, 0xb1, 0xf2, 0x60,
 ];
-const EXTERNAL_TRANSPORT_PROFILE_ID: &str = "runne-local-runtime/2";
+const EXTERNAL_TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
 const KEY_DERIVATION_DOMAIN: &[u8] = b"gocode/bundled-launch/key-derivation/v1\0";
 const BOOTSTRAP_DOMAIN: &[u8] = b"gocode/bundled-launch/bootstrap/v1";
 const READINESS_DOMAIN: &[u8] = b"gocode/bundled-launch/readiness/v1";

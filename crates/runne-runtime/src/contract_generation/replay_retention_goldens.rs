@@ -45,8 +45,8 @@ fn replay_resume_from_baseline_golden() -> Value {
         "acceptedResponse": {
             "requestId": "018f2e3a-7000-7000-8000-000000000120",
             "sessionId": "018f2e3a700070008000000000000118",
-            "highWaterRef": "runne-replay-cursor-v1.7b7d",
-            "baselineCheckpoint": "runne-replay-cursor-v1.7b7d",
+            "highWaterRef": "gocode-replay-cursor-v1.7b7d",
+            "baselineCheckpoint": "gocode-replay-cursor-v1.7b7d",
             "acceptedPromotion": {
                 "codec": 1,
                 "projectionBytes": "AQGPLjpwAHAAgAAAAAAAARABjy46cABwAIAAAAAAAAERAQAAAAAA",

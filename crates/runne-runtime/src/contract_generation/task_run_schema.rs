@@ -47,7 +47,7 @@ fn task_run_schema() -> Value {
         ],
     );
     let object = schema.as_object_mut().unwrap();
-    object.insert("$id".to_owned(), json!("runne://schemas/task-run-v1"));
+    object.insert("$id".to_owned(), json!("gocode://schemas/task-run-v1"));
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert("title".to_owned(), json!("TaskRun Snapshot V1"));
     schema

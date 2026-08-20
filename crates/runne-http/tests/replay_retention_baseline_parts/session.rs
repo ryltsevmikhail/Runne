@@ -18,7 +18,7 @@ pub(super) fn binding() -> RuntimeSessionBinding {
             AUTHORITY,
             ApiPrincipalId::new("local-owner").unwrap(),
             EventLogLineageId::from_bytes(LINEAGE),
-            "runne-ui-client/2",
+            "gocode-ui-client/2",
             [0x48; 32],
             [0x49; 32],
         )

@@ -98,7 +98,7 @@ pub async fn promote_task_run_v2_for_test(
         .client
         .catch_up_from_persisted_cursor(
             scope,
-            Some("runne-replay-cursor-v1.7b7d"),
+            Some("gocode-replay-cursor-v1.7b7d"),
             ReplayIdentityTracker::new(),
             |_| Ok::<(), ()>(()),
             |()| {},
@@ -138,7 +138,7 @@ pub async fn open_protected_bundled_workspace_core(
     let client = mock_protected_authenticated_runtime_client(
         &format!("http://{address}"),
         RuntimeSessionInfo {
-            profile_id: "runne-ui-client/2".into(),
+            profile_id: "gocode-ui-client/2".into(),
             schema_hash: GOLDEN_BUNDLE_HASH.into(),
             runtime_version: "test".into(),
             capabilities: capabilities.clone(),
@@ -163,7 +163,7 @@ fn protected_capability_digest(capabilities: &[String]) -> String {
     use sha2::Digest;
 
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/local-runtime/capability-digest/v1\0");
+    digest.update(b"gocode/local-runtime/capability-digest/v1\0");
     digest.update(
         u32::try_from(capabilities.len())
             .expect("capability count")

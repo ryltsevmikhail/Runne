@@ -78,7 +78,7 @@ fn protected_workspace_client(origin: &str) -> AuthenticatedRuntimeClient {
     runne_runtime_client::mock_protected_authenticated_runtime_client(
         origin,
         runne_runtime_client::RuntimeSessionInfo {
-            profile_id: "runne-ui-client/2".into(),
+            profile_id: "gocode-ui-client/2".into(),
             schema_hash: runne_runtime_client::GOLDEN_BUNDLE_HASH.into(),
             runtime_version: "test".into(),
             capabilities,
@@ -95,7 +95,7 @@ fn protected_workspace_client(origin: &str) -> AuthenticatedRuntimeClient {
 fn protected_capability_digest(capabilities: &[String]) -> String {
     use sha2::Digest;
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/local-runtime/capability-digest/v1\0");
+    digest.update(b"gocode/local-runtime/capability-digest/v1\0");
     digest.update(u32::try_from(capabilities.len()).expect("length").to_be_bytes());
     for capability in capabilities {
         digest.update(u32::try_from(capability.len()).expect("length").to_be_bytes());

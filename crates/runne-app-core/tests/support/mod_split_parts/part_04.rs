@@ -89,7 +89,7 @@ fn protected_capability_digest(capabilities: &[String]) -> String {
     use sha2::Digest;
 
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/local-runtime/capability-digest/v1\0");
+    digest.update(b"gocode/local-runtime/capability-digest/v1\0");
     digest.update(
         u32::try_from(capabilities.len())
             .expect("capability count")

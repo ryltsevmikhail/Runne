@@ -1,51 +1,51 @@
 {
   "canonical_launch_platform": "unix",
   "content_policy": "digest-only; launch secrets are never stored in golden fixtures",
-  "frame_length": 555,
-  "frame_sha256": "f77fa706f6ed82ff0e4924fc3e625792434bf6c3bc4ac844c6c0470e1b4688b6",
+  "frame_length": 557,
+  "frame_sha256": "732f9c1650ff56483f3e9ecf7f5b68dc28b1bbe48e7876acf05d4f80d3c672c1",
   "lifecycle_messages": {
     "launch": {
-      "frame_length": 555,
-      "frame_sha256": "f77fa706f6ed82ff0e4924fc3e625792434bf6c3bc4ac844c6c0470e1b4688b6",
+      "frame_length": 557,
+      "frame_sha256": "732f9c1650ff56483f3e9ecf7f5b68dc28b1bbe48e7876acf05d4f80d3c672c1",
       "message_type_id": 21
     },
     "ready": {
-      "frame_length": 657,
-      "frame_sha256": "b0665e00339cb47ff12ef8aff4f5a0edeb8fa76de69eeffffa8b90fc9ccc9a03",
+      "frame_length": 659,
+      "frame_sha256": "bfedad15fd16e2abf7d9095e7ec58af066abbc3e32e88912a6c0a5ad4a33a510",
       "message_type_id": 22
     },
     "renew_request": {
-      "frame_length": 564,
-      "frame_sha256": "e782a62c268059b7217f4d427f6c49a29769fae450455d9997fa876639f04741",
+      "frame_length": 566,
+      "frame_sha256": "16075ce52f0acc3939f274f59670f86f7c35f0a5dcdbdcd7d955d0441fc00ffa",
       "message_type_id": 23
     },
     "renew_ticket": {
-      "frame_length": 626,
-      "frame_sha256": "9ce5e98e2df662bc484ebdc78dbe1f8d598d391613c315de4c1afcf3b4587bd5",
+      "frame_length": 628,
+      "frame_sha256": "3d3c05974de3211999e46ae5dc86ab5df2d0b24c76ced843a6628b620da5bf27",
       "message_type_id": 24
     },
     "shutdown": {
-      "frame_length": 528,
-      "frame_sha256": "6e14fa15f6329211d45fbe08da595116f8976f3a3f85a70f3dae4a7483b37a8a",
+      "frame_length": 530,
+      "frame_sha256": "a8f4035e90d337a5b71657da6ebbc8af0d3011a1dba6121f58f824951ff1d135",
       "message_type_id": 25
     },
     "shutdown_ack": {
-      "frame_length": 530,
-      "frame_sha256": "a4c460dd9fd14a6cac81eb2fc0d34d9dacd29fffa03bd441dceac951e1e41a7c",
+      "frame_length": 532,
+      "frame_sha256": "2e4ccfa281f6c22558deb2ed2f15d1e20b41ead96e848e654821499e14ca1e8b",
       "message_type_id": 26
     }
   },
   "message_type_id": 21,
   "platform_launch_frames": {
     "unix": {
-      "frame_length": 555,
-      "frame_sha256": "f77fa706f6ed82ff0e4924fc3e625792434bf6c3bc4ac844c6c0470e1b4688b6",
+      "frame_length": 557,
+      "frame_sha256": "732f9c1650ff56483f3e9ecf7f5b68dc28b1bbe48e7876acf05d4f80d3c672c1",
       "message_type_id": 21
     },
     "windows": {
       "message_type_id": 21,
-      "frame_length": 545,
-      "frame_sha256": "761eef446cfeeed68c4b8e636acc6a045dfa091e4187e70ab53bd552c52a3715"
+      "frame_length": 547,
+      "frame_sha256": "7643bc4d61373b8cf91d876ba9d142d89a1b3d3b7d1c2d9095e14f8eb0675173"
     }
   },
   "protocol_schema_version": 2,

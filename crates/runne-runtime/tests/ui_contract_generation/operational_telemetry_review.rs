@@ -81,7 +81,7 @@ fn telemetry_openapi_uses_the_exact_session_authorization_scheme() {
         serde_json::from_slice(&fs::read(output.path().join("openapi.json")).unwrap()).unwrap();
     assert_eq!(
         openapi["components"]["securitySchemes"]["sessionAuth"],
-        serde_json::json!({"scheme": "RunneSession", "type": "http"})
+        serde_json::json!({"scheme": "GocodeSession", "type": "http"})
     );
     assert_eq!(
         openapi["paths"]["/v1/runtime/operational-telemetry"]["get"]["security"],

@@ -205,7 +205,7 @@ fn identity() -> CommandIdentity {
 }
 fn session() -> RuntimeSessionInfo {
     RuntimeSessionInfo {
-        profile_id: "runne-ui-client/2".into(),
+        profile_id: "gocode-ui-client/2".into(),
         schema_hash: "test".into(),
         runtime_version: "test".into(),
         capabilities: PROTECTED_RUNTIME_CAPABILITIES

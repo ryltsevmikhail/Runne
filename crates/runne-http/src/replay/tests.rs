@@ -26,7 +26,7 @@
                     uuid_v7(1),
                     ApiPrincipalId::new(session.principal_id.clone()).unwrap(),
                     EventLogLineageId::from_bytes(uuid_v7(2)),
-                    "runne-ui-client/2",
+                    "gocode-ui-client/2",
                     [3; 32],
                     [4; 32],
                 )

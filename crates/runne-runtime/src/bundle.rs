@@ -1,13 +1,13 @@
-//! Published canonical contract identity for `runne-ui-client/2`.
+//! Published canonical contract identity for `gocode-ui-client/2`.
 //!
 //! The checked-in `bundle.json` is generated from contract content only.
 //! Source revision evidence is deliberately maintained outside this digest.
 
 /// Canonical API profile identifier.
-pub const BUNDLE_ID: &str = "runne-ui-client/2";
+pub const BUNDLE_ID: &str = "gocode-ui-client/2";
 
 /// Exact local transport profile described by this contract.
-pub const TRANSPORT_PROFILE_ID: &str = "runne-local-runtime/2";
+pub const TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
 
 /// Generator schema version for the content-only bundle manifest.
 pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "e39cc811ff8d13c84c08b80379b97c6e4d04e7f852046bfc09b6d01756722b87";
+    "e67a31cde429fd81a6c661b2abd850171778a25b3a4d324b2af72419afe42be4";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.

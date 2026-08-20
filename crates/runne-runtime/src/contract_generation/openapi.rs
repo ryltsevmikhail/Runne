@@ -13,17 +13,17 @@ fn openapi() -> Value {
     };
     let no_store = || json!({"description": "Responses are never stored", "schema": {"const": "no-store", "type": "string"}});
     let required_no_store = || json!({"description": "Responses are never stored", "required": true, "schema": {"const": "no-store", "type": "string"}});
-    let replay_request = |reference: &str| json!({"content": {"application/json": {"schema": {"$ref": reference}}}, "required": true, "x-runne-maxBodyBytes": 8192});
-    let resume_request = |reference: &str| json!({"content": {"application/json": {"schema": {"$ref": reference}}}, "required": true, "x-runne-maxBodyBytes": 1048576});
+    let replay_request = |reference: &str| json!({"content": {"application/json": {"schema": {"$ref": reference}}}, "required": true, "x-gocode-maxBodyBytes": 8192});
+    let resume_request = |reference: &str| json!({"content": {"application/json": {"schema": {"$ref": reference}}}, "required": true, "x-gocode-maxBodyBytes": 1048576});
     let session_parameter = || json!({"in": "path", "name": "sessionId", "required": true, "schema": replay_session_id_schema()});
     let mut document = json!({
         "info": {
-            "title": "Runne Local Runtime API",
+            "title": "GOCODE Local Runtime API",
             "version": "2.0.0",
         },
         "components": {
             "securitySchemes": {
-                "sessionAuth": {"scheme": "RunneSession", "type": "http"}
+                "sessionAuth": {"scheme": "GocodeSession", "type": "http"}
             }
         },
         "jsonSchemaDialect": DRAFT_2020_12,
@@ -226,7 +226,7 @@ fn replay_conversation_golden() -> Value {
         "causationEventId": "018f2e3a-7000-7000-8000-000000000111",
         "correlationId": "018f2e3a-7000-7000-8000-000000000110",
         "correlationType": "conversation",
-        "cursor": "runne-replay-cursor-v1.7b7d",
+        "cursor": "gocode-replay-cursor-v1.7b7d",
         "eventId": "018f2e3a-7000-7000-8000-000000000112",
         "eventType": "conversation.message.appended",
         "integrityDigest": integrity_digest_golden(),
@@ -252,7 +252,7 @@ fn replay_taskrun_golden() -> Value {
         "causationEventId": null,
         "correlationId": "018f2e3a-7000-7000-8000-000000000110",
         "correlationType": "conversation",
-        "cursor": "runne-replay-cursor-v1.7b2261223a317d",
+        "cursor": "gocode-replay-cursor-v1.7b2261223a317d",
         "eventId": "018f2e3a-7000-7000-8000-000000000116",
         "eventType": "taskRun.attempt.started",
         "integrityDigest": integrity_digest_golden(),
@@ -275,7 +275,7 @@ fn sse_delivery_golden() -> Value {
         "canonicalEvent": canonical_event,
         "deliverySequence": 1,
         "liveDeliveryId": "018f2e3a-7000-7000-8000-000000000117",
-        "replayCursor": "runne-replay-cursor-v1.7b7d",
+        "replayCursor": "gocode-replay-cursor-v1.7b7d",
         "replaySessionId": "018f2e3a700070008000000000000118",
         "transportVersion": 1,
     })

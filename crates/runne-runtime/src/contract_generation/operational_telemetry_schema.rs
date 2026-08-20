@@ -30,7 +30,7 @@ fn operational_telemetry_schema() -> Value {
     );
     let object = schema.as_object_mut().unwrap();
     object.insert("$defs".to_owned(), definitions);
-    object.insert("$id".to_owned(), json!("runne://schemas/operational-telemetry-v1"));
+    object.insert("$id".to_owned(), json!("gocode://schemas/operational-telemetry-v1"));
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert("title".to_owned(), json!("Operational Telemetry V1"));
     schema

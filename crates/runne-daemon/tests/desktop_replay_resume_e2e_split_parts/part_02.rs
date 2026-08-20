@@ -25,7 +25,7 @@ async fn real_process_resume_reapplies_unacknowledged_duplicate_once() {
     assert_eq!(first_profile["schemaVersion"], 3);
     assert_eq!(
         first_profile["transportProfileId"],
-        "runne-local-runtime/2"
+        "gocode-local-runtime/2"
     );
     let first_endpoint = endpoint_address(&first_profile);
     let stale_profile_path = directory.path().join("stale-client-profile.json");

@@ -1,6 +1,6 @@
 fn promotion_digest(bytes: &[u8], id: &[u8; 16]) -> [u8; 32] {
     let mut digest = Sha256::new();
-    digest.update(b"runne.replay.promotion-projection");
+    digest.update(b"gocode.replay.promotion-projection");
     digest.update([0, 1, bytes[5]]);
     digest.update(id);
     digest.update(bytes);
@@ -84,5 +84,5 @@ fn resume_taskrun_from_baseline(baseline: &Value) -> Response<Body> {
 fn taskrun_cursor(aggregate: &str, event: &str, sequence: u64) -> String {
     let id = hex::decode(aggregate).expect("taskrun id");
     let value = json!({"scope":{"Aggregate":{"aggregate_id":id,"aggregate_type":1}},"event_id":event,"sequence":sequence,"global_position":sequence});
-    format!("runne-replay-cursor-v1.{}", hex::encode(serde_json::to_vec(&value).expect("taskrun cursor")))
+    format!("gocode-replay-cursor-v1.{}", hex::encode(serde_json::to_vec(&value).expect("taskrun cursor")))
 }

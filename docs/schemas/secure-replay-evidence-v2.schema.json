@@ -58,7 +58,7 @@
           }
         },
         "contractProfileId": { "const": "runne-ui-client/1" },
-        "transportProfileId": { "const": "runne-local-runtime/2" },
+        "transportProfileId": { "const": "gocode-local-runtime/2" },
         "contractBundleSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }
     },

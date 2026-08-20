@@ -31,7 +31,7 @@ fn display_name_schema_matches_domain_character_policy_and_utf8_annotation() {
     let (schema, golden, _) = generated_project_workspace(output.path());
     let validator = project_workspace_validator(&schema);
     let name_schema = &schema["$defs"]["project"]["properties"]["displayName"];
-    assert_eq!(name_schema["x-runne-maxUtf8Bytes"], 256);
+    assert_eq!(name_schema["x-gocode-maxUtf8Bytes"], 256);
 
     let mut corpus = vec!["Name".to_owned(), "x".repeat(256), "🙂".repeat(64)];
     for (start, end) in [
@@ -84,7 +84,7 @@ fn root_admission_schema_matches_canonical_unpadded_codec_boundaries() {
     let (schema, golden, _) = generated_project_workspace(output.path());
     let validator = project_workspace_validator(&schema);
     let encoded_len = (runne_api::ROOT_HANDLE_ADMISSION_V3_BYTES * 4).div_ceil(3);
-    let prefix = "runne-root-admission-v3.";
+    let prefix = "gocode-root-admission-v3.";
     for last in "AQgw".chars() {
         let encoded = format!("{}A{last}", "A".repeat(encoded_len - 2));
         assert_canonical_root_token(&validator, &golden, &encoded);
@@ -97,10 +97,10 @@ fn root_admission_schema_matches_canonical_unpadded_codec_boundaries() {
         assert!(!validator.is_valid(&fixture));
     }
     for token in [
-        "runne-root-admission-v2.AB",
-        "runne-root-admission-v3.AAB",
-        "runne-root-admission-v3.A",
-        "runne-root-admission-v3.AAAA=",
+        "gocode-root-admission-v2.AB",
+        "gocode-root-admission-v3.AAB",
+        "gocode-root-admission-v3.A",
+        "gocode-root-admission-v3.AAAA=",
     ] {
         assert!(serde_json::from_value::<runne_api::RootBindAdmission>(Value::String(token.to_owned())).is_err());
         let mut fixture = golden.clone();
@@ -183,7 +183,7 @@ fn cursor_invalid_corpus(token: &str, workspace: bool) -> Vec<String> {
 }
 
 fn assert_canonical_root_token(validator: &JSONSchema, golden: &Value, encoded: &str) {
-    let token = format!("runne-root-admission-v3.{encoded}");
+    let token = format!("gocode-root-admission-v3.{encoded}");
     let _: runne_api::RootBindAdmission =
         serde_json::from_value(Value::String(token.clone())).expect("canonical v3 carrier");
     let mut fixture = golden.clone();

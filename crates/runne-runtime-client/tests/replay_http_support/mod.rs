@@ -30,7 +30,7 @@ pub fn scope() -> ReplayScope {
 
 fn session() -> RuntimeSessionInfo {
     RuntimeSessionInfo {
-        profile_id: "runne-ui-client/2".to_owned(),
+        profile_id: "gocode-ui-client/2".to_owned(),
         schema_hash: hex::encode([3; 32]),
         runtime_version: "test".to_owned(),
         capabilities: vec!["test".to_owned()],
