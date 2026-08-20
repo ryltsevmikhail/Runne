@@ -15,10 +15,10 @@ fn project_workspace_openapi(document: &mut Value) {
         {"in": "header", "name": "X-Command-Id", "required": true, "schema": {"maxLength": 36, "pattern": UUID_V7_PATTERN, "type": "string"}},
         {"in": "header", "name": "Idempotency-Key", "required": true, "schema": {
             "maxLength": 256, "minLength": 1, "pattern": "^[\\u0020-\\u007e]+$",
-            "type": "string", "x-runne-maxUtf8Bytes": 256
+            "type": "string", "x-gocode-maxUtf8Bytes": 256
         }}
     ]);
-    let operation = |request: &str, success: &str| json!({"security": [{"sessionAuth": []}], "parameters": command(), "requestBody": {"required": true, "x-runne-maxBodyBytes": 16384, "content": {"application/json": {"schema": {"$ref": format!("{schema}{request}")}}}}, "responses": {"202": response(success), "400": response("error"), "401": response("error"), "404": response("error"), "405": response("error"), "409": response("error"), "413": response("error"), "500": response("error"), "503": response("error")}});
+    let operation = |request: &str, success: &str| json!({"security": [{"sessionAuth": []}], "parameters": command(), "requestBody": {"required": true, "x-gocode-maxBodyBytes": 16384, "content": {"application/json": {"schema": {"$ref": format!("{schema}{request}")}}}}, "responses": {"202": response(success), "400": response("error"), "401": response("error"), "404": response("error"), "405": response("error"), "409": response("error"), "413": response("error"), "500": response("error"), "503": response("error")}});
     let read = |success: &str, parameters: Value| json!({"security": [{"sessionAuth": []}], "parameters": parameters, "responses": {"200": response(success), "400": response("error"), "401": response("error"), "404": response("error"), "405": response("error"), "409": response("error"), "413": response("error"), "500": response("error"), "503": response("error")}});
     let paths = document["paths"].as_object_mut().expect("OpenAPI paths object");
     paths.insert("/v1/projects".into(), json!({"get": read("projectPage", page(PROJECT_PAGE_CURSOR_LENGTH, PROJECT_PAGE_CURSOR_PATTERN)), "post": operation("projectCreate", "projectAck")}));

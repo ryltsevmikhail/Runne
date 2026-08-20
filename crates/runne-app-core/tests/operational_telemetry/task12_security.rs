@@ -34,7 +34,7 @@ fn app_core_serialized_projection_excludes_rejected_provider_body_marker() {
     let client = mock_authenticated_runtime_client(
         &origin,
         RuntimeSessionInfo {
-            profile_id: "runne-ui-client/2".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: "test".to_owned(),
             runtime_version: "test".to_owned(),
             capabilities: REQUIRED_RUNTIME_CAPABILITIES

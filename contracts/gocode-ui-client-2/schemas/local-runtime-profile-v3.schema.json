@@ -1,5 +1,5 @@
 {
-  "$id": "runne://schemas/local-runtime-profile-v3",
+  "$id": "gocode://schemas/local-runtime-profile-v3",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -263,7 +263,7 @@
       "type": "string"
     },
     "profileId": {
-      "const": "runne-ui-client/2",
+      "const": "gocode-ui-client/2",
       "type": "string"
     },
     "schemaHash": {
@@ -279,7 +279,7 @@
       "type": "string"
     },
     "transportProfileId": {
-      "const": "runne-local-runtime/2",
+      "const": "gocode-local-runtime/2",
       "type": "string"
     }
   },

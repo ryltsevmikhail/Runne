@@ -58,7 +58,7 @@ fn local_runtime_profile_schema() -> Value {
     let object = schema.as_object_mut().unwrap();
     object.insert(
         "$id".to_owned(),
-        json!("runne://schemas/local-runtime-profile-v3"),
+        json!("gocode://schemas/local-runtime-profile-v3"),
     );
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert("title".to_owned(), json!("Local Runtime Profile V3"));
@@ -142,7 +142,7 @@ fn local_session_schema() -> Value {
     );
     let object = schema.as_object_mut().unwrap();
     object.insert("$defs".to_owned(), definitions);
-    object.insert("$id".to_owned(), json!("runne://schemas/local-session-v2"));
+    object.insert("$id".to_owned(), json!("gocode://schemas/local-session-v2"));
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert(
         "title".to_owned(),
@@ -179,7 +179,7 @@ fn sse_schema() -> Value {
         "$defs".to_owned(),
         json!({"canonicalReplayPayloadV1": canonical_payload_schema()}),
     );
-    object.insert("$id".to_owned(), json!("runne://schemas/sse-v1"));
+    object.insert("$id".to_owned(), json!("gocode://schemas/sse-v1"));
     object.insert("$schema".to_owned(), json!(DRAFT_2020_12));
     object.insert("title".to_owned(), json!("Replay SSE Delivery V1"));
     schema

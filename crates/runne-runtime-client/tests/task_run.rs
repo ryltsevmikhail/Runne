@@ -220,7 +220,7 @@ fn request_id(body: &str) -> Option<&str> {
 
 fn session() -> RuntimeSessionInfo {
     RuntimeSessionInfo {
-        profile_id: "runne-ui-client/2".to_owned(),
+        profile_id: "gocode-ui-client/2".to_owned(),
         schema_hash: "test".to_owned(),
         runtime_version: "test".to_owned(),
         capabilities: REQUIRED_RUNTIME_CAPABILITIES

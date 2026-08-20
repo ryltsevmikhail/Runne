@@ -279,5 +279,5 @@ fn event_cursor(event: &Value) -> String {
         "event_id":event["eventId"],"sequence":sequence,"global_position":sequence,
     }))
     .expect("cursor JSON");
-    format!("runne-replay-cursor-v1.{}", hex::encode(bytes))
+    format!("gocode-replay-cursor-v1.{}", hex::encode(bytes))
 }

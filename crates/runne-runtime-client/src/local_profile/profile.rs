@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::{AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, RuntimeEndpoint};
 
 const LOCAL_PROFILE_SCHEMA_VERSION: u32 = 3;
-const LOCAL_TRANSPORT_PROFILE_ID: &str = "runne-local-runtime/2";
+const LOCAL_TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
 const MAXIMUM_PROFILE_BYTES: usize = 16 * 1024;
 const MAXIMUM_CERTIFICATE_BYTES: usize = 16 * 1024;
 

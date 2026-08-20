@@ -52,7 +52,7 @@ impl Running {
         Self {
             address,
             authorization: format!(
-                "RunneSession {}",
+                "GocodeSession {}",
                 URL_SAFE_NO_PAD.encode(authority.as_ref())
             ),
             stop,
@@ -116,7 +116,7 @@ async fn tls_telemetry_rejections_are_static_and_marker_free() {
     assert_static(
         client()
             .get(&endpoint)
-            .header("authorization", "RunneSession invalid")
+            .header("authorization", "GocodeSession invalid")
             .send()
             .await
             .unwrap(),

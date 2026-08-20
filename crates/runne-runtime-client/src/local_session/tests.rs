@@ -80,7 +80,7 @@ mod tests {
         assert!(!debug.contains("secret"));
 
         let (external_request, external_ready, external_keys) =
-            protected_ready_fixture("runne-local-runtime/2");
+            protected_ready_fixture("gocode-local-runtime/2");
         assert_eq!(
             ProtectedBundledRuntimeProfile::from_ready(
                 &external_ready,

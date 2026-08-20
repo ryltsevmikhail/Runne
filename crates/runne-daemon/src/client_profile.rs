@@ -11,7 +11,7 @@ use zeroize::Zeroize;
 use crate::error::DaemonError;
 use crate::launch_identity::LaunchIdentity;
 
-pub(crate) const LOCAL_RUNTIME_PROFILE_V2: &str = "runne-local-runtime/2";
+pub(crate) const LOCAL_RUNTIME_PROFILE_V2: &str = "gocode-local-runtime/2";
 
 /// Strict profile-v3 wire representation for pinned TLS clients.
 #[derive(Serialize, Deserialize)]

@@ -92,7 +92,7 @@ fn runtime_section_uses_the_validated_runtime_client_snapshot() {
         stream.write_all(wire).expect("write body");
     });
     let client = mock_authenticated_runtime_client(&origin, RuntimeSessionInfo {
-        profile_id: "runne-ui-client/2".to_owned(), schema_hash: "test".to_owned(),
+        profile_id: "gocode-ui-client/2".to_owned(), schema_hash: "test".to_owned(),
         runtime_version: "test".to_owned(), capabilities: REQUIRED_RUNTIME_CAPABILITIES.iter().map(ToString::to_string).collect(),
         authority_id: "authority".to_owned(), principal_id: "principal".to_owned(),
         event_log_lineage_id: "lineage".to_owned(), daemon_instance_id: "daemon".to_owned(),

@@ -214,7 +214,7 @@ fn reconcile_client(origin: &str) -> runne_runtime_client::AuthenticatedRuntimeC
     runne_runtime_client::mock_authenticated_runtime_client(
         origin,
         runne_runtime_client::RuntimeSessionInfo {
-            profile_id: "runne-ui-client/2".into(),
+            profile_id: "gocode-ui-client/2".into(),
             schema_hash: runne_runtime_client::GOLDEN_BUNDLE_HASH.into(),
             runtime_version: "test".into(),
             capabilities: runne_runtime_client::REQUIRED_RUNTIME_CAPABILITIES.iter().map(ToString::to_string).collect(),

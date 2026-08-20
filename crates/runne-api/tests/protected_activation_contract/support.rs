@@ -36,7 +36,7 @@ fn profile() -> ProtectedRuntimeProfileV1 {
     ProtectedRuntimeProfileV1::new(
         "runne-bundled-runtime/1",
         1,
-        "runne-ui-client/2",
+        "gocode-ui-client/2",
         [0x21; 32],
         [0x22; 32],
     )
@@ -48,7 +48,7 @@ fn stable() -> StableRuntimeBindingV1 {
         AUTHORITY_ID,
         "local-owner",
         LINEAGE_ID,
-        "runne-ui-client/2",
+        "gocode-ui-client/2",
         [0x21; 32],
         [0x22; 32],
     )
@@ -155,9 +155,9 @@ fn launch_authority_is_short_lived_and_exactly_bound() {
 fn credential_first_profile_is_rejected_for_bundled_activation() {
     let request = launch(LaunchSecret::from_bytes([0xa5; 32]).expect("launch secret"));
     let external = ProtectedRuntimeProfileV1::new(
-        "runne-local-runtime/2",
+        "gocode-local-runtime/2",
         2,
-        "runne-ui-client/2",
+        "gocode-ui-client/2",
         [0x21; 32],
         [0x22; 32],
     )

@@ -147,7 +147,7 @@ pub async fn connect_session(config: &ConfigurationSnapshot) -> TestSession {
     assert_eq!(authenticated.status(), reqwest::StatusCode::OK);
     TestSession {
         client,
-        authorization: format!("RunneSession {}", URL_SAFE_NO_PAD.encode(authority)),
+        authorization: format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority)),
     }
 }
 
@@ -167,7 +167,7 @@ fn proof_transcript(
     let session = decode_hex::<16>(&profile["sessionId"]);
     let generation = profile["launchGeneration"].as_u64().unwrap().to_be_bytes();
     let fields: [&[u8]; 16] = [
-        b"runne-local-session-v3",
+        b"gocode-local-session-v3",
         &authority,
         profile["principalId"].as_str().unwrap().as_bytes(),
         lineage.as_bytes(),

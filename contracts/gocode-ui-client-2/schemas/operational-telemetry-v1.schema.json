@@ -539,7 +539,7 @@
       "type": "object"
     }
   },
-  "$id": "runne://schemas/operational-telemetry-v1",
+  "$id": "gocode://schemas/operational-telemetry-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {

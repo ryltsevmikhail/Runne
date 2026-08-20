@@ -29,7 +29,7 @@ fn binding() -> RuntimeSessionBinding {
             "018f2e3a-7000-7000-8000-000000000003"
                 .parse::<EventLogLineageId>()
                 .unwrap(),
-            "runne-ui-client/2",
+            "gocode-ui-client/2",
             [3; 32],
             [4; 32],
         )

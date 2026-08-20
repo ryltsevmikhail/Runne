@@ -89,7 +89,7 @@ fn replay_resume_contract_is_authenticated_bounded_and_no_store() {
     );
     let resume = &openapi["paths"]["/v1/replay/resume-from-baseline"]["post"];
     assert_eq!(resume["security"], serde_json::json!([{"sessionAuth": []}]));
-    assert_eq!(resume["requestBody"]["x-runne-maxBodyBytes"], 1_048_576);
+    assert_eq!(resume["requestBody"]["x-gocode-maxBodyBytes"], 1_048_576);
     for status in ["200", "401", "410"] {
         assert_eq!(
             resume["responses"][status]["headers"]["Cache-Control"]["required"],

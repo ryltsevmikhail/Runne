@@ -223,7 +223,7 @@
 
     fn runtime_identity() -> BundledRuntimeAuthenticatedIdentity {
         BundledRuntimeAuthenticatedIdentity {
-            profile_id: "runne-ui-client/2".to_owned(),
+            profile_id: "gocode-ui-client/2".to_owned(),
             schema_hash: "a".repeat(64),
             authority_id: "0".repeat(32),
             principal_id: "desktop-development".to_owned(),

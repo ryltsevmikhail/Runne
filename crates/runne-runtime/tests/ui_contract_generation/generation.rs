@@ -90,6 +90,7 @@ fn schemas_compile_goldens_validate_and_openapi_refs_resolve_locally() {
     let openapi_path = output.path().join("openapi.json");
     let openapi: Value = serde_json::from_slice(&fs::read(&openapi_path).unwrap()).unwrap();
     assert_eq!(openapi["openapi"], "3.1.0");
+    assert_eq!(openapi["info"]["title"], "GOCODE Local Runtime API");
     assert_local_refs_resolve(&openapi_path, &openapi);
 
     for golden_path in [
@@ -166,11 +167,11 @@ fn local_runtime_profile_schema_accepts_only_base_or_protected_capabilities() {
             "launchAuthorityId": "00".repeat(16),
             "launchGeneration": 1,
             "principalId": "local-owner",
-            "profileId": "runne-ui-client/2",
+            "profileId": "gocode-ui-client/2",
             "schemaHash": "00".repeat(32),
             "schemaVersion": 3,
             "sessionId": "00".repeat(16),
-            "transportProfileId": "runne-local-runtime/2",
+            "transportProfileId": "gocode-local-runtime/2",
         })
     };
     assert!(validator.is_valid(&profile(BASE_RUNTIME_CAPABILITIES)));

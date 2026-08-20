@@ -17,7 +17,7 @@ const BUNDLE_JSON_PATH: &str = concat!(
 /// at the pinned base SHA; pins reproducibility of `ordered_capability_digest`
 /// without any external source.
 const EXPECTED_CAPABILITY_DIGEST: &str =
-    "737d48ce55821db3d431d51eed97f243c6dbffecf764de6e96271c814fa42544";
+    "08e1b9df9388247371e7c42188145de5c11ea6e503c6abeb237b6dbbf3dbc48a";
 
 #[test]
 fn bundle_json_sha256_matches_published_hash() {
@@ -64,7 +64,7 @@ fn ordered_capability_digest_is_deterministic_and_pinned() {
 /// of `port_10.rs::ordered_capability_digest`.
 fn ordered_capability_digest(capabilities: &[&str]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/local-runtime/capability-digest/v1\0");
+    hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
     hasher.update(
         u32::try_from(capabilities.len())
             .unwrap_or(u32::MAX)

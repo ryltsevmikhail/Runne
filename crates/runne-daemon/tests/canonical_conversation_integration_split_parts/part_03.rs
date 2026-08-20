@@ -92,7 +92,7 @@ async fn production_replay_handoff_delivers_conversation_created_over_sse() {
     assert!(delivery.contains("\"aggregateType\":\"conversation\""));
     assert!(delivery.contains(&format!("\"aggregateId\":\"{CONVERSATION_ID}\"")));
     assert!(delivery.contains("\"eventType\":\"conversation.created\""));
-    assert!(delivery.contains("\"replayCursor\":\"runne-replay-cursor-v1."));
+    assert!(delivery.contains("\"replayCursor\":\"gocode-replay-cursor-v1."));
 
     drop(stream);
     daemon.stop().await;

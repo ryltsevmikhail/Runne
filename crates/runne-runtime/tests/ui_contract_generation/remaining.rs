@@ -83,8 +83,8 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
     );
     assert_eq!(digest.trim_end(), PUBLISHED_BUNDLE_HASH);
     let bundle: Value = serde_json::from_slice(&bundle_bytes).unwrap();
-    assert_eq!(bundle["apiProfileId"], "runne-ui-client/2");
-    assert_eq!(bundle["transportProfileId"], "runne-local-runtime/2");
+    assert_eq!(bundle["apiProfileId"], "gocode-ui-client/2");
+    assert_eq!(bundle["transportProfileId"], "gocode-local-runtime/2");
     assert_eq!(
         bundle["publishedCapabilities"],
         serde_json::json!(PUBLISHED_RUNTIME_CAPABILITIES)

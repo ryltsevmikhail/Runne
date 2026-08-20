@@ -1,6 +1,6 @@
 //! Runtime transport and schema bundle verification.
 //!
-//! The canonical schema bundle (`runne-ui-client/2`) is generated
+//! The canonical schema bundle (`gocode-ui-client/2`) is generated
 //! byte-for-byte by the runtime contract generator. This module verifies the
 //! exact content-only bundle digest independently from release source evidence.
 
