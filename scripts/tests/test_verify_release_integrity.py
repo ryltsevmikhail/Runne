@@ -7,7 +7,7 @@ from scripts.tests.release_test_support import ReleaseTestCase
 class VerifyReleaseIntegrityTests(ReleaseTestCase, VerifyReleaseMixin):
     def test_changed_archive_file_blocks_without_mutating_inputs(self) -> None:
         candidate = self.package_candidate()
-        (candidate / "gocode-daemon").write_bytes(b"altered archive bytes\n")
+        (candidate / "runne-daemon").write_bytes(b"altered archive bytes\n")
         source_before = self.snapshot_tree(self.root)
         candidate_before = self.snapshot_tree(candidate)
 
