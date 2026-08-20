@@ -116,7 +116,7 @@ fn checkpoint_capability_requires_the_authenticated_baseline_event_identity() {
         )
         .unwrap();
     let facts = runne_api::UnauthenticatedReplayBaselineCheckpointFactsV2 {
-        cursor: "runne-replay-cursor-v1.00".into(),
+        cursor: "gocode-replay-cursor-v1.00".into(),
         aggregate_kind: ApiReplayAggregateKind::Conversation,
         aggregate_id: ID,
         event_id: *baseline.head_event_id(),
@@ -163,7 +163,7 @@ fn bound_fields(
     let snapshot = conversation().snapshot_v1();
     let bytes = ReplayPromotionProjectionV1::encode_conversation(&snapshot, &[]).unwrap();
     let mut digest = Sha256::new();
-    digest.update(b"runne.replay.promotion-projection");
+    digest.update(b"gocode.replay.promotion-projection");
     digest.update([0, 1, bytes[5]]);
     digest.update(ID);
     digest.update(&bytes);

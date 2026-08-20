@@ -48,16 +48,16 @@ pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
     0x3f, 0xd2, 0x44, 0xf9, 0x36, 0xd0, 0xc7, 0x72, 0xe8, 0xbd, 0x16, 0x51, 0xed, 0xb1, 0xf2, 0x60,
 ];
 const EXTERNAL_TRANSPORT_PROFILE_ID: &str = "runne-local-runtime/2";
-const KEY_DERIVATION_DOMAIN: &[u8] = b"runne/bundled-launch/key-derivation/v1\0";
-const BOOTSTRAP_DOMAIN: &[u8] = b"runne/bundled-launch/bootstrap/v1";
-const READINESS_DOMAIN: &[u8] = b"runne/bundled-launch/readiness/v1";
-const RENEW_DOMAIN: &[u8] = b"runne/bundled-launch/renew/v1";
-const SHUTDOWN_DOMAIN: &[u8] = b"runne/bundled-launch/shutdown/v1";
-const FIRST_ACTIVATION_PREPARE_DOMAIN: &[u8] = b"runne/bundled-launch/first-activation-prepare/v1";
-const FIRST_ACTIVATION_COMMIT_DOMAIN: &[u8] = b"runne/bundled-launch/first-activation-commit/v1";
-const READINESS_DOMAIN_V2: &[u8] = b"runne/bundled-launch/readiness/v2";
-const RENEW_DOMAIN_V2: &[u8] = b"runne/bundled-launch/renew/v2";
-const SHUTDOWN_DOMAIN_V2: &[u8] = b"runne/bundled-launch/shutdown/v2";
+const KEY_DERIVATION_DOMAIN: &[u8] = b"gocode/bundled-launch/key-derivation/v1\0";
+const BOOTSTRAP_DOMAIN: &[u8] = b"gocode/bundled-launch/bootstrap/v1";
+const READINESS_DOMAIN: &[u8] = b"gocode/bundled-launch/readiness/v1";
+const RENEW_DOMAIN: &[u8] = b"gocode/bundled-launch/renew/v1";
+const SHUTDOWN_DOMAIN: &[u8] = b"gocode/bundled-launch/shutdown/v1";
+const FIRST_ACTIVATION_PREPARE_DOMAIN: &[u8] = b"gocode/bundled-launch/first-activation-prepare/v1";
+const FIRST_ACTIVATION_COMMIT_DOMAIN: &[u8] = b"gocode/bundled-launch/first-activation-commit/v1";
+const READINESS_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/readiness/v2";
+const RENEW_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/renew/v2";
+const SHUTDOWN_DOMAIN_V2: &[u8] = b"gocode/bundled-launch/shutdown/v2";
 
 type HmacSha256 = Hmac<Sha256>;
 

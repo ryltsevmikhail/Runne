@@ -224,7 +224,7 @@ impl UnauthenticatedReplayProjectionV1 {
 
 fn projection_digest(kind: ApiReplayAggregateKind, id: &[u8; 16], bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne.replay.aggregate-projection");
+    hasher.update(b"gocode.replay.aggregate-projection");
     hasher.update([0]);
     hasher.update([1]);
     hasher.update([match kind {

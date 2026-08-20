@@ -1,6 +1,6 @@
 /// Canonical domain separation used before deriving a V2 session-bound resume key.
 pub const REPLAY_RETENTION_BASELINE_KEY_DOMAIN_V2: &[u8] =
-    b"runne.replay-retention-baseline-resume.key.v2\0";
+    b"gocode.replay-retention-baseline-resume.key.v2\0";
 
 /// Returns the exact length-framed unauthenticated V2 resume claim transcript.
 pub fn replay_retention_baseline_v2_transcript(

@@ -11,27 +11,27 @@
     },
     "ready": {
       "frame_length": 657,
-      "frame_sha256": "d4b136d7916fc6b31d75bf78b272e21ec901fd7d77f0be6c9ca8fb3f0dc15689",
+      "frame_sha256": "b0665e00339cb47ff12ef8aff4f5a0edeb8fa76de69eeffffa8b90fc9ccc9a03",
       "message_type_id": 22
     },
     "renew_request": {
       "frame_length": 564,
-      "frame_sha256": "e87140198cee8346e88cd26e763731599735ec5d084253486679e63ee5446d5c",
+      "frame_sha256": "e782a62c268059b7217f4d427f6c49a29769fae450455d9997fa876639f04741",
       "message_type_id": 23
     },
     "renew_ticket": {
       "frame_length": 626,
-      "frame_sha256": "db345b4eea4f0aa2a8d2c4e6f1dc55e8f95d0649530bb5cd70e628872b57c557",
+      "frame_sha256": "9ce5e98e2df662bc484ebdc78dbe1f8d598d391613c315de4c1afcf3b4587bd5",
       "message_type_id": 24
     },
     "shutdown": {
       "frame_length": 528,
-      "frame_sha256": "2c1296037470bbbd8554fc45c088235ec9123d8c6454d5c9baea7464adc5d035",
+      "frame_sha256": "6e14fa15f6329211d45fbe08da595116f8976f3a3f85a70f3dae4a7483b37a8a",
       "message_type_id": 25
     },
     "shutdown_ack": {
       "frame_length": 530,
-      "frame_sha256": "ca2d2c5237aa9ffb0e485e6cd073a6b8fa4905aaaf6263523dfa8ee2a622ebf1",
+      "frame_sha256": "a4c460dd9fd14a6cac81eb2fc0d34d9dacd29fffa03bd441dceac951e1e41a7c",
       "message_type_id": 26
     }
   },

@@ -206,7 +206,7 @@ fn conversation() -> Conversation {
 
 fn promotion_digest(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne.replay.promotion-projection");
+    hasher.update(b"gocode.replay.promotion-projection");
     hasher.update([0, 1, bytes[5]]);
     hasher.update(ID);
     hasher.update(bytes);

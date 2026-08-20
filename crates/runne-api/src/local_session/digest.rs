@@ -7,7 +7,7 @@ impl RuntimeSessionBinding {
         let stable = self.stable();
         let ephemeral = self.ephemeral();
         let mut hasher = Sha256::new();
-        hasher.update(b"runne.runtime-session-binding.v1\0");
+        hasher.update(b"gocode.runtime-session-binding.v1\0");
         frame(&mut hasher, stable.authority_id());
         frame(&mut hasher, stable.principal_id().as_str().as_bytes());
         frame(&mut hasher, stable.lineage_id().as_bytes());

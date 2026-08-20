@@ -135,7 +135,7 @@ fn v2_transcript_has_a_stable_independent_digest() {
     let wire = ReplayRetentionBaselineWireV2::from_unauthenticated_fields(valid_fields());
     assert_eq!(
         hex_digest(&replay_retention_baseline_v2_transcript(&wire).unwrap()),
-        "da440750047ae9cd2114d030a614b4b8b2c668e0d5a056e1e3893357e4707d28",
+        "0b8cc7589b61dc006eaa8341e63c295420fa82faf5f6d9e0feb27fdce3bcef08",
     );
 }
 

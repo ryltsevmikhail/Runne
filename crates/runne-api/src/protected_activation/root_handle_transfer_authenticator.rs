@@ -1,7 +1,7 @@
-const ROOT_HANDLE_TRANSFER_DOMAIN: &[u8] = b"runne/root-handle-transfer/v1";
-const ROOT_HANDLE_OFFER_PREFIX: &[u8] = b"runne/root-handle-offer/v2";
-const ROOT_HANDLE_READY_PREFIX: &[u8] = b"runne/root-handle-ready/v2";
-const ROOT_HANDLE_RESULT_PREFIX: &[u8] = b"runne/root-handle-result/v2";
+const ROOT_HANDLE_TRANSFER_DOMAIN: &[u8] = b"gocode/root-handle-transfer/v1";
+const ROOT_HANDLE_OFFER_PREFIX: &[u8] = b"gocode/root-handle-offer/v2";
+const ROOT_HANDLE_READY_PREFIX: &[u8] = b"gocode/root-handle-ready/v2";
+const ROOT_HANDLE_RESULT_PREFIX: &[u8] = b"gocode/root-handle-result/v2";
 
 /// Authenticates native directory-handle transfers without disclosing an
 /// activation key to a renderer or a transport peer.
