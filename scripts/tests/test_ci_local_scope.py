@@ -51,9 +51,6 @@ class ClassifyTests(unittest.TestCase):
             "AGENTS.md",
             "README.md",
             "CONTRIBUTING.md",
-            "scripts/validate-docs.py",
-            "scripts/ci-local-docs.sh",
-            "scripts/desktop/validate-docs.py",
         )
         for path in paths:
             self.assertIn("docs", scope.classify(path), path)
@@ -63,11 +60,6 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(scopes, {"runtime", "docs"})
         scopes = scope.classify("docs/schemas/opencode-baseline-inventory-v1.schema.json")
         self.assertEqual(scopes, {"runtime", "docs"})
-
-    def test_desktop_docs_tooling_is_frontend_and_docs(self) -> None:
-        self.assertEqual(
-            scope.classify("scripts/desktop/validate-docs.py"), {"frontend", "docs"}
-        )
 
     def test_full_fallback_paths(self) -> None:
         paths = (

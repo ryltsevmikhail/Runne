@@ -27,7 +27,6 @@ run_frontend() {
     run_pnpm typecheck
     run_pnpm exec playwright test tests/desktop/e2e/replay-resume.spec.ts
     python3 scripts/desktop/validate_architecture.py
-    run_pnpm validate:docs
 }
 
 run_pnpm() {

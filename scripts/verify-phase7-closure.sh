@@ -93,5 +93,4 @@ cargo test -p runne-plugin-host --all-targets --locked
 cargo test -p runne-mcp --all-targets --locked
 cargo test -p runne-runtime --test plugin_mcp_supervision --locked
 cargo test -p runne-tools --all-targets --locked
-python3 scripts/validate-docs.py --strict
 git diff --check

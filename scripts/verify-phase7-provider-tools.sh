@@ -53,4 +53,3 @@ cargo test -p runne-provider --all-targets --locked
 cargo test -p runne-tools --all-targets --locked
 cargo test -p runne-runtime --test provider_tool_loop --locked
 cargo test -p runne-provider-http --all-targets --locked
-python3 scripts/validate-docs.py --strict
