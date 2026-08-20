@@ -267,7 +267,7 @@ mod tests {
                 activation: ProviderActivation::DeepSeekResponsesText(
                     runne_api::ProviderActivationBindingV1::deepseek_responses_text_v1(),
                 ),
-                profile_id: "runne-deepseek-responses-text/1".to_owned(),
+                profile_id: "gocode-deepseek-responses-text/1".to_owned(),
                 model_id: DEEPSEEK_MODEL_ID,
                 model_revision: DEEPSEEK_MODEL_REVISION,
             }),

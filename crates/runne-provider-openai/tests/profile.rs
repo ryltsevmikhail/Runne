@@ -69,7 +69,10 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
     assert_eq!(profile.max_input_bytes(), 262_144);
     assert_eq!(profile.max_output_tokens(), 16_384);
     assert_eq!(profile.max_request_bytes(), 524_288);
-    assert_ne!(profile.pricing_revision_digest(), [0; 32]);
+    assert_eq!(
+        hex::encode(profile.pricing_revision_digest()),
+        "bef5b081d3878eda65e5f0bdcd919f1b18aba7b5b166deeebf7c812f06582072"
+    );
 
     let usage = ProviderUsage::new(10, 2, 3, 0).unwrap();
     assert_eq!(profile.price_usage_micros(usage).unwrap(), 97);

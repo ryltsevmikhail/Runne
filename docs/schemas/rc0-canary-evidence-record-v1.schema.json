@@ -58,7 +58,7 @@
       "const": "macos-14-arm64-development-preview"
     },
     "profile_id": {
-      "const": "runne-openai-responses-text/1"
+      "const": "gocode-openai-responses-text/1"
     },
     "profile_revision": {
       "anyOf": [

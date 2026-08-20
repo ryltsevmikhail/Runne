@@ -55,8 +55,8 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
     );
     assert_eq!(profile.profile_digest(), source_digest);
     assert_eq!(
-        PROFILE_DIGEST.trim(),
-        "sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
+        PROFILE_DIGEST.as_bytes(),
+        b"sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
     );
     assert_eq!(profile.profile_id(), "gocode-deepseek-responses-text/1");
     assert_eq!(profile.profile_id(), DEEPSEEK_RESPONSES_PROFILE_ID);
@@ -72,7 +72,11 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
     assert_eq!(profile.max_input_bytes(), 262_144);
     assert_eq!(profile.max_output_tokens(), 16_384);
     assert_eq!(profile.max_request_bytes(), 524_288);
-    assert_ne!(profile.pricing_revision_digest(), [0; 32]);
+    assert_eq!(PROFILE_DIGEST.len(), 71);
+    assert_eq!(
+        hex::encode(profile.pricing_revision_digest()),
+        "750211a8205b6b97356780d69809301c7a89d204ab271a81caf71ddf2885bd35"
+    );
 
     let usage = ProviderUsage::new(10, 2, 3, 0).unwrap();
     assert_eq!(profile.price_usage_micros(usage).unwrap(), 6);

@@ -8,7 +8,7 @@ pub(super) fn expected_profile() -> Result<ProtectedRuntimeProfileV1, LaunchAuth
         .and_then(|bytes| bytes.try_into().ok())
         .ok_or(LaunchAuthorityError::ProfileHashMismatch)?;
     ProtectedRuntimeProfileV1::new(
-        "runne-bundled-runtime/1",
+        runne_api::PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
         1,
         runne_runtime::bundle::BUNDLE_ID,
         profile_hash,

@@ -9,8 +9,9 @@ use crate::protected_activation::launch::ProtectedDaemonLaunch;
 use crate::protected_activation::test_support::run_without_admission;
 use runne_api::{
     ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError, LaunchSecret,
-    ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
-    ProtectedReadyV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1, ProtectedRuntimeProfileV1,
+    PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID, ProtectedFirstActivationCommitV1,
+    ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1, ProtectedReadyV1,
+    ProtectedRenewRequestV1, ProtectedRenewTicketV1, ProtectedRuntimeProfileV1,
     ProtectedShutdownAckV1, ProtectedShutdownV1,
 };
 
@@ -37,7 +38,7 @@ fn delayed_first_activation_commit_cannot_outlive_launch_authority_ttl() {
         .try_into()
         .unwrap();
     let profile = ProtectedRuntimeProfileV1::new(
-        "runne-bundled-runtime/1",
+        PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
         1,
         runne_runtime::bundle::BUNDLE_ID,
         profile_hash,
@@ -117,7 +118,7 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
         .try_into()
         .unwrap();
     let profile = ProtectedRuntimeProfileV1::new(
-        "runne-bundled-runtime/1",
+        PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
         1,
         runne_runtime::bundle::BUNDLE_ID,
         profile_hash,

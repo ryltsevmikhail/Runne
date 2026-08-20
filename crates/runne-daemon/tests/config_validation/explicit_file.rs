@@ -125,14 +125,14 @@ schema_version = 2
 
 [provider_activation]
 mode = "openai_responses_text_v1"
-profile_id = "runne-openai-responses-text/1"
-profile_digest = "9e04ed0d3cdeb99279433f01dfd44b2b67af80c076c5a63f45437f9880bae27e"
+profile_id = "gocode-openai-responses-text/1"
+profile_digest = "d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80"
 "#,
     );
     let snapshot = config::load_config(Some(&path)).expect("exact owner config");
     assert_eq!(
         snapshot.provider_activation.binding().profile_id(),
-        "runne-openai-responses-text/1"
+        "gocode-openai-responses-text/1"
     );
 }
 
@@ -145,7 +145,7 @@ schema_version = 2
 
 [provider_activation]
 mode = "openai_responses_text_v1"
-profile_id = "runne-openai-responses-text/1"
+profile_id = "gocode-openai-responses-text/1"
 profile_digest = "0000000000000000000000000000000000000000000000000000000000000000"
 "#,
     );
@@ -156,7 +156,7 @@ profile_digest = "00000000000000000000000000000000000000000000000000000000000000
 #[test]
 fn external_entry_source_selects_exact_openai_without_downgrade() {
     let (_directory, path) = temp_toml(
-        "schema_version = 2\n[provider_activation]\nmode = \"openai_responses_text_v1\"\nprofile_id = \"runne-openai-responses-text/1\"\nprofile_digest = \"9e04ed0d3cdeb99279433f01dfd44b2b67af80c076c5a63f45437f9880bae27e\"\n",
+        "schema_version = 2\n[provider_activation]\nmode = \"openai_responses_text_v1\"\nprofile_id = \"gocode-openai-responses-text/1\"\nprofile_digest = \"d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80\"\n",
     );
     let snapshot = config::load_external_config_at(&path).unwrap();
     assert!(snapshot.provider_activation.requires_openai_execution());
