@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'USAGE'
-Install local GOCODE runtime binaries.
+Install local Runne runtime binaries.
 
 Usage:
   scripts/install-local.sh [--release|--debug] [--bin-dir DIR]
@@ -11,17 +11,17 @@ Usage:
 Options:
   --release       Build and install release binaries (default)
   --debug         Build and install debug binaries
-  --bin-dir DIR   Install directory (default: $GOCODE_INSTALL_BIN or ~/.local/bin)
+  --bin-dir DIR   Install directory (default: $RUNNE_INSTALL_BIN or ~/.local/bin)
   -h, --help      Show this help
 
 Installed commands:
-  gocode
-  gocode-daemon
+  runne
+  runned
 USAGE
 }
 
 profile="release"
-bin_dir="${GOCODE_INSTALL_BIN:-$HOME/.local/bin}"
+bin_dir="${RUNNE_INSTALL_BIN:-$HOME/.local/bin}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -59,7 +59,7 @@ done
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-cargo_args=(build -p gocode-cli -p gocode-daemon)
+cargo_args=(build -p runne-cli -p runne-daemon)
 target_dir="debug"
 if [[ "$profile" == "release" ]]; then
   cargo_args+=(--release)
@@ -69,7 +69,7 @@ fi
 cargo "${cargo_args[@]}"
 
 mkdir -p "$bin_dir"
-for binary in gocode gocode-daemon; do
+for binary in runne runned; do
   source_path="$repo_root/target/$target_dir/$binary"
   if [[ ! -x "$source_path" ]]; then
     echo "error: built binary is missing or not executable: $source_path" >&2
@@ -83,12 +83,12 @@ done
 
 cat <<EOF
 Installed:
-  $bin_dir/gocode
-  $bin_dir/gocode-daemon
+  $bin_dir/runne
+  $bin_dir/runned
 
 Run:
-  gocode --version
-  gocode-daemon
+  runne --version
+  runned
 EOF
 
 case ":${PATH:-}:" in

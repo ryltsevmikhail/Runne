@@ -48,8 +48,8 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         fail_command: str | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
-        environment.pop("GOCODE_TRUSTED_NODE", None)
-        environment.pop("GOCODE_TRUSTED_PNPM", None)
+        environment.pop("RUNNE_TRUSTED_NODE", None)
+        environment.pop("RUNNE_TRUSTED_PNPM", None)
         environment["PATH"] = f"{self.bin_directory}{os.pathsep}{environment['PATH']}"
         environment["FAKE_COMMAND_LOG"] = str(self.command_log)
         environment["SECURE_REPLAY_TEST_SENTINEL"] = "must-not-be-printed"
@@ -96,10 +96,10 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         self.assertEqual(
             self.commands(),
             [
-                "cargo <run> <-p> <gocode-runtime> <--bin> <generate-ui-contract> <--locked> <--> <--check>",
+                "cargo <run> <-p> <runne-runtime> <--bin> <generate-ui-contract> <--locked> <--> <--check>",
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v1.json> <--legacy-blob> <4713d84e94f68ae9c29de71325d4ecbd8d3096bb>",
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v2.json> <--base> <d4dbabff8272118d99e6388dfbbf6df48b22faae> <--head> <6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca> <--schema> <docs/schemas/secure-replay-evidence-v2.schema.json>",
-                "cargo <test> <-p> <gocode-daemon> <--test> <desktop_replay_resume_e2e> <--locked>",
+                "cargo <test> <-p> <runne-daemon> <--test> <desktop_replay_resume_e2e> <--locked>",
             ],
         )
         self.assertNotIn("<HEAD>", "\n".join(self.commands()))
@@ -128,10 +128,10 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         self.assertEqual(
             self.commands(),
             [
-                "cargo <run> <-p> <gocode-runtime> <--bin> <generate-ui-contract> <--locked> <--> <--check>",
+                "cargo <run> <-p> <runne-runtime> <--bin> <generate-ui-contract> <--locked> <--> <--check>",
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v1.json> <--legacy-blob> <4713d84e94f68ae9c29de71325d4ecbd8d3096bb>",
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v2.json> <--base> <d4dbabff8272118d99e6388dfbbf6df48b22faae> <--head> <6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca> <--schema> <docs/schemas/secure-replay-evidence-v2.schema.json>",
-                "cargo <test> <-p> <gocode-daemon> <--test> <desktop_replay_resume_e2e> <--locked>",
+                "cargo <test> <-p> <runne-daemon> <--test> <desktop_replay_resume_e2e> <--locked>",
                 "pnpm <--filter> <@gocode/desktop> <test>",
                 "pnpm <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
@@ -149,7 +149,7 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         self.assertEqual(
             self.commands(),
             [
-                "cargo <run> <-p> <gocode-runtime> <--bin> <generate-ui-contract> <--locked> <--> <--check>",
+                "cargo <run> <-p> <runne-runtime> <--bin> <generate-ui-contract> <--locked> <--> <--check>",
             ],
         )
         self.assert_safe_output(result)

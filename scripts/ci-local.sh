@@ -7,8 +7,8 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$repo_root"
 
 state_directory=""
-if [[ -n "${GOCODE_CI_INPUT_RECEIPT:-}" ]]; then
-    receipt="$GOCODE_CI_INPUT_RECEIPT"
+if [[ -n "${RUNNE_CI_INPUT_RECEIPT:-}" ]]; then
+    receipt="$RUNNE_CI_INPUT_RECEIPT"
 else
     umask 077
     state_directory="$(mktemp -d "${TMPDIR:-/tmp}/gocode-ci-local.XXXXXX")"

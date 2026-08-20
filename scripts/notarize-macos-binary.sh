@@ -12,24 +12,24 @@ Prerequisites:
          --apple-id "you@example.com" \
          --team-id "758F9Z45SR" \
          --password <app-specific-password> \
-         GOCODE_NOTARY
+         RUNNE_NOTARY
 
 Usage:
   scripts/notarize-macos-binary.sh [--profile NAME] ARCHIVE
 
 Options:
-  --profile NAME  notarytool keychain profile name (default: GOCODE_NOTARY)
+  --profile NAME  notarytool keychain profile name (default: RUNNE_NOTARY)
   -h, --help      Show this help
 
 Environment:
-  GOCODE_NOTARY_PROFILE  Override default notarytool keychain profile.
+  RUNNE_NOTARY_PROFILE  Override default notarytool keychain profile.
 
 Example:
-  scripts/notarize-macos-binary.sh gocode-runtime-0.1.0-aarch64-apple-darwin.zip
+  scripts/notarize-macos-binary.sh runne-runtime-0.1.0-aarch64-apple-darwin.zip
 USAGE
 }
 
-profile="${GOCODE_NOTARY_PROFILE:-GOCODE_NOTARY}"
+profile="${RUNNE_NOTARY_PROFILE:-RUNNE_NOTARY}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

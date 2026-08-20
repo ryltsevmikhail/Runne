@@ -16,7 +16,7 @@ Environment:
   RUNNE_MACOS_SIGNING_IDENTITY  Override default signing identity.
 
 Example:
-  scripts/sign-macos-binary.sh target/release/gocode-daemon
+  scripts/sign-macos-binary.sh target/release/runned
 USAGE
 }
 

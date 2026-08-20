@@ -107,7 +107,7 @@ def _report_path(requested: Path | None) -> Path:
     if requested is not None:
         requested.parent.mkdir(parents=True, exist_ok=True)
         return requested
-    environment = os.environ.get("GOCODE_SCOPED_CI_REPORT")
+    environment = os.environ.get("RUNNE_SCOPED_CI_REPORT")
     if environment:
         return Path(environment)
     descriptor, name = tempfile.mkstemp(
@@ -171,7 +171,7 @@ def run_selected(root: Path, gates: Sequence[str]) -> tuple[int, dict[str, str]]
     results: dict[str, str] = {}
     with execution_namespace(runtime) as namespace:
         environment = dict(namespace.environment)
-        environment["GOCODE_SCOPED_CI_GATES"] = " ".join(
+        environment["RUNNE_SCOPED_CI_GATES"] = " ".join(
             gate for gate in gates if gate in ALL_GATES
         )
         inputs = subprocess.run(

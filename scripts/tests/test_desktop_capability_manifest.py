@@ -238,7 +238,7 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             value["gates"][0] = {"gate_id": "GATE-CONTRACT-SCHEMA", "disposition": "verified", "blocker_code": None, "evidence_ref": "gate.json", "provenance": {"subject_sha256": hashlib.sha256(gate.read_bytes()).hexdigest(), "predicate_sha256": hashlib.sha256(json.dumps(slsa, separators=(",", ":"), sort_keys=True).encode()).hexdigest()}}
             selected = root / "status.json"; selected.write_text(json.dumps(value), encoding="utf-8"); status_bundle = root / "status.intoto.jsonl"; status_bundle.write_text("bundle", encoding="utf-8")
             args = SimpleNamespace(verify_provenance=True, source_ref="candidate", status_provenance=status_bundle, status=selected)
-            environment = {"GOCODE_DESKTOP_CAPABILITY_TRUSTED_STATUS_SHA256": hashlib.sha256(selected.read_bytes()).hexdigest()}
+            environment = {"RUNNE_DESKTOP_CAPABILITY_TRUSTED_STATUS_SHA256": hashlib.sha256(selected.read_bytes()).hexdigest()}
             with patch.dict("os.environ", environment, clear=False), patch.object(manifest, "protected_policy", return_value=self._policy()), patch.object(manifest, "resolve_commit", return_value="commit"), patch.object(manifest, "evidence_only_difference", return_value=True), patch.object(manifest, "clean_source_paths", return_value=True), patch.object(manifest, "verify_attestation", side_effect=[slsa, slsa]):
                 qualification = manifest._qualification(args, definition())
             self.assertIsNotNone(qualification); self.assertEqual(qualification.verified_gate_ids, ("GATE-CONTRACT-SCHEMA",))

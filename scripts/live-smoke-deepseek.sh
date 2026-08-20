@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# GOCODE live DeepSeek smoke: a real provider canary through daemon + CLI.
+# Runne live DeepSeek smoke: a real provider canary through daemon + CLI.
 #
 # Refuses to run without a configured deepseek credential and without the
-# GOCODE_LIVE_SMOKE=1 opt-in (a real call may spend money). Never prints
-# credential material; with GOCODE_LIVE_SMOKE_KEY it additionally scans every
+# RUNNE_LIVE_SMOKE=1 opt-in (a real call may spend money). Never prints
+# credential material; with RUNNE_LIVE_SMOKE_KEY it additionally scans every
 # captured output byte-for-byte and fails if the value leaks.
 set -euo pipefail
 
@@ -12,19 +12,19 @@ usage() {
 Usage: scripts/live-smoke-deepseek.sh [--bin-dir DIR] [--no-daemon]
 
 Options:
-  --bin-dir DIR   Directory containing gocode and gocode-daemon (default: PATH)
+  --bin-dir DIR   Directory containing runne and runned (default: PATH)
   --no-daemon     Assume a running daemon; do not start/stop one
   -h, --help      Show this help
 
 Environment:
-  GOCODE_LIVE_SMOKE=1     Required: authorizes a real paid DeepSeek call.
-  GOCODE_LIVE_SMOKE_KEY   Optional: exact credential value, used ONLY for the
+  RUNNE_LIVE_SMOKE=1     Required: authorizes a real paid DeepSeek call.
+  RUNNE_LIVE_SMOKE_KEY   Optional: exact credential value, used ONLY for the
                           output redaction scan; never printed.
 
 Exit codes:
   0  all checks passed
   1  runtime or live call failure
-  2  usage error or missing GOCODE_LIVE_SMOKE=1 opt-in
+  2  usage error or missing RUNNE_LIVE_SMOKE=1 opt-in
   3  active provider is not deepseek (no-silent-fallback refusal)
   4  deepseek credential not configured
 USAGE
@@ -59,9 +59,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ "${GOCODE_LIVE_SMOKE:-}" != "1" ]]; then
+if [[ "${RUNNE_LIVE_SMOKE:-}" != "1" ]]; then
   echo "refusing: this smoke makes a real paid DeepSeek request." >&2
-  echo "set GOCODE_LIVE_SMOKE=1 to authorize it." >&2
+  echo "set RUNNE_LIVE_SMOKE=1 to authorize it." >&2
   exit 2
 fi
 
@@ -81,10 +81,10 @@ resolve_binary() {
   fi
 }
 
-GCODE="$(resolve_binary gocode)"
-GDAEMON="$(resolve_binary gocode-daemon)"
+GCODE="$(resolve_binary runne)"
+GDAEMON="$(resolve_binary runned)"
 
-SMOKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/gocode-live-smoke.XXXXXX")"
+SMOKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/runne-live-smoke.XXXXXX")"
 chmod 700 "$SMOKE_DIR"
 SMOKE_LOG="$SMOKE_DIR/smoke.log"
 DAEMON_LOG="$SMOKE_DIR/daemon.log"
@@ -117,7 +117,7 @@ CREDENTIAL_STATUS="$(run_checked "deepseek credential status" \
   "$GCODE" provider credential status --provider deepseek || true)"
 if [[ "$CREDENTIAL_STATUS" != "configured" ]]; then
   echo "refusing: deepseek credential is not configured." >&2
-  echo "run: gocode provider credential set --provider deepseek --stdin" >&2
+  echo "run: runne provider credential set --provider deepseek --stdin" >&2
   exit 4
 fi
 
@@ -127,7 +127,7 @@ DOCTOR_OUTPUT="$(run_checked "daemon doctor" "$GDAEMON" doctor || true)"
 if ! grep -q "active provider: deepseek_responses_text_v1" <<<"$DOCTOR_OUTPUT"; then
   echo "refusing: active provider is not deepseek (no silent fallback)." >&2
   echo "provider selection lives in the owner-private daemon config;" >&2
-  echo "run 'gocode-daemon doctor' to see the current selection." >&2
+  echo "run 'runned doctor' to see the current selection." >&2
   exit 3
 fi
 if ! grep -q "credential deepseek: configured" <<<"$DOCTOR_OUTPUT"; then
@@ -184,7 +184,7 @@ REPLY="$(run_checked "conversation send (live deepseek)" \
   "$GCODE" conversation send \
   --conversation-id "$CONVERSATION_ID" \
   --expected-version 1 \
-  --text "Reply with exactly: GOCODE-SMOKE-OK")"
+  --text "Reply with exactly: RUNNE-SMOKE-OK")"
 if [[ -z "${REPLY//[[:space:]]/}" ]]; then
   echo "error: empty assistant response" >&2
   exit 1
@@ -199,14 +199,14 @@ fi
 
 # 5. Redaction scan: the exact credential value must not appear anywhere in
 #    the captured output. The value itself is never printed.
-if [[ -n "${GOCODE_LIVE_SMOKE_KEY:-}" ]]; then
-  if grep -q -F -- "$GOCODE_LIVE_SMOKE_KEY" "$SMOKE_LOG" "$DAEMON_LOG" 2>/dev/null; then
+if [[ -n "${RUNNE_LIVE_SMOKE_KEY:-}" ]]; then
+  if grep -q -F -- "$RUNNE_LIVE_SMOKE_KEY" "$SMOKE_LOG" "$DAEMON_LOG" 2>/dev/null; then
     echo "error: REDACTION FAILURE: credential value found in captured output" >&2
     exit 1
   fi
   echo "--- redaction scan: passed (credential value absent from output) ---"
 else
-  echo "note: GOCODE_LIVE_SMOKE_KEY not set; byte-level redaction scan skipped."
+  echo "note: RUNNE_LIVE_SMOKE_KEY not set; byte-level redaction scan skipped."
 fi
 
 # 6. Shutdown of the daemon we started.

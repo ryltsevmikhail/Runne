@@ -69,7 +69,7 @@ def _qualification(args: argparse.Namespace, definition: object) -> Qualificatio
     try:
         status = load_json(args.status)
         policy = protected_policy()
-        if not isinstance(status, dict) or policy is None or os.environ.get("GOCODE_DESKTOP_CAPABILITY_TRUSTED_STATUS_SHA256") != sha256_file(args.status):
+        if not isinstance(status, dict) or policy is None or os.environ.get("RUNNE_DESKTOP_CAPABILITY_TRUSTED_STATUS_SHA256") != sha256_file(args.status):
             return None
         commit = resolve_commit(ROOT, args.source_ref)
         if not evidence_only_difference(ROOT, policy["source_ref"], commit):
