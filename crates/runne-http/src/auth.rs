@@ -56,7 +56,7 @@ pub fn extract_bearer_token(headers: &HeaderMap) -> Option<Vec<u8>> {
 pub fn session_authorization_header(
     authority: &str,
 ) -> Result<axum::http::HeaderValue, RuntimeApiError> {
-    let wire_value = format!("RunneSession {authority}");
+    let wire_value = format!("GocodeSession {authority}");
     let mut header = axum::http::HeaderValue::from_str(&wire_value)
         .map_err(|_| RuntimeApiError::invalid_request())?;
     header.set_sensitive(true);
@@ -191,7 +191,7 @@ fn extract_session_authority(headers: &HeaderMap) -> Option<[u8; 32]> {
         return None;
     }
     let (scheme, token) = value.split_once(' ')?;
-    if scheme != "RunneSession"
+    if scheme != "GocodeSession"
         || token.is_empty()
         || token.contains('=')
         || token.contains(char::is_whitespace)

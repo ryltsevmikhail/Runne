@@ -23,7 +23,7 @@ fn strict_delivery_rejects_malformed_identity_digest_cursor_and_schema() {
     let cases = [
         ("eventId", serde_json::json!("not-a-uuid")),
         ("integrityDigest", serde_json::json!("AA")),
-        ("cursor", serde_json::json!("runne-replay-cursor-v1.00")),
+        ("cursor", serde_json::json!("gocode-replay-cursor-v1.00")),
         ("schemaVersion", serde_json::json!(2)),
     ];
     for (field, replacement) in cases {
@@ -77,7 +77,7 @@ fn dedup_is_exact_and_never_auto_advances_conflicting_identity() {
     );
 
     let mut conflicting_cursor = fixture();
-    conflicting_cursor["cursor"] = serde_json::json!("runne-replay-cursor-v1.7b2261223a317d");
+    conflicting_cursor["cursor"] = serde_json::json!("gocode-replay-cursor-v1.7b2261223a317d");
     assert_eq!(
         validate(&mut validator, conflicting_cursor)
             .unwrap_err()
@@ -92,7 +92,7 @@ fn new_event_sequence_must_increase_monotonically() {
     validate(&mut validator, fixture()).unwrap();
     let mut next = fixture();
     next["eventId"] = serde_json::json!("018f2e3a-7000-7000-8000-000000000119");
-    next["cursor"] = serde_json::json!("runne-replay-cursor-v1.7b2261223a317d");
+    next["cursor"] = serde_json::json!("gocode-replay-cursor-v1.7b2261223a317d");
     assert_eq!(
         validate(&mut validator, next).unwrap_err().kind(),
         ReplayClientErrorKind::NonMonotonicSequence
@@ -100,7 +100,7 @@ fn new_event_sequence_must_increase_monotonically() {
 
     let mut gap = fixture();
     gap["eventId"] = serde_json::json!("018f2e3a-7000-7000-8000-000000000119");
-    gap["cursor"] = serde_json::json!("runne-replay-cursor-v1.7b2261223a317d");
+    gap["cursor"] = serde_json::json!("gocode-replay-cursor-v1.7b2261223a317d");
     gap["sequence"] = serde_json::json!(4);
     assert_eq!(
         validate(&mut validator, gap).unwrap_err().kind(),
@@ -172,7 +172,7 @@ fn persistence_handoff_uses_exact_validated_bytes_and_opaque_cursor() {
     });
     let (cursor, bytes, digest) = observed.expect("handoff");
 
-    assert_eq!(cursor, "runne-replay-cursor-v1.7b7d");
+    assert_eq!(cursor, "gocode-replay-cursor-v1.7b7d");
     assert_eq!(format!("{:x}", Sha256::digest(&bytes)), digest);
     assert_eq!(digest, hex::encode(delivery.canonical_digest()));
     let value: serde_json::Value = serde_json::from_slice(&bytes).expect("canonical JSON");

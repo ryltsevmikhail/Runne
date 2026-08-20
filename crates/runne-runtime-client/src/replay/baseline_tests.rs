@@ -50,7 +50,7 @@ pub(super) fn wire(
     ]
     .concat();
     let mut digest = Sha256::new();
-    digest.update(b"runne.replay.aggregate-projection");
+    digest.update(b"gocode.replay.aggregate-projection");
     digest.update([0, 1, 2]);
     digest.update(ID);
     digest.update(u64::try_from(projection_bytes.len()).unwrap().to_be_bytes());
@@ -99,7 +99,7 @@ fn session_authority_accepts_exact_baseline_and_rejects_key_and_claim_tampering(
     let signed = wire(&authority, &binding, scope);
     assert_eq!(
         hex::encode(signed.to_unauthenticated_fields().witness_mac),
-        "dabc1a11e443d4f0c2031deec46b0284407d02620393c7a4b44fb6e8dc1670d3"
+        "db577bf99de6e3d772b3a52d447a1a3ed0bb91c4d00032fff6f6df8e7259bfe8"
     );
     let verified = authority
         .verify_replay_retention_baseline(&signed, scope, 1_500)

@@ -72,8 +72,8 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
         .unwrap();
     let shared = Arc::new(Mutex::new(local));
     let encoded = URL_SAFE_NO_PAD.encode([10; 32]);
-    let marker = format!("RunneSession {encoded}");
-    let header: axum::http::HeaderValue = format!("RunneSession {encoded}").parse().unwrap();
+    let marker = format!("GocodeSession {encoded}");
+    let header: axum::http::HeaderValue = format!("GocodeSession {encoded}").parse().unwrap();
     assert!(!header.is_sensitive());
     let outbound = session_authorization_header(&encoded).unwrap();
     assert!(outbound.is_sensitive());
@@ -127,13 +127,13 @@ async fn issued_authority_is_required_and_redacted_by_service_backed_layer() {
         Request::builder().uri("/").body(Body::empty()).unwrap(),
         Request::builder()
             .uri("/")
-            .header("authorization", "RunneSession invalid=")
+            .header("authorization", "GocodeSession invalid=")
             .body(Body::empty())
             .unwrap(),
         Request::builder()
             .uri("/")
-            .header("authorization", "RunneSession first")
-            .header("authorization", "RunneSession second")
+            .header("authorization", "GocodeSession first")
+            .header("authorization", "GocodeSession second")
             .body(Body::empty())
             .unwrap(),
     ] {

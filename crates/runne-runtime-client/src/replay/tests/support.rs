@@ -5,7 +5,7 @@
             "causationEventId": "018f2e3a-7000-7000-8000-000000000111",
             "correlationId": "018f2e3a-7000-7000-8000-000000000110",
             "correlationType": "conversation",
-            "cursor": "runne-replay-cursor-v1.7b7d",
+            "cursor": "gocode-replay-cursor-v1.7b7d",
             "eventId": "018f2e3a-7000-7000-8000-000000000112",
             "eventType": "conversation.message.appended",
             "integrityDigest": "1111111111111111111111111111111111111111111111111111111111111111",

@@ -194,7 +194,7 @@ async fn root_bind_is_present_but_fail_closed_without_a_native_admission_produce
     .header("idempotency-key", "key")
     .header("content-type", "application/json")
     .body(Body::from(format!(
-        r#"{{"expectedVersion":1,"rootAdmission":"runne-root-admission-v3.{}"}}"#,
+        r#"{{"expectedVersion":1,"rootAdmission":"gocode-root-admission-v3.{}"}}"#,
         "A".repeat((runne_api::ROOT_HANDLE_ADMISSION_V3_BYTES * 4).div_ceil(3)),
     )))
     .unwrap();

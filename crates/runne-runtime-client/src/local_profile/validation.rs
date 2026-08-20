@@ -76,7 +76,7 @@ fn validate_uuid_v7(value: uuid::Uuid) -> Result<(), LocalProfileError> {
 
 pub fn ordered_capability_digest(capabilities: &[String]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/local-runtime/capability-digest/v1\0");
+    hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
     hasher.update(
         u32::try_from(capabilities.len())
             .unwrap_or(u32::MAX)

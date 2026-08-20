@@ -8,7 +8,7 @@ use crate::LocalRuntimeConnectError;
 
 const WIRE_VERSION: &str = "3";
 const KEY_VERSION: u16 = 1;
-const PROTOCOL: &[u8] = b"runne-local-session-v3";
+const PROTOCOL: &[u8] = b"gocode-local-session-v3";
 const PREALLOCATION_ENDPOINT: &[u8] = b"/v1/local-session/challenges";
 const FINAL_ENDPOINT: &[u8] = b"/v1/local-session/authenticate";
 const METHOD: &[u8] = b"POST";

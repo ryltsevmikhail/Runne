@@ -31,7 +31,7 @@
             "liveDeliveryId": "018f2e3a-7000-7000-8000-000000000117",
             "deliverySequence": delivery_sequence,
             "canonicalEvent": canonical_event,
-            "replayCursor": "runne-replay-cursor-v1.7b7d"
+            "replayCursor": "gocode-replay-cursor-v1.7b7d"
         })
     }
 

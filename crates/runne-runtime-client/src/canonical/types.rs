@@ -129,7 +129,7 @@ impl RuntimeSessionAuthority {
     }
 
     pub(crate) fn authorization_header(&self) -> Result<HeaderValue, RuntimeApiError> {
-        let mut wire = String::from("RunneSession ");
+        let mut wire = String::from("GocodeSession ");
         wire.push_str(&URL_SAFE_NO_PAD.encode(self.bytes.as_ref().as_ref()));
         let mut header = HeaderValue::from_str(&wire)
             .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;

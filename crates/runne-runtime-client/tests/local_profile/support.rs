@@ -18,7 +18,7 @@ pub fn certificate_der() -> Vec<u8> {
 
 pub fn ordered_capability_digest(capabilities: &[&str]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/local-runtime/capability-digest/v1\0");
+    hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
     hasher.update(u32::try_from(capabilities.len()).unwrap().to_be_bytes());
     for capability in capabilities {
         hasher.update(u32::try_from(capability.len()).unwrap().to_be_bytes());

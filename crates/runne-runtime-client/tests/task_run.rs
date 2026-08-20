@@ -42,7 +42,7 @@ async fn task_run_query_uses_authenticated_exact_get_and_decodes_running_snapsho
     let snapshot = client.get_task_run(task_run_id).await.expect("task run");
     let request = server.await.expect("server");
     assert!(request.starts_with(&format!("GET /v1/task-runs/{TASK_RUN_ID} HTTP/1.1")));
-    assert!(request.contains("authorization: RunneSession "));
+    assert!(request.contains("authorization: GocodeSession "));
     assert_eq!(snapshot.task_run_id(), task_run_id);
     assert_eq!(snapshot.state(), TaskRunState::Running);
     assert_eq!(

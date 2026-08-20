@@ -28,7 +28,7 @@ async fn telemetry_uses_authenticated_exact_get_path_and_public_status_type() {
     );
     let request = request.await.expect("fixture task");
     assert_eq!(request.path, "/v1/runtime/operational-telemetry");
-    assert!(request.authorization.starts_with("RunneSession "));
+    assert!(request.authorization.starts_with("GocodeSession "));
     let _: RecoveryObservationStatusV1 = RecoveryObservationStatusV1::Unavailable;
 }
 

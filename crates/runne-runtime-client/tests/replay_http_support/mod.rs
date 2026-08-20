@@ -91,7 +91,7 @@ fn projection_bytes() -> Vec<u8> {
 
 fn projection_digest(bytes: &[u8]) -> [u8; 32] {
     let mut hash = Sha256::new();
-    hash.update(b"runne.replay.aggregate-projection");
+    hash.update(b"gocode.replay.aggregate-projection");
     hash.update([0, 1, 2]);
     hash.update(uuid::Uuid::parse_str(AGGREGATE).unwrap().as_bytes());
     hash.update(u64::try_from(bytes.len()).unwrap().to_be_bytes());

@@ -110,7 +110,7 @@ fn live_delivery_id_wire(value: &[u8]) -> Result<String, ReplayHttpFailure> {
     if value.len() != 16 {
         return Err(replay_invariant_violation());
     }
-    let digest = Sha256::digest([b"runne/live-delivery-id/v1\0".as_slice(), value].concat());
+    let digest = Sha256::digest([b"gocode/live-delivery-id/v1\0".as_slice(), value].concat());
     let mut bytes = [0; 16];
     bytes.copy_from_slice(&digest[..16]);
     bytes[6] = (bytes[6] & 0x0f) | 0x70;
