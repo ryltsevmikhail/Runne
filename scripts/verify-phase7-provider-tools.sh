@@ -44,8 +44,15 @@ if source is None or reviewed is None or source.group(1) != reviewed.group(1):
     raise SystemExit("Phase 7 exact source/reviewed commit evidence is invalid")
 if integrated is None:
     raise SystemExit("Phase 7 integrated commit evidence is missing")
-pin_lineage.require_lineage(evidence, "source_commit")
-pin_lineage.require_lineage(evidence, "integrated_commit")
+source_binding = pin_lineage.require_lineage(
+    evidence, "source_commit", scope=pin_lineage.NON_DOCS
+)
+reviewed_binding = pin_lineage.require_lineage(
+    evidence, "reviewed_commit", scope=pin_lineage.NON_DOCS
+)
+if source_binding != reviewed_binding:
+    raise SystemExit("Phase 7 source/reviewed successor bindings differ")
+pin_lineage.require_lineage(evidence, "integrated_commit", scope=pin_lineage.FULL)
 PY
 
 cargo test -p runne-provider --all-targets --locked

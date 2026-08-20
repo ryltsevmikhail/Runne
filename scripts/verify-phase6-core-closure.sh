@@ -33,7 +33,7 @@ missing = [value for value in required_evidence if value not in evidence]
 if missing:
     raise SystemExit(f"missing Phase 6 Core closure evidence fields: {missing}")
 
-pin_lineage.require_lineage(evidence, "verified_commit")
+pin_lineage.require_lineage(evidence, "verified_commit", scope=pin_lineage.FULL)
 
 if "## Phase 6 Core — COMPLETE" not in roadmap:
     raise SystemExit("ROADMAP does not mark Phase 6 Core complete")
