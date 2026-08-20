@@ -119,6 +119,18 @@ fn external_provenance_changes_only_for_stable_bound_inputs() {
     );
 }
 
+#[test]
+fn external_provenance_matches_the_pre_rename_activation_vector() {
+    let (_directory, config) = owner_token(openai_activation(), "config-a", [0x11; 16], 1);
+
+    assert_eq!(
+        hex::encode(
+            DaemonActivationProvenance::from_verified_owner_private_config(&config).digest()
+        ),
+        "34df18a1e59115188fd47a2c073cf5740c0ed465d0ce07366a97e44f83d54b59"
+    );
+}
+
 #[cfg(all(unix, feature = "desktop-protected"))]
 #[test]
 fn protected_provenance_uses_the_protected_kind() {

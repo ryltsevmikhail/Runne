@@ -6,7 +6,7 @@ use crate::application::VerifiedOwnerPrivateConfig;
 #[cfg(all(unix, feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
-const DOMAIN: &[u8] = b"RUNNE_DAEMON_ACTIVATION_BINDING_V1\0";
+const DOMAIN: &[u8] = b"GOCODE_DAEMON_ACTIVATION_BINDING_V1\0";
 
 #[derive(Clone, Copy)]
 pub(crate) struct DaemonActivationProvenance {

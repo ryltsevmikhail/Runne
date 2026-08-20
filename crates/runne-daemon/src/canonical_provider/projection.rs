@@ -34,7 +34,7 @@ pub(super) fn project_call(
         }
     }
     let call_id = ProviderCallId::from_bytes(derived_bytes16(
-        b"RUNNE_CANONICAL_PROVIDER_CALL_V1\0",
+        b"GOCODE_CANONICAL_PROVIDER_CALL_V1\0",
         job.context.command_id.as_bytes(),
     ));
     ProviderCall::new(
@@ -60,9 +60,9 @@ pub(super) fn project_call(
 
 pub(super) fn provider_idempotency_key(job: &CanonicalProviderExecutionJob) -> String {
     format!(
-        "runne-provider-{}",
+        "gocode-provider-{}",
         hex::encode(derived_bytes16(
-            b"RUNNE_PROVIDER_IDEMPOTENCY_V1\0",
+            b"GOCODE_PROVIDER_IDEMPOTENCY_V1\0",
             job.context.command_id.as_bytes(),
         ))
     )
@@ -83,7 +83,7 @@ pub(super) fn policy_binding_digest(
     profile: &dyn TextProviderProfile,
 ) -> [u8; 32] {
     Sha256::new()
-        .chain_update(b"RUNNE_PROVIDER_POLICY_BINDING_V1\0")
+        .chain_update(b"GOCODE_PROVIDER_POLICY_BINDING_V1\0")
         .chain_update(activation_identity)
         .chain_update(profile.profile_digest())
         .chain_update(PROVIDER_POLICY_V1_REVISION.to_be_bytes())
@@ -93,7 +93,7 @@ pub(super) fn policy_binding_digest(
 
 pub(super) fn derived_identity(label: &str, binding: [u8; 32]) -> String {
     let digest = Sha256::new()
-        .chain_update(b"RUNNE_PROVIDER_POLICY_ID_V1\0")
+        .chain_update(b"GOCODE_PROVIDER_POLICY_ID_V1\0")
         .chain_update(label.as_bytes())
         .chain_update(binding)
         .finalize();
@@ -173,6 +173,50 @@ pub(super) const fn map_admission_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use runne_application::commands::BeginConversationTextInput;
+    use runne_application::ports::{
+        ApplicationCommandContext, PrincipalId, TextGenerationPhase, TextGenerationReceipt,
+    };
+    use runne_domain::event::Actor;
+    use runne_domain::id::{
+        AttemptId, ConversationId, IdempotencyKey, MessageId, TaskRunId, WorkspaceId,
+    };
+    use runne_domain::message::MessageText;
+
+    fn source_pinned_command_vector() -> CanonicalProviderExecutionJob {
+        CanonicalProviderExecutionJob {
+            context: ApplicationCommandContext {
+                command_id: "018f2e3a-7000-7000-8000-000000000804".parse().unwrap(),
+                idempotency_key: IdempotencyKey::new("source-pinned-provider-vector").unwrap(),
+                principal_id: PrincipalId("local-owner".into()),
+                actor: Actor::new("test").unwrap(),
+            },
+            original: BeginConversationTextInput {
+                conversation_id: ConversationId::from_bytes([1; 16]),
+                expected_version: 1,
+                text: MessageText::new("fixture input").unwrap(),
+            },
+            started: TextGenerationReceipt {
+                phase: TextGenerationPhase::Started,
+                conversation_id: ConversationId::from_bytes([1; 16]),
+                workspace_id: WorkspaceId::from_bytes([2; 16]),
+                taskrun_id: TaskRunId::from_bytes([3; 16]),
+                attempt_id: AttemptId::from_bytes([4; 16]),
+                user_message_id: MessageId::from_bytes([5; 16]),
+                assistant_message_id: MessageId::from_bytes([6; 16]),
+                conversation_version: 2,
+                taskrun_version: 4,
+            },
+        }
+    }
+
+    #[test]
+    fn remote_effect_idempotency_key_matches_the_pre_rename_command_vector() {
+        assert_eq!(
+            provider_idempotency_key(&source_pinned_command_vector()),
+            "gocode-provider-c436f15d42859a67270a2f39ff1c8508"
+        );
+    }
 
     #[test]
     fn admission_errors_preserve_pre_effect_and_post_claim_stages() {

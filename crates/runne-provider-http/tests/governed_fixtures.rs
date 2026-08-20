@@ -162,7 +162,7 @@ fn transport_disables_redirects_and_ambient_proxy_and_normalizes_fixture() {
     let stream = block_on(adapter.dispatch(dispatch_request(
         prepared,
         DispatchAttemptId::from_bytes([3; 16]),
-        "fixture-transport-normalization",
+        "gocode-provider-c436f15d42859a67270a2f39ff1c8508",
     )))
     .unwrap();
     let started = block_on(adapter.next(&stream, StreamCursor::new(0))).unwrap();
@@ -173,7 +173,7 @@ fn transport_disables_redirects_and_ambient_proxy_and_normalizes_fixture() {
             follow_redirects: false,
             use_ambient_proxy: false,
             authorization_bytes: 24,
-            provider_idempotency_key: "fixture-transport-normalization".into(),
+            provider_idempotency_key: "gocode-provider-c436f15d42859a67270a2f39ff1c8508".into(),
         }]
     );
 }
