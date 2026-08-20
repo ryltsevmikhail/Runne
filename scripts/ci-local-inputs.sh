@@ -9,22 +9,22 @@ cd "$repo_root"
 
 readonly pinned_toolchain="1.97.1"
 readonly msrv_toolchain="1.95.0"
-readonly trusted_bash="${GOCODE_TRUSTED_BASH:?}"
-readonly trusted_python="${GOCODE_TRUSTED_PYTHON:?}"
-readonly trusted_node="${GOCODE_TRUSTED_NODE:?}"
-readonly trusted_pnpm="${GOCODE_TRUSTED_PNPM:?}"
-readonly eslint_target="${GOCODE_FRONTEND_ESLINT:?}"
-readonly vitest_target="${GOCODE_FRONTEND_VITEST:?}"
-readonly vue_tsc_target="${GOCODE_FRONTEND_VUE_TSC:?}"
-readonly vite_target="${GOCODE_FRONTEND_VITE:?}"
-readonly playwright_target="${GOCODE_FRONTEND_PLAYWRIGHT:?}"
-readonly pinned_toolchain_bin="${GOCODE_PINNED_TOOLCHAIN_BIN:?}"
-readonly msrv_toolchain_bin="${GOCODE_MSRV_TOOLCHAIN_BIN:?}"
+readonly trusted_bash="${RUNNE_TRUSTED_BASH:?}"
+readonly trusted_python="${RUNNE_TRUSTED_PYTHON:?}"
+readonly trusted_node="${RUNNE_TRUSTED_NODE:?}"
+readonly trusted_pnpm="${RUNNE_TRUSTED_PNPM:?}"
+readonly eslint_target="${RUNNE_FRONTEND_ESLINT:?}"
+readonly vitest_target="${RUNNE_FRONTEND_VITEST:?}"
+readonly vue_tsc_target="${RUNNE_FRONTEND_VUE_TSC:?}"
+readonly vite_target="${RUNNE_FRONTEND_VITE:?}"
+readonly playwright_target="${RUNNE_FRONTEND_PLAYWRIGHT:?}"
+readonly pinned_toolchain_bin="${RUNNE_PINNED_TOOLCHAIN_BIN:?}"
+readonly msrv_toolchain_bin="${RUNNE_MSRV_TOOLCHAIN_BIN:?}"
 
 # Canonical receipt gate runs every section below. The scoped runner
-# (scripts/ci-local-scoped.sh) selects a subset via GOCODE_SCOPED_CI_GATES
+# (scripts/ci-local-scoped.sh) selects a subset via RUNNE_SCOPED_CI_GATES
 # so path-filtered changes never run unrelated closures.
-scoped_gates="${GOCODE_SCOPED_CI_GATES:-}"
+scoped_gates="${RUNNE_SCOPED_CI_GATES:-}"
 gate_enabled() {
     if [[ -z "$scoped_gates" ]]; then
         return 0
@@ -117,25 +117,25 @@ if gate_enabled local-structural; then
 fi
 
 if gate_enabled containment; then
-    containment_inventory="$(mktemp "${TMPDIR:-/tmp}/gocode-containment-inventory.XXXXXX")"
-    process_inventory="$(mktemp "${TMPDIR:-/tmp}/gocode-process-inventory.XXXXXX")"
+    containment_inventory="$(mktemp "${TMPDIR:-/tmp}/runne-containment-inventory.XXXXXX")"
+    process_inventory="$(mktemp "${TMPDIR:-/tmp}/runne-process-inventory.XXXXXX")"
     cleanup() {
         rm -f -- "$containment_inventory" "$process_inventory"
     }
     trap cleanup EXIT
 
     run_with_toolchain "$pinned_toolchain" \
-        cargo test -p gocode-platform --test containment_unavailable -- --list \
+        cargo test -p runne-platform --test containment_unavailable -- --list \
         >"$containment_inventory"
     "$trusted_python" scripts/verify-test-inventory.py \
         "$containment_inventory" \
         containment_unavailable::absent_certificate_is_unavailable \
         containment_unavailable::certificate_with_wrong_platform_is_unavailable
     run_with_toolchain "$pinned_toolchain" \
-        cargo test -p gocode-platform --test containment_unavailable -- --nocapture
+        cargo test -p runne-platform --test containment_unavailable -- --nocapture
 
     run_with_toolchain "$pinned_toolchain" \
-        cargo test -p gocode-security --test process_containment_admission -- --list \
+        cargo test -p runne-security --test process_containment_admission -- --list \
         >"$process_inventory"
     "$trusted_python" scripts/verify-test-inventory.py \
         "$process_inventory" \
@@ -145,9 +145,9 @@ if gate_enabled containment; then
         process_containment_admission::stale_probe_returns_typed_error_without_launching \
         process_containment_admission::matching_caller_constructed_certificate_is_unavailable_without_launching
     run_with_toolchain "$pinned_toolchain" \
-        cargo test -p gocode-security --test process_containment_admission -- --nocapture
+        cargo test -p runne-security --test process_containment_admission -- --nocapture
     run_with_toolchain "$pinned_toolchain" \
-        cargo test -p gocode-daemon --test protected_bundled_runtime_process \
+        cargo test -p runne-daemon --test protected_bundled_runtime_process \
         --locked --features test-support,desktop-protected
 fi
 

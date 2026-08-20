@@ -45,7 +45,7 @@ class LocalInputReceiptNamespaceTests(unittest.TestCase):
                 self.assertNotIn(os.fspath(commands["cargo"].parent), components)
             for name, target in runtime.frontend.items():
                 self.assertEqual(
-                    environment[f"GOCODE_FRONTEND_{name.upper()}"], os.fspath(target)
+                    environment[f"RUNNE_FRONTEND_{name.upper()}"], os.fspath(target)
                 )
                 self.assertEqual(runtime.executables[name]["path"], os.fspath(target))
             self.assertNotEqual(environment["HOME"], os.fspath(runtime.account_home))

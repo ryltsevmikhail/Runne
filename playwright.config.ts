@@ -21,7 +21,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: process.env.GOCODE_PLAYWRIGHT_WEB_SERVER_COMMAND ?? 'pnpm dev',
+    command: process.env.RUNNE_PLAYWRIGHT_WEB_SERVER_COMMAND ?? 'pnpm dev',
     url: 'http://127.0.0.1:1420',
     reuseExistingServer: !process.env.CI,
   },

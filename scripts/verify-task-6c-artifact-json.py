@@ -8,8 +8,9 @@ import pathlib
 import sys
 
 
-DAEMON = "gocode-daemon"
-FIXTURE = "gocode-daemon-loopback-fixture"
+DAEMON_PACKAGE = "runne-daemon"
+DAEMON_BINARY = "runned"
+FIXTURE = "runne-daemon-loopback-fixture"
 FORBIDDEN_BINS = {"activation_process", "recovery_process"}
 
 
@@ -48,7 +49,7 @@ def main() -> int:
             executable_artifacts.append(
                 (package_name(artifact), name, pathlib.Path(artifact["executable"]))
             )
-    expected = [(DAEMON, DAEMON, args.target_dir / "release" / DAEMON)]
+    expected = [(DAEMON_PACKAGE, DAEMON_BINARY, args.target_dir / "release" / DAEMON_BINARY)]
     if executable_artifacts != expected:
         raise SystemExit(f"unexpected release executables: {executable_artifacts}")
     executable = expected[0][2]

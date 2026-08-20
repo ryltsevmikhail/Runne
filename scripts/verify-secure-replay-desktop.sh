@@ -10,7 +10,7 @@ usage() {
 }
 
 run_runtime() {
-    cargo run -p gocode-runtime --bin generate-ui-contract --locked -- --check
+    cargo run -p runne-runtime --bin generate-ui-contract --locked -- --check
     python3 scripts/verify_secure_replay_evidence.py \
         --manifest docs/evidence/secure-replay-desktop-resume-v1.json \
         --legacy-blob 4713d84e94f68ae9c29de71325d4ecbd8d3096bb
@@ -19,7 +19,7 @@ run_runtime() {
         --base d4dbabff8272118d99e6388dfbbf6df48b22faae \
         --head 6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca \
         --schema docs/schemas/secure-replay-evidence-v2.schema.json
-    cargo test -p gocode-daemon --test desktop_replay_resume_e2e --locked
+    cargo test -p runne-daemon --test desktop_replay_resume_e2e --locked
 }
 
 run_frontend() {
@@ -31,11 +31,11 @@ run_frontend() {
 }
 
 run_pnpm() {
-    if [ -n "${GOCODE_TRUSTED_NODE:-}" ] && [ -n "${GOCODE_TRUSTED_PNPM:-}" ]; then
-        trusted_node_dir="$(dirname -- "$GOCODE_TRUSTED_NODE")"
-        trusted_pnpm_dir="$(dirname -- "$GOCODE_TRUSTED_PNPM")"
+    if [ -n "${RUNNE_TRUSTED_NODE:-}" ] && [ -n "${RUNNE_TRUSTED_PNPM:-}" ]; then
+        trusted_node_dir="$(dirname -- "$RUNNE_TRUSTED_NODE")"
+        trusted_pnpm_dir="$(dirname -- "$RUNNE_TRUSTED_PNPM")"
         PATH="$trusted_pnpm_dir:$trusted_node_dir:$PATH" \
-            "$GOCODE_TRUSTED_NODE" "$GOCODE_TRUSTED_PNPM" "$@"
+            "$RUNNE_TRUSTED_NODE" "$RUNNE_TRUSTED_PNPM" "$@"
     else
         pnpm "$@"
     fi

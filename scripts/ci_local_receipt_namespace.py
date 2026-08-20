@@ -107,20 +107,20 @@ def _environment(runtime: TrustedRuntime, paths: dict[str, Path]) -> dict[str, s
         "PNPM_HOME": os.fspath(paths["home"] / "pnpm-home"),
         "PNPM_STORE_DIR": os.fspath(runtime.account_home / ".local/share/pnpm/store/v11"),
         "PLAYWRIGHT_BROWSERS_PATH": os.fspath(runtime.account_home / ".cache/ms-playwright"),
-        "GOCODE_TRUSTED_BASH": os.fspath(runtime.bash),
-        "GOCODE_TRUSTED_PYTHON": os.fspath(runtime.base_commands["python3"]),
-        "GOCODE_TRUSTED_NODE": os.fspath(runtime.base_commands["node"]),
-        "GOCODE_PINNED_TOOLCHAIN_BIN": os.fspath(paths["pinned-shim"]),
-        "GOCODE_MSRV_TOOLCHAIN_BIN": os.fspath(paths["msrv-shim"]),
+        "RUNNE_TRUSTED_BASH": os.fspath(runtime.bash),
+        "RUNNE_TRUSTED_PYTHON": os.fspath(runtime.base_commands["python3"]),
+        "RUNNE_TRUSTED_NODE": os.fspath(runtime.base_commands["node"]),
+        "RUNNE_PINNED_TOOLCHAIN_BIN": os.fspath(paths["pinned-shim"]),
+        "RUNNE_MSRV_TOOLCHAIN_BIN": os.fspath(paths["msrv-shim"]),
     }
     pnpm = Path(runtime.executables["pnpm"]["path"])
-    environment["GOCODE_TRUSTED_PNPM"] = os.fspath(pnpm)
+    environment["RUNNE_TRUSTED_PNPM"] = os.fspath(pnpm)
     for name, path in runtime.frontend.items():
-        environment[f"GOCODE_FRONTEND_{name.upper()}"] = os.fspath(path)
+        environment[f"RUNNE_FRONTEND_{name.upper()}"] = os.fspath(path)
     if runtime.frontend:
         node = os.fspath(runtime.base_commands["node"])
         vite = os.fspath(runtime.frontend["vite"])
-        environment["GOCODE_PLAYWRIGHT_WEB_SERVER_COMMAND"] = (
+        environment["RUNNE_PLAYWRIGHT_WEB_SERVER_COMMAND"] = (
             f"cd apps/desktop && {shlex.quote(node)} {shlex.quote(vite)} --host 127.0.0.1"
         )
     return environment
