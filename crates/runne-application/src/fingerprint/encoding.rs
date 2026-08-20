@@ -1,5 +1,5 @@
 /// Domain-separation prefix for command fingerprints.
-const DOMAIN_PREFIX: &[u8] = b"runne-cmd\x01";
+const DOMAIN_PREFIX: &[u8] = b"gocode-cmd\x01";
 
 /// Current schema version for fingerprint encoding.
 const SCHEMA_VERSION: u16 = 1;
@@ -23,7 +23,7 @@ const TAG_COMMIT_RECOVERY_RESUME: u8 = 15;
 const TAG_COMMIT_LOOP_CHECKPOINT: u8 = 16;
 const TAG_RESUME_LOOP_WAIT: u8 = 17;
 const TAG_GENERATE_CONVERSATION_TEXT: u8 = 18;
-const CHECKPOINT_BODY_PREFIX: &[u8] = b"runne-loop-checkpoint-body\x01";
+const CHECKPOINT_BODY_PREFIX: &[u8] = b"gocode-loop-checkpoint-body\x01";
 
 fn begin(tag: u8) -> Sha256 {
     let mut hasher = Sha256::new();

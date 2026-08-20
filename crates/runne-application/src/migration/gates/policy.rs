@@ -74,7 +74,7 @@ impl PhaseGatePolicy {
         }
 
         let mut hasher = Sha256::new();
-        hasher.update(b"runne-migration-gate-set\x01");
+        hasher.update(b"gocode-migration-gate-set\x01");
         hasher.update([migration_phase_tag(self.target)]);
         hasher.update(self.revision.to_be_bytes());
         for evidence in &members {

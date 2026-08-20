@@ -148,7 +148,7 @@ pub fn binding(generation: u64) -> RuntimeSessionBinding {
             "018f2e3a-7000-7000-8000-000000000003"
                 .parse::<EventLogLineageId>()
                 .unwrap(),
-            "runne-ui-client/1",
+            "gocode-ui-client/1",
             [3; 32],
             [4; 32],
         )
