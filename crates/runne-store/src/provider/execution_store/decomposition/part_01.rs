@@ -33,7 +33,7 @@ use crate::schema::{
     publication_from_managed, readiness_from_managed,
 };
 
-const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"RUNNE_PROVIDER_EXECUTION_SEMANTIC_V1\0";
+const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"GOCODE_PROVIDER_EXECUTION_SEMANTIC_V1\0";
 
 /// SQLite runtime-owned atomic provider authority issuer.
 pub struct SqliteProviderExecutionStore {

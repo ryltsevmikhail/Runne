@@ -25,7 +25,7 @@ fn named_recovery_and_telemetry_inventory_is_complete() {
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let path = workspace.join("scripts/rc0_candidate/inventories/local-reliability-v1.json");
     let inventory: Inventory = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    assert_eq!(inventory.schema, "runne.local-reliability-inventory/1");
+    assert_eq!(inventory.schema, "gocode.local-reliability-inventory/1");
 
     let mut expected = BTreeMap::<String, BTreeSet<String>>::new();
     for entry in inventory.entries {

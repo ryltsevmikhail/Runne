@@ -80,7 +80,7 @@ fn initialize_sidecar(
         .execute(
             "INSERT INTO scanner_recovery_schema
              (id, schema_kind, schema_version, authority_id)
-             VALUES (1, 'runne.provider-scanner-recovery', 2, ?1)",
+             VALUES (1, 'gocode.provider-scanner-recovery', 2, ?1)",
             [authority_id.as_slice()],
         )
         .map_err(map_sql)?;

@@ -1,5 +1,5 @@
 {
-  "schema": "runne.local-reliability-inventory/1",
+  "schema": "gocode.local-reliability-inventory/1",
   "entries": [
     {"category":"recovery","package":"runne-store","target":"provider_dispatch_recovery","fully_qualified_test_name":"duplicate_wakeup_and_after_acknowledgement_fault_preserve_single_settlement"},
     {"category":"recovery","package":"runne-store","target":"provider_dispatch_recovery","fully_qualified_test_name":"every_fault_point_has_static_disposition_and_reopens_authoritative_state"},
@@ -50,6 +50,12 @@
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"manifest_rejects_an_unknown_expected_row_field"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"manifest_rejects_an_unknown_fixture_entry_field"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"manifest_rejects_an_unknown_top_level_field"},
+    {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"manifest_writer_provenance_resolves_at_each_source_commit"},
+    {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"recovery_fixture_provenance::tests::conversation_repository_commit_is_not_a_writer_symbol"},
+    {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"recovery_fixture_provenance::tests::provenance_rejects_each_renamed_writer_file"},
+    {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"recovery_fixture_provenance::tests::unit_of_work_commit_conversation_is_not_a_writer_symbol"},
+    {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"recovery_fixture_provenance::tests::writer_symbol_rejects_a_missing_method"},
+    {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"recovery_fixture_provenance::tests::writer_symbol_rejects_method_prefix_and_comment_decoys"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"payload_digest_and_wrong_domain_digest_tampering_are_rejected"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"synthetic_provider_prepared_v1_vector_uses_exact_framing"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"unknown_profile_is_rejected_fail_closed"},

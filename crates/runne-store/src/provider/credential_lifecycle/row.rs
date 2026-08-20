@@ -108,8 +108,24 @@ fn validate_row_ref(
         && row.version == to_i64(reference.version())?
         && row.ref_digest.as_slice() == reference.ref_digest()
     {
-        Ok(())
+        validate_tombstone(row, reference)
     } else {
         Err(CredentialLifecycleError::CorruptState)
+    }
+}
+
+fn validate_tombstone(
+    row: &CredentialRow,
+    reference: &CredentialVersionRef,
+) -> Result<(), CredentialLifecycleError> {
+    match row.state {
+        CredentialVersionState::Deleted
+            if row.tombstone_digest.as_deref() == Some(tombstone_digest(reference).as_slice()) =>
+        {
+            Ok(())
+        }
+        CredentialVersionState::Deleted => Err(CredentialLifecycleError::CorruptState),
+        _ if row.tombstone_digest.is_none() => Ok(()),
+        _ => Err(CredentialLifecycleError::CorruptState),
     }
 }

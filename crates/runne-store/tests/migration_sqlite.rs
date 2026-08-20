@@ -7,6 +7,7 @@ include!("migration_sqlite_split_parts/part_03.rs");
 include!("migration_sqlite_split_parts/part_04.rs");
 include!("migration_sqlite_split_parts/part_05.rs");
 include!("migration_sqlite_split_parts/part_06.rs");
+include!("migration_sqlite_split_parts/part_07.rs");
 
 #[test]
 fn interrupted_v17_migration_recovers_on_reopen() {

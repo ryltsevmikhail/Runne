@@ -16,7 +16,7 @@ pub(super) fn guard_event_components<E>(
     integrity_profile: i64,
 ) -> Result<(), CommitError> {
     let mut encoded = Vec::new();
-    encoded.extend_from_slice(b"RUNNE_STORED_EVENT_V1\0");
+    encoded.extend_from_slice(b"GOCODE_STORED_EVENT_V1\0");
     append_guard_component(&mut encoded, event.event_id().as_bytes());
     append_guard_component(&mut encoded, &aggregate_type.to_be_bytes());
     append_guard_component(&mut encoded, aggregate_id);

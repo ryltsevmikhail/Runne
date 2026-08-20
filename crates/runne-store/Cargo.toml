@@ -35,6 +35,7 @@ runne-secure-store = { path = "../runne-secure-store", default-features = false 
 zeroize.workspace = true
 serde = { workspace = true }
 serde_json = { workspace = true }
+syn = { version = "2", features = ["full"] }
 tempfile = "3"
 futures = "0.3"
 tokio = { workspace = true, features = ["macros", "rt"] }

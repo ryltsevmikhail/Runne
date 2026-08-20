@@ -14,8 +14,12 @@ impl EvidenceRecorder for SqliteEvidenceStore {
         // Scan BEFORE any persistence
         scan_for_secrets(raw_content)?;
 
-        // Compute digest
-        let contract = DigestContract::new("runne:evidence-content:v1");
+        // Persist only metadata and this source-pinned digest. `content_ref` is
+        // opaque: no reader resolves content or authorizes content reads, so
+        // RUNNE alias denial is not applicable to metadata reads. A future
+        // content reader requires a versioned content-record migration and
+        // must fail closed until it verifies the bound digest and authorization.
+        let contract = DigestContract::new("gocode:evidence-content:v1");
         let evidence_digest = contract.compute(&[raw_content]);
         let ref_id = uuid::Uuid::now_v7();
 

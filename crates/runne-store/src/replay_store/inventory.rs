@@ -49,7 +49,7 @@ fn retention_manifest_for_events(
         .into_iter()
         .max()
         .unwrap_or(0);
-    let mut message = b"runne/replay-retention-manifest/v1\0".to_vec();
+    let mut message = b"gocode/replay-retention-manifest/v1\0".to_vec();
     message.extend_from_slice(lineage_id.as_bytes());
     message.extend_from_slice(&RETENTION_GENERATION.to_be_bytes());
     match retained_floor {
@@ -89,7 +89,7 @@ fn baseline_resume_manifest_digest(
     server_secret: &[u8; 32],
 ) -> [u8; 32] {
     let mut mac = HmacSha256::new_from_slice(server_secret).expect("fixed HMAC key size");
-    mac.update(b"runne/replay-retention-baseline-resume-manifest/v2\0");
+    mac.update(b"gocode/replay-retention-baseline-resume-manifest/v2\0");
     mac.update(lineage_id.as_bytes());
     mac.update(&internal_generation.to_be_bytes());
     mac.update(&retained_floor.to_be_bytes());
@@ -105,7 +105,7 @@ fn build_gap_range_ref(
     authorization_epoch: i64,
     server_secret: &[u8; 32],
 ) -> GapRangeRef {
-    let mut message = b"runne/replay-gap-range/v1\0".to_vec();
+    let mut message = b"gocode/replay-gap-range/v1\0".to_vec();
     message.extend_from_slice(lineage_id.as_bytes());
     message.extend_from_slice(&retention_generation.to_be_bytes());
     message.extend_from_slice(&missing_start.to_be_bytes());
