@@ -96,8 +96,8 @@ fn authority_reopen_rejects_noncanonical_restored_stage_identities() {
             "\"principal\":\"unsafe/root\"",
         ),
         (
-            "\"key\":\"02de78b83aeb9806cdf9d8221980f999de3628cf2fc3be26c220423371861df9\"",
-            "\"key\":\"A2de78b83aeb9806cdf9d8221980f999de3628cf2fc3be26c220423371861df9\"",
+            "\"key\":\"0f54a8554ea07b3191413be2d5d57f60b1c7a7180b2ba4023bf816ad4d0104b4\"",
+            "\"key\":\"Af54a8554ea07b3191413be2d5d57f60b1c7a7180b2ba4023bf816ad4d0104b4\"",
         ),
     ]
     .into_iter()
