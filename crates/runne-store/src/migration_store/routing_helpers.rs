@@ -1,8 +1,21 @@
 fn receipt_scope(context: &MigrationCommandContext) -> Result<Vec<u8>, MigrationStoreError> {
+    receipt_scope_with_domain(context, b"gocode-migration-scope\x01")
+}
+
+fn legacy_runne_receipt_scope(
+    context: &MigrationCommandContext,
+) -> Result<Vec<u8>, MigrationStoreError> {
+    receipt_scope_with_domain(context, b"runne-migration-scope\x01")
+}
+
+fn receipt_scope_with_domain(
+    context: &MigrationCommandContext,
+    domain: &[u8],
+) -> Result<Vec<u8>, MigrationStoreError> {
     let operator = context.operator_id.as_str().as_bytes();
     let length =
         u16::try_from(operator.len()).map_err(|_| MigrationStoreError::ArithmeticOverflow)?;
-    let mut scope = b"runne-migration-scope\x01".to_vec();
+    let mut scope = domain.to_vec();
     scope.extend_from_slice(&length.to_be_bytes());
     scope.extend_from_slice(operator);
     Ok(scope)

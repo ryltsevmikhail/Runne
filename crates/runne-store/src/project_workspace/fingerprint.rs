@@ -17,7 +17,7 @@ pub(crate) struct FingerprintInput<'a> {
 
 pub(crate) fn semantic_fingerprint(input: FingerprintInput<'_>) -> [u8; 32] {
     let mut digest = Sha256::new();
-    digest.update(b"runne-project-workspace-command\x01");
+    digest.update(b"gocode-project-workspace-command\x01");
     update_bytes(&mut digest, input.authority.as_bytes());
     update_bytes(&mut digest, input.principal.as_bytes());
     digest.update(input.command_id.as_bytes());

@@ -31,7 +31,7 @@ include!("credential_lifecycle/provision.rs");
 #[cfg(test)]
 mod tests;
 
-const TOMBSTONE_DOMAIN: &[u8] = b"RUNNE_CREDENTIAL_TOMBSTONE_V1\0";
+const TOMBSTONE_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_TOMBSTONE_V1\0";
 
 /// SQLite authority for credential versions, leases, fences, and tombstones.
 pub struct SqliteProviderCredentialLifecycleStore {

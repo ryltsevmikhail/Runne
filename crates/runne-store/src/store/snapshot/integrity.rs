@@ -20,7 +20,7 @@ pub(super) fn snapshot_integrity_digest(
     let projection_length = u64::try_from(projection_bytes.len()).ok()?;
     let promotion_projection_length = u64::try_from(promotion_projection_bytes.len()).ok()?;
     let mut hasher = Sha256::new();
-    hasher.update(b"runne.store.aggregate-state-snapshot");
+    hasher.update(b"gocode.store.aggregate-state-snapshot");
     hasher.update([0, 2]);
     frame(&mut hasher, &[1]); // codec_version
     frame(&mut hasher, &[aggregate_type]);
@@ -56,7 +56,7 @@ pub(super) fn snapshot_integrity_digest_v1(
     let head_global_position = u64::try_from(head_global_position).ok()?;
     let projection_length = u64::try_from(projection_bytes.len()).ok()?;
     let mut hasher = Sha256::new();
-    hasher.update(b"runne.store.aggregate-state-snapshot");
+    hasher.update(b"gocode.store.aggregate-state-snapshot");
     hasher.update([0, 1]);
     frame(&mut hasher, &[1]);
     frame(&mut hasher, &[aggregate_type]);

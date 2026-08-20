@@ -41,7 +41,7 @@ pub(crate) fn canonical_reservation_digest(
     target: &[u8; 32],
 ) -> VerificationDigest {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne-runtime/consumption-intent-reservation/v1\0");
+    hasher.update(b"gocode-runtime/consumption-intent-reservation/v1\0");
     hasher.update(intent_id);
     hasher.update((key.len() as u64).to_be_bytes());
     hasher.update(key.as_bytes());

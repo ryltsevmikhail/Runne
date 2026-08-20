@@ -10,6 +10,9 @@ mod races;
 #[path = "provider_credential_lifecycle/integrity.rs"]
 mod integrity;
 
+#[path = "provider_credential_lifecycle/reader_integrity.rs"]
+mod reader_integrity;
+
 #[path = "provider_credential_lifecycle/reconcile_integrity.rs"]
 mod reconcile_integrity;
 

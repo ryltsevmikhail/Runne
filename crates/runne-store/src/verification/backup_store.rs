@@ -131,7 +131,7 @@ impl InMemoryBackupStore {
 
 fn serialize_synthetic_archive(manifest: &BackupManifestRef) -> Vec<u8> {
     let mut bytes = Vec::new();
-    bytes.extend_from_slice(b"RUNNE_SYNTHETIC_VERIFICATION_BACKUP_V1\0");
+    bytes.extend_from_slice(b"GOCODE_SYNTHETIC_VERIFICATION_BACKUP_V1\0");
     bytes.extend_from_slice(manifest.backup_id.as_bytes());
     bytes.extend_from_slice(&manifest.schema_version.to_be_bytes());
     bytes.extend_from_slice(&(manifest.streams.len() as u64).to_be_bytes());
