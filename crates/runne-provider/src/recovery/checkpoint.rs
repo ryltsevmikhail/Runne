@@ -2,7 +2,7 @@ use sha2::{Digest, Sha256};
 
 use super::{NativeSecretRef, ScannerError, TailBinding};
 
-const CHECKPOINT_V1: &[u8] = b"RUNNE_SCANNER_CHECKPOINT_V1\0";
+const CHECKPOINT_V1: &[u8] = b"GOCODE_SCANNER_CHECKPOINT_V1\0";
 
 /// Canonical checkpoint containing metadata and an opaque tail reference only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

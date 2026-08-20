@@ -42,11 +42,20 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
 
     let profile = OpenAiResponsesTextProfile::from_json(PROFILE_BYTES).unwrap();
     let source_digest: [u8; 32] = Sha256::digest(PROFILE_BYTES).into();
+    assert_eq!(
+        source_digest,
+        [
+            0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1,
+            0x73, 0x98, 0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d,
+            0xd0, 0xfb, 0xed, 0x80,
+        ]
+    );
     assert_eq!(profile.profile_digest(), source_digest);
     assert_eq!(
         PROFILE_DIGEST.trim(),
-        format!("sha256:{}", hex::encode(source_digest))
+        "sha256:d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80"
     );
+    assert_eq!(profile.profile_id(), "gocode-openai-responses-text/1");
     assert_eq!(profile.profile_id(), OPENAI_RESPONSES_PROFILE_ID);
     assert_eq!(profile.provider_id(), "openai");
     assert_eq!(profile.origin(), "https://api.openai.com");
@@ -91,7 +100,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
 fn aliases_endpoint_model_pricing_and_request_policy_are_exact() {
     let original = parse_profile_value();
     let mutations: Vec<ProfileMutation> = vec![
-        Box::new(|value| value["profile_id"] = json!("runne-openai-responses-text")),
+        Box::new(|value| value["profile_id"] = json!("runne-openai-responses-text/1")),
         Box::new(|value| value["profile_revision"] = json!(1)),
         Box::new(|value| value["provider_id"] = json!("openai-compatible")),
         Box::new(|value| value["origin"] = json!("https://proxy.example")),

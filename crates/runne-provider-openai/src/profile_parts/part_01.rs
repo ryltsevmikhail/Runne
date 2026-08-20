@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Exact immutable `OpenAI` Responses text profile identity.
-pub const OPENAI_RESPONSES_PROFILE_ID: &str = "runne-openai-responses-text/1";
+pub const OPENAI_RESPONSES_PROFILE_ID: &str = "gocode-openai-responses-text/1";
 /// Exact provider request model snapshot.
 pub const OPENAI_REQUEST_MODEL: &str = "gpt-5.5-2026-04-23";
 /// Exact Standard processing tier requested and required in response evidence.
@@ -35,10 +35,10 @@ const MAX_INPUT_BYTES: usize = 262_144;
 const MAX_OUTPUT_TOKENS: u32 = 16_384;
 const MAX_REQUEST_BYTES: usize = 524_288;
 const MAX_PROFILE_BYTES: usize = 16 * 1024;
-const PRICING_DIGEST_DOMAIN: &[u8] = b"RUNNE_OPENAI_RESPONSES_TEXT_PRICING_V1\0";
+const PRICING_DIGEST_DOMAIN: &[u8] = b"GOCODE_OPENAI_RESPONSES_TEXT_PRICING_V1\0";
 const PROFILE_SOURCE_DIGEST: [u8; 32] = [
-    0x9e, 0x04, 0xed, 0x0d, 0x3c, 0xde, 0xb9, 0x92, 0x79, 0x43, 0x3f, 0x01, 0xdf, 0xd4, 0x4b, 0x2b,
-    0x67, 0xaf, 0x80, 0xc0, 0x76, 0xc5, 0xa6, 0x3f, 0x45, 0x43, 0x7f, 0x98, 0x80, 0xba, 0xe2, 0x7e,
+    0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1, 0x73, 0x98,
+    0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d, 0xd0, 0xfb, 0xed, 0x80,
 ];
 
 /// Exact-profile validation or pricing failure.

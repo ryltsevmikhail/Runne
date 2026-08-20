@@ -7,8 +7,8 @@ use runne_api::{
     ProtectedLaunchRequestV2, ProtectedOwnedLaunchV2, ProtectedReadyV1, ProtectedReadyV2,
     ProtectedRenewRequestV1, ProtectedRenewRequestV2, ProtectedRenewTicketV1,
     ProtectedRenewTicketV2, ProtectedRuntimeProfileV1, ProtectedShutdownAckV1,
-    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1, ProviderActivationReadinessV1,
-    ProviderActivationModeV1, StableRuntimeBindingV1,
+    ProtectedShutdownAckV2, ProtectedShutdownV1, ProtectedShutdownV2, ProviderActivationBindingV1,
+    ProviderActivationModeV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
 };
 use sha2::{Digest, Sha256};
 
@@ -34,7 +34,7 @@ fn executable() -> ExecutableIdentityV1 {
 
 fn profile() -> ProtectedRuntimeProfileV1 {
     ProtectedRuntimeProfileV1::new(
-        "runne-bundled-runtime/1",
+        "gocode-bundled-runtime/1",
         1,
         "gocode-ui-client/2",
         [0x21; 32],

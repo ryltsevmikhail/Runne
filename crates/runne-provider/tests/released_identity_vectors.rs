@@ -1,0 +1,50 @@
+use runne_provider::{
+    CredentialVersionRef, DispatchAttemptId, NativeSecretRef, ProviderId, ScannerCheckpoint,
+    TailBinding,
+};
+
+#[test]
+fn released_credential_reference_vector_rejects_a_same_version_runne_domain() {
+    let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 7).unwrap();
+
+    assert_eq!(
+        reference.ref_digest(),
+        &[
+            0x4f, 0xb3, 0x74, 0x80, 0x31, 0x0a, 0x9f, 0x11, 0x29, 0xd4, 0x64, 0x56, 0xf7, 0x58,
+            0x7e, 0xc7, 0xd2, 0x53, 0x3b, 0x1b, 0x71, 0xb3, 0xfe, 0x0f, 0x07, 0xec, 0x30, 0xb1,
+            0xe7, 0x2e, 0xb8, 0x6b,
+        ]
+    );
+}
+
+#[test]
+fn released_scanner_checkpoint_reopens_only_the_gocode_vector() {
+    let binding = TailBinding::new(DispatchAttemptId::from_bytes([1; 16]), 2, 3, 5, 7, 11).unwrap();
+    let binding_digest = [
+        0x18, 0x6c, 0xf6, 0x38, 0xe8, 0xfe, 0xc2, 0x65, 0xc2, 0x03, 0x9a, 0x2c, 0xb9, 0x30, 0xf3,
+        0xc9, 0x8d, 0xdf, 0xbe, 0xd6, 0x6c, 0xee, 0x6a, 0x65, 0xe9, 0x51, 0x3b, 0x58, 0x26, 0x10,
+        0x43, 0x49,
+    ];
+    assert_eq!(binding.digest(), binding_digest);
+
+    let reference = NativeSecretRef::new([9; 16], 13, binding_digest).unwrap();
+    let checkpoint = ScannerCheckpoint::new(reference, binding, 17, 11).unwrap();
+    let checkpoint_digest = [
+        0xdb, 0x43, 0xfb, 0x8b, 0x69, 0x27, 0x76, 0x3c, 0x2d, 0x20, 0x2c, 0x71, 0x2c, 0x13, 0xe7,
+        0xbd, 0xaf, 0x13, 0xcd, 0xef, 0x4c, 0x07, 0x4d, 0x20, 0xd1, 0x8f, 0x82, 0xed, 0x32, 0xd5,
+        0xca, 0x16,
+    ];
+    assert_eq!(checkpoint.digest(), checkpoint_digest);
+    assert_eq!(checkpoint.checkpoint_id(), checkpoint_digest[..16]);
+    assert!(
+        ScannerCheckpoint::from_durable(
+            reference,
+            binding,
+            17,
+            11,
+            checkpoint_digest[..16].try_into().unwrap(),
+            checkpoint_digest,
+        )
+        .is_ok()
+    );
+}

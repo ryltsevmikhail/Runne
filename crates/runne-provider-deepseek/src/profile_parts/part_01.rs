@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Exact immutable `DeepSeek` Responses text profile identity.
-pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "runne-deepseek-responses-text/1";
+pub const DEEPSEEK_RESPONSES_PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
 /// Exact provider request model snapshot.
 pub const DEEPSEEK_REQUEST_MODEL: &str = "deepseek-chat";
 /// Exact Standard processing tier requested and required in response evidence.
@@ -35,10 +35,10 @@ const MAX_INPUT_BYTES: usize = 262_144;
 const MAX_OUTPUT_TOKENS: u32 = 16_384;
 const MAX_REQUEST_BYTES: usize = 524_288;
 const MAX_PROFILE_BYTES: usize = 16 * 1024;
-const PRICING_DIGEST_DOMAIN: &[u8] = b"RUNNE_DEEPSEEK_RESPONSES_TEXT_PRICING_V1\0";
+const PRICING_DIGEST_DOMAIN: &[u8] = b"GOCODE_DEEPSEEK_RESPONSES_TEXT_PRICING_V1\0";
 const PROFILE_SOURCE_DIGEST: [u8; 32] = [
-    0xb8, 0xb2, 0x18, 0x27, 0x79, 0x78, 0xe3, 0x60, 0x46, 0x0e, 0x5b, 0xc5, 0x3a, 0x46, 0x08, 0x1d,
-    0x3f, 0xd2, 0x44, 0xf9, 0x36, 0xd0, 0xc7, 0x72, 0xe8, 0xbd, 0x16, 0x51, 0xed, 0xb1, 0xf2, 0x60,
+    0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9, 0xeb, 0x4e,
+    0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e, 0x40, 0x85, 0xd8, 0x53,
 ];
 
 /// Exact-profile validation or pricing failure.

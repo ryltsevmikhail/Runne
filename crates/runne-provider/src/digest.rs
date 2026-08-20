@@ -5,8 +5,8 @@ use serde::Serialize;
 
 use crate::{ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderTextInput};
 
-const PROVIDER_CALL_V1_DOMAIN: &[u8] = b"RUNNE_PROVIDER_CALL_V1\0";
-const PROVIDER_CALL_V2_DOMAIN: &[u8] = b"RUNNE_PROVIDER_CALL_V2\0";
+const PROVIDER_CALL_V1_DOMAIN: &[u8] = b"GOCODE_PROVIDER_CALL_V1\0";
+const PROVIDER_CALL_V2_DOMAIN: &[u8] = b"GOCODE_PROVIDER_CALL_V2\0";
 
 /// Version of the canonical provider-call bytes and domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

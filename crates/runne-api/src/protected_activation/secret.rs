@@ -3,13 +3,13 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use hmac::{Hmac, Mac};
 use runne_domain::id::validate_uuid_v7_bytes;
 use runne_plugin_protocol::cbor::{
     CborDecoder, CborEncoder, DecodeError, DeterministicCodec, EncodeError,
 };
 use runne_plugin_protocol::frame::{FrameLimits, decode_codec_frame, encode_codec_frame};
 use runne_plugin_protocol::profile::DecodeLimits;
-use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
@@ -25,13 +25,13 @@ const MAX_CAPABILITIES: usize = 128;
 const MAX_CERTIFICATE_DER_BYTES: usize = 16 * 1024;
 const MAX_LAUNCH_TTL_MILLIS: u64 = 30_000;
 /// Transport identifier reserved for inherited-channel bundled activation.
-pub const PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID: &str = "runne-bundled-runtime/1";
+pub const PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID: &str = "gocode-bundled-runtime/1";
 /// Exact credential-free provider profile identity.
-pub const DETERMINISTIC_PROVIDER_PROFILE_ID: &str = "runne-deterministic-text/1";
+pub const DETERMINISTIC_PROVIDER_PROFILE_ID: &str = "gocode-deterministic-text/1";
 /// Exact bounded OpenAI Responses text provider profile identity.
-pub const OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "runne-openai-responses-text/1";
+pub const OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "gocode-openai-responses-text/1";
 /// Exact bounded DeepSeek Responses text provider profile identity.
-pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "runne-deepseek-responses-text/1";
+pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_ID: &str = "gocode-deepseek-responses-text/1";
 /// Digest of the released deterministic text provider contract.
 pub const DETERMINISTIC_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
     0xb7, 0x9e, 0xfd, 0x52, 0xcd, 0x0d, 0xe3, 0x29, 0x17, 0x0e, 0xfa, 0xae, 0xd2, 0xa1, 0x8e, 0x6d,
@@ -39,13 +39,13 @@ pub const DETERMINISTIC_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
 ];
 /// Digest of the exact distributed OpenAI Responses text profile bytes.
 pub const OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
-    0x9e, 0x04, 0xed, 0x0d, 0x3c, 0xde, 0xb9, 0x92, 0x79, 0x43, 0x3f, 0x01, 0xdf, 0xd4, 0x4b, 0x2b,
-    0x67, 0xaf, 0x80, 0xc0, 0x76, 0xc5, 0xa6, 0x3f, 0x45, 0x43, 0x7f, 0x98, 0x80, 0xba, 0xe2, 0x7e,
+    0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1, 0x73, 0x98,
+    0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d, 0xd0, 0xfb, 0xed, 0x80,
 ];
 /// Digest of the exact distributed DeepSeek Responses text profile bytes.
 pub const DEEPSEEK_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST: [u8; 32] = [
-    0xb8, 0xb2, 0x18, 0x27, 0x79, 0x78, 0xe3, 0x60, 0x46, 0x0e, 0x5b, 0xc5, 0x3a, 0x46, 0x08, 0x1d,
-    0x3f, 0xd2, 0x44, 0xf9, 0x36, 0xd0, 0xc7, 0x72, 0xe8, 0xbd, 0x16, 0x51, 0xed, 0xb1, 0xf2, 0x60,
+    0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9, 0xeb, 0x4e,
+    0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e, 0x40, 0x85, 0xd8, 0x53,
 ];
 const EXTERNAL_TRANSPORT_PROFILE_ID: &str = "gocode-local-runtime/2";
 const KEY_DERIVATION_DOMAIN: &[u8] = b"gocode/bundled-launch/key-derivation/v1\0";
