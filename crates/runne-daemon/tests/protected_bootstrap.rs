@@ -101,7 +101,7 @@ fn pending() -> PendingFirstActivationV1 {
         .unwrap(),
         ExecutableIdentityV1::new([0x40; 32], [0x50; 32], 4_096).unwrap(),
         ProtectedRuntimeProfileV1::new(
-            "runne-bundled-runtime/1",
+            runne_api::PROTECTED_BUNDLED_TRANSPORT_PROFILE_ID,
             1,
             runne_runtime::bundle::BUNDLE_ID,
             profile_hash,

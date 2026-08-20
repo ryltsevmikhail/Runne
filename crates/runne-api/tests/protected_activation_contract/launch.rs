@@ -234,3 +234,35 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
     trailing.push(0);
     assert!(ProtectedLaunchRequestV2::decode_frame(&trailing).is_err());
 }
+
+#[test]
+fn released_provider_bindings_accept_gocode_literals_and_reject_runne_aliases() {
+    for (mode, binding, runne_alias) in [
+        (
+            ProviderActivationModeV1::DeterministicV1,
+            deterministic_binding(),
+            "runne-deterministic-text/1",
+        ),
+        (
+            ProviderActivationModeV1::OpenAiResponsesTextV1,
+            openai_binding(),
+            "runne-openai-responses-text/1",
+        ),
+        (
+            ProviderActivationModeV1::DeepSeekResponsesTextV1,
+            ProviderActivationBindingV1::deepseek_responses_text_v1(),
+            "runne-deepseek-responses-text/1",
+        ),
+    ] {
+        assert_eq!(
+            ProviderActivationBindingV1::new(mode, binding.profile_id(), *binding.profile_digest())
+                .unwrap(),
+            binding
+        );
+        assert_eq!(
+            ProviderActivationBindingV1::new(mode, runne_alias, *binding.profile_digest())
+                .unwrap_err(),
+            LaunchAuthorityError::ProviderProfileMismatch
+        );
+    }
+}

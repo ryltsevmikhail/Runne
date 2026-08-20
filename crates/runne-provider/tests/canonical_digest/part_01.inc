@@ -104,7 +104,10 @@ fn provider_call_v1_digest_keeps_the_released_golden_and_v2_is_separate() {
     );
     assert_eq!(v1.version(), ProviderCallDigestVersion::V1);
     assert_eq!(v2.version(), ProviderCallDigestVersion::V2);
-    assert_ne!(v1.as_bytes(), v2.as_bytes());
+    assert_eq!(
+        lower_hex(v2.as_bytes()),
+        "380fb0f5f5c079ed2bb52773770976c5389759834ea71fab06a22aa3abfce843"
+    );
 }
 
 #[test]

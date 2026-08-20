@@ -16,8 +16,8 @@
     },
     "windows": {
       "message_type_id": 21,
-      "frame_length": 551,
-      "frame_sha256": "f19b3ccff25b00695f6a8cc65273408d0d72a463e3a93aec8a81400acba7f562"
+      "frame_length": 550,
+      "frame_sha256": "4efaa7d8a5418db7eaf2f80ed925563d329ef3a60b71f0ba6476339bad0654a4"
     }
   },
   "lifecycle_messages": {
