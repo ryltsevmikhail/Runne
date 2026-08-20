@@ -78,7 +78,7 @@ impl FixtureMcpRuntime {
             .map(Vec::as_slice)
             .collect::<Vec<_>>();
         let definition_digest =
-            super::model::digest_domain(b"RUNNE_MCP_FIXTURE_DEFINITION_V1\0", &definition_refs);
+            super::model::digest_domain(b"GOCODE_MCP_FIXTURE_DEFINITION_V1\0", &definition_refs);
         Ok((
             Self {
                 mode,

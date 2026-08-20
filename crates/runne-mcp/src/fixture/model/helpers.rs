@@ -14,7 +14,7 @@ fn checked_description(value: String) -> Result<String, FixtureMcpFailure> {
 }
 
 pub(crate) fn digest(values: &[&[u8]]) -> [u8; 32] {
-    digest_domain(b"RUNNE_MCP_FIXTURE_V1\0", values)
+    digest_domain(b"GOCODE_MCP_FIXTURE_V1\0", values)
 }
 
 pub(crate) fn digest_domain(domain: &[u8], values: &[&[u8]]) -> [u8; 32] {

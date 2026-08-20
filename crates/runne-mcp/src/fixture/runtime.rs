@@ -268,3 +268,5 @@ pub use process_audit::{FixtureAuditProcessPhase, FixtureAuditProcessReason, Fix
 include!("runtime/process_activation.rs");
 mod process_dispatch;
 include!("runtime/dispatch.rs");
+#[cfg(test)]
+include!("runtime/source_pin_tests.rs");

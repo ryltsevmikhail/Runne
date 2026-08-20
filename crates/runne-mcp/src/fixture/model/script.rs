@@ -61,7 +61,7 @@ impl FixtureScript {
                 FixtureStepOutcome::StaleResponse => encoded.push(6),
             }
         }
-        Ok(Self { steps: steps.into_boxed_slice(), digest: digest_domain(b"RUNNE_MCP_FIXTURE_SCRIPT_V1\0", &[&encoded]) })
+        Ok(Self { steps: steps.into_boxed_slice(), digest: digest_domain(b"GOCODE_MCP_FIXTURE_SCRIPT_V1\0", &[&encoded]) })
     }
     /// Returns the versioned opaque script digest.
     pub const fn digest(&self) -> [u8; 32] { self.digest }

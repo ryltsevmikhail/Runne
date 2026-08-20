@@ -62,7 +62,7 @@ impl FixtureTool {
             crate::McpToolExecutionClass::ProtocolOnly => b"protocol-only".as_slice(),
             crate::McpToolExecutionClass::ProcessBacked => b"process-backed".as_slice(),
         };
-        digest_domain(b"RUNNE_MCP_FIXTURE_TOOL_V1\0", &[
+        digest_domain(b"GOCODE_MCP_FIXTURE_TOOL_V1\0", &[
             self.name.as_bytes(), self.version.as_bytes(), self.description.as_bytes(),
             &serde_json::to_vec(&self.input_schema).expect("serde_json::Value always serializes"),
             &serde_json::to_vec(&self.output_schema).expect("serde_json::Value always serializes"),
