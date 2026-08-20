@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/capability-grant.schema.json",
+  "$id": "https://gocode.dev/schemas/capability-grant.schema.json",
   "title": "CapabilityGrant",
   "description": "Immutable capability grant aligned with the Permissions domain model.",
   "type": "object",

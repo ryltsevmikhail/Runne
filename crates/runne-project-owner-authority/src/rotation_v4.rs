@@ -14,8 +14,8 @@ use crate::{
     trust_v4::{CONFIG_SCHEMA_V4, POP_DOMAIN_V4, canonical_config_v4, v4_trust_schema_digests},
 };
 
-const ROTATION_SCHEMA_V4: &str = "runne.project-owner.key-rotation/4";
-const OLD_DOMAIN_V4: &[u8] = b"runne.project-owner.rotation-old-authorization/4";
+const ROTATION_SCHEMA_V4: &str = "gocode.project-owner.key-rotation/4";
+const OLD_DOMAIN_V4: &[u8] = b"gocode.project-owner.rotation-old-authorization/4";
 
 /// Signed V3-to-V4 root-key rotation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -186,7 +186,7 @@ fn successor(value: &KeyRotationV4, predecessor: [u8; 32]) -> ProjectOwnerTrustC
         schema_digests: value.new_schema_digests.clone(),
         proof_of_possession: value.new_proof_of_possession,
         predecessor,
-        predecessor_schema_version: "runne.project-owner.trust-config/3".into(),
+        predecessor_schema_version: "gocode.project-owner.trust-config/3".into(),
     }
 }
 fn pin(value: &SchemaDigest) -> Value {

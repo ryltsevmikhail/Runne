@@ -7,7 +7,7 @@ use runne_project_owner_authority::{
 };
 use sha2::{Digest, Sha256};
 
-const POP_DOMAIN: &[u8] = b"runne.project-owner.genesis-pop/1";
+const POP_DOMAIN: &[u8] = b"gocode.project-owner.genesis-pop/1";
 const RECEIPT: &[u8] = include_bytes!(
     "../../../scripts/project_owner_authority/fixtures/v2/initial-ceremony/receipt-s.json"
 );
@@ -22,8 +22,8 @@ impl Signer for FixtureSigner {
 
 fn trust(signing: &SigningKey) -> ProjectOwnerTrustConfigV1 {
     let mut trust = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&signing.verifying_key().to_bytes()),
@@ -55,7 +55,7 @@ fn bindings() -> Vec<DocumentBinding> {
             "8ad2ede86bf64176e438a8fd1076f3b4505a80e3",
             "2ba3f59d56214103bb69560015a0c1fc971bd8dd0725b141d44b9a74d6846bd7",
             83,
-            Some("runne.governance.v1-platform-scope-decision/1"),
+            Some("gocode.governance.v1-platform-scope-decision/1"),
         ),
         binding(
             "docs/desktop/adr/ADR-0015-v1-platform-scope.md",
@@ -96,7 +96,7 @@ fn checked_in_initial_ceremony_receipt_is_real_canonical_v2_bytes() {
     let signing = SigningKey::from_bytes(&[13; 32]);
     let trust = trust(&signing);
     let anchor =
-        TrustAnchorState::confirmed("runne".into(), 1, trust.sha256().expect("trust hash"));
+        TrustAnchorState::confirmed("gocode".into(), 1, trust.sha256().expect("trust hash"));
     let receipt = sign_receipt_v2(
         &PurposeProfileV2::v1_platform_scope(),
         &trust,
@@ -133,7 +133,7 @@ fn checked_in_initial_ceremony_receipt_is_real_canonical_v2_bytes() {
 fn v2_reviewed_pins_are_not_extensible_by_callers() {
     let mut pins = v2_platform_scope_schema_digests();
     pins.push(SchemaDigest {
-        schema_id: "runne.unreviewed/2".into(),
+        schema_id: "gocode.unreviewed/2".into(),
         schema_sha256: [0; 32],
     });
     assert_eq!(

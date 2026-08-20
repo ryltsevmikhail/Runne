@@ -99,7 +99,7 @@ fn manifest() -> Vec<u8> {
             ]),
         ),
         ("bootstrap_sha256", json!(A)),
-        ("bundle_identity", json!("runne-desktop")),
+        ("bundle_identity", json!("gocode-desktop")),
         ("bundled_runtime", json!({"sha256":A,"version":"1.0.0"})),
         ("candidate_sha256", json!(A)),
         (
@@ -111,7 +111,7 @@ fn manifest() -> Vec<u8> {
         ("release_sequence", json!(1)),
         (
             "schema_version",
-            json!("runne.release.unsigned-candidate-manifest/1"),
+            json!("gocode.release.unsigned-candidate-manifest/1"),
         ),
         ("subject_sha256", json!(A)),
     ]))
@@ -125,7 +125,7 @@ fn artifact(
     digest: &str,
     length: u64,
 ) -> Value {
-    json!({"architecture":architecture,"artifact_sha256":digest,"artifact_slot_id":slot,"byte_length":length,"minimum_os_policy":{"policy_id":"v1-minimum-os","policy_sha256":A},"platform":platform,"platform_scope_id":scope,"profile_bindings":[profile("runne-bundled-runtime", A)]})
+    json!({"architecture":architecture,"artifact_sha256":digest,"artifact_slot_id":slot,"byte_length":length,"minimum_os_policy":{"policy_id":"v1-minimum-os","policy_sha256":A},"platform":platform,"platform_scope_id":scope,"profile_bindings":[profile("gocode-bundled-runtime", A)]})
 }
 
 fn decision(release_facts_sha256: &str) -> Vec<u8> {
@@ -147,7 +147,7 @@ fn decision(release_facts_sha256: &str) -> Vec<u8> {
         ("revocation_epoch", json!(1)),
         (
             "schema_version",
-            json!("runne.release.rc1-qualification-decision/1"),
+            json!("gocode.release.rc1-qualification-decision/1"),
         ),
         ("signing_allowed", json!(false)),
         ("subject_sha256", json!(A)),

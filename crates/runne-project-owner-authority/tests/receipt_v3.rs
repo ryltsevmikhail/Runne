@@ -216,7 +216,7 @@ fn v3_rejects_current_v2_pins_and_a_missing_predecessor_hash() {
     );
     let mut pins = runne_project_owner_authority::v3_reconciliation_schema_digests();
     pins.push(SchemaDigest {
-        schema_id: "runne.unreviewed/3".into(),
+        schema_id: "gocode.unreviewed/3".into(),
         schema_sha256: [0; 32],
     });
     assert_eq!(

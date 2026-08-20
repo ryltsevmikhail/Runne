@@ -39,7 +39,7 @@ fn valid_stage_envelope_v2_verifies_full_raw_chain_and_calls_context_once() {
     assert_eq!(verified.payload_sha256(), envelope.payload_sha256);
     assert_eq!(
         verified.payload_schema_id(),
-        "runne.release.rc3-publication-authorization/2"
+        "gocode.release.rc3-publication-authorization/2"
     );
     assert_eq!(
         verified.payload(),
@@ -56,7 +56,7 @@ fn valid_stage_envelope_v2_verifies_full_raw_chain_and_calls_context_once() {
 fn legacy_or_mixed_envelope_versions_are_rejected_before_context() {
     let chain = chain();
     let (mut envelope, key) = stage_envelope(&chain.receipt5, "RC3_PUBLICATION_AUTHORIZER");
-    envelope.schema_version = "runne.release.post-rc0-stage-envelope/1".into();
+    envelope.schema_version = "gocode.release.post-rc0-stage-envelope/1".into();
     let bytes = signed_stage_v2(&envelope, &key);
     let context = EnvelopeContext(Cell::new(0));
     assert_eq!(
@@ -69,7 +69,7 @@ fn legacy_or_mixed_envelope_versions_are_rejected_before_context() {
         Err(AuthorityError::AuthorityVersionSuperseded)
     );
     assert_eq!(context.0.get(), 0);
-    envelope.schema_version = "runne.other/9".into();
+    envelope.schema_version = "gocode.other/9".into();
     let bytes = signed_stage_v2(&envelope, &key);
     assert_eq!(
         verify_stage_envelope_v2(
@@ -136,7 +136,7 @@ fn malformed_noncanonical_or_wrong_digest_bytes_never_reach_context() {
         Err(AuthorityError::InvalidStageEnvelope)
     );
     assert_eq!(context.0.get(), 0);
-    let duplicate = b"{\"schema_version\":\"runne.release.post-rc0-stage-envelope/2\",\"schema_version\":\"x\"}\n";
+    let duplicate = b"{\"schema_version\":\"gocode.release.post-rc0-stage-envelope/2\",\"schema_version\":\"x\"}\n";
     assert_eq!(
         verify_stage_envelope_v2(duplicate, [0; 32], &chain.receipt5, &context),
         Err(AuthorityError::InvalidJson)
@@ -243,6 +243,6 @@ fn verified_stage_envelope_v2_is_move_only_and_not_publicly_constructible() {
     let _ = moved();
     assert_eq!(
         STAGE_ENVELOPE_SCHEMA_V2,
-        "runne.release.post-rc0-stage-envelope/2"
+        "gocode.release.post-rc0-stage-envelope/2"
     );
 }

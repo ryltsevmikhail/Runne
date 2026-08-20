@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.rc0.profile-evidence-record/1",
-  "title": "RUNNE RC0 Profile Evidence Record V1",
+  "$id": "gocode.rc0.profile-evidence-record/1",
+  "title": "GOCODE RC0 Profile Evidence Record V1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -27,10 +27,10 @@
   ],
   "properties": {
     "schema_version": {
-      "const": "runne.rc0.profile-evidence-record/1"
+      "const": "gocode.rc0.profile-evidence-record/1"
     },
     "repository_id": {
-      "const": "runne"
+      "const": "gocode"
     },
     "mapping_policy_envelope_sha256": {
       "$ref": "#/$defs/sha256"
@@ -171,7 +171,7 @@
       ],
       "properties": {
         "repository_id": {
-          "const": "runne"
+          "const": "gocode"
         },
         "candidate_source_sha": {
           "type": "string",
@@ -191,7 +191,7 @@
           "$ref": "#/$defs/sha256"
         },
         "profile": {
-          "const": "runne.rc0.evidence-profile/3"
+          "const": "gocode.rc0.evidence-profile/3"
         },
         "exact_artifact_bindings": {
           "type": "array", "minItems": 1, "maxItems": 4096, "uniqueItems": true,

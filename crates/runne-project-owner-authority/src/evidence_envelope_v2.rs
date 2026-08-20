@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 /// Fixed raw evidence envelope schema for V5 evidence delegations.
-pub const EVIDENCE_ENVELOPE_SCHEMA_V2: &str = "runne.release.post-rc0-evidence-envelope/2";
+pub const EVIDENCE_ENVELOPE_SCHEMA_V2: &str = "gocode.release.post-rc0-evidence-envelope/2";
 
 /// Raw V2 evidence authorization envelope, signed only by an evidence delegate.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]

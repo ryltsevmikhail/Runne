@@ -121,7 +121,7 @@ fn wildcard(path: &str) -> bool {
 
 fn schema_id(value: &str) -> bool {
     let Some((name, version)) = value
-        .strip_prefix("runne.")
+        .strip_prefix("gocode.")
         .and_then(|item| item.split_once('/'))
     else {
         return false;

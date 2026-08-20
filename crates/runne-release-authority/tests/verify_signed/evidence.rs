@@ -58,7 +58,7 @@ pub(super) fn claim_with_expiry(
 ) -> RawRc2Evidence {
     let record: Value = serde_json::from_slice(record.raw()).unwrap();
     raw(
-        &json!({"schema_version":"runne.release.rc2-signing-effect-claim/1","signing_authorization_sha256":record["signing_authorization_sha256"],"parent_candidate_sha256":record["parent_candidate_sha256"],"artifact_slot_id":slot,"platform":platform,"pre_sign_artifact_sha256":record["pre_sign_artifact_sha256"],"pre_sign_artifact_length":length,"signer":identity("signer"),"runner":identity("runner"),"workflow_sha256":record["workflow_sha256"],"effect_namespace":"namespace","effect_generation":1,"generation_fence":1,"operation":"native_sign","valid_from":1,"expires_at":expires_at,"revocation_epoch":1}),
+        &json!({"schema_version":"gocode.release.rc2-signing-effect-claim/1","signing_authorization_sha256":record["signing_authorization_sha256"],"parent_candidate_sha256":record["parent_candidate_sha256"],"artifact_slot_id":slot,"platform":platform,"pre_sign_artifact_sha256":record["pre_sign_artifact_sha256"],"pre_sign_artifact_length":length,"signer":identity("signer"),"runner":identity("runner"),"workflow_sha256":record["workflow_sha256"],"effect_namespace":"namespace","effect_generation":1,"generation_fence":1,"operation":"native_sign","valid_from":1,"expires_at":expires_at,"revocation_epoch":1}),
         7,
     )
 }
@@ -79,7 +79,7 @@ pub(super) fn native_with_expiry(
     let record: Value = serde_json::from_slice(record.raw()).unwrap();
     let digests = ["a", "b", "c", "d", "e", "f", "1", "2", "3", "4"];
     raw(
-        &json!({"schema_version":"runne.release.rc2-native-evidence/1","signed_artifact_record_sha256":record_digest,"signing_effect_claim_sha256":effect_digest(effect),"parent_candidate_sha256":record["parent_candidate_sha256"],"artifact_slot_id":record["artifact_slot_id"],"platform":platform,"host_id":"host","build_id":"build","architecture":"x86_64","post_sign_artifact_sha256":record["artifact_sha256"],"post_sign_artifact_length":record["artifact_length"],"attestations":attestations(record["artifact_sha256"].as_str().unwrap(), &digests),"runner":identity("runner"),"result":"verified","valid_from":1,"expires_at":expires_at,"revocation_epoch":1}),
+        &json!({"schema_version":"gocode.release.rc2-native-evidence/1","signed_artifact_record_sha256":record_digest,"signing_effect_claim_sha256":effect_digest(effect),"parent_candidate_sha256":record["parent_candidate_sha256"],"artifact_slot_id":record["artifact_slot_id"],"platform":platform,"host_id":"host","build_id":"build","architecture":"x86_64","post_sign_artifact_sha256":record["artifact_sha256"],"post_sign_artifact_length":record["artifact_length"],"attestations":attestations(record["artifact_sha256"].as_str().unwrap(), &digests),"runner":identity("runner"),"result":"verified","valid_from":1,"expires_at":expires_at,"revocation_epoch":1}),
         8,
     )
 }
@@ -96,7 +96,7 @@ pub(super) fn review(
     native: &[runne_release_authority::FixtureVerifiedNativeEvidence; 3],
 ) -> RawRc2Evidence {
     raw(
-        &json!({"schema_version":"runne.release.rc2-signing-review/1","signing_authorization_sha256":digest(&auth.raw()[..auth.raw().len()-1]),"inventory_sha256":digest(&inventory.raw()[..inventory.raw().len()-1]),"native_evidence_sha256":native.iter().map(native_digest).collect::<Vec<_>>(),"reviewer":identity("reviewer"),"approval":"approved","valid_from":1,"expires_at":2,"revocation_epoch":1}),
+        &json!({"schema_version":"gocode.release.rc2-signing-review/1","signing_authorization_sha256":digest(&auth.raw()[..auth.raw().len()-1]),"inventory_sha256":digest(&inventory.raw()[..inventory.raw().len()-1]),"native_evidence_sha256":native.iter().map(native_digest).collect::<Vec<_>>(),"reviewer":identity("reviewer"),"approval":"approved","valid_from":1,"expires_at":2,"revocation_epoch":1}),
         9,
     )
 }
@@ -106,7 +106,7 @@ pub(super) fn issuance(
     metadata: &InspectedCanonicalPayload,
 ) -> RawRc2Evidence {
     raw(
-        &json!({"schema_version":"runne.release.rc2-update-metadata-issuance/1","signing_authorization_sha256":digest(&auth.raw()[..auth.raw().len()-1]),"inventory_sha256":digest(&inventory.raw()[..inventory.raw().len()-1]),"threshold_metadata_sha256":digest(&metadata.raw()[..metadata.raw().len()-1]),"update_issuer":identity("issuer"),"root_key_ids":key_ids(metadata,"root"),"targets_key_ids":key_ids(metadata,"targets"),"root_threshold":2,"targets_threshold":2,"issuance":"issued","valid_from":1,"expires_at":2,"revocation_epoch":1}),
+        &json!({"schema_version":"gocode.release.rc2-update-metadata-issuance/1","signing_authorization_sha256":digest(&auth.raw()[..auth.raw().len()-1]),"inventory_sha256":digest(&inventory.raw()[..inventory.raw().len()-1]),"threshold_metadata_sha256":digest(&metadata.raw()[..metadata.raw().len()-1]),"update_issuer":identity("issuer"),"root_key_ids":key_ids(metadata,"root"),"targets_key_ids":key_ids(metadata,"targets"),"root_threshold":2,"targets_threshold":2,"issuance":"issued","valid_from":1,"expires_at":2,"revocation_epoch":1}),
         10,
     )
 }

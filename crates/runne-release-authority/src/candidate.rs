@@ -157,7 +157,7 @@ impl CandidateBinding {
 
     /// SHA-256 candidate-binding commitment over immutable RC0 and release-facts digests.
     ///
-    /// Preimage: `runne.release.candidate-binding/1`, NUL, then compact
+    /// Preimage: `gocode.release.candidate-binding/1`, NUL, then compact
     /// lexicographic JSON with exactly one trailing LF.
     #[must_use]
     pub fn sha256(&self) -> Digest {
@@ -174,7 +174,7 @@ impl CandidateBinding {
             self.subject.to_hex(),
         );
         let mut hash = Sha256::new();
-        hash.update(b"runne.release.candidate-binding/1\0");
+        hash.update(b"gocode.release.candidate-binding/1\0");
         hash.update(payload.as_bytes());
         Digest::from_bytes(hash.finalize().into())
     }
@@ -189,7 +189,7 @@ mod tests {
         let binding = CandidateBinding::fixture([1; 32], [2; 32], [3; 32], [4; 32], [5; 32]);
         assert_eq!(
             binding.sha256().to_hex(),
-            "84974e3df73772a649f0a22d7ec53572025ce184e63a58bc97be38b7eca6bf24"
+            "d68ba2fb4fe32ee12add4d403d68b2629e3819ca4572a979c711527dcc98026c"
         );
     }
 

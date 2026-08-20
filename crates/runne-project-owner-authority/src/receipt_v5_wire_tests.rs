@@ -230,13 +230,13 @@ fn non_exact_payload_schema_sets_are_rejected_before_context() {
     assert_rejected_before_context(&root, &trust, &predecessor, &missing);
     let mut extra = receipt(&trust);
     extra.transition_delegations[1].allowed_payload_schema_ids = vec![
-        "runne.release.rc2-signing-authorization/1".into(),
-        "runne.other/1".into(),
+        "gocode.release.rc2-signing-authorization/1".into(),
+        "gocode.other/1".into(),
     ];
     assert_rejected_before_context(&root, &trust, &predecessor, &extra);
     let mut cross_role = receipt(&trust);
     cross_role.evidence_delegations[4].allowed_payload_schema_ids =
-        vec!["runne.release.rc2-signing-authorization/1".into()];
+        vec!["gocode.release.rc2-signing-authorization/1".into()];
     assert_rejected_before_context(&root, &trust, &predecessor, &cross_role);
 }
 

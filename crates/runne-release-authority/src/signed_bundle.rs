@@ -264,7 +264,7 @@ impl FixturePrevalidatedSignedBundle {
         self.authorization_epoch
     }
     pub(crate) fn commitment(&self) -> Digest {
-        let mut transcript = b"runne.release.prevalidated-signed-bundle/1\0".to_vec();
+        let mut transcript = b"gocode.release.prevalidated-signed-bundle/1\0".to_vec();
         for digest in [
             self.authority_instance,
             self.candidate,

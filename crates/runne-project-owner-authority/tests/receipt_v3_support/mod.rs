@@ -51,8 +51,8 @@ impl Signer for TestSigner {
 }
 pub fn trust(key: &SigningKey, schema_digests: Vec<SchemaDigest>) -> ProjectOwnerTrustConfigV1 {
     let mut value = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: runne_project_owner_authority::key_id(&key.verifying_key().to_bytes()),
@@ -62,7 +62,7 @@ pub fn trust(key: &SigningKey, schema_digests: Vec<SchemaDigest>) -> ProjectOwne
         predecessor: None,
     };
     let bytes = runne_project_owner_authority::framed_transcript(
-        b"runne.project-owner.genesis-pop/1",
+        b"gocode.project-owner.genesis-pop/1",
         &runne_project_owner_authority::canonical_genesis_without_pop(&value).unwrap(),
     )
     .unwrap();
@@ -70,7 +70,7 @@ pub fn trust(key: &SigningKey, schema_digests: Vec<SchemaDigest>) -> ProjectOwne
     value
 }
 pub fn anchor(value: &ProjectOwnerTrustConfigV1) -> TrustAnchorState {
-    TrustAnchorState::confirmed("runne".into(), 1, value.sha256().unwrap())
+    TrustAnchorState::confirmed("gocode".into(), 1, value.sha256().unwrap())
 }
 pub fn subject(byte: char) -> GitSubject {
     GitSubject {
@@ -88,10 +88,10 @@ pub fn binding(path: &str, byte: char) -> DocumentBinding {
         byte_length: 1,
         schema_id: match path {
             "docs/matrices/v1-platform-scope-claim-migration-v1.json" => {
-                Some("runne.v1-platform-scope-claim-migration/1".into())
+                Some("gocode.v1-platform-scope-claim-migration/1".into())
             }
             "docs/rc0/POST_RC0_PLATFORM_QUALIFICATION_COMPOSED_UNIVERSE_V1.json" => {
-                Some("runne.rc0.post-rc0-platform-composed-universe/1".into())
+                Some("gocode.rc0.post-rc0-platform-composed-universe/1".into())
             }
             _ => None,
         },
@@ -107,6 +107,6 @@ pub fn v2_documents() -> Vec<DocumentBinding> {
             '4',
         ),
     ];
-    values[1].schema_id = Some("runne.governance.v1-platform-scope-decision/1".into());
+    values[1].schema_id = Some("gocode.governance.v1-platform-scope-decision/1".into());
     values
 }

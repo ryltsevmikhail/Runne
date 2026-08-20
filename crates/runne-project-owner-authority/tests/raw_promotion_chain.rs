@@ -50,15 +50,15 @@ fn raw_chain_verifies_v2_to_v3_bootstrap_and_all_stage_envelopes() {
     for ((role, schema_id), key) in [
         (
             "RC1_QUALIFICATION_AUTHORIZER",
-            "runne.release.rc1-qualification-decision/1",
+            "gocode.release.rc1-qualification-decision/1",
         ),
         (
             "RC2_SIGNING_AUTHORIZER",
-            "runne.release.rc2-signing-authorization/1",
+            "gocode.release.rc2-signing-authorization/1",
         ),
         (
             "RC3_PUBLICATION_AUTHORIZER",
-            "runne.release.rc3-publication-authorization/1",
+            "gocode.release.rc3-publication-authorization/1",
         ),
     ]
     .into_iter()
@@ -68,7 +68,7 @@ fn raw_chain_verifies_v2_to_v3_bootstrap_and_all_stage_envelopes() {
         let delegation = delegation(role, &key);
         let envelope = StageAuthorityEnvelopeV1 {
             schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-            repository_id: "runne".into(),
+            repository_id: "gocode".into(),
             bootstrap_receipt_sha256: verified.receipt_sha256(),
             issuer_role: role.into(),
             issuer_principal_id: delegation.principal_id,
@@ -92,7 +92,7 @@ fn raw_chain_verifies_v2_to_v3_bootstrap_and_all_stage_envelopes() {
             revocation_epoch: 1,
             authorization_nonce: format!("nonce-{}", &role[2..3]),
         };
-        let domain = SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, role, "runne").unwrap();
+        let domain = SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, role, "gocode").unwrap();
         let signature = key
             .sign(&signing_transcript(
                 &domain,
@@ -103,7 +103,7 @@ fn raw_chain_verifies_v2_to_v3_bootstrap_and_all_stage_envelopes() {
         let bytes = canonical_checked_in_stage_envelope(&envelope, &signature).unwrap();
         let envelope_digest: [u8; 32] = Sha256::digest(&bytes[..bytes.len() - 1]).into();
         let outcome = verify_stage_envelope_bytes(&bytes, envelope_digest, &verified, &TestContext);
-        if schema_id == "runne.release.rc3-publication-authorization/1" {
+        if schema_id == "gocode.release.rc3-publication-authorization/1" {
             assert_eq!(outcome, Err(AuthorityError::AuthorityVersionSuperseded));
         } else {
             assert!(outcome.is_ok());
@@ -114,11 +114,11 @@ fn raw_chain_verifies_v2_to_v3_bootstrap_and_all_stage_envelopes() {
 fn stage_payload(schema_id: &str) -> serde_json::Value {
     let digest = "a".repeat(64);
     match schema_id {
-        "runne.release.rc1-qualification-decision/1" => serde_json::json!({
+        "gocode.release.rc1-qualification-decision/1" => serde_json::json!({
             "schema_version":schema_id,"candidate_binding_sha256":digest,"subject_sha256":"b".repeat(64),"matrix_sha256":"c".repeat(64),"bootstrap_sha256":"d".repeat(64),"candidate_sha256":"e".repeat(64),"policy_sha256":"f".repeat(64),"release_facts_sha256":"1".repeat(64),
             "approver":{"principal_id":"a","account_id":"b","lane_id":"c","key_id":"d","signature_profile_id":"e"},"valid_from":1,"expires_at":2,"revocation_epoch":1,"disposition":"qualified_unsigned","signing_allowed":false,"publication_allowed":false,"external_effects":[]
         }),
-        "runne.release.rc2-signing-authorization/1" => {
+        "gocode.release.rc2-signing-authorization/1" => {
             serde_json::json!({
                 "schema_version":schema_id,"parent_candidate_sha256":digest,
                 "unsigned_manifest_sha256":"b".repeat(64),

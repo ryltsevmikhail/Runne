@@ -3,20 +3,20 @@
     fn content() -> PluginPackageContent {
         PluginPackageContent::new(
             b"package-a".to_vec(),
-            b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
+            b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
             b"entrypoint-a".to_vec(),
-            b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
+            b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
             b"trust-binding-a".to_vec(),
         )
     }
 
     fn declared_manifest(package: &[u8], entrypoint: &[u8]) -> Vec<u8> {
         upgrade_legacy_test_manifest(
-            b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n",
+            b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n",
             package,
             entrypoint,
             &upgrade_legacy_test_profile(
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n",
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n",
             ),
         )
     }
@@ -53,7 +53,7 @@
         let entrypoint = b"entrypoint-a";
         let manifest = declared_manifest(package, entrypoint);
         let profile_bytes =
-            upgrade_legacy_test_profile(b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n");
+            upgrade_legacy_test_profile(b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n");
         let profile = parse_profile(&profile_bytes).unwrap();
         let trust = b"trust-binding-a".to_vec();
 
@@ -164,9 +164,9 @@
         let first = PluginPackageCapture::capture(
             PluginPackageContent::new(
                 b"package-a".to_vec(),
-                b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
+                b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
                 b"entrypoint-a".to_vec(),
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
                 b"trust-binding-a".to_vec(),
             ),
             PluginClass::Extension,
@@ -174,9 +174,9 @@
         let second = PluginPackageCapture::capture(
             PluginPackageContent::new(
                 b"package-a".to_vec(),
-                b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
+                b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
                 b"entrypoint-a".to_vec(),
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-b\n".to_vec(),
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-b\n".to_vec(),
                 b"trust-binding-a".to_vec(),
             ),
             PluginClass::Extension,
@@ -196,9 +196,9 @@
         let source = PluginPackageCapture::capture(
             PluginPackageContent::new(
                 original_package.clone(),
-                b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
+                b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
                 b"entrypoint-a".to_vec(),
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
                 b"trust-binding-a".to_vec(),
             ),
             PluginClass::Extension,
@@ -232,9 +232,9 @@
         let changed = PluginPackageCapture::capture(
             PluginPackageContent::new(
                 b"package-b".to_vec(),
-                b"RUNNE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
+                b"GOCODE_PLUGIN_MANIFEST_V1\npackage_id=package-a\npackage_version=1.0.0\nhost_identity=host-a\nplugin_identity=plugin-a\ntarget_identity=target-a\nentrypoint=entrypoint-a\n".to_vec(),
                 b"entrypoint-a".to_vec(),
-                b"RUNNE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
+                b"GOCODE_PLUGIN_PROFILE_V1\nprofile_id=profile-a\n".to_vec(),
                 b"trust-binding-a".to_vec(),
             ),
             PluginClass::Extension,

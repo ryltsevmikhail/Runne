@@ -52,7 +52,7 @@ pub fn verify_production_security_review_instance(
         .as_object()
         .and_then(|object| object.get("schema_version"))
         .and_then(serde_json::Value::as_str)
-        != Some("runne.rc0.production-security-review/1")
+        != Some("gocode.rc0.production-security-review/1")
         || serde_json::to_vec(&value).map_err(|_| AuthorityError::Serialization)? != canonical_bytes
     {
         return Err(AuthorityError::InvalidReceipt);

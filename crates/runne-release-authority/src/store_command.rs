@@ -32,7 +32,7 @@ pub fn fingerprint(revision: u64, mutation: &Mutation) -> CommandFingerprint {
         Mutation::StartRc3Review { .. } => (b"start-rc3".as_slice(), Digest::from_bytes([0; 32])),
     };
     command_digest(
-        b"runne.release.store-command/1\0",
+        b"gocode.release.store-command/1\0",
         &[&revision.to_be_bytes(), kind, &commitment.as_bytes()],
     )
 }
@@ -49,7 +49,7 @@ pub fn stage_reservation_fingerprint(
         runne_promotion_contracts::CanonicalPayloadKind::Rc3Authorization => b"rc3".as_slice(),
     };
     command_digest(
-        b"runne.release.stage-transition-reservation/1\0",
+        b"gocode.release.stage-transition-reservation/1\0",
         &[
             id.0.as_bytes(),
             &revision.to_be_bytes(),
@@ -76,7 +76,7 @@ pub fn stage_command_fingerprint(
         }
     };
     command_digest(
-        b"runne.release.store-command/1\0",
+        b"gocode.release.store-command/1\0",
         &[&revision.to_be_bytes(), kind, &admission_fingerprint],
     )
 }
@@ -95,7 +95,7 @@ pub fn publication_stage_command_fingerprint(
     );
     let commitment = Digest::from_bytes(Sha256::digest(commitment.as_bytes()).into());
     command_digest(
-        b"runne.release.store-command/1\0",
+        b"gocode.release.store-command/1\0",
         &[
             &revision.to_be_bytes(),
             b"authorize-publication",
@@ -111,7 +111,7 @@ pub fn threshold_ack_fingerprint(
     admission: Digest,
 ) -> CommandFingerprint {
     command_digest(
-        b"runne.release.threshold-ack-command/1\0",
+        b"gocode.release.threshold-ack-command/1\0",
         &[
             id.0.as_bytes(),
             &revision.to_be_bytes(),
@@ -130,7 +130,7 @@ pub fn reservation_fingerprint(
     bundle: &crate::FixturePrevalidatedSignedBundle,
 ) -> CommandFingerprint {
     command_digest(
-        b"runne.release.verify-signed-reservation/1\0",
+        b"gocode.release.verify-signed-reservation/1\0",
         &[
             &authority_instance.as_bytes(),
             id.0.as_bytes(),

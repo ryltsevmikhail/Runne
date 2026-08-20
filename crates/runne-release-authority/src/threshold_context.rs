@@ -226,7 +226,7 @@ fn admission_id(
     generation: u64,
     next: &ThresholdVerificationState,
 ) -> Digest {
-    let mut transcript = b"runne.release.threshold-admission/1\0".to_vec();
+    let mut transcript = b"gocode.release.threshold-admission/1\0".to_vec();
     append(&mut transcript, &scope.digest().as_bytes());
     append(&mut transcript, &generation.to_be_bytes());
     append(&mut transcript, &next.generation.to_be_bytes());

@@ -22,7 +22,7 @@ pub struct ThresholdAdmissionScope {
 impl ThresholdAdmissionScope {
     #[must_use]
     pub fn digest(&self) -> Digest {
-        let mut transcript = b"runne.release.threshold-admission-scope/1\0".to_vec();
+        let mut transcript = b"gocode.release.threshold-admission-scope/1\0".to_vec();
         append(&mut transcript, &self.authority_instance.as_bytes());
         append(&mut transcript, self.promotion.as_bytes());
         append(&mut transcript, &self.revision.to_be_bytes());
@@ -125,7 +125,7 @@ mod tests {
     fn admission_scope_digest_has_a_stable_binary_vector() {
         assert_eq!(
             scope().digest().to_hex(),
-            "e0084d8e7da56a332c3535f917f183417b751be35bb2ef9c9416a8ea345de1e4"
+            "c67b839bef6fdb1fd2caa1713524d0bed30e09ce2823ce47228148464b6b366b"
         );
     }
 

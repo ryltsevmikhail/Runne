@@ -14,19 +14,19 @@ mod rotation_support;
 fn public_pop_transcripts_are_exact_protocol_transcripts() {
     let (_, trust, _) = receipt_support::signed();
     let genesis = genesis_pop_transcript(&trust).expect("genesis transcript");
-    assert_eq!(&genesis[4..37], b"runne.project-owner.genesis-pop/1");
+    assert_eq!(&genesis[4..38], b"gocode.project-owner.genesis-pop/1");
 
     let rotation = rotation_support::rotation(&trust);
     let new_pop = rotation_new_pop_transcript(&trust, &rotation).expect("new PoP transcript");
     assert_eq!(
-        &new_pop[4..58],
-        b"runne.project-owner.rotation-new-proof-of-possession/1"
+        &new_pop[4..59],
+        b"gocode.project-owner.rotation-new-proof-of-possession/1"
     );
     let old_authorization =
         rotation_old_authorization_transcript(&rotation).expect("old authorization transcript");
     assert_eq!(
-        &old_authorization[4..52],
-        b"runne.project-owner.rotation-old-authorization/1"
+        &old_authorization[4..53],
+        b"gocode.project-owner.rotation-old-authorization/1"
     );
 }
 

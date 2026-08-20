@@ -26,14 +26,14 @@ impl BackupRng for FailingRng {
 fn trust() -> ProjectOwnerTrustConfigV1 {
     let key = SigningKey::from_bytes(&[7; 32]);
     ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: runne_project_owner_authority::key_id(&key.verifying_key().to_bytes()),
         public_key: key.verifying_key().to_bytes(),
         schema_digests: vec![SchemaDigest {
-            schema_id: "runne.project-owner.authority-receipt/1".into(),
+            schema_id: "gocode.project-owner.authority-receipt/1".into(),
             schema_sha256: [3; 32],
         }],
         proof_of_possession: [0; 64],
@@ -60,20 +60,20 @@ fn encrypts_canonical_metadata_and_roundtrips_the_exact_seed() {
     let canonical = metadata.to_canonical_json().expect("canonical");
     assert!(canonical.ends_with(b"\n"));
     assert!(canonical.starts_with(b"{\"ciphertext\":\""));
-    assert_eq!(metadata.repository_id(), "runne");
+    assert_eq!(metadata.repository_id(), "gocode");
     assert_eq!(metadata.key_epoch(), 1);
     assert_eq!(metadata.parameters(), BackupParameters::default());
     assert_eq!(
         metadata.key_fingerprint(),
         key_fingerprint(&trust.public_key)
     );
-    let header = b"{\"kdf\":{\"algorithm\":\"Argon2id\",\"iterations\":3,\"memory_kib\":65536,\"parallelism\":1},\"key_epoch\":1,\"key_fingerprint\":\"1464afae59ae424a4762e9260d4dab3c086c22c15f069dde4eafd2d634ab7b28\",\"key_id\":\"57d626391d1c221f9bcb414d494417af4450cd70060a0dd292176d53d1ebf5c7\",\"nonce\":\"AgICAgICAgICAgICAgICAgICAgICAgIC\",\"repository_id\":\"runne\",\"salt\":\"AQEBAQEBAQEBAQEBAQEBAQ\",\"schema_version\":\"runne.project-owner.encrypted-key-backup/1\"}\n";
+    let header = b"{\"kdf\":{\"algorithm\":\"Argon2id\",\"iterations\":3,\"memory_kib\":65536,\"parallelism\":1},\"key_epoch\":1,\"key_fingerprint\":\"ee71591d38ef4eba840ce7015cce37765f093b7b49c215df19511b2ff460e272\",\"key_id\":\"5d3f3c61d5ad51bcdc9a77bc6ae5cbca3326d196be42e0fd2b9f593591c71053\",\"nonce\":\"AgICAgICAgICAgICAgICAgICAgICAgIC\",\"repository_id\":\"gocode\",\"salt\":\"AQEBAQEBAQEBAQEBAQEBAQ\",\"schema_version\":\"gocode.project-owner.encrypted-key-backup/1\"}\n";
     assert_eq!(
         metadata.authenticated_data().expect("aad"),
         [
-            &46_u32.to_be_bytes()[..],
-            b"runne.project-owner.encrypted-key-backup-aad/1",
-            &419_u64.to_be_bytes(),
+            &47_u32.to_be_bytes()[..],
+            b"gocode.project-owner.encrypted-key-backup-aad/1",
+            &421_u64.to_be_bytes(),
             header
         ]
         .concat()
@@ -81,7 +81,7 @@ fn encrypts_canonical_metadata_and_roundtrips_the_exact_seed() {
     assert_eq!(
         canonical,
         [
-            b"{\"ciphertext\":\"hLm-9g04llyJqUeWTSflFatcxBasElcB0T8MjHCwoF4DWR3i1iLwoZeDkomxkKrE\",",
+            b"{\"ciphertext\":\"hLm-9g04llyJqUeWTSflFatcxBasElcB0T8MjHCwoF4JU6yOmCJjmKHk2u1BMafU\",",
             &header[1..],
         ]
         .concat()
@@ -159,7 +159,7 @@ fn rejects_wrong_passphrase_and_every_authenticated_metadata_mutation_uniformly(
     );
     for invalid_metadata in [
         original.replacen(
-            "\"repository_id\":\"runne\"",
+            "\"repository_id\":\"gocode\"",
             "\"repository_id\":\"other\"",
             1,
         ),

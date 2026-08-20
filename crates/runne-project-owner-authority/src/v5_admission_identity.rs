@@ -46,7 +46,7 @@ pub fn identities(
         payload_sha256: input.payload_sha256,
     };
     let reservation = ReservationIdentity(hash(
-        b"runne.owner.v5.reservation/1",
+        b"gocode.owner.v5.reservation/1",
         &[
             &input.receipt_sha256,
             &input.envelope_sha256,
@@ -55,7 +55,7 @@ pub fn identities(
         input.nonce,
     ));
     let outcome = OutcomeIdentity(hash(
-        b"runne.owner.v5.outcome/1",
+        b"gocode.owner.v5.outcome/1",
         &[
             &input.payload_sha256,
             &input.envelope_sha256,

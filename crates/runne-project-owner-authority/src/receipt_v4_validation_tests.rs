@@ -42,11 +42,11 @@ fn bootstrap() -> (PromotionBootstrapV4, [u8; 32]) {
     let documents = DOCUMENTS.into_iter().map(document).collect();
     (
         PromotionBootstrapV4 {
-            schema_version: "runne.project-owner.authority-receipt/4".into(),
-            repository_id: "runne".into(),
+            schema_version: "gocode.project-owner.authority-receipt/4".into(),
+            repository_id: "gocode".into(),
             role: "PROJECT_OWNER".into(),
             purpose: "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP".into(),
-            profile: "runne.project-owner.post-rc0-promotion/1".into(),
+            profile: "gocode.project-owner.post-rc0-promotion/1".into(),
             predecessor_receipt_sha256: [1; 32],
             platform_qualified_subject_sha256: [2; 32],
             platform_matrix_sha256: [3; 32],
@@ -136,7 +136,7 @@ fn bootstrap_validator_rejects_exact_closed_contract_mutations() {
         |v| v.subject.object_format = "sha256".into(),
         |v| v.documents.reverse(),
         |v| v.documents[0].mode = "100755".into(),
-        |v| v.documents[0].schema_id = Some("runne.unexpected/1".into()),
+        |v| v.documents[0].schema_id = Some("gocode.unexpected/1".into()),
         |v| v.promotion_policy_revision = "unsafe/slash".into(),
         |v| v.authority_store_profile = "unsafe/slash".into(),
         |v| v.key_epoch = 2,

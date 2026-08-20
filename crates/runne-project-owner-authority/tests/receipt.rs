@@ -7,7 +7,7 @@ use runne_project_owner_authority::{
 };
 use sha2::{Digest, Sha256};
 
-const POP_DOMAIN: &[u8] = b"runne.project-owner.genesis-pop/1";
+const POP_DOMAIN: &[u8] = b"gocode.project-owner.genesis-pop/1";
 
 struct TestSigner(SigningKey);
 
@@ -19,8 +19,8 @@ impl Signer for TestSigner {
 
 fn config(signing: &SigningKey) -> ProjectOwnerTrustConfigV1 {
     let mut config = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&signing.verifying_key().to_bytes()),
@@ -39,7 +39,7 @@ fn config(signing: &SigningKey) -> ProjectOwnerTrustConfigV1 {
 }
 
 fn anchor(config: &ProjectOwnerTrustConfigV1) -> TrustAnchorState {
-    TrustAnchorState::confirmed("runne".into(), 1, config.sha256().expect("config sha"))
+    TrustAnchorState::confirmed("gocode".into(), 1, config.sha256().expect("config sha"))
 }
 
 fn subject() -> GitSubject {
@@ -58,7 +58,7 @@ fn documents() -> Vec<DocumentBinding> {
             blob_oid: "7".repeat(40),
             content_sha256: "8".repeat(64),
             byte_length: 512,
-            schema_id: Some("runne.governance.v1-platform-scope-decision/1".into()),
+            schema_id: Some("gocode.governance.v1-platform-scope-decision/1".into()),
         },
         DocumentBinding {
             path: "docs/adr/ADR-0027-v1-platform-scope.md".into(),

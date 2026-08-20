@@ -19,7 +19,7 @@ pub fn verify_rc3_final_review_evidence_v2(
     let verified = crate::verify_evidence_envelope_v2(bytes, expected_sha256, receipt5, context)?;
     if verified.issuer().role != "RC3_FINAL_REVIEWER"
         || verified.issuer().scope != "final-review"
-        || verified.payload_schema_id() != "runne.release.rc3-final-review/1"
+        || verified.payload_schema_id() != "gocode.release.rc3-final-review/1"
     {
         return Err(AuthorityError::InvalidEvidenceEnvelope);
     }

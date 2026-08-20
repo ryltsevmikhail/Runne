@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 /// The sole active stage envelope schema for versioned V5 promotion authority.
-pub const STAGE_ENVELOPE_SCHEMA_V2: &str = "runne.release.post-rc0-stage-envelope/2";
+pub const STAGE_ENVELOPE_SCHEMA_V2: &str = "gocode.release.post-rc0-stage-envelope/2";
 
 /// Raw V2 transition authorization envelope, signed only by a transition delegate.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]

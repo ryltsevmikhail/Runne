@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.project-owner.pre-authority-document-delta/1",
+  "$id": "gocode.project-owner.pre-authority-document-delta/1",
   "title": "Pre-authority document delta",
   "type": "object",
   "additionalProperties": false,
@@ -36,7 +36,7 @@
           "path": {"type": "string", "minLength": 1},
           "claim_kind": {"enum": ["blocked_status", "design_policy", "terminology_reference", "out_of_scope_status"]},
           "disposition": {"enum": ["BLOCKED", "NON_PRODUCTION", "OUT_OF_SCOPE"]},
-          "evidence_binding": {"const": "runne.rc0.evidence-profile/3"}
+          "evidence_binding": {"const": "gocode.rc0.evidence-profile/3"}
         }
       }
     }

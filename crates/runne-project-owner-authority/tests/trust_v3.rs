@@ -17,8 +17,8 @@ fn v2_pins() -> Vec<SchemaDigest> {
 fn old() -> (SigningKey, ProjectOwnerTrustConfigV1) {
     let key = SigningKey::from_bytes(&[7; 32]);
     let mut value = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&key.verifying_key().to_bytes()),
@@ -40,14 +40,14 @@ fn v2() -> (
     let (old_key, old) = old();
     let new_key = SigningKey::from_bytes(&[8; 32]);
     let mut rotation = KeyRotationV2 {
-        schema_version: "runne.project-owner.key-rotation/2".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/2".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),
         old_key_id: old.key_id,
         old_epoch: old.epoch,
-        new_trust_schema_version: "runne.project-owner.trust-config/2".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/2".into(),
         new_key_id: key_id(&new_key.verifying_key().to_bytes()),
         new_public_key: new_key.verifying_key().to_bytes(),
         new_epoch: 2,
@@ -72,14 +72,14 @@ fn v3_upgrades_v2_only_with_the_exact_finalized_pin_union() {
     let (old_key, old) = v2();
     let new_key = SigningKey::from_bytes(&[9; 32]);
     let mut rotation = KeyRotationV3 {
-        schema_version: "runne.project-owner.key-rotation/3".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/3".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),
         old_key_id: old.key_id,
         old_epoch: old.epoch,
-        new_trust_schema_version: "runne.project-owner.trust-config/3".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/3".into(),
         new_key_id: key_id(&new_key.verifying_key().to_bytes()),
         new_public_key: new_key.verifying_key().to_bytes(),
         new_epoch: 3,
@@ -100,7 +100,7 @@ fn v3_upgrades_v2_only_with_the_exact_finalized_pin_union() {
         },
         |value: &mut KeyRotationV3| {
             value.new_schema_digests.push(SchemaDigest {
-                schema_id: "runne.extra/1".into(),
+                schema_id: "gocode.extra/1".into(),
                 schema_sha256: [0; 32],
             });
         },
@@ -116,8 +116,8 @@ fn v3_raw_codec_requires_exact_canonical_bytes() {
     let (_, old) = v2();
     let key = SigningKey::from_bytes(&[9; 32]);
     let mut trust = ProjectOwnerTrustConfigV3 {
-        schema_version: "runne.project-owner.trust-config/3".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/3".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 3,
         key_id: key_id(&key.verifying_key().to_bytes()),
@@ -130,7 +130,7 @@ fn v3_raw_codec_requires_exact_canonical_bytes() {
     trust.proof_of_possession = key
         .sign(
             &runne_project_owner_authority::framed_transcript(
-                b"runne.project-owner.rotation-new-proof-of-possession/3",
+                b"gocode.project-owner.rotation-new-proof-of-possession/3",
                 &runne_project_owner_authority::canonical_config_v3(&trust, false).unwrap(),
             )
             .unwrap(),

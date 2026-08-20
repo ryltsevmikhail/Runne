@@ -4,7 +4,7 @@ use runne_project_owner_authority::{
 
 #[test]
 fn v5_receipt_declares_the_closed_transition_and_evidence_delegation_sets() {
-    assert_eq!(RECEIPT_SCHEMA_V5, "runne.project-owner.authority-receipt/5");
+    assert_eq!(RECEIPT_SCHEMA_V5, "gocode.project-owner.authority-receipt/5");
     assert_eq!(
         V5_TRANSITION_ROLES,
         [

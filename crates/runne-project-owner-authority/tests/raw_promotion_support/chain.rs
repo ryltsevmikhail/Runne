@@ -37,14 +37,14 @@ pub fn v2_trust_with_keys(
 ) {
     let old = trust(&old_key, v2_platform_scope_schema_digests());
     let mut rotation = KeyRotationV2 {
-        schema_version: "runne.project-owner.key-rotation/2".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/2".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),
         old_key_id: old.key_id,
         old_epoch: old.epoch,
-        new_trust_schema_version: "runne.project-owner.trust-config/2".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/2".into(),
         new_key_id: key_id(&new_key.verifying_key().to_bytes()),
         new_public_key: new_key.verifying_key().to_bytes(),
         new_epoch: 2,
@@ -129,14 +129,14 @@ pub fn trust_v3(
 ) -> (SigningKey, VerifiedTrustConfigV3) {
     let new_key = SigningKey::from_bytes(&[43; 32]);
     let mut rotation = KeyRotationV3 {
-        schema_version: "runne.project-owner.key-rotation/3".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/3".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         old_trust_schema_version: old.schema_version.clone(),
         old_trust_config_sha256: old.sha256().unwrap(),
         old_key_id: old.key_id,
         old_epoch: old.epoch,
-        new_trust_schema_version: "runne.project-owner.trust-config/3".into(),
+        new_trust_schema_version: "gocode.project-owner.trust-config/3".into(),
         new_key_id: key_id(&new_key.verifying_key().to_bytes()),
         new_public_key: new_key.verifying_key().to_bytes(),
         new_epoch: 3,
@@ -158,9 +158,9 @@ pub fn trust_v3(
 
 pub fn delegation(role: &str, key: &SigningKey) -> DelegationV1 {
     let (number, schema_id) = match role {
-        "RC1_QUALIFICATION_AUTHORIZER" => (1, "runne.release.rc1-qualification-decision/1"),
-        "RC2_SIGNING_AUTHORIZER" => (2, "runne.release.rc2-signing-authorization/1"),
-        _ => (3, "runne.release.rc3-publication-authorization/1"),
+        "RC1_QUALIFICATION_AUTHORIZER" => (1, "gocode.release.rc1-qualification-decision/1"),
+        "RC2_SIGNING_AUTHORIZER" => (2, "gocode.release.rc2-signing-authorization/1"),
+        _ => (3, "gocode.release.rc3-publication-authorization/1"),
     };
     let public_key = key.verifying_key().to_bytes();
     DelegationV1 {
@@ -196,10 +196,10 @@ pub fn signed_bootstrap() -> (
     ];
     let unsigned = PromotionBootstrapV4 {
         schema_version: RECEIPT_SCHEMA_V4.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         purpose: "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP".into(),
-        profile: "runne.project-owner.post-rc0-promotion/1".into(),
+        profile: "gocode.project-owner.post-rc0-promotion/1".into(),
         predecessor_receipt_sha256: predecessor.receipt_sha256(),
         platform_qualified_subject_sha256: [2; 32],
         platform_matrix_sha256: [3; 32],

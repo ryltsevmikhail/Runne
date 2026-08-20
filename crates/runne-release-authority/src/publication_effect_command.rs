@@ -222,7 +222,7 @@ impl PublicationEffectCommand {
             }
         }
         Ok(hash(
-            b"runne.release.publication-effect-command/1\0",
+            b"gocode.release.publication-effect-command/1\0",
             fields.iter().map(Vec::as_slice),
         ))
     }
@@ -230,7 +230,7 @@ impl PublicationEffectCommand {
 
 pub(crate) fn capability_digest(scope: &PublicationEffectScope, command: Digest) -> Digest {
     hash(
-        b"runne.release.publication-effect-capability/1\0",
+        b"gocode.release.publication-effect-capability/1\0",
         [
             &scope.authority_instance.as_bytes()[..],
             scope.idempotency_namespace.as_bytes(),

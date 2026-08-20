@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/desktop-v1-capability-status-v1.schema.json",
-  "title": "RUNNE Desktop V1 Source-Bound Capability Status",
+  "$id": "https://gocode.dev/schemas/desktop-v1-capability-status-v1.schema.json",
+  "title": "GOCODE Desktop V1 Source-Bound Capability Status",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "manifest_id", "definition_sha256", "canonical_source_content_sha256", "recorded_at", "contract", "selector_list_sha256", "toolchain_identity", "runner_identity", "evidence_refs", "platforms", "gates", "capabilities"],

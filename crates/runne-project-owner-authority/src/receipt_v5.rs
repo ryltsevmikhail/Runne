@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 use crate::{AuthorityError, GitSubject};
 
 /// Fixed schema identifier for the active, versioned promotion authority receipt.
-pub const RECEIPT_SCHEMA_V5: &str = "runne.project-owner.authority-receipt/5";
+pub const RECEIPT_SCHEMA_V5: &str = "gocode.project-owner.authority-receipt/5";
 /// Fixed purpose bound to the V4 root and V5 authority closure.
 pub const PURPOSE_V5: &str = "POST_RC0_VERSIONED_PROMOTION_AUTHORITY";
 /// Fixed V5 release authority profile.
-pub const PROFILE_V5: &str = "runne.project-owner.post-rc0-promotion/2";
+pub const PROFILE_V5: &str = "gocode.project-owner.post-rc0-promotion/2";
 /// Ordered, closed transition authorization roles.
 pub const V5_TRANSITION_ROLES: [&str; 3] = [
     "RC1_QUALIFICATION_AUTHORIZER",

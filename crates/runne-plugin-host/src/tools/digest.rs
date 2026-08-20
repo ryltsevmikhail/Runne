@@ -12,7 +12,7 @@ fn tool_descriptor_digest(descriptors: &[PluginToolDescriptor]) -> [u8; 32] {
         .collect::<Vec<_>>();
     descriptors.sort_by(|left, right| (left.0, left.1, left.2).cmp(&(right.0, right.1, right.2)));
     let mut hasher = Sha256::new();
-    hasher.update(b"RUNNE_PLUGIN_TOOL_DESCRIPTOR_SNAPSHOT_V1\0");
+    hasher.update(b"GOCODE_PLUGIN_TOOL_DESCRIPTOR_SNAPSHOT_V1\0");
     hasher.update((descriptors.len() as u64).to_be_bytes());
     for (plugin_id, tool_id, tool_version, schema) in descriptors {
         hasher.update((plugin_id.len() as u64).to_be_bytes());

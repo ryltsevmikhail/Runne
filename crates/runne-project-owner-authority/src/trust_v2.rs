@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{AuthorityError, SchemaDigest, trust_canonical::hex};
 
-pub const CONFIG_SCHEMA_V2: &str = "runne.project-owner.trust-config/2";
-pub const POP_DOMAIN_V2: &[u8] = b"runne.project-owner.rotation-new-proof-of-possession/2";
+pub const CONFIG_SCHEMA_V2: &str = "gocode.project-owner.trust-config/2";
+pub const POP_DOMAIN_V2: &[u8] = b"gocode.project-owner.rotation-new-proof-of-possession/2";
 
 /// Public successor trust configuration. V2 has no genesis form.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -141,11 +141,11 @@ pub fn v2_trust_schema_digests() -> Vec<SchemaDigest> {
 
 pub fn verify_v2_config(config: &ProjectOwnerTrustConfigV2) -> Result<(), AuthorityError> {
     if config.schema_version != CONFIG_SCHEMA_V2
-        || config.repository_id != "runne"
+        || config.repository_id != "gocode"
         || config.role != "PROJECT_OWNER"
         || config.epoch < 2
         || (config.epoch == 2
-            && config.predecessor_schema_version != "runne.project-owner.trust-config/1")
+            && config.predecessor_schema_version != "gocode.project-owner.trust-config/1")
         || (config.epoch > 2 && config.predecessor_schema_version != CONFIG_SCHEMA_V2)
         || config.key_id != crate::key_id(&config.public_key)
         || config.schema_digests != v2_trust_schema_digests()
@@ -171,7 +171,7 @@ pub fn valid_pins(pins: &[SchemaDigest]) -> bool {
 
 fn valid_schema_id(value: &str) -> bool {
     let Some((name, version)) = value
-        .strip_prefix("runne.")
+        .strip_prefix("gocode.")
         .and_then(|rest| rest.split_once('/'))
     else {
         return false;

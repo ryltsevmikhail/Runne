@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.rc0.platform-qualified-subject/1",
-  "title": "RUNNE RC0 Platform Qualified Subject V1",
+  "$id": "gocode.rc0.platform-qualified-subject/1",
+  "title": "GOCODE RC0 Platform Qualified Subject V1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "rc0_qualified_declaration_envelope_sha256", "rc0_verification_report_envelope_sha256", "common_binding_group_payload_sha256", "rc0_qualification_policy_digest", "mapping_policy_envelope_sha256", "active_activation_snapshot_envelope_sha256", "platform_attestation_envelope_sha256s", "normalized_platform_mapping_payload_sha256", "required_gate_set_payload_sha256", "profile_state_set_payload_sha256", "artifact_set_payload_sha256"],
   "properties": {
-    "schema_version": {"const": "runne.rc0.platform-qualified-subject/1"},
-    "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.rc0.platform-qualified-subject/1"},
+    "repository_id": {"const": "gocode"},
     "rc0_qualified_declaration_envelope_sha256": {"$ref": "#/$defs/sha256"},
     "rc0_verification_report_envelope_sha256": {"$ref": "#/$defs/sha256"},
     "common_binding_group_payload_sha256": {"$ref": "#/$defs/sha256"},

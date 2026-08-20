@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/secure-replay-evidence-v2.schema.json",
+  "$id": "https://gocode.dev/schemas/secure-replay-evidence-v2.schema.json",
   "title": "Secure Replay Evidence V2",
   "type": "object",
   "additionalProperties": false,

@@ -50,7 +50,7 @@ pub fn manifest(digest: &str) -> Value {
             ]),
         ),
         ("bootstrap_sha256", json!(digest)),
-        ("bundle_identity", json!("runne-desktop")),
+        ("bundle_identity", json!("gocode-desktop")),
         (
             "bundled_runtime",
             json!({"sha256":digest,"version":"1.0.0"}),
@@ -65,7 +65,7 @@ pub fn manifest(digest: &str) -> Value {
         ("release_sequence", json!(1)),
         (
             "schema_version",
-            json!("runne.release.unsigned-candidate-manifest/1"),
+            json!("gocode.release.unsigned-candidate-manifest/1"),
         ),
         ("subject_sha256", json!(digest)),
     ])
@@ -79,7 +79,7 @@ fn artifact(
     digest: &str,
     length: u64,
 ) -> Value {
-    json!({"architecture":architecture,"artifact_sha256":digest,"artifact_slot_id":slot,"byte_length":length,"minimum_os_policy":{"policy_id":"v1-minimum-os","policy_sha256":digest},"platform":platform,"platform_scope_id":scope,"profile_bindings":[{"bundle_sha256":digest,"profile_id":"runne-bundled-runtime"}]})
+    json!({"architecture":architecture,"artifact_sha256":digest,"artifact_slot_id":slot,"byte_length":length,"minimum_os_policy":{"policy_id":"v1-minimum-os","policy_sha256":digest},"platform":platform,"platform_scope_id":scope,"profile_bindings":[{"bundle_sha256":digest,"profile_id":"gocode-bundled-runtime"}]})
 }
 
 fn map(values: Vec<(&str, Value)>) -> Value {

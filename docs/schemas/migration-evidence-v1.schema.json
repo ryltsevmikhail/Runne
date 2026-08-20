@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/migration-evidence-v1.schema.json",
+  "$id": "https://gocode.dev/schemas/migration-evidence-v1.schema.json",
   "title": "Migration Evidence Envelope V1",
   "description": "Envelope for L3 migration golden fixtures: baseline, import-report, shadow-diff, cutover-manifest, rollback-manifest.",
   "type": "object",

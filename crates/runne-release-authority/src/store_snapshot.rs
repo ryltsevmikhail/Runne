@@ -64,7 +64,7 @@ pub fn build(
         previous_snapshot_sha256: previous,
         promotion_id: &id.0,
         revision: record.revision,
-        schema_version: "runne.release.promotion-state-snapshot/1",
+        schema_version: "gocode.release.promotion-state-snapshot/1",
         state,
     };
     let mut bytes = serde_json::to_vec(&wire).map_err(|_| AuthorityError::NonCanonicalPayload)?;

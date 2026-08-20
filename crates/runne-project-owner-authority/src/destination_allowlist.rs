@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 /// Fixed root-controlled destination allowlist schema.
 pub const DESTINATION_ALLOWLIST_SCHEMA_V1: &str =
-    "runne.project-owner.publication-destination-allowlist/1";
+    "gocode.project-owner.publication-destination-allowlist/1";
 
 /// One permitted destination and channel pair.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]

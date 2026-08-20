@@ -84,7 +84,7 @@ fn validate_package_path(path: &str) -> Result<(), PluginPackageCaptureError> {
         || path.contains('\\')
         || path.contains(':')
         || !path.is_ascii()
-        || path.eq_ignore_ascii_case("runne-plugin.toml")
+        || path.eq_ignore_ascii_case("gocode-plugin.toml")
     {
         return Err(PluginPackageCaptureError::InvalidPath);
     }

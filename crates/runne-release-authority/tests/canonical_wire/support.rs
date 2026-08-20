@@ -32,7 +32,7 @@ fn rc1() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.rc1-qualification-decision/1"),
+            json!("gocode.release.rc1-qualification-decision/1"),
         ),
         (
             "candidate_binding_sha256",
@@ -66,7 +66,7 @@ fn rc2_authorization() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.rc2-signing-authorization/1"),
+            json!("gocode.release.rc2-signing-authorization/1"),
         ),
         ("parent_candidate_sha256", json!(D)),
         ("unsigned_manifest_sha256", json!(D)),
@@ -116,7 +116,7 @@ fn artifact_value(platform: &str) -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.rc2-signed-artifact-record/2"),
+            json!("gocode.release.rc2-signed-artifact-record/2"),
         ),
         ("artifact_slot_id", json!(slot)),
         ("platform", json!(platform)),
@@ -160,7 +160,7 @@ fn inventory() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.signed-envelope-inventory/1"),
+            json!("gocode.release.signed-envelope-inventory/1"),
         ),
         ("parent_candidate_sha256", json!(D)),
         (
@@ -179,7 +179,7 @@ fn report() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.signed-envelope-verification-report/1"),
+            json!("gocode.release.signed-envelope-verification-report/1"),
         ),
         ("inventory_sha256", json!(D)),
         ("metadata_set_sha256", json!(D)),
@@ -195,7 +195,7 @@ fn publication() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.publication-manifest/1"),
+            json!("gocode.release.publication-manifest/1"),
         ),
         ("candidate_sha256", json!(D)),
         ("inventory_sha256", json!(D)),
@@ -226,7 +226,7 @@ fn rc3_authorization() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.rc3-publication-authorization/1"),
+            json!("gocode.release.rc3-publication-authorization/1"),
         ),
         ("inventory_sha256", json!(D)),
         ("report_sha256", json!(D)),
@@ -249,7 +249,7 @@ fn snapshot() -> Value {
     map(vec![
         (
             "schema_version",
-            json!("runne.release.promotion-state-snapshot/1"),
+            json!("gocode.release.promotion-state-snapshot/1"),
         ),
         ("promotion_id", json!("promotion")),
         ("revision", json!(u64::MAX)),

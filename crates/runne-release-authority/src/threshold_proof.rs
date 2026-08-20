@@ -24,7 +24,7 @@ pub struct DurableThresholdProof {
 }
 impl DurableThresholdProof {
     pub(crate) fn command_scope(&self) -> Digest {
-        let mut transcript = b"runne.release.verify-signed-operation-scope/1\0".to_vec();
+        let mut transcript = b"gocode.release.verify-signed-operation-scope/1\0".to_vec();
         for field in [self.promotion.0.as_bytes(), self.command.as_bytes()] {
             append(&mut transcript, field);
         }

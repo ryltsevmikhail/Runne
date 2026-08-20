@@ -5,7 +5,7 @@ use crate::{
 };
 
 pub fn validate_trust(trust: &ProjectOwnerTrustConfigV1) -> Result<(), AuthorityError> {
-    if trust.repository_id != "runne"
+    if trust.repository_id != "gocode"
         || trust.role != "PROJECT_OWNER"
         || trust.key_id != key_id(&trust.public_key)
         || trust.epoch == 0
@@ -32,7 +32,7 @@ pub fn validate_expected_binding(
 
 pub fn validate_metadata(metadata: &BackupMetadataV1) -> Result<(), AuthorityError> {
     metadata.parameters.validate()?;
-    if metadata.repository_id != "runne"
+    if metadata.repository_id != "gocode"
         || metadata.key_epoch == 0
         || !(16..=64).contains(&metadata.salt.len())
         || metadata.ciphertext.len() != 48

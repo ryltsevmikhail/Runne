@@ -25,7 +25,7 @@ fn parse_manifest(bytes: &[u8]) -> Result<ParsedManifest, TrustedRegistryLoadErr
     let text =
         core::str::from_utf8(bytes).map_err(|_| TrustedRegistryLoadError::MalformedAuthority)?;
     let mut lines = text.lines();
-    if lines.next() != Some("RUNNE_PLUGIN_MANIFEST_V1") {
+    if lines.next() != Some("GOCODE_PLUGIN_MANIFEST_V1") {
         return Err(TrustedRegistryLoadError::MalformedAuthority);
     }
     let package_id = PluginId::new(next_value(&mut lines, "package_id=")?)
@@ -148,7 +148,7 @@ fn parse_profile(bytes: &[u8]) -> Result<ProtocolSupportProfile, TrustedRegistry
     let text =
         core::str::from_utf8(bytes).map_err(|_| TrustedRegistryLoadError::MalformedAuthority)?;
     let mut lines = text.lines();
-    if lines.next() != Some("RUNNE_PLUGIN_PROFILE_V1") {
+    if lines.next() != Some("GOCODE_PLUGIN_PROFILE_V1") {
         return Err(TrustedRegistryLoadError::MalformedAuthority);
     }
     let profile_id =

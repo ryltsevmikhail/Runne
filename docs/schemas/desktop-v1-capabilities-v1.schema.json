@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/desktop-v1-capabilities-v1.schema.json",
-  "title": "RUNNE Desktop V1 Immutable Capability Definition",
+  "$id": "https://gocode.dev/schemas/desktop-v1-capabilities-v1.schema.json",
+  "title": "GOCODE Desktop V1 Immutable Capability Definition",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "manifest_id", "score_scale_bps", "foundation_ids", "platforms", "gates", "routes", "capabilities"],

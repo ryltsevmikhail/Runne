@@ -5,11 +5,11 @@ use crate::AuthorityError;
 
 pub(super) use super::rc2_threshold::ThresholdMetadata;
 
-pub(super) const AUTH: &str = "runne.release.rc2-signing-authorization/1";
-pub(super) const RECORD_V1: &str = "runne.release.rc2-signed-artifact-record/1";
-pub(super) const RECORD: &str = "runne.release.rc2-signed-artifact-record/2";
-pub(super) const INVENTORY: &str = "runne.release.signed-envelope-inventory/1";
-pub(super) const REPORT: &str = "runne.release.signed-envelope-verification-report/1";
+pub(super) const AUTH: &str = "gocode.release.rc2-signing-authorization/1";
+pub(super) const RECORD_V1: &str = "gocode.release.rc2-signed-artifact-record/1";
+pub(super) const RECORD: &str = "gocode.release.rc2-signed-artifact-record/2";
+pub(super) const INVENTORY: &str = "gocode.release.signed-envelope-inventory/1";
+pub(super) const REPORT: &str = "gocode.release.signed-envelope-verification-report/1";
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SigningAuthorization {

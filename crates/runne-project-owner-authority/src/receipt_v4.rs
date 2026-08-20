@@ -9,11 +9,11 @@ pub use crate::receipt_v4_canonical::{
 };
 
 /// Fixed schema identifier for promotion bootstrap receipts.
-pub const RECEIPT_SCHEMA_V4: &str = "runne.project-owner.authority-receipt/4";
+pub const RECEIPT_SCHEMA_V4: &str = "gocode.project-owner.authority-receipt/4";
 /// Fixed purpose for promotion bootstrap receipts.
 pub const PURPOSE_V4: &str = "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP";
 /// Fixed promotion bootstrap profile.
-pub const PROFILE_V4: &str = "runne.project-owner.post-rc0-promotion/1";
+pub const PROFILE_V4: &str = "gocode.project-owner.post-rc0-promotion/1";
 pub(crate) const ROLES: [&str; 3] = [
     "RC1_QUALIFICATION_AUTHORIZER",
     "RC2_SIGNING_AUTHORIZER",

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::common::{HexDigest, identifier};
 use crate::AuthorityError;
 
-pub(super) const SNAPSHOT: &str = "runne.release.promotion-state-snapshot/1";
+pub(super) const SNAPSHOT: &str = "gocode.release.promotion-state-snapshot/1";
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Snapshot {

@@ -73,7 +73,7 @@ struct OuterBinding<'a> {
 
 fn outer_hash(wire: &AuthorityWire) -> Result<String, AuthorityError> {
     let bytes = serde_json::to_vec(&OuterBinding {
-        domain: "runne.release.publication-effect-outer-binding/1",
+        domain: "gocode.release.publication-effect-outer-binding/1",
         schema_version: &wire.schema_version,
         bootstrap: &wire.bootstrap,
         profile: &wire.profile,

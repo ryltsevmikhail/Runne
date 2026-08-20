@@ -8,43 +8,43 @@ fn payload_schema_ids_match_checked_in_schema_dollar_ids() {
         (
             "RC1_QUALIFICATION_AUTHORIZER",
             "transition",
-            "runne.release.rc1-qualification-decision/1",
+            "gocode.release.rc1-qualification-decision/1",
             include_str!("../../../docs/schemas/release-rc1-qualification-decision-v1.schema.json"),
         ),
         (
             "RC2_SIGNING_AUTHORIZER",
             "transition",
-            "runne.release.rc2-signing-authorization/1",
+            "gocode.release.rc2-signing-authorization/1",
             include_str!("../../../docs/schemas/rc2-signing-authorization-v1.schema.json"),
         ),
         (
             "RC3_PUBLICATION_AUTHORIZER",
             "transition",
-            "runne.release.rc3-publication-authorization/2",
+            "gocode.release.rc3-publication-authorization/2",
             include_str!("../../../docs/schemas/rc3-publication-authorization-v2.schema.json"),
         ),
         (
             "RC2_NATIVE_EVIDENCE",
             "linux",
-            "runne.release.rc2-native-evidence/1",
+            "gocode.release.rc2-native-evidence/1",
             include_str!("../../../docs/schemas/rc2-native-evidence-v1.schema.json"),
         ),
         (
             "RC2_SIGNING_REVIEWER",
             "signing-review",
-            "runne.release.rc2-signing-review/1",
+            "gocode.release.rc2-signing-review/1",
             include_str!("../../../docs/schemas/rc2-signing-review-v1.schema.json"),
         ),
         (
             "RC2_UPDATE_ISSUER",
             "update-issuer",
-            "runne.release.rc2-update-metadata-issuance/1",
+            "gocode.release.rc2-update-metadata-issuance/1",
             include_str!("../../../docs/schemas/rc2-update-metadata-issuance-v1.schema.json"),
         ),
         (
             "RC3_FINAL_REVIEWER",
             "final-review",
-            "runne.release.rc3-final-review/1",
+            "gocode.release.rc3-final-review/1",
             include_str!("../../../docs/schemas/rc3-final-review-v1.schema.json"),
         ),
     ];
@@ -67,55 +67,55 @@ fn v4_leaf_pin_union_matches_checked_in_schema_files() {
     let manifest = env!("CARGO_MANIFEST_DIR");
     let files = [
         (
-            "runne.project-owner.authority-receipt/5",
+            "gocode.project-owner.authority-receipt/5",
             "project-owner-authority-receipt-v5.schema.json",
         ),
         (
-            "runne.project-owner.key-rotation/4",
+            "gocode.project-owner.key-rotation/4",
             "project-owner-key-rotation-v4.schema.json",
         ),
         (
-            "runne.project-owner.publication-destination-allowlist/1",
+            "gocode.project-owner.publication-destination-allowlist/1",
             "project-owner-publication-destination-allowlist-v1.schema.json",
         ),
         (
-            "runne.project-owner.trust-config/4",
+            "gocode.project-owner.trust-config/4",
             "project-owner-trust-config-v4.schema.json",
         ),
         (
-            "runne.release.post-rc0-evidence-envelope/2",
+            "gocode.release.post-rc0-evidence-envelope/2",
             "release-post-rc0-evidence-envelope-v2.schema.json",
         ),
         (
-            "runne.release.post-rc0-stage-envelope/2",
+            "gocode.release.post-rc0-stage-envelope/2",
             "release-post-rc0-stage-envelope-v2.schema.json",
         ),
         (
-            "runne.release.rc1-qualification-decision/1",
+            "gocode.release.rc1-qualification-decision/1",
             "release-rc1-qualification-decision-v1.schema.json",
         ),
         (
-            "runne.release.rc2-native-evidence/1",
+            "gocode.release.rc2-native-evidence/1",
             "rc2-native-evidence-v1.schema.json",
         ),
         (
-            "runne.release.rc2-signing-authorization/1",
+            "gocode.release.rc2-signing-authorization/1",
             "rc2-signing-authorization-v1.schema.json",
         ),
         (
-            "runne.release.rc2-signing-review/1",
+            "gocode.release.rc2-signing-review/1",
             "rc2-signing-review-v1.schema.json",
         ),
         (
-            "runne.release.rc2-update-metadata-issuance/1",
+            "gocode.release.rc2-update-metadata-issuance/1",
             "rc2-update-metadata-issuance-v1.schema.json",
         ),
         (
-            "runne.release.rc3-final-review/1",
+            "gocode.release.rc3-final-review/1",
             "rc3-final-review-v1.schema.json",
         ),
         (
-            "runne.release.rc3-publication-authorization/2",
+            "gocode.release.rc3-publication-authorization/2",
             "rc3-publication-authorization-v2.schema.json",
         ),
     ];

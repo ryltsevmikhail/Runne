@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.project-owner.trust-config/1",
-  "title": "RUNNE Project Owner Trust Config V1",
+  "$id": "gocode.project-owner.trust-config/1",
+  "title": "GOCODE Project Owner Trust Config V1",
   "description": "Public active trust configuration; it contains no private key material or local identity data.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "role", "epoch", "key_id", "public_key", "schema_digests", "proof_of_possession", "predecessor"],
   "properties": {
-    "schema_version": {"const": "runne.project-owner.trust-config/1"},
-    "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.project-owner.trust-config/1"},
+    "repository_id": {"const": "gocode"},
     "role": {"const": "PROJECT_OWNER"},
     "epoch": {"type": "integer", "minimum": 1, "maximum": 18446744073709551615},
     "key_id": {"$ref": "#/$defs/sha256"},
@@ -37,7 +37,7 @@
       "additionalProperties": false,
       "required": ["schema_id", "schema_sha256"],
       "properties": {
-        "schema_id": {"type": "string", "pattern": "^runne\\.[a-z0-9.-]+/[0-9]+$"},
+        "schema_id": {"type": "string", "pattern": "^gocode\\.[a-z0-9.-]+/[0-9]+$"},
         "schema_sha256": {"$ref": "#/$defs/sha256"}
       }
     }

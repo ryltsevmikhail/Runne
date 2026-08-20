@@ -7,71 +7,71 @@ use sha2::{Digest, Sha256};
 
 const SOURCES: [(&str, &str); 17] = [
     (
-        "runne.governance.v1-platform-scope-decision/1",
+        "gocode.governance.v1-platform-scope-decision/1",
         "v1-platform-scope-decision-v1.schema.json",
     ),
     (
-        "runne.project-owner.authority-receipt/2",
+        "gocode.project-owner.authority-receipt/2",
         "project-owner-authority-receipt-v2.schema.json",
     ),
     (
-        "runne.project-owner.authority-receipt/3",
+        "gocode.project-owner.authority-receipt/3",
         "project-owner-authority-receipt-v3.schema.json",
     ),
     (
-        "runne.project-owner.authority-receipt/4",
+        "gocode.project-owner.authority-receipt/4",
         "project-owner-authority-receipt-v4.schema.json",
     ),
     (
-        "runne.rc0.post-rc0-platform-composed-universe/1",
+        "gocode.rc0.post-rc0-platform-composed-universe/1",
         "post-rc0-platform-composed-universe-v1.schema.json",
     ),
     (
-        "runne.release.post-rc0-stage-envelope/1",
+        "gocode.release.post-rc0-stage-envelope/1",
         "release-post-rc0-stage-envelope-v1.schema.json",
     ),
     (
-        "runne.release.promotion-state-snapshot/1",
+        "gocode.release.promotion-state-snapshot/1",
         "promotion-state-snapshot-v1.schema.json",
     ),
     (
-        "runne.release.publication-manifest/1",
+        "gocode.release.publication-manifest/1",
         "publication-manifest-v1.schema.json",
     ),
     (
-        "runne.release.rc1-qualification-decision/1",
+        "gocode.release.rc1-qualification-decision/1",
         "release-rc1-qualification-decision-v1.schema.json",
     ),
     (
-        "runne.release.rc2-signed-artifact-record/1",
+        "gocode.release.rc2-signed-artifact-record/1",
         "release-rc2-signed-artifact-record-v1.schema.json",
     ),
     (
-        "runne.release.rc2-signing-authorization/1",
+        "gocode.release.rc2-signing-authorization/1",
         "rc2-signing-authorization-v1.schema.json",
     ),
     (
-        "runne.release.rc2-threshold-update-metadata-set/1",
+        "gocode.release.rc2-threshold-update-metadata-set/1",
         "release-rc2-threshold-update-metadata-set-v1.schema.json",
     ),
     (
-        "runne.release.rc3-publication-authorization/1",
+        "gocode.release.rc3-publication-authorization/1",
         "rc3-publication-authorization-v1.schema.json",
     ),
     (
-        "runne.release.signed-envelope-inventory/1",
+        "gocode.release.signed-envelope-inventory/1",
         "signed-envelope-inventory-v1.schema.json",
     ),
     (
-        "runne.release.signed-envelope-verification-report/1",
+        "gocode.release.signed-envelope-verification-report/1",
         "signed-envelope-verification-report-v1.schema.json",
     ),
     (
-        "runne.release.unsigned-candidate-manifest/1",
+        "gocode.release.unsigned-candidate-manifest/1",
         "unsigned-candidate-manifest-v1.schema.json",
     ),
     (
-        "runne.v1-platform-scope-claim-migration/1",
+        "gocode.v1-platform-scope-claim-migration/1",
         "v1-platform-scope-claim-migration-v1.schema.json",
     ),
 ];
@@ -80,10 +80,10 @@ const SOURCES: [(&str, &str); 17] = [
 fn frozen_v3_rc2_record_source_pin_matches_legacy_bytes() {
     let bytes =
         include_bytes!("../../../docs/schemas/release-rc2-signed-artifact-record-v1.schema.json");
-    assert_eq!(bytes.len(), 2216);
+    assert_eq!(bytes.len(), 2218);
     assert_eq!(
         format!("{:x}", Sha256::digest(bytes)),
-        "1281d9876e3147742c355dad951ba92e70e0232b63f83dc76e3cb9ec941a2526"
+        "bfa6908bf65be56d733faad09168bdf7e6033bacc924695b48d6655dc39a112b"
     );
 }
 

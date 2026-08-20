@@ -1,14 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.project-owner.authority-receipt/1",
-  "title": "RUNNE Project Owner Authority Receipt V1",
+  "$id": "gocode.project-owner.authority-receipt/1",
+  "title": "GOCODE Project Owner Authority Receipt V1",
   "description": "Signed public binding to immutable Git objects. Excluded: username, email, hostname, account, session, lane, PID, absolute paths, document bodies, private comments, secret, passphrase and key material.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "role", "purpose", "trust_config_sha256", "key_id", "key_epoch", "subject", "documents", "issued_at", "profile", "signature"],
   "properties": {
-    "schema_version": {"const": "runne.project-owner.authority-receipt/1"},
-    "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.project-owner.authority-receipt/1"},
+    "repository_id": {"const": "gocode"},
     "role": {"const": "PROJECT_OWNER"},
     "purpose": {"const": "V1_PLATFORM_SCOPE_AUTHORIZATION"},
     "trust_config_sha256": {"$ref": "#/$defs/sha256"},
@@ -27,7 +27,7 @@
       "items": false
     },
     "issued_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
-    "profile": {"const": "runne.project-owner.v1-platform-scope/1"},
+    "profile": {"const": "gocode.project-owner.v1-platform-scope/1"},
     "signature": {"$ref": "#/$defs/signature"}
   },
   "allOf": [
@@ -60,7 +60,7 @@
         "blob_oid": {"$ref": "#/$defs/oid"},
         "content_sha256": {"$ref": "#/$defs/sha256"},
         "byte_length": {"type": "integer", "minimum": 0},
-        "schema_id": {"type": "string", "pattern": "^runne\\.[a-z0-9.-]+/[0-9]+$"}
+        "schema_id": {"type": "string", "pattern": "^gocode\\.[a-z0-9.-]+/[0-9]+$"}
       }
     },
     "adr_document": {
@@ -85,7 +85,7 @@
         "blob_oid": {"$ref": "#/$defs/oid"},
         "content_sha256": {"$ref": "#/$defs/sha256"},
         "byte_length": {"type": "integer", "minimum": 0},
-        "schema_id": {"const": "runne.governance.v1-platform-scope-decision/1"}
+        "schema_id": {"const": "gocode.governance.v1-platform-scope-decision/1"}
       }
     }
   }

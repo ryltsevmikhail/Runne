@@ -31,7 +31,7 @@ pub fn sign_promotion_bootstrap_v3(
     unsigned.key_epoch = trust.epoch;
     crate::receipt_v4_validation::validate_bootstrap(&unsigned, trust.public_key)?;
     let canonical = canonical_unsigned_promotion_bootstrap(&unsigned)?;
-    let domain = SigningDomain::new(crate::RECEIPT_SCHEMA_V4, crate::PURPOSE_V4, "runne")?;
+    let domain = SigningDomain::new(crate::RECEIPT_SCHEMA_V4, crate::PURPOSE_V4, "gocode")?;
     let signature = signer.sign(&signing_transcript(&domain, &canonical))?;
     verify_signature(&signature, trust, &domain, &canonical)?;
     Ok(SignedPromotionBootstrapV4 {
@@ -75,7 +75,7 @@ pub(crate) fn verify_promotion_bootstrap_v3(
     verify_signature(
         &value.signature,
         trust,
-        &SigningDomain::new(crate::RECEIPT_SCHEMA_V4, crate::PURPOSE_V4, "runne")?,
+        &SigningDomain::new(crate::RECEIPT_SCHEMA_V4, crate::PURPOSE_V4, "gocode")?,
         &canonical,
     )
 }

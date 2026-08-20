@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.release.unsigned-candidate-manifest/1",
+  "$id": "gocode.release.unsigned-candidate-manifest/1",
   "title": "Unsigned Candidate Manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "candidate_sha256", "subject_sha256", "matrix_sha256", "bootstrap_sha256", "policy_sha256", "app_version", "release_sequence", "bundle_identity", "artifacts", "bundled_runtime", "macos_preview"],
   "properties": {
-    "schema_version": {"const": "runne.release.unsigned-candidate-manifest/1"}, "candidate_sha256": {"$ref": "#/$defs/digest"}, "subject_sha256": {"$ref": "#/$defs/digest"}, "matrix_sha256": {"$ref": "#/$defs/digest"}, "bootstrap_sha256": {"$ref": "#/$defs/digest"}, "policy_sha256": {"$ref": "#/$defs/digest"},
+    "schema_version": {"const": "gocode.release.unsigned-candidate-manifest/1"}, "candidate_sha256": {"$ref": "#/$defs/digest"}, "subject_sha256": {"$ref": "#/$defs/digest"}, "matrix_sha256": {"$ref": "#/$defs/digest"}, "bootstrap_sha256": {"$ref": "#/$defs/digest"}, "policy_sha256": {"$ref": "#/$defs/digest"},
     "app_version": {"$ref": "#/$defs/text"}, "release_sequence": {"$ref": "#/$defs/nonzero_u64"}, "bundle_identity": {"$ref": "#/$defs/id"}, "artifacts": {"type": "array", "minItems": 5, "maxItems": 5, "prefixItems": [{"$ref": "#/$defs/linux_appimage"}, {"$ref": "#/$defs/linux_deb"}, {"$ref": "#/$defs/macos_app"}, {"$ref": "#/$defs/macos_dmg"}, {"$ref": "#/$defs/windows_installer"}], "items": false}, "bundled_runtime": {"$ref": "#/$defs/bundled_runtime"}, "macos_preview": {"$ref": "#/$defs/macos_preview"}
   },
   "$defs": {

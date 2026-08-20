@@ -20,7 +20,7 @@ fn rotated_successor_can_sign_a_receipt_at_epoch_two() {
     let old = genesis();
     let successor = verify_rotation(&old, &rotation(&old)).expect("successor");
     let anchor = TrustAnchorState::confirmed(
-        "runne".into(),
+        "gocode".into(),
         2,
         successor.sha256().expect("successor sha"),
     );
@@ -39,7 +39,7 @@ fn rotated_successor_can_sign_a_receipt_at_epoch_two() {
             blob_oid: "7".repeat(40),
             content_sha256: "8".repeat(64),
             byte_length: 512,
-            schema_id: Some("runne.governance.v1-platform-scope-decision/1".into()),
+            schema_id: Some("gocode.governance.v1-platform-scope-decision/1".into()),
         },
     ];
     let result = sign_receipt(

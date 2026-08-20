@@ -168,7 +168,7 @@ impl FixtureEvidenceTrustState {
 fn registration_set_digest(registrations: &[FixtureEvidenceKeyRegistration]) -> Digest {
     let mut registrations = registrations.to_vec();
     registrations.sort_by(|left, right| left.identity.cmp(&right.identity));
-    let mut bytes = b"runne.release.rc2-evidence-registration-set/1\0".to_vec();
+    let mut bytes = b"gocode.release.rc2-evidence-registration-set/1\0".to_vec();
     for registration in registrations {
         for identifier in [
             registration.identity.principal_id,

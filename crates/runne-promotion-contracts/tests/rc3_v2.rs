@@ -1,6 +1,6 @@
 use runne_promotion_contracts::{ContractError, validate_rc3_v2_graph, validate_rc3_v2_payload};
 
-const MANIFEST: &str = "runne.release.publication-manifest/2";
+const MANIFEST: &str = "gocode.release.publication-manifest/2";
 
 fn canonical_manifest() -> Vec<u8> {
     let value: serde_json::Value =
@@ -61,17 +61,17 @@ fn rejects_closed_manifest_artifact_and_human_mutations() {
 fn rejects_final_review_and_authorization_identity_policy_mutations() {
     for (schema, corpus, name) in [
         (
-            "runne.release.rc3-final-review/1",
+            "gocode.release.rc3-final-review/1",
             "final_review",
             "reviewer",
         ),
         (
-            "runne.release.rc3-publication-authorization/2",
+            "gocode.release.rc3-publication-authorization/2",
             "authorization",
             "self_execution",
         ),
         (
-            "runne.release.rc3-publication-authorization/2",
+            "gocode.release.rc3-publication-authorization/2",
             "authorization",
             "executor_lane",
         ),
@@ -97,10 +97,10 @@ fn rejects_final_review_and_authorization_identity_policy_mutations() {
 fn validates_a_digest_coherent_rc3_v2_graph_and_rejects_a_mixed_digest() {
     let manifest = validate_rc3_v2_payload(MANIFEST, &payload("publication_manifest")).unwrap();
     let review =
-        validate_rc3_v2_payload("runne.release.rc3-final-review/1", &payload("final_review"))
+        validate_rc3_v2_payload("gocode.release.rc3-final-review/1", &payload("final_review"))
             .unwrap();
     let authorization = validate_rc3_v2_payload(
-        "runne.release.rc3-publication-authorization/2",
+        "gocode.release.rc3-publication-authorization/2",
         &payload("authorization"),
     )
     .unwrap();
@@ -108,7 +108,7 @@ fn validates_a_digest_coherent_rc3_v2_graph_and_rejects_a_mixed_digest() {
     let mut mixed: serde_json::Value = serde_json::from_slice(&payload("authorization")).unwrap();
     mixed["publication_manifest_sha256"] = serde_json::json!("a".repeat(64));
     let mixed = validate_rc3_v2_payload(
-        "runne.release.rc3-publication-authorization/2",
+        "gocode.release.rc3-publication-authorization/2",
         &serde_json::to_vec(&mixed).unwrap(),
     )
     .unwrap();

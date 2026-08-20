@@ -38,13 +38,13 @@ fn raw_transition_envelope_reaches_pin_gate_after_real_ed25519_verification() {
         not_before: "2026-08-13T00:00:00Z".into(),
         expires_at: "2026-08-13T00:00:04Z".into(),
         revocation_epoch: 1,
-        allowed_payload_schema_ids: vec!["runne.release.rc1-qualification-decision/1".into()],
+        allowed_payload_schema_ids: vec!["gocode.release.rc1-qualification-decision/1".into()],
     };
     let payload =
-        serde_json::json!({"schema_version":"runne.release.rc1-qualification-decision/1"});
+        serde_json::json!({"schema_version":"gocode.release.rc1-qualification-decision/1"});
     let envelope = StageAuthorityEnvelopeV1 {
         schema_version: STAGE_ENVELOPE_SCHEMA_V1.into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         bootstrap_receipt_sha256: [1; 32],
         issuer_role: delegation.role.clone(),
         issuer_principal_id: delegation.principal_id.clone(),
@@ -57,7 +57,7 @@ fn raw_transition_envelope_reaches_pin_gate_after_real_ed25519_verification() {
         payload_schema_sha256: crate::v3_trust_schema_digests()
             .unwrap()
             .into_iter()
-            .find(|pin| pin.schema_id == "runne.release.rc1-qualification-decision/1")
+            .find(|pin| pin.schema_id == "gocode.release.rc1-qualification-decision/1")
             .unwrap()
             .schema_sha256,
         payload_sha256: Sha256::digest(canonical_stage_payload(&payload).unwrap()).into(),
@@ -69,7 +69,7 @@ fn raw_transition_envelope_reaches_pin_gate_after_real_ed25519_verification() {
         authorization_nonce: "nonce-1".into(),
     };
     let domain =
-        crate::SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "runne")
+        crate::SigningDomain::new(STAGE_ENVELOPE_SCHEMA_V1, &envelope.issuer_role, "gocode")
             .unwrap();
     let signature = key
         .sign(&signing_transcript(
@@ -131,7 +131,7 @@ fn raw_transition_envelope_reaches_pin_gate_after_real_ed25519_verification() {
         |item| item.issuer_key_epoch = 2,
         |item| item.signature_profile_id = "other".into(),
         |item| item.revocation_epoch = 2,
-        |item| item.payload_schema_id = "runne.release.rc2-signing-authorization/1".into(),
+        |item| item.payload_schema_id = "gocode.release.rc2-signing-authorization/1".into(),
         |item| item.authorization_nonce = "unsafe/slash".into(),
         |item| item.expires_at = item.not_before.clone(),
         |item| item.payload = serde_json::json!({"nested":{"envelope_sha256":"x"}}),

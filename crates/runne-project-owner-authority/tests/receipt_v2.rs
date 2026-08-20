@@ -8,7 +8,7 @@ use runne_project_owner_authority::{
 };
 use sha2::{Digest, Sha256};
 
-const POP_DOMAIN: &[u8] = b"runne.project-owner.genesis-pop/1";
+const POP_DOMAIN: &[u8] = b"gocode.project-owner.genesis-pop/1";
 
 struct TestSigner(SigningKey);
 
@@ -20,8 +20,8 @@ impl Signer for TestSigner {
 
 fn config(signing: &SigningKey, schema_digests: Vec<SchemaDigest>) -> ProjectOwnerTrustConfigV1 {
     let mut config = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&signing.verifying_key().to_bytes()),
@@ -40,7 +40,7 @@ fn config(signing: &SigningKey, schema_digests: Vec<SchemaDigest>) -> ProjectOwn
 }
 
 fn anchor(config: &ProjectOwnerTrustConfigV1) -> TrustAnchorState {
-    TrustAnchorState::confirmed("runne".into(), 1, config.sha256().expect("config digest"))
+    TrustAnchorState::confirmed("gocode".into(), 1, config.sha256().expect("config digest"))
 }
 
 fn subject() -> GitSubject {
@@ -62,7 +62,7 @@ fn documents() -> Vec<DocumentBinding> {
         binding(
             "docs/decisions/v1-platform-scope-v1.json",
             "7",
-            Some("runne.governance.v1-platform-scope-decision/1"),
+            Some("gocode.governance.v1-platform-scope-decision/1"),
         ),
         binding("docs/adr/ADR-0027-v1-platform-scope.md", "5", None),
     ]
@@ -161,7 +161,7 @@ fn v2_rejects_a_mutated_profile_that_drops_the_desktop_document() {
 fn v2_rejects_an_unreviewed_extra_schema_pin() {
     let mut pins = v2_platform_scope_schema_digests();
     pins.push(SchemaDigest {
-        schema_id: "runne.project-owner.unreviewed/2".into(),
+        schema_id: "gocode.project-owner.unreviewed/2".into(),
         schema_sha256: [0; 32],
     });
     assert_eq!(
@@ -217,10 +217,10 @@ fn v2_rejects_profile_schema_domain_and_raw_byte_mutations() {
     let (receipt, trust, anchor) = signed_v2();
     for mutate in [
         |receipt: &mut runne_project_owner_authority::SignedReceipt| {
-            receipt.unsigned.profile = "runne.project-owner.v1-platform-scope/1".into();
+            receipt.unsigned.profile = "gocode.project-owner.v1-platform-scope/1".into();
         },
         |receipt: &mut runne_project_owner_authority::SignedReceipt| {
-            receipt.unsigned.schema_version = "runne.project-owner.authority-receipt/1".into();
+            receipt.unsigned.schema_version = "gocode.project-owner.authority-receipt/1".into();
         },
         |receipt: &mut runne_project_owner_authority::SignedReceipt| {
             receipt.unsigned.purpose = "OTHER_AUTHORIZATION".into();

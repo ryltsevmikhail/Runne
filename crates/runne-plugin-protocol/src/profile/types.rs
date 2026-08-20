@@ -6,7 +6,7 @@ use crate::digest::{
 };
 use crate::id::{ProfileId, ProtocolVersion};
 
-const PROFILE_DIGEST_DOMAIN: &[u8] = b"RUNNE_PLUGIN_PROTOCOL_PROFILE_V1\0";
+const PROFILE_DIGEST_DOMAIN: &[u8] = b"GOCODE_PLUGIN_PROTOCOL_PROFILE_V1\0";
 /// Maximum explicitly enabled features in one exact profile.
 pub const MAX_ENABLED_FEATURES: usize = 64;
 

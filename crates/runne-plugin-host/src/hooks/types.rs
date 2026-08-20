@@ -7,8 +7,8 @@ use crate::{
 };
 use runne_plugin_protocol::id::PluginId;
 
-const HOOK_PAYLOAD_DIGEST_DOMAIN: &[u8] = b"RUNNE_PLUGIN_HOOK_PAYLOAD_V1\0";
-const HOOK_REQUEST_DIGEST_DOMAIN: &[u8] = b"RUNNE_PLUGIN_HOOK_REQUEST_V1\0";
+const HOOK_PAYLOAD_DIGEST_DOMAIN: &[u8] = b"GOCODE_PLUGIN_HOOK_PAYLOAD_V1\0";
+const HOOK_REQUEST_DIGEST_DOMAIN: &[u8] = b"GOCODE_PLUGIN_HOOK_REQUEST_V1\0";
 const HOOK_RESPONSE_BYTES: usize = 33;
 /// Maximum retained bytes in one plugin hook payload.
 pub const MAX_PLUGIN_HOOK_PAYLOAD_BYTES: usize = 1024 * 1024;

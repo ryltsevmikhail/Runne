@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.rc0.policy-activation-intent/1",
-  "title": "RUNNE RC0 Policy Activation Intent V1",
+  "$id": "gocode.rc0.policy-activation-intent/1",
+  "title": "GOCODE RC0 Policy Activation Intent V1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "repository_id", "activation_id", "activation_action", "mapping_policy_envelope_sha256", "adjunct_trust_registry_envelope_sha256", "adjunct_trust_registry_payload_sha256", "rc0_qualification_policy_digest", "shared_decision_payload_sha256", "activation_epoch", "predecessor_activation_snapshot_envelope_sha256", "signature_key_epoch", "revocation_epoch", "runner_consumer_subject_id", "downstream_consumer_subject_id", "not_before", "activation_deadline"],
   "properties": {
-    "schema_version": {"const": "runne.rc0.policy-activation-intent/1"}, "repository_id": {"const": "runne"},
+    "schema_version": {"const": "gocode.rc0.policy-activation-intent/1"}, "repository_id": {"const": "gocode"},
     "activation_id": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"},
     "activation_action": {"enum": ["activate", "revoke"]},
     "mapping_policy_envelope_sha256": {"$ref": "#/$defs/sha256"}, "adjunct_trust_registry_envelope_sha256": {"$ref": "#/$defs/sha256"}, "adjunct_trust_registry_payload_sha256": {"$ref": "#/$defs/sha256"}, "rc0_qualification_policy_digest": {"$ref": "#/$defs/sha256"}, "shared_decision_payload_sha256": {"$ref": "#/$defs/sha256"},

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::Digest;
 use crate::publication_effect_types::{PublicationEffectError, PublicationEffectScope};
 
-pub(crate) const SCHEMA: &str = "runne.release.publication-effect-intent/1";
+pub(crate) const SCHEMA: &str = "gocode.release.publication-effect-intent/1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]

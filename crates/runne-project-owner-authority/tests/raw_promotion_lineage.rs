@@ -39,9 +39,9 @@ fn raw_v3_rejects_an_initial_receipt_from_another_v1_lineage() {
     receipt.signature = v2_key
         .sign(&signing_transcript(
             &SigningDomain::new(
-                "runne.project-owner.authority-receipt/3",
+                "gocode.project-owner.authority-receipt/3",
                 "POST_RC0_DOCUMENT_RECONCILIATION",
-                "runne",
+                "gocode",
             )
             .unwrap(),
             &canonical_unsigned_receipt_v3(&receipt.unsigned).unwrap(),
@@ -78,7 +78,7 @@ fn raw_v4_rejects_a_reconciliation_receipt_from_another_v2_lineage() {
             &SigningDomain::new(
                 RECEIPT_SCHEMA_V4,
                 "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP",
-                "runne",
+                "gocode",
             )
             .unwrap(),
             &canonical_unsigned_promotion_bootstrap(&bootstrap.unsigned).unwrap(),
@@ -130,10 +130,10 @@ fn bootstrap(
         predecessor,
         PromotionBootstrapV4 {
             schema_version: RECEIPT_SCHEMA_V4.into(),
-            repository_id: "runne".into(),
+            repository_id: "gocode".into(),
             role: "PROJECT_OWNER".into(),
             purpose: "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP".into(),
-            profile: "runne.project-owner.post-rc0-promotion/1".into(),
+            profile: "gocode.project-owner.post-rc0-promotion/1".into(),
             predecessor_receipt_sha256: predecessor.receipt_sha256(),
             platform_qualified_subject_sha256: [2; 32],
             platform_matrix_sha256: [3; 32],

@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "runne.external-signed-envelope/1",
-  "title": "RUNNE External Signed Envelope V1",
+  "$id": "gocode.external-signed-envelope/1",
+  "title": "GOCODE External Signed Envelope V1",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "payload_schema_id", "payload_schema_sha256", "payload_sha256", "payload", "issuer", "issuer_key_id", "issuer_key_epoch", "issuer_subject_id", "issuer_controlling_account_id", "issuer_delegated_session_id", "issuer_lane_id", "issuer_role", "issuer_revocation_epoch", "signature_profile_id", "issued_at", "not_before", "expires_at", "signature"],
   "properties": {
-    "schema_version": {"const": "runne.rc0.external-signed-envelope/1"},
+    "schema_version": {"const": "gocode.rc0.external-signed-envelope/1"},
     "payload_schema_id": {"type": "string", "minLength": 1, "maxLength": 4096},
     "payload_schema_sha256": {"$ref": "#/$defs/sha256"},
     "payload_sha256": {"$ref": "#/$defs/sha256"},

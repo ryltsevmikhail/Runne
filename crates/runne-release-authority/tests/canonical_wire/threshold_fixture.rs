@@ -20,7 +20,7 @@ pub fn metadata_with_targets(inventory: &str, post: [(&str, u64); 3]) -> Value {
     let snapshot = online_body("snapshot", inventory, &targets_raw, 2, "snapshot");
     let snapshot_raw = canonical(&snapshot);
     let timestamp = online_body("timestamp", inventory, &snapshot_raw, 2, "timestamp");
-    json!({"schema_version":"runne.release.rc2-threshold-update-metadata-set/2",
+    json!({"schema_version":"gocode.release.rc2-threshold-update-metadata-set/2",
         "root":{"body":root,"successor_authorization":[proof("root-successor","r1",1,&root_raw),proof("root-successor","r2",2,&root_raw)],"self_proof":[proof("root-self","r1",1,&root_raw),proof("root-self","r2",2,&root_raw)]},
         "targets":{"body":targets,"root_authorization":[proof("targets-root","r1",1,&targets_raw),proof("targets-root","r2",2,&targets_raw)],"self_proof":[proof("targets-self","t1",4,&targets_raw),proof("targets-self","t2",5,&targets_raw)]},
         "snapshot":{"body":snapshot,"signature":proof("snapshot","snapshot",7,&snapshot_raw)},
@@ -47,7 +47,7 @@ pub fn rotated_metadata(inventory: &str, predecessor: &str, predecessor_keys: &s
     let snapshot = online_body("snapshot", inventory, &targets_raw, 3, "snapshot");
     let snapshot_raw = canonical(&snapshot);
     let timestamp = online_body("timestamp", inventory, &snapshot_raw, 3, "timestamp");
-    json!({"schema_version":"runne.release.rc2-threshold-update-metadata-set/2",
+    json!({"schema_version":"gocode.release.rc2-threshold-update-metadata-set/2",
         "root":{"body":root,"successor_authorization":[proof("root-successor","r1",1,&root_raw),proof("root-successor","r2",2,&root_raw)],"self_proof":[proof("root-self","n1",11,&root_raw),proof("root-self","n2",12,&root_raw)]},
         "targets":{"body":targets,"root_authorization":[proof("targets-root","n1",11,&targets_raw),proof("targets-root","n2",12,&targets_raw)],"self_proof":[proof("targets-self","u1",14,&targets_raw),proof("targets-self","u2",15,&targets_raw)]},
         "snapshot":{"body":snapshot,"signature":proof("snapshot","snapshot",7,&snapshot_raw)},
@@ -61,7 +61,7 @@ pub fn root_body_bytes(inventory: &str) -> Vec<u8> {
 
 #[allow(dead_code)]
 pub fn root_keyset_digest() -> String {
-    let mut transcript = b"runne.release.rc2-threshold-keyset/2\0".to_vec();
+    let mut transcript = b"gocode.release.rc2-threshold-keyset/2\0".to_vec();
     for offset in 0..3 {
         let id = format!("r{}", offset + 1);
         let key = SigningKey::from_bytes(&[offset + 1; 32])
@@ -135,7 +135,7 @@ fn target(slot: &str, platform: &str, architecture: &str, post: (&str, u64)) -> 
         ("slot", json!(slot)),
         ("app_version", json!("1.0.0")),
         ("release_sequence", json!(1)),
-        ("bundle_id", json!("runne-desktop")),
+        ("bundle_id", json!("gocode-desktop")),
         ("platform", json!(platform)),
         ("architecture", json!(architecture)),
         ("artifact_sha256", json!(post.0)),
@@ -144,7 +144,7 @@ fn target(slot: &str, platform: &str, architecture: &str, post: (&str, u64)) -> 
         ("min_os_policy_sha256", json!(D)),
         (
             "profiles",
-            json!([{"profile_id":"runne-bundled-runtime","bundle_sha256":D}]),
+            json!([{"profile_id":"gocode-bundled-runtime","bundle_sha256":D}]),
         ),
         ("runtime_version", json!("1.0.0")),
         ("runtime_sha256", json!(D)),
@@ -169,7 +169,7 @@ fn hash(bytes: &[u8]) -> String {
 }
 
 pub fn proof(role: &str, key_id: &str, seed: u8, unsigned: &[u8]) -> Value {
-    let mut transcript = b"runne.release.rc2-threshold-signature/1\0".to_vec();
+    let mut transcript = b"gocode.release.rc2-threshold-signature/1\0".to_vec();
     transcript.extend_from_slice(role.as_bytes());
     transcript.push(0);
     transcript.extend_from_slice(unsigned);

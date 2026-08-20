@@ -5,8 +5,8 @@ use runne_project_owner_authority::{
     v1_platform_scope_schema_digests,
 };
 
-pub const OLD_DOMAIN: &[u8] = b"runne.project-owner.rotation-old-authorization/1";
-pub const NEW_DOMAIN: &[u8] = b"runne.project-owner.rotation-new-proof-of-possession/1";
+pub const OLD_DOMAIN: &[u8] = b"gocode.project-owner.rotation-old-authorization/1";
+pub const NEW_DOMAIN: &[u8] = b"gocode.project-owner.rotation-new-proof-of-possession/1";
 
 #[must_use]
 /// Build the deterministic valid genesis used by rotation tests.
@@ -17,8 +17,8 @@ pub const NEW_DOMAIN: &[u8] = b"runne.project-owner.rotation-new-proof-of-posses
 pub fn genesis() -> ProjectOwnerTrustConfigV1 {
     let key = SigningKey::from_bytes(&[7; 32]);
     let mut config = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&key.verifying_key().to_bytes()),
@@ -30,7 +30,7 @@ pub fn genesis() -> ProjectOwnerTrustConfigV1 {
     config.proof_of_possession = key
         .sign(
             &framed_transcript(
-                b"runne.project-owner.genesis-pop/1",
+                b"gocode.project-owner.genesis-pop/1",
                 &canonical_genesis_without_pop(&config).expect("canonical genesis"),
             )
             .expect("frame"),
@@ -60,8 +60,8 @@ pub fn rotation_with_seed(old: &ProjectOwnerTrustConfigV1, seed: [u8; 32]) -> Ke
     let old_key = SigningKey::from_bytes(&old_seed);
     let new_key = SigningKey::from_bytes(&seed);
     let mut rotation = KeyRotationV1 {
-        schema_version: "runne.project-owner.key-rotation/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         predecessor_config_sha256: old.sha256().expect("old sha"),
         old_key_id: old.key_id,

@@ -19,7 +19,7 @@ use crate::{
 };
 
 /// Length-framed domain separation for evidence-envelope `/2` detached signatures.
-const DOMAIN_V2: &[u8] = b"runne.release.post-rc0-evidence-envelope/2";
+const DOMAIN_V2: &[u8] = b"gocode.release.post-rc0-evidence-envelope/2";
 
 /// Verify canonical raw evidence-envelope `/2` bytes and mint a move-only handle.
 ///
@@ -59,7 +59,7 @@ pub fn prevalidate_evidence_envelope_v2(
         return Err(AuthorityError::InvalidReceiptDigest);
     }
     validate(&value)?;
-    if value.repository_id != "runne"
+    if value.repository_id != "gocode"
         || value.receipt_sha256 != lineage.receipt_sha256
         || value.trust_config_sha256 != lineage.bindings.trust_config_sha256()
         || value.trust_generation != lineage.bindings.trust_generation()

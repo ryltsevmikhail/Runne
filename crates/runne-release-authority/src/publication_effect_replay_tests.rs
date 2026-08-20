@@ -243,7 +243,7 @@ fn command_fingerprint_has_a_hand_derived_domain_separated_vector() {
     let command = PublicationEffectCommand::claim("claim-1", &scope(1), CONTEXT);
     assert_eq!(
         command.fingerprint().unwrap().to_hex(),
-        "eaa4d16009c75b98bb2507b9d76435f87e8b623f3e43f79cbef69c97a16ad349"
+        "ecaa4d51b4a06199184fb4233903a2768cafe1ecefedb4121756f7b21ee5e6fa"
     );
 }
 

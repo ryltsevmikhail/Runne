@@ -58,7 +58,7 @@ pub fn canonical_config(
 
 fn valid_schema_id(value: &str) -> bool {
     let Some((name, version)) = value
-        .strip_prefix("runne.")
+        .strip_prefix("gocode.")
         .and_then(|rest| rest.split_once('/'))
     else {
         return false;

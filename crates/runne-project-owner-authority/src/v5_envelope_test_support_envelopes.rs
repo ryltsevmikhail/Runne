@@ -30,7 +30,7 @@ pub fn stage_envelope(
     (
         crate::StageAuthorityEnvelopeV2 {
             schema_version: crate::STAGE_ENVELOPE_SCHEMA_V2.into(),
-            repository_id: "runne".into(),
+            repository_id: "gocode".into(),
             receipt_sha256: receipt5.receipt_sha256(),
             trust_config_sha256: receipt5.bindings().trust_config_sha256().into(),
             trust_generation: receipt5.bindings().trust_generation(),
@@ -75,7 +75,7 @@ pub fn evidence_envelope(
     (
         crate::EvidenceAuthorityEnvelopeV2 {
             schema_version: crate::EVIDENCE_ENVELOPE_SCHEMA_V2.into(),
-            repository_id: "runne".into(),
+            repository_id: "gocode".into(),
             receipt_sha256: receipt5.receipt_sha256(),
             trust_config_sha256: receipt5.bindings().trust_config_sha256().into(),
             trust_generation: receipt5.bindings().trust_generation(),
@@ -115,7 +115,7 @@ pub fn signed_stage_v2(envelope: &crate::StageAuthorityEnvelopeV2, key: &Signing
     let signature = key
         .sign(
             &crate::framed_transcript(
-                b"runne.release.post-rc0-stage-envelope/2",
+                b"gocode.release.post-rc0-stage-envelope/2",
                 &crate::canonical_unsigned_stage_envelope_v2(envelope).unwrap(),
             )
             .unwrap(),
@@ -130,7 +130,7 @@ pub fn signed_evidence_v2(
     let signature = key
         .sign(
             &crate::framed_transcript(
-                b"runne.release.post-rc0-evidence-envelope/2",
+                b"gocode.release.post-rc0-evidence-envelope/2",
                 &crate::canonical_unsigned_evidence_envelope_v2(envelope).unwrap(),
             )
             .unwrap(),

@@ -8,13 +8,13 @@ mod receipt_support;
 fn receipt_requires_exact_pinned_receipt_and_decision_schema_digests() {
     let expected = v1_platform_scope_schema_digests();
     let mut independently_mutable = v1_platform_scope_schema_digests();
-    independently_mutable[0].schema_id = "runne.other/1".into();
+    independently_mutable[0].schema_id = "gocode.other/1".into();
     assert_eq!(expected, v1_platform_scope_schema_digests());
     assert_ne!(expected, independently_mutable);
     for digests in [
         vec![expected[0].clone()],
         vec![SchemaDigest {
-            schema_id: "runne.other/1".into(),
+            schema_id: "gocode.other/1".into(),
             schema_sha256: [0; 32],
         }],
         vec![

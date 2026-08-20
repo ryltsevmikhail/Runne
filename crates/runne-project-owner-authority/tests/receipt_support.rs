@@ -5,7 +5,7 @@ use runne_project_owner_authority::{
     framed_transcript, key_id, sign_receipt, v1_platform_scope_schema_digests,
 };
 
-const POP_DOMAIN: &[u8] = b"runne.project-owner.genesis-pop/1";
+const POP_DOMAIN: &[u8] = b"gocode.project-owner.genesis-pop/1";
 
 pub struct TestSigner(SigningKey);
 
@@ -36,8 +36,8 @@ pub fn signed_with_schema_digests(
 ) -> Result<(SignedReceipt, ProjectOwnerTrustConfigV1, TrustAnchorState), AuthorityError> {
     let signing = SigningKey::from_bytes(&[7; 32]);
     let mut trust = ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&signing.verifying_key().to_bytes()),
@@ -53,7 +53,7 @@ pub fn signed_with_schema_digests(
     .map_err(|_| AuthorityError::InvalidGenesis)?;
     trust.proof_of_possession = signing.sign(&message).to_bytes();
     let anchor = TrustAnchorState::confirmed(
-        "runne".into(),
+        "gocode".into(),
         1,
         trust.sha256().map_err(|_| AuthorityError::InvalidGenesis)?,
     );
@@ -88,7 +88,7 @@ fn documents() -> Vec<DocumentBinding> {
         binding(
             "docs/decisions/v1-platform-scope-v1.json",
             "7",
-            Some("runne.governance.v1-platform-scope-decision/1"),
+            Some("gocode.governance.v1-platform-scope-decision/1"),
         ),
         binding("docs/adr/ADR-0027-v1-platform-scope.md", "5", None),
     ]

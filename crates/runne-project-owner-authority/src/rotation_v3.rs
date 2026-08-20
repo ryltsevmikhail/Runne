@@ -14,8 +14,8 @@ use crate::{
     trust_v3::{CONFIG_SCHEMA_V3, POP_DOMAIN_V3, canonical_config_v3, v3_trust_schema_digests},
 };
 
-const ROTATION_SCHEMA_V3: &str = "runne.project-owner.key-rotation/3";
-const OLD_DOMAIN_V3: &[u8] = b"runne.project-owner.rotation-old-authorization/3";
+const ROTATION_SCHEMA_V3: &str = "gocode.project-owner.key-rotation/3";
+const OLD_DOMAIN_V3: &[u8] = b"gocode.project-owner.rotation-old-authorization/3";
 
 /// V2-to-V3 rotation binding exactly one predecessor and one successor key.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -208,7 +208,7 @@ fn successor(rotation: &KeyRotationV3, predecessor: [u8; 32]) -> ProjectOwnerTru
         schema_digests: rotation.new_schema_digests.clone(),
         proof_of_possession: rotation.new_proof_of_possession,
         predecessor,
-        predecessor_schema_version: "runne.project-owner.trust-config/2".into(),
+        predecessor_schema_version: "gocode.project-owner.trust-config/2".into(),
     }
 }
 

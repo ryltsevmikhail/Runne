@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use super::common::{HexDigest, destination, identifier};
 use crate::AuthorityError;
 
-pub(super) const MANIFEST: &str = "runne.release.publication-manifest/1";
-pub(super) const AUTH: &str = "runne.release.rc3-publication-authorization/1";
+pub(super) const MANIFEST: &str = "gocode.release.publication-manifest/1";
+pub(super) const AUTH: &str = "gocode.release.rc3-publication-authorization/1";
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct PublicationManifest {

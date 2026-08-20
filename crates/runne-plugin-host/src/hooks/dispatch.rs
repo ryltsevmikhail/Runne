@@ -207,7 +207,7 @@ fn hook_payload_digest(payload: &[u8]) -> [u8; 32] {
 
 fn hook_descriptor_digest(definitions: &[PluginHookDefinition]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"RUNNE_PLUGIN_HOOK_DESCRIPTOR_SNAPSHOT_V1\0");
+    hasher.update(b"GOCODE_PLUGIN_HOOK_DESCRIPTOR_SNAPSHOT_V1\0");
     hasher.update((definitions.len() as u64).to_be_bytes());
     for definition in definitions {
         hasher.update(definition.priority.to_be_bytes());

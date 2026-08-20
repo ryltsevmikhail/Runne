@@ -160,7 +160,7 @@ fn admitted_lineage_cannot_resume_a_different_valid_digest() {
     let domain = SigningDomain::new(
         RECEIPT_SCHEMA_V4,
         "POST_RC0_PROMOTION_AUTHORITY_BOOTSTRAP",
-        "runne",
+        "gocode",
     )
     .unwrap();
     let signature = root

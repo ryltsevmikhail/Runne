@@ -64,7 +64,7 @@ fn stage_admission_fingerprint(claim: &serde_json::Value) -> String {
     let revision = u64("revision");
     let role_floor = u64("role_floor");
     let fields: [&[u8]; 21] = [
-        b"runne.release.stage-admission-command/1\0",
+        b"gocode.release.stage-admission-command/1\0",
         &bytes("bootstrap"),
         text("role"),
         &bytes("payload"),

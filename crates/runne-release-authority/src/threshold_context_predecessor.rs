@@ -18,7 +18,7 @@ pub fn matches(evidence: &ThresholdMetadataEvidence, state: &ThresholdVerificati
 }
 
 fn keyset_digest(keys: &BTreeMap<String, [u8; 32]>) -> Digest {
-    let mut transcript = b"runne.release.rc2-threshold-keyset/2\0".to_vec();
+    let mut transcript = b"gocode.release.rc2-threshold-keyset/2\0".to_vec();
     for (key_id, key) in keys {
         append(&mut transcript, key_id.as_bytes());
         append(&mut transcript, key);

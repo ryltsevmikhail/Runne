@@ -9,8 +9,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{AuthorityError, SchemaDigest, trust_canonical::hex};
 
-pub const CONFIG_SCHEMA_V4: &str = "runne.project-owner.trust-config/4";
-pub const POP_DOMAIN_V4: &[u8] = b"runne.project-owner.rotation-new-proof-of-possession/4";
+pub const CONFIG_SCHEMA_V4: &str = "gocode.project-owner.trust-config/4";
+pub const POP_DOMAIN_V4: &[u8] = b"gocode.project-owner.rotation-new-proof-of-possession/4";
 
 /// Public V4 successor configuration. Only a verified V3-to-V4 rotation may mint it.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -133,56 +133,56 @@ pub fn v4_trust_schema_digests() -> Result<Vec<SchemaDigest>, AuthorityError> {
 fn v4_leaf_schema_digests() -> Vec<SchemaDigest> {
     [
         (
-            "runne.project-owner.authority-receipt/5",
-            "efc3baa15c4a813325143ebf19a3b8cbbd01c9809ccf0be526c1223f2dd1b297",
+            "gocode.project-owner.authority-receipt/5",
+            "5fa1de7c921acc5fe64f650e92e220b24390992e612c4c46ec0e364e2bec6340",
         ),
         (
-            "runne.project-owner.key-rotation/4",
-            "4b72392566f7dd6686ee1f72f7c8a9f117098eba819dc5ee86988aac08005c62",
+            "gocode.project-owner.key-rotation/4",
+            "f5fa4fc7021e215a6b937caf924500b60d43bc19a47e9737de91001ed81d5d04",
         ),
         (
-            "runne.project-owner.publication-destination-allowlist/1",
-            "ce1ac4c808c57d37e91a332c39517769da83737d016efd1a7283574c6e5c3acd",
+            "gocode.project-owner.publication-destination-allowlist/1",
+            "4143248c3da7032e8052afcde3d9ad1fb02303c03bfd98e1f90848829461ecbd",
         ),
         (
-            "runne.project-owner.trust-config/4",
-            "f55edfbd8d3ab7f49428bd718f3c37fab332c669fd48886680eefb1a97b3607e",
+            "gocode.project-owner.trust-config/4",
+            "187f0ed29342b263eaef98f961147f0a32d0e4b61da270604152980ac5c7fa87",
         ),
         (
-            "runne.release.post-rc0-evidence-envelope/2",
-            "20925f03930119f600a7f1c2cb1a8bd969839be0b7dc33247145ad1cf100d18d",
+            "gocode.release.post-rc0-evidence-envelope/2",
+            "ed550775038dd782dd1e9581611223b4a2a0531fe2fefa582360d5e96ce2fbb3",
         ),
         (
-            "runne.release.post-rc0-stage-envelope/2",
-            "7b64f67e461a83fa33de5310ae8009cc3e009a1ee7358947ddd86a85fafc32d5",
+            "gocode.release.post-rc0-stage-envelope/2",
+            "003b932d8c44ef077e2e4ce9dc3e1d32d408e64eb8cf3c80d17669a7022f0538",
         ),
         (
-            "runne.release.rc1-qualification-decision/1",
-            "4b906fed479c58571a305b862f17c36d558c3fa5ac9f37f56972504653d56e00",
+            "gocode.release.rc1-qualification-decision/1",
+            "c3969fbc0a7c382e475401e00de8cf43538b1ca1f9d8e6efca35ef22590049ef",
         ),
         (
-            "runne.release.rc2-native-evidence/1",
-            "b049f39d5ec8fe1cdf0b03231445ab7cd0401abfa2c94d120f023f33c8a224df",
+            "gocode.release.rc2-native-evidence/1",
+            "cb0ccf3b635200aa43614c362f631aca3d0feba91fa496512bb908d157ed3ae9",
         ),
         (
-            "runne.release.rc2-signing-authorization/1",
-            "8cae65952f9cccce55ee3c5326cdc6875954e0bda45015a1ab8cecce6687d37a",
+            "gocode.release.rc2-signing-authorization/1",
+            "49904458730d7a4971d92332747fedf9a45f5fb3a60854888e83dd9d330dc64e",
         ),
         (
-            "runne.release.rc2-signing-review/1",
-            "76208f4b4724c4d605d57c63badd7fda7b68125cf756167fdad20ddc51606d0e",
+            "gocode.release.rc2-signing-review/1",
+            "49aa1c4b02a078096ef535fc32ecbfe13457141d5d2b0f0af594d3948f80b1a3",
         ),
         (
-            "runne.release.rc2-update-metadata-issuance/1",
-            "b1841a24166ac6f7a84cb19f25159a30fffbf1c5ae14c81afc6e83b92085adc8",
+            "gocode.release.rc2-update-metadata-issuance/1",
+            "64a299a83c1d31a994b34b1aa97cfb3c7f74929a7d947d7366b52c7cc297bc58",
         ),
         (
-            "runne.release.rc3-final-review/1",
-            "4f5fd7b0109fb6d2fc8b01125e13aa112792a5e4a5309afdf428f2738a5bb2fd",
+            "gocode.release.rc3-final-review/1",
+            "0c5376d127b18073f2527678aa508e64b35c4a6ab084b9d5eba885857f167d42",
         ),
         (
-            "runne.release.rc3-publication-authorization/2",
-            "b9b4a1fdf346d83c3bb31743a3af15f2173436a852cd592151e5844b960b260c",
+            "gocode.release.rc3-publication-authorization/2",
+            "d634758735b0c8c9a31d9fa8d9b960b49235e6059965cc3984dd18bb49b7f8ef",
         ),
     ]
     .into_iter()
@@ -217,10 +217,10 @@ const fn nibble(value: u8) -> u8 {
 /// Returns an error for a non-final, malformed, or unsigned successor.
 pub fn verify_v4_config(value: &ProjectOwnerTrustConfigV4) -> Result<(), AuthorityError> {
     if value.schema_version != CONFIG_SCHEMA_V4
-        || value.repository_id != "runne"
+        || value.repository_id != "gocode"
         || value.role != "PROJECT_OWNER"
         || value.epoch < 4
-        || value.predecessor_schema_version != "runne.project-owner.trust-config/3"
+        || value.predecessor_schema_version != "gocode.project-owner.trust-config/3"
         || value.key_id != crate::key_id(&value.public_key)
         || value.schema_digests != v4_trust_schema_digests()?
     {

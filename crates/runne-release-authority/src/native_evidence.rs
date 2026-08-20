@@ -13,7 +13,7 @@ use crate::signing_effect_evidence::{
 };
 use crate::{AuthorityError, CanonicalPayloadKind, Digest, InspectedCanonicalPayload};
 
-const SCHEMA: &str = "runne.release.rc2-native-evidence/1";
+const SCHEMA: &str = "gocode.release.rc2-native-evidence/1";
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

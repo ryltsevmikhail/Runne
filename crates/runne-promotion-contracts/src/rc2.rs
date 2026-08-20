@@ -45,7 +45,7 @@ struct Identity {
 }
 
 pub fn valid(value: &Rc2) -> bool {
-    value.schema_version == "runne.release.rc2-signing-authorization/1"
+    value.schema_version == "gocode.release.rc2-signing-authorization/1"
         && value.valid_from < value.expires_at
         && value.revocation_epoch > 0
         && value.effect_generation > 0

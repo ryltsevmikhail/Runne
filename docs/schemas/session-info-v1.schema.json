@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://runne.dev/schemas/session-info-v1.schema.json",
+  "$id": "https://gocode.dev/schemas/session-info-v1.schema.json",
   "title": "OpenCode Session.Info V1",
   "type": "object",
   "required": ["id", "slug", "projectID", "directory", "title", "version", "time"],
