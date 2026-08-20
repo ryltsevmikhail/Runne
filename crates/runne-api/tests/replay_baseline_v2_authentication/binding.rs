@@ -28,7 +28,7 @@ fn authenticated_local_capabilities_remain_bound_to_their_originating_baseline()
         .authenticate_resume_checkpoint_v2(
             &first,
             runne_api::UnauthenticatedReplayBaselineCheckpointFactsV2 {
-                cursor: "runne-replay-cursor-v1.00".into(),
+                cursor: "gocode-replay-cursor-v1.00".into(),
                 aggregate_kind: ApiReplayAggregateKind::Conversation,
                 aggregate_id: ID,
                 event_id: *first.head_event_id(),
@@ -57,7 +57,7 @@ fn durable_binding_digest(binding: &runne_api::RuntimeSessionBinding) -> [u8; 32
         lower_hex(stable.capability_digest()),
     ];
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/replay-persistence-binding/v1\0");
+    hasher.update(b"gocode/replay-persistence-binding/v1\0");
     for value in values {
         hasher.update((value.len() as u64).to_be_bytes());
         hasher.update(value.as_bytes());

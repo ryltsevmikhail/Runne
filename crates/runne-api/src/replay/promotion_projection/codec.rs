@@ -133,7 +133,7 @@ pub(super) fn push(bytes: &mut Vec<u8>, value: &[u8]) -> Result<(), ReplayContra
 
 fn digest(tag: u8, id: &[u8; 16], bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne.replay.promotion-projection");
+    hasher.update(b"gocode.replay.promotion-projection");
     hasher.update([0, VERSION, tag]);
     hasher.update(id);
     hasher.update(bytes);

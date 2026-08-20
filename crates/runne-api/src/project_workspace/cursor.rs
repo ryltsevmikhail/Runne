@@ -2,8 +2,8 @@ use super::{ApiPrincipalId, ProjectWorkspaceHostError};
 use runne_domain::id::{ProjectId, WorkspaceId, validate_uuid_v7_bytes};
 use sha2::{Digest, Sha256};
 
-const PROJECT_CURSOR_PREFIX: &str = "runne-project-page-v1.";
-const WORKSPACE_CURSOR_PREFIX: &str = "runne-workspace-page-v1.";
+const PROJECT_CURSOR_PREFIX: &str = "gocode-project-page-v1.";
+const WORKSPACE_CURSOR_PREFIX: &str = "gocode-workspace-page-v1.";
 const PRINCIPAL_BINDING_BYTES: usize = 32;
 const PROJECT_CURSOR_PAYLOAD_BYTES: usize = PRINCIPAL_BINDING_BYTES + 16;
 const WORKSPACE_CURSOR_PAYLOAD_BYTES: usize = PROJECT_CURSOR_PAYLOAD_BYTES + 16;
@@ -150,7 +150,7 @@ impl WorkspacePageCursor {
 
 fn principal_binding(principal: &ApiPrincipalId) -> [u8; PRINCIPAL_BINDING_BYTES] {
     let mut digest = Sha256::new();
-    digest.update(b"runne.project-workspace-page-cursor.principal.v1\0");
+    digest.update(b"gocode.project-workspace-page-cursor.principal.v1\0");
     digest.update(principal.as_str().as_bytes());
     digest.finalize().into()
 }

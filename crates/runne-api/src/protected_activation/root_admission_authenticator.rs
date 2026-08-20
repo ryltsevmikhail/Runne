@@ -1,5 +1,5 @@
-const ROOT_ADMISSION_DOMAIN: &[u8] = b"runne/root-admission/v3";
-const ROOT_ADMISSION_DIGEST_DOMAIN: &[u8] = b"runne/root-admission/digest/v3\0";
+const ROOT_ADMISSION_DOMAIN: &[u8] = b"gocode/root-admission/v3";
+const ROOT_ADMISSION_DIGEST_DOMAIN: &[u8] = b"gocode/root-admission/digest/v3\0";
 const ROOT_ADMISSION_PAYLOAD_BYTES: usize = 225;
 
 /// Trusted native input accepted only after a protected directory-handle check.

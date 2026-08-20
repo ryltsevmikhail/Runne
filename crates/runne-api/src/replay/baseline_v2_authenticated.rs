@@ -127,7 +127,7 @@ impl ReplayBaselineV2Authenticator {
     fn verifier_tag(&self) -> [u8; 32] {
         let mut mac = HmacSha256::new_from_slice(self.authority.as_ref())
             .expect("fixed native runtime authority");
-        mac.update(b"runne.replay-retention-baseline.v2.verifier-tag\0");
+        mac.update(b"gocode.replay-retention-baseline.v2.verifier-tag\0");
         mac.update(&self.binding.canonical_digest());
         mac.finalize().into_bytes().into()
     }
@@ -141,7 +141,7 @@ impl ReplayBaselineV2Authenticator {
             lower_hex(stable.schema_hash()), lower_hex(stable.capability_digest()),
         ];
         let mut digest = Sha256::new();
-        digest.update(b"runne/replay-persistence-binding/v1\0");
+        digest.update(b"gocode/replay-persistence-binding/v1\0");
         for value in fields {
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value.as_bytes());
@@ -199,7 +199,7 @@ impl AuthenticatedReplayBaselineV2 {
     pub fn local_evidence_digest(&self) -> [u8; 32] {
         use sha2::{Digest as _, Sha256};
         let mut digest = Sha256::new();
-        digest.update(b"runne.replay.authenticated-baseline.v2.local-evidence\0");
+        digest.update(b"gocode.replay.authenticated-baseline.v2.local-evidence\0");
         digest.update(self.fields.runtime_session_binding_digest);
         digest.update(self.fields.replay_scope_digest);
         digest.update(self.fields.head_event_id);

@@ -5,7 +5,7 @@ use runne_domain::id::WorkspaceId;
 pub const ROOT_HANDLE_ADMISSION_V3_BYTES: usize = 289;
 /// Maximum serialized size accepted before the HTTP host is called.
 pub const MAX_ROOT_HANDLE_ADMISSION_BYTES: usize = ROOT_HANDLE_ADMISSION_V3_BYTES;
-const ROOT_HANDLE_ADMISSION_TOKEN_PREFIX: &str = "runne-root-admission-v3.";
+const ROOT_HANDLE_ADMISSION_TOKEN_PREFIX: &str = "gocode-root-admission-v3.";
 /// Exact maximum byte length of the ASCII v3 root-admission transport token.
 pub const MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES: usize =
     ROOT_HANDLE_ADMISSION_TOKEN_PREFIX.len() + (MAX_ROOT_HANDLE_ADMISSION_BYTES * 4).div_ceil(3);

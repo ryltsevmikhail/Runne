@@ -6,12 +6,12 @@
   "lifecycle_messages": {
     "first_activation_commit": {
       "frame_length": 469,
-      "frame_sha256": "df0a6ee527e76b9c7249e98c5157d6779e46251d7e185227a9f982c37227855a",
+      "frame_sha256": "7766cdc97ab5b2b49213a7c7c699ccc427ad2f26746ea3c3a7de5df27b7027b9",
       "message_type_id": 8
     },
     "first_activation_prepared": {
       "frame_length": 469,
-      "frame_sha256": "0beea726087908f053731ee8f8bc811d1df39aa7b605be16c7e9ad8859fe6f93",
+      "frame_sha256": "c113b35859567acd58b0414c4830cc9ea221dfc7100cf3e9186a7c76b517e63a",
       "message_type_id": 7
     },
     "launch": {
@@ -21,27 +21,27 @@
     },
     "ready": {
       "frame_length": 543,
-      "frame_sha256": "6639ced05173ecb2ed8db4c899af624ba2fcdc46726fb21b26be651cee9604ea",
+      "frame_sha256": "369eb5f9d9d9a13f3fa94a38deeefb089582810a6423d50136a86e40ddef0a56",
       "message_type_id": 2
     },
     "renew_request": {
       "frame_length": 491,
-      "frame_sha256": "d703b7c755990529760b760d78042157352210c9ca331505158789a462086696",
+      "frame_sha256": "e9b82a2093607d4b77779f813dd56bf5081cab1e5cc97860402b6040518e23a1",
       "message_type_id": 3
     },
     "renew_ticket": {
       "frame_length": 552,
-      "frame_sha256": "095fb641fc703f5745e8a79f27e3844998293c3b8efb11f68a684197db9303c8",
+      "frame_sha256": "60f145bf894768ff95da402f9b50aaa3bcdb4ff3f983e64cde64e8a2aad1ca94",
       "message_type_id": 4
     },
     "shutdown": {
       "frame_length": 454,
-      "frame_sha256": "4eb83f2a694591cf8c5caa72ea91ec4a5aa98b84f2f8e1275b4c00a9486a0553",
+      "frame_sha256": "d242a2be3cc0e1aeba1b511081b65f399f52c027e4821aa63778bea69fbec6e2",
       "message_type_id": 5
     },
     "shutdown_ack": {
       "frame_length": 456,
-      "frame_sha256": "03633fb227a3db5fe7258d4b61dc878ee12f80c6425e731b6f51e14c60a55b7e",
+      "frame_sha256": "ad1e8d3826273f0b579f24b1e8ade34ea314f6a4b3faee96b5dc33bb6631711f",
       "message_type_id": 6
     }
   },

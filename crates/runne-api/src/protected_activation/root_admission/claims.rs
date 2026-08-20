@@ -64,7 +64,7 @@ impl RootAdmissionVerificationContext {
     /// Domain-separated digest for the authenticated API principal.
     pub fn principal_digest_for(principal: &str) -> [u8; 32] {
         let mut digest = Sha256::new();
-        digest.update(b"runne-root-admission-principal\x01");
+        digest.update(b"gocode-root-admission-principal\x01");
         digest.update((principal.len() as u64).to_be_bytes());
         digest.update(principal.as_bytes());
         digest.finalize().into()
@@ -72,7 +72,7 @@ impl RootAdmissionVerificationContext {
     /// Domain-separated digest for the runtime authority identity.
     pub fn authority_digest_for(authority: &str) -> [u8; 32] {
         let mut digest = Sha256::new();
-        digest.update(b"runne-root-admission-authority\x01");
+        digest.update(b"gocode-root-admission-authority\x01");
         digest.update((authority.len() as u64).to_be_bytes());
         digest.update(authority.as_bytes());
         digest.finalize().into()
@@ -223,7 +223,7 @@ mod tests {
     }
     #[test]
     fn root_admission_v3_transport_rejects_v2_and_oversized_tokens() {
-        assert!(RootHandleAdmission::from_transport_token("runne-root-admission-v2.AA").is_err());
+        assert!(RootHandleAdmission::from_transport_token("gocode-root-admission-v2.AA").is_err());
         assert!(RootHandleAdmission::from_transport_token(&"a".repeat(MAX_ROOT_HANDLE_ADMISSION_TOKEN_BYTES + 1)).is_err());
     }
     #[test]

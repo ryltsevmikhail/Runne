@@ -1,6 +1,6 @@
 /// Canonical domain separation used before deriving a session-bound baseline key.
 pub const REPLAY_RETENTION_BASELINE_KEY_DOMAIN_V1: &[u8] =
-    b"runne.replay-retention-baseline.key.v1\0";
+    b"gocode.replay-retention-baseline.key.v1\0";
 
 /// Returns the exact length-framed unauthenticated baseline claim transcript.
 pub fn replay_retention_baseline_transcript(wire: &ReplayRetentionBaselineWireV1) -> Vec<u8> {
