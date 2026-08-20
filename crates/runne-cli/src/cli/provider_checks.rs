@@ -168,7 +168,10 @@ mod provider_checks_tests {
             "schema_version = 2\n[provider_activation]\nmode = \"deepseek_responses_text_v1\"\nprofile_id = \"runne-deepseek-responses-text/1\"\nprofile_digest = \"25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853\"\n",
         )
         .unwrap();
-        assert!(matches!(read_active_provider(&config_path), ActiveProviderProbe::Unavailable(_)));
+        assert!(matches!(
+            read_active_provider(&config_path),
+            ActiveProviderProbe::Unavailable(_)
+        ));
     }
 
     #[test]
