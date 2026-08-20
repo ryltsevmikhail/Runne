@@ -26,14 +26,14 @@ defineEmits<{
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--gocode-space-sm);
-  font-family: var(--gocode-font-ui);
+  gap: var(--runne-space-sm);
+  font-family: var(--runne-font-ui);
   font-weight: 500;
-  border-radius: var(--gocode-radius-md);
+  border-radius: var(--runne-radius-md);
   cursor: pointer;
-  transition: background var(--gocode-motion-fast) ease,
-              border-color var(--gocode-motion-fast) ease,
-              color var(--gocode-motion-fast) ease;
+  transition: background var(--runne-motion-fast) ease,
+              border-color var(--runne-motion-fast) ease,
+              color var(--runne-motion-fast) ease;
   border: 1px solid transparent;
   user-select: none;
   white-space: nowrap;
@@ -53,9 +53,9 @@ defineEmits<{
 
 /* Primary: accent fill, Graphite text (Pen authority) */
 .gc-button--primary {
-  background: var(--gocode-accent);
-  color: var(--gocode-text-on-accent);
-  border-color: var(--gocode-accent);
+  background: var(--runne-accent);
+  color: var(--runne-text-on-accent);
+  border-color: var(--runne-accent);
 }
 .gc-button--primary:hover {
   filter: brightness(1.08);
@@ -64,22 +64,22 @@ defineEmits<{
 /* Ghost: transparent, subtle text, border on hover */
 .gc-button--ghost {
   background: transparent;
-  color: var(--gocode-text-secondary);
+  color: var(--runne-text-secondary);
 }
 .gc-button--ghost:hover {
-  background: var(--gocode-surface);
-  border-color: var(--gocode-border);
-  color: var(--gocode-text-primary);
+  background: var(--runne-surface);
+  border-color: var(--runne-border);
+  color: var(--runne-text-primary);
 }
 
 /* Secondary: raised surface */
 .gc-button--secondary {
-  background: var(--gocode-surface-raised);
-  color: var(--gocode-text-primary);
-  border-color: var(--gocode-border);
+  background: var(--runne-surface-raised);
+  color: var(--runne-text-primary);
+  border-color: var(--runne-border);
 }
 .gc-button--secondary:hover {
-  border-color: var(--gocode-text-secondary);
+  border-color: var(--runne-text-secondary);
 }
 
 /* Disabled */
@@ -87,18 +87,18 @@ defineEmits<{
   opacity: 0.4;
   pointer-events: none;
   cursor: not-allowed;
-  background: var(--gocode-surface);
-  color: var(--gocode-text-secondary);
-  border-color: var(--gocode-border);
+  background: var(--runne-surface);
+  color: var(--runne-text-secondary);
+  border-color: var(--runne-border);
 }
 
 /* Delete/danger */
 .gc-button--delete {
   background: transparent;
-  color: var(--gocode-error-coral);
-  border-color: var(--gocode-error-coral);
+  color: var(--runne-error-coral);
+  border-color: var(--runne-error-coral);
 }
 .gc-button--delete:hover {
-  background: color-mix(in srgb, var(--gocode-error-coral) 10%, transparent);
+  background: color-mix(in srgb, var(--runne-error-coral) 10%, transparent);
 }
 </style>

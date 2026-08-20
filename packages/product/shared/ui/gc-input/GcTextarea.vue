@@ -52,23 +52,23 @@ defineEmits<{
 .gc-textarea {
   width: 100%;
   padding: 8px 12px;
-  background: var(--gocode-surface);
-  border: 1px solid var(--gocode-border);
-  border-radius: var(--gocode-radius-md);
-  font-family: var(--gocode-font-ui);
+  background: var(--runne-surface);
+  border: 1px solid var(--runne-border);
+  border-radius: var(--runne-radius-md);
+  font-family: var(--runne-font-ui);
   font-size: 14px;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
   outline: none;
   resize: vertical;
-  transition: border-color var(--gocode-motion-fast) ease;
+  transition: border-color var(--runne-motion-fast) ease;
 }
 
 .gc-textarea:focus {
-  border-color: var(--gocode-accent);
+  border-color: var(--runne-accent);
 }
 
 .gc-input-wrapper--error .gc-textarea {
-  border-color: var(--gocode-error-coral);
+  border-color: var(--runne-error-coral);
 }
 
 .gc-input-wrapper--disabled .gc-textarea {
@@ -77,6 +77,6 @@ defineEmits<{
 }
 
 .gc-textarea::placeholder {
-  color: var(--gocode-ui-subtle);
+  color: var(--runne-ui-subtle);
 }
 </style>

@@ -151,7 +151,7 @@
 .icon-button:focus-visible,
 .nav-item:focus-visible,
 .brand:focus-visible {
-  outline: 2px solid var(--gocode-warm-white);
+  outline: 2px solid var(--runne-warm-white);
   outline-offset: 2px;
 }
 

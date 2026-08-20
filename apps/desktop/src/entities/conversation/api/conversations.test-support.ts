@@ -16,7 +16,7 @@ export const snapshot = {
       role: 'assistant',
       taskRunId: '018f2e3a-7000-7000-8000-000000000103',
       attemptId: '018f2e3a-7000-7000-8000-000000000104',
-      text: 'GOCODE local response: hello',
+      text: 'Runne local response: hello',
       committedAt: 1_753_800_000_002,
     },
   ],

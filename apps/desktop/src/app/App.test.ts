@@ -23,7 +23,7 @@ describe('desktop application shell', () => {
     expect(wrapper.get('main').text()).toContain('Projects')
   })
 
-  it('uses the canonical GOCODE brand assets in the desktop shell', async () => {
+  it('uses the canonical Runne brand assets in the desktop shell', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes,
@@ -54,7 +54,7 @@ describe('desktop application shell', () => {
 
     const titleBar = wrapper.get('.desktop-title-bar')
     expect(titleBar.attributes('data-tauri-drag-region')).toBe('')
-    expect(titleBar.text()).toContain('GOCODE')
+    expect(titleBar.text()).toContain('Runne')
   })
 
   it('toggles the desktop color theme from the sidebar', async () => {

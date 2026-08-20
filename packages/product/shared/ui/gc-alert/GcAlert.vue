@@ -38,35 +38,35 @@ defineEmits<{
 <style scoped>
 .gc-alert {
   display: flex;
-  padding: var(--gocode-space-lg);
-  border-radius: var(--gocode-radius-md);
+  padding: var(--runne-space-lg);
+  border-radius: var(--runne-radius-md);
   border: 1px solid;
-  gap: var(--gocode-space-md);
+  gap: var(--runne-space-md);
   font-size: 14px;
 }
 
 .gc-alert--success {
-  background: color-mix(in srgb, var(--gocode-lead-green) 10%, transparent);
-  border-color: color-mix(in srgb, var(--gocode-lead-green) 20%, transparent);
-  color: var(--gocode-text-primary);
+  background: color-mix(in srgb, var(--runne-lead-green) 10%, transparent);
+  border-color: color-mix(in srgb, var(--runne-lead-green) 20%, transparent);
+  color: var(--runne-text-primary);
 }
 
 .gc-alert--info {
-  background: color-mix(in srgb, var(--gocode-accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--gocode-accent) 20%, transparent);
-  color: var(--gocode-text-primary);
+  background: color-mix(in srgb, var(--runne-accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--runne-accent) 20%, transparent);
+  color: var(--runne-text-primary);
 }
 
 .gc-alert--warning {
-  background: color-mix(in srgb, var(--gocode-warning) 10%, transparent);
-  border-color: color-mix(in srgb, var(--gocode-warning) 20%, transparent);
-  color: var(--gocode-text-primary);
+  background: color-mix(in srgb, var(--runne-warning) 10%, transparent);
+  border-color: color-mix(in srgb, var(--runne-warning) 20%, transparent);
+  color: var(--runne-text-primary);
 }
 
 .gc-alert--error {
-  background: color-mix(in srgb, var(--gocode-error-coral) 10%, transparent);
-  border-color: color-mix(in srgb, var(--gocode-error-coral) 20%, transparent);
-  color: var(--gocode-text-primary);
+  background: color-mix(in srgb, var(--runne-error-coral) 10%, transparent);
+  border-color: color-mix(in srgb, var(--runne-error-coral) 20%, transparent);
+  color: var(--runne-text-primary);
 }
 
 .gc-alert-content {

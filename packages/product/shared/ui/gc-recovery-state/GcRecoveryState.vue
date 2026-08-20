@@ -85,72 +85,72 @@ defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--gocode-space-xl);
+  padding: var(--runne-space-xl);
 }
 
 .gc-recovery-panel {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--gocode-space-sm);
+  gap: var(--runne-space-sm);
   text-align: center;
   max-width: 360px;
 }
 
 .gc-recovery-icon {
   font-size: 32px;
-  margin-bottom: var(--gocode-space-sm);
+  margin-bottom: var(--runne-space-sm);
 }
 
 .gc-recovery-panel--restored .gc-recovery-icon {
-  color: var(--gocode-lead-green);
+  color: var(--runne-lead-green);
 }
 
 .gc-recovery-panel--conflict .gc-recovery-icon {
-  color: var(--gocode-warning);
+  color: var(--runne-warning);
 }
 
 .gc-recovery-panel--corrupt .gc-recovery-icon {
-  color: var(--gocode-error-coral);
+  color: var(--runne-error-coral);
 }
 
 .gc-recovery-title {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
 }
 
 .gc-recovery-description {
   margin: 0;
   font-size: 13px;
-  color: var(--gocode-text-secondary);
+  color: var(--runne-text-secondary);
   line-height: 1.5;
 }
 
 .gc-recovery-actions {
   display: flex;
-  gap: var(--gocode-space-sm);
-  margin-top: var(--gocode-space-md);
+  gap: var(--runne-space-sm);
+  margin-top: var(--runne-space-md);
 }
 
 .gc-recovery-btn {
   padding: 8px 16px;
-  font-family: var(--gocode-font-ui);
+  font-family: var(--runne-font-ui);
   font-size: 13px;
   font-weight: 500;
   border: 1px solid;
-  border-radius: var(--gocode-radius-md);
+  border-radius: var(--runne-radius-md);
   cursor: pointer;
-  transition: background var(--gocode-motion-fast) ease,
-              filter var(--gocode-motion-fast) ease;
+  transition: background var(--runne-motion-fast) ease,
+              filter var(--runne-motion-fast) ease;
 }
 
 /* Keep local button: primary accent */
 .gc-recovery-btn--local {
-  background: var(--gocode-accent);
-  color: var(--gocode-text-on-accent);
-  border-color: var(--gocode-accent);
+  background: var(--runne-accent);
+  color: var(--runne-text-on-accent);
+  border-color: var(--runne-accent);
 }
 
 .gc-recovery-btn--local:hover {
@@ -160,19 +160,19 @@ defineEmits<{
 /* Use remote button: secondary/outline */
 .gc-recovery-btn--remote {
   background: transparent;
-  color: var(--gocode-text-primary);
-  border-color: var(--gocode-border);
+  color: var(--runne-text-primary);
+  border-color: var(--runne-border);
 }
 
 .gc-recovery-btn--remote:hover {
-  background: var(--gocode-surface);
+  background: var(--runne-surface);
 }
 
 /* Start fresh button: primary accent */
 .gc-recovery-btn--fresh {
-  background: var(--gocode-accent);
-  color: var(--gocode-text-on-accent);
-  border-color: var(--gocode-accent);
+  background: var(--runne-accent);
+  color: var(--runne-text-on-accent);
+  border-color: var(--runne-accent);
 }
 
 .gc-recovery-btn--fresh:hover {

@@ -121,7 +121,7 @@ async function navigateSidebar(id: string) {
         <RouterLink
           class="brand"
           to="/"
-          aria-label="GOCODE home"
+          aria-label="Runne home"
         >
           <img
             class="brand-lockup"

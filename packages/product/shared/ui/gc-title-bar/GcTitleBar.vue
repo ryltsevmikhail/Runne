@@ -10,7 +10,7 @@
     </div>
     <div class="gc-title-bar-brand">
       <slot name="brand">
-        <span class="gc-title-bar-lockup">GOCODE</span>
+        <span class="gc-title-bar-lockup">Runne</span>
       </slot>
     </div>
     <div class="gc-title-bar-drag" />
@@ -22,9 +22,9 @@
   display: flex;
   align-items: center;
   height: 38px;
-  padding: 0 var(--gocode-space-md);
-  background: var(--gocode-canvas);
-  border-bottom: 1px solid var(--gocode-border);
+  padding: 0 var(--runne-space-md);
+  background: var(--runne-canvas);
+  border-bottom: 1px solid var(--runne-border);
   user-select: none;
   -webkit-app-region: drag;
 }
@@ -53,7 +53,7 @@
 .gc-title-bar-lockup {
   font-size: 13px;
   font-weight: 600;
-  color: var(--gocode-text-secondary);
+  color: var(--runne-text-secondary);
   letter-spacing: 1px;
 }
 

@@ -114,38 +114,38 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 .gc-dialog {
-  background: var(--gocode-surface-raised);
-  border: 1px solid var(--gocode-border);
-  border-radius: var(--gocode-radius-lg);
-  padding: var(--gocode-space-xl);
+  background: var(--runne-surface-raised);
+  border: 1px solid var(--runne-border);
+  border-radius: var(--runne-radius-lg);
+  padding: var(--runne-space-xl);
   max-width: 440px;
-  width: calc(100% - var(--gocode-space-2xl));
-  font-family: var(--gocode-font-ui);
-  color: var(--gocode-text-primary);
+  width: calc(100% - var(--runne-space-2xl));
+  font-family: var(--runne-font-ui);
+  color: var(--runne-text-primary);
 }
 
 .gc-dialog-header {
-  margin-bottom: var(--gocode-space-xl);
+  margin-bottom: var(--runne-space-xl);
 }
 
 .gc-dialog-title {
-  margin: 0 0 var(--gocode-space-sm);
+  margin: 0 0 var(--runne-space-sm);
   font-size: 18px;
   font-weight: 600;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
 }
 
 .gc-dialog-description {
   margin: 0;
   font-size: 14px;
-  color: var(--gocode-text-secondary);
+  color: var(--runne-text-secondary);
   line-height: 1.5;
 }
 
 .gc-dialog-footer {
   display: flex;
   justify-content: flex-end;
-  gap: var(--gocode-space-sm);
+  gap: var(--runne-space-sm);
 }
 
 .gc-dialog-btn {
@@ -153,17 +153,17 @@ function onKeydown(e: KeyboardEvent) {
   align-items: center;
   justify-content: center;
   padding: 8px 16px;
-  border-radius: var(--gocode-radius-md);
-  font-family: var(--gocode-font-ui);
+  border-radius: var(--runne-radius-md);
+  font-family: var(--runne-font-ui);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   border: 1px solid transparent;
-  transition: background var(--gocode-motion-fast) ease,
-              border-color var(--gocode-motion-fast) ease,
-              color var(--gocode-motion-fast) ease;
-  background: var(--gocode-accent);
-  color: var(--gocode-text-on-accent);
+  transition: background var(--runne-motion-fast) ease,
+              border-color var(--runne-motion-fast) ease,
+              color var(--runne-motion-fast) ease;
+  background: var(--runne-accent);
+  color: var(--runne-text-on-accent);
 }
 
 .gc-dialog-btn:hover {
@@ -172,22 +172,22 @@ function onKeydown(e: KeyboardEvent) {
 
 .gc-dialog-btn--cancel {
   background: transparent;
-  color: var(--gocode-text-secondary);
+  color: var(--runne-text-secondary);
 }
 
 .gc-dialog-btn--cancel:hover {
-  background: var(--gocode-surface);
-  border-color: var(--gocode-border);
-  color: var(--gocode-text-primary);
+  background: var(--runne-surface);
+  border-color: var(--runne-border);
+  color: var(--runne-text-primary);
 }
 
 .gc-dialog-btn--danger {
   background: transparent;
-  color: var(--gocode-error-coral);
-  border-color: var(--gocode-error-coral);
+  color: var(--runne-error-coral);
+  border-color: var(--runne-error-coral);
 }
 
 .gc-dialog-btn--danger:hover {
-  background: color-mix(in srgb, var(--gocode-error-coral) 10%, transparent);
+  background: color-mix(in srgb, var(--runne-error-coral) 10%, transparent);
 }
 </style>

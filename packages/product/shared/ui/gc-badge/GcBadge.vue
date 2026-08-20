@@ -22,39 +22,39 @@ defineProps<{
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 500;
-  border-radius: var(--gocode-radius-lg);
+  border-radius: var(--runne-radius-lg);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .gc-badge--ready {
-  background: color-mix(in srgb, var(--gocode-lead-green) 15%, transparent);
-  color: var(--gocode-lead-green);
+  background: color-mix(in srgb, var(--runne-lead-green) 15%, transparent);
+  color: var(--runne-lead-green);
 }
 
 .gc-badge--error {
-  background: color-mix(in srgb, var(--gocode-error-coral) 15%, transparent);
-  color: var(--gocode-error-coral);
+  background: color-mix(in srgb, var(--runne-error-coral) 15%, transparent);
+  color: var(--runne-error-coral);
 }
 
 .gc-badge--running {
-  background: color-mix(in srgb, var(--gocode-accent) 15%, transparent);
-  color: var(--gocode-accent);
+  background: color-mix(in srgb, var(--runne-accent) 15%, transparent);
+  color: var(--runne-accent);
 }
 
 .gc-badge--offline {
-  background: color-mix(in srgb, var(--gocode-ui-muted) 15%, transparent);
-  color: var(--gocode-ui-muted);
+  background: color-mix(in srgb, var(--runne-ui-muted) 15%, transparent);
+  color: var(--runne-ui-muted);
 }
 
 .gc-badge--review {
-  background: color-mix(in srgb, var(--gocode-review-violet) 15%, transparent);
-  color: var(--gocode-review-violet);
+  background: color-mix(in srgb, var(--runne-review-violet) 15%, transparent);
+  color: var(--runne-review-violet);
 }
 
 .gc-badge--streaming {
-  background: color-mix(in srgb, var(--gocode-accent) 15%, transparent);
-  color: var(--gocode-accent);
+  background: color-mix(in srgb, var(--runne-accent) 15%, transparent);
+  color: var(--runne-accent);
 }
 
 .gc-badge-dot {

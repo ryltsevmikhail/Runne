@@ -107,47 +107,47 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--gocode-surface);
+  background: var(--runne-surface);
 }
 
 .gc-workspace-panel-tabs {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid var(--gocode-border);
-  padding: 0 var(--gocode-space-lg);
+  border-bottom: 1px solid var(--runne-border);
+  padding: 0 var(--runne-space-lg);
 }
 
 .gc-workspace-panel-tab {
   display: inline-flex;
   align-items: center;
-  gap: var(--gocode-space-sm);
-  padding: var(--gocode-space-sm) var(--gocode-space-md);
+  gap: var(--runne-space-sm);
+  padding: var(--runne-space-sm) var(--runne-space-md);
   border: none;
   background: transparent;
-  color: var(--gocode-text-secondary);
-  font-family: var(--gocode-font-ui);
+  color: var(--runne-text-secondary);
+  font-family: var(--runne-font-ui);
   font-size: 13px;
   cursor: pointer;
   position: relative;
-  transition: color var(--gocode-motion-fast) ease;
+  transition: color var(--runne-motion-fast) ease;
 }
 
 .gc-workspace-panel-tab:hover {
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
 }
 
 .gc-workspace-panel-tab--active {
-  color: var(--gocode-accent);
+  color: var(--runne-accent);
 }
 
 .gc-workspace-panel-tab--active::after {
   content: '';
   position: absolute;
   bottom: 0;
-  left: var(--gocode-space-md);
-  right: var(--gocode-space-md);
+  left: var(--runne-space-md);
+  right: var(--runne-space-md);
   height: 2px;
-  background: var(--gocode-accent);
+  background: var(--runne-accent);
   border-radius: 1px;
 }
 
@@ -158,9 +158,9 @@ defineEmits<{
 .gc-workspace-panel-tab-badge {
   font-size: 11px;
   padding: 1px 6px;
-  border-radius: var(--gocode-radius-sm);
-  background: var(--gocode-surface-raised);
-  color: var(--gocode-ui-muted);
+  border-radius: var(--runne-radius-sm);
+  background: var(--runne-surface-raised);
+  color: var(--runne-ui-muted);
 }
 
 .gc-workspace-panel-content {
@@ -168,21 +168,21 @@ defineEmits<{
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--gocode-space-lg);
+  padding: var(--runne-space-lg);
 }
 
 .gc-workspace-panel-file-tree {
   width: 100%;
   margin: 0;
   padding: 0;
-  color: var(--gocode-text-primary);
-  font-family: var(--gocode-font-mono);
+  color: var(--runne-text-primary);
+  font-family: var(--runne-font-mono);
   font-size: 13px;
   list-style: none;
 }
 
 .gc-workspace-panel-file-tree li {
-  padding-block: var(--gocode-space-xs);
+  padding-block: var(--runne-space-xs);
 }
 
 /* Empty state */
@@ -190,41 +190,41 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--gocode-space-sm);
+  gap: var(--runne-space-sm);
   text-align: center;
 }
 
 .gc-workspace-panel-empty-icon {
   font-size: 32px;
-  margin-bottom: var(--gocode-space-sm);
+  margin-bottom: var(--runne-space-sm);
 }
 
 .gc-workspace-panel-empty-title {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
 }
 
 .gc-workspace-panel-empty-subtitle {
   margin: 0;
   font-size: 12px;
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
 }
 
 /* Loading state */
 .gc-workspace-panel-loading {
   display: flex;
   flex-direction: column;
-  gap: var(--gocode-space-sm);
+  gap: var(--runne-space-sm);
   width: 100%;
   max-width: 300px;
 }
 
 .gc-workspace-panel-skeleton {
   height: 14px;
-  border-radius: var(--gocode-radius-sm);
-  background: var(--gocode-surface-raised);
+  border-radius: var(--runne-radius-sm);
+  background: var(--runne-surface-raised);
   animation: skeleton-pulse 1.5s ease-in-out infinite;
 }
 
@@ -252,34 +252,34 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--gocode-space-sm);
+  gap: var(--runne-space-sm);
   text-align: center;
 }
 
 .gc-workspace-panel-unavailable-icon {
   font-size: 32px;
-  margin-bottom: var(--gocode-space-sm);
+  margin-bottom: var(--runne-space-sm);
 }
 
 .gc-workspace-panel-unavailable-title {
   margin: 0;
   font-size: 14px;
   font-weight: 500;
-  color: var(--gocode-error-coral);
+  color: var(--runne-error-coral);
 }
 
 .gc-workspace-panel-retry-btn {
-  margin-top: var(--gocode-space-sm);
+  margin-top: var(--runne-space-sm);
   padding: 6px 16px;
-  font-family: var(--gocode-font-ui);
+  font-family: var(--runne-font-ui);
   font-size: 13px;
   font-weight: 500;
-  color: var(--gocode-text-on-accent);
-  background: var(--gocode-accent);
+  color: var(--runne-text-on-accent);
+  background: var(--runne-accent);
   border: none;
-  border-radius: var(--gocode-radius-md);
+  border-radius: var(--runne-radius-md);
   cursor: pointer;
-  transition: filter var(--gocode-motion-fast) ease;
+  transition: filter var(--runne-motion-fast) ease;
 }
 
 .gc-workspace-panel-retry-btn:hover {
