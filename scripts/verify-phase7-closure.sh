@@ -31,8 +31,10 @@ fi
 python3 - "$evidence" "$traceability" "$phase6_evidence" <<'PY'
 import pathlib
 import re
-import subprocess
 import sys
+
+sys.path.insert(0, "scripts")
+import pin_lineage
 
 evidence = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 traceability = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
@@ -57,13 +59,10 @@ reviewed = re.search(r"^reviewed_commit: ([0-9a-f]{40})$", evidence, re.MULTILIN
 integrated = re.search(r"^integrated_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
 if source is None or reviewed is None or source.group(1) != reviewed.group(1):
     raise SystemExit("Phase 7 exact source/reviewed commit evidence is invalid")
-commit = source.group(1)
-subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], check=True)
-subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=True)
 if integrated is None:
     raise SystemExit("Phase 7 integrated commit evidence is missing")
-subprocess.run(["git", "cat-file", "-e", f"{integrated.group(1)}^{{commit}}"], check=True)
-subprocess.run(["git", "merge-base", "--is-ancestor", integrated.group(1), "HEAD"], check=True)
+pin_lineage.require_lineage(evidence, "source_commit")
+pin_lineage.require_lineage(evidence, "integrated_commit")
 
 for stale in [
     "IMPLEMENTED_CANDIDATE",

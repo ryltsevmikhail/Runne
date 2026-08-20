@@ -11,9 +11,10 @@ test -f "$status"
 
 python3 - "$evidence" "$roadmap" "$status" <<'PY'
 import pathlib
-import re
-import subprocess
 import sys
+
+sys.path.insert(0, "scripts")
+import pin_lineage
 
 evidence = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 roadmap = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
@@ -32,12 +33,7 @@ missing = [value for value in required_evidence if value not in evidence]
 if missing:
     raise SystemExit(f"missing Phase 6 Core closure evidence fields: {missing}")
 
-verified = re.search(r"^verified_commit: ([0-9a-f]{40})$", evidence, re.MULTILINE)
-if verified is None:
-    raise SystemExit("Phase 6 Core verified commit is missing")
-commit = verified.group(1)
-subprocess.run(["git", "cat-file", "-e", f"{commit}^{{commit}}"], check=True)
-subprocess.run(["git", "merge-base", "--is-ancestor", commit, "HEAD"], check=True)
+pin_lineage.require_lineage(evidence, "verified_commit")
 
 if "## Phase 6 Core — COMPLETE" not in roadmap:
     raise SystemExit("ROADMAP does not mark Phase 6 Core complete")
