@@ -3,7 +3,7 @@ pub fn fingerprint(input: &OpenCodeCreateInput) -> SessionCreateFingerprint {
     let mut hasher = Sha256::new();
     write_field(
         &mut hasher,
-        b"runne-opencode-compat/session-create-fingerprint/v1",
+        b"gocode-opencode-compat/session-create-fingerprint/v1",
     );
     write_optional_string(&mut hasher, input.title.as_deref());
     write_optional_string(&mut hasher, input.workspace_id.as_deref());
