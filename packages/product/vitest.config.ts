@@ -11,7 +11,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@gocode/product': resolve(__dirname, '.'),
+      '@runne/product': resolve(__dirname, '.'),
     },
   },
 })

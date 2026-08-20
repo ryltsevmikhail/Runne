@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GcButton, GcProjectCard } from '@gocode/product/shared/ui'
+import { GcButton, GcProjectCard } from '@runne/product/shared/ui'
 import { Clock3, FolderOpen, Plus } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'

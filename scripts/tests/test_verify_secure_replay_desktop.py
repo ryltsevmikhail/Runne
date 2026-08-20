@@ -112,7 +112,7 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
         self.assertEqual(
             self.commands(),
             [
-                "pnpm <--filter> <@gocode/desktop> <test>",
+                "pnpm <--filter> <@runne/desktop> <test>",
                 "pnpm <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
                 "python3 <scripts/desktop/validate_architecture.py>",
@@ -132,7 +132,7 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v1.json> <--legacy-blob> <4713d84e94f68ae9c29de71325d4ecbd8d3096bb>",
                 "python3 <scripts/verify_secure_replay_evidence.py> <--manifest> <docs/evidence/secure-replay-desktop-resume-v2.json> <--base> <d4dbabff8272118d99e6388dfbbf6df48b22faae> <--head> <6030bdbe77a3cd5dbcaeaa3bfd2d7bc3a5b4d3ca> <--schema> <docs/schemas/secure-replay-evidence-v2.schema.json>",
                 "cargo <test> <-p> <runne-daemon> <--test> <desktop_replay_resume_e2e> <--locked>",
-                "pnpm <--filter> <@gocode/desktop> <test>",
+                "pnpm <--filter> <@runne/desktop> <test>",
                 "pnpm <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
                 "python3 <scripts/desktop/validate_architecture.py>",

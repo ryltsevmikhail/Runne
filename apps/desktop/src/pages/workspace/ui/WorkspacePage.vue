@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GcAlert, GcButton } from '@gocode/product/shared/ui'
+import { GcAlert, GcButton } from '@runne/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { Folder, PanelRight } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'

@@ -23,7 +23,7 @@ run_runtime() {
 }
 
 run_frontend() {
-    run_pnpm --filter @gocode/desktop test
+    run_pnpm --filter @runne/desktop test
     run_pnpm typecheck
     run_pnpm exec playwright test tests/desktop/e2e/replay-resume.spec.ts
     python3 scripts/desktop/validate_architecture.py

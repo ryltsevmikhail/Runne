@@ -50,10 +50,10 @@ importers:
 
   apps/desktop:
     dependencies:
-      '@gocode/platform-contract':
+      '@runne/platform-contract':
         specifier: workspace:*
         version: link:../../packages/platform-contract
-      '@gocode/product':
+      '@runne/product':
         specifier: workspace:*
         version: link:../../packages/product
       '@tauri-apps/api':

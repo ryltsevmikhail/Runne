@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { GcAlert } from '@gocode/product/shared/ui'
+import { GcAlert } from '@runne/product/shared/ui'
 import { isTauri } from '@tauri-apps/api/core'
 import { onMounted, ref } from 'vue'
 

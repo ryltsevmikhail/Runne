@@ -7,9 +7,9 @@ import {
   PanelLeft,
   Sun,
 } from 'lucide-vue-next'
-import { GcSidebar } from '@gocode/product/shared/ui'
-import '@gocode/product/shared/ui/styles/tokens.css'
-import '@gocode/product/shared/ui/styles/base.css'
+import { GcSidebar } from '@runne/product/shared/ui'
+import '@runne/product/shared/ui/styles/tokens.css'
+import '@runne/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
