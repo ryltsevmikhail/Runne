@@ -12,18 +12,18 @@ test -f "$phase6_evidence"
 bash scripts/verify-phase6-core-closure.sh
 
 if grep -R -n -E 'std::process::Command|tokio::process::Command|std::env::var|std::env::vars' \
-  crates/gocode-plugin-host crates/gocode-mcp; then
+  crates/runne-plugin-host crates/runne-mcp; then
   echo "ambient process or environment authority found in Phase 7B/7C" >&2
   exit 1
 fi
 
-if cargo tree -p gocode-mcp --edges normal | grep -E '(^|[[:space:]])(rmcp|reqwest|oauth2)[[:space:]]'; then
+if cargo tree -p runne-mcp --edges normal | grep -E '(^|[[:space:]])(rmcp|reqwest|oauth2)[[:space:]]'; then
   echo "unapproved MCP SDK/network/OAuth dependency found" >&2
   exit 1
 fi
 
 if grep -R -n -E 'McpSdkIntegrationAuthorityPort|PRODUCTION_MCP_SDK_ENABLED:[[:space:]]*bool[[:space:]]*=[[:space:]]*true' \
-  crates/gocode-mcp/src crates/gocode-runtime/src; then
+  crates/runne-mcp/src crates/runne-runtime/src; then
   echo "production MCP SDK activation must remain structurally disabled" >&2
   exit 1
 fi
@@ -89,9 +89,9 @@ PY
 
 bash scripts/verify-phase7-provider-tools.sh
 python3 scripts/check-deps.py
-cargo test -p gocode-plugin-host --all-targets --locked
-cargo test -p gocode-mcp --all-targets --locked
-cargo test -p gocode-runtime --test plugin_mcp_supervision --locked
-cargo test -p gocode-tools --all-targets --locked
+cargo test -p runne-plugin-host --all-targets --locked
+cargo test -p runne-mcp --all-targets --locked
+cargo test -p runne-runtime --test plugin_mcp_supervision --locked
+cargo test -p runne-tools --all-targets --locked
 python3 scripts/validate-docs.py --strict
 git diff --check

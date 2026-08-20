@@ -15,9 +15,9 @@ class RustDependencyRulesTest(unittest.TestCase):
     def test_allows_documented_dependency_direction(self):
         violations = architecture.find_rust_dependency_violations(
             {
-                "gocode-desktop": {"gocode-app-core", "gocode-platform-desktop"},
-                "gocode-app-core": {"gocode-runtime-client", "gocode-local-store"},
-                "gocode-platform-desktop": {"gocode-platform-ports"},
+                "runne-desktop": {"runne-app-core", "runne-platform-desktop"},
+                "runne-app-core": {"runne-runtime-client", "runne-local-store"},
+                "runne-platform-desktop": {"runne-platform-ports"},
             }
         )
 
@@ -25,49 +25,49 @@ class RustDependencyRulesTest(unittest.TestCase):
 
     def test_rejects_platform_implementation_importing_app_core(self):
         violations = architecture.find_rust_dependency_violations(
-            {"gocode-platform-desktop": {"gocode-app-core"}}
+            {"runne-platform-desktop": {"runne-app-core"}}
         )
 
         self.assertEqual(
-            ["gocode-platform-desktop -> gocode-app-core is forbidden"],
+            ["runne-platform-desktop -> runne-app-core is forbidden"],
             violations,
         )
 
     def test_secure_store_allows_only_public_identity_and_acl_wrapper(self):
         allowed = architecture.find_rust_dependency_violations(
             {
-                "gocode-secure-store": {
-                    "gocode-api",
-                    "gocode-macos-keychain-acl",
+                "runne-secure-store": {
+                    "runne-api",
+                    "runne-macos-keychain-acl",
                 }
             }
         )
         forbidden = architecture.find_rust_dependency_violations(
-            {"gocode-secure-store": {"gocode-runtime"}}
+            {"runne-secure-store": {"runne-runtime"}}
         )
 
         self.assertEqual([], allowed)
         self.assertEqual(
-            ["gocode-secure-store -> gocode-runtime is forbidden"],
+            ["runne-secure-store -> runne-runtime is forbidden"],
             forbidden,
         )
 
     def test_local_store_allows_only_the_audited_sqlite_identity_shim(self):
         allowed = architecture.find_rust_dependency_violations(
             {
-                "gocode-local-store": {
-                    "gocode-api",
-                    "gocode-sqlite-native-identity",
+                "runne-local-store": {
+                    "runne-api",
+                    "runne-sqlite-native-identity",
                 }
             }
         )
         forbidden = architecture.find_rust_dependency_violations(
-            {"gocode-local-store": {"gocode-runtime"}}
+            {"runne-local-store": {"runne-runtime"}}
         )
 
         self.assertEqual([], allowed)
         self.assertEqual(
-            ["gocode-local-store -> gocode-runtime is forbidden"], forbidden
+            ["runne-local-store -> runne-runtime is forbidden"], forbidden
         )
 
 
@@ -140,10 +140,10 @@ class ProviderTerminalPersistenceBoundaryTest(unittest.TestCase):
     def test_rejects_terminal_test_support_on_production_dependency(self):
         packages = [
             {
-                "name": "gocode-daemon",
+                "name": "runne-daemon",
                 "dependencies": [
                     {
-                        "name": "gocode-runtime",
+                        "name": "runne-runtime",
                         "kind": None,
                         "features": ["provider-terminal-test-support"],
                     }
@@ -153,7 +153,7 @@ class ProviderTerminalPersistenceBoundaryTest(unittest.TestCase):
 
         self.assertEqual(
             [
-                "gocode-daemon enables provider-terminal-test-support outside "
+                "runne-daemon enables provider-terminal-test-support outside "
                 "dev-dependencies"
             ],
             architecture.find_provider_terminal_test_feature_violations(packages),
@@ -164,8 +164,8 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
     def test_rejects_ordinary_admission_result_and_unverified_promotion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
-            control = root / "crates/gocode-api/src/protected_activation/root_handle_control.rs"
+            source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
+            control = root / "crates/runne-api/src/protected_activation/root_handle_control.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "pub struct ProtectedRootHandleAdmission {}\n", encoding="utf-8"
@@ -179,8 +179,8 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
             )
             self.assertEqual(
                 [
-                    "crates/gocode-api/src/protected_activation/root_handle_control.rs accepts ordinary admission into a protected result",
-                    "crates/gocode-api/src/protected_activation/root_handle_control.rs promotes an unverified result into protected provenance",
+                    "crates/runne-api/src/protected_activation/root_handle_control.rs accepts ordinary admission into a protected result",
+                    "crates/runne-api/src/protected_activation/root_handle_control.rs promotes an unverified result into protected provenance",
                 ],
                 architecture.find_protected_admission_surface_violations(root),
             )
@@ -188,8 +188,8 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
     def test_rejects_server_carrier_promotion(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
-            carrier = root / "crates/gocode-api/src/protected_activation/root_bind_transport.rs"
+            source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
+            carrier = root / "crates/runne-api/src/protected_activation/root_bind_transport.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "pub struct ProtectedRootHandleAdmission {}\n", encoding="utf-8"
@@ -202,7 +202,7 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
             )
             self.assertEqual(
                 [
-                    "crates/gocode-api/src/protected_activation/root_bind_transport.rs promotes the untrusted server carrier"
+                    "crates/runne-api/src/protected_activation/root_bind_transport.rs promotes the untrusted server carrier"
                 ],
                 architecture.find_protected_admission_surface_violations(root),
             )
@@ -210,7 +210,7 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
     def test_rejects_public_raw_or_clone_or_serde_surface(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
+            source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "pub struct ProtectedRootHandleAdmission {}\n"
@@ -218,14 +218,14 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
                 encoding="utf-8",
             )
             self.assertEqual(
-                ["crates/gocode-api/src/protected_activation/root_admission.rs exposes raw protected-admission surface"],
+                ["crates/runne-api/src/protected_activation/root_admission.rs exposes raw protected-admission surface"],
                 architecture.find_protected_admission_surface_violations(root),
             )
 
     def test_rejects_borrowed_string_encoder_on_the_wrapper(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
+            source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text(
                 "pub struct ProtectedRootHandleAdmission {}\n"
@@ -240,7 +240,7 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
         for derive in ("Clone", "Serialize", "Deserialize"):
             with self.subTest(derive=derive), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
+                source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(
                     f"#[derive({derive})]\npub struct ProtectedRootHandleAdmission {{}}\n",
@@ -262,7 +262,7 @@ class ProtectedAdmissionSurfaceTest(unittest.TestCase):
         for surface in cases:
             with self.subTest(surface=surface), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
+                source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(
                     "pub struct ProtectedRootHandleAdmission {}\n" + surface,
