@@ -49,7 +49,7 @@ impl ProjectOwnerKeyRef {
         key_epoch: u64,
     ) -> Result<Self, StoreStatus> {
         let repository_id = repository_id.into();
-        if repository_id != "runne" || key_epoch == 0 || !valid_public_key(&public_key) {
+        if repository_id != "gocode" || key_epoch == 0 || !valid_public_key(&public_key) {
             return Err(StoreStatus::Denied);
         }
         Ok(Self {
@@ -234,7 +234,7 @@ impl ProjectOwnerAnchorFloor {
         accepted_trust_config_sha256: [u8; 32],
     ) -> Result<Self, StoreStatus> {
         let repository_id = repository_id.into();
-        if repository_id != "runne"
+        if repository_id != "gocode"
             || highest_key_epoch == 0
             || accepted_trust_config_sha256 == [0; 32]
         {

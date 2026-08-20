@@ -6,7 +6,7 @@ mod review_codec;
 #[path = "review_validation.rs"]
 mod review_validation;
 
-const SCHEMA: &str = "runne.authority.cli-review/1";
+const SCHEMA: &str = "gocode.authority.cli-review/1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct AuthorityReviewV1 {

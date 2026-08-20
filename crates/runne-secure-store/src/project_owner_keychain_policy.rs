@@ -3,9 +3,9 @@
 use crate::StoreStatus;
 
 /// Fixed Keychain service; no legacy service is accepted.
-pub const PROJECT_OWNER_KEYCHAIN_SERVICE: &str = "runne.project-owner.authority/1";
+pub const PROJECT_OWNER_KEYCHAIN_SERVICE: &str = "gocode.project-owner.authority/1";
 /// Dedicated configured access group for the independently signed owner tool.
-pub const PROJECT_OWNER_KEYCHAIN_ACCESS_GROUP: &str = "com.runne.project-owner.authority";
+pub const PROJECT_OWNER_KEYCHAIN_ACCESS_GROUP: &str = "com.gocode.project-owner.authority";
 const ERR_SEC_INTERACTION_NOT_ALLOWED: i32 = -25_308;
 
 /// Only the three public protocol accounts, plus the private recovery journal, may exist.

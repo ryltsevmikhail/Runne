@@ -53,7 +53,7 @@ impl FakeStore {
 }
 impl ProjectOwnerKeyStore for FakeStore {
     fn read_active_ref(&self, repo: &str) -> Result<Option<ProjectOwnerKeyRef>, StoreStatus> {
-        if repo != "runne" {
+        if repo != "gocode" {
             return Err(StoreStatus::Denied);
         }
         Ok(self.state.lock().expect("state").active.clone())
@@ -66,7 +66,7 @@ impl ProjectOwnerKeyStore for FakeStore {
         build: &mut dyn FnMut(&ProjectOwnerKeyRef) -> Result<Vec<u8>, StoreStatus>,
     ) -> Result<PendingProjectOwnerKey, StoreStatus> {
         let active = self.state.lock().expect("state").active.clone();
-        if repo != "runne"
+        if repo != "gocode"
             || expected != active.as_ref()
             || epoch != active.as_ref().map_or(1, |key| key.key_epoch() + 1)
         {
@@ -82,7 +82,7 @@ impl ProjectOwnerKeyStore for FakeStore {
         build: &mut dyn FnMut(&ProjectOwnerKeyRef) -> Result<Vec<u8>, StoreStatus>,
     ) -> Result<PendingProjectOwnerKey, StoreStatus> {
         let state = self.state.lock().expect("state");
-        if repo != "runne" || expected != state.active.as_ref() {
+        if repo != "gocode" || expected != state.active.as_ref() {
             return Err(StoreStatus::Denied);
         }
         if let Some(pending) = state.pending.as_ref() {
@@ -153,7 +153,7 @@ impl ProjectOwnerKeyStore for FakeStore {
         &self,
         repo: &str,
     ) -> Result<Option<ProjectOwnerAnchorFloor>, StoreStatus> {
-        if repo != "runne" {
+        if repo != "gocode" {
             return Err(StoreStatus::Denied);
         }
         Ok(self.state.lock().expect("state").floor.clone())

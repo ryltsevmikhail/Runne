@@ -40,7 +40,7 @@ where
             return Err(CliError::AuthorityVerifyFailed);
         }
         let anchor = TrustAnchorState::confirmed(
-            "runne".into(),
+            "gocode".into(),
             request.anchor_epoch,
             request.anchor_trust_sha256,
         );

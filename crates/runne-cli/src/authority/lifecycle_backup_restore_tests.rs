@@ -143,7 +143,7 @@ fn restore_no_overwrite_restores_the_same_anchored_key_without_changing_floor() 
             output: "/external/owner.backup.json".into(),
         })
         .expect("backup");
-    let floor = store.read_anchor_floor("runne").expect("floor");
+    let floor = store.read_anchor_floor("gocode").expect("floor");
     store.state.lock().expect("state").active = None;
     let restore_tty = HiddenTty::new(&[b"correct horse"]);
     let mut rng = FakeRng;
@@ -157,8 +157,8 @@ fn restore_no_overwrite_restores_the_same_anchored_key_without_changing_floor() 
                 replace_active_key_id: None,
             })
             .expect("restore");
-    assert!(store.read_active_ref("runne").expect("active").is_some());
-    assert_eq!(store.read_anchor_floor("runne").expect("floor"), floor);
+    assert!(store.read_active_ref("gocode").expect("active").is_some());
+    assert_eq!(store.read_anchor_floor("gocode").expect("floor"), floor);
     assert_eq!(store.state.lock().expect("state").restores, 1);
     assert_eq!(output.artifacts[0].path.len(), 64);
 }
@@ -240,7 +240,7 @@ fn overwrite_restore_requires_the_exact_current_trust_and_key() {
         })
         .expect("backup");
     let current = store
-        .read_active_ref("runne")
+        .read_active_ref("gocode")
         .expect("active")
         .expect("active key");
     let key_id = runne_project_owner_authority::key_id(&current.public_key());

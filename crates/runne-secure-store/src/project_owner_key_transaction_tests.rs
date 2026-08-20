@@ -31,7 +31,7 @@ struct Journal {
 struct Fake(Mutex<Journal>);
 fn key(seed: u8, epoch: u64) -> ProjectOwnerKeyRef {
     ProjectOwnerKeyRef::new(
-        "runne",
+        "gocode",
         SigningKey::from_bytes(&[seed; 32])
             .verifying_key()
             .to_bytes(),
@@ -40,7 +40,7 @@ fn key(seed: u8, epoch: u64) -> ProjectOwnerKeyRef {
     .expect("key")
 }
 fn floor(epoch: u64, byte: u8) -> ProjectOwnerAnchorFloor {
-    ProjectOwnerAnchorFloor::new("runne", epoch, [byte; 32]).expect("floor")
+    ProjectOwnerAnchorFloor::new("gocode", epoch, [byte; 32]).expect("floor")
 }
 fn pending(reference: ProjectOwnerKeyRef, token: [u8; 32]) -> PendingProjectOwnerKey {
     PendingProjectOwnerKey::from_backend_generated(
@@ -74,7 +74,7 @@ impl ProjectOwnerKeyStore for Fake {
         repository_id: &str,
     ) -> Result<Option<ProjectOwnerKeyRef>, StoreStatus> {
         let s = self.0.lock().expect("lock");
-        if repository_id == "runne" {
+        if repository_id == "gocode" {
             Ok(s.active.clone())
         } else {
             Err(StoreStatus::Denied)
@@ -118,7 +118,7 @@ impl ProjectOwnerKeyStore for Fake {
         let mut s = self.0.lock().expect("lock");
         if !pending.matches_backend_token(&s.token)
             || pending.key_ref() != &s.pending
-            || replacement.repository_id() != "runne"
+            || replacement.repository_id() != "gocode"
             || replacement.highest_key_epoch() != pending.key_ref().key_epoch()
         {
             return Err(StoreStatus::Denied);
@@ -148,7 +148,7 @@ impl ProjectOwnerKeyStore for Fake {
         &self,
         repository_id: &str,
     ) -> Result<Option<ProjectOwnerAnchorFloor>, StoreStatus> {
-        if repository_id != "runne" {
+        if repository_id != "gocode" {
             return Err(StoreStatus::Denied);
         }
         Ok(self.0.lock().expect("lock").floor.clone())
@@ -215,8 +215,8 @@ fn commit_is_all_old_or_all_new_and_replay_is_idempotent() {
             ),
             Err(StoreStatus::Denied)
         );
-        assert_eq!(fake.read_active_ref("runne"), Ok(Some(old.clone())));
-        assert_eq!(fake.read_anchor_floor("runne"), Ok(Some(old_floor.clone())));
+        assert_eq!(fake.read_active_ref("gocode"), Ok(Some(old.clone())));
+        assert_eq!(fake.read_anchor_floor("gocode"), Ok(Some(old_floor.clone())));
     }
     fake.0.lock().expect("lock").failure = Failure::None;
     assert_eq!(
@@ -228,9 +228,9 @@ fn commit_is_all_old_or_all_new_and_replay_is_idempotent() {
         ),
         Ok(next.clone())
     );
-    assert_eq!(fake.read_active_ref("runne"), Ok(Some(next.clone())));
+    assert_eq!(fake.read_active_ref("gocode"), Ok(Some(next.clone())));
     assert_eq!(
-        fake.read_anchor_floor("runne"),
+        fake.read_anchor_floor("gocode"),
         Ok(Some(next_floor.clone()))
     );
     assert_eq!(
@@ -258,10 +258,10 @@ fn token_cas_and_reset_fail_closed() {
             fake.reset_after_compromise(&old, &old_floor),
             Err(StoreStatus::Denied)
         );
-        assert_eq!(fake.read_active_ref("runne"), Ok(Some(old.clone())));
+        assert_eq!(fake.read_active_ref("gocode"), Ok(Some(old.clone())));
     }
     fake.0.lock().expect("lock").failure = Failure::None;
     assert_eq!(fake.reset_after_compromise(&old, &old_floor), Ok(()));
-    assert_eq!(fake.read_active_ref("runne"), Ok(None));
-    assert_eq!(fake.read_anchor_floor("runne"), Ok(None));
+    assert_eq!(fake.read_active_ref("gocode"), Ok(None));
+    assert_eq!(fake.read_anchor_floor("gocode"), Ok(None));
 }

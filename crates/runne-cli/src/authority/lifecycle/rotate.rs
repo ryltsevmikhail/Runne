@@ -92,7 +92,7 @@ where
             &outputs,
         )?;
         let new_floor = ProjectOwnerAnchorFloor::new(
-            "runne",
+            "gocode",
             prepared.successor.epoch,
             prepared
                 .successor
@@ -144,15 +144,15 @@ fn load_active_trust<S: ProjectOwnerKeyStore, F: AuthorityFiles>(
     let trust = ProjectOwnerTrustConfigV1::from_json(&files.read_repo_public(trust_path)?)
         .map_err(|_| CliError::AuthorityUnavailable)?;
     let key = store
-        .read_active_ref("runne")
+        .read_active_ref("gocode")
         .map_err(store_error)?
         .ok_or(CliError::AuthorityUnavailable)?;
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .map_err(store_error)?
         .ok_or(CliError::AuthorityUnavailable)?;
     let anchor = TrustAnchorState::confirmed(
-        "runne".into(),
+        "gocode".into(),
         floor.highest_key_epoch(),
         floor.accepted_trust_config_sha256(),
     );
@@ -181,7 +181,7 @@ fn prepare_rotation<S: ProjectOwnerKeyStore>(
             .map_err(|_| StoreStatus::Denied)
     };
     let pending = store
-        .create_or_resume_pending(Some(active), "runne", old.epoch + 1, &mut pop)
+        .create_or_resume_pending(Some(active), "gocode", old.epoch + 1, &mut pop)
         .map_err(store_error)?;
     let reference = pending.key_ref().clone();
     let provisional = rotation(old, &reference, [0; 64], pending.proof_of_possession());
@@ -212,9 +212,9 @@ pub(super) fn review(
     old_authorization_payload: &[u8],
 ) -> Result<AuthorityReviewV1, CliError> {
     Ok(AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "rotate".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: None,
         profile: None,
         subject: None,
@@ -255,8 +255,8 @@ fn rotation(
     new_proof: [u8; 64],
 ) -> KeyRotationV1 {
     KeyRotationV1 {
-        schema_version: "runne.project-owner.key-rotation/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.key-rotation/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         predecessor_config_sha256: old.sha256().expect("verified"),
         old_key_id: old.key_id,

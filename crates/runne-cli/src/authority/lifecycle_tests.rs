@@ -34,11 +34,11 @@ fn init_confirms_publishes_and_commits_the_matching_key_and_floor() {
     assert_eq!(artifacts.len(), 1);
     assert_eq!(artifacts[0].kind, "trust-config");
     let active = store
-        .read_active_ref("runne")
+        .read_active_ref("gocode")
         .expect("read")
         .expect("active");
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .expect("read")
         .expect("floor");
     assert_eq!(active.key_epoch(), 1);
@@ -67,8 +67,8 @@ fn init_write_failure_leaves_key_and_floor_absent() {
             })
             .is_err()
     );
-    assert!(store.read_active_ref("runne").expect("read").is_none());
-    assert!(store.read_anchor_floor("runne").expect("read").is_none());
+    assert!(store.read_active_ref("gocode").expect("read").is_none());
+    assert!(store.read_anchor_floor("gocode").expect("read").is_none());
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn init_retry_after_rejected_confirmation_reuses_pending_genesis_key() {
         .init(request())
         .expect("resumed init");
     assert_eq!(
-        store.read_active_ref("runne").expect("read"),
+        store.read_active_ref("gocode").expect("read"),
         Some(pending_key)
     );
 }
@@ -116,7 +116,7 @@ fn init_retry_after_published_artifact_reuses_exact_bytes_and_commits() {
     let published = files
         .read_repo_public("docs/trust.json")
         .expect("published");
-    assert!(store.read_active_ref("runne").expect("read").is_none());
+    assert!(store.read_active_ref("gocode").expect("read").is_none());
     let mut rng = FakeRng;
     runner(&store, &files, &mut rng)
         .init(request())
@@ -152,7 +152,7 @@ fn init_retry_rejects_mismatching_existing_artifact_without_activation() {
             })
             .is_err()
     );
-    assert!(store.read_active_ref("runne").expect("read").is_none());
+    assert!(store.read_active_ref("gocode").expect("read").is_none());
 }
 
 #[test]
@@ -168,7 +168,7 @@ fn init_retry_rejects_mismatching_pending_record_without_activation() {
             .is_err()
     );
     let mismatch = ProjectOwnerKeyRef::new(
-        "runne",
+        "gocode",
         SigningKey::from_bytes(&[42; 32]).verifying_key().to_bytes(),
         1,
     )
@@ -189,7 +189,7 @@ fn init_retry_rejects_mismatching_pending_record_without_activation() {
             })
             .is_err()
     );
-    assert!(store.read_active_ref("runne").expect("read").is_none());
+    assert!(store.read_active_ref("gocode").expect("read").is_none());
 }
 
 #[test]

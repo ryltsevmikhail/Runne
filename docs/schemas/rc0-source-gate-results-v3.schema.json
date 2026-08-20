@@ -23,7 +23,7 @@
       "additionalProperties": false,
       "required": ["remote_url", "captured_origin_main_revision", "head_revision", "raw_tree_oid", "current_tree_oid", "raw_gitmodules_sha256", "current_gitmodules_sha256", "raw_opencode_gitlink_revision", "current_opencode_gitlink_revision", "capture_evidence_kind", "tree_clean"],
       "properties": {
-        "remote_url": {"enum": ["https://github.com/Ryltsevmg/runne", "https://github.com/Ryltsevmg/gocode.git"]},
+        "remote_url": {"enum": ["https://github.com/Ryltsevmg/gocode", "https://github.com/Ryltsevmg/gocode.git"]},
         "captured_origin_main_revision": {"$ref": "#/$defs/gitSha"},
         "head_revision": {"$ref": "#/$defs/gitSha"},
         "raw_tree_oid": {"$ref": "#/$defs/gitSha"},

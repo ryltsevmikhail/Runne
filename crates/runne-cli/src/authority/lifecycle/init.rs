@@ -29,12 +29,12 @@ where
         self.files.validate_repo_public_output(&request.trust_out)?;
         if self
             .store
-            .read_active_ref("runne")
+            .read_active_ref("gocode")
             .map_err(store_error)?
             .is_some()
             || self
                 .store
-                .read_anchor_floor("runne")
+                .read_anchor_floor("gocode")
                 .map_err(store_error)?
                 .is_some()
         {
@@ -45,7 +45,7 @@ where
         };
         let pending = self
             .store
-            .create_or_resume_pending(None, "runne", 1, &mut pop)
+            .create_or_resume_pending(None, "gocode", 1, &mut pop)
             .map_err(store_error)?;
         let reference = pending.key_ref().clone();
         let trust = config(&reference, pending.proof_of_possession());
@@ -65,7 +65,7 @@ where
         )?;
         self.files
             .create_new_or_exact_repo_public(&request.trust_out, &bytes)?;
-        let floor = ProjectOwnerAnchorFloor::new("runne", 1, digest).map_err(store_error)?;
+        let floor = ProjectOwnerAnchorFloor::new("gocode", 1, digest).map_err(store_error)?;
         if self
             .store
             .commit_pending_and_floor(None, pending, None, &floor)
@@ -93,8 +93,8 @@ fn config(
     proof_of_possession: [u8; 64],
 ) -> ProjectOwnerTrustConfigV1 {
     ProjectOwnerTrustConfigV1 {
-        schema_version: "runne.project-owner.trust-config/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.trust-config/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         epoch: 1,
         key_id: key_id(&reference.public_key()),
@@ -111,9 +111,9 @@ fn review(
     length: u64,
 ) -> Result<AuthorityReviewV1, CliError> {
     Ok(AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "init".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: None,
         profile: None,
         subject: None,
