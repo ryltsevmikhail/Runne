@@ -194,7 +194,7 @@ mod tests {
             "x-client-request-id: gocode-provider-c436f15d42859a67270a2f39ff1c8508\r\n",
             "accept: */*\r\n",
         );
-        assert_eq!(request_length(request(&headers).as_bytes()), Ok(0));
+        assert_eq!(request_length(request(headers).as_bytes()), Ok(0));
     }
 
     #[test]
