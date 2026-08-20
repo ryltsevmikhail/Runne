@@ -42,7 +42,7 @@ fn planned_case_registry_has_exact_cardinality() {
 fn process_effect_key_digest_matches_golden_vector() {
     assert_eq!(
         hex(process_effect_key_digest(&key())),
-        "13dcc181de7e9339f5befe031797f89b973d8b52e14a0c6317293f911e0d4942"
+        "06498fe052cabf73f163587e01b781e8bf16b342366cf6e461a102d8f270b429"
     );
 }
 
@@ -50,7 +50,7 @@ fn process_effect_key_digest_matches_golden_vector() {
 fn audit_invocation_digest_matches_golden_vector() {
     assert_eq!(
         hex(audit_invocation_digest("invocation-1")),
-        "d1645f5148f8f38e8bb907d1d869ed6efe90d5f362a0ed4e90d54acbf2ff186f"
+        "bb89083d660719ed55da64d2342882f77c1821a35e7748ab119027b4007beb3f"
     );
 }
 
@@ -58,7 +58,7 @@ fn audit_invocation_digest_matches_golden_vector() {
 fn audit_connection_digest_matches_golden_vector() {
     assert_eq!(
         hex(audit_connection_digest("connection-1")),
-        "7e8b776a07b658ff669b9f7ec099f9d10abd4ac020cdac2c29feb7b98620e860"
+        "4d2af0292273fcc4fbff40a4130912643b06f7c2bdecbc195c29bcfd0ce4ae3e"
     );
 }
 
@@ -66,7 +66,7 @@ fn audit_connection_digest_matches_golden_vector() {
 fn audit_capability_digest_matches_golden_vector() {
     assert_eq!(
         hex(audit_capability_digest(&[7; 16])),
-        "1b2b751ff413ff75feef4ca850251e0442b49d9d9c15ec49692ff9231f79fb93"
+        "45e6e168dea7e0d412eda18163aaa6204fffc48188e7c074f9fb193a71b3b084"
     );
 }
 
@@ -78,7 +78,7 @@ fn process_permit_digest_matches_golden_vector() {
             &[7; 16],
             [6; 32]
         )),
-        "9bef3f0ff4ea2a457c987502a054e449ab1fb1e9dbd6c3e29e8775a843e1730f"
+        "61cd44dce5e93f3031ba5886554770fd884bacbb7b2405772a5d4d86264babe2"
     );
 }
 

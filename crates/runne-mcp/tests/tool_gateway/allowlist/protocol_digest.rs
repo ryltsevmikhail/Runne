@@ -198,7 +198,7 @@ fn publication_mapping_and_capability_execution_class_are_exact() {
 }
 
 #[test]
-fn protocol_request_digest_is_unchanged_by_typed_issuance_delta() {
+fn source_pinned_protocol_request_digest_rejects_same_version_runne_alias_at_completion_ingress() {
     let published = published();
     let binding = binding(1, *published.discovery_digest());
     let tool_ref = published.snapshot().tool_refs()[0].clone();
@@ -240,9 +240,12 @@ fn protocol_request_digest_is_unchanged_by_typed_issuance_delta() {
         .digest;
     assert_eq!(
         entry,
-        [0x1a, 0xd4, 0xf1, 0xd3, 0xc8, 0xe4, 0xa5, 0x0a, 0xfa, 0xf4, 0x04, 0x44, 0xca, 0x11, 0x46, 0x5c, 0xb9, 0x34, 0x92, 0xde, 0xdd, 0x07, 0x74, 0x65, 0x6b, 0xd5, 0x4d, 0xdd, 0x8b, 0x92, 0x26, 0x03]
+        [
+            0x1f, 0xf6, 0x92, 0xf2, 0x20, 0x44, 0x7f, 0xc4, 0x90, 0x63, 0x5d, 0x1a, 0x1e, 0x07,
+            0x90, 0x2e, 0xb2, 0x4d, 0x78, 0x36, 0x64, 0xdf, 0xbc, 0x75, 0x83, 0x7e, 0x06, 0xf2,
+            0x48, 0xd7, 0xd5, 0x84,
+        ]
     );
-    let request = ToolProtocolCloseRequest::new("protocol-digest".into(), entry, handle);
     let mut closer = Client {
         sends: Arc::new(Mutex::new(0)),
         messages: Arc::new(Mutex::new(Vec::new())),
@@ -250,6 +253,20 @@ fn protocol_request_digest_is_unchanged_by_typed_issuance_delta() {
         generation_cutover: None,
         reservations,
     };
+    let runne_alias = ToolProtocolCloseRequest::new(
+        "protocol-digest".into(),
+        [
+            0x1a, 0xd4, 0xf1, 0xd3, 0xc8, 0xe4, 0xa5, 0x0a, 0xfa, 0xf4, 0x04, 0x44, 0xca, 0x11,
+            0x46, 0x5c, 0xb9, 0x34, 0x92, 0xde, 0xdd, 0x07, 0x74, 0x65, 0x6b, 0xd5, 0x4d, 0xdd,
+            0x8b, 0x92, 0x26, 0x03,
+        ],
+        handle.clone(),
+    );
+    assert_eq!(
+        closer.confirm_protocol_completion(&runne_alias),
+        Err(McpTransportError::Unavailable)
+    );
+    let request = ToolProtocolCloseRequest::new("protocol-digest".into(), entry, handle);
     assert_eq!(closer.confirm_protocol_completion(&request), Ok(()));
     let mut parameter_keys = messages.lock().unwrap()[0]
         .params()

@@ -17,7 +17,7 @@ const MAX_INPUT_BYTES: usize = 16_384;
 const MAX_INPUT_DEPTH: usize = 8;
 const MAX_INPUT_ITEMS: usize = 64;
 const MAX_INPUT_STRING_BYTES: usize = 1_024;
-const PROCESS_IDENTITY_DOMAIN: &[u8] = b"runne/mcp-process-identity/v1\0";
+const PROCESS_IDENTITY_DOMAIN: &[u8] = b"gocode/mcp-process-identity/v1\0";
 const FORBIDDEN_TOKENS: &[&str] = &[
     "authorization",
     "credential",

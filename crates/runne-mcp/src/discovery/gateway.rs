@@ -110,7 +110,7 @@ where A: ToolAdmissionPort, C: McpClientPort + McpProtocolCompletionPort + Send 
 }
 
 fn discovery_digest(server_id: &McpServerId, kind: McpServerKind, tools: &[McpToolDescriptor]) -> [u8; 32] {
-    let mut hasher = Sha256::new(); hasher.update(b"RUNNE_MCP_DISCOVERY_V2\0");
+    let mut hasher = Sha256::new(); hasher.update(b"GOCODE_MCP_DISCOVERY_V2\0");
     hash_field(&mut hasher, server_id.as_str().as_bytes()); hasher.update((tools.len() as u64).to_be_bytes());
     let kind_label = match kind { McpServerKind::Local => b"local".as_slice(), McpServerKind::Remote => b"remote".as_slice() };
     hash_field(&mut hasher, kind_label);
@@ -143,13 +143,13 @@ fn sandbox_profile_label(profile: SandboxProfile) -> &'static [u8] {
 }
 
 fn binding_digest(server_id: &McpServerId, runtime_id: &McpRuntimeInstanceId, connection_id: &McpConnectionId, session_id: &McpSessionId, generation: u64, discovery_digest: [u8; 32]) -> [u8; 32] {
-    let mut hasher = Sha256::new(); hasher.update(b"RUNNE_MCP_DISPATCH_BINDING_V2\0");
+    let mut hasher = Sha256::new(); hasher.update(b"GOCODE_MCP_DISPATCH_BINDING_V2\0");
     for value in [server_id.as_str(), runtime_id.as_str(), connection_id.as_str(), session_id.as_str()] { hash_field(&mut hasher, value.as_bytes()); }
     hash_field(&mut hasher, &generation.to_be_bytes()); hash_field(&mut hasher, &discovery_digest); hasher.finalize().into()
 }
 
 fn call_digest(binding: &McpDispatchBinding, tool_ref: &ToolRef, invocation_id: &McpInvocationId, input: &Value) -> [u8; 32] {
-    let mut hasher = Sha256::new(); hasher.update(b"RUNNE_MCP_TOOL_CALL_V2\0");
+    let mut hasher = Sha256::new(); hasher.update(b"GOCODE_MCP_TOOL_CALL_V2\0");
     for value in [binding.binding_digest.as_slice(), binding.discovery_digest.as_slice(), tool_ref.tool_id().as_str().as_bytes(), tool_ref.version().to_string().as_bytes(), MCP_TOOLS_CALL_METHOD.as_bytes(), MCP_REQUEST_CLASS, invocation_id.as_str().as_bytes(), serde_json::to_vec(input).expect("serde_json::Value always serializes").as_slice()] { hash_field(&mut hasher, value); }
     hasher.finalize().into()
 }

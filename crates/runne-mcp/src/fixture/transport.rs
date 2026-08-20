@@ -51,7 +51,7 @@ impl McpClientPort for FixtureClient {
             .get_mut(invocation)
             .ok_or(McpTransportError::Unavailable)?;
         reservation.terminal_digest = Some(model::digest_domain(
-            b"RUNNE_MCP_FIXTURE_RESPONSE_V1\0",
+            b"GOCODE_MCP_FIXTURE_RESPONSE_V1\0",
             &[
                 invocation.as_bytes(),
                 &serde_json::to_vec(&response).map_err(|_| McpTransportError::Unavailable)?,
