@@ -57,7 +57,7 @@ fn desktop_security_profile_digest() -> [u8; 32] {
     use sha2::Digest;
 
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/runne-app-core/desktop-security-profile/v1\0");
+    digest.update(b"gocode/app-core/desktop-security-profile/v1\0");
     digest.update(
         u64::try_from(DESKTOP_SECURITY_PROFILE_ID_V1.len())
             .expect("fixed desktop profile identity length")

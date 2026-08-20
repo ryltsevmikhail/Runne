@@ -5,7 +5,7 @@ use sha2::{Digest, Sha256};
 
 fn expected_desktop_profile_digest() -> [u8; 32] {
     let mut digest = Sha256::new();
-    digest.update(b"runne/runne-app-core/desktop-security-profile/v1\0");
+    digest.update(b"gocode/app-core/desktop-security-profile/v1\0");
     digest.update(("runne-desktop-profile/v1".len() as u64).to_be_bytes());
     digest.update(b"runne-desktop-profile/v1");
     digest.finalize().into()

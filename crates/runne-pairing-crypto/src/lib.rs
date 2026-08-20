@@ -13,7 +13,7 @@ pub use bootstrap_v3::{
 // ── Constants ────────────────────────────────────────────────────────
 
 #[rustfmt::skip]
-pub const DOMAIN_SEPARATOR: [u8; 16] = *b"runne-pair/v1\0\0\0";
+pub const DOMAIN_SEPARATOR: [u8; 16] = *b"gocode-pair/v1\0\0";
 pub const VERSION: u16 = 1;
 
 // ── Types ────────────────────────────────────────────────────────────

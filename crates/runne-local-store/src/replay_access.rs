@@ -157,7 +157,7 @@ impl LocalStore {
             )?;
         }
         let mut hasher = Sha256::new();
-        hasher.update(b"runne/runne-local-store/replay-scope-reset/v1\0");
+        hasher.update(b"gocode/local-store/replay-scope-reset/v1\0");
         for value in [
             scope.runtime_authority.as_bytes(),
             scope.principal.as_bytes(),
