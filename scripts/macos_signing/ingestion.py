@@ -193,7 +193,7 @@ def _signature_conforms(value) -> bool:
 def _target_conforms(value) -> bool:
     if type(value) is not dict or set(value) != set(_TARGET_FIELDS) or _CANDIDATE_NAME.fullmatch(value["candidate"]) is None or _MAIN_PATH.fullmatch(value["main"]) is None:
         return False
-    return value["daemon"] == "Contents/MacOS/gocoded"
+    return value["daemon"] == "Contents/MacOS/runned"
 
 
 def _record_conforms(record, index) -> bool:
@@ -224,10 +224,10 @@ def _candidate_bound(candidate_payload, entitlements, target_payload, candidate)
         return False
     if entitlements["app_sha256"] != candidate.app_entitlements_sha256 or entitlements["daemon_sha256"] != candidate.daemon_entitlements_sha256:
         return False
-    if target_payload["candidate"] != candidate.relative_name or target_payload["daemon"] != "Contents/MacOS/gocoded":
+    if target_payload["candidate"] != candidate.relative_name or target_payload["daemon"] != "Contents/MacOS/runned":
         return False
     main = target_payload["main"]
-    return main.startswith("Contents/MacOS/") and main.rsplit("/", 1)[-1] != "gocoded"
+    return main.startswith("Contents/MacOS/") and main.rsplit("/", 1)[-1] != "runned"
 
 
 def _signature_bound(signature_payload, expectation) -> bool:

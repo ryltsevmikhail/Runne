@@ -32,7 +32,7 @@ def validate_request(request: SigningRequest) -> ValidatedCandidate | SigningFai
     if profile is SigningProfile.PRODUCTION_DEVELOPER_ID and (
         not isinstance(request.production_bundle_id, str)
         or not request.production_bundle_id.strip()
-        or request.production_bundle_id == "dev.gocode.desktop"
+        or request.production_bundle_id in ("dev.runne.desktop", "dev.gocode.desktop")
     ):
         return _failure(FailureCode.PROFILE_DOWNGRADE_REJECTED, "profile")
     if not isinstance(request.release_candidate_sha256, str) or not _SHA256.fullmatch(
@@ -129,8 +129,8 @@ def _candidate_targets(candidate: object) -> tuple[Path, Path] | None:
         return None
     if len(entries) != 2 or not all(_regular_executable(entry) for entry in entries):
         return None
-    daemon = macos / "gocoded"
-    main_entries = tuple(entry for entry in entries if entry.name != "gocoded")
+    daemon = macos / "runned"
+    main_entries = tuple(entry for entry in entries if entry.name != "runned")
     if daemon not in entries or len(main_entries) != 1:
         return None
     return main_entries[0], daemon

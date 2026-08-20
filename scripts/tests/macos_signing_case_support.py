@@ -61,7 +61,7 @@ def assert_live_runner_contract(case) -> None:
     invalid = (
         CommandSpec("verify-app", "/usr/bin/codesign", ("--keychain", "ignored", app.relative_path), "."),
         CommandSpec("unknown", "/usr/bin/codesign", command.argv, "."),
-        CommandSpec("sign-daemon", "/usr/bin/codesign", ("--verify", "--strict", "GOCODE.app/Contents/MacOS/gocoded"), "."),
+        CommandSpec("sign-daemon", "/usr/bin/codesign", ("--verify", "--strict", "Runne.app/Contents/MacOS/runned"), "."),
         CommandSpec("verify-app", "/usr/bin/codesign", ("--verify", app.relative_path), "."),
         CommandSpec("sign-app", "/usr/bin/codesign", ("--force", "--sign", "-", "--entitlements", "app.plist", "--options", "runtime", app.relative_path), "."),
         CommandSpec("notary-submit", "/usr/bin/xcrun", ("arbitrary", "subtool"), "."),
@@ -100,7 +100,7 @@ def assert_live_runner_contract(case) -> None:
     validated = validate_request(request)
     valid = build_sign_command(bundle_target(validated), Path("app.plist"), SigningProfile.DEVELOPMENT_AD_HOC, "-", validated.app_entitlements)
     malformed = CommandSpec(valid.phase, valid.program, valid.argv[:-1] + ("--options", "runtime", valid.argv[-1]), ".", valid.entitlement)
-    target = EvidenceTarget(candidate.name, "Contents/MacOS/GOCODE", "Contents/MacOS/gocoded")
+    target = EvidenceTarget(candidate.name, "Contents/MacOS/Runne", "Contents/MacOS/runned")
     with mock.patch("scripts.macos_signing.runner.Path.is_file", return_value=True), mock.patch("scripts.macos_signing.runner.os.access", return_value=True), mock.patch("scripts.macos_signing.runner.subprocess.run", return_value=mock.Mock(returncode=0)) as run:
         case.assertEqual(parse_codesign_result(LiveRunner(candidate.parent).run(malformed)), FailureCode.UNKNOWN_STATUS)
         with case.assertRaises(ValueError):
@@ -134,7 +134,7 @@ def assert_entitlement_binding_contract(case) -> None:
 
 def assert_evidence_cross_binding(case) -> None:
     candidate, signature, evidence = macos_signing_support.production_evidence()
-    target = EvidenceTarget("B.app", "Contents/MacOS/GOCODE", "Contents/MacOS/gocoded")
+    target = EvidenceTarget("B.app", "Contents/MacOS/Runne", "Contents/MacOS/runned")
     forged = replace(evidence, target=target)
     with case.assertRaises(ValueError):
         normalize_evidence(forged)

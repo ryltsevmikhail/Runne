@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "GOCODE",
+  "productName": "Runne",
   "version": "0.1.0",
-  "identifier": "dev.gocode.desktop",
+  "identifier": "dev.runne.desktop",
   "build": {
-    "beforeDevCommand": "cargo build -p gocode-daemon && pnpm dev",
+    "beforeDevCommand": "cargo build -p runne-daemon && pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
     "beforeBuildCommand": "pnpm build",
     "frontendDist": "../dist"
@@ -16,7 +16,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "GOCODE",
+        "title": "Runne",
         "width": 1440,
         "height": 900,
         "minWidth": 960,

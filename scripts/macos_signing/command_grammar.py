@@ -116,7 +116,7 @@ def _zip(value: str) -> bool:
 
 def _daemon(value: str) -> bool:
     path = Path(value)
-    return _relative(value) and len(path.parts) == 4 and path.parts[1:] == ("Contents", "MacOS", "gocoded") and _app(path.parts[0])
+    return _relative(value) and len(path.parts) == 4 and path.parts[1:] == ("Contents", "MacOS", "runned") and _app(path.parts[0])
 
 
 def _reference(value: object) -> bool:

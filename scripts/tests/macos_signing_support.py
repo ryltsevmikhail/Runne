@@ -39,14 +39,14 @@ class RecordingRunner:
         return self.results[len(self.commands) - 1]
 
 
-def make_candidate(name: str = "GOCODE.app") -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
+def make_candidate(name: str = "Runne.app") -> tuple[tempfile.TemporaryDirectory[str], Path, Path, Path]:
     temporary_directory = tempfile.TemporaryDirectory()
     candidate = Path(temporary_directory.name) / name
     macos = candidate / "Contents" / "MacOS"
     macos.mkdir(parents=True)
     (candidate / "Contents" / "Resources").mkdir()
-    main = macos / "GOCODE"
-    daemon = macos / "gocoded"
+    main = macos / "Runne"
+    daemon = macos / "runned"
     main.write_bytes(b"synthetic main executable\n")
     daemon.write_bytes(b"synthetic daemon executable\n")
     main.chmod(0o755)
@@ -80,7 +80,7 @@ def make_production_request() -> SigningRequest:
     return replace(
         make_request(),
         profile=SigningProfile.PRODUCTION_DEVELOPER_ID,
-        production_bundle_id="com.example.gocode",
+        production_bundle_id="com.example.runne",
     )
 
 
@@ -88,7 +88,7 @@ def missing_production_request(keychain_profile_ref: str | None) -> SigningReque
     return SigningRequest(
         SigningProfile.PRODUCTION_DEVELOPER_ID,
         Path("missing.app"),
-        "com.example.gocode",
+        "com.example.runne",
         Path("missing-app.plist"),
         Path("missing-daemon.plist"),
         ExecutionMode.FAKE,
@@ -114,7 +114,7 @@ def run_production_wrapper() -> tuple[int, dict[str, object], str, bool, bool]:
     runner = mock.patch.object(runner_module.FakeRunner, "run")
     process = mock.patch.object(runner_module.subprocess, "run")
     with (
-        mock.patch.object(sys, "argv", ["prepare-macos-signing.py", "--profile", "production-developer-id", "--candidate-app", "synthetic-candidate.app", "--production-bundle-id", "com.example.gocode", "--execution-mode", "fake"]),
+        mock.patch.object(sys, "argv", ["prepare-macos-signing.py", "--profile", "production-developer-id", "--candidate-app", "synthetic-candidate.app", "--production-bundle-id", "com.example.runne", "--execution-mode", "fake"]),
         mock.patch.object(sys, "platform", "darwin"), runner as fake_run, process as subprocess_run,
         mock.patch.object(sys, "path", [script_root, *sys.path]),
         contextlib.redirect_stdout(output), contextlib.redirect_stderr(error),
@@ -128,21 +128,21 @@ def run_production_wrapper() -> tuple[int, dict[str, object], str, bool, bool]:
 
 def make_validated_targets() -> tuple[ValidatedTarget, ValidatedTarget]:
     return (
-        ValidatedTarget("GOCODE.app/Contents/MacOS/gocoded", "d" * 64),
-        ValidatedTarget("GOCODE.app", "a" * 64),
+        ValidatedTarget("Runne.app/Contents/MacOS/runned", "d" * 64),
+        ValidatedTarget("Runne.app", "a" * 64),
     )
 
 
 def make_bundle_target() -> ValidatedTarget:
-    return ValidatedTarget("GOCODE.app", "a" * 64)
+    return ValidatedTarget("Runne.app", "a" * 64)
 
 
 def mutate_candidate(request: SigningRequest, action: str) -> SigningRequest:
     candidate = request.candidate_app
     contents = candidate / "Contents"
     macos = contents / "MacOS"
-    main = macos / "GOCODE"
-    daemon = macos / "gocoded"
+    main = macos / "Runne"
+    daemon = macos / "runned"
     if action == "missing_daemon":
         daemon.unlink()
     elif action == "unsigned_daemon":
@@ -205,7 +205,7 @@ def replace_evidence_disposition(evidence, **changes: str):
 
 
 def expected_target() -> EvidenceTarget:
-    return EvidenceTarget("synthetic-GOCODE.app", "Contents/MacOS/GOCODE", "Contents/MacOS/gocoded")
+    return EvidenceTarget("synthetic-Runne.app", "Contents/MacOS/Runne", "Contents/MacOS/runned")
 
 
 def replace_target(target: EvidenceTarget, **changes: str) -> EvidenceTarget:

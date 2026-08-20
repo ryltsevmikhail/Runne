@@ -44,7 +44,7 @@ class MacOSSigningPreparationTests(unittest.TestCase):
             dependency.assert_not_called()
     def test_missing_absolute_tool_maps_to_tool_unavailable(self) -> None:
         temporary_directory = tempfile.TemporaryDirectory(); self.addCleanup(temporary_directory.cleanup)
-        command = CommandSpec("verify-app", "/usr/bin/codesign", ("--verify", "Contents/MacOS/GOCODE"), ".")
+        command = CommandSpec("verify-app", "/usr/bin/codesign", ("--verify", "Contents/MacOS/Runne"), ".")
         with (
             mock.patch("scripts.macos_signing.runner.Path.is_file", return_value=False),
             mock.patch("scripts.macos_signing.runner.subprocess.run") as run,
@@ -87,7 +87,7 @@ class MacOSSigningPreparationTests(unittest.TestCase):
             with self.subTest(entitlements=token), self.assertRaises(ValueError):
                 build_sign_command(daemon, token, SigningProfile.DEVELOPMENT_AD_HOC, "-")
         app_bundle = macos_signing_support.make_bundle_target()
-        self.assertEqual(build_sign_command(app_bundle, Path("app.plist"), SigningProfile.DEVELOPMENT_AD_HOC, "-").argv[-1], "GOCODE.app")
+        self.assertEqual(build_sign_command(app_bundle, Path("app.plist"), SigningProfile.DEVELOPMENT_AD_HOC, "-").argv[-1], "Runne.app")
         macos_signing_observation_support.assert_notary_binding_grammar(self)
 
     def test_error_and_evidence_redact_raw_output_and_credential_marker(self) -> None:
@@ -128,7 +128,7 @@ class MacOSSigningPreparationTests(unittest.TestCase):
     def test_ad_hoc_or_implicit_bundle_id_fallback_is_rejected(self) -> None:
         self.addCleanup(macos_signing_support.cleanup_request_fixtures)
         request = macos_signing_support.make_request()
-        for bundle_id in (None, "dev.gocode.desktop"):
+        for bundle_id in (None, "dev.runne.desktop"):
             with self.subTest(bundle_id=bundle_id):
                 failure = validate_request(replace(request, profile=SigningProfile.PRODUCTION_DEVELOPER_ID, production_bundle_id=bundle_id))
                 self.assertEqual(failure.code, FailureCode.PROFILE_DOWNGRADE_REJECTED)
@@ -188,7 +188,7 @@ class MacOSSigningPreparationTests(unittest.TestCase):
                 self.assertEqual(validate_request(request).code, FailureCode.ARTIFACT_NOT_FOUND)
                 macos_signing_support.cleanup_request_fixtures()
         request = macos_signing_support.make_request()
-        daemon = request.candidate_app / "Contents" / "MacOS" / "gocoded"
+        daemon = request.candidate_app / "Contents" / "MacOS" / "runned"
         captured = validate_request(request)
         daemon.write_bytes(b"replaced synthetic daemon executable\n")
         self.assertEqual(revalidate_candidate(request.candidate_app, captured).code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
@@ -214,7 +214,7 @@ class MacOSSigningPreparationTests(unittest.TestCase):
                 invalid = macos_signing_support.replace_evidence_signature(evidence, field, "wrong-value")
                 failure = validate_production_evidence(invalid, candidate, signature, "darwin", target)
                 self.assertEqual(failure.code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
-        equivalent = replace(signature, designated_requirement=" identifier  com.example.gocode ")
+        equivalent = replace(signature, designated_requirement=" identifier  com.example.runne ")
         self.assertEqual(validate_production_evidence(evidence, candidate, equivalent, "darwin", target).code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
         for platform, expected in (("linux", target), ("darwin", macos_signing_support.replace_target(target, main="other"))):
             with self.subTest(platform=platform):
@@ -250,7 +250,7 @@ class MacOSSigningPreparationTests(unittest.TestCase):
         self.assertEqual(validate_production_evidence(invalid, candidate, signature, "darwin", macos_signing_support.expected_target()).code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
         invalid = macos_signing_support.replace_execution(evidence, 0, hardened_runtime=False)
         self.assertEqual(validate_production_evidence(invalid, candidate, signature, "darwin", macos_signing_support.expected_target()).code, FailureCode.ARTIFACT_IDENTITY_MISMATCH)
-        forged = CommandSpec("sign-daemon", "/usr/bin/codesign", ("--verify", "--strict", "synthetic-GOCODE.app/Contents/MacOS/gocoded"), ".")
+        forged = CommandSpec("sign-daemon", "/usr/bin/codesign", ("--verify", "--strict", "synthetic-Runne.app/Contents/MacOS/runned"), ".")
         with self.subTest(forged_phase_argv=forged.argv), self.assertRaises(ValueError):
             execution_records((forged,), (CommandResult(0, "", ""),), macos_signing_support.expected_target())
         invalid = replace(evidence, entitlements=replace(evidence.entitlements, app_sha256="f" * 64))

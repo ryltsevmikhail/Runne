@@ -34,7 +34,8 @@ class CargoDependencySpec:
 
 def cargo_specs(manifests: tuple[Path, ...]) -> tuple[CargoDependencySpec, ...]:
     rows = [(path, _toml(path)) for path in manifests if path.name == "Cargo.toml"]
-    workspace = next((data.get("workspace") for _, data in rows if "workspace" in data), {})
+    workspace_row = next(((path, data) for path, data in rows if "workspace" in data), (None, {}))
+    workspace_root, workspace = workspace_row[0], workspace_row[1].get("workspace", {})
     if type(workspace) is not dict:
         raise fail("cargo_workspace_invalid")
     workspace_deps = workspace.get("dependencies", {})
@@ -46,7 +47,7 @@ def cargo_specs(manifests: tuple[Path, ...]) -> tuple[CargoDependencySpec, ...]:
     for path, data in rows:
         owner = _package_key(data, workspace)
         if owner is not None:
-            result.extend(_specs(owner, path, data, workspace_deps, dirs))
+            result.extend(_specs(owner, path, data, workspace_deps, dirs, workspace_root))
     return tuple(result)
 
 
@@ -68,7 +69,7 @@ def pnpm_specifier(name: str, value: str) -> str:
     raise fail("pnpm_specifier_invalid")
 
 
-def _specs(owner: tuple[str, str], path: Path, data: dict[str, object], workspace: dict[str, object], dirs: dict[str, tuple[str, str]]) -> list[CargoDependencySpec]:
+def _specs(owner: tuple[str, str], path: Path, data: dict[str, object], workspace: dict[str, object], dirs: dict[str, tuple[str, str]], workspace_root: Path | None = None) -> list[CargoDependencySpec]:
     result = []
     for name, value in _dependencies(data).items():
         if type(name) is not str:
@@ -77,7 +78,10 @@ def _specs(owner: tuple[str, str], path: Path, data: dict[str, object], workspac
             if set(value) - {"workspace", "features", "default-features", "optional"} or name not in workspace:
                 raise fail("cargo_workspace_dependency_missing")
             value = workspace[name]
-        result.append(_spec(owner, path, name, value, dirs))
+            spec_path = workspace_root if "path" in value and workspace_root is not None else path
+        else:
+            spec_path = path
+        result.append(_spec(owner, spec_path, name, value, dirs))
     if len({item.name for item in result}) != len(result):
         raise fail("cargo_dependency_duplicate")
     return result

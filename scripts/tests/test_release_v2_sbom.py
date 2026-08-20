@@ -14,15 +14,15 @@ from scripts.tests.release_v2_support import dependency_inventory
 
 class SbomTests(unittest.TestCase):
     def test_bundled_component_serializes_safe_path_purl_hash_and_properties(self) -> None:
-        digest = hashlib.sha256(b"gocoded").hexdigest()
-        inventory = _inventory(_package("bundled", "bin/gocoded", digest, "artifact:bin/gocoded", digest, None))
+        digest = hashlib.sha256(b"runned").hexdigest()
+        inventory = _inventory(_package("bundled", "bin/runned", digest, "artifact:bin/runned", digest, None))
         document = json.loads(build_sbom(inventory, _product(), structural_fixture=True))
-        component = next(item for item in document["components"] if item["name"] == "bin/gocoded")
-        self.assertEqual(component["bom-ref"], f"pkg:generic/gocode-bundled/bin/gocoded@{digest}")
+        component = next(item for item in document["components"] if item["name"] == "bin/runned")
+        self.assertEqual(component["bom-ref"], f"pkg:generic/gocode-bundled/bin/runned@{digest}")
         self.assertEqual(component["purl"], component["bom-ref"])
         self.assertEqual(component["hashes"], [{"alg": "SHA-256", "content": digest}])
-        self.assertEqual(_properties(component), {"gocode:bundled-path": "bin/gocoded", "gocode:direct-transitive": "DIRECT", "gocode:license-disposition": "UNKNOWN", "gocode:lock-locator": "artifact:bin/gocoded", "gocode:source-kind": "bundled"})
-        for unsafe in ("../gocoded", "bin/../gocoded", "bin\\gocoded"):
+        self.assertEqual(_properties(component), {"gocode:bundled-path": "bin/runned", "gocode:direct-transitive": "DIRECT", "gocode:license-disposition": "UNKNOWN", "gocode:lock-locator": "artifact:bin/runned", "gocode:source-kind": "bundled"})
+        for unsafe in ("../runned", "bin/../runned", "bin\\runned"):
             with self.subTest(unsafe=unsafe):
                 bad = _inventory(_package("bundled", unsafe, digest, f"artifact:{unsafe}", digest, None))
                 _blocks(self, lambda: build_sbom(bad, _product(), structural_fixture=True))
@@ -82,15 +82,15 @@ class SbomTests(unittest.TestCase):
 
     def test_root_structural_sbom_is_deterministic_with_bundled_component_and_production_blocks_unknowns(self) -> None:
         root = Path(__file__).parents[2]
-        manifests = (root / "Cargo.toml", *sorted((root / "crates").glob("*/Cargo.toml")), root / "apps/desktop/src-tauri/Cargo.toml", root / "package.json", root / "apps/desktop/package.json", root / "contracts/gocode-ui-client-2/package.json", root / "packages/platform-contract/package.json", root / "packages/product/package.json")
+        manifests = (root / "Cargo.toml", *sorted((root / "crates").glob("*/Cargo.toml")), root / "apps/desktop/src-tauri/Cargo.toml", root / "package.json", root / "apps/desktop/package.json", root / "apps/site/package.json", root / "contracts/gocode-ui-client-2/package.json", root / "packages/platform-contract/package.json", root / "packages/product/package.json")
         identity = BuildInputIdentityV2("build-input-v2", "a" * 40, "b" * 64, "1.0.0", "x86_64-unknown-linux-gnu", "linux", ("c" * 64,), "rust-1.97.1", _sha256(root / "Cargo.lock"), _sha256(root / "pnpm-lock.yaml"), "release", 0)
         source = inventory_dependencies(root / "Cargo.lock", root / "pnpm-lock.yaml", manifests, identity)
-        bundled_digest = hashlib.sha256(b"gocoded").hexdigest()
-        inventory = _inventory(*source.packages, _package("bundled", "bin/gocoded", bundled_digest, "artifact:bin/gocoded", bundled_digest, None))
+        bundled_digest = hashlib.sha256(b"runned").hexdigest()
+        inventory = _inventory(*source.packages, _package("bundled", "bin/runned", bundled_digest, "artifact:bin/runned", bundled_digest, None))
         first = build_sbom(inventory, _product(), structural_fixture=True)
         second = build_sbom(inventory, _product(), structural_fixture=True)
         self.assertEqual(first, second)
-        self.assertEqual(len(json.loads(first)["components"]), 987)
+        self.assertEqual(len(json.loads(first)["components"]), 1073)
         _blocks(self, lambda: build_sbom(inventory, _product()))
 
 
