@@ -8,7 +8,7 @@ from referencing import Registry, Resource
 
 ROOT = pathlib.Path(__file__).parents[2]
 SCHEMAS = ROOT / "docs/schemas"
-FIXTURES = ROOT / "crates/gocode-release-authority/tests/fixtures"
+FIXTURES = ROOT / "crates/runne-release-authority/tests/fixtures"
 
 
 def load(path: pathlib.Path) -> dict:
