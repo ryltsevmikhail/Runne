@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-fixture="crates/gocode-provider-http/tests/fixtures/synthetic_stream.json"
+fixture="crates/runne-provider-http/tests/fixtures/synthetic_stream.json"
 evidence="docs/evidence/PHASE7_PROVIDER_TOOL_EVIDENCE.md"
 
 test -f "$fixture"
 test -f "$evidence"
 test -f "docs/traceability/phase7-provider-tool-traceability.md"
 
-if grep -R -n -E 'std::process::Command|tokio::process::Command' crates/gocode-tools; then
-  echo "direct process execution bypass found in gocode-tools" >&2
+if grep -R -n -E 'std::process::Command|tokio::process::Command' crates/runne-tools; then
+  echo "direct process execution bypass found in runne-tools" >&2
   exit 1
 fi
 
@@ -49,8 +49,8 @@ subprocess.run(["git", "cat-file", "-e", f"{integrated.group(1)}^{{commit}}"], c
 subprocess.run(["git", "merge-base", "--is-ancestor", integrated.group(1), "HEAD"], check=True)
 PY
 
-cargo test -p gocode-provider --all-targets --locked
-cargo test -p gocode-tools --all-targets --locked
-cargo test -p gocode-runtime --test provider_tool_loop --locked
-cargo test -p gocode-provider-http --all-targets --locked
+cargo test -p runne-provider --all-targets --locked
+cargo test -p runne-tools --all-targets --locked
+cargo test -p runne-runtime --test provider_tool_loop --locked
+cargo test -p runne-provider-http --all-targets --locked
 python3 scripts/validate-docs.py --strict

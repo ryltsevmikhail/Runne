@@ -9,32 +9,31 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SENDER = "gocode-daemon-openai-effect"
-DAEMON = "gocode-daemon"
-FIXTURE = "gocode-daemon-loopback-fixture"
+SENDER = "runne-daemon-openai-effect"
+DAEMON = "runne-daemon"
+FIXTURE = "runne-daemon-loopback-fixture"
 EXPECTED_CONSUMERS = {DAEMON, FIXTURE}
 FORBIDDEN = {
     "apps/desktop",
     "crates/app-core",
-    "crates/gocode-runtime-client",
-    "crates/gocode-api",
+    "crates/runne-runtime-client",
+    "crates/runne-api",
 }
 CALLS = {
     "ProtectedProviderDependencyCapsule::production()": {
-        "crates/gocode-daemon/src/main.rs": 2,
-        "crates/gocode-daemon/src/application/provider_startup.rs": 2,
-        "crates/gocode-daemon/tests/protected_activation_channel.rs": 1,
+        "crates/runne-daemon/src/protected_activation/launch_channel_tests.rs": 1,
+        "crates/runne-daemon/src/protected_activation/host.rs": 1,
+        "crates/runne-daemon/src/application/startup.rs": 1,
+        "crates/runne-daemon/src/application/provider_startup/tests.rs": 2,
     },
     "ProtectedProviderDependencyCapsule::from_loopback_fixture(": {
-        "crates/gocode-daemon-loopback-fixture/src/protected_process.rs": 1,
+        "crates/runne-daemon/src/canonical_provider/composition/tests/recovery_audit/fixture.rs": 1,
+        "crates/runne-daemon/src/canonical_provider/composition/tests.rs": 1,
+        "crates/runne-daemon/src/protected_activation/loopback_fixture.rs": 1,
     },
     "workspace_internal::start_from_verified_protected_launch(": {
-        "crates/gocode-daemon/src/main.rs": 1,
-        "crates/gocode-daemon/tests/protected_activation_channel.rs": 1,
-        "crates/gocode-daemon-loopback-fixture/src/protected_process.rs": 1,
-    },
-    "workspace_internal::start_external_from_fixed_source(": {
-        "crates/gocode-daemon/src/main.rs": 1,
+        "crates/runne-daemon/src/protected_activation/launch_channel_tests.rs": 1,
+        "crates/runne-daemon/src/protected_activation/host.rs": 1,
     },
 }
 
@@ -101,7 +100,7 @@ def check_targets(data: dict[str, object]) -> None:
             if "bin" in target["kind"]:
                 owners.setdefault(target["name"], set()).add(package_name)
     expected = {
-        "gocode-daemon": {DAEMON},
+        "runned": {DAEMON},
         "activation_process": {FIXTURE},
         "recovery_process": {FIXTURE},
     }

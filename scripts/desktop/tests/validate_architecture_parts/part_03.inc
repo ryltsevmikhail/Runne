@@ -21,7 +21,7 @@ class ProtectedAdmissionAdvancedSurfaceTest(unittest.TestCase):
         for surface in surfaces:
             with self.subTest(surface=surface), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                source = root / "crates/gocode-api/src/protected_activation/root_admission.rs"
+                source = root / "crates/runne-api/src/protected_activation/root_admission.rs"
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(
                     "pub struct ProtectedRootHandleAdmission {}\n" + surface,

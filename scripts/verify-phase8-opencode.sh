@@ -47,13 +47,13 @@ for route in expected - {"session.create"}:
 PY
 
 if grep -R -n -E 'std::env::var|std::env::vars|std::process::Command|tokio::process::Command' \
-  crates/gocode-opencode-compat crates/gocode-http/src/opencode.rs crates/gocode-runtime/src/opencode_session.rs; then
+  crates/runne-opencode-compat crates/runne-http/src/opencode.rs crates/runne-runtime/src/opencode_session.rs; then
   echo "ambient authority found in Phase 8 compatibility path" >&2
   exit 1
 fi
 
-cargo test -p gocode-opencode-compat --all-targets --locked
-cargo test -p gocode-runtime --test opencode_session_host --locked
-cargo test -p gocode-http --test opencode_session_routes --locked
+cargo test -p runne-opencode-compat --all-targets --locked
+cargo test -p runne-runtime --test opencode_session_host --locked
+cargo test -p runne-http --test opencode_session_routes --locked
 python3 scripts/validate-docs.py --strict
 git diff --check

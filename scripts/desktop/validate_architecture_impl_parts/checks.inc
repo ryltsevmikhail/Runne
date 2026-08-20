@@ -7,55 +7,55 @@ import subprocess
 import sys
 
 ALLOWED_RUST_DEPENDENCIES: dict[str, set[str]] = {
-    "gocode-desktop": {"gocode-api", "gocode-app-core", "gocode-platform-desktop"},
-    "gocode-app-core": {
-        "gocode-local-store",
-        "gocode-api",
-        "gocode-platform-ports",
-        "gocode-runtime-client",
-        "gocode-secure-store",
+    "runne-desktop": {"runne-api", "runne-app-core", "runne-platform-desktop"},
+    "runne-app-core": {
+        "runne-local-store",
+        "runne-api",
+        "runne-platform-ports",
+        "runne-runtime-client",
+        "runne-secure-store",
     },
-    "gocode-platform-desktop": {"gocode-api", "gocode-platform-ports", "gocode-runtime-client"},
-    "gocode-platform-mobile": {"gocode-platform-ports"},
-    "gocode-local-store": {
-        "gocode-api",
-        "gocode-secure-store",
-        "gocode-sqlite-native-identity",
-        "gocode-windows-native-handle",
+    "runne-platform-desktop": {"runne-api", "runne-platform-ports", "runne-runtime-client"},
+    "runne-platform-mobile": {"runne-platform-ports"},
+    "runne-local-store": {
+        "runne-api",
+        "runne-secure-store",
+        "runne-sqlite-native-identity",
+        "runne-windows-native-handle",
     },
-    "gocode-platform-ports": set(),
-    "gocode-pairing-crypto": set(),
-    "gocode-runtime-client": {"gocode-api", "gocode-pairing-crypto"},
-    "gocode-secure-store": {
-        "gocode-api",
-        "gocode-macos-keychain-acl",
-        "gocode-provider",
+    "runne-platform-ports": set(),
+    "runne-pairing-crypto": set(),
+    "runne-runtime-client": {"runne-api", "runne-pairing-crypto"},
+    "runne-secure-store": {
+        "runne-api",
+        "runne-macos-keychain-acl",
+        "runne-provider",
     },
 }
 RENDERER_ROOT = Path("apps/desktop/src")
 CONVERSATION_ENTITY_API = Path("apps/desktop/src/entities/conversation/api")
 PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
-    Path("crates/gocode-runtime/src/provider_execution.rs"),
-    Path("crates/gocode-runtime/src/provider_execution_parts/part_01.rs"),
-    Path("crates/gocode-runtime/src/provider_execution_parts/part_05.rs"),
-    Path("crates/gocode-store/src/provider/execution_store.rs"),
-    Path("crates/gocode-store/src/provider/execution_store/decomposition/part_01.rs"),
-    Path("crates/gocode-store/src/provider/execution_store/decomposition/part_06.rs"),
-    Path("crates/gocode-store/src/provider/execution_store/decomposition/part_07.rs"),
-    Path("crates/gocode-store/src/provider/execution_store/decomposition/part_08.rs"),
-    Path("crates/gocode-store/src/provider/execution_store/decomposition/part_09.rs"),
-    Path("crates/gocode-daemon/src/canonical_provider/runtime_store.rs"),
-    Path("crates/gocode-daemon-loopback-fixture/src/ack_failure_store.rs"),
-    Path("crates/gocode-daemon/src/protected_activation/loopback_fixture/ack_failure_store.rs"),
+    Path("crates/runne-runtime/src/provider_execution.rs"),
+    Path("crates/runne-runtime/src/provider_execution_parts/part_01.rs"),
+    Path("crates/runne-runtime/src/provider_execution_parts/part_05.rs"),
+    Path("crates/runne-store/src/provider/execution_store.rs"),
+    Path("crates/runne-store/src/provider/execution_store/decomposition/part_01.rs"),
+    Path("crates/runne-store/src/provider/execution_store/decomposition/part_06.rs"),
+    Path("crates/runne-store/src/provider/execution_store/decomposition/part_07.rs"),
+    Path("crates/runne-store/src/provider/execution_store/decomposition/part_08.rs"),
+    Path("crates/runne-store/src/provider/execution_store/decomposition/part_09.rs"),
+    Path("crates/runne-daemon/src/canonical_provider/runtime_store.rs"),
+    Path("crates/runne-daemon-loopback-fixture/src/ack_failure_store.rs"),
+    Path("crates/runne-daemon/src/protected_activation/loopback_fixture/ack_failure_store.rs"),
 }
 PROVIDER_TERMINAL_TEST_FEATURE = "provider-terminal-test-support"
 RAW_PROVIDER_TERMINAL_TYPE = re.compile(r"\bProviderTerminalCommitRequest\b")
-PROTECTED_ADMISSION_SOURCE = Path("crates/gocode-api/src/protected_activation/root_admission.rs")
+PROTECTED_ADMISSION_SOURCE = Path("crates/runne-api/src/protected_activation/root_admission.rs")
 PROTECTED_ADMISSION_CONTROL_SOURCE = Path(
-    "crates/gocode-api/src/protected_activation/root_handle_control.rs"
+    "crates/runne-api/src/protected_activation/root_handle_control.rs"
 )
 PROTECTED_ADMISSION_SERVER_CARRIER_SOURCE = Path(
-    "crates/gocode-api/src/protected_activation/root_bind_transport.rs"
+    "crates/runne-api/src/protected_activation/root_bind_transport.rs"
 )
 PROTECTED_ADMISSION_EXPOSURE = re.compile(
     r"pub\s+(?:const\s+)?fn\s+(?:admission_bytes|bytes|decode\w*|encode\w*|admission_string|as_str)\b"
@@ -90,15 +90,15 @@ def find_rust_dependency_violations(dependencies: dict[str, set[str]]) -> list[s
     for package, package_dependencies in sorted(dependencies.items()):
         allowed = ALLOWED_RUST_DEPENDENCIES.get(package, set())
         for dependency in sorted(package_dependencies):
-            if dependency.startswith("gocode-") and dependency not in allowed:
+            if dependency.startswith("runne-") and dependency not in allowed:
                 violations.append(f"{package} -> {dependency} is forbidden")
     return violations
 
 
 def _tracked_dependency(package: str, dependency: dict) -> bool:
-    if not dependency["name"].startswith("gocode-"):
+    if not dependency["name"].startswith("runne-"):
         return False
-    if dependency["name"] == "gocode-windows-native-handle" and package in {"gocode-local-store", "gocode-platform-desktop"}:
+    if dependency["name"] == "runne-windows-native-handle" and package in {"runne-local-store", "runne-platform-desktop"}:
         return dependency.get("target") != "cfg(windows)"
     return True
 
@@ -145,7 +145,7 @@ def find_provider_terminal_test_feature_violations(packages: list[dict]) -> list
     for package in packages:
         for dependency in package.get("dependencies", []):
             if (
-                dependency.get("name") == "gocode-runtime"
+                dependency.get("name") == "runne-runtime"
                 and PROVIDER_TERMINAL_TEST_FEATURE in dependency.get("features", [])
                 and dependency.get("kind") != "dev"
             ):
@@ -209,7 +209,7 @@ def find_protected_admission_surface_violations(root: Path) -> list[str]:
 
 def _is_forbidden_runtime_import(import_source: str) -> bool:
     normalized = import_source.lower().replace("_", "-")
-    return "runtime-client" in normalized or "gocode-runtime" in normalized or any(
+    return "runtime-client" in normalized or "runne-runtime" in normalized or any(
         "replay" in segment for segment in normalized.split("/")
     )
 
