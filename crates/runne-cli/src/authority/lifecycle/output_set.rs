@@ -10,8 +10,8 @@ use crate::CliError;
 
 use super::AuthorityFiles;
 
-const DOMAIN: &[u8] = b"runne.authority.cli-output-set/1";
-const SCHEMA: &str = "runne.authority.cli-output-set/1";
+const DOMAIN: &[u8] = b"gocode.authority.cli-output-set/1";
+const SCHEMA: &str = "gocode.authority.cli-output-set/1";
 
 #[derive(Clone, Copy)]
 pub(super) struct OutputArtifact<'a> {

@@ -5,7 +5,7 @@ use super::{
 
 pub(super) fn validate(x: &AuthorityReviewV1) -> Result<(), ReviewError> {
     let fixed = x.schema_version == SCHEMA
-        && x.repository_id == "runne"
+        && x.repository_id == "gocode"
         && x.key_epoch > 0
         && matches!(
             x.operation.as_str(),

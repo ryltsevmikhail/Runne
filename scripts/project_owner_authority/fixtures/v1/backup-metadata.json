@@ -1,6 +1,6 @@
 {
-  "schema_version": "runne.project-owner.encrypted-key-backup/1",
-  "repository_id": "runne",
+  "schema_version": "gocode.project-owner.encrypted-key-backup/1",
+  "repository_id": "gocode",
   "key_id": "1111111111111111111111111111111111111111111111111111111111111111",
   "key_epoch": 1,
   "key_fingerprint": "2222222222222222222222222222222222222222222222222222222222222222",

@@ -64,11 +64,11 @@ fn rotate_advances_the_key_and_floor_together_after_artifact_rereads() {
     let files = files();
     initialized(&store, &files);
     let before = store
-        .read_active_ref("runne")
+        .read_active_ref("gocode")
         .expect("read")
         .expect("active");
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .expect("read")
         .expect("floor");
     let mut rng = FakeRng;
@@ -104,11 +104,11 @@ fn rotate_advances_the_key_and_floor_together_after_artifact_rereads() {
             .contains("\"operation\":\"rotate\"")
     );
     let after = store
-        .read_active_ref("runne")
+        .read_active_ref("gocode")
         .expect("read")
         .expect("active");
     let new_floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .expect("read")
         .expect("floor");
     assert_eq!(after.key_epoch(), before.key_epoch() + 1);
@@ -120,8 +120,8 @@ fn rotate_second_artifact_failure_leaves_old_store_state() {
     let store = FakeStore::new();
     let files = files();
     initialized(&store, &files);
-    let old_key = store.read_active_ref("runne").expect("read");
-    let old_floor = store.read_anchor_floor("runne").expect("read");
+    let old_key = store.read_active_ref("gocode").expect("read");
+    let old_floor = store.read_anchor_floor("gocode").expect("read");
     *files.fail_on_write.lock().expect("failure") = Some(3);
     let mut rng = FakeRng;
     assert!(
@@ -133,8 +133,8 @@ fn rotate_second_artifact_failure_leaves_old_store_state() {
             })
             .is_err()
     );
-    assert_eq!(store.read_active_ref("runne").expect("read"), old_key);
-    assert_eq!(store.read_anchor_floor("runne").expect("read"), old_floor);
+    assert_eq!(store.read_active_ref("gocode").expect("read"), old_key);
+    assert_eq!(store.read_anchor_floor("gocode").expect("read"), old_floor);
     assert!(
         files
             .read_repo_public("docs/evidence/rotation.json")
@@ -148,8 +148,8 @@ fn rotate_confirmation_failure_leaves_old_state_and_writes_no_outputs() {
     let store = FakeStore::new();
     let files = files();
     initialized(&store, &files);
-    let before = store.read_active_ref("runne").expect("read");
-    let floor = store.read_anchor_floor("runne").expect("read");
+    let before = store.read_active_ref("gocode").expect("read");
+    let floor = store.read_anchor_floor("gocode").expect("read");
     let tty = RecordingTty::rejecting();
     let mut rng = FakeRng;
 
@@ -162,8 +162,8 @@ fn rotate_confirmation_failure_leaves_old_state_and_writes_no_outputs() {
             })
             .is_err()
     );
-    assert_eq!(store.read_active_ref("runne").expect("read"), before);
-    assert_eq!(store.read_anchor_floor("runne").expect("read"), floor);
+    assert_eq!(store.read_active_ref("gocode").expect("read"), before);
+    assert_eq!(store.read_anchor_floor("gocode").expect("read"), floor);
     assert!(
         files
             .read_repo_public("docs/evidence/rotation.json")
@@ -214,7 +214,7 @@ fn rotate_rejects_different_existing_artifact_without_advancing_store() {
         "docs/evidence/rotation.json".into(),
         b"different\n".to_vec(),
     );
-    let before = store.read_active_ref("runne").expect("read");
+    let before = store.read_active_ref("gocode").expect("read");
     let mut rng = FakeRng;
 
     assert!(
@@ -226,7 +226,7 @@ fn rotate_rejects_different_existing_artifact_without_advancing_store() {
             })
             .is_err()
     );
-    assert_eq!(store.read_active_ref("runne").expect("read"), before);
+    assert_eq!(store.read_active_ref("gocode").expect("read"), before);
 }
 
 #[test]
@@ -257,7 +257,7 @@ fn rotate_restart_resumes_the_same_pending_key_after_partial_publication() {
     assert_eq!(result.artifacts.len(), 2);
     assert_eq!(
         store
-            .read_active_ref("runne")
+            .read_active_ref("gocode")
             .expect("read")
             .expect("active")
             .key_epoch(),

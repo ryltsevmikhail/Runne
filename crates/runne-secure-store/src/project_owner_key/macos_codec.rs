@@ -49,7 +49,7 @@ impl StoredKey {
         let epoch = u64::from_be_bytes(bytes[6..14].try_into().map_err(|_| StoreStatus::Denied)?);
         let public_key = bytes[14..46].try_into().map_err(|_| StoreStatus::Denied)?;
         let seed = Zeroizing::new(bytes[46..78].try_into().map_err(|_| StoreStatus::Denied)?);
-        let reference = ProjectOwnerKeyRef::new("runne", public_key, epoch)?;
+        let reference = ProjectOwnerKeyRef::new("gocode", public_key, epoch)?;
         if ed25519_dalek::SigningKey::from_bytes(&seed)
             .verifying_key()
             .to_bytes()
@@ -113,7 +113,7 @@ pub(super) fn decode_floor(bytes: &[u8]) -> Result<ProjectOwnerAnchorFloor, Stor
     }
     let epoch = u64::from_be_bytes(bytes[5..13].try_into().map_err(|_| StoreStatus::Denied)?);
     let hash = bytes[13..45].try_into().map_err(|_| StoreStatus::Denied)?;
-    ProjectOwnerAnchorFloor::new("runne", epoch, hash)
+    ProjectOwnerAnchorFloor::new("gocode", epoch, hash)
 }
 
 pub(super) const fn active_kind() -> u8 {
@@ -134,7 +134,7 @@ mod tests {
         let seed = Zeroizing::new([7_u8; 32]);
         let public_key = SigningKey::from_bytes(&seed).verifying_key().to_bytes();
         StoredKey {
-            reference: ProjectOwnerKeyRef::new("runne", public_key, 1).expect("valid reference"),
+            reference: ProjectOwnerKeyRef::new("gocode", public_key, 1).expect("valid reference"),
             seed,
         }
     }
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn floor_codec_rejects_noncanonical_or_truncated_records() {
-        let floor = ProjectOwnerAnchorFloor::new("runne", 1, [9_u8; 32]).expect("valid floor");
+        let floor = ProjectOwnerAnchorFloor::new("gocode", 1, [9_u8; 32]).expect("valid floor");
         let encoded = encode_floor(&floor);
         assert_eq!(decode_floor(&encoded), Ok(floor));
         for mutation in [encoded[..44].to_vec(), {

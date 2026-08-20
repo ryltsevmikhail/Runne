@@ -59,8 +59,8 @@ where
         }
         let seed = decrypt_backup(&metadata, BackupPassphrase::new(passphrase), &trust)
             .map_err(|error| backup_error(&error))?;
-        let target =
-            ProjectOwnerKeyRef::new("runne", trust.public_key, trust.epoch).map_err(store_error)?;
+        let target = ProjectOwnerKeyRef::new("gocode", trust.public_key, trust.epoch)
+            .map_err(store_error)?;
         let material =
             ProjectOwnerKeyMaterial::from_backup_seed(target.clone(), seed).map_err(store_error)?;
         let digest = sha256(&backup_bytes);
@@ -79,7 +79,11 @@ where
             .restore_active(current.as_ref(), material)
             .map_err(store_error)?
             != target
-            || self.store.read_anchor_floor("runne").map_err(store_error)? != Some(floor)
+            || self
+                .store
+                .read_anchor_floor("gocode")
+                .map_err(store_error)?
+                != Some(floor)
         {
             return Err(CliError::AuthorityUnavailable);
         }
@@ -102,11 +106,11 @@ fn anchored_trust<S: ProjectOwnerKeyStore, F: AuthorityFiles>(
     let trust = ProjectOwnerTrustConfigV1::from_json(&files.bounded_nofollow_read(path)?)
         .map_err(|_| CliError::AuthorityUnavailable)?;
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .map_err(store_error)?
         .ok_or(CliError::AuthorityUnavailable)?;
     let anchor = TrustAnchorState::confirmed(
-        "runne".into(),
+        "gocode".into(),
         floor.highest_key_epoch(),
         floor.accepted_trust_config_sha256(),
     );
@@ -122,7 +126,7 @@ fn expected_current<S: ProjectOwnerKeyStore, F: AuthorityFiles>(
     replacement_path: Option<&str>,
     replacement_key_id: Option<[u8; 32]>,
 ) -> Result<Option<ProjectOwnerKeyRef>, CliError> {
-    let current = store.read_active_ref("runne").map_err(store_error)?;
+    let current = store.read_active_ref("gocode").map_err(store_error)?;
     let (Some(path), Some(supplied_key_id), Some(reference)) =
         (replacement_path, replacement_key_id, current.as_ref())
     else {
@@ -136,7 +140,7 @@ fn expected_current<S: ProjectOwnerKeyStore, F: AuthorityFiles>(
     let current_trust = ProjectOwnerTrustConfigV1::from_json(&files.bounded_nofollow_read(path)?)
         .map_err(|_| CliError::AuthorityUnavailable)?;
     let anchor = TrustAnchorState::confirmed(
-        "runne".into(),
+        "gocode".into(),
         floor.highest_key_epoch(),
         floor.accepted_trust_config_sha256(),
     );
@@ -160,9 +164,9 @@ fn review(
 ) -> Result<AuthorityReviewV1, CliError> {
     let parameters = metadata.parameters();
     Ok(AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "restore".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: None,
         profile: None,
         subject: None,

@@ -203,7 +203,7 @@ fn verify_resolves_the_receipt_subject_without_capture_or_store() {
         })
         .expect("sign");
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .expect("floor")
         .expect("anchor");
     let verify_git = CapturingGit {
@@ -248,7 +248,7 @@ fn verify_rejects_a_substituted_anchor_without_store_access() {
         })
         .expect("sign");
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .expect("floor")
         .expect("anchor");
     let git = CapturingGit {

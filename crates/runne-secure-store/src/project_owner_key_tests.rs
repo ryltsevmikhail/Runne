@@ -11,7 +11,7 @@ use crate::{
 
 fn reference() -> ProjectOwnerKeyRef {
     ProjectOwnerKeyRef::new(
-        "runne",
+        "gocode",
         SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes(),
         1,
     )
@@ -22,19 +22,19 @@ fn reference() -> ProjectOwnerKeyRef {
 fn stub_rejects_all_operations_without_invoking_pending_callback() {
     let store = StubStore::new();
     let reference = reference();
-    let floor = ProjectOwnerAnchorFloor::new("runne", 1, [8; 32]).expect("floor");
+    let floor = ProjectOwnerAnchorFloor::new("gocode", 1, [8; 32]).expect("floor");
     let calls = Cell::new(0);
     let mut callback = |_key: &ProjectOwnerKeyRef| {
         calls.set(calls.get() + 1);
         Ok(Vec::from([1_u8]))
     };
     assert!(matches!(
-        store.create_pending(None, "runne", 1, &mut callback),
+        store.create_pending(None, "gocode", 1, &mut callback),
         Err(StoreStatus::Unsupported)
     ));
     assert_eq!(calls.get(), 0);
     assert!(matches!(
-        store.create_or_resume_pending(None, "runne", 1, &mut callback),
+        store.create_or_resume_pending(None, "gocode", 1, &mut callback),
         Err(StoreStatus::Unsupported)
     ));
     assert_eq!(calls.get(), 0);
@@ -65,11 +65,11 @@ fn stub_rejects_all_operations_without_invoking_pending_callback() {
         Err(StoreStatus::Unsupported)
     );
     assert_eq!(
-        store.read_active_ref("runne"),
+        store.read_active_ref("gocode"),
         Err(StoreStatus::Unsupported)
     );
     assert_eq!(
-        store.read_anchor_floor("runne"),
+        store.read_anchor_floor("gocode"),
         Err(StoreStatus::Unsupported)
     );
     assert_eq!(

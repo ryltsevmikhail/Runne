@@ -1,7 +1,7 @@
 //! Closed grammar for the independently configured macOS designated requirement.
 
-const IDENTIFIER: &str = "com.runne.project-owner.authority";
-const PREFIX: &str = "identifier \"com.runne.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"";
+const IDENTIFIER: &str = "com.gocode.project-owner.authority";
+const PREFIX: &str = "identifier \"com.gocode.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"";
 const SUFFIX: &str = "\"";
 const TEAM_ID_BYTES: usize = 10;
 const MAX_REQUIREMENT_BYTES: usize = PREFIX.len() + TEAM_ID_BYTES + SUFFIX.len();
@@ -37,19 +37,19 @@ pub(super) fn valid_designated_requirement(requirement: &str) -> bool {
 mod tests {
     use super::valid_designated_requirement;
 
-    const VALID: &str = "identifier \"com.runne.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"";
+    const VALID: &str = "identifier \"com.gocode.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"";
 
     #[test]
     fn requires_one_exact_quoted_identifier_and_team_clause() {
         assert!(valid_designated_requirement(VALID));
         for invalid in [
             "identifier \"com.runne.other\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"",
-            "identifier \"com.runne.project-owner.authority\" and anchor apple generic",
-            "identifier \"com.runne.project-owner.authority\" or certificate leaf[subject.OU] = \"AB12CD34EF\"",
-            "identifier \"com.runne.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\" => true",
-            "identifier \"com.runne.project-owner.*\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"",
-            "identifier \"com.runne.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"\n",
-            "identifier \"com.runne.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"ab12cd34ef\"",
+            "identifier \"com.gocode.project-owner.authority\" and anchor apple generic",
+            "identifier \"com.gocode.project-owner.authority\" or certificate leaf[subject.OU] = \"AB12CD34EF\"",
+            "identifier \"com.gocode.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\" => true",
+            "identifier \"com.gocode.project-owner.*\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"",
+            "identifier \"com.gocode.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"AB12CD34EF\"\n",
+            "identifier \"com.gocode.project-owner.authority\" and anchor apple generic and certificate leaf[subject.OU] = \"ab12cd34ef\"",
         ] {
             assert!(
                 !valid_designated_requirement(invalid),

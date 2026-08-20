@@ -1,5 +1,5 @@
 {
-  "evidence_kind": "runne.project-owner.initial-authorization-evidence/1",
+  "evidence_kind": "gocode.project-owner.initial-authorization-evidence/1",
   "receipt_path": "docs/evidence/V1_PLATFORM_SCOPE_AUTHORIZATION_RECEIPT.json",
   "initial_receipt_sha256": "26f54c0d17c3da58f0e5bd71e50b8d5b8f54c83a5cca4c55738d19b6311094de",
   "subject": {

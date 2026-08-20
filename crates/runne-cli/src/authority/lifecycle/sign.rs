@@ -43,16 +43,16 @@ where
         .map_err(|_| CliError::AuthorityUnavailable)?;
         let active = self
             .store
-            .read_active_ref("runne")
+            .read_active_ref("gocode")
             .map_err(store_error)?
             .ok_or(CliError::AuthorityUnavailable)?;
         let floor = self
             .store
-            .read_anchor_floor("runne")
+            .read_anchor_floor("gocode")
             .map_err(store_error)?
             .ok_or(CliError::AuthorityUnavailable)?;
         let anchor = TrustAnchorState::confirmed(
-            "runne".into(),
+            "gocode".into(),
             floor.highest_key_epoch(),
             floor.accepted_trust_config_sha256(),
         );
@@ -68,9 +68,9 @@ where
         let canonical =
             canonical_unsigned_receipt(&unsigned).map_err(|_| CliError::AuthorityUnavailable)?;
         let domain = SigningDomain::new(
-            "runne.project-owner.authority-receipt/1",
+            "gocode.project-owner.authority-receipt/1",
             &profile.purpose,
-            "runne",
+            "gocode",
         )
         .map_err(|_| CliError::AuthorityUnavailable)?;
         let transcript: [u8; 32] = Sha256::digest(signing_transcript(&domain, &canonical)).into();
@@ -155,8 +155,8 @@ fn unsigned(
     issued_at: String,
 ) -> UnsignedReceipt {
     UnsignedReceipt {
-        schema_version: "runne.project-owner.authority-receipt/1".into(),
-        repository_id: "runne".into(),
+        schema_version: "gocode.project-owner.authority-receipt/1".into(),
+        repository_id: "gocode".into(),
         role: "PROJECT_OWNER".into(),
         purpose: "V1_PLATFORM_SCOPE_AUTHORIZATION".into(),
         trust_config_sha256: hex(&trust.sha256().expect("validated")),
@@ -175,7 +175,7 @@ fn unsigned(
             })
             .collect(),
         issued_at,
-        profile: "runne.project-owner.v1-platform-scope/1".into(),
+        profile: "gocode.project-owner.v1-platform-scope/1".into(),
     }
 }
 fn review(
@@ -186,9 +186,9 @@ fn review(
     transcript: [u8; 32],
 ) -> Result<AuthorityReviewV1, CliError> {
     Ok(AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "sign".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: Some(unsigned.purpose.clone()),
         profile: Some(unsigned.profile.clone()),
         subject: Some(ReviewSubject {

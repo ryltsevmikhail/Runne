@@ -29,7 +29,7 @@ where
             .validate_repo_public_output(&request.trust_config)?;
         let active = load_active_trust(self.store, self.files, &request.trust_config)?;
         let reset = after_explicit_compromise_declaration(&active.trust);
-        if reset.repository_id != "runne"
+        if reset.repository_id != "gocode"
             || reset.compromised_key_id != active.trust.key_id
             || reset.compromised_epoch != active.trust.epoch
         {
@@ -70,18 +70,18 @@ fn load_active_trust<S: ProjectOwnerKeyStore, F: AuthorityFiles>(
     let trust = ProjectOwnerTrustConfigV1::from_json(&files.bounded_nofollow_read(trust_path)?)
         .map_err(|_| CliError::AuthorityUnavailable)?;
     let key = store
-        .read_active_ref("runne")
+        .read_active_ref("gocode")
         .map_err(store_error)?
         .ok_or(CliError::AuthorityUnavailable)?;
     let floor = store
-        .read_anchor_floor("runne")
+        .read_anchor_floor("gocode")
         .map_err(store_error)?
         .ok_or(CliError::AuthorityUnavailable)?;
     if key.key_epoch() != trust.epoch || key.public_key() != trust.public_key {
         return Err(CliError::AuthorityUnavailable);
     }
     let anchor = TrustAnchorState::confirmed(
-        "runne".into(),
+        "gocode".into(),
         floor.highest_key_epoch(),
         floor.accepted_trust_config_sha256(),
     );
@@ -91,9 +91,9 @@ fn load_active_trust<S: ProjectOwnerKeyStore, F: AuthorityFiles>(
 
 fn review(trust: &ProjectOwnerTrustConfigV1) -> Result<AuthorityReviewV1, CliError> {
     Ok(AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "trust-reset".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: None,
         profile: None,
         subject: None,

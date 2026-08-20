@@ -86,9 +86,9 @@ fn expected_ack(files: &FakeFiles) -> String {
     )
     .expect("trust config");
     AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "trust-reset".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: None,
         profile: None,
         subject: None,
@@ -138,8 +138,8 @@ fn reset_requires_exact_compromise_acknowledgement_before_confirmation_or_state_
                 })
                 .is_err()
         );
-        assert!(store.read_active_ref("runne").expect("active").is_some());
-        assert!(store.read_anchor_floor("runne").expect("floor").is_some());
+        assert!(store.read_active_ref("gocode").expect("active").is_some());
+        assert!(store.read_anchor_floor("gocode").expect("floor").is_some());
         assert_eq!(store.state.lock().expect("state").reset_calls, 0);
         assert!(tty.calls.lock().expect("calls").is_empty());
     }
@@ -164,8 +164,8 @@ fn reset_rejection_retains_state_and_never_writes() {
             })
             .is_err()
     );
-    assert!(store.read_active_ref("runne").expect("active").is_some());
-    assert!(store.read_anchor_floor("runne").expect("floor").is_some());
+    assert!(store.read_active_ref("gocode").expect("active").is_some());
+    assert!(store.read_anchor_floor("gocode").expect("floor").is_some());
     assert_eq!(store.state.lock().expect("state").reset_calls, 0);
     assert_eq!(*files.write_count.lock().expect("writes"), writes_before);
 }
@@ -236,8 +236,8 @@ fn reset_removes_exact_active_key_and_floor_after_matching_tty_acknowledgement()
     );
     assert!(output.artifacts.is_empty());
     assert_eq!(*files.write_count.lock().expect("writes"), writes_before);
-    assert!(store.read_active_ref("runne").expect("active").is_none());
-    assert!(store.read_anchor_floor("runne").expect("floor").is_none());
+    assert!(store.read_active_ref("gocode").expect("active").is_none());
+    assert!(store.read_anchor_floor("gocode").expect("floor").is_none());
     assert_eq!(store.state.lock().expect("state").reset_calls, 1);
     let calls = tty.calls.lock().expect("calls");
     assert_eq!(calls.len(), 1);

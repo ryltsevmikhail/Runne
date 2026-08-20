@@ -1,10 +1,10 @@
 {
   "purpose": "V1_PLATFORM_SCOPE_AUTHORIZATION",
-  "profile": "runne.project-owner.v1-platform-scope/2",
+  "profile": "gocode.project-owner.v1-platform-scope/2",
   "receipt_path": "docs/evidence/V1_PLATFORM_SCOPE_AUTHORIZATION_RECEIPT.json",
   "required_schema_ids": {
     "docs/adr/ADR-0027-v1-platform-scope.md": null,
-    "docs/decisions/v1-platform-scope-v1.json": "runne.governance.v1-platform-scope-decision/1",
+    "docs/decisions/v1-platform-scope-v1.json": "gocode.governance.v1-platform-scope-decision/1",
     "docs/desktop/adr/ADR-0015-v1-platform-scope.md": null,
     "docs/schemas/v1-platform-scope-decision-v1.schema.json": null
   },

@@ -196,7 +196,7 @@ mod tests {
         };
         let receipt = UnsignedReceipt {
             schema_version: "x".into(),
-            repository_id: "runne".into(),
+            repository_id: "gocode".into(),
             role: "x".into(),
             purpose: "x".into(),
             trust_config_sha256: "x".into(),

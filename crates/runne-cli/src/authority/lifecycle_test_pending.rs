@@ -17,7 +17,7 @@ impl FakeStore {
     ) -> Result<PendingProjectOwnerKey, StoreStatus> {
         let mut state = self.state.lock().expect("state");
         let active = state.active.clone();
-        if repo != "runne"
+        if repo != "gocode"
             || expected != active.as_ref()
             || epoch != active.as_ref().map_or(1, |key| key.key_epoch() + 1)
         {
@@ -27,7 +27,7 @@ impl FakeStore {
         state.next_pending_seed = seed.checked_add(1).ok_or(StoreStatus::Denied)?;
         drop(state);
         let key = SigningKey::from_bytes(&[seed; 32]);
-        let reference = ProjectOwnerKeyRef::new("runne", key.verifying_key().to_bytes(), epoch)?;
+        let reference = ProjectOwnerKeyRef::new("gocode", key.verifying_key().to_bytes(), epoch)?;
         let transcript = build(&reference)?;
         let token = [13; 32];
         let mut state = self.state.lock().expect("state");

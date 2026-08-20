@@ -4,9 +4,9 @@ const HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abc
 
 fn review() -> AuthorityReviewV1 {
     AuthorityReviewV1 {
-        schema_version: "runne.authority.cli-review/1".into(),
+        schema_version: "gocode.authority.cli-review/1".into(),
         operation: "sign".into(),
-        repository_id: "runne".into(),
+        repository_id: "gocode".into(),
         purpose: Some("V1_PLATFORM_SCOPE_AUTHORIZATION".into()),
         profile: Some("v1-platform-scope".into()),
         subject: Some(ReviewSubject {
@@ -61,7 +61,7 @@ fn canonical_review_has_sorted_documents_nulls_and_one_lf() {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"mode\":\"100644\",\"path\":\"z.md\",\"schema_id\":null}],\"issued_at\":\"2026-08-12T00:00:00Z\",\"key_epoch\":1,\"key_fingerprint\":\"",
         "3333333333333333333333333333333333333333333333333333333333333333\",\"key_id\":\"",
         "2222222222222222222222222222222222222222222222222222222222222222\",\"operation\":\"sign\",\"output\":{\"artifact_sha256\":\"",
-        "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"rotation\":null,\"schema_version\":\"runne.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
+        "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"rotation\":null,\"schema_version\":\"gocode.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
         "4444444444444444444444444444444444444444444444444444444444444444\",\"subject\":{\"commit_oid\":\"",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"object_format\":\"sha1\",\"tree_oid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"trust_config_sha256\":\"",
         "1111111111111111111111111111111111111111111111111111111111111111\"}\n"
@@ -90,7 +90,7 @@ fn digest_challenge_and_display_bind_the_canonical_review() {
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"mode\":\"100644\",\"path\":\"z.md\",\"schema_id\":null}],\"issued_at\":\"2026-08-12T00:00:00Z\",\"key_epoch\":1,\"key_fingerprint\":\"",
             "3333333333333333333333333333333333333333333333333333333333333333\",\"key_id\":\"",
             "2222222222222222222222222222222222222222222222222222222222222222\",\"operation\":\"sign\",\"output\":{\"artifact_sha256\":\"",
-            "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"rotation\":null,\"schema_version\":\"runne.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
+            "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"rotation\":null,\"schema_version\":\"gocode.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
             "4444444444444444444444444444444444444444444444444444444444444444\",\"subject\":{\"commit_oid\":\"",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"object_format\":\"sha1\",\"tree_oid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"trust_config_sha256\":\"",
             "1111111111111111111111111111111111111111111111111111111111111111\"}\n",
