@@ -18,7 +18,7 @@ FRESH_UNTIL = NOW + 3600
 def synthetic_identity() -> CandidateIdentity:
     """Return a deterministic synthetic candidate identity."""
     return CandidateIdentity(
-        relative_name="synthetic-GOCODE.app",
+        relative_name="synthetic-Runne.app",
         tree_sha256=hashlib.sha256(b"tree").hexdigest(),
         main_sha256=hashlib.sha256(b"main").hexdigest(),
         daemon_sha256=hashlib.sha256(b"daemon").hexdigest(),
@@ -31,10 +31,10 @@ def synthetic_identity() -> CandidateIdentity:
 def synthetic_expectation() -> SignatureExpectation:
     """Return a deterministic synthetic signature expectation."""
     return SignatureExpectation(
-        bundle_id="com.example.gocode",
+        bundle_id="com.example.runne",
         team_identifier="TEAM000001",
         authority_class="Developer ID Application",
-        designated_requirement="designated => identifier com.example.gocode",
+        designated_requirement="designated => identifier com.example.runne",
         cdhash="c" * 40,
     )
 
@@ -55,7 +55,7 @@ def _command_specs(identity: CandidateIdentity) -> list[dict]:
 
 def _expected_target(phase: str, identity: CandidateIdentity) -> str:
     if phase.startswith(("sign-", "verify-", "metadata-", "requirement-", "entitlements-")):
-        return f"{identity.relative_name}/Contents/MacOS/gocoded" if phase.endswith("-daemon") else identity.relative_name
+        return f"{identity.relative_name}/Contents/MacOS/runned" if phase.endswith("-daemon") else identity.relative_name
     return identity.relative_name
 
 
@@ -87,7 +87,7 @@ def synthetic_document(identity: CandidateIdentity | None = None, expectation: S
             "designated_requirement": expectation.designated_requirement,
             "cdhash": expectation.cdhash,
         },
-        "target": {"candidate": identity.relative_name, "main": "Contents/MacOS/GOCODE", "daemon": "Contents/MacOS/gocoded"},
+        "target": {"candidate": identity.relative_name, "main": "Contents/MacOS/Runne", "daemon": "Contents/MacOS/runned"},
         "entitlements": {"app_sha256": identity.app_entitlements_sha256, "daemon_sha256": identity.daemon_entitlements_sha256},
         "commands": _command_specs(identity),
         "notarization": "accepted",

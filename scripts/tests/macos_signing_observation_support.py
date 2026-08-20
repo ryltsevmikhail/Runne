@@ -57,9 +57,9 @@ def assert_notary_binding_grammar(case) -> None:
 
 
 def assert_checked_observation_contract(case) -> None:
-    metadata = CommandResult(0, "", "Identifier=com.example.gocode\nTeamIdentifier=TEAM000001\nAuthority=Developer ID Application: Synthetic (TEAM000001)\nCDHash=" + "c" * 40 + "\nCodeDirectory v=20500 size=123 flags=0x10000(runtime) hashes=1+5\n")
+    metadata = CommandResult(0, "", "Identifier=com.example.runne\nTeamIdentifier=TEAM000001\nAuthority=Developer ID Application: Synthetic (TEAM000001)\nCDHash=" + "c" * 40 + "\nCodeDirectory v=20500 size=123 flags=0x10000(runtime) hashes=1+5\n")
     observed = parse_signature_metadata(metadata)
-    requirement = parse_designated_requirement(CommandResult(0, "designated => identifier com.example.gocode\n", ""))
+    requirement = parse_designated_requirement(CommandResult(0, "designated => identifier com.example.runne\n", ""))
     case.assertNotIsInstance(observed, FailureCode)
     case.assertNotIsInstance(requirement, FailureCode)
     for result, code in ((CommandResult(0, "", metadata.stderr + "Identifier=duplicate\n"), FailureCode.UNKNOWN_STATUS), (CommandResult(0, "", metadata.stderr.replace("runtime", "other")), FailureCode.HARDENED_RUNTIME_MISSING), (CommandResult(0, "designated => bad\x01\n", ""), FailureCode.UNKNOWN_STATUS), (CommandResult(0, plistlib.dumps({"unexpected": True}).decode(), ""), FailureCode.ENTITLEMENTS_MISMATCH), (CommandResult(0, "not-a-plist", ""), FailureCode.UNKNOWN_STATUS)):
@@ -73,7 +73,7 @@ def assert_checked_observation_contract(case) -> None:
 
 
 def assert_real_code_directory_contract(case) -> None:
-    prefix = "Identifier=com.example.gocode\nTeamIdentifier=TEAM000001\nAuthority=Developer ID Application: Synthetic (TEAM000001)\nCDHash=" + "c" * 40 + "\n"
+    prefix = "Identifier=com.example.runne\nTeamIdentifier=TEAM000001\nAuthority=Developer ID Application: Synthetic (TEAM000001)\nCDHash=" + "c" * 40 + "\n"
     accepted = CommandResult(0, "", prefix + "CodeDirectory v=20500 size=123 flags=0x10000(runtime) hashes=1+5 location=embedded\n")
     case.assertNotIsInstance(parse_signature_metadata(accepted), FailureCode)
     for line, code in (("CodeDirectory v=20500 flags=0x0(runtime)\n", FailureCode.HARDENED_RUNTIME_MISSING), ("CodeDirectory v=20500 flags=0x10000(other)\n", FailureCode.HARDENED_RUNTIME_MISSING), ("CodeDirectory=v=20500 flags=0x10000(runtime)\n", FailureCode.UNKNOWN_STATUS), ("CodeDirectory v=abc flags=0x10000(runtime)\n", FailureCode.UNKNOWN_STATUS), ("CodeDirectory v=20500 flags=0x10000(runtime)\nCodeDirectory v=20500 flags=0x10000(runtime)\n", FailureCode.UNKNOWN_STATUS)):
@@ -114,11 +114,11 @@ def assert_live_notary_artifact_binding(case) -> None:
     with mock.patch("scripts.macos_signing.runner.Path.is_file", return_value=True), mock.patch("scripts.macos_signing.runner.os.access", return_value=True), mock.patch("scripts.macos_signing.runner.subprocess.run", return_value=mock.Mock(returncode=0)) as run:
         LiveRunner(candidate.parent).run(command)
     case.assertEqual(run.call_args.args[0][3], str(archive.resolve()))
-    (candidate / "Contents" / "MacOS" / "GOCODE").write_bytes(b"replaced source\n")
+    (candidate / "Contents" / "MacOS" / "Runne").write_bytes(b"replaced source\n")
     with mock.patch("scripts.macos_signing.runner.Path.is_file", return_value=True), mock.patch("scripts.macos_signing.runner.os.access", return_value=True), mock.patch("scripts.macos_signing.runner.subprocess.run") as run:
         case.assertEqual(LiveRunner(candidate.parent).run(command).stderr, FailureCode.ARTIFACT_IDENTITY_MISMATCH.value)
     run.assert_not_called()
-    (candidate / "Contents" / "MacOS" / "GOCODE").write_bytes(b"synthetic main executable\n")
+    (candidate / "Contents" / "MacOS" / "Runne").write_bytes(b"synthetic main executable\n")
     archive.write_bytes(b"replaced synthetic zip\n")
     with mock.patch("scripts.macos_signing.runner.Path.is_file", return_value=True), mock.patch("scripts.macos_signing.runner.os.access", return_value=True), mock.patch("scripts.macos_signing.runner.subprocess.run") as run:
         case.assertEqual(LiveRunner(candidate.parent).run(command).stderr, FailureCode.ARTIFACT_IDENTITY_MISMATCH.value)

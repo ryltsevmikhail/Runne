@@ -38,7 +38,7 @@ FIXTURE_SOURCE_SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 _COMPONENTS = {
     "Desktop.bundle": (b"", 0o755),
     "Desktop.bundle/desktop.inert": (b"desktop structural fixture\n", 0o755),
-    "Desktop.bundle/gocoded.inert": (b"bundled runtime structural fixture\n", 0o755),
+    "Desktop.bundle/runned.inert": (b"bundled runtime structural fixture\n", 0o755),
     "LEGAL.txt": (b"fixture legal notice\n", 0o644),
 }
 
@@ -146,7 +146,7 @@ def _inventory(root: Path):
 
 
 def _dependencies() -> DependencyInventoryV1:
-    package = DependencyPackageV1("bundled", "bundled-daemon", "0.0.0-fixture", "artifact:bundled-daemon", _digest(_COMPONENTS["Desktop.bundle/gocoded.inert"][0]), "MIT", (), True)
+    package = DependencyPackageV1("bundled", "bundled-daemon", "0.0.0-fixture", "artifact:bundled-daemon", _digest(_COMPONENTS["Desktop.bundle/runned.inert"][0]), "MIT", (), True)
     rows = [{"dependencies": [], "direct": True, "ecosystem": package.ecosystem, "license": package.declared_license, "lock_locator": package.lock_locator, "name": package.name, "source_digest": package.source_digest, "version": package.version}]
     return DependencyInventoryV1((package,), _digest(canonical_json({"packages": rows, "schema_version": "dependency-inventory.v1"})))
 

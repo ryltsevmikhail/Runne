@@ -194,7 +194,7 @@ def _target_complete(target):
     if not isinstance(target, EvidenceTarget) or not _candidate_name(target.candidate):
         return False
     main, daemon = Path(target.main), Path(target.daemon)
-    return _relative(target.main) and _relative(target.daemon) and main.parts[:2] == ("Contents", "MacOS") and len(main.parts) == 3 and main.name != "gocoded" and daemon.parts == ("Contents", "MacOS", "gocoded")
+    return _relative(target.main) and _relative(target.daemon) and main.parts[:2] == ("Contents", "MacOS") and len(main.parts) == 3 and main.name != "runned" and daemon.parts == ("Contents", "MacOS", "runned")
 
 
 def _target_bound(identity, target):

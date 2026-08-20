@@ -87,8 +87,8 @@ def _source_is_current(root: Path, identity: CandidateIdentity) -> bool:
     try:
         candidate = root / identity.relative_name
         main = candidate / "Contents" / "MacOS"
-        daemon = main / "gocoded"
-        executables = tuple(path for path in main.iterdir() if path.name != "gocoded")
+        daemon = main / "runned"
+        executables = tuple(path for path in main.iterdir() if path.name != "runned")
         return (len(executables) == 1 and _digest(executables[0]) == identity.main_sha256
                 and _digest(daemon) == identity.daemon_sha256 and tree_sha256(candidate) == identity.tree_sha256)
     except (OSError, ValueError):

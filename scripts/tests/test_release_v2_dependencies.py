@@ -110,19 +110,19 @@ class DependencyTests(unittest.TestCase):
             executable = artifacts / "bin"
             executable.mkdir()
             executable.chmod(0o755)
-            binary = executable / "gocoded"
+            binary = executable / "runned"
             binary.write_bytes(b"daemon")
             binary.chmod(0o755)
             inventory = inventory_dependencies(
                 root / "Cargo.lock", root / "pnpm-lock.yaml", (root / "Cargo.toml", root / "package.json"),
-                _identity(root), _artifact_inventory(artifacts), ("bin/gocoded",),
+                _identity(root), _artifact_inventory(artifacts), ("bin/runned",),
             )
             bundled = next(item for item in inventory.packages if item.ecosystem == "bundled")
-            self.assertEqual((bundled.name, bundled.source_digest), ("bin/gocoded", _sha256(b"daemon")))
+            self.assertEqual((bundled.name, bundled.source_digest), ("bin/runned", _sha256(b"daemon")))
             with self.assertRaises(ReleaseFailure):
                 inventory_dependencies(root / "Cargo.lock", root / "pnpm-lock.yaml", (root / "Cargo.toml", root / "package.json"), _identity(root), _artifact_inventory(artifacts), ())
             with self.assertRaises(ReleaseFailure):
-                inventory_dependencies(root / "Cargo.lock", root / "pnpm-lock.yaml", (root / "Cargo.toml", root / "package.json"), _identity(root), _artifact_inventory(artifacts), ("bin/gocoded", "bin/missing"))
+                inventory_dependencies(root / "Cargo.lock", root / "pnpm-lock.yaml", (root / "Cargo.toml", root / "package.json"), _identity(root), _artifact_inventory(artifacts), ("bin/runned", "bin/missing"))
     def test_inventory_is_deterministic_without_subprocess_or_socket_calls(self) -> None:
         with _fixture() as root, patch("subprocess.Popen", side_effect=AssertionError), patch("subprocess.run", side_effect=AssertionError), patch("socket.socket", side_effect=AssertionError), patch("socket.create_connection", side_effect=AssertionError):
             first = _inventory(root)
@@ -166,7 +166,7 @@ def _identity(root: Path) -> BuildInputIdentityV2:
 def _workspace_manifests(root: Path) -> tuple[Path, ...]:
     return tuple(root / path for path in ("Cargo.toml", "crates/app/Cargo.toml", "crates/local/Cargo.toml", "package.json", "apps/web/package.json", "apps/local/package.json"))
 def _artifact_inventory(root: Path):
-    return build_inventory(root, (ArtifactEntry("bin", "directory", "0755", 0, _sha256(b"")), ArtifactEntry("bin/gocoded", "file", "0755", 6, _sha256(b"daemon"))))
+    return build_inventory(root, (ArtifactEntry("bin", "directory", "0755", 0, _sha256(b"")), ArtifactEntry("bin/runned", "file", "0755", 6, _sha256(b"daemon"))))
 def _sha256(value: bytes) -> str:
     import hashlib
     return hashlib.sha256(value).hexdigest()

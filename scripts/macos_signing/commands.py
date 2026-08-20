@@ -76,7 +76,7 @@ def build_gatekeeper_command(candidate: ValidatedTarget) -> CommandSpec:
 def _target(target: ValidatedTarget) -> str:
     value = _artifact(target)
     parts = Path(value).parts
-    if len(parts) == 4 and parts[1:] == ("Contents", "MacOS", "gocoded") and Path(parts[0]).suffix == ".app":
+    if len(parts) == 4 and parts[1:] == ("Contents", "MacOS", "runned") and Path(parts[0]).suffix == ".app":
         return value
     if len(parts) == 1 and Path(value).suffix == ".app":
         return value
@@ -130,7 +130,7 @@ def _relative(value: str) -> str:
 
 
 def _phase(prefix: str, target: ValidatedTarget) -> str:
-    suffix = "daemon" if _target(target).endswith("/gocoded") else "app"
+    suffix = "daemon" if _target(target).endswith("/runned") else "app"
     return prefix + "-" + suffix if prefix else suffix
 
 

@@ -72,7 +72,7 @@ class NativePackageProbeTests(unittest.TestCase):
 
     def test_existing_package_still_requires_native_install_and_identity_probes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            package = Path(directory) / "GOCODE.app"
+            package = Path(directory) / "Runne.app"
             package.write_text("package", encoding="utf-8")
             evidence = Path(directory) / "evidence.json"
             calls = []
@@ -90,7 +90,7 @@ class NativePackageProbeTests(unittest.TestCase):
     def test_macos_bundle_directory_has_a_deterministic_artifact_digest(self) -> None:
         from scripts.desktop.native_package_probe import artifact_sha256
         with tempfile.TemporaryDirectory() as directory:
-            bundle = Path(directory) / "GOCODE.app"; bundle.mkdir()
+            bundle = Path(directory) / "Runne.app"; bundle.mkdir()
             (bundle / "Contents").mkdir(); (bundle / "Contents" / "Info.plist").write_text("bundle", encoding="utf-8")
             self.assertRegex(artifact_sha256(bundle), r"^[0-9a-f]{64}$")
 
