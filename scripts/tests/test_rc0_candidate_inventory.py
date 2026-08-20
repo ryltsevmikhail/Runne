@@ -8,29 +8,29 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 VERIFIER = ROOT / "scripts/rc0_candidate/verify_rust_inventory.py"
 RUST_RESERVATIONS = (
-    ("sqlite.managed-connection", "gocode-store", "connection_profile"),
-    ("sqlite.local-reliability", "gocode-store", "local_reliability_inventory"),
-    ("phase3.evidence-fixtures", "gocode-store", "evidence_phase3"),
-    ("phase3.evidence-shadow-import", "gocode-store", "evidence_phase3"),
-    ("phase3.evidence-lineage", "gocode-store", "evidence_phase3"),
-    ("phase3.evidence-rollback", "gocode-store", "evidence_phase3"),
-    ("phase3.migration-control", "gocode-application", "migration_control"),
-    ("phase3.migration-rollout", "gocode-application", "migration_rollout"),
-    ("phase3.migration-sqlite", "gocode-store", "migration_sqlite"),
-    ("phase3.migration-routing-sqlite", "gocode-store", "migration_routing_sqlite"),
-    ("phase3.migration-routing", "gocode-runtime", "migration_routing"),
-    ("scanner.withheld-tail", "gocode-runtime", "provider_redaction_recovery"),
-    ("scanner.recovery-dispatch", "gocode-store", "provider_dispatch_recovery"),
-    ("credentials.native-store", "gocode-secure-store", "provider_credential"),
-    ("credentials.lifecycle", "gocode-store", "provider_credential_lifecycle"),
-    ("bootstrap.encoder", "gocode-pairing-crypto", "bootstrap_v3"),
-    ("bootstrap.persistence", "gocode-store", "bootstrap_reservation_store"),
-    ("bootstrap.composition", "gocode-daemon", "bootstrap_reservation_composition"),
-    ("bootstrap.http-wire", "gocode-http", "local_session_bootstrap_v3"),
-    ("bootstrap.client-wire", "gocode-runtime-client", "local_profile"),
-    ("sandbox.containment", "gocode-security", "process_containment_admission"),
-    ("pty.process-contract", "gocode-tools", "process_contract"),
-    ("mcp.supervision", "gocode-runtime", "plugin_mcp_supervision"),
+    ("sqlite.managed-connection", "runne-store", "connection_profile"),
+    ("sqlite.local-reliability", "runne-store", "local_reliability_inventory"),
+    ("phase3.evidence-fixtures", "runne-store", "evidence_phase3"),
+    ("phase3.evidence-shadow-import", "runne-store", "evidence_phase3"),
+    ("phase3.evidence-lineage", "runne-store", "evidence_phase3"),
+    ("phase3.evidence-rollback", "runne-store", "evidence_phase3"),
+    ("phase3.migration-control", "runne-application", "migration_control"),
+    ("phase3.migration-rollout", "runne-application", "migration_rollout"),
+    ("phase3.migration-sqlite", "runne-store", "migration_sqlite"),
+    ("phase3.migration-routing-sqlite", "runne-store", "migration_routing_sqlite"),
+    ("phase3.migration-routing", "runne-runtime", "migration_routing"),
+    ("scanner.withheld-tail", "runne-runtime", "provider_redaction_recovery"),
+    ("scanner.recovery-dispatch", "runne-store", "provider_dispatch_recovery"),
+    ("credentials.native-store", "runne-secure-store", "provider_credential"),
+    ("credentials.lifecycle", "runne-store", "provider_credential_lifecycle"),
+    ("bootstrap.encoder", "runne-pairing-crypto", "bootstrap_v3"),
+    ("bootstrap.persistence", "runne-store", "bootstrap_reservation_store"),
+    ("bootstrap.composition", "runne-daemon", "bootstrap_reservation_composition"),
+    ("bootstrap.http-wire", "runne-http", "local_session_bootstrap_v3"),
+    ("bootstrap.client-wire", "runne-runtime-client", "local_profile"),
+    ("sandbox.containment", "runne-security", "process_containment_admission"),
+    ("pty.process-contract", "runne-tools", "process_contract"),
+    ("mcp.supervision", "runne-runtime", "plugin_mcp_supervision"),
 )
 def load_verifier():
     spec = importlib.util.spec_from_file_location("rc0_inventory", VERIFIER)
@@ -87,26 +87,26 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
     def test_rejects_rust_target_that_is_not_an_integration_test(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "src/lib.rs")
+        record = resolved("sqlite.managed-connection", "runne-store", "src/lib.rs")
         with self.assertRaisesRegex(verifier.InventoryError, "integration_target"):
             verifier.validate_record(record)
 
     def test_rejects_duplicate_ids(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        record = resolved("sqlite.managed-connection", "runne-store", "connection_profile")
         with self.assertRaisesRegex(verifier.InventoryError, "duplicate id"):
             verifier.validate_inventory(inventory([record, record.copy()]))
 
     def test_rejects_resolved_record_without_all_evidence_fields(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        record = resolved("sqlite.managed-connection", "runne-store", "connection_profile")
         del record["toolchain"]
         with self.assertRaisesRegex(verifier.InventoryError, "invalid toolchain"):
             verifier.validate_record(record)
 
     def test_rejects_path_filter_selector(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        record = resolved("sqlite.managed-connection", "runne-store", "connection_profile")
         record["fully_qualified_test_name"] = "tests/connection_profile.rs"
         with self.assertRaisesRegex(verifier.InventoryError, "path-filter"):
             verifier.validate_record(record)
@@ -114,14 +114,14 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
     def test_rejects_rust_record_not_owned_by_a_reservation(self) -> None:
         verifier = load_verifier()
         with self.assertRaisesRegex(verifier.InventoryError, "not owned"):
-            verifier.validate_record(resolved("unowned", "gocode-store", "candidate"))
+            verifier.validate_record(resolved("unowned", "runne-store", "candidate"))
 
     def test_unresolved_record_is_rejected_before_cargo(self) -> None:
         verifier = load_verifier()
         record = {
             "id": "sqlite.managed-connection",
             "stage": "SOURCE_CANDIDATE",
-            "package": "gocode-store",
+            "package": "runne-store",
             "integration_target": "connection_profile",
             "selector_status": "UNRESOLVED",
         }
@@ -148,7 +148,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
     def test_rejects_exact_output_without_one_executed_test(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        record = resolved("sqlite.managed-connection", "runne-store", "connection_profile")
 
         def command(args: tuple[str, ...]) -> str:
             if args == ("rustc", "-V"):
@@ -162,7 +162,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
     def test_accepts_standard_libtest_list_summary(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        record = resolved("sqlite.managed-connection", "runne-store", "connection_profile")
         listing = "sqlite_managed_connection: test\n\n1 test, 0 benchmarks\n"
         record["list_digest"] = hashlib.sha256(listing.encode()).hexdigest()
 
@@ -185,7 +185,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
             ("unresolved", lambda records: records[0].update(selector_status="UNRESOLVED")),
             ("duplicate id", lambda records: records.append(records[0].copy())),
             ("missing required", lambda records: records.pop()),
-            ("missing required", lambda records: records.append(resolved("extra", "gocode-store", "extra"))),
+            ("missing required", lambda records: records.append(resolved("extra", "runne-store", "extra"))),
             ("reservation tuple changed", lambda records: records[0].update(package="wrong")),
             ("resolved record", lambda records: records[0].pop("list_digest")),
         ):
@@ -227,7 +227,7 @@ class Rc0CandidateInventoryTests(unittest.TestCase):
 
     def test_list_mismatch_refuses_exact_execution(self) -> None:
         verifier = load_verifier()
-        record = resolved("sqlite.managed-connection", "gocode-store", "connection_profile")
+        record = resolved("sqlite.managed-connection", "runne-store", "connection_profile")
         for listing in ("0 tests, 0 benchmarks\n", "sqlite_managed_connection: test\nsqlite_managed_connection: test\n"):
             with self.subTest(listing=listing):
                 calls: list[tuple[str, ...]] = []
