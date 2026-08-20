@@ -23,7 +23,7 @@
       "const": 1
     },
     "profile_id": {
-      "const": "runne-openai-responses-text/1"
+      "const": "gocode-openai-responses-text/1"
     },
     "profile_revision": {
       "const": 2

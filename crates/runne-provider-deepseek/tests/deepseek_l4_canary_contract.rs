@@ -41,7 +41,7 @@ fn accepts_the_exact_compiled_candidate() {
         CanaryCandidate::prepare(CanaryIdentity::canonical(), CanaryOverlay::approved())
             .expect("the compiled candidate must prepare");
 
-    assert_eq!(candidate.profile_id(), "runne-deepseek-responses-text/1");
+    assert_eq!(candidate.profile_id(), "gocode-deepseek-responses-text/1");
     assert_eq!(candidate.profile_revision(), 1);
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
     assert_eq!(candidate.provider(), "deepseek");
@@ -66,13 +66,13 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
         CanaryCandidate::prepare(CanaryIdentity::canonical(), CanaryOverlay::approved()).unwrap();
     let evidence = candidate.evidence();
     let profile = digest_bytes(PROFILE_DIGEST);
-    let prompt = digest("runne.canary.prompt/1", &[b"Reply with exactly: OK"]);
-    let result = digest("runne.canary.result/1", &[b"OK"]);
+    let prompt = digest("gocode.canary.prompt/1", &[b"Reply with exactly: OK"]);
+    let result = digest("gocode.canary.result/1", &[b"OK"]);
     let one = 1_u64.to_be_bytes();
     let zero = 0_u64.to_be_bytes();
     let sixteen = 16_u64.to_be_bytes();
     let request = digest(
-        "runne.canary.request/1",
+        "gocode.canary.request/1",
         &[
             &profile,
             b"POST",
@@ -100,7 +100,7 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
     );
     let request_length = 384_u64.to_be_bytes();
     let candidate_digest = digest(
-        "runne.canary.candidate/1",
+        "gocode.canary.candidate/1",
         &[
             &profile,
             &request,
@@ -114,28 +114,28 @@ fn separates_profile_and_candidate_digests_with_closed_evidence() {
 
     assert_eq!(
         PROFILE_DIGEST,
-        "sha256:b8b218277978e360460e5bc53a46081d3fd244f936d0c772e8bd1651edb1f260"
+        "sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
     );
     assert_eq!(
         CANARY_DIGEST,
-        "sha256:76147673af425fe03b473f3234a193f8173382f40f0cdb7d442fba41b49250fb"
+        "sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422"
     );
     assert_ne!(CANARY_DIGEST, PROFILE_DIGEST);
     assert_eq!(
         prompt,
-        digest_bytes("sha256:1ff713bca9a5e1685124ed010e5d36ef30edb5d429d6a8145620df0b6ba9ad3d")
+        digest_bytes("sha256:19afb888ed8b093a39540296bb69ca5271fc3733bf05f7fafacdce7cd66b6bc4")
     );
     assert_eq!(
         result,
-        digest_bytes("sha256:b7adb9b31484687cc9ea88e6a0f08c99e307b130e79677f6794d3f7ba575d1ad")
+        digest_bytes("sha256:ab029deedfbaf4e7c796a0a0248a7e0153767006ae9ec93af64fa4576ed3ea41")
     );
     assert_eq!(
         request,
-        digest_bytes("sha256:efde15658eedfd1acdc2e3b12acf833dd892bc3ff26771c62c42e4e10ecf99d5")
+        digest_bytes("sha256:61ff3470e77e9550163e04be31e7f4f7ddd6f22eef02144fd779517a2f2eadb2")
     );
     assert_eq!(
         candidate_digest,
-        digest_bytes("sha256:76147673af425fe03b473f3234a193f8173382f40f0cdb7d442fba41b49250fb")
+        digest_bytes("sha256:27b47cd539754d7da86f7ba40f16b80aeb6fc71a0b6e81404c477e365b33a422")
     );
     assert_eq!(candidate.candidate_digest(), CANARY_DIGEST);
     assert_eq!(evidence.candidate_digest(), &candidate_digest);

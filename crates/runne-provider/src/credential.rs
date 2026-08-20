@@ -15,7 +15,7 @@ pub use authority::{
     NativeCredentialDeletionProof,
 };
 
-const CREDENTIAL_REF_DOMAIN: &[u8] = b"RUNNE_CREDENTIAL_VERSION_REF_V1\0";
+const CREDENTIAL_REF_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_VERSION_REF_V1\0";
 
 /// Durable non-secret lifecycle state for one native credential version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

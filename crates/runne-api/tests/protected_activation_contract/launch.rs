@@ -1,4 +1,3 @@
-
 #[test]
 fn executable_identity_detects_byte_replacement_without_exposing_the_path() {
     use std::io::Write as _;
@@ -211,7 +210,7 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
         ProviderActivationBindingV1::new(
             ProviderActivationModeV1::OpenAiResponsesTextV1,
             "runne-openai-responses-text/1",
-            [0x53; 32],
+            runne_api::OPENAI_RESPONSES_TEXT_PROVIDER_PROFILE_DIGEST,
         )
         .unwrap_err(),
         LaunchAuthorityError::ProviderProfileMismatch

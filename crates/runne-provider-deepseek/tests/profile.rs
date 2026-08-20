@@ -45,11 +45,20 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
 
     let profile = DeepSeekResponsesTextProfile::from_json(PROFILE_BYTES).unwrap();
     let source_digest: [u8; 32] = Sha256::digest(PROFILE_BYTES).into();
+    assert_eq!(
+        source_digest,
+        [
+            0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9,
+            0xeb, 0x4e, 0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e,
+            0x40, 0x85, 0xd8, 0x53,
+        ]
+    );
     assert_eq!(profile.profile_digest(), source_digest);
     assert_eq!(
         PROFILE_DIGEST.trim(),
-        format!("sha256:{}", hex::encode(source_digest))
+        "sha256:25670ffe78dbc7ef4db8911356d9eb4e274167ff9eed0a7cc9b5e66e4085d853"
     );
+    assert_eq!(profile.profile_id(), "gocode-deepseek-responses-text/1");
     assert_eq!(profile.profile_id(), DEEPSEEK_RESPONSES_PROFILE_ID);
     assert_eq!(profile.provider_id(), "deepseek");
     assert_eq!(profile.origin(), "https://api.deepseek.com");
@@ -94,7 +103,7 @@ fn exact_profile_schema_digest_identity_and_pricing_are_stable() {
 fn aliases_endpoint_model_pricing_and_request_policy_are_exact() {
     let original = parse_profile_value();
     let mutations: Vec<ProfileMutation> = vec![
-        Box::new(|value| value["profile_id"] = json!("runne-deepseek-responses-text")),
+        Box::new(|value| value["profile_id"] = json!("runne-deepseek-responses-text/1")),
         Box::new(|value| value["profile_revision"] = json!(2)),
         Box::new(|value| value["provider_id"] = json!("openai-compatible")),
         Box::new(|value| value["origin"] = json!("https://proxy.example")),

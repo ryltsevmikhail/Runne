@@ -4,7 +4,7 @@ use zeroize::Zeroizing;
 
 use crate::DispatchAttemptId;
 
-const TAIL_BINDING_V1: &[u8] = b"RUNNE_WITHHELD_TAIL_BINDING_V1\0";
+const TAIL_BINDING_V1: &[u8] = b"GOCODE_WITHHELD_TAIL_BINDING_V1\0";
 
 /// Opaque native identity for attempt-scoped withheld bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

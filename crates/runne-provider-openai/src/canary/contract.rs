@@ -3,15 +3,15 @@ use core::fmt;
 use sha2::{Digest, Sha256};
 /// Digest of the pinned provider profile sidecar.
 pub const PROFILE_DIGEST: &str =
-    "sha256:9e04ed0d3cdeb99279433f01dfd44b2b67af80c076c5a63f45437f9880bae27e";
+    "sha256:d3e20934775d9d970350d16b78a1739885c08dd5d3e47b9307233d4dd0fbed80";
 /// Digest of the single compiled canary candidate.
 pub const CANARY_DIGEST: &str =
-    "sha256:cb8ae5e5132213fa4527a168c0c666346815bd211a71baafaaab47fc42889a7c";
+    "sha256:5ebaed5023f8fe209364c76138be83f219edd9b26fd05fd010df068a0e20a72f";
 const RAW_PROFILE_DIGEST: [u8; 32] = [
-    0x9e, 0x04, 0xed, 0x0d, 0x3c, 0xde, 0xb9, 0x92, 0x79, 0x43, 0x3f, 0x01, 0xdf, 0xd4, 0x4b, 0x2b,
-    0x67, 0xaf, 0x80, 0xc0, 0x76, 0xc5, 0xa6, 0x3f, 0x45, 0x43, 0x7f, 0x98, 0x80, 0xba, 0xe2, 0x7e,
+    0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1, 0x73, 0x98,
+    0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d, 0xd0, 0xfb, 0xed, 0x80,
 ];
-const PROFILE_ID: &str = "runne-openai-responses-text/1";
+const PROFILE_ID: &str = "gocode-openai-responses-text/1";
 const PROFILE_REVISION: u32 = 2;
 const PROVIDER: &str = "openai";
 const ORIGIN: &str = "https://api.openai.com";
@@ -103,7 +103,7 @@ impl CanaryOverlay {
             input_count: 1,
             user: true,
             exact_prompt_match: text == PROMPT,
-            prompt_digest: digest(b"runne.canary.prompt/1", &[text.as_bytes()]),
+            prompt_digest: digest(b"gocode.canary.prompt/1", &[text.as_bytes()]),
             prompt_length: text.len() as u64,
             matches: [true; 11],
             max_output_tokens: 16,
@@ -195,13 +195,13 @@ impl CanaryCandidate {
             &zero; b"none"; b"none"; &sixteen; &[1]; &[1];
         );
         let request_length = 384_u64;
-        let request_digest = digest(b"runne.canary.request/1", &request_components);
-        let result_digest = digest(b"runne.canary.result/1", &[RESULT.as_bytes()]);
+        let request_digest = digest(b"gocode.canary.request/1", &request_components);
+        let result_digest = digest(b"gocode.canary.result/1", &[RESULT.as_bytes()]);
         let request_length_bytes = request_length.to_be_bytes();
         let result_length = RESULT.len() as u64;
         let result_length_bytes = result_length.to_be_bytes();
         let candidate_digest = digest(
-            b"runne.canary.candidate/1",
+            b"gocode.canary.candidate/1",
             &components!(
                 &RAW_PROFILE_DIGEST; &request_digest; &request_length_bytes;
                 &overlay.prompt_digest; &prompt_length; &result_digest; &result_length_bytes;
