@@ -6,9 +6,9 @@ pub(crate) fn protected_state_root(
     let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
     let mut hasher = Sha256::new();
     hasher.update(if version >= 8 {
-        b"runne/runne-local-store/protected-state-root/v2\0"
+        b"gocode/local-store/protected-state-root/v2\0"
     } else {
-        b"runne/runne-local-store/protected-state-root/v1\0"
+        b"gocode/local-store/protected-state-root/v1\0"
     });
     if version == 6 {
         ledger_rows_v6(connection, &mut hasher)?;
@@ -67,7 +67,7 @@ fn ledger_rows_v6(connection: &Connection, hasher: &mut Sha256) -> Result<(), Se
 
 pub(crate) fn empty_protected_state_root() -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/runne-local-store/protected-state-root/v2\0");
+    hasher.update(b"gocode/local-store/protected-state-root/v2\0");
     hasher.update(b"mutation_ledger\0event_journal\0projections\0replay_cursors\0replay_shadow_generations\0replay_shadow_events\0replay_promotion_pending\0replay_active_generations\0");
     hasher.finalize().into()
 }

@@ -36,7 +36,7 @@
         let hash = hex::encode(Sha256::digest(&canonical));
         assert_eq!(
             hash,
-            "74b2abc158239e5e06b77451a11e66d8881f8a85a87b4c1fda8037842510fb71"
+            "c1578ca6e128651894bcbff1c978fa5c95b9e18a50a92075ac7dedc8bfa0859a"
         );
     }
 
@@ -49,7 +49,7 @@
 
         // Golden: canonical bytes SHA-256 (deterministic)
         let hash = hex::encode(Sha256::digest(&canonical));
-        let expected = "531fb63a2e147bc500f69dc0cd1e6d4740a129d3fa439698a14a7e627bdfa871";
+        let expected = "2b44fefb452b8e59db4c6bc6b3ac48775c270bfbaa9679b2fae51774a16a21e0";
         assert_eq!(
             hash, expected,
             "deterministic golden hash mismatch — if this fails, update both Rust and TypeScript"

@@ -123,7 +123,7 @@ fn lease_ledger_binding(lease: &PreparedMutationLease) -> MutationAdmissionBindi
 fn digest_runtime_identity(identity: &replay::StableRuntimeIdentity) -> [u8; 32] {
     use sha2::Digest;
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/runne-app-core/mutation-runtime-identity/v2\0");
+    digest.update(b"gocode/app-core/mutation-runtime-identity/v2\0");
     for value in [
         &identity.authority,
         &identity.lineage,
@@ -140,7 +140,7 @@ fn digest_runtime_identity(identity: &replay::StableRuntimeIdentity) -> [u8; 32]
 fn digest_identity(domain: &[u8], value: &str) -> [u8; 32] {
     use sha2::Digest;
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/runne-app-core/mutation-identity/v1\0");
+    digest.update(b"gocode/app-core/mutation-identity/v1\0");
     digest.update(domain);
     digest.update(value.as_bytes());
     digest.finalize().into()

@@ -3,7 +3,7 @@ use sha2::Digest;
 
 pub fn command(bytes: &[u8]) -> CommandRef {
     CommandRef::new(hash(
-        b"runne/runne-local-store/mutation-command/v7\0",
+        b"gocode/local-store/mutation-command/v7\0",
         bytes,
     ))
     .expect("domain-separated SHA-256 is nonzero")
@@ -11,7 +11,7 @@ pub fn command(bytes: &[u8]) -> CommandRef {
 
 pub fn outcome(bytes: &[u8]) -> OutcomeRef {
     OutcomeRef::new(hash(
-        b"runne/runne-local-store/mutation-outcome/v7\0",
+        b"gocode/local-store/mutation-outcome/v7\0",
         bytes,
     ))
     .expect("domain-separated SHA-256 is nonzero")

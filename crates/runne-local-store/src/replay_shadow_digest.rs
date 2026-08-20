@@ -8,7 +8,7 @@ pub fn active_digest(
     shadow: Option<&str>,
 ) -> Result<String, ReplayStoreError> {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/runne-local-store/replay-active-v8\0");
+    hasher.update(b"gocode/local-store/replay-active-v8\0");
     text(&mut hasher, selector);
     optional_text(&mut hasher, shadow);
     if selector == "legacy" {

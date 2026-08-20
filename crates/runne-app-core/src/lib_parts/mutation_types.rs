@@ -167,7 +167,7 @@ impl MutationRequest {
     fn semantic_digest(&self) -> [u8; 32] {
         use sha2::Digest;
         let mut digest = sha2::Sha256::new();
-        digest.update(b"runne/runne-app-core/mutation/v1\0");
+        digest.update(b"gocode/app-core/mutation/v1\0");
         digest.update([operation_tag(self.operation), target_tag(self.target.kind())]);
         update_bytes(&mut digest, self.target.canonical_id().as_bytes());
         digest.update(self.expected_version.to_be_bytes());
