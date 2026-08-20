@@ -1,4 +1,3 @@
-
 use crate::cbor::CborEncoder;
 use crate::digest::{
     BootstrapSchemaDigest, BoundsProfileDigest, ProfileDigest, SchemaBundleDigest, Sha256Provider,

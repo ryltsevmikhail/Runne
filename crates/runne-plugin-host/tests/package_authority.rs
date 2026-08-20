@@ -83,14 +83,16 @@ fn same_version_runne_plugin_header_is_not_an_alias() {
         .unwrap()
         .replacen("GOCODE_PLUGIN_MANIFEST_V1", "RUNNE_PLUGIN_MANIFEST_V1", 1)
         .into_bytes();
-    assert!(PluginPackageContent::try_new(
-        b"gocode-plugin-host/builtin-package-v1".to_vec(),
-        runne_manifest,
-        b"gocode-plugin-host/builtin-entrypoint-v1".to_vec(),
-        BUILTIN_PROFILE.to_vec(),
-        b"gocode-plugin-host/builtin-trust-binding-v1".to_vec(),
-    )
-    .is_err());
+    assert!(
+        PluginPackageContent::try_new(
+            b"gocode-plugin-host/builtin-package-v1".to_vec(),
+            runne_manifest,
+            b"gocode-plugin-host/builtin-entrypoint-v1".to_vec(),
+            BUILTIN_PROFILE.to_vec(),
+            b"gocode-plugin-host/builtin-trust-binding-v1".to_vec(),
+        )
+        .is_err()
+    );
 }
 
 #[test]
