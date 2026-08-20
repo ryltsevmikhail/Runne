@@ -30,8 +30,8 @@ fn fixture(server_nonce_slot: &[u8]) -> BootstrapTranscriptV3<'_> {
 #[test]
 fn golden_preallocation_and_final_transcripts_are_prefix_free() {
     let expected_preallocation = hex::decode(concat!(
-        "52554e4e455f424f4f54535452415000", // RUNNE_BOOTSTRAP\0
-        "0001",                             // key version
+        "474f434f44455f424f4f54535452415000", // GOCODE_BOOTSTRAP\0
+        "0001",                              // key version
         "000000027633",
         "0000000101",
         "0000000170",
@@ -51,7 +51,7 @@ fn golden_preallocation_and_final_transcripts_are_prefix_free() {
     ))
     .unwrap();
     let expected_final = hex::decode(concat!(
-        "52554e4e455f424f4f54535452415000",
+        "474f434f44455f424f4f54535452415000",
         "0001",
         "000000027633",
         "0000000101",

@@ -1,7 +1,7 @@
 //! Canonical prefix-free bootstrap-v3 transcript encoding.
 
 /// Domain separator for every bootstrap-v3 transcript.
-pub const BOOTSTRAP_TRANSCRIPT_DOMAIN: &[u8; 16] = b"RUNNE_BOOTSTRAP\0";
+pub const BOOTSTRAP_TRANSCRIPT_DOMAIN: &[u8; 17] = b"GOCODE_BOOTSTRAP\0";
 /// Number of canonical length-prefixed fields.
 pub const BOOTSTRAP_TRANSCRIPT_FIELD_COUNT: usize = 16;
 /// Reserved field replaced by the typed final-proof server nonce.

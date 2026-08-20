@@ -158,7 +158,7 @@ fn prepared_cutover_identity(
     evidence_set_digest: ArtifactDigest,
 ) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne-cutover-prepare\x01");
+    hasher.update(b"gocode-cutover-prepare\x01");
     update_length_prefixed(&mut hasher, plan_id.as_str().as_bytes());
     update_length_prefixed(&mut hasher, context.command_id.to_string().as_bytes());
     hasher.update(evidence_set_digest.as_bytes());

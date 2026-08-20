@@ -2,7 +2,7 @@
 //!
 //! Each use case has a typed constructor that produces a deterministic
 //! 32-byte digest. The encoding includes:
-//!   - Domain-separation prefix `runne-cmd\x01`
+//!   - Domain-separation prefix `gocode-cmd\x01`
 //!   - Schema version (u16, BE)
 //!   - Operation tag (u8)
 //!   - Length-prefixed semantic fields (u16 BE lengths)

@@ -65,7 +65,7 @@ impl MigrationEvidence {
 
     pub fn semantic_digest(&self) -> ArtifactDigest {
         let mut hasher = Sha256::new();
-        hasher.update(b"runne-migration-evidence\x01");
+        hasher.update(b"gocode-migration-evidence\x01");
         match self {
             Self::Baseline {
                 source_sha,

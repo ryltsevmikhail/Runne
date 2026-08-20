@@ -16,7 +16,7 @@ const ALLOWED_COHORT_KEYS: &[&str] = &[
     "client_class",
     "feature_profile",
 ];
-const ROUTING_UNIT_DOMAIN_PREFIX: &[u8] = b"runne-routing-unit\x01";
+const ROUTING_UNIT_DOMAIN_PREFIX: &[u8] = b"gocode-routing-unit\x01";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MigrationValueError {

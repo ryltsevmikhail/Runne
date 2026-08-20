@@ -89,7 +89,7 @@ impl LegacyReferenceInventory {
     /// Compute a canonical domain-separated digest over every category.
     pub fn digest(&self) -> ArtifactDigest {
         let mut hasher = Sha256::new();
-        hasher.update(b"runne-legacy-reference-inventory\x01");
+        hasher.update(b"gocode-legacy-reference-inventory\x01");
         for (tag, reference_set) in self.reference_sets().into_iter().enumerate() {
             hasher.update([u8::try_from(tag + 1).unwrap_or(u8::MAX)]);
             hasher.update(reference_set.blocking_count.to_be_bytes());

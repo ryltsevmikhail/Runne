@@ -45,7 +45,7 @@ impl VerificationExporter {
         result: Option<&str>,
         evidence_count: u32,
     ) -> Result<Vec<u8>, VerificationOutboundError> {
-        let contract = DigestContract::new("runne:export:v1");
+        let contract = DigestContract::new("gocode:export:v1");
         let digest = contract.compute(&[run_id.as_bytes(), state.as_bytes()]);
         let export = ExportRunJson {
             run_id,

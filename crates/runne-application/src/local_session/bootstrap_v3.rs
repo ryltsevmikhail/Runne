@@ -20,7 +20,7 @@ pub const BOOTSTRAP_WIRE_VERSION_V3: &str = "3";
 /// Sole supported HMAC key/transcript version.
 pub const BOOTSTRAP_KEY_VERSION_V3: u16 = 1;
 /// Canonical protocol field encoded into both proof stages.
-pub const BOOTSTRAP_PROTOCOL_V3: &[u8] = b"runne-local-session-v3";
+pub const BOOTSTRAP_PROTOCOL_V3: &[u8] = b"gocode-local-session-v3";
 /// Authenticated preallocation endpoint field.
 pub const BOOTSTRAP_PREALLOCATION_ENDPOINT_V3: &[u8] = b"/v1/local-session/challenges";
 /// Authenticated final-proof endpoint field.

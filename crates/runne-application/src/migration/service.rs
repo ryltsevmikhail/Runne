@@ -28,8 +28,8 @@ use super::{
     },
 };
 
-const COMMAND_FINGERPRINT_PREFIX: &[u8] = b"runne-migration-command\x01";
-const AUDIT_RECORD_PREFIX: &[u8] = b"runne-migration-audit\x01";
+const COMMAND_FINGERPRINT_PREFIX: &[u8] = b"gocode-migration-command\x01";
+const AUDIT_RECORD_PREFIX: &[u8] = b"gocode-migration-audit\x01";
 
 /// Application facade for the eight migration control primitives.
 pub struct MigrationService<S, H> {

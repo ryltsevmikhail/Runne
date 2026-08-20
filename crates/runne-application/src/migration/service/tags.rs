@@ -1,6 +1,6 @@
 fn cohort_digest(cohort: &CohortSelector) -> ArtifactDigest {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne-migration-cohort\x01");
+    hasher.update(b"gocode-migration-cohort\x01");
     for dimension in cohort.dimensions() {
         update_length_prefixed(&mut hasher, dimension.key().as_bytes());
         update_length_prefixed(&mut hasher, dimension.value().as_bytes());

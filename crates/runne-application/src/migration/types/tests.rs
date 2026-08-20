@@ -19,7 +19,7 @@ mod tests {
         let unit = test_routing_unit();
         assert_eq!(
             unit.digest().to_string(),
-            "sha256:66986864a81189afb425e38a8cef3f3aa09f3efc094c517b94771d294b91a478"
+            "sha256:1bce54dc564e4c57cebf24006da6bceac9da00394f47c6814d0b3defa3a7b91c"
         );
     }
 
