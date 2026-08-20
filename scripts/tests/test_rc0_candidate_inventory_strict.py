@@ -26,7 +26,7 @@ def record(listing: bytes) -> dict:
     return {
         "id": "sqlite.managed-connection",
         "stage": "SOURCE_CANDIDATE",
-        "package": "gocode-store",
+        "package": "runne-store",
         "integration_target": "connection_profile",
         "selector_status": "RESOLVED",
         "fully_qualified_test_name": "sqlite_managed_connection",
