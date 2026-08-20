@@ -22,6 +22,8 @@ pub(crate) struct RecoveryFixtureEntry {
     pub(crate) source_ref: String,
     pub(crate) writer_file: String,
     pub(crate) writer_symbol: String,
+    pub(crate) writer_snapshot: String,
+    pub(crate) writer_snapshot_sha256: String,
     pub(crate) writer_test: String,
     pub(crate) schema_version: i64,
     pub(crate) integrity_profile: u16,
@@ -180,6 +182,10 @@ fn validate_entry(entry: &RecoveryFixtureEntry) -> Result<(), String> {
         || !lower_hex(&entry.sha256, 64)
         || entry.source_ref.is_empty()
         || entry.writer_file.is_empty()
+        || entry.writer_snapshot.is_empty()
+        || entry.writer_snapshot.starts_with('/')
+        || entry.writer_snapshot.contains("..")
+        || !lower_hex(&entry.writer_snapshot_sha256, 64)
         || entry.writer_symbol.is_empty()
         || entry.writer_test.is_empty()
         || entry.schema_version <= 0

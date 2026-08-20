@@ -1,5 +1,4 @@
 use std::path::Path;
-use std::process::Command;
 
 use super::recovery_fixtures::RecoveryFixtureManifest;
 use syn::{ImplItem, Item, ItemImpl, Type};
@@ -9,19 +8,20 @@ pub(crate) fn validate_manifest_provenance(
     manifest: &RecoveryFixtureManifest,
 ) -> Result<(), String> {
     for entry in &manifest.fixtures {
-        let spec = format!("{}:{}", entry.source_commit, entry.writer_file);
-        let output = Command::new("git")
-            .args(["show", &spec])
-            .current_dir(workspace)
-            .output()
-            .map_err(|error| format!("cannot resolve {spec}: {error}"))?;
-        if !output.status.success() {
-            return Err(format!(
-                "cannot resolve {spec}: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
+        let spec = format!("{}@{}", entry.source_commit, entry.writer_snapshot);
+        let snapshot_root = workspace.join("crates/runne-store/tests/fixtures/recovery");
+        let snapshot = std::fs::read(snapshot_root.join(&entry.writer_snapshot))
+            .map_err(|error| format!("cannot read writer snapshot {spec}: {error}"))?;
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut hasher = Sha256::new();
+            hasher.update(&snapshot);
+            hasher.finalize()
+        };
+        if format!("{digest:x}") != entry.writer_snapshot_sha256 {
+            return Err(format!("writer snapshot digest mismatch for {spec}"));
         }
-        let source = String::from_utf8(output.stdout)
+        let source = String::from_utf8(snapshot)
             .map_err(|error| format!("{spec} is not UTF-8 source: {error}"))?;
         validate_writer_symbol(&spec, &source, &entry.writer_symbol)?;
     }
@@ -126,17 +126,20 @@ mod tests {
     }
 
     #[test]
-    fn provenance_rejects_each_renamed_writer_file() {
-        let old_paths = [
-            "crates/runne-store/src/store.rs",
-            "crates/runne-store/src/store.rs",
-            "crates/runne-store/src/provider/dispatch_store/store.rs",
-        ];
-        for (index, old_path) in old_paths.into_iter().enumerate() {
+    fn provenance_rejects_each_tampered_writer_snapshot() {
+        for index in 0..manifest().fixtures.len() {
             let mut manifest = manifest();
-            manifest.fixtures[index].writer_file = old_path.into();
+            manifest.fixtures[index].writer_snapshot_sha256 = "0".repeat(64);
 
             assert!(validate_manifest_provenance(&workspace(), &manifest).is_err());
         }
+    }
+
+    #[test]
+    fn provenance_rejects_a_missing_writer_snapshot() {
+        let mut manifest = manifest();
+        manifest.fixtures[0].writer_snapshot = "provenance/absent.rs".into();
+
+        assert!(validate_manifest_provenance(&workspace(), &manifest).is_err());
     }
 }
