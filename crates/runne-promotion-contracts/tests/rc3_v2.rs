@@ -96,9 +96,11 @@ fn rejects_final_review_and_authorization_identity_policy_mutations() {
 #[test]
 fn validates_a_digest_coherent_rc3_v2_graph_and_rejects_a_mixed_digest() {
     let manifest = validate_rc3_v2_payload(MANIFEST, &payload("publication_manifest")).unwrap();
-    let review =
-        validate_rc3_v2_payload("gocode.release.rc3-final-review/1", &payload("final_review"))
-            .unwrap();
+    let review = validate_rc3_v2_payload(
+        "gocode.release.rc3-final-review/1",
+        &payload("final_review"),
+    )
+    .unwrap();
     let authorization = validate_rc3_v2_payload(
         "gocode.release.rc3-publication-authorization/2",
         &payload("authorization"),

@@ -16,7 +16,8 @@ pub const PROFILE: &str = "gocode.project-owner.v1-platform-scope/1";
 pub const PURPOSE: &str = "V1_PLATFORM_SCOPE_AUTHORIZATION";
 pub const ROLE: &str = "PROJECT_OWNER";
 pub const REPOSITORY: &str = "gocode";
-pub const V1_PLATFORM_SCOPE_DECISION_SCHEMA: &str = "gocode.governance.v1-platform-scope-decision/1";
+pub const V1_PLATFORM_SCOPE_DECISION_SCHEMA: &str =
+    "gocode.governance.v1-platform-scope-decision/1";
 
 const V1_PLATFORM_SCOPE_DECISION_SCHEMA_SHA256: [u8; 32] = [
     0xdb, 0xa8, 0x9e, 0x59, 0xdf, 0xa2, 0xb9, 0xa2, 0x32, 0x20, 0x33, 0x53, 0xd4, 0x5b, 0x56, 0xe2,

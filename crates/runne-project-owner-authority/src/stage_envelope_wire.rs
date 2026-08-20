@@ -109,8 +109,11 @@ fn verify(
     {
         return Err(AuthorityError::InvalidStageEnvelope);
     }
-    let domain =
-        crate::SigningDomain::new(crate::STAGE_ENVELOPE_SCHEMA_V1, &value.issuer_role, "gocode")?;
+    let domain = crate::SigningDomain::new(
+        crate::STAGE_ENVELOPE_SCHEMA_V1,
+        &value.issuer_role,
+        "gocode",
+    )?;
     VerifyingKey::from_bytes(&delegation.public_key)
         .map_err(|_| AuthorityError::InvalidStageEnvelope)?
         .verify_strict(

@@ -56,7 +56,9 @@ pub fn allowed_payload_schemas(role: &str, scope: &str) -> Vec<String> {
         ("RC3_PUBLICATION_AUTHORIZER", _) => &["gocode.release.rc3-publication-authorization/2"],
         ("RC2_NATIVE_EVIDENCE", "linux" | "windows") => &["gocode.release.rc2-native-evidence/1"],
         ("RC2_SIGNING_REVIEWER", "signing-review") => &["gocode.release.rc2-signing-review/1"],
-        ("RC2_UPDATE_ISSUER", "update-issuer") => &["gocode.release.rc2-update-metadata-issuance/1"],
+        ("RC2_UPDATE_ISSUER", "update-issuer") => {
+            &["gocode.release.rc2-update-metadata-issuance/1"]
+        }
         ("RC3_FINAL_REVIEWER", "final-review") => &["gocode.release.rc3-final-review/1"],
         _ => &[],
     };

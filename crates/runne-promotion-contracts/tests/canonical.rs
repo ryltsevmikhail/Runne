@@ -27,9 +27,10 @@ fn accepts_only_exact_sorted_compact_lf_excluded_bytes() {
 
 #[test]
 fn same_version_runne_schema_is_not_an_alias() {
-    let runne = String::from_utf8(canonical())
-        .unwrap()
-        .replacen("gocode.release", "runne.release", 1);
+    let runne =
+        String::from_utf8(canonical())
+            .unwrap()
+            .replacen("gocode.release", "runne.release", 1);
     assert_eq!(
         validate_stage_payload(SCHEMA, runne.as_bytes()),
         Err(ContractError::InvalidCanonicalPayload)

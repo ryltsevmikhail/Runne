@@ -29,7 +29,10 @@ fn same_version_runne_rc3_schema_is_not_an_alias() {
     .unwrap();
     let mut payload = serde_json::to_vec(&corpus["publication_manifest"]).unwrap();
     let schema = b"gocode.release.publication-manifest/2";
-    let offset = payload.windows(schema.len()).position(|window| window == schema).unwrap();
+    let offset = payload
+        .windows(schema.len())
+        .position(|window| window == schema)
+        .unwrap();
     payload.splice(
         offset..offset + schema.len(),
         b"runne.release.publication-manifest/2".iter().copied(),
