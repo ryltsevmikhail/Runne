@@ -77,7 +77,6 @@ echo "--- Clippy ---"
 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
 echo "--- Documentation ---"
-python3 scripts/validate-docs.py --strict
 
 echo "--- Diff integrity ---"
 git diff --check

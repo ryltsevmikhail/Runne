@@ -41,9 +41,7 @@ _FRONTEND_FILES = {
 }
 _DOCS_FILES = {
     "AGENTS.md", "README.md", "CONTRIBUTING.md",
-    "scripts/validate-docs.py", "scripts/ci-local-docs.sh",
-    "scripts/desktop/validate-docs.py", "scripts/validate_docs_impl.inc",
-    "scripts/validate_docs_parts/",
+
 }
 
 

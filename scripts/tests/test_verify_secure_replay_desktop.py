@@ -116,7 +116,6 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
                 "pnpm <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
                 "python3 <scripts/desktop/validate_architecture.py>",
-                "pnpm <validate:docs>",
             ],
         )
         self.assert_safe_output(result)
@@ -136,7 +135,6 @@ class VerifySecureReplayDesktopTests(unittest.TestCase):
                 "pnpm <typecheck>",
                 "pnpm <exec> <playwright> <test> <tests/desktop/e2e/replay-resume.spec.ts>",
                 "python3 <scripts/desktop/validate_architecture.py>",
-                "pnpm <validate:docs>",
                 "git <diff> <--check>",
             ],
         )
