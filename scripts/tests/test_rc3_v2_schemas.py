@@ -8,7 +8,7 @@ from scripts.tests.test_project_owner_authority_schemas import _errors
 
 
 ROOT = pathlib.Path(__file__).parents[2]
-CORPUS = ROOT / "crates/gocode-promotion-contracts/tests/fixtures/rc3_v2_corpus.json"
+CORPUS = ROOT / "crates/runne-promotion-contracts/tests/fixtures/rc3_v2_corpus.json"
 
 
 class Rc3V2SchemaTests(unittest.TestCase):

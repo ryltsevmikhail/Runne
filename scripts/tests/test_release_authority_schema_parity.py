@@ -31,7 +31,7 @@ SCHEMAS = {
 class ReleaseAuthoritySchemaParityTests(unittest.TestCase):
     def test_shared_stage_identifier_corpus_is_rejected_by_rc1_and_rc3_schemas(self) -> None:
         corpus = json.loads(
-            (ROOT / "crates/gocode-promotion-contracts/tests/fixtures/stage_identifier_corpus.json")
+            (ROOT / "crates/runne-promotion-contracts/tests/fixtures/stage_identifier_corpus.json")
             .read_text(encoding="utf-8")
         )
         rc1 = json.loads((ROOT / "docs/schemas/release-rc1-qualification-decision-v1.schema.json").read_text(encoding="utf-8"))
@@ -201,9 +201,9 @@ class ReleaseAuthoritySchemaParityTests(unittest.TestCase):
             (ROOT / "docs/schemas/release-rc2-threshold-update-metadata-set-v2.schema.json")
             .read_text(encoding="utf-8")
         )
-        value = json.loads((ROOT / "crates/gocode-release-authority/tests/fixtures/threshold_v2_valid.json").read_text(encoding="utf-8"))
+        value = json.loads((ROOT / "crates/runne-release-authority/tests/fixtures/threshold_v2_valid.json").read_text(encoding="utf-8"))
         self.assertFalse(_errors(schema, value))
-        corpus = json.loads((ROOT / "crates/gocode-release-authority/tests/fixtures/threshold_v2_mutations.json").read_text(encoding="utf-8"))
+        corpus = json.loads((ROOT / "crates/runne-release-authority/tests/fixtures/threshold_v2_mutations.json").read_text(encoding="utf-8"))
         for entry in corpus:
             invalid = deepcopy(value)
             current = invalid
