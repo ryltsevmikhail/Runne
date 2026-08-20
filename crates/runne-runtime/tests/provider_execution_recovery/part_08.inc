@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
 
-const OUTBOX_DOMAIN: &[u8] = b"RUNNE_PROVIDER_OUTBOX_ID_V1\0";
-const SETTLEMENT_DOMAIN: &[u8] = b"RUNNE_PROVIDER_SETTLEMENT_V2\0";
+const OUTBOX_DOMAIN: &[u8] = b"GOCODE_PROVIDER_OUTBOX_ID_V1\0";
+const SETTLEMENT_DOMAIN: &[u8] = b"GOCODE_PROVIDER_SETTLEMENT_V2\0";
 
 fn expected_outbox_id(context: &ProviderEventJournalContext, sequence: u64) -> [u8; 16] {
     let mut hasher = Sha256::new();

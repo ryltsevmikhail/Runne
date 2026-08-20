@@ -10,3 +10,4 @@ include!("provider_execution_parts/part_04.rs");
 include!("provider_execution_parts/part_05.rs");
 include!("provider_execution_parts/part_07.rs");
 include!("provider_execution_parts/part_06.rs");
+include!("provider_execution_parts/part_08.rs");

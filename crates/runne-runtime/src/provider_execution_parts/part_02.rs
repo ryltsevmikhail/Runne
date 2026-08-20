@@ -185,7 +185,7 @@ fn conversation_receipt_digest(
     receipt: &TextGenerationReceipt,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"RUNNE_PROVIDER_CONVERSATION_RECEIPT_V1\0");
+    hasher.update(b"GOCODE_PROVIDER_CONVERSATION_RECEIPT_V1\0");
     hasher.update(record.outbox_id);
     hasher.update(record.settlement_digest);
     hasher.update(receipt.conversation_id.as_bytes());
