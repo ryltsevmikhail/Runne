@@ -216,7 +216,10 @@ fn commit_is_all_old_or_all_new_and_replay_is_idempotent() {
             Err(StoreStatus::Denied)
         );
         assert_eq!(fake.read_active_ref("gocode"), Ok(Some(old.clone())));
-        assert_eq!(fake.read_anchor_floor("gocode"), Ok(Some(old_floor.clone())));
+        assert_eq!(
+            fake.read_anchor_floor("gocode"),
+            Ok(Some(old_floor.clone()))
+        );
     }
     fake.0.lock().expect("lock").failure = Failure::None;
     assert_eq!(

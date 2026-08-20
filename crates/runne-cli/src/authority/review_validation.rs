@@ -129,7 +129,7 @@ fn safe_path(x: &str) -> bool {
             .all(|p| !p.is_empty() && p != "." && p != ".." && p.trim() == p)
 }
 fn schema_id(x: &str) -> bool {
-    x.strip_prefix("runne.")
+    x.strip_prefix("gocode.")
         .and_then(|x| x.split_once('/'))
         .is_some_and(|(name, ver)| {
             !name.is_empty()

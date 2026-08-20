@@ -29,7 +29,7 @@ fn review() -> AuthorityReviewV1 {
                 content_sha256: "f".repeat(64),
                 mode: "100644".into(),
                 path: "a.md".into(),
-                schema_id: Some("runne.a/1".into()),
+                schema_id: Some("gocode.a/1".into()),
             },
         ],
         trust_config_sha256: "1".repeat(64),
@@ -56,12 +56,12 @@ fn canonical_review_has_sorted_documents_nulls_and_one_lf() {
     let expected = concat!(
         "{\"backup\":null,\"continuity\":\"continuous\",\"documents\":[{\"blob_oid\":\"",
         "dddddddddddddddddddddddddddddddddddddddd\",\"byte_length\":1,\"content_sha256\":\"",
-        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mode\":\"100644\",\"path\":\"a.md\",\"schema_id\":\"runne.a/1\"},{\"blob_oid\":\"",
+        "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mode\":\"100644\",\"path\":\"a.md\",\"schema_id\":\"gocode.a/1\"},{\"blob_oid\":\"",
         "cccccccccccccccccccccccccccccccccccccccc\",\"byte_length\":2,\"content_sha256\":\"",
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"mode\":\"100644\",\"path\":\"z.md\",\"schema_id\":null}],\"issued_at\":\"2026-08-12T00:00:00Z\",\"key_epoch\":1,\"key_fingerprint\":\"",
         "3333333333333333333333333333333333333333333333333333333333333333\",\"key_id\":\"",
         "2222222222222222222222222222222222222222222222222222222222222222\",\"operation\":\"sign\",\"output\":{\"artifact_sha256\":\"",
-        "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"rotation\":null,\"schema_version\":\"gocode.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
+        "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"gocode\",\"rotation\":null,\"schema_version\":\"gocode.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
         "4444444444444444444444444444444444444444444444444444444444444444\",\"subject\":{\"commit_oid\":\"",
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"object_format\":\"sha1\",\"tree_oid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"trust_config_sha256\":\"",
         "1111111111111111111111111111111111111111111111111111111111111111\"}\n"
@@ -74,27 +74,27 @@ fn digest_challenge_and_display_bind_the_canonical_review() {
     let review = review();
     assert_eq!(
         review.review_sha256().expect("digest"),
-        "a1224980fe4c9d72c3d14efe2e7049e8c106d161bcd4739e3401d558b7d43e28"
+        "0cdb800ddc97cb0aacf6fb6e297331e28f55a47731873f4b91588b4a897f471e"
     );
     assert_eq!(
         review.confirmation_challenge().expect("challenge"),
-        "d558b7d43e28"
+        "8b4a897f471e"
     );
     assert_eq!(
         review.public_display().expect("display"),
         concat!(
             "{\"backup\":null,\"continuity\":\"continuous\",\"documents\":[{\"blob_oid\":\"",
             "dddddddddddddddddddddddddddddddddddddddd\",\"byte_length\":1,\"content_sha256\":\"",
-            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mode\":\"100644\",\"path\":\"a.md\",\"schema_id\":\"runne.a/1\"},{\"blob_oid\":\"",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"mode\":\"100644\",\"path\":\"a.md\",\"schema_id\":\"gocode.a/1\"},{\"blob_oid\":\"",
             "cccccccccccccccccccccccccccccccccccccccc\",\"byte_length\":2,\"content_sha256\":\"",
             "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"mode\":\"100644\",\"path\":\"z.md\",\"schema_id\":null}],\"issued_at\":\"2026-08-12T00:00:00Z\",\"key_epoch\":1,\"key_fingerprint\":\"",
             "3333333333333333333333333333333333333333333333333333333333333333\",\"key_id\":\"",
             "2222222222222222222222222222222222222222222222222222222222222222\",\"operation\":\"sign\",\"output\":{\"artifact_sha256\":\"",
-            "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"runne\",\"rotation\":null,\"schema_version\":\"gocode.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
+            "5555555555555555555555555555555555555555555555555555555555555555\",\"byte_length\":9,\"kind\":\"repository-relative\",\"locator\":\"docs/evidence/receipt.json\"},\"profile\":\"v1-platform-scope\",\"purpose\":\"V1_PLATFORM_SCOPE_AUTHORIZATION\",\"repository_id\":\"gocode\",\"rotation\":null,\"schema_version\":\"gocode.authority.cli-review/1\",\"signing_transcript_sha256\":\"",
             "4444444444444444444444444444444444444444444444444444444444444444\",\"subject\":{\"commit_oid\":\"",
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"object_format\":\"sha1\",\"tree_oid\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"},\"trust_config_sha256\":\"",
             "1111111111111111111111111111111111111111111111111111111111111111\"}\n",
-            "review_sha256=a1224980fe4c9d72c3d14efe2e7049e8c106d161bcd4739e3401d558b7d43e28\n"
+            "review_sha256=0cdb800ddc97cb0aacf6fb6e297331e28f55a47731873f4b91588b4a897f471e\n"
         )
     );
 }
@@ -105,7 +105,7 @@ fn reset_challenge_has_compromise_prefix() {
     review.operation = "trust-reset".into();
     assert_eq!(
         review.confirmation_challenge().expect("challenge"),
-        "COMPROMISE-af6a1099f8dd"
+        "COMPROMISE-4a1e5cfcc89b"
     );
 }
 
