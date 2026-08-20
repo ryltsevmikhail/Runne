@@ -53,7 +53,7 @@ impl CapturingGit {
                     "docs/decisions/v1-platform-scope-v1.json",
                     'd',
                     b"json",
-                    Some("runne.governance.v1-platform-scope-decision/1".into()),
+                    Some("gocode.governance.v1-platform-scope-decision/1".into()),
                 ),
             ],
         )
