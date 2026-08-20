@@ -153,7 +153,7 @@ mod tests {
     fn ordered_capability_digest_is_domain_separated_and_ordered() {
         assert_eq!(
             hex::encode(ordered_capability_digest(&["a", "b"])),
-            "add8966b4328d129d1f029bb2f1a9fa5ab9f4991e40a7b284f948ee378d73633"
+            "91cdbd7c7dd645123152088fe50eca060dbc7cba7800af8440bab92568f8f89a"
         );
         assert_ne!(
             ordered_capability_digest(&["a", "b"]),
@@ -254,7 +254,7 @@ const fn sensitivity_label(sensitivity: runne_domain::event::Sensitivity) -> &'s
 #[must_use]
 pub fn ordered_capability_digest(capabilities: &[&str]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne/local-runtime/capability-digest/v1\0");
+    hasher.update(b"gocode/local-runtime/capability-digest/v1\0");
     hasher.update(
         u32::try_from(capabilities.len())
             .unwrap_or(u32::MAX)

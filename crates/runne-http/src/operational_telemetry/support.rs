@@ -129,7 +129,7 @@ fn session_authorization(binding: &RuntimeSessionBinding) -> axum::http::HeaderV
             Duration::ZERO,
         )
         .unwrap();
-    format!("RunneSession {}", URL_SAFE_NO_PAD.encode([10; 32]))
+    format!("GocodeSession {}", URL_SAFE_NO_PAD.encode([10; 32]))
         .parse()
         .unwrap()
 }

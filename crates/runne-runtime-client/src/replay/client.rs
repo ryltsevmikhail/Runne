@@ -22,7 +22,7 @@ impl AuthenticatedRuntimeClient {
     pub fn replay_persistence_binding(&self) -> ReplayPersistenceBinding {
         let session = self.session_info();
         let mut hasher = Sha256::new();
-        hasher.update(b"runne/replay-persistence-binding/v1\0");
+        hasher.update(b"gocode/replay-persistence-binding/v1\0");
         for value in [
             session.authority_id.as_bytes(),
             session.principal_id.as_bytes(),

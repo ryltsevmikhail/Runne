@@ -112,7 +112,7 @@ async fn issued_cursor_is_opaque_and_round_trips_through_acknowledge() {
     assert!(
         !event
             .to_string()
-            .contains("runne-durable-event-codec-v1-hex")
+            .contains("gocode-durable-event-codec-v1-hex")
     );
     let cursor = opened["events"][0]["cursor"]
         .as_str()

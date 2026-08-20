@@ -47,7 +47,7 @@
                     .uri("/v1/runtime/profile")
                     .header(
                         "authorization",
-                        format!("RunneSession {}", URL_SAFE_NO_PAD.encode(authority)),
+                        format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority)),
                     )
                     .body(Body::empty())
                     .unwrap(),
@@ -86,7 +86,7 @@
                     .uri("/v1/runtime/operational-telemetry")
                     .header(
                         "authorization",
-                        format!("RunneSession {}", URL_SAFE_NO_PAD.encode(authority)),
+                        format!("GocodeSession {}", URL_SAFE_NO_PAD.encode(authority)),
                     )
                     .body(Body::empty())
                     .unwrap(),

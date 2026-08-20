@@ -45,7 +45,7 @@ const MAX_CURSOR_TOKEN_BYTES: usize = 8 * 1024;
 const MAX_REPLAY_RESUME_BASELINE_BYTES: usize = 1024 * 1024;
 pub const REPLAY_BASELINE_RESUME_V2_CAPABILITY: &str =
     "replay.aggregate.retention_baseline_resume.v2";
-const CURSOR_TOKEN_PREFIX: &str = "runne-replay-cursor-v1.";
+const CURSOR_TOKEN_PREFIX: &str = "gocode-replay-cursor-v1.";
 const MAX_SSE_FRAME_BYTES: usize = 256 * 1024;
 const LIVE_POLL_INTERVAL: Duration = Duration::from_millis(25);
 const SSE_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);

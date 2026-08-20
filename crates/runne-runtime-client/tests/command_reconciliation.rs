@@ -253,7 +253,7 @@ async fn reconciliation_posts_exact_identity_witness_and_requires_no_store() {
         let count = stream.read(&mut request).await.unwrap();
         let request = String::from_utf8_lossy(&request[..count]);
         assert!(request.starts_with("POST /v1/commands/reconcile HTTP/1.1"));
-        assert!(request.contains("authorization: RunneSession "));
+        assert!(request.contains("authorization: GocodeSession "));
         assert!(request.contains("x-command-id: 018f2e3a-7000-7000-8000-000000000301"));
         assert!(request.contains("idempotency-key: reconcile-test"));
         assert!(request.contains(r#"{"operation":"archive_project","projectId":"018f2e3a-7000-7000-8000-000000000302","expectedVersion":1}"#), "{request}");

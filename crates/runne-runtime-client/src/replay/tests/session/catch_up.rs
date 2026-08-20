@@ -78,14 +78,14 @@
                     server_acknowledged_count.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(
                         serde_json::from_slice::<serde_json::Value>(&body).unwrap()["cursor"],
-                        "runne-replay-cursor-v1.7b7d"
+                        "gocode-replay-cursor-v1.7b7d"
                     );
                 }
                 if index == 3 {
                     server_acknowledged_count.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(
                         serde_json::from_slice::<serde_json::Value>(&body).unwrap()["cursor"],
-                        "runne-replay-cursor-v1.7b2261223a317d"
+                        "gocode-replay-cursor-v1.7b2261223a317d"
                     );
                 }
                 let response = match index {
@@ -104,7 +104,7 @@
                         event["payload"] = serde_json::json!({"type": "conversation.closed"});
                         event["sequence"] = serde_json::json!(3);
                         event["cursor"] =
-                            serde_json::json!("runne-replay-cursor-v1.7b2261223a317d");
+                            serde_json::json!("gocode-replay-cursor-v1.7b2261223a317d");
                         serde_json::json!({"events": [event], "hasMore": false})
                     }
                     4 => serde_json::json!({

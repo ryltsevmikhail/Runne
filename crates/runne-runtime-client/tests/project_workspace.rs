@@ -82,7 +82,7 @@ async fn delete_project_uses_authenticated_delete_body_headers_and_closed_errors
                     "DELETE /v1/projects/018f2e3a-7000-7000-8000-000000000302 HTTP/1.1"
                 )
             );
-            assert!(request.contains("authorization: RunneSession "));
+            assert!(request.contains("authorization: GocodeSession "));
             assert!(request.contains("x-command-id: 018f2e3a-7000-7000-8000-000000000301"));
             assert!(request.contains("idempotency-key: project-workspace-test"));
             assert!(request.contains(r#"{"expectedVersion":1}"#));
@@ -150,7 +150,7 @@ async fn root_bind_uses_only_the_wrapper_transport_serializer() {
                 "POST /v1/workspaces/018f2e3a-7000-7000-8000-000000000302/root-bindings"
             )
         );
-        assert!(request.contains(r#""rootAdmission":"runne-root-admission-v3."#));
+        assert!(request.contains(r#""rootAdmission":"gocode-root-admission-v3."#));
         let body = r#"{"workspaceId":"018f2e3a-7000-7000-8000-000000000302","newVersion":2}"#;
         stream.write_all(format!("HTTP/1.1 202 test\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
     });

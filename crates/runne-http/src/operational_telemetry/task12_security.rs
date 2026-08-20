@@ -31,7 +31,7 @@ async fn rejected_http_authorization_body_header_and_endpoint_markers_are_not_re
                 .uri(PATH)
                 .header(
                     "authorization",
-                    format!("RunneSession {authorization_marker}"),
+                    format!("GocodeSession {authorization_marker}"),
                 )
                 .body(Body::empty())
                 .unwrap(),

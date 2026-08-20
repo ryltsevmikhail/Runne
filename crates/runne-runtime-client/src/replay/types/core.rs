@@ -16,7 +16,7 @@
 /// use runne_runtime_client::ReplayCursor;
 ///
 /// fn decode_cursor_bytes() {
-///     let _ = ReplayCursor::from_storage_bytes(b"runne-replay-cursor-v1.7b7d");
+///     let _ = ReplayCursor::from_storage_bytes(b"gocode-replay-cursor-v1.7b7d");
 /// }
 /// ```
 #[derive(Clone, Eq, Hash, PartialEq)]

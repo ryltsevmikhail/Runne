@@ -9,7 +9,7 @@ fn configure(stream: &UnixStream) -> Result<(), RootHandleBrokerError> {
 
 fn binding_digest(binding: &RootHandleTransferBinding) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"runne.root-handle-transfer.binding.v1");
+    hasher.update(b"gocode.root-handle-transfer.binding.v1");
     hasher.update(binding.channel_id);
     hasher.update(binding.launch_generation.to_be_bytes());
     hasher.update(binding.sender_pid.to_be_bytes());

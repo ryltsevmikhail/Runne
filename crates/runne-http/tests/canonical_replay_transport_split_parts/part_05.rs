@@ -103,8 +103,8 @@ async fn live_sse_delivers_event_committed_after_catch_up() {
     assert!(delivery.contains(&format!("\"replayBindingId\":\"{replay_binding_id}\"")));
     assert!(!delivery.contains("\"globalPosition\":"));
     assert!(!delivery.contains("\"idempotencyKey\":"));
-    assert!(!delivery.contains("runne-durable-event-codec-v1-hex"));
-    assert!(delivery.contains("\"replayCursor\":\"runne-replay-cursor-v1."));
+    assert!(!delivery.contains("gocode-durable-event-codec-v1-hex"));
+    assert!(delivery.contains("\"replayCursor\":\"gocode-replay-cursor-v1."));
 }
 
 #[tokio::test]

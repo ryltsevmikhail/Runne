@@ -23,7 +23,7 @@ const MAXIMUM_TEXT_BYTES: usize = 64 * 1024;
 const MAXIMUM_REASON_BYTES: usize = 4 * 1024;
 const REPLAY_PAGE_LIMIT: usize = 256;
 const MAXIMUM_TRACKED_IDENTITIES: usize = 512;
-const CURSOR_PREFIX: &str = "runne-replay-cursor-v1.";
+const CURSOR_PREFIX: &str = "gocode-replay-cursor-v1.";
 const LIVE_RESET_INTERVAL: Duration = Duration::from_secs(30);
 
 const RECONNECT_DELAYS: [Duration; 10] = [

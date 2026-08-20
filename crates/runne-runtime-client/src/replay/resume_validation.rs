@@ -49,7 +49,7 @@ pub(super) fn replay_cursor_global_position(
 
 fn cursor_json(cursor: &str) -> Result<serde_json::Value, super::ReplayClientError> {
     let encoded = cursor
-        .strip_prefix("runne-replay-cursor-v1.")
+        .strip_prefix("gocode-replay-cursor-v1.")
         .ok_or_else(invalid_cursor)?;
     let bytes = hex::decode(encoded).map_err(|_| invalid_cursor())?;
     serde_json::from_slice(&bytes).map_err(|_| invalid_cursor())

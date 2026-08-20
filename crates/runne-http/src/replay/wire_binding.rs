@@ -15,7 +15,7 @@ fn binding_id(
         return Err(replay_authorization_revoked());
     }
     let mut digest = Sha256::new();
-    digest.update(b"runne/api-replay-binding/v1\0");
+    digest.update(b"gocode/api-replay-binding/v1\0");
     digest.update(stable.authority_id());
     digest.update(stable.principal_id().as_str().as_bytes());
     digest.update(stable.lineage_id().as_bytes());

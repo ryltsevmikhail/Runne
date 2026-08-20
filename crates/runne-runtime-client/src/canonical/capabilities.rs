@@ -94,7 +94,7 @@ fn capability_digest_hex(capabilities: &[String]) -> Option<String> {
         return None;
     }
     let mut digest = sha2::Sha256::new();
-    digest.update(b"runne/local-runtime/capability-digest/v1\0");
+    digest.update(b"gocode/local-runtime/capability-digest/v1\0");
     digest.update(u32::try_from(capabilities.len()).ok()?.to_be_bytes());
     for value in capabilities {
         digest.update(u32::try_from(value.len()).ok()?.to_be_bytes());
