@@ -94,9 +94,7 @@ pub(super) async fn start_http_and_runtime(
         0,
     )
     .map_err(|error| DaemonError::Bootstrap(format!("configure replay transport: {error}")))?;
-    let replay_integrity_secret = bootstrap
-        .replay_integrity_key
-        .derive_hmac(b"runne/replay-cursor-hmac/v1\0");
+    let replay_integrity_secret = replay_cursor_integrity_secret(&bootstrap.replay_integrity_key);
     let replay_store = ReplayStore::new(replay_connection);
     let retention_manifest = replay_store
         .retention_manifest(&replay_lineage, &replay_integrity_secret)
@@ -280,6 +278,10 @@ fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static s
 #[cfg(not(feature = "desktop-protected"))]
 fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
     runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
+}
+
+fn replay_cursor_integrity_secret(key: &crate::replay_key::ReplayIntegrityKey) -> [u8; 32] {
+    key.derive_hmac(b"gocode/replay-cursor-hmac/v1\0")
 }
 
 fn operational_telemetry_state(

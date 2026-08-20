@@ -9,7 +9,7 @@ const REQUIRED_HEADERS: [&str; 6] = [
     "x-client-request-id",
     "accept",
 ];
-const EXPECTED_REQUEST_ID: &str = "runne-provider-cb1a6843c5c332cda4a0f78cc9d606ce";
+const EXPECTED_REQUEST_ID: &str = "gocode-provider-c436f15d42859a67270a2f39ff1c8508";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -156,7 +156,7 @@ mod tests {
             "content-type: application/json\r\n",
             "content-length: 0\r\n",
             "authorization: Bearer x\r\n",
-            "x-client-request-id: runne-provider-cb1a6843c5c332cda4a0f78cc9d606ce\r\n",
+            "x-client-request-id: gocode-provider-c436f15d42859a67270a2f39ff1c8508\r\n",
             "accept: */*\r\n",
         )
         .to_owned()
@@ -185,6 +185,19 @@ mod tests {
     }
 
     #[test]
+    fn accepts_the_pre_rename_provider_idempotency_vector() {
+        let headers = concat!(
+            "host: api.openai.com\r\n",
+            "content-type: application/json\r\n",
+            "content-length: 0\r\n",
+            "authorization: Bearer x\r\n",
+            "x-client-request-id: gocode-provider-c436f15d42859a67270a2f39ff1c8508\r\n",
+            "accept: */*\r\n",
+        );
+        assert_eq!(request_length(request(&headers).as_bytes()), Ok(0));
+    }
+
+    #[test]
     fn rejects_non_exact_accept_value() {
         let headers = valid_headers().replace("accept: */*", "accept: application/json");
         assert!(request_length(request(&headers).as_bytes()).is_err());
@@ -197,16 +210,20 @@ mod tests {
             headers.replace("host: api.openai.com", "host: api.example.com"),
             headers.replace("content-type: application/json", "content-type: text/plain"),
             headers.replace(
-                "runne-provider-cb1a6843c5c332cda4a0f78cc9d606ce",
+                "gocode-provider-c436f15d42859a67270a2f39ff1c8508",
                 "other-provider-0123456789abcdef0123456789abcdef",
             ),
             headers.replace(
+                "gocode-provider-c436f15d42859a67270a2f39ff1c8508",
                 "runne-provider-cb1a6843c5c332cda4a0f78cc9d606ce",
-                "runne-provider-0123456789abcdef0123456789abcde",
             ),
             headers.replace(
-                "runne-provider-cb1a6843c5c332cda4a0f78cc9d606ce",
-                "runne-provider-0123456789abcdef0123456789abcdeF",
+                "gocode-provider-c436f15d42859a67270a2f39ff1c8508",
+                "gocode-provider-0123456789abcdef0123456789abcde",
+            ),
+            headers.replace(
+                "gocode-provider-c436f15d42859a67270a2f39ff1c8508",
+                "gocode-provider-0123456789abcdef0123456789abcdeF",
             ),
         ] {
             assert!(request_length(request(&invalid).as_bytes()).is_err());
