@@ -108,7 +108,7 @@ const {
             :data-message-role="message.role"
           >
             <span class="conversation-chat__role">
-              {{ message.role === 'user' ? 'You' : 'GOCODE' }}
+              {{ message.role === 'user' ? 'You' : 'Runne' }}
             </span>
             <p>{{ message.text }}</p>
           </li>
@@ -128,7 +128,7 @@ const {
         <GcTextarea
           v-model="draft"
           label="Message"
-          placeholder="Ask GOCODE to work on this project"
+          placeholder="Ask Runne to work on this project"
           :rows="3"
           :state="canCompose ? 'default' : 'disabled'"
         />
@@ -150,7 +150,7 @@ const {
   height: 100%;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
   text-align: left;
 }
 
@@ -158,14 +158,14 @@ const {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gocode-space-lg);
-  padding: var(--gocode-space-md) var(--gocode-space-lg);
-  border-bottom: 1px solid var(--gocode-border);
+  gap: var(--runne-space-lg);
+  padding: var(--runne-space-md) var(--runne-space-lg);
+  border-bottom: 1px solid var(--runne-border);
 }
 
 .conversation-chat__kicker,
 .conversation-chat__role {
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: .06em;
@@ -178,12 +178,12 @@ const {
 }
 
 .conversation-chat__runtime {
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
   font-size: 11px;
 }
 
 .conversation-chat__runtime--live {
-  color: var(--gocode-success-mint);
+  color: var(--runne-success-mint);
 }
 
 .conversation-chat__timeline {
@@ -196,11 +196,11 @@ const {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--gocode-space-md);
+  gap: var(--runne-space-md);
   margin: 0;
-  padding: var(--gocode-space-xs) var(--gocode-space-lg);
-  border-bottom: 1px solid var(--gocode-border);
-  color: var(--gocode-ui-muted);
+  padding: var(--runne-space-xs) var(--runne-space-lg);
+  border-bottom: 1px solid var(--runne-border);
+  color: var(--runne-ui-muted);
   font-size: 11px;
 }
 
@@ -208,29 +208,29 @@ const {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  gap: var(--gocode-space-md);
+  gap: var(--runne-space-md);
   overflow-y: auto;
   margin: 0;
-  padding: var(--gocode-space-lg);
+  padding: var(--runne-space-lg);
   list-style: none;
 }
 
 .conversation-chat__message {
   max-width: 82%;
-  padding: var(--gocode-space-md);
-  border: 1px solid var(--gocode-border);
-  border-radius: var(--gocode-radius-lg);
-  background: var(--gocode-surface-raised);
+  padding: var(--runne-space-md);
+  border: 1px solid var(--runne-border);
+  border-radius: var(--runne-radius-lg);
+  background: var(--runne-surface-raised);
 }
 
 .conversation-chat__message--user {
   align-self: flex-end;
-  border-color: color-mix(in srgb, var(--gocode-accent) 35%, var(--gocode-border));
+  border-color: color-mix(in srgb, var(--runne-accent) 35%, var(--runne-border));
 }
 
 .conversation-chat__message p {
-  margin: var(--gocode-space-xs) 0 0;
-  color: var(--gocode-text-primary);
+  margin: var(--runne-space-xs) 0 0;
+  color: var(--runne-text-primary);
   font-size: 13px;
   line-height: 1.55;
   white-space: pre-wrap;
@@ -242,9 +242,9 @@ const {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: var(--gocode-space-md);
+  gap: var(--runne-space-md);
   height: 100%;
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
   font-size: 12px;
   text-align: center;
 }
@@ -253,9 +253,9 @@ const {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
-  gap: var(--gocode-space-md);
-  padding: var(--gocode-space-md) var(--gocode-space-lg);
-  border-top: 1px solid var(--gocode-border);
-  background: var(--gocode-surface);
+  gap: var(--runne-space-md);
+  padding: var(--runne-space-md) var(--runne-space-lg);
+  border-top: 1px solid var(--runne-border);
+  background: var(--runne-surface);
 }
 </style>

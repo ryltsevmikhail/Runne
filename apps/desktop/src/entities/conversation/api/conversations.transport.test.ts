@@ -39,7 +39,7 @@ describe('conversation IPC transport validation', () => {
       return snapshot
     })
 
-    expect(value.messages.at(1)?.text).toBe('GOCODE local response: hello')
+    expect(value.messages.at(1)?.text).toBe('Runne local response: hello')
     expect(calls).toEqual([
       ['send_project_message', { projectId: 7, text: 'hello' }],
     ])

@@ -102,53 +102,53 @@ function onKeydown(e: KeyboardEvent) {
 .gc-palette {
   width: 560px;
   max-height: 400px;
-  background: var(--gocode-surface-raised);
-  border: 1px solid var(--gocode-border);
-  border-radius: var(--gocode-radius-xl);
+  background: var(--runne-surface-raised);
+  border: 1px solid var(--runne-border);
+  border-radius: var(--runne-radius-xl);
   overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 .gc-palette-search {
-  padding: var(--gocode-space-lg);
+  padding: var(--runne-space-lg);
   border: none;
-  border-bottom: 1px solid var(--gocode-border);
+  border-bottom: 1px solid var(--runne-border);
   background: transparent;
-  color: var(--gocode-text-primary);
-  font-family: var(--gocode-font-ui);
+  color: var(--runne-text-primary);
+  font-family: var(--runne-font-ui);
   font-size: 16px;
   outline: none;
 }
 
-.gc-palette-results { overflow-y: auto; flex: 1; padding: var(--gocode-space-sm); }
+.gc-palette-results { overflow-y: auto; flex: 1; padding: var(--runne-space-sm); }
 
 .gc-palette-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--gocode-space-sm) var(--gocode-space-md);
-  border-radius: var(--gocode-radius-md);
+  padding: var(--runne-space-sm) var(--runne-space-md);
+  border-radius: var(--runne-radius-md);
   border: none;
   background: transparent;
-  color: var(--gocode-text-primary);
-  font-family: var(--gocode-font-ui);
+  color: var(--runne-text-primary);
+  font-family: var(--runne-font-ui);
   font-size: 14px;
   cursor: pointer;
   width: 100%;
   text-align: left;
 }
 
-.gc-palette-item--active { background: var(--gocode-surface); }
+.gc-palette-item--active { background: var(--runne-surface); }
 
 .gc-palette-shortcut {
-  font-family: var(--gocode-font-mono);
+  font-family: var(--runne-font-mono);
   font-size: 12px;
   padding: 2px 6px;
-  background: var(--gocode-surface);
-  border-radius: var(--gocode-radius-sm);
-  color: var(--gocode-ui-muted);
+  background: var(--runne-surface);
+  border-radius: var(--runne-radius-sm);
+  color: var(--runne-ui-muted);
 }
 
-.gc-palette-empty { padding: var(--gocode-space-lg); text-align: center; color: var(--gocode-ui-muted); }
+.gc-palette-empty { padding: var(--runne-space-lg); text-align: center; color: var(--runne-ui-muted); }
 </style>

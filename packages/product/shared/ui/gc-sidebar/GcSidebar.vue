@@ -52,10 +52,10 @@ defineEmits<{
   display: flex;
   flex-direction: column;
   width: 240px;
-  padding: var(--gocode-space-sm);
+  padding: var(--runne-space-sm);
   gap: 2px;
-  background: var(--gocode-sidebar);
-  border-right: 1px solid var(--gocode-border);
+  background: var(--runne-sidebar);
+  border-right: 1px solid var(--runne-border);
 }
 
 .gc-sidebar--collapsed {
@@ -65,28 +65,28 @@ defineEmits<{
 .gc-sidebar-item {
   display: flex;
   align-items: center;
-  gap: var(--gocode-space-sm);
-  padding: 8px var(--gocode-space-md);
-  border-radius: var(--gocode-radius-md);
+  gap: var(--runne-space-sm);
+  padding: 8px var(--runne-space-md);
+  border-radius: var(--runne-radius-md);
   border: none;
   background: transparent;
-  color: var(--gocode-text-secondary);
-  font-family: var(--gocode-font-ui);
+  color: var(--runne-text-secondary);
+  font-family: var(--runne-font-ui);
   font-size: 14px;
   cursor: pointer;
-  transition: background var(--gocode-motion-fast), color var(--gocode-motion-fast);
+  transition: background var(--runne-motion-fast), color var(--runne-motion-fast);
   text-align: left;
   width: 100%;
 }
 
 .gc-sidebar-item:hover {
-  background: var(--gocode-surface);
-  color: var(--gocode-text-primary);
+  background: var(--runne-surface);
+  color: var(--runne-text-primary);
 }
 
 .gc-sidebar-item--active {
-  background: var(--gocode-surface);
-  color: var(--gocode-text-primary);
+  background: var(--runne-surface);
+  color: var(--runne-text-primary);
   font-weight: 500;
 }
 
@@ -104,8 +104,8 @@ defineEmits<{
 .gc-sidebar-badge {
   font-size: 11px;
   padding: 2px 6px;
-  border-radius: var(--gocode-radius-sm);
-  background: color-mix(in srgb, var(--gocode-accent) 20%, transparent);
-  color: var(--gocode-accent);
+  border-radius: var(--runne-radius-sm);
+  background: color-mix(in srgb, var(--runne-accent) 20%, transparent);
+  color: var(--runne-accent);
 }
 </style>

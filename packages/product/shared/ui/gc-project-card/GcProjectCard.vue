@@ -55,11 +55,11 @@ defineEmits<{
 
 <style scoped>
 .gc-project-card {
-  background: var(--gocode-surface);
-  border: 1px solid var(--gocode-border);
-  border-radius: var(--gocode-radius-lg);
-  padding: var(--gocode-space-lg);
-  transition: border-color var(--gocode-motion-fast), background var(--gocode-motion-fast);
+  background: var(--runne-surface);
+  border: 1px solid var(--runne-border);
+  border-radius: var(--runne-radius-lg);
+  padding: var(--runne-space-lg);
+  transition: border-color var(--runne-motion-fast), background var(--runne-motion-fast);
 }
 
 .gc-project-card-main {
@@ -74,26 +74,26 @@ defineEmits<{
 }
 
 .gc-project-card-main:focus-visible {
-  outline: 2px solid var(--gocode-accent);
+  outline: 2px solid var(--runne-accent);
   outline-offset: 3px;
 }
 
 .gc-project-card:hover {
-  border-color: var(--gocode-text-secondary);
-  background: var(--gocode-surface-raised);
+  border-color: var(--runne-text-secondary);
+  background: var(--runne-surface-raised);
 }
 
 .gc-project-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--gocode-space-sm);
+  margin-bottom: var(--runne-space-sm);
 }
 
 .gc-project-card-name {
   font-size: 15px;
   font-weight: 600;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
   margin: 0;
 }
 
@@ -101,39 +101,39 @@ defineEmits<{
   font-size: 11px;
   font-weight: 500;
   padding: 2px 8px;
-  border-radius: var(--gocode-radius-sm);
+  border-radius: var(--runne-radius-sm);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .gc-project-card-status--ready {
-  background: color-mix(in srgb, var(--gocode-lead-green) 15%, transparent);
-  color: var(--gocode-lead-green);
+  background: color-mix(in srgb, var(--runne-lead-green) 15%, transparent);
+  color: var(--runne-lead-green);
 }
 
 .gc-project-card-status--stale {
-  background: color-mix(in srgb, var(--gocode-accent) 15%, transparent);
-  color: var(--gocode-accent);
+  background: color-mix(in srgb, var(--runne-accent) 15%, transparent);
+  color: var(--runne-accent);
 }
 
 .gc-project-card-status--recovery {
-  background: color-mix(in srgb, var(--gocode-error-coral) 15%, transparent);
-  color: var(--gocode-error-coral);
+  background: color-mix(in srgb, var(--runne-error-coral) 15%, transparent);
+  color: var(--runne-error-coral);
 }
 
 .gc-project-card--stale {
-  border-color: color-mix(in srgb, var(--gocode-accent) 30%, transparent);
+  border-color: color-mix(in srgb, var(--runne-accent) 30%, transparent);
 }
 
 .gc-project-card--recovery {
-  border-color: color-mix(in srgb, var(--gocode-error-coral) 30%, transparent);
+  border-color: color-mix(in srgb, var(--runne-error-coral) 30%, transparent);
 }
 
 .gc-project-card-path {
   font-size: 12px;
-  color: var(--gocode-ui-subtle);
-  margin: 0 0 var(--gocode-space-sm);
-  font-family: var(--gocode-font-mono);
+  color: var(--runne-ui-subtle);
+  margin: 0 0 var(--runne-space-sm);
+  font-family: var(--runne-font-mono);
 }
 
 .gc-project-card-footer {
@@ -144,11 +144,11 @@ defineEmits<{
 
 .gc-project-card-time {
   font-size: 12px;
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
 }
 
 .gc-project-card-actions {
   display: flex;
-  gap: var(--gocode-space-sm);
+  gap: var(--runne-space-sm);
 }
 </style>

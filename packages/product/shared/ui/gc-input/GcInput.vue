@@ -72,28 +72,28 @@ defineEmits<{
 .gc-input-label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
 }
 
 .gc-input-field {
   display: flex;
   align-items: center;
-  background: var(--gocode-surface);
-  border: 1px solid var(--gocode-border);
-  border-radius: var(--gocode-radius-md);
-  transition: border-color var(--gocode-motion-fast) ease;
+  background: var(--runne-surface);
+  border: 1px solid var(--runne-border);
+  border-radius: var(--runne-radius-md);
+  transition: border-color var(--runne-motion-fast) ease;
 }
 
 .gc-input-wrapper--focus .gc-input-field {
-  border-color: var(--gocode-accent);
+  border-color: var(--runne-accent);
 }
 
 .gc-input-field:focus-within {
-  border-color: var(--gocode-accent);
+  border-color: var(--runne-accent);
 }
 
 .gc-input-wrapper--error .gc-input-field {
-  border-color: var(--gocode-error-coral);
+  border-color: var(--runne-error-coral);
 }
 
 .gc-input-wrapper--disabled .gc-input-field {
@@ -107,13 +107,13 @@ defineEmits<{
   background: transparent;
   border: none;
   outline: none;
-  font-family: var(--gocode-font-ui);
+  font-family: var(--runne-font-ui);
   font-size: 14px;
-  color: var(--gocode-text-primary);
+  color: var(--runne-text-primary);
 }
 
 .gc-input::placeholder {
-  color: var(--gocode-ui-subtle);
+  color: var(--runne-ui-subtle);
 }
 
 .gc-input:disabled {
@@ -124,15 +124,15 @@ defineEmits<{
   display: flex;
   align-items: center;
   padding: 0 8px;
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
 }
 
 .gc-input-helper {
   font-size: 12px;
-  color: var(--gocode-ui-muted);
+  color: var(--runne-ui-muted);
 }
 
 .gc-input-helper--error {
-  color: var(--gocode-error-coral);
+  color: var(--runne-error-coral);
 }
 </style>
