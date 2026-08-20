@@ -237,31 +237,46 @@ fn v2_launch_round_trips_exact_provider_binding_and_rejects_mismatch() {
 
 #[test]
 fn released_provider_bindings_accept_gocode_literals_and_reject_runne_aliases() {
-    for (mode, binding, runne_alias) in [
+    for (mode, profile_id, profile_digest, runne_alias) in [
         (
             ProviderActivationModeV1::DeterministicV1,
-            deterministic_binding(),
+            "gocode-deterministic-text/1",
+            [
+                0xb7, 0x9e, 0xfd, 0x52, 0xcd, 0x0d, 0xe3, 0x29, 0x17, 0x0e, 0xfa, 0xae, 0xd2, 0xa1,
+                0x8e, 0x6d, 0x9f, 0xb0, 0xb9, 0xd7, 0x3d, 0x8b, 0x47, 0x40, 0x65, 0x14, 0x45, 0xb4,
+                0xe9, 0x0a, 0x95, 0x17,
+            ],
             "runne-deterministic-text/1",
         ),
         (
             ProviderActivationModeV1::OpenAiResponsesTextV1,
-            openai_binding(),
+            "gocode-openai-responses-text/1",
+            [
+                0xd3, 0xe2, 0x09, 0x34, 0x77, 0x5d, 0x9d, 0x97, 0x03, 0x50, 0xd1, 0x6b, 0x78, 0xa1,
+                0x73, 0x98, 0x85, 0xc0, 0x8d, 0xd5, 0xd3, 0xe4, 0x7b, 0x93, 0x07, 0x23, 0x3d, 0x4d,
+                0xd0, 0xfb, 0xed, 0x80,
+            ],
             "runne-openai-responses-text/1",
         ),
         (
             ProviderActivationModeV1::DeepSeekResponsesTextV1,
-            ProviderActivationBindingV1::deepseek_responses_text_v1(),
+            "gocode-deepseek-responses-text/1",
+            [
+                0x25, 0x67, 0x0f, 0xfe, 0x78, 0xdb, 0xc7, 0xef, 0x4d, 0xb8, 0x91, 0x13, 0x56, 0xd9,
+                0xeb, 0x4e, 0x27, 0x41, 0x67, 0xff, 0x9e, 0xed, 0x0a, 0x7c, 0xc9, 0xb5, 0xe6, 0x6e,
+                0x40, 0x85, 0xd8, 0x53,
+            ],
             "runne-deepseek-responses-text/1",
         ),
     ] {
+        let binding = ProviderActivationBindingV1::new(mode, profile_id, profile_digest)
+            .expect("source-pinned canonical GOCODE binding");
         assert_eq!(
-            ProviderActivationBindingV1::new(mode, binding.profile_id(), *binding.profile_digest())
-                .unwrap(),
-            binding
+            (binding.profile_id(), binding.profile_digest()),
+            (profile_id, &profile_digest)
         );
         assert_eq!(
-            ProviderActivationBindingV1::new(mode, runne_alias, *binding.profile_digest())
-                .unwrap_err(),
+            ProviderActivationBindingV1::new(mode, runne_alias, profile_digest).unwrap_err(),
             LaunchAuthorityError::ProviderProfileMismatch
         );
     }
