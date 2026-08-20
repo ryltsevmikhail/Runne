@@ -94,7 +94,7 @@ def _matrix() -> tuple[list[dict[str, object]], list[dict[str, object]], list[di
     inventory_items = inventory["digests"]["inventory_digest"].removeprefix("sha256:")
     schema_digest = inventory["digests"]["profile_schema_digest"].removeprefix("sha256:")
     opencode = hashlib.sha256(b"gocode.opencode-baseline-inventory-profile-binding/1\0" + canonical_bytes({"profile_id":"opencode-baseline-inventory","profile_revision":3,"inventory_payload_sha256":inventory_digest,"inventory_items_sha256":inventory_items,"profile_schema_sha256":schema_digest})).hexdigest()
-    sources = (hashlib.sha256((ROOT / "contracts/gocode-ui-client-1/bundle.json").read_bytes()).hexdigest(), hashlib.sha256((ROOT / "docs/profiles/openai-responses-text-v1.json").read_bytes()).hexdigest(), opencode)
+    sources = (hashlib.sha256((ROOT / "contracts/gocode-ui-client-2/bundle.json").read_bytes()).hexdigest(), hashlib.sha256((ROOT / "docs/profiles/openai-responses-text-v1.json").read_bytes()).hexdigest(), opencode)
     profiles = []
     for scope in scopes:
         provider = "external_canary_only" if scope["platform_scope_id"].startswith("macos") else "required"
