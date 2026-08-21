@@ -39,7 +39,7 @@ pub enum AuthorityError {
     /// V3 promotion-schema pins have not been finalized from checked-in bytes.
     #[error("TRUST_V3_PINS_NOT_FINALIZED")]
     TrustV3PinsNotFinalized,
-    /// V4 promotion-schema pins await the versioned RC2/RC3 leaf contracts.
+    /// Retained public V4 pin-finalization error for compatibility; finalized pins are active.
     #[error("TRUST_V4_PINS_NOT_FINALIZED")]
     TrustV4PinsNotFinalized,
     /// A legacy or mixed authority version attempted active promotion admission.

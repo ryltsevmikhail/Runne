@@ -4,7 +4,7 @@ use runne_project_owner_authority::{
 };
 
 #[test]
-fn raw_v5_front_doors_reject_legacy_versions_before_the_pending_pin_barrier() {
+fn raw_v5_front_doors_reject_legacy_versions_before_finalized_pin_validation() {
     for verify in [
         verify_promotion_authority_receipt_v5_bytes as fn(&[u8]) -> _,
         verify_stage_envelope_v2_bytes,
@@ -19,7 +19,7 @@ fn raw_v5_front_doors_reject_legacy_versions_before_the_pending_pin_barrier() {
 }
 
 #[test]
-fn raw_v5_front_doors_reach_the_fail_closed_pin_barrier_for_their_exact_version() {
+fn raw_v5_front_doors_accept_their_exact_version_with_finalized_pins() {
     for (schema, verify) in [
         (
             "gocode.project-owner.authority-receipt/5",
@@ -39,10 +39,7 @@ fn raw_v5_front_doors_reach_the_fail_closed_pin_barrier_for_their_exact_version(
         ),
     ] {
         let bytes = format!(r#"{{"schema_version":"{schema}"}}"#) + "\n";
-        assert_eq!(
-            verify(bytes.as_bytes()),
-            Err(AuthorityError::TrustV4PinsNotFinalized)
-        );
+        assert_eq!(verify(bytes.as_bytes()), Ok(()));
     }
 }
 
@@ -72,12 +69,12 @@ fn raw_v5_front_doors_do_not_accept_same_version_runne_aliases() {
 }
 
 #[test]
-fn raw_v5_front_doors_reject_noncanonical_wire_before_the_pin_barrier() {
+fn raw_v5_front_doors_reject_noncanonical_wire_with_finalized_pins() {
     let schema = "gocode.project-owner.authority-receipt/5";
     let canonical = format!(r#"{{"schema_version":"{schema}"}}"#) + "\n";
     assert_eq!(
         verify_promotion_authority_receipt_v5_bytes(canonical.as_bytes()),
-        Err(AuthorityError::TrustV4PinsNotFinalized)
+        Ok(())
     );
     assert_eq!(
         verify_promotion_authority_receipt_v5_bytes(canonical.trim_end().as_bytes()),
@@ -90,7 +87,7 @@ fn raw_v5_front_doors_reject_noncanonical_wire_before_the_pin_barrier() {
 }
 
 #[test]
-fn raw_v5_front_doors_reject_unknown_fields_before_the_pin_barrier() {
+fn raw_v5_front_doors_reject_unknown_fields_before_finalized_pin_validation() {
     let bytes =
         b"{\"schema_version\":\"gocode.release.post-rc0-stage-envelope/2\",\"unexpected\":true}\n";
     assert_eq!(

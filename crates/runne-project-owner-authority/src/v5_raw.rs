@@ -1,7 +1,7 @@
 //! Fail-closed raw admission front doors for the V5 authority generation.
 //!
 //! These `_bytes` entrypoints perform only structural version/canonical/field checks and
-//! the fail-closed V4 pin barrier. The full cryptographic verifiers are the primary API:
+//! the finalized V4 pin barrier. The full cryptographic verifiers are the primary API:
 //! `verify_promotion_authority_receipt_v5`, `verify_stage_envelope_v2`,
 //! `verify_evidence_envelope_v2`, and `verify_destination_allowlist_v1`.
 
@@ -15,8 +15,8 @@ use crate::{
 /// Check a raw V5 receipt before any trusted context is touched.
 ///
 /// # Errors
-/// Returns `AUTHORITY_VERSION_SUPERSEDED` for legacy/mixed receipt versions and the explicit
-/// V4 pin barrier until all successor schemas have immutable digest pins.
+/// Returns `AUTHORITY_VERSION_SUPERSEDED` for legacy/mixed receipt versions, then validates
+/// finalized immutable successor-schema digest pins.
 pub fn verify_promotion_authority_receipt_v5_bytes(bytes: &[u8]) -> Result<(), AuthorityError> {
     exact_version(bytes, RECEIPT_SCHEMA_V5, RECEIPT_FIELDS)?;
     crate::v4_trust_schema_digests().map(|_| ())
@@ -25,8 +25,8 @@ pub fn verify_promotion_authority_receipt_v5_bytes(bytes: &[u8]) -> Result<(), A
 /// Check a raw V2 transition envelope before any nonce or durable state is touched.
 ///
 /// # Errors
-/// Returns `AUTHORITY_VERSION_SUPERSEDED` for legacy/mixed envelope versions and the explicit
-/// V4 pin barrier until all successor schemas have immutable digest pins.
+/// Returns `AUTHORITY_VERSION_SUPERSEDED` for legacy/mixed envelope versions, then validates
+/// finalized immutable successor-schema digest pins.
 pub fn verify_stage_envelope_v2_bytes(bytes: &[u8]) -> Result<(), AuthorityError> {
     exact_version(bytes, STAGE_ENVELOPE_SCHEMA_V2, STAGE_FIELDS)?;
     crate::v4_trust_schema_digests().map(|_| ())
@@ -35,8 +35,8 @@ pub fn verify_stage_envelope_v2_bytes(bytes: &[u8]) -> Result<(), AuthorityError
 /// Check a raw V2 evidence envelope before any nonce or durable state is touched.
 ///
 /// # Errors
-/// Returns `AUTHORITY_VERSION_SUPERSEDED` for legacy/mixed envelope versions and the explicit
-/// V4 pin barrier until all successor schemas have immutable digest pins.
+/// Returns `AUTHORITY_VERSION_SUPERSEDED` for legacy/mixed envelope versions, then validates
+/// finalized immutable successor-schema digest pins.
 pub fn verify_evidence_envelope_v2_bytes(bytes: &[u8]) -> Result<(), AuthorityError> {
     exact_version(bytes, EVIDENCE_ENVELOPE_SCHEMA_V2, EVIDENCE_FIELDS)?;
     crate::v4_trust_schema_digests().map(|_| ())

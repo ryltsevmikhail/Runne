@@ -269,10 +269,10 @@ pub const fn verified_receipt_v5(
     }
 }
 
-/// Return a fail-closed result until the V4 trust pin union is finalized.
+/// Return the finalized immutable V4 trust pin union.
 ///
 /// # Errors
-/// Returns the explicit fail-closed V4 pending-pins error until leaf schemas stabilize.
+/// Returns the finalized immutable V4 successor-schema pins.
 pub fn v5_receipt_schema_pins() -> Result<Vec<crate::SchemaDigest>, AuthorityError> {
     crate::v4_trust_schema_digests()
 }
