@@ -45,8 +45,9 @@ pub fn verify_evidence_envelope_v2_bytes(bytes: &[u8]) -> Result<(), AuthorityEr
 /// Check a raw root-signed allowlist before any trusted context is touched.
 ///
 /// # Errors
-/// Returns `AUTHORITY_VERSION_SUPERSEDED` for a wrong version and the explicit V4 pin barrier
-/// until root signature verification can bind the final active trust generation.
+/// Returns `AUTHORITY_VERSION_SUPERSEDED` for a wrong version. The finalized V4 pin
+/// union is enforced before any trusted context is touched; `_bytes` performs
+/// structural checks only — use the full cryptographic verifier for admission.
 pub fn verify_destination_allowlist_v1_bytes(bytes: &[u8]) -> Result<(), AuthorityError> {
     exact_version(bytes, DESTINATION_ALLOWLIST_SCHEMA_V1, ALLOWLIST_FIELDS)?;
     crate::v4_trust_schema_digests().map(|_| ())

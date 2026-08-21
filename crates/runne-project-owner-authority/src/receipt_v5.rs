@@ -44,7 +44,7 @@ pub struct DelegationV2 {
     pub allowed_payload_schema_ids: Vec<String>,
 }
 
-/// Root-signed V5 receipt. It remains non-active until V4 schema pins finalize.
+/// Root-signed V5 receipt verified against the finalized, immutable V4 schema pins.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PromotionAuthorityReceiptV5 {
