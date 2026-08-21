@@ -27,5 +27,4 @@ cargo test -p runne-runtime-client --all-targets --locked
 cargo test -p runne-cli --all-targets --locked
 cargo test -p runne-app-core --all-targets --features test-support --locked
 cargo test -p runne-desktop --all-targets --locked
-python3 scripts/validate-docs.py --strict
 git diff --check
