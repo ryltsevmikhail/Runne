@@ -90,6 +90,28 @@ def fixture_records():
     return records
 
 
+def fixture_records_v4():
+    records = fixture_records()
+    for value in records.values():
+        if isinstance(value, dict):
+            value["schema_id"] = value["schema_id"].removesuffix("/3") + "/4"
+            value["profile"] = "gocode.rc0.evidence-profile/4"
+    records["source-gate-results.json"]["capture"] = {
+        "remote_url": "https://git.sourcecraft.dev/ryltsevmg/gocode.git",
+        "captured_origin_main_revision": SOURCE,
+        "head_revision": SOURCE,
+        "raw_tree_oid": "d" * 40,
+        "current_tree_oid": "d" * 40,
+        "upstream_tree_oid": "e" * 40,
+        "upstream_blob_count": 1,
+        "upstream_content_digest": "f" * 64,
+        "opencode_source_sha": PINNED,
+        "capture_evidence_kind": "RAW_GIT_OBJECTS",
+        "tree_clean": True,
+    }
+    return records
+
+
 class Rc0CandidateEvidenceTests(unittest.TestCase):
     def test_evidence_commit_has_one_source_parent_and_only_nine_additions(self):
         evidence = evidence_module()
@@ -214,6 +236,7 @@ from scripts.tests.rc0_candidate_fix_round5_evidence_cases import (
 from scripts.tests.rc0_candidate_fix_round6_evidence_cases import (
     Rc0CandidateEvidenceFixRound6Tests,
 )
+from scripts.tests.rc0_candidate_v4_cases import Rc0CandidateEvidenceV4Tests
 
 
 if __name__ == "__main__":

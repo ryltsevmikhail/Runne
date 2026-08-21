@@ -247,3 +247,6 @@ from scripts.tests.rc0_candidate_fix_round2_source_cases import (
 
 if __name__ == "__main__":
     unittest.main()
+
+
+from scripts.tests.rc0_candidate_v4_cases import Rc0CandidateSourceV4Tests

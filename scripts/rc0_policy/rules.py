@@ -188,18 +188,32 @@ def validate_artifact_inventory(inventory: Mapping[str, Any]) -> tuple[str, ...]
     return validate_artifact_bijection(inventory, checksums, spdx)
 
 
-def validate_source_capture(capture: Mapping[str, Any], source_sha: Any) -> tuple[str, ...]:
+def validate_source_capture(
+    capture: Mapping[str, Any], source_sha: Any, profile: Any = "gocode.rc0.evidence-profile/3"
+) -> tuple[str, ...]:
     if not isinstance(capture, Mapping):
         return ("source capture must be an object",)
     errors: list[str] = []
     for field in ("head_revision", "captured_origin_main_revision"):
         if capture.get(field) != source_sha:
             errors.append(f"source capture {field} does not bind candidate source")
-    pairs = (
-        ("raw_tree_oid", "current_tree_oid", 40, None),
-        ("raw_gitmodules_sha256", "current_gitmodules_sha256", 64, None),
-        ("raw_opencode_gitlink_revision", "current_opencode_gitlink_revision", 40, PINNED_OPENCODE_SHA),
-    )
+    pairs = (("raw_tree_oid", "current_tree_oid", 40, None),)
+    if profile == "gocode.rc0.evidence-profile/4":
+        if capture.get("remote_url") != "https://git.sourcecraft.dev/ryltsevmg/gocode.git":
+            errors.append("source capture remote_url is not canonical SourceCraft HTTPS")
+        pairs += (("upstream_tree_oid", "upstream_tree_oid", 40, None),)
+        if type(capture.get("upstream_blob_count")) is not int or capture["upstream_blob_count"] < 1:
+            errors.append("source capture upstream_blob_count is not a positive integer")
+        digest = capture.get("upstream_content_digest")
+        if type(digest) is not str or _SHA256.fullmatch(digest) is None:
+            errors.append("source capture upstream_content_digest is not exact lower-case hex")
+        if capture.get("opencode_source_sha") != PINNED_OPENCODE_SHA:
+            errors.append("source capture opencode_source_sha is not the pinned provenance SHA")
+    else:
+        pairs += (
+            ("raw_gitmodules_sha256", "current_gitmodules_sha256", 64, None),
+            ("raw_opencode_gitlink_revision", "current_opencode_gitlink_revision", 40, PINNED_OPENCODE_SHA),
+        )
     for left, right, length, pinned in pairs:
         for field in (left, right):
             value = capture.get(field)
@@ -227,7 +241,13 @@ def validate_policy_inventory(policy: Mapping[str, Any]) -> tuple[str, ...]:
         schemas = []
         errors.append("policy schema inventory must be an array")
     schema_ids = [item.get("schema_id") for item in schemas if isinstance(item, dict)]
-    if any(type(value) is not str for value in schema_ids) or len(schema_ids) != len(SCHEMA_FILES) or set(schema_ids) != set(SCHEMA_FILES) or _duplicates(schema_ids):
+    profile = policy.get("profile")
+    expected_schema_ids = {
+        schema_id for schema_id in SCHEMA_FILES
+        if profile in ("gocode.rc0.evidence-profile/3", "gocode.rc0.evidence-profile/4")
+        and schema_id.endswith("/" + profile.rsplit("/", 1)[1])
+    }
+    if any(type(value) is not str for value in schema_ids) or len(schema_ids) != len(expected_schema_ids) or set(schema_ids) != expected_schema_ids or _duplicates(schema_ids):
         errors.append("policy schema inventory must contain each exact committed schema ID once")
     gates = policy.get("required_gates", [])
     if not isinstance(gates, list):

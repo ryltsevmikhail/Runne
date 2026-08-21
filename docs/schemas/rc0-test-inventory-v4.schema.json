@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "gocode.rc0.schema.test-inventory/4",
+  "title": "GOCODE RC0 Test Inventory V4",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "repository_id",
+    "candidate_source_revision",
+    "evidence_attempt_id",
+    "policy_digest",
+    "profile",
+    "inventory_status",
+    "final_inventory_digest",
+    "tests"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "gocode.rc0.schema.test-inventory/4"
+    },
+    "repository_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_source_revision": {
+      "$ref": "#/$defs/gitSha"
+    },
+    "evidence_attempt_id": {
+      "$ref": "#/$defs/uuidV7"
+    },
+    "policy_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "profile": {
+      "const": "gocode.rc0.evidence-profile/4"
+    },
+    "inventory_status": {
+      "const": "FROZEN"
+    },
+    "final_inventory_digest": {
+      "$ref": "#/$defs/sha256"
+    },
+    "tests": {
+      "type": "array",
+      "maxItems": 4096,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/test"
+      }
+    }
+  },
+  "$defs": {
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuidV7": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "stage",
+        "package",
+        "integration_target",
+        "fully_qualified_test_name",
+        "source_sha",
+        "toolchain",
+        "list_digest",
+        "expected_executed",
+        "expected_passed",
+        "expected_ignored"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stage": {
+          "enum": [
+            "SOURCE_CANDIDATE",
+            "PRODUCTION_QUALIFICATION"
+          ]
+        },
+        "package": {
+          "type": "string",
+          "minLength": 1
+        },
+        "integration_target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fully_qualified_test_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_sha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "toolchain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "list_digest": {
+          "$ref": "#/$defs/sha256"
+        },
+        "expected_executed": {
+          "const": 1
+        },
+        "expected_passed": {
+          "const": 1
+        },
+        "expected_ignored": {
+          "const": 0
+        }
+      }
+    }
+  }
+}
