@@ -15,7 +15,7 @@ from scripts.rc0_policy.external_envelope import AdjunctSchemaStore, PrincipalBi
 from scripts.rc0_policy.governance_status import GovernanceStatusFailure, accepted_adr_digests, parse_accepted_adr
 from scripts.rc0_policy.platform_policy_errors import PolicyFailure
 from scripts.rc0_policy.rules import validate_policy_inventory
-from scripts.rc0_policy.schemas import SCHEMA_FILES, validate_schema
+from scripts.rc0_policy.schemas import schema_files_for_profile, validate_schema
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +27,16 @@ _SCHEMA_PATHS = {
     "gocode.governance.platform-decision-acceptance/1": "platform-decision-acceptance-v1.schema.json",
     "gocode.rc0.post-rc0-platform-composed-universe/1": "post-rc0-platform-composed-universe-v1.schema.json",
     "gocode.v1-platform-scope-claim-migration/1": "v1-platform-scope-claim-migration-v1.schema.json",
+}
+_POLICY_FIXTURES = {
+    "gocode.rc0.evidence-profile/3": (
+        "gocode.rc0.schema.qualification-policy-bundle/3",
+        "fixture-rc0-qualification-policy-v1.json",
+    ),
+    "gocode.rc0.evidence-profile/4": (
+        "gocode.rc0.schema.qualification-policy-bundle/4",
+        "fixture-rc0-qualification-policy-v4.json",
+    ),
 }
 
 
@@ -147,10 +157,14 @@ def _lineage(registry: VerifiedAdjunctTrustRegistry, claim: bytes, base: bytes, 
 
 
 def _policy(value: Mapping[str, object]) -> Rc0TrustPolicyView:
-    raw = canonical_bytes(dict(value)); expected = canonical_bytes(loads_canonical((VALID / "fixture-rc0-qualification-policy-v1.json").read_bytes()))
-    if raw != expected or validate_schema(value, "gocode.rc0.schema.qualification-policy-bundle/3") or validate_policy_inventory(value): _fail("RC0_MAPPING_SET_MISMATCH")
+    profile = value.get("profile")
+    policy_fixture = _POLICY_FIXTURES.get(profile) if type(profile) is str else None
+    if policy_fixture is None: _fail("RC0_MAPPING_SET_MISMATCH")
+    schema_id, policy_filename = policy_fixture
+    raw = canonical_bytes(dict(value)); expected = canonical_bytes(loads_canonical((VALID / policy_filename).read_bytes()))
+    if raw != expected or validate_schema(value, schema_id) or validate_policy_inventory(value): _fail("RC0_MAPPING_SET_MISMATCH")
     pairs = tuple(sorted((row["schema_id"], row["sha256"]) for row in value["expected_schema_digests"]))
-    actual = tuple(sorted((schema_id, _sha((ROOT / "docs/schemas" / filename).read_bytes())) for schema_id, filename in SCHEMA_FILES.items()))
+    actual = tuple(sorted((schema_id, _sha((ROOT / "docs/schemas" / filename).read_bytes())) for schema_id, filename in schema_files_for_profile(profile).items()))
     if pairs != actual: _fail("RC0_MAPPING_SET_MISMATCH")
     gates = tuple(sorted((row["gate_id"], row["stage"], "PASS", "PASS", "") for row in value["required_gates"]))
     return Rc0TrustPolicyView(value["policy_digest"], raw, _sha(raw), pairs, gates, tuple(value["trusted_evidence_issuers"]))
@@ -199,7 +213,7 @@ def _mapping_values(payload: dict[str, object], trust: Rc0TrustPolicyView, regis
     if any(payload.get(key) != dict(registry.adjunct_schema_digests).get(schema_id) for key, schema_id in schema_pins.items()): _fail("REGISTRY_SCHEMA_MISMATCH")
     return scopes, slots, profiles, pins, gates
 def _verify_mapping_view(view: VerifiedMappingPolicy, outer: dict[str, object], payload: dict[str, object]) -> None:
-    trust = _policy(loads_canonical((VALID / "fixture-rc0-qualification-policy-v1.json").read_bytes()))
+    trust = _policy(loads_canonical(view.rc0_trust_policy.canonical_bytes))
     scopes, slots, profiles, pins, gates = _mapping_values(payload, trust, view.adjunct_trust)
     roles = tuple(AuthorityRoleBinding(role, (principal,)) for role, principal in view.adjunct_trust.role_principal_constraints)
     if outer.get("payload_schema_id") != "gocode.rc0.platform-scope-mapping-policy/1" or outer.get("payload_schema_sha256") != dict(view.adjunct_trust.adjunct_schema_digests).get("gocode.rc0.platform-scope-mapping-policy/1") or _sha(canonical_bytes(payload)) != outer.get("payload_sha256"): _fail("MAPPING_VERIFIED_INVALID")

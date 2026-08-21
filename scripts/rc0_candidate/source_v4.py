@@ -11,8 +11,14 @@ from typing import Callable
 
 from .git_inspection import GitInspectionError, run_repository_git, validate_repository_controls
 from .source import FixtureSourceCapture, _blocked
+from scripts.rc0_policy.upstream_policy_v4 import (
+    PINNED_OPENCODE_SOURCE_SHA,
+    PINNED_UPSTREAM_BLOBS,
+    PINNED_UPSTREAM_TREE_OID,
+    pinned_upstream_blob_count,
+    pinned_upstream_content_digest,
+)
 
-PINNED_OPENCODE_SHA = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
 SOURCECRAFT_ORIGIN = "https://git.sourcecraft.dev/ryltsevmg/gocode.git"
 _GIT_SHA = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -38,6 +44,7 @@ class _Snapshot:
     upstream_tree_oid: str
     upstream_blob_count: int
     upstream_content_digest: str
+    upstream_blobs: tuple[tuple[bytes, str], ...]
     gitlink_present: bool
     gitmodules_present: bool
     status: bytes
@@ -47,10 +54,12 @@ def _output(repository: Path, *arguments: str, check: bool = True) -> bytes:
     return run_repository_git(repository, *arguments, check=check)
 
 
-def _tree_entries(repository: Path, revision: str) -> tuple[int, str, bool]:
+def _tree_entries(
+    repository: Path, revision: str
+) -> tuple[int, str, tuple[tuple[bytes, str], ...], bool]:
     raw = _output(repository, "ls-tree", "-r", "-z", revision, "--", "upstream")
     digest = hashlib.sha256()
-    entries: list[tuple[bytes, bytes]] = []
+    entries: list[tuple[bytes, str]] = []
     gitlink_present = False
     for item in raw.split(b"\0"):
         if not item:
@@ -65,11 +74,12 @@ def _tree_entries(repository: Path, revision: str) -> tuple[int, str, bool]:
             continue
         if kind != b"blob" or _GIT_SHA.fullmatch(oid.decode("ascii", "ignore")) is None:
             raise GitInspectionError("SOURCE_UPSTREAM_BINDING_MISMATCH", "upstream entry is not a blob")
-        entries.append((path, oid))
+        content_sha256 = hashlib.sha256(_output(repository, "cat-file", "blob", oid.decode())).hexdigest()
+        entries.append((path.removeprefix(b"upstream/"), content_sha256))
     for path, oid in sorted(entries):
         digest.update(path)
-        digest.update(hashlib.sha256(_output(repository, "cat-file", "blob", oid.decode())).digest())
-    return len(entries), digest.hexdigest(), gitlink_present
+        digest.update(bytes.fromhex(oid))
+    return len(entries), digest.hexdigest(), tuple(entries), gitlink_present
 
 
 def _snapshot(repository: Path) -> _Snapshot:
@@ -91,10 +101,10 @@ def _snapshot(repository: Path) -> _Snapshot:
     upstream_tree_oid = _output(repository, "rev-parse", f"{head}:upstream").decode("ascii").strip()
     if _output(repository, "cat-file", "-t", upstream_tree_oid).strip() != b"tree":
         raise GitInspectionError("SOURCE_UPSTREAM_BINDING_MISMATCH", "upstream is not a tree")
-    count, digest, gitlink_present = _tree_entries(repository, head)
+    count, digest, blobs, gitlink_present = _tree_entries(repository, head)
     status = _output(repository, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
     validate_repository_controls(repository)
-    return _Snapshot(head, parents, tree_oid, origin_urls, upstream_tree_oid, count, digest, gitlink_present, modules_present, status)
+    return _Snapshot(head, parents, tree_oid, origin_urls, upstream_tree_oid, count, digest, blobs, gitlink_present, modules_present, status)
 
 
 def validate_fixture_source_v4(
@@ -138,8 +148,15 @@ def validate_fixture_source_v4(
         return _blocked("SOURCE_UPSTREAM_TREE_MISMATCH", "embedded upstream tree object ID differs")
     if initial.upstream_blob_count != expected.upstream_blob_count or initial.upstream_content_digest != expected.upstream_content_digest:
         return _blocked("SOURCE_UPSTREAM_CONTENT_MISMATCH", "embedded upstream blob binding differs")
-    if expected.opencode_source_sha != PINNED_OPENCODE_SHA:
+    if expected.opencode_source_sha != PINNED_OPENCODE_SOURCE_SHA:
         return _blocked("SOURCE_OPENCODE_PROVENANCE_MISMATCH", "OpenCode provenance SHA is not pinned")
+    if (
+        initial.upstream_tree_oid != PINNED_UPSTREAM_TREE_OID
+        or initial.upstream_blob_count != pinned_upstream_blob_count()
+        or initial.upstream_content_digest != pinned_upstream_content_digest()
+        or initial.upstream_blobs != PINNED_UPSTREAM_BLOBS
+    ):
+        return _blocked("SOURCE_UPSTREAM_POLICY_MISMATCH", "embedded upstream does not match pinned provenance policy")
     capture = {
         "remote_url": SOURCECRAFT_ORIGIN,
         "captured_origin_main_revision": expected.captured_origin_main_revision,

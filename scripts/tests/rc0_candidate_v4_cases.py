@@ -1,4 +1,5 @@
 import hashlib
+import os
 import subprocess
 import tempfile
 import unittest
@@ -8,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SOURCECRAFT = "https://git.sourcecraft.dev/ryltsevmg/gocode.git"
 PINNED = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
+PINNED_BLOB = ROOT / "upstream/opencode/packages/sdk/openapi.json"
 
 
 def git(repo, *args):
@@ -16,8 +18,14 @@ def git(repo, *args):
     ).stdout.strip()
 
 
+def git_bytes(repo, *args):
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True
+    ).stdout
+
+
 def upstream_digest(repo):
-    entries = git(repo, "ls-tree", "-r", "-z", "HEAD", "--", "upstream").encode()
+    entries = git_bytes(repo, "ls-tree", "-r", "-z", "HEAD", "--", "upstream")
     digest = hashlib.sha256()
     count = 0
     for entry in entries.split(b"\0"):
@@ -29,11 +37,8 @@ def upstream_digest(repo):
             continue
         if kind != b"blob":
             raise AssertionError("fixture upstream unexpectedly contains a non-blob")
-        contents = subprocess.run(
-            ["git", "-C", str(repo), "cat-file", "blob", oid.decode()],
-            check=True, capture_output=True,
-        ).stdout
-        digest.update(path)
+        contents = git_bytes(repo, "cat-file", "blob", oid.decode())
+        digest.update(path.removeprefix(b"upstream/"))
         digest.update(hashlib.sha256(contents).digest())
         count += 1
     return count, digest.hexdigest()
@@ -87,7 +92,9 @@ class Rc0CandidateSourceV4Tests(unittest.TestCase):
         git(repo, "add", "README")
         git(repo, "commit", "-qm", "root")
         (repo / "upstream").mkdir()
-        (repo / "upstream" / "opencode.txt").write_text("embedded\n", encoding="utf-8")
+        embedded = repo / "upstream" / "opencode" / "packages" / "sdk"
+        embedded.mkdir(parents=True)
+        (embedded / "openapi.json").write_bytes(PINNED_BLOB.read_bytes())
         git(repo, "add", "README", "upstream")
         git(repo, "commit", "-qm", "source")
         git(repo, "remote", "add", "origin", SOURCECRAFT)
@@ -144,6 +151,88 @@ class Rc0CandidateSourceV4Tests(unittest.TestCase):
             source.validate_fixture_source_v4(modules, self.expectation(source, modules)).blocked_reason,
             "SOURCE_GITMODULES_FORBIDDEN",
         )
+
+    def test_v4_rejects_recomputed_arbitrary_upstream_content(self):
+        source = __import__("scripts.rc0_candidate.source", fromlist=["unused"])
+        repo = self.make_repo()
+        target = repo / "upstream" / "opencode" / "packages" / "sdk" / "openapi.json"
+        target.write_bytes(target.read_bytes() + b"\narbitrary self-consistent content\n")
+        git(repo, "add", "upstream")
+        git(repo, "commit", "-qm", "arbitrary upstream")
+        result = source.validate_fixture_source_v4(repo, self.expectation(source, repo))
+        self.assertEqual(result.blocked_reason, "SOURCE_UPSTREAM_POLICY_MISMATCH")
+
+    def test_v4_rejects_wrong_tree_count_provenance_and_origin_aliases(self):
+        source = __import__("scripts.rc0_candidate.source", fromlist=["unused"])
+        repo = self.make_repo()
+        expected = self.expectation(source, repo)
+        wrong_tree = source.FixtureSourceExpectationV4(
+            **{**expected.__dict__, "upstream_tree_oid": "1" * 40}
+        )
+        self.assertEqual(
+            source.validate_fixture_source_v4(repo, wrong_tree).blocked_reason,
+            "SOURCE_UPSTREAM_TREE_MISMATCH",
+        )
+        wrong_count = source.FixtureSourceExpectationV4(
+            **{**expected.__dict__, "upstream_blob_count": expected.upstream_blob_count + 1}
+        )
+        self.assertEqual(
+            source.validate_fixture_source_v4(repo, wrong_count).blocked_reason,
+            "SOURCE_UPSTREAM_CONTENT_MISMATCH",
+        )
+        wrong_provenance = source.FixtureSourceExpectationV4(
+            **{**expected.__dict__, "opencode_source_sha": "2" * 40}
+        )
+        self.assertEqual(
+            source.validate_fixture_source_v4(repo, wrong_provenance).blocked_reason,
+            "SOURCE_OPENCODE_PROVENANCE_MISMATCH",
+        )
+        for index, url in enumerate((
+            "git@git.sourcecraft.dev:ryltsevmg/gocode.git",
+            SOURCECRAFT + "?referrer=codex",
+            "https://github.com/Ryltsevmg/gocode.git",
+        )):
+            with self.subTest(url=url):
+                alias = self.make_repo()
+                git(alias, "remote", "set-url", "origin", url)
+                if index == 2:
+                    git(alias, "config", "--add", "remote.origin.url", SOURCECRAFT)
+                self.assertEqual(
+                    source.validate_fixture_source_v4(alias, self.expectation(source, alias)).blocked_reason,
+                    "SOURCE_REMOTE_IDENTITY_MISMATCH",
+                )
+
+    def test_v4_rejects_invalid_path_and_capture_race(self):
+        source = __import__("scripts.rc0_candidate.source", fromlist=["unused"])
+        encoded = self.make_repo()
+        directory_fd = os.open(encoded / "upstream" / "opencode", os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            descriptor = os.open(
+                b"invalid-\xff", os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600,
+                dir_fd=directory_fd,
+            )
+            try:
+                os.write(descriptor, b"bad path\n")
+            finally:
+                os.close(descriptor)
+        finally:
+            os.close(directory_fd)
+        git(encoded, "add", "upstream")
+        git(encoded, "commit", "-qm", "invalid path")
+        self.assertEqual(
+            source.validate_fixture_source_v4(encoded, self.expectation(source, encoded)).blocked_reason,
+            "SOURCE_UPSTREAM_POLICY_MISMATCH",
+        )
+
+        raced = self.make_repo()
+        expected = self.expectation(source, raced)
+        target = raced / "upstream" / "opencode" / "packages" / "sdk" / "openapi.json"
+
+        def mutate(_stage, repository):
+            target.write_bytes(target.read_bytes() + b"race\n")
+
+        result = source.validate_fixture_source_v4(raced, expected, mutation_hook=mutate)
+        self.assertEqual(result.blocked_reason, "SOURCE_SNAPSHOT_CHANGED")
 
 
 class Rc0PolicyV4Tests(unittest.TestCase):

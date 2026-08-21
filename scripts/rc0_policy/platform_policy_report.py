@@ -26,9 +26,18 @@ _TOKEN = object()
 class _IssuedState:
     fingerprint: str; mapping: VerifiedMappingPolicy; report: weakref.ReferenceType[VerifiedReport] | None
 _ISSUED: weakref.WeakKeyDictionary[object, _IssuedState] = weakref.WeakKeyDictionary()
-_REPORT_SCHEMA = "gocode.rc0.schema.verification-report/3"
-_DECLARATION_SCHEMA = "gocode.rc0.qualified-declaration/1"
-_ADJUNCT_SCHEMA_FILES = {_DECLARATION_SCHEMA: "rc0-qualified-declaration-v1.schema.json"}
+_REPORT_SCHEMAS = frozenset((
+    "gocode.rc0.schema.verification-report/3",
+    "gocode.rc0.schema.verification-report/4",
+))
+_DECLARATION_SCHEMAS = {
+    "gocode.rc0.schema.verification-report/3": "gocode.rc0.qualified-declaration/1",
+    "gocode.rc0.schema.verification-report/4": "gocode.rc0.qualified-declaration/4",
+}
+_ADJUNCT_SCHEMA_FILES = {
+    "gocode.rc0.qualified-declaration/1": "rc0-qualified-declaration-v1.schema.json",
+    "gocode.rc0.qualified-declaration/4": "rc0-qualified-declaration-v4.schema.json",
+}
 
 
 def _sha(raw: bytes) -> str: return hashlib.sha256(raw).hexdigest()
@@ -197,6 +206,12 @@ def _schema_digest(schema_id: str) -> str:
     try: return _sha(_schema_raw(schema_id))
     except Exception as error: raise PolicyFailure("SCHEMA_PIN_MISMATCH") from error
 def _schema_raw(schema_id: str) -> bytes: return (ROOT / "docs/schemas" / (SCHEMA_FILES.get(schema_id) or _ADJUNCT_SCHEMA_FILES[schema_id])).read_bytes()
+
+
+def _report_schema(trust: Rc0TrustPolicyView) -> str:
+    pinned = set(dict(trust.schema_id_hash_pairs)) & _REPORT_SCHEMAS
+    if len(pinned) != 1: _fail("RC0_MAPPING_SET_MISMATCH")
+    return next(iter(pinned))
 def _valid_schema(payload: dict[str, object], schema_id: str) -> bool:
     try:
         if schema_id in SCHEMA_FILES: return bool(validate_schema(payload, schema_id))
@@ -224,8 +239,9 @@ def validate_report_against_policy(report_envelope: VerifiedEnvelope, rc0_trust_
     if type(mapping) is not VerifiedMappingPolicy: _fail("REPORT_PROJECTION_MISMATCH")
     VerifiedMappingPolicy.require_verified(mapping, now_epoch_seconds); _trust_exact(rc0_trust_policy, mapping); report = _payload(report_envelope)
     outer = _window(report_envelope.envelope_canonical_bytes, now_epoch_seconds, "REPORT_PROJECTION_MISMATCH")
-    expected_schema = _schema_digest(_REPORT_SCHEMA)
-    if report_envelope.payload_schema_id != _REPORT_SCHEMA or report_envelope.payload_schema_sha256 != expected_schema or dict(mapping.rc0_trust_policy.schema_id_hash_pairs).get(_REPORT_SCHEMA) != expected_schema or _principal(report_envelope) != _role(mapping, "rc0_qualification_reporter") or _valid_schema(report, _REPORT_SCHEMA): _fail("REPORT_PROJECTION_MISMATCH")
+    report_schema = _report_schema(rc0_trust_policy)
+    expected_schema = _schema_digest(report_schema)
+    if report_envelope.payload_schema_id != report_schema or report_envelope.payload_schema_sha256 != expected_schema or dict(mapping.rc0_trust_policy.schema_id_hash_pairs).get(report_schema) != expected_schema or _principal(report_envelope) != _role(mapping, "rc0_qualification_reporter") or _valid_schema(report, report_schema): _fail("REPORT_PROJECTION_MISMATCH")
     _report_policy(report, rc0_trust_policy, mapping)
     view = VerifiedReport(_TOKEN, **_report_view_fields(outer, report)); _remember(view, view._canonical_report_envelope_bytes, mapping)
     VerifiedReport.require_verified(view, now_epoch_seconds)
@@ -239,8 +255,9 @@ def verify_qualified_declaration(declaration: VerifiedEnvelope, rc0_policy: Mapp
     except Exception as error: raise PolicyFailure("RC0_MAPPING_SET_MISMATCH") from error
     if supplied != mapping.rc0_trust_policy.canonical_bytes: _fail("RC0_MAPPING_SET_MISMATCH")
     payload = _payload(declaration); outer = _window(declaration.envelope_canonical_bytes, now_epoch_seconds, "DECLARATION_BINDING_MISMATCH")
-    expected_schema = dict(mapping.adjunct_schema_digests).get(_DECLARATION_SCHEMA)
-    if expected_schema != _schema_digest(_DECLARATION_SCHEMA) or declaration.payload_schema_id != _DECLARATION_SCHEMA or declaration.payload_schema_sha256 != expected_schema or _principal(declaration) != _role(mapping, "rc0_qualification_declarer") or _valid_schema(payload, _DECLARATION_SCHEMA): _fail("DECLARATION_BINDING_MISMATCH")
+    declaration_schema = _DECLARATION_SCHEMAS[_report_schema(mapping.rc0_trust_policy)]
+    expected_schema = _schema_digest(declaration_schema)
+    if (declaration_schema.endswith("/1") and dict(mapping.adjunct_schema_digests).get(declaration_schema) != expected_schema) or declaration.payload_schema_id != declaration_schema or declaration.payload_schema_sha256 != expected_schema or _principal(declaration) != _role(mapping, "rc0_qualification_declarer") or _valid_schema(payload, declaration_schema): _fail("DECLARATION_BINDING_MISMATCH")
     common, digest = payload.get("common_binding_group"), payload.get("verification_report_envelope_sha256")
     if type(common) is not dict or payload.get("common_binding_group_payload_sha256") != _sha(canonical_bytes(common)) or payload.get("runner_lane_id") != declaration.issuer_lane_id or type(digest) is not str or payload.get("rc0_qualification_policy_digest") != mapping.rc0_qualification_policy_digest: _fail("DECLARATION_BINDING_MISMATCH")
     try: raw = resolve_envelope(digest)
