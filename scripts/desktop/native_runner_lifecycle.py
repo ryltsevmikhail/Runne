@@ -55,7 +55,7 @@ def _expected_completion(rows: list[dict[str, object]]) -> dict[str, tuple[str, 
     return expected or None
 
 
-def verify_completion_attestation(attestation: object, trust_root: str, trust_root_sha256: str, rows: list[dict[str, object]]) -> list[str]:
+def verify_completion_attestation(attestation: object, trust_root: str, trust_root_sha256: str, rows: list[dict[str, object]], now: datetime | None = None) -> list[str]:
     """Validate a public-key signed control-plane statement against runner facts."""
     expected = _expected_completion(rows)
     if not trust_root or expected is None or not isinstance(attestation, dict):
@@ -72,7 +72,7 @@ def verify_completion_attestation(attestation: object, trust_root: str, trust_ro
             completed = datetime.fromisoformat(fact["completed_at"].replace("Z", "+00:00"))
             job_completed = datetime.fromisoformat(fact["job_completed_at"].replace("Z", "+00:00"))
         except ValueError: return [BLOCKER]
-        now = datetime.now(UTC)
+        now = now or datetime.now(UTC)
         if completed < now - timedelta(days=7) or completed > now: return [BLOCKER]
         fields = tuple(fact.get(key) for key in ("instance_id", "image_sha256", "boot_measurement_sha256", "job_id", "workflow_run_id", "admission_sha256"))
         if not isinstance(fields[0], str) or not all(_sha256(value) for value in fields[1:3]) or not all(isinstance(value, str) for value in fields[3:5]) or not _sha256(fields[5]) or fields[0] in actual:
