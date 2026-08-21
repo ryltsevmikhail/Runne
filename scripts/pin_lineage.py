@@ -81,9 +81,9 @@ def _raw_deltas(commit: str) -> tuple[Delta, ...]:
     return tuple(sorted(deltas))
 
 
-def _non_docs_tree_state(commit: str) -> dict[bytes, tuple[bytes, bytes]]:
+def _non_docs_tree_state(commit: str) -> dict[bytes, tuple[bytes, bytes, bytes]]:
     raw = _require_git("ls-tree", "-r", "-z", commit)
-    state: dict[bytes, tuple[bytes, bytes]] = {}
+    state: dict[bytes, tuple[bytes, bytes, bytes]] = {}
     records = raw.split(b"\0")
     if records[-1:] != [b""]:
         raise SystemExit("git ls-tree output is malformed")
@@ -92,13 +92,17 @@ def _non_docs_tree_state(commit: str) -> dict[bytes, tuple[bytes, bytes]]:
         fields = header.split()
         if separator != b"\t" or len(fields) != 3 or not path:
             raise SystemExit("git ls-tree record is malformed")
-        _, kind, oid = fields
-        if kind not in (b"blob", b"commit") or re.fullmatch(rb"[0-9a-f]{40}", oid) is None:
+        mode, kind, oid = fields
+        if (
+            re.fullmatch(rb"[0-7]{6}", mode) is None
+            or kind not in (b"blob", b"commit")
+            or re.fullmatch(rb"[0-9a-f]{40}", oid) is None
+        ):
             raise SystemExit("git ls-tree record is not a supported object")
         if not path.startswith(b"docs/"):
             if path in state:
                 raise SystemExit("git ls-tree contains a duplicate path")
-            state[path] = (kind, oid)
+            state[path] = (mode, kind, oid)
     return state
 
 

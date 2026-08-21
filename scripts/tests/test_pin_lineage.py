@@ -117,6 +117,21 @@ class PinLineageTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "tree state"):
             self.call(evidence, "source_commit", lineage.NON_DOCS)
 
+    def test_code_scope_rejects_inherited_non_docs_mode_divergence(self) -> None:
+        self.write("apps/executable", "same blob\n")
+        self.commit("executable base")
+        self.git("checkout", "-q", "-b", "old")
+        (self.root / "apps/executable").chmod(0o755)
+        self.commit("old executable state")
+        self.write("apps/bound", "bound\n")
+        old = self.commit("old binding")
+        self.git("checkout", "-q", "current")
+        self.write("apps/bound", "bound\n")
+        successor = self.commit("current binding")
+        evidence = self.evidence("source_commit", old, successor, "_successor_code")
+        with self.assertRaisesRegex(SystemExit, "tree state"):
+            self.call(evidence, "source_commit", lineage.NON_DOCS)
+
     def test_code_scope_rejects_nonexcluded_upstream_tree_divergence(self) -> None:
         old, successor = self.divergent_binding_pair(("upstream/SOMETHING_ELSE",))
         evidence = self.evidence("source_commit", old, successor, "_successor_code")
