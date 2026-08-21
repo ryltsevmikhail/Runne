@@ -17,7 +17,16 @@ from scripts.tests.rc0_platform_envelope_support import (
 
 
 ROOT = Path(__file__).resolve().parents[2]
-POLICY = ROOT / "scripts/rc0_policy/fixtures/platform_scope/v1/valid/fixture-rc0-qualification-policy-v1.json"
+PROFILE_V3 = "gocode.rc0.evidence-profile/3"
+PROFILE_V4 = "gocode.rc0.evidence-profile/4"
+POLICIES = {
+    PROFILE_V3: ROOT / "scripts/rc0_policy/fixtures/platform_scope/v1/valid/fixture-rc0-qualification-policy-v1.json",
+    PROFILE_V4: ROOT / "scripts/rc0_policy/fixtures/platform_scope/v1/valid/fixture-rc0-qualification-policy-v4.json",
+}
+REPORT_SCHEMAS = {
+    PROFILE_V3: (ROOT / "docs/schemas/rc0-verification-report-v3.schema.json").read_bytes(),
+    PROFILE_V4: (ROOT / "docs/schemas/rc0-verification-report-v4.schema.json").read_bytes(),
+}
 RUNTIME_ADR = ROOT / "docs/adr/ADR-0027-v1-platform-scope.md"
 DESKTOP_ADR = ROOT / "docs/desktop/adr/ADR-0015-v1-platform-scope.md"
 DECISION = ROOT / "docs/decisions/v1-platform-scope-v1.json"
@@ -62,17 +71,17 @@ def _accepted(raw: bytes, proposed: bytes, accepted: bytes) -> bytes:
     return raw.replace(proposed, accepted).replace(b"owner_acceptance_state`: `pending`", b"owner_acceptance_state`: `accepted`")
 
 
-def _envelope(payload: object, schema_id: str, role: str, principal: Mapping[str, str]) -> VerifiedEnvelope:
+def _envelope(payload: object, schema_id: str, role: str, principal: Mapping[str, str], schema_store: AdjunctSchemaStore | None = None, schema_sha256: str | None = None) -> VerifiedEnvelope:
     raw, verifier = valid_fixture_envelope()
     envelope = _fixture_envelope(payload)
-    envelope.update(payload_schema_id=schema_id, payload_schema_sha256=_schema_digest(schema_id),
+    envelope.update(payload_schema_id=schema_id, payload_schema_sha256=schema_sha256 or _schema_digest(schema_id),
                     payload_sha256=_digest(payload), issuer_role=role, **{
                         "issuer_subject_id": principal["subject_id"],
                         "issuer_controlling_account_id": principal["controlling_account_id"],
                         "issuer_delegated_session_id": principal["delegated_session_id"],
                         "issuer_lane_id": principal["lane_id"],
                     })
-    return verify_signed_envelope(_sign(envelope), _fixture_schema_store(), verifier, _NOW)
+    return verify_signed_envelope(_sign(envelope), schema_store or _fixture_schema_store(), verifier, _NOW)
 
 
 def _principals() -> dict[str, Mapping[str, str]]:
@@ -111,7 +120,9 @@ def _host_pins() -> list[dict[str, str]]:
     ]
 
 
-def valid_mapping_fixture() -> MappingFixture:
+def valid_mapping_fixture(profile: str = PROFILE_V3) -> MappingFixture:
+    policy_path = POLICIES[profile]
+    policy = json.loads(policy_path.read_text())
     raw, verifier = valid_fixture_envelope()
     registry = verify_adjunct_trust_registry(verify_signed_envelope(raw, _fixture_schema_store(), verifier, _NOW), _fixture_schema_store(), "FIXTURE_ONLY", _NOW)
     principals = _principals()
@@ -123,9 +134,9 @@ def valid_mapping_fixture() -> MappingFixture:
         owner_rows.append(_envelope({"schema_version": "gocode.governance.platform-decision-acceptance/1", "repository_id": "gocode", "owner_domain": domain, "owner_subject_id": principals[role]["subject_id"], "adr_id": adr_id, "adr_document_sha256": hashlib.sha256(adr).hexdigest(), "shared_decision_payload_sha256": hashlib.sha256(decision + b"\n").hexdigest(), "shared_decision_schema_sha256": hashlib.sha256((ROOT / "docs/schemas/v1-platform-scope-decision-v1.schema.json").read_bytes()).hexdigest(), "acceptance_revision": 1, "accepted_at": "2023-11-14T22:13:20Z"}, "gocode.governance.platform-decision-acceptance/1", role, principals[role]))
     scopes, slots, profiles = _matrix()
     claim = (VALID / "fixture-claim-migration-v1.json").read_bytes(); base = (VALID / "fixture-base-document-universe-v1.json").read_bytes(); delta = (VALID / "fixture-classified-delta-v1.json").read_bytes(); composed = (VALID / "fixture-composed-document-universe-v1.json").read_bytes()
-    payload = {"schema_version": "gocode.rc0.platform-scope-mapping-policy/1", "repository_id": "gocode", "mapping_policy_revision": 1, "activation_epoch": 1, "predecessor_mapping_policy_envelope_sha256": None, "rc0_qualification_policy_digest": json.loads(POLICY.read_text())["policy_digest"], "shared_decision_payload_sha256": hashlib.sha256(decision + b"\n").hexdigest(), "shared_decision_schema_sha256": hashlib.sha256((ROOT / "docs/schemas/v1-platform-scope-decision-v1.schema.json").read_bytes()).hexdigest(), "runtime_adr_document_sha256": hashlib.sha256(runtime).hexdigest(), "desktop_adr_document_sha256": hashlib.sha256(desktop).hexdigest(), "runtime_owner_acceptance_envelope_sha256": owner_rows[0].envelope_sha256, "desktop_owner_acceptance_envelope_sha256": owner_rows[1].envelope_sha256, "adjunct_trust_registry_envelope_sha256": registry.envelope_sha256, "adjunct_trust_registry_payload_sha256": registry.payload_sha256, "claim_migration_registry_payload_sha256": hashlib.sha256(claim).hexdigest(), "claim_migration_registry_schema_sha256": _schema_digest("gocode.v1-platform-scope-claim-migration/1"), "base_document_universe_payload_sha256": hashlib.sha256(base).hexdigest(), "classified_delta_payload_sha256": hashlib.sha256(delta).hexdigest(), "composed_document_universe_payload_sha256": loads_canonical(composed)["composed_document_universe_payload_sha256"], "platform_scopes": scopes, "artifact_slot_mappings": slots, "profile_state_matrix": profiles, "host_identity_pins": _host_pins(), "attestation_payload_schema_sha256": _schema_digest("gocode.rc0.platform-scope-attestation/1"), "qualified_subject_payload_schema_sha256": _schema_digest("gocode.rc0.platform-qualified-subject/1"), "matrix_payload_schema_sha256": _schema_digest("gocode.release.platform-qualification-matrix/2")}
+    payload = {"schema_version": "gocode.rc0.platform-scope-mapping-policy/1", "repository_id": "gocode", "mapping_policy_revision": 1, "activation_epoch": 1, "predecessor_mapping_policy_envelope_sha256": None, "rc0_qualification_policy_digest": policy["policy_digest"], "shared_decision_payload_sha256": hashlib.sha256(decision + b"\n").hexdigest(), "shared_decision_schema_sha256": hashlib.sha256((ROOT / "docs/schemas/v1-platform-scope-decision-v1.schema.json").read_bytes()).hexdigest(), "runtime_adr_document_sha256": hashlib.sha256(runtime).hexdigest(), "desktop_adr_document_sha256": hashlib.sha256(desktop).hexdigest(), "runtime_owner_acceptance_envelope_sha256": owner_rows[0].envelope_sha256, "desktop_owner_acceptance_envelope_sha256": owner_rows[1].envelope_sha256, "adjunct_trust_registry_envelope_sha256": registry.envelope_sha256, "adjunct_trust_registry_payload_sha256": registry.payload_sha256, "claim_migration_registry_payload_sha256": hashlib.sha256(claim).hexdigest(), "claim_migration_registry_schema_sha256": _schema_digest("gocode.v1-platform-scope-claim-migration/1"), "base_document_universe_payload_sha256": hashlib.sha256(base).hexdigest(), "classified_delta_payload_sha256": hashlib.sha256(delta).hexdigest(), "composed_document_universe_payload_sha256": loads_canonical(composed)["composed_document_universe_payload_sha256"], "platform_scopes": scopes, "artifact_slot_mappings": slots, "profile_state_matrix": profiles, "host_identity_pins": _host_pins(), "attestation_payload_schema_sha256": _schema_digest("gocode.rc0.platform-scope-attestation/1"), "qualified_subject_payload_schema_sha256": _schema_digest("gocode.rc0.platform-qualified-subject/1"), "matrix_payload_schema_sha256": _schema_digest("gocode.release.platform-qualification-matrix/2")}
     envelope = _envelope(payload, "gocode.rc0.platform-scope-mapping-policy/1", "mapping_policy_authority", principals["mapping_policy_authority"])
-    return MappingFixture(envelope, json.loads(POLICY.read_text()), decision, runtime, desktop, tuple(owner_rows), registry, claim, base, delta, composed)
+    return MappingFixture(envelope, policy, decision, runtime, desktop, tuple(owner_rows), registry, claim, base, delta, composed)
 
 
 def add_unknown_gate(value: MappingFixture) -> MappingFixture:
@@ -171,19 +182,23 @@ def _projection(rows: list[dict[str, object]], artifact: bool) -> str:
     return hashlib.sha256(domain + canonical_bytes(kept)).hexdigest()
 
 
-def valid_declaration_fixture() -> DeclarationFixture:
+def valid_declaration_fixture(profile: str = PROFILE_V3) -> DeclarationFixture:
     from scripts.rc0_policy.platform_policy import fixture_verify_mapping_policy
 
-    fixture = valid_mapping_fixture(); mapping = fixture_verify_mapping_policy(**fixture.arguments())
+    fixture = valid_mapping_fixture(profile); mapping = fixture_verify_mapping_policy(**fixture.arguments())
+    policy = fixture.rc0_policy
+    schema_id = f"gocode.rc0.schema.verification-report/{4 if profile == PROFILE_V4 else 3}"
     artifact = {"relative_path": "dist/gocode.tar", "sha256": "f" * 64, "size": 3, "locator": "cas:sha256:" + "f" * 64}
-    binding = {"repository_id": "gocode", "candidate_source_sha": "a" * 40, "evidence_attempt_id": "018f0000-0000-7000-8000-000000000000", "observed_evidence_revision": "b" * 40, "evidence_bundle_digest": "d" * 64, "policy_revision": 3, "policy_digest": mapping.rc0_qualification_policy_digest, "profile": "gocode.rc0.evidence-profile/3", "exact_artifact_bindings": [artifact]}
+    binding = {"repository_id": "gocode", "candidate_source_sha": "a" * 40, "evidence_attempt_id": "018f0000-0000-7000-8000-000000000000", "observed_evidence_revision": "b" * 40, "evidence_bundle_digest": "d" * 64, "policy_revision": policy["policy_revision"], "policy_digest": mapping.rc0_qualification_policy_digest, "profile": profile, "exact_artifact_bindings": [artifact]}
     gates = [{"gate_id": gate, "stage": stage, "execution_outcome": "PASS", "gate_result": "PASS", "binding": dict(binding)} for gate, stage in (("fixture-source-test", "SOURCE_CANDIDATE"), ("fixture-production-test", "PRODUCTION_QUALIFICATION"))]
-    report_payload = {**binding, "schema_id": "gocode.rc0.schema.verification-report/3", "required_gate_results": gates, "source_candidate_gate": {"gate_result": "PASS"}, "production_qualification_gate": {"gate_result": "PASS"}, "evidence_seal_gate": {"gate_result": "PASS"}, "overall_candidate_gate": {"gate_result": "PASS"}, "stage_dispositions": [{"stage": "RELEASE_APPROVAL", "report_stage_disposition": "OUT_OF_SCOPE"}, {"stage": "PUBLICATION_AUTHORIZATION", "report_stage_disposition": "OUT_OF_SCOPE"}], "runner_identity": {"runner_class": "fixture", "executable_digest": "e" * 64}, "issued_at": "2026-08-09T00:00:00.000000Z"}
-    schemas = _fixture_schema_store(); documents = dict(schemas._schemas); schema_id = "gocode.rc0.schema.verification-report/3"; documents[schema_id] = (ROOT / "docs/schemas/rc0-verification-report-v3.schema.json").read_bytes(); report_store = AdjunctSchemaStore(documents)
+    report_payload = {**binding, "schema_id": schema_id, "required_gate_results": gates, "source_candidate_gate": {"gate_result": "PASS"}, "production_qualification_gate": {"gate_result": "PASS"}, "evidence_seal_gate": {"gate_result": "PASS"}, "overall_candidate_gate": {"gate_result": "PASS"}, "stage_dispositions": [{"stage": "RELEASE_APPROVAL", "report_stage_disposition": "OUT_OF_SCOPE"}, {"stage": "PUBLICATION_AUTHORIZATION", "report_stage_disposition": "OUT_OF_SCOPE"}], "runner_identity": {"runner_class": "fixture", "executable_digest": "e" * 64}, "issued_at": "2026-08-09T00:00:00.000000Z"}
+    schemas = _fixture_schema_store(); documents = dict(schemas._schemas); documents[schema_id] = REPORT_SCHEMAS[profile]; report_store = AdjunctSchemaStore(documents)
     principals = _principals(); report_raw = _sign({**_fixture_envelope(report_payload), "payload_schema_id": schema_id, "payload_schema_sha256": hashlib.sha256(documents[schema_id]).hexdigest(), "payload_sha256": _digest(report_payload), "issuer_role": "rc0_qualification_reporter", "issuer_subject_id": principals["rc0_qualification_reporter"]["subject_id"], "issuer_controlling_account_id": principals["rc0_qualification_reporter"]["controlling_account_id"], "issuer_delegated_session_id": principals["rc0_qualification_reporter"]["delegated_session_id"], "issuer_lane_id": principals["rc0_qualification_reporter"]["lane_id"]})
     _, verifier = valid_fixture_envelope(); report = verify_signed_envelope(report_raw, report_store, verifier, _NOW)
-    declaration_payload = {"schema_version": "gocode.rc0.qualified-declaration/1", "repository_id": "gocode", "declaration_state": "RC0_QUALIFIED", "common_binding_group": binding, "common_binding_group_payload_sha256": _digest(binding), "rc0_qualification_policy_digest": mapping.rc0_qualification_policy_digest, "verification_report_envelope_sha256": report.envelope_sha256, "required_gate_set_payload_sha256": _projection(gates, False), "artifact_set_payload_sha256": _projection([artifact], True), "runner_lane_id": principals["rc0_qualification_declarer"]["lane_id"]}
-    declaration = _envelope(declaration_payload, "gocode.rc0.qualified-declaration/1", "rc0_qualification_declarer", principals["rc0_qualification_declarer"])
+    declaration_schema = f"gocode.rc0.qualified-declaration/{4 if profile == PROFILE_V4 else 1}"
+    declaration_payload = {"schema_version": declaration_schema, "repository_id": "gocode", "declaration_state": "RC0_QUALIFIED", "common_binding_group": binding, "common_binding_group_payload_sha256": _digest(binding), "rc0_qualification_policy_digest": mapping.rc0_qualification_policy_digest, "verification_report_envelope_sha256": report.envelope_sha256, "required_gate_set_payload_sha256": _projection(gates, False), "artifact_set_payload_sha256": _projection([artifact], True), "runner_lane_id": principals["rc0_qualification_declarer"]["lane_id"]}
+    declaration_documents = dict(schemas._schemas); declaration_documents[declaration_schema] = (ROOT / f"docs/schemas/rc0-qualified-declaration-v{4 if profile == PROFILE_V4 else 1}.schema.json").read_bytes()
+    declaration = _envelope(declaration_payload, declaration_schema, "rc0_qualification_declarer", principals["rc0_qualification_declarer"], AdjunctSchemaStore(declaration_documents), hashlib.sha256(declaration_documents[declaration_schema]).hexdigest())
     return DeclarationFixture(declaration, fixture.rc0_policy, mapping, lambda digest: report_raw if digest == report.envelope_sha256 else b"", lambda raw: verify_signed_envelope(raw, report_store, verifier, _NOW), report)
 
 

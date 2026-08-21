@@ -13,7 +13,9 @@ from scripts.rc0_policy.rules import BINDING_FIELDS, validate_content_locator, v
 
 _MEASUREMENT_SCHEMA = "gocode.rc0.artifact-measurement-record/1"
 _HOST_SCHEMA = "gocode.rc0.native-host-evidence-record/1"
-_PROFILE = "gocode.rc0.evidence-profile/3"
+_PROFILES = frozenset((
+    "gocode.rc0.evidence-profile/3", "gocode.rc0.evidence-profile/4",
+))
 _HEX = re.compile(r"[0-9a-f]{64}")
 _MEASUREMENT_FIELDS = frozenset((
     "schema_version", "repository_id", "mapping_policy_envelope_sha256",
@@ -128,7 +130,7 @@ def _raw(value: dict[str, object], sha_name: str) -> tuple[str, str, int, str]:
 
 def _lineage(value: dict[str, object]) -> tuple[object, ...]:
     common = value.get("common_binding_group")
-    if type(common) is not dict or set(common) != _COMMON_FIELDS or common.get("repository_id") != "gocode" or type(common.get("evidence_attempt_id")) is not str or re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", common["evidence_attempt_id"]) is None or not _digest(common.get("policy_digest")) or not _digest(common.get("evidence_bundle_digest")) or common.get("profile") != _PROFILE or type(common.get("policy_revision")) is not int or isinstance(common["policy_revision"], bool) or common["policy_revision"] < 1 or any(type(common.get(name)) is not str or re.fullmatch(r"[0-9a-f]{40}", common[name]) is None for name in ("candidate_source_sha", "observed_evidence_revision")):
+    if type(common) is not dict or set(common) != _COMMON_FIELDS or common.get("repository_id") != "gocode" or type(common.get("evidence_attempt_id")) is not str or re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", common["evidence_attempt_id"]) is None or not _digest(common.get("policy_digest")) or not _digest(common.get("evidence_bundle_digest")) or common.get("profile") not in _PROFILES or type(common.get("policy_revision")) is not int or isinstance(common["policy_revision"], bool) or common["policy_revision"] < 1 or any(type(common.get(name)) is not str or re.fullmatch(r"[0-9a-f]{40}", common[name]) is None for name in ("candidate_source_sha", "observed_evidence_revision")):
         _fail("LINEAGE_INVALID")
     artifacts = common.get("exact_artifact_bindings")
     if type(artifacts) is not list or not artifacts or len(artifacts) > 4096 or len({canonical_bytes(item) for item in artifacts if type(item) is dict}) != len(artifacts):

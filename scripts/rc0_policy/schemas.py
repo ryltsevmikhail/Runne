@@ -34,6 +34,12 @@ SCHEMA_FILES = {
 _SCHEMA_ROOT = Path(__file__).resolve().parents[2] / "docs" / "schemas"
 
 
+def schema_files_for_profile(profile: str) -> dict[str, str]:
+    """Return the exact closed schema inventory for one evidence profile."""
+    suffix = "/" + profile.rsplit("/", 1)[-1]
+    return {key: value for key, value in SCHEMA_FILES.items() if key.endswith(suffix)}
+
+
 def load_schema(schema_id: str) -> dict[str, Any]:
     try:
         path = _SCHEMA_ROOT / SCHEMA_FILES[schema_id]

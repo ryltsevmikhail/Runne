@@ -6,7 +6,7 @@ import re
 import unicodedata
 from typing import Any, Mapping
 
-from .schemas import SCHEMA_FILES
+from .schemas import schema_files_for_profile
 
 SUPPORTED_STAGES = ("SOURCE_CANDIDATE", "PRODUCTION_QUALIFICATION")
 UNSUPPORTED_STAGES = ("RELEASE_APPROVAL", "PUBLICATION_AUTHORIZATION")
@@ -242,11 +242,7 @@ def validate_policy_inventory(policy: Mapping[str, Any]) -> tuple[str, ...]:
         errors.append("policy schema inventory must be an array")
     schema_ids = [item.get("schema_id") for item in schemas if isinstance(item, dict)]
     profile = policy.get("profile")
-    expected_schema_ids = {
-        schema_id for schema_id in SCHEMA_FILES
-        if profile in ("gocode.rc0.evidence-profile/3", "gocode.rc0.evidence-profile/4")
-        and schema_id.endswith("/" + profile.rsplit("/", 1)[1])
-    }
+    expected_schema_ids = set(schema_files_for_profile(profile))
     if any(type(value) is not str for value in schema_ids) or len(schema_ids) != len(expected_schema_ids) or set(schema_ids) != expected_schema_ids or _duplicates(schema_ids):
         errors.append("policy schema inventory must contain each exact committed schema ID once")
     gates = policy.get("required_gates", [])
