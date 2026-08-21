@@ -63,6 +63,23 @@ class PinLineageTests(unittest.TestCase):
         successor = self.commit("current binding")
         return old, successor, parent
 
+    def divergent_binding_pair(self, paths: tuple[str, ...]) -> tuple[str, str]:
+        for path in paths:
+            self.write(path, "base\n")
+        self.commit("shared inherited state")
+        self.git("checkout", "-q", "-b", "old")
+        for path in paths:
+            self.write(path, "old\n")
+        self.commit("old inherited state")
+        self.write("apps/bound", "bound\n")
+        old = self.commit("old binding")
+        self.git("checkout", "-q", "current")
+        for path in paths:
+            self.write(path, "current\n")
+        self.commit("current inherited state")
+        self.write("apps/bound", "bound\n")
+        return old, self.commit("current binding")
+
     @staticmethod
     def evidence(field: str, pin: str, successor: str, suffix: str) -> str:
         return (
@@ -80,6 +97,36 @@ class PinLineageTests(unittest.TestCase):
 
     def test_code_scope_accepts_only_non_docs_equivalence(self) -> None:
         old, successor, _ = self.pair(docs_differ=True)
+        evidence = self.evidence("source_commit", old, successor, "_successor_code")
+        self.assertEqual(self.call(evidence, "source_commit", lineage.NON_DOCS), successor)
+
+    def test_code_scope_rejects_inherited_non_docs_tree_divergence(self) -> None:
+        self.write("apps/inherited", "base\n")
+        self.commit("inherited base")
+        self.git("checkout", "-q", "-b", "old")
+        self.write("apps/inherited", "old\n")
+        self.commit("old inherited state")
+        self.write("apps/bound", "bound\n")
+        old = self.commit("old binding")
+        self.git("checkout", "-q", "current")
+        self.write("apps/inherited", "current\n")
+        self.commit("current inherited state")
+        self.write("apps/bound", "bound\n")
+        successor = self.commit("current binding")
+        evidence = self.evidence("source_commit", old, successor, "_successor_code")
+        with self.assertRaisesRegex(SystemExit, "tree state"):
+            self.call(evidence, "source_commit", lineage.NON_DOCS)
+
+    def test_code_scope_rejects_nonexcluded_upstream_tree_divergence(self) -> None:
+        old, successor = self.divergent_binding_pair(("upstream/SOMETHING_ELSE",))
+        evidence = self.evidence("source_commit", old, successor, "_successor_code")
+        with self.assertRaisesRegex(SystemExit, "tree state"):
+            self.call(evidence, "source_commit", lineage.NON_DOCS)
+
+    def test_code_scope_allows_only_exact_repo_infra_tree_divergence(self) -> None:
+        old, successor = self.divergent_binding_pair(
+            ("AGENTS.md", ".gitmodules", "upstream/README.md", "upstream/opencode"),
+        )
         evidence = self.evidence("source_commit", old, successor, "_successor_code")
         self.assertEqual(self.call(evidence, "source_commit", lineage.NON_DOCS), successor)
 
@@ -108,7 +155,7 @@ class PinLineageTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "duplicate"):
             self.call(duplicate, "source_commit", lineage.NON_DOCS)
 
-    def test_non_docs_state_binding_rejects_inherited_divergence(self) -> None:
+    def test_non_docs_tree_state_rejects_inherited_divergence(self) -> None:
         old, _, _ = self.pair(inherited_old=True)
         self.git("checkout", "-q", "current")
         self.write("apps/inherited", "diverged\n")
@@ -118,8 +165,8 @@ class PinLineageTests(unittest.TestCase):
         previous = Path.cwd()
         os.chdir(self.root)
         try:
-            with self.assertRaisesRegex(SystemExit, "state binding"):
-                lineage.require_matching_states(old, successor, (b"apps/inherited",))
+            with self.assertRaisesRegex(SystemExit, "tree state"):
+                lineage.require_matching_tree_state(old, successor)
         finally:
             os.chdir(previous)
         self.assertNotEqual(divergent, successor)

@@ -15,6 +15,12 @@ NON_DOCS = "non_docs"
 _GIT_ENV = {"PATH": "/usr/bin:/bin", "GIT_NO_REPLACE_OBJECTS": "1"}
 _SHA = re.compile(r"[0-9a-f]{40}")
 _SCOPES = {FULL: "_successor", NON_DOCS: "_successor_code"}
+REPO_INFRA_EXCLUDED = {
+    b"AGENTS.md",
+    b".gitmodules",
+    b"upstream/README.md",
+    b"upstream/opencode",
+}
 
 
 @dataclass(frozen=True, order=True)
@@ -75,22 +81,36 @@ def _raw_deltas(commit: str) -> tuple[Delta, ...]:
     return tuple(sorted(deltas))
 
 
-def _blob_oid(commit: str, path: bytes) -> bytes:
-    oid = _require_git("rev-parse", "--verify", commit.encode() + b":" + path).strip()
-    if not re.fullmatch(rb"[0-9a-f]{40}", oid):
-        raise SystemExit("Git state binding did not resolve a blob OID")
-    if _require_git("cat-file", "-t", oid).strip() != b"blob":
-        raise SystemExit("Git state binding target is not a blob")
-    return oid
+def _non_docs_tree_state(commit: str) -> dict[bytes, tuple[bytes, bytes]]:
+    raw = _require_git("ls-tree", "-r", "-z", commit)
+    state: dict[bytes, tuple[bytes, bytes]] = {}
+    records = raw.split(b"\0")
+    if records[-1:] != [b""]:
+        raise SystemExit("git ls-tree output is malformed")
+    for record in records[:-1]:
+        header, separator, path = record.partition(b"\t")
+        fields = header.split()
+        if separator != b"\t" or len(fields) != 3 or not path:
+            raise SystemExit("git ls-tree record is malformed")
+        _, kind, oid = fields
+        if kind not in (b"blob", b"commit") or re.fullmatch(rb"[0-9a-f]{40}", oid) is None:
+            raise SystemExit("git ls-tree record is not a supported object")
+        if not path.startswith(b"docs/"):
+            if path in state:
+                raise SystemExit("git ls-tree contains a duplicate path")
+            state[path] = (kind, oid)
+    return state
 
 
-def require_matching_states(
-    commit: str, successor: str, paths: tuple[bytes, ...],
-) -> None:
-    """Require equal resolved blob state for every bound non-docs path."""
-    for path in sorted(set(paths)):
-        if _blob_oid(commit, path) != _blob_oid(successor, path):
-            raise SystemExit(f"state binding differs for {path!r}")
+def require_matching_tree_state(commit: str, successor: str) -> None:
+    """Require equal complete non-docs path-to-object state."""
+    expected = _non_docs_tree_state(commit)
+    actual = _non_docs_tree_state(successor)
+    for path in REPO_INFRA_EXCLUDED:
+        expected.pop(path, None)
+        actual.pop(path, None)
+    if expected != actual:
+        raise SystemExit("non-docs tree state differs")
 
 
 def require_lineage(evidence: str, field: str, *, scope: str) -> str:
@@ -124,5 +144,5 @@ def require_lineage(evidence: str, field: str, *, scope: str) -> str:
     if expected != actual:
         raise SystemExit(f"{field}{suffix} is not {scope}-patch identical to {field}")
     if scope == NON_DOCS:
-        require_matching_states(commit, successor, tuple(delta.path for delta in expected))
+        require_matching_tree_state(commit, successor)
     return successor
