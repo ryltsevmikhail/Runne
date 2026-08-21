@@ -64,6 +64,7 @@ def verify_completion_attestation(attestation: object, trust_root: str, trust_ro
     if not _verify_public_signature(attestation, trust_root, trust_root_sha256) or attestation.get("schema_version") != "desktop-native-runner-lifecycle.v1" or not isinstance(completion, list):
         return [BLOCKER]
     actual: dict[str, tuple[str, str, str, str, str, datetime, datetime]] = {}
+    observed_at = now or datetime.now(UTC)
     for fact in completion:
         if not isinstance(fact, dict) or fact.get("action") not in {"destroyed", "reimaged"} or not isinstance(fact.get("completed_at"), str):
             return [BLOCKER]
@@ -72,12 +73,11 @@ def verify_completion_attestation(attestation: object, trust_root: str, trust_ro
             completed = datetime.fromisoformat(fact["completed_at"].replace("Z", "+00:00"))
             job_completed = datetime.fromisoformat(fact["job_completed_at"].replace("Z", "+00:00"))
         except ValueError: return [BLOCKER]
-        now = now or datetime.now(UTC)
-        if completed < now - timedelta(days=7) or completed > now: return [BLOCKER]
+        if completed < observed_at - timedelta(days=7) or completed > observed_at: return [BLOCKER]
         fields = tuple(fact.get(key) for key in ("instance_id", "image_sha256", "boot_measurement_sha256", "job_id", "workflow_run_id", "admission_sha256"))
         if not isinstance(fields[0], str) or not all(_sha256(value) for value in fields[1:3]) or not all(isinstance(value, str) for value in fields[3:5]) or not _sha256(fields[5]) or fields[0] in actual:
             return [BLOCKER]
-        if fields[0] not in expected or not expected[fields[0]][5] <= job_completed <= completed <= min(now, expected[fields[0]][6]):
+        if fields[0] not in expected or not expected[fields[0]][5] <= job_completed <= completed <= min(observed_at, expected[fields[0]][6]):
             return [BLOCKER]
         actual[fields[0]] = (fields[1], fields[2], fields[3], fields[4], fields[5], expected[fields[0]][5], expected[fields[0]][6])
     return [] if actual == expected else [BLOCKER]

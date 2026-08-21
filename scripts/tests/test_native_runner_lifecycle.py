@@ -145,6 +145,27 @@ class NativeRunnerLifecycleTests(unittest.TestCase):
             payload, root = signed(payload, Path(directory))
             self.assertTrue(verify_completion_attestation(payload, str(root), hashlib.sha256(root.read_bytes()).hexdigest(), rows))
 
+    def test_default_clock_covers_every_fact_in_one_attestation(self) -> None:
+        now = datetime.now(UTC)
+        recent = now.isoformat().replace("+00:00", "Z")
+        issued = (now - timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        expires = (now + timedelta(hours=2)).isoformat().replace("+00:00", "Z")
+        rows = [
+            {"platform_id": "MACOS-13-ARM64", "runner": {"instance_id": f"instance-{index}", "image_sha256": "a" * 64,
+             "boot_measurement_sha256": "b" * 64, "job_id": f"job-{index}", "workflow_run_id": "run-1",
+             "admission_sha256": "c" * 64, "admission_issued_at": issued, "admission_expires_at": expires}}
+            for index in (1, 2)
+        ]
+        payload = {"schema_version": "desktop-native-runner-lifecycle.v1", "completion": [
+            {"instance_id": f"instance-{index}", "image_sha256": "a" * 64, "boot_measurement_sha256": "b" * 64,
+             "job_id": f"job-{index}", "workflow_run_id": "run-1", "admission_sha256": "c" * 64,
+             "action": "destroyed", "job_completed_at": recent, "completed_at": recent}
+            for index in (1, 2)
+        ]}
+        with tempfile.TemporaryDirectory() as directory:
+            payload, root = signed(payload, Path(directory))
+            self.assertEqual(verify_completion_attestation(payload, str(root), hashlib.sha256(root.read_bytes()).hexdigest(), rows), [])
+
     def test_completion_rejects_future_fact(self) -> None:
         rows = [{"platform_id": "MACOS-13-ARM64", "disposition": "verified", "runner": {"instance_id": "i", "image_sha256": "a" * 64, "boot_measurement_sha256": "b" * 64, "job_id": "job", "workflow_run_id": "run", "admission_sha256": "c" * 64, "admission_issued_at": "2026-08-13T23:00:00Z", "admission_expires_at": "2026-08-14T01:00:00Z"}}]
         payload = {"schema_version": "desktop-native-runner-lifecycle.v1", "completion": [{"instance_id": "i", "image_sha256": "a" * 64, "boot_measurement_sha256": "b" * 64, "job_id": "job", "workflow_run_id": "run", "admission_sha256": "c" * 64, "action": "destroyed", "job_completed_at": "2026-08-14T00:00:00Z", "completed_at": "2999-01-01T00:00:00Z"}]}
