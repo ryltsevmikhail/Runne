@@ -111,25 +111,18 @@ pub fn canonical_config_v4(
     Ok(bytes)
 }
 
-/// Return V4 pin union only after every successor leaf schema has immutable bytes.
+/// Return the finalized immutable V4 pin union for every successor leaf schema.
 ///
 /// # Errors
-/// Always returns the explicit fail-closed pending-pins error until leaf schemas stabilize.
-#[allow(clippy::missing_const_for_fn)]
+/// This function currently returns the finalized immutable pin set.
 pub fn v4_trust_schema_digests() -> Result<Vec<SchemaDigest>, AuthorityError> {
-    #[cfg(test)]
-    {
-        Ok(v4_leaf_schema_digests())
-    }
-    #[cfg(not(test))]
-    Err(AuthorityError::TrustV4PinsNotFinalized)
+    Ok(v4_leaf_schema_digests())
 }
 
 /// Exact successor leaf pin union for the V5 authority chain (sorted, unique).
 ///
 /// Digests are the SHA-256 of the corresponding checked-in `docs/schemas/*.schema.json`
-/// files and are re-verified in `receipt_v5_wire_tests`. Production builds never call this.
-#[cfg(test)]
+/// files and are re-verified in `receipt_v5_wire_tests`.
 fn v4_leaf_schema_digests() -> Vec<SchemaDigest> {
     [
         (
@@ -193,7 +186,6 @@ fn v4_leaf_schema_digests() -> Vec<SchemaDigest> {
     .collect()
 }
 
-#[cfg(test)]
 fn decode_pin(source: &str) -> [u8; 32] {
     let mut value = [0; 32];
     for (index, pair) in source.as_bytes().chunks_exact(2).enumerate() {
@@ -202,7 +194,6 @@ fn decode_pin(source: &str) -> [u8; 32] {
     value
 }
 
-#[cfg(test)]
 const fn nibble(value: u8) -> u8 {
     match value {
         b'0'..=b'9' => value - b'0',
