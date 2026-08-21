@@ -133,9 +133,10 @@ class NativeRunnerLifecycleTests(unittest.TestCase):
         ]}
         with tempfile.TemporaryDirectory() as directory:
             payload, root = signed(payload, Path(directory))
-            self.assertEqual(verify_completion_attestation(payload, str(root), hashlib.sha256(root.read_bytes()).hexdigest(), rows), [])
+            observed_at = datetime(2026, 8, 14, 0, 30, tzinfo=UTC)
+            self.assertEqual(verify_completion_attestation(payload, str(root), hashlib.sha256(root.read_bytes()).hexdigest(), rows, observed_at), [])
             payload["completion"][0]["job_id"] = "job-2"
-            self.assertTrue(verify_completion_attestation(payload, str(root), hashlib.sha256(root.read_bytes()).hexdigest(), rows))
+            self.assertTrue(verify_completion_attestation(payload, str(root), hashlib.sha256(root.read_bytes()).hexdigest(), rows, observed_at))
 
     def test_completion_rejects_wrong_workflow_run_or_expired_fact(self) -> None:
         rows = [{"platform_id": "MACOS-13-ARM64", "disposition": "verified", "runner": {"instance_id": "i", "image_sha256": "a" * 64, "boot_measurement_sha256": "b" * 64, "job_id": "job", "workflow_run_id": "run", "admission_sha256": "c" * 64, "admission_issued_at": "2020-01-01T00:00:00Z", "admission_expires_at": "2020-01-01T01:00:00Z"}}]
