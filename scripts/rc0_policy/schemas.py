@@ -19,6 +19,17 @@ SCHEMA_FILES = {
     "gocode.rc0.schema.checksums-text/3": "rc0-checksums-text-v3.schema.json",
     "gocode.rc0.schema.qualification-policy-bundle/3": "rc0-qualification-policy-bundle-v3.schema.json",
     "gocode.rc0.schema.verification-report/3": "rc0-verification-report-v3.schema.json",
+    "gocode.rc0.schema.candidate-record/4": "rc0-candidate-record-v4.schema.json",
+    "gocode.rc0.schema.source-gate-results/4": "rc0-source-gate-results-v4.schema.json",
+    "gocode.rc0.schema.test-inventory/4": "rc0-test-inventory-v4.schema.json",
+    "gocode.rc0.schema.security-validation/4": "rc0-security-validation-v4.schema.json",
+    "gocode.rc0.schema.documentation-validation/4": "rc0-documentation-validation-v4.schema.json",
+    "gocode.rc0.schema.fail-closed-disposition/4": "rc0-fail-closed-disposition-v4.schema.json",
+    "gocode.rc0.schema.artifact-inventory/4": "rc0-artifact-inventory-v4.schema.json",
+    "gocode.rc0.schema.sbom-spdx-2.3/4": "rc0-sbom-spdx-2.3-v4.schema.json",
+    "gocode.rc0.schema.checksums-text/4": "rc0-checksums-text-v4.schema.json",
+    "gocode.rc0.schema.qualification-policy-bundle/4": "rc0-qualification-policy-bundle-v4.schema.json",
+    "gocode.rc0.schema.verification-report/4": "rc0-verification-report-v4.schema.json",
 }
 _SCHEMA_ROOT = Path(__file__).resolve().parents[2] / "docs" / "schemas"
 

@@ -33,7 +33,7 @@ def policy_module(name):
 class Rc0PolicySchemaTests(unittest.TestCase):
     def test_all_eleven_schemas_are_draft_2020_12_closed_objects(self):
         schemas = policy_module("schemas")
-        self.assertEqual(set(schemas.SCHEMA_FILES), set(SCHEMA_IDS))
+        self.assertEqual({key for key in schemas.SCHEMA_FILES if key.endswith("/3")}, set(SCHEMA_IDS))
         for schema_id in SCHEMA_IDS:
             with self.subTest(schema_id=schema_id):
                 schema = schemas.load_schema(schema_id)

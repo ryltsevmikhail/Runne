@@ -167,3 +167,6 @@ def validate_fixture_source(
 def capture_current_source() -> FixtureLocalInputsSummary:
     """Refuse operational capture until an independent operator authorizes it."""
     return FixtureLocalInputsSummary("BLOCKED", "EXTERNAL_SOURCE_CAPTURE_REQUIRES_APPROVAL")
+
+
+from .source_v4 import FixtureSourceExpectationV4, validate_fixture_source_v4

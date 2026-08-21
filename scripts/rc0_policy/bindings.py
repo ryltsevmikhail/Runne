@@ -27,6 +27,9 @@ EVIDENCE_FILES = (
     "sbom.spdx.json",
     "checksums.txt",
 )
+SUPPORTED_EVIDENCE_PROFILES = frozenset(
+    ("gocode.rc0.evidence-profile/3", "gocode.rc0.evidence-profile/4")
+)
 
 
 def validate_stage_dispositions(records: list[Mapping[str, Any]]) -> tuple[str, ...]:
@@ -210,14 +213,21 @@ def validate_record_bindings(
     if set(evidence) != set(EVIDENCE_FILES):
         errors.append("normalized evidence requires exactly nine named records")
     errors.extend(validate_common_bindings(evidence))
-    profiles = {record.get("profile") for record in evidence.values() if "profile" in record}
-    if len(profiles) > 1 or None in profiles:
+    json_records = {
+        name: record for name, record in evidence.items()
+        if name != "checksums.txt" and isinstance(record, Mapping)
+    }
+    profiles = {record.get("profile") for record in json_records.values()}
+    if len(json_records) != len(EVIDENCE_FILES) - 1 or any(
+        "profile" not in record for record in json_records.values()
+    ) or len(profiles) != 1 or None in profiles or not profiles <= SUPPORTED_EVIDENCE_PROFILES:
         errors.append("cross-record binding mismatch: profile")
+    profile = next(iter(profiles), None)
     candidate = evidence.get("candidate-record.json", {})
     source_sha = candidate.get("candidate_source_revision")
     source = evidence.get("source-gate-results.json", {}).get("capture", {})
     if source:
-        errors.extend(validate_source_capture(source, source_sha))
+        errors.extend(validate_source_capture(source, source_sha, profile))
     tests = evidence.get("test-inventory.json", {}).get("tests", [])
     if any(test.get("source_sha") != source_sha for test in tests):
         errors.append("test inventory source_sha does not bind candidate source")

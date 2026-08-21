@@ -55,13 +55,22 @@ def validate_fixture(raw: bytes, schema_id: str) -> FixtureValidation:
     """Parse fixture bytes and return non-authoritative schema diagnostics."""
     record = loads_canonical(raw)
     diagnostics = validate_schema(record, schema_id)
-    if schema_id == "gocode.rc0.schema.qualification-policy-bundle/3" and isinstance(record, dict):
+    if schema_id in {
+        "gocode.rc0.schema.qualification-policy-bundle/3",
+        "gocode.rc0.schema.qualification-policy-bundle/4",
+    } and isinstance(record, dict):
         diagnostics += validate_policy_inventory(record)
-    elif schema_id == "gocode.rc0.schema.artifact-inventory/3" and isinstance(record, dict):
+    elif schema_id in {
+        "gocode.rc0.schema.artifact-inventory/3",
+        "gocode.rc0.schema.artifact-inventory/4",
+    } and isinstance(record, dict):
         diagnostics += validate_artifact_inventory(record)
-    elif schema_id == "gocode.rc0.schema.source-gate-results/3" and isinstance(record, dict):
+    elif schema_id in {
+        "gocode.rc0.schema.source-gate-results/3",
+        "gocode.rc0.schema.source-gate-results/4",
+    } and isinstance(record, dict):
         diagnostics += validate_source_capture(
-            record.get("capture", {}), record.get("candidate_source_revision")
+            record.get("capture", {}), record.get("candidate_source_revision"), record.get("profile")
         )
     marker = FIXTURE_MARKER if not diagnostics else FIXTURE_REJECTED_MARKER
     return FixtureValidation(record, canonical_bytes(record), diagnostics, marker)

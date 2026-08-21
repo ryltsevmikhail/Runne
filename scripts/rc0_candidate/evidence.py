@@ -21,15 +21,19 @@ from .path_policy import evidence_value_diagnostics, validate_artifact_path
 from .source import validate_fixture_evidence_commit
 
 _SHA = re.compile(r"[0-9a-f]{40}")
-_SCHEMAS = {
-    "candidate-record.json": "gocode.rc0.schema.candidate-record/3",
-    "source-gate-results.json": "gocode.rc0.schema.source-gate-results/3",
-    "test-inventory.json": "gocode.rc0.schema.test-inventory/3",
-    "security-validation.json": "gocode.rc0.schema.security-validation/3",
-    "documentation-validation.json": "gocode.rc0.schema.documentation-validation/3",
-    "fail-closed-disposition.json": "gocode.rc0.schema.fail-closed-disposition/3",
-    "artifact-inventory.json": "gocode.rc0.schema.artifact-inventory/3",
-    "sbom.spdx.json": "gocode.rc0.schema.sbom-spdx-2.3/3",
+_SCHEMA_NAMES = {
+    "candidate-record.json": "candidate-record",
+    "source-gate-results.json": "source-gate-results",
+    "test-inventory.json": "test-inventory",
+    "security-validation.json": "security-validation",
+    "documentation-validation.json": "documentation-validation",
+    "fail-closed-disposition.json": "fail-closed-disposition",
+    "artifact-inventory.json": "artifact-inventory",
+    "sbom.spdx.json": "sbom-spdx-2.3",
+}
+_PROFILES = {
+    "gocode.rc0.evidence-profile/3": "3",
+    "gocode.rc0.evidence-profile/4": "4",
 }
 
 
@@ -100,6 +104,11 @@ def _prepare_blobs(records: Mapping[str, Any]) -> tuple[str, dict[str, bytes]]:
     normalized: dict[str, Any] = {}
     blobs: dict[str, bytes] = {}
     diagnostics: list[str] = []
+    candidate = records.get("candidate-record.json")
+    profile = candidate.get("profile") if isinstance(candidate, dict) else None
+    version = _PROFILES.get(profile)
+    if version is None:
+        diagnostics.append("candidate record profile is unsupported")
     for name in EVIDENCE_FILES:
         value = records[name]
         if name == "checksums.txt":
@@ -113,7 +122,9 @@ def _prepare_blobs(records: Mapping[str, Any]) -> tuple[str, dict[str, bytes]]:
                 continue
             normalized[name] = parsed
             blobs[name] = value
-            diagnostics.extend(validate_schema(parsed, "gocode.rc0.schema.checksums-text/3"))
+            if version is not None:
+                parsed["schema_id"] = f"gocode.rc0.schema.checksums-text/{version}"
+                diagnostics.extend(validate_schema(parsed, f"gocode.rc0.schema.checksums-text/{version}"))
             if any(not item["relative_path"].isascii() for item in parsed["artifacts"]):
                 diagnostics.append("checksums artifact paths must be ASCII")
         else:
@@ -121,7 +132,10 @@ def _prepare_blobs(records: Mapping[str, Any]) -> tuple[str, dict[str, bytes]]:
                 diagnostics.append(f"{name} must be an object")
                 continue
             diagnostics.extend(evidence_value_diagnostics(value))
-            diagnostics.extend(validate_schema(value, _SCHEMAS[name]))
+            if version is not None:
+                diagnostics.extend(
+                    validate_schema(value, f"gocode.rc0.schema.{_SCHEMA_NAMES[name]}/{version}")
+                )
             try:
                 blobs[name] = canonical_bytes(value)
             except StrictJSONError as error:
