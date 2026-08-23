@@ -1,7 +1,6 @@
-GOCODE Runtime
+RUNNE Runtime
 
-This product includes software developed by the OpenCode project
-(https://github.com/anomalyco/opencode).
+This product includes interface material derived from the OpenCode project.
 
 The OpenCode baseline used for reverse-specification is pinned at:
   commit: 66495a2a22cd0a57efcc4f721e65532f0987b4e8
@@ -9,7 +8,8 @@ The OpenCode baseline used for reverse-specification is pinned at:
   license: MIT
 
 OpenCode is copyright (c) the OpenCode contributors and is used under the
-terms of the MIT license. See upstream/LICENSE for the original license.
+terms of the MIT license. Attribution and licensing details are recorded in
+docs/00-foundation/LICENSE_AND_ATTRIBUTION.md.
 
-GOCODE Runtime is a separate project and not endorsed by or affiliated with
+RUNNE Runtime is a separate project and not endorsed by or affiliated with
 the OpenCode project.
