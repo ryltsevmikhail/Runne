@@ -22,7 +22,7 @@ async fn native_desktop_controller_uses_exact_openai_v2_without_v1_downgrade() {
     let temporary = tempfile::tempdir().expect("temporary desktop profile");
     let fixture = Path::new(env!("CARGO_BIN_EXE_activation_process"));
     let desktop = copied_executable(fixture, temporary.path().join("runne-desktop"));
-    copied_executable(fixture, temporary.path().join("runne-daemon"));
+    copied_executable(fixture, temporary.path().join("runned"));
 
     let core = Arc::new(
         AppCore::open_with_runtime_mode(
