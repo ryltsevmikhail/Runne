@@ -1,5 +1,6 @@
 #![cfg(target_os = "macos")]
 
+use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -11,15 +12,19 @@ use runne_desktop::{
 
 fn copied_executable(source: &Path, destination: PathBuf) -> PathBuf {
     std::fs::copy(source, &destination).expect("copy controlled fixture executable");
-    use std::os::unix::fs::PermissionsExt as _;
-    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o755))
+    std::fs::set_permissions(&destination, std::fs::Permissions::from_mode(0o500))
         .expect("mark controlled fixture executable");
     destination
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_desktop_controller_uses_exact_openai_v2_without_v1_downgrade() {
-    let temporary = tempfile::tempdir().expect("temporary desktop profile");
+    let temporary = tempfile::Builder::new()
+        .prefix("runne-daemon-loopback-fixture-")
+        .tempdir_in("/tmp")
+        .expect("temporary desktop profile");
+    std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
+        .expect("protect temporary desktop profile");
     let fixture = Path::new(env!("CARGO_BIN_EXE_activation_process"));
     let desktop = copied_executable(fixture, temporary.path().join("runne-desktop"));
     copied_executable(fixture, temporary.path().join("runned"));
