@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { installDesktopAdapter, workspace } from './replay-resume.support'
+import { installDesktopAdapter, project, workspace } from './replay-resume.support'
 
 test.beforeEach(async ({ page }) => {
   await installDesktopAdapter(page)
@@ -23,4 +23,12 @@ test('keeps unknown workspaces closed without leaking saved paths', async ({ pag
   await expect(page.getByRole('alert').filter({ hasText: 'Project unavailable' })).toBeVisible()
   await expect(page.getByText('/workspace/gocode-ui')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Back to projects' })).toBeEnabled()
+})
+
+test('creates a workspace through the canonical project mutation flow', async ({ page }) => {
+  await page.goto(`/projects/${project.projectId}`)
+
+  await expect(page.getByText('This project has no workspaces yet.')).toBeVisible()
+  await page.getByRole('button', { name: 'Create workspace' }).click()
+  await expect(page.getByRole('button', { name: 'Open workspace gocode-ui' })).toBeVisible()
 })

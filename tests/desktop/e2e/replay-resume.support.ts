@@ -8,8 +8,15 @@ export const workspace = {
   open: true,
 } as const
 
+export const project = {
+  projectId: workspace.projectId,
+  displayName: 'gocode-ui',
+  version: 1,
+  archived: false,
+} as const
+
 export async function installDesktopAdapter(page: Page): Promise<void> {
-  await page.addInitScript(({ currentWorkspace }) => {
+  await page.addInitScript(({ currentProject, currentWorkspace }) => {
     type TauriInternals = {
       invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>
       transformCallback: () => number
@@ -19,6 +26,7 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
     type ReplayWindow = Window & { __TAURI_INTERNALS__: TauriInternals }
 
     ;(globalThis as typeof globalThis & { isTauri: boolean }).isTauri = true
+    let workspaceCreated = false
     ;(window as ReplayWindow).__TAURI_INTERNALS__ = {
       transformCallback() {
         return 1
@@ -43,6 +51,13 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
             return args?.workspaceId === currentWorkspace.workspaceId
               ? currentWorkspace
               : null
+          case 'get_canonical_project':
+            return args?.projectId === currentProject.projectId
+              ? { project: currentProject, workspaces: workspaceCreated ? [currentWorkspace] : [] }
+              : null
+          case 'create_runtime_workspace':
+            workspaceCreated = true
+            return { workspaceId: currentWorkspace.workspaceId, newVersion: 1 }
           case 'set_theme':
             return null
           default:
@@ -50,5 +65,5 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
         }
       },
     }
-  }, { currentWorkspace: workspace })
+  }, { currentProject: project, currentWorkspace: workspace })
 }
