@@ -1,13 +1,14 @@
+use notify_rust::{Notification, NotificationResponse};
 use runne_app_core::{AppCore, CanonicalApprovalState};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Manager, State};
-use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 
 use super::IpcError;
+use crate::external_activation::{ActivationEvent, ActivationManager, ActivationTarget};
 
 const NOTIFICATION_TITLE: &str = "Runne";
 const NOTIFICATION_BODY: &str = "An approval requires your attention.";
@@ -122,17 +123,7 @@ pub async fn sync_notifications_inner(
             notification_id_from_approval(&intent.notification_id).ok_or(IpcError {
                 code: "notification_rejected",
             })?;
-        let result = app
-            .notification()
-            .builder()
-            .id(notification_id)
-            .title(NOTIFICATION_TITLE)
-            .body(NOTIFICATION_BODY)
-            .extra("notificationId", &intent.notification_id)
-            .extra("category", "approval_attention")
-            .auto_cancel()
-            .show();
-        if result.is_err() {
+        if show_native_approval_notification(app, &intent, notification_id).is_err() {
             state.forget(&intent.notification_id);
             return Err(IpcError {
                 code: "notifications_unavailable",
@@ -141,6 +132,54 @@ pub async fn sync_notifications_inner(
         shown = shown.saturating_add(1);
     }
     Ok(NotificationSyncResponse { shown, pending })
+}
+
+fn show_native_approval_notification(
+    app: &AppHandle,
+    intent: &NotificationIntent,
+    notification_id: i32,
+) -> Result<(), ()> {
+    #[cfg(target_os = "macos")]
+    let _ = notify_rust::set_application(&app.config().identifier);
+
+    let mut notification = Notification::new();
+    notification
+        .summary(NOTIFICATION_TITLE)
+        .body(NOTIFICATION_BODY)
+        .action("open", "Open Runne")
+        .id(u32::try_from(notification_id).map_err(|_| ())?);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    notification.appname(NOTIFICATION_TITLE);
+    #[cfg(windows)]
+    notification.app_id(&app.config().identifier);
+
+    let handle = notification.show().map_err(|_| ())?;
+    let activation = ActivationTarget {
+        runtime: None,
+        project_id: None,
+        workspace_id: None,
+        task_run_id: None,
+        approval_id: Some(intent.notification_id.clone()),
+        event: Some(ActivationEvent::Approval),
+    };
+    let activations = app.state::<ActivationManager>().inner().clone();
+    let app = app.clone();
+    std::thread::Builder::new()
+        .name("runne-notification-action".to_owned())
+        .spawn(move || {
+            let _ = handle.wait_for_response(|response: &NotificationResponse| {
+                let should_route = match response {
+                    NotificationResponse::Default => true,
+                    NotificationResponse::Action(action) => action == "open",
+                    NotificationResponse::Reply(_) | NotificationResponse::Closed(_) => false,
+                };
+                if should_route {
+                    activations.forward_target(&app, activation);
+                }
+            });
+        })
+        .map_err(|_| ())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -198,5 +237,21 @@ mod tests {
             .expect("valid id");
         assert_eq!(first, second);
         assert!(first > 0);
+    }
+
+    #[test]
+    fn approval_notification_routes_only_to_the_allowlisted_surface() {
+        let target = ActivationTarget {
+            runtime: None,
+            project_id: None,
+            workspace_id: None,
+            task_run_id: None,
+            approval_id: Some("018f2e3a-7000-7000-8000-000000000212".to_owned()),
+            event: Some(ActivationEvent::Approval),
+        };
+        assert!(target.project_id.is_none());
+        assert!(target.workspace_id.is_none());
+        assert!(target.task_run_id.is_none());
+        assert_eq!(target.event, Some(ActivationEvent::Approval));
     }
 }

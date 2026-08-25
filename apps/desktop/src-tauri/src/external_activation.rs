@@ -33,6 +33,12 @@ impl ActivationManager {
         }) else {
             return;
         };
+        self.forward_target(app, target);
+    }
+
+    /// Delivers a host-generated route request through the same buffered event
+    /// path as validated external activations.
+    pub(crate) fn forward_target<R: Runtime>(&self, app: &AppHandle<R>, target: ActivationTarget) {
         if let Ok(mut pending) = self.pending.lock() {
             *pending = Some(target.clone());
         }

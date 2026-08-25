@@ -22,8 +22,8 @@ serde.workspace = true
 serde_json.workspace = true
 tauri.workspace = true
 tauri-plugin-dialog = "=2.7.2"
-tauri-plugin-notification = "=2.3.3"
 tauri-plugin-single-instance = "=2.4.3"
+notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 tokio.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

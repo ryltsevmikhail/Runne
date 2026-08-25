@@ -52,7 +52,6 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init())
         .on_page_load(fence_page_load)
         .on_window_event(|window, event| match event {
             WindowEvent::CloseRequested { api, .. } => {
