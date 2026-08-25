@@ -11,6 +11,12 @@ edition = "2024"
 license = "MIT"
 rust-version = "1.95"
 
+# Protected bundled-runtime integration tests execute the real daemon and
+# stage it once per durable fault point. Keeping test binaries free of debug
+# information prevents the fixture from exhausting the worker's runtime tmpfs.
+[profile.test]
+debug = 0
+
 [workspace.dependencies]
 aho-corasick = "=1.1.4"
 async-trait = "0.1"
