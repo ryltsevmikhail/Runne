@@ -94,8 +94,8 @@ impl AppCore {
         context: &RuntimeOperationContext,
     ) -> Result<ConversationSnapshot, AppCoreError> {
         if let ConversationReferenceOwner::Workspace(workspace_id) = owner {
-            let workspace = self
-                .live_runtime_client()?
+            let workspace = context
+                .client
                 .get_workspace(workspace_id)
                 .await
                 .map_err(|_| AppCoreError::ProjectUnavailable)?;
