@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 
 import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
 import type { TaskRunTimeline } from '@/entities/task-run'
+import { currentLocale } from '@/shared/i18n'
 import TaskRunPage from './TaskRunPage.vue'
 
 const id = '018f2e3a-7000-7000-8000-000000000210'
@@ -19,6 +20,24 @@ function deferred<T>() {
 }
 
 describe('TaskRun page runtime session gate', () => {
+  it('localizes unavailable state through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const live = shallowRef<RuntimeSessionSnapshot>({ runtime: 'live', status: 'live', canMutate: true })
+      const context: RuntimeSessionContext = { snapshot: live as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => live.value, retry: async () => live.value, close: async () => {}, observeBootstrap: () => live.value }
+      const router = createRouter({ history: createMemoryHistory(), routes: [{ path: '/task-runs/:taskRunId', component: TaskRunPage }] })
+      await router.push(`/task-runs/${id}`)
+      await router.isReady()
+      const Harness = defineComponent({ setup: () => { provideRuntimeSession(context); return () => h(TaskRunPage, { loadTaskRun: async () => { throw new Error('unavailable') } }) } })
+      const wrapper = mount(Harness, { global: { plugins: [router] } })
+      await flushPromises()
+      expect(wrapper.text()).toContain('TaskRun недоступен.')
+    } finally {
+      currentLocale.value = previousLocale
+    }
+  })
+
   it('waits for an injected live session before querying and retries when it becomes live', async () => {
     const snapshot = shallowRef<RuntimeSessionSnapshot>({ runtime: 'authenticated', status: 'stale', canMutate: false })
     const context: RuntimeSessionContext = { snapshot: snapshot as Readonly<Ref<RuntimeSessionSnapshot>>, connect: async () => snapshot.value, retry: async () => snapshot.value, close: async () => {}, observeBootstrap: () => snapshot.value }

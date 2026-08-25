@@ -13,6 +13,7 @@ import {
 } from '@/entities/task-run'
 import { listPendingApprovals } from '@/entities/approval'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
+import { translate } from '@/shared/i18n'
 
 type LoadTaskRun = (id: string) => Promise<TaskRunTimeline>
 type SubscribeTaskRun = (id: string, initial: TaskRunTimeline, onTimeline: (value: TaskRunTimeline) => void) => Promise<TaskRunSession>
@@ -145,7 +146,7 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
 
 <template>
   <section v-if="snapshot === null" aria-live="polite">
-    {{ unavailable ? 'Task run is unavailable.' : 'Loading task run…' }}
+    {{ unavailable ? translate('taskRun.unavailable') : translate('taskRun.loading') }}
   </section>
   <TaskRunWorkspace
     v-else
@@ -162,7 +163,7 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
     :disabled="cancelling || runtimeStatus !== 'live'"
     @click="requestCancellation"
   >
-    Request cancellation
+    {{ translate('taskRun.requestCancellation') }}
   </GcButton>
   <GcButton
     v-if="snapshot?.recovery === 'resync_required'"
@@ -170,6 +171,6 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
     :disabled="resyncing"
     @click="resyncTaskRun"
   >
-    Revalidate task run
+    {{ translate('taskRun.revalidate') }}
   </GcButton>
 </template>
