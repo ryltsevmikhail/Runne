@@ -104,7 +104,7 @@ onMounted(() => {
     <button v-else-if="status.state === 'available'" type="button" :disabled="action !== null" @click="runAction('download')">
       {{ action === 'download' ? translate('updates.working') : translate('updates.download') }}
     </button>
-    <div v-else-if="status.state === 'staged'" aria-label="Update installation confirmation">
+    <div v-else-if="status.state === 'staged'" :aria-label="translate('updates.installationConfirmation')">
       <label>
         <input v-model="confirmActiveTaskRuns" type="checkbox">
         {{ translate('updates.confirmActiveTaskRuns') }}

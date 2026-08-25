@@ -189,6 +189,7 @@ const russian: Record<keyof typeof english, string> = {
   'updates.download': 'Скачать обновление',
   'updates.confirmActiveTaskRuns': 'Подтверждаю продолжение при активных TaskRun',
   'updates.prepareRestart': 'Подготовить перезапуск',
+  'updates.installationConfirmation': 'Подтверждение установки обновления',
   'updates.restartRequired': 'Перезапустите Desktop для завершения обновления.',
   'updates.working': 'Выполняется…',
   'updates.actionFailed': 'Действие обновления отклонено владельцем Desktop.',

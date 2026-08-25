@@ -187,6 +187,7 @@ const english = {
   'updates.download': 'Download update',
   'updates.confirmActiveTaskRuns': 'I confirm continuing with active TaskRuns',
   'updates.prepareRestart': 'Prepare restart',
+  'updates.installationConfirmation': 'Update installation confirmation',
   'updates.restartRequired': 'Restart the desktop to complete the update.',
   'updates.working': 'Working…',
   'updates.actionFailed': 'The update action was rejected by the desktop owner.',
