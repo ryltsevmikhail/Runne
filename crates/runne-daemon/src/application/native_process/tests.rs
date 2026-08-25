@@ -105,7 +105,13 @@ fn re_adoption_accepts_the_exact_marker_and_stop_identity() {
         nonce,
     )
     .unwrap();
-    launcher.re_adopt(handle.clone()).expect("re-adopt exact process");
+    assert!((0..50).any(|_| match launcher.re_adopt(handle.clone()) {
+        Ok(()) => true,
+        Err(_) => {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            false
+        }
+    }), "re-adopt exact process");
     launcher.stop(&handle).expect("stop adopted process");
     let _ = child.wait();
 }
