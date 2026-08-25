@@ -1,11 +1,8 @@
 use super::super::{
-    BrokerChannelBinding, CandidateSourceIdentity, ClaimCredentialOperation,
-    ContinuationBindingDigest, ContractBundleDigest, CredentialClaimBinding, CredentialFence,
-    CredentialLifecycleRevision, CredentialMeasurementSnapshot, CredentialOperationAction,
-    CredentialOperationId, CredentialProcessBinding, CredentialTicketAttempt, DaemonAuthorityId,
-    DesktopExecutableIdentity, ProtectedSessionId, ReaderExecutableIdentity, ReleaseManifestDigest,
-    WriterExecutableIdentity, WriterLaunchId, WriterProcessHandleIdentity,
-    WriterProcessStartIdentity,
+    ClaimCredentialOperation, CredentialClaimBinding, CredentialEnrollmentAuthorityPair,
+    CredentialEnrollmentMeasurementAuthority, CredentialFence, CredentialLifecycleRevision,
+    CredentialMeasurementSnapshot, CredentialOperationAction, CredentialOperationId,
+    CredentialProcessBinding, CredentialTicketAttempt,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
@@ -16,10 +13,11 @@ fn credential_enrollment_review_measurement_snapshot_rejects_cross_source_aliase
 
 #[test]
 fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapshot() {
-    let measurements = distinct_measurements();
+    let (_, authority) = CredentialEnrollmentAuthorityPair::new().split();
+    let measurements = distinct_measurements(&authority);
     let process = CredentialProcessBinding::new(
-        WriterProcessStartIdentity::from_measured([10; 32]).unwrap(),
-        WriterProcessHandleIdentity::from_measured([11; 32]).unwrap(),
+        authority.writer_process_start_identity([10; 32]).unwrap(),
+        authority.writer_process_handle_identity([11; 32]).unwrap(),
     );
     assert_eq!(measurements.process_binding(), process);
 
@@ -47,38 +45,45 @@ fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapsho
 fn measurement_snapshot(
     alias: [u8; 32],
 ) -> Result<CredentialMeasurementSnapshot, super::super::CredentialEnrollmentError> {
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     CredentialMeasurementSnapshot::new(
-        CandidateSourceIdentity::from_measured(alias)?,
-        ReleaseManifestDigest::from_measured(alias)?,
-        DesktopExecutableIdentity::from_measured(alias)?,
-        WriterExecutableIdentity::from_measured(alias)?,
-        ReaderExecutableIdentity::from_measured(alias)?,
-        ContractBundleDigest::from_measured(alias)?,
-        DaemonAuthorityId::from_measured(alias)?,
-        ProtectedSessionId::from_measured(alias)?,
-        WriterLaunchId::from_measured(alias)?,
-        WriterProcessStartIdentity::from_measured(alias)?,
-        WriterProcessHandleIdentity::from_measured(alias)?,
-        BrokerChannelBinding::from_measured(alias)?,
-        ContinuationBindingDigest::from_measured(alias)?,
+        measurements.candidate_source_identity(alias)?,
+        measurements.release_manifest_digest(alias)?,
+        measurements.desktop_executable_identity(alias)?,
+        measurements.writer_executable_identity(alias)?,
+        measurements.reader_executable_identity(alias)?,
+        measurements.contract_bundle_digest(alias)?,
+        measurements.daemon_authority_id(alias)?,
+        measurements.protected_session_id(alias)?,
+        measurements.writer_launch_id(alias)?,
+        measurements.writer_process_start_identity(alias)?,
+        measurements.writer_process_handle_identity(alias)?,
+        measurements.broker_channel_binding(alias)?,
+        measurements.continuation_binding_digest(alias)?,
     )
 }
 
-fn distinct_measurements() -> CredentialMeasurementSnapshot {
+fn distinct_measurements(
+    measurements: &CredentialEnrollmentMeasurementAuthority,
+) -> CredentialMeasurementSnapshot {
     CredentialMeasurementSnapshot::new(
-        CandidateSourceIdentity::from_measured([1; 32]).unwrap(),
-        ReleaseManifestDigest::from_measured([2; 32]).unwrap(),
-        DesktopExecutableIdentity::from_measured([3; 32]).unwrap(),
-        WriterExecutableIdentity::from_measured([4; 32]).unwrap(),
-        ReaderExecutableIdentity::from_measured([5; 32]).unwrap(),
-        ContractBundleDigest::from_measured([6; 32]).unwrap(),
-        DaemonAuthorityId::from_measured([7; 32]).unwrap(),
-        ProtectedSessionId::from_measured([8; 32]).unwrap(),
-        WriterLaunchId::from_measured([9; 32]).unwrap(),
-        WriterProcessStartIdentity::from_measured([10; 32]).unwrap(),
-        WriterProcessHandleIdentity::from_measured([11; 32]).unwrap(),
-        BrokerChannelBinding::from_measured([12; 32]).unwrap(),
-        ContinuationBindingDigest::from_measured([13; 32]).unwrap(),
+        measurements.candidate_source_identity([1; 32]).unwrap(),
+        measurements.release_manifest_digest([2; 32]).unwrap(),
+        measurements.desktop_executable_identity([3; 32]).unwrap(),
+        measurements.writer_executable_identity([4; 32]).unwrap(),
+        measurements.reader_executable_identity([5; 32]).unwrap(),
+        measurements.contract_bundle_digest([6; 32]).unwrap(),
+        measurements.daemon_authority_id([7; 32]).unwrap(),
+        measurements.protected_session_id([8; 32]).unwrap(),
+        measurements.writer_launch_id([9; 32]).unwrap(),
+        measurements
+            .writer_process_start_identity([10; 32])
+            .unwrap(),
+        measurements
+            .writer_process_handle_identity([11; 32])
+            .unwrap(),
+        measurements.broker_channel_binding([12; 32]).unwrap(),
+        measurements.continuation_binding_digest([13; 32]).unwrap(),
     )
     .unwrap()
 }

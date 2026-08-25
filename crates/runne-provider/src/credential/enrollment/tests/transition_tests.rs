@@ -1,7 +1,7 @@
 use super::super::{
-    CredentialBindingDigest, CredentialFence, CredentialOperationAction as Action,
-    CredentialOperationState as State, CredentialTransitionEvidence as Evidence, TransitionCommand,
-    allows_structural_transition,
+    CredentialBindingDigest, CredentialEnrollmentAuthorityPair, CredentialFence,
+    CredentialOperationAction as Action, CredentialOperationState as State,
+    CredentialTransitionEvidence as Evidence, allows_structural_transition,
 };
 
 #[test]
@@ -38,7 +38,7 @@ fn credential_enrollment_transition_requires_exact_post_claim_evidence() {
     let digest = measured(7);
     let fence = CredentialFence::new(3).unwrap();
     assert!(
-        TransitionCommand::new(
+        transition(
             Action::Pair,
             State::Claimed,
             State::Failed,
@@ -46,12 +46,9 @@ fn credential_enrollment_transition_requires_exact_post_claim_evidence() {
         )
         .is_ok()
     );
+    assert!(transition(Action::Pair, State::Claimed, State::Failed, Evidence::None).is_err());
     assert!(
-        TransitionCommand::new(Action::Pair, State::Claimed, State::Failed, Evidence::None)
-            .is_err()
-    );
-    assert!(
-        TransitionCommand::new(
+        transition(
             Action::Revoke,
             State::Claimed,
             State::Failed,
@@ -60,7 +57,7 @@ fn credential_enrollment_transition_requires_exact_post_claim_evidence() {
         .is_err()
     );
     assert!(
-        TransitionCommand::new(
+        transition(
             Action::Revoke,
             State::Claimed,
             State::NativeEffectObserved,
@@ -69,7 +66,7 @@ fn credential_enrollment_transition_requires_exact_post_claim_evidence() {
         .is_ok()
     );
     assert!(
-        TransitionCommand::new(
+        transition(
             Action::Pair,
             State::ReadbackVerified,
             State::Completed,
@@ -89,7 +86,7 @@ fn credential_enrollment_review_version_actions_reject_absence_readback_and_comp
         Action::WriterIdentityMigrationVerify,
     ] {
         assert!(
-            TransitionCommand::new(
+            transition(
                 action,
                 State::NativeEffectObserved,
                 State::ReadbackVerified,
@@ -99,8 +96,7 @@ fn credential_enrollment_review_version_actions_reject_absence_readback_and_comp
             "{action:?} accepted contradictory absence readback"
         );
         assert!(
-            TransitionCommand::new(action, State::ReadbackVerified, State::Completed, absence)
-                .is_err(),
+            transition(action, State::ReadbackVerified, State::Completed, absence).is_err(),
             "{action:?} completed from contradictory absence readback"
         );
     }
@@ -115,7 +111,7 @@ fn credential_enrollment_review_absence_actions_reject_version_readback_and_comp
         Action::LegacySourceCleanup,
     ] {
         assert!(
-            TransitionCommand::new(
+            transition(
                 action,
                 State::NativeEffectObserved,
                 State::ReadbackVerified,
@@ -125,8 +121,7 @@ fn credential_enrollment_review_absence_actions_reject_version_readback_and_comp
             "{action:?} accepted contradictory version readback"
         );
         assert!(
-            TransitionCommand::new(action, State::ReadbackVerified, State::Completed, version)
-                .is_err(),
+            transition(action, State::ReadbackVerified, State::Completed, version).is_err(),
             "{action:?} completed from contradictory version readback"
         );
     }
@@ -139,7 +134,7 @@ fn credential_enrollment_review_writer_effect_cannot_authorize_terminal_success(
         Evidence::ExactAbsenceReadback(measured(43)),
     ] {
         assert!(
-            TransitionCommand::new(
+            transition(
                 Action::WriterIdentityMigrationEffect,
                 State::NativeEffectObserved,
                 State::ReadbackVerified,
@@ -167,4 +162,14 @@ fn credential_enrollment_transition_rejects_shortcuts_and_post_claim_closure() {
 
 fn measured(value: u8) -> CredentialBindingDigest {
     CredentialBindingDigest::from_measured([value; 32]).unwrap()
+}
+
+fn transition(
+    action: Action,
+    from: State,
+    to: State,
+    evidence: Evidence,
+) -> Result<super::super::TransitionCommand, super::super::CredentialEnrollmentError> {
+    let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+    store.issue_transition_command(action, from, to, evidence)
 }

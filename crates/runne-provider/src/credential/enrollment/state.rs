@@ -1,6 +1,8 @@
+use std::sync::Arc;
+
 use thiserror::Error;
 
-use super::{CredentialBindingDigest, CredentialFence};
+use super::{CredentialBindingDigest, CredentialFence, authority::EnrollmentAuthoritySeal};
 
 /// Closed failure vocabulary for enrollment-domain validation and broker frames.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Error)]
@@ -96,6 +98,7 @@ pub enum CredentialTransitionEvidence {
 
 /// Store-constructed and validated transition request.
 pub struct TransitionCommand {
+    seal: Arc<EnrollmentAuthoritySeal>,
     action: CredentialOperationAction,
     from: CredentialOperationState,
     to: CredentialOperationState,
@@ -104,7 +107,8 @@ pub struct TransitionCommand {
 
 impl TransitionCommand {
     /// Validates the structural graph and evidence-aware post-claim guard.
-    pub fn new(
+    pub(crate) fn issue(
+        seal: Arc<EnrollmentAuthoritySeal>,
         action: CredentialOperationAction,
         from: CredentialOperationState,
         to: CredentialOperationState,
@@ -117,11 +121,16 @@ impl TransitionCommand {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
         Ok(Self {
+            seal,
             action,
             from,
             to,
             evidence,
         })
+    }
+
+    pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
+        Arc::ptr_eq(&self.seal, seal)
     }
 
     /// Returns the closed operation action.

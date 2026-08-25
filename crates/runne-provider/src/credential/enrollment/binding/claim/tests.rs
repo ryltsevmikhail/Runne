@@ -1,10 +1,7 @@
 use super::*;
 use crate::credential::enrollment::{
-    BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
-    CredentialFence, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
-    CredentialTicketAttempt, DaemonAuthorityId, DesktopExecutableIdentity, ProtectedSessionId,
-    ReaderExecutableIdentity, ReleaseManifestDigest, WriterExecutableIdentity, WriterLaunchId,
-    WriterProcessHandleIdentity, WriterProcessStartIdentity,
+    CredentialEnrollmentAuthorityPair, CredentialFence, CredentialLifecycleRevision,
+    CredentialMeasurementSnapshot, CredentialTicketAttempt,
 };
 
 #[test]
@@ -52,20 +49,25 @@ fn credential_enrollment_claim_binding_changes_for_each_approved_field() {
 }
 
 fn claim_binding() -> CredentialClaimBinding {
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let measurements = CredentialMeasurementSnapshot::new(
-        CandidateSourceIdentity::from_measured([1; 32]).unwrap(),
-        ReleaseManifestDigest::from_measured([2; 32]).unwrap(),
-        DesktopExecutableIdentity::from_measured([3; 32]).unwrap(),
-        WriterExecutableIdentity::from_measured([4; 32]).unwrap(),
-        ReaderExecutableIdentity::from_measured([5; 32]).unwrap(),
-        ContractBundleDigest::from_measured([6; 32]).unwrap(),
-        DaemonAuthorityId::from_measured([7; 32]).unwrap(),
-        ProtectedSessionId::from_measured([8; 32]).unwrap(),
-        WriterLaunchId::from_measured([9; 32]).unwrap(),
-        WriterProcessStartIdentity::from_measured([10; 32]).unwrap(),
-        WriterProcessHandleIdentity::from_measured([11; 32]).unwrap(),
-        BrokerChannelBinding::from_measured([12; 32]).unwrap(),
-        ContinuationBindingDigest::from_measured([13; 32]).unwrap(),
+        measurements.candidate_source_identity([1; 32]).unwrap(),
+        measurements.release_manifest_digest([2; 32]).unwrap(),
+        measurements.desktop_executable_identity([3; 32]).unwrap(),
+        measurements.writer_executable_identity([4; 32]).unwrap(),
+        measurements.reader_executable_identity([5; 32]).unwrap(),
+        measurements.contract_bundle_digest([6; 32]).unwrap(),
+        measurements.daemon_authority_id([7; 32]).unwrap(),
+        measurements.protected_session_id([8; 32]).unwrap(),
+        measurements.writer_launch_id([9; 32]).unwrap(),
+        measurements
+            .writer_process_start_identity([10; 32])
+            .unwrap(),
+        measurements
+            .writer_process_handle_identity([11; 32])
+            .unwrap(),
+        measurements.broker_channel_binding([12; 32]).unwrap(),
+        measurements.continuation_binding_digest([13; 32]).unwrap(),
     )
     .unwrap();
     let claim = ClaimCredentialOperation::new(

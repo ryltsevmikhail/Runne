@@ -41,13 +41,15 @@
 //! fn require_durable<T: Into<runne_provider::CredentialOperationSnapshot>>() {}
 //! require_durable::<runne_provider::CredentialGcClaim>();
 //! ```
-//!
-//! Broker decoding remains internal to the provider crate.
-//!
 //! ```compile_fail
-//! let _ = runne_provider::CredentialBrokerFrameCodec::decode(&[]);
+//! let _ = runne_provider::TransitionCommand::new;
 //! ```
-
+//! ```compile_fail
+//! let _ = runne_provider::CandidateSourceIdentity::from_measured([1; 32]);
+//! ```
+//! ```compile_fail
+//! let _ = runne_provider::ExpectedInstallMeasurement::from_measured([1; 32]);
+//! ```
 mod coordination;
 mod credential;
 mod digest;
@@ -73,9 +75,10 @@ pub use credential::{
     ContinuationBindingDigest, ContractBundleDigest, CredentialAuthorityPair,
     CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,
     CredentialClaimBinding, CredentialDispatchCapability, CredentialDisposition,
-    CredentialEnrollmentError, CredentialFence, CredentialGcClaim, CredentialLease,
-    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialLifecycleRevision,
-    CredentialLifecycleSnapshot, CredentialMeasurementSnapshot,
+    CredentialEnrollmentAuthorityPair, CredentialEnrollmentError,
+    CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority, CredentialFence,
+    CredentialGcClaim, CredentialLease, CredentialLifecycleAuthority, CredentialLifecycleError,
+    CredentialLifecycleRevision, CredentialLifecycleSnapshot, CredentialMeasurementSnapshot,
     CredentialNativeCreateAuthorization, CredentialNativeCreateClaim, CredentialNativeCreateIssuer,
     CredentialNativeCreateProgression, CredentialNativeCreateValidator, CredentialOperationAction,
     CredentialOperationId, CredentialOperationSnapshot, CredentialOperationState,
@@ -83,9 +86,10 @@ pub use credential::{
     CredentialReleaseMigrationBinding, CredentialTicketAttempt, CredentialTransitionEvidence,
     CredentialVerificationCapability, CredentialVerificationLease,
     CredentialVerificationObservation, CredentialVersionRef, CredentialVersionState,
-    DaemonAuthorityId, DesktopExecutableIdentity, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, NativeCredentialAuthority, NativeCredentialDeletionProof,
-    ObserveNativeEffect, PrepareCredentialVersion, ProtectedSessionId,
+    DaemonAuthorityId, DesktopExecutableIdentity, ExpectedInstallMeasurement,
+    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
+    NativeCredentialAuthority, NativeCredentialDeletionProof, ObserveNativeEffect,
+    ObservedInstallMeasurement, PrepareCredentialVersion, ProtectedSessionId,
     ProviderCredentialVersionStore, RawCredentialTicket, ReaderExecutableIdentity,
     ReconcileCredentialVersions, ReleaseManifestDigest, RevokeCredentialVersion,
     TombstoneCredentialOperation, TransitionCommand, WriterExecutableIdentity,

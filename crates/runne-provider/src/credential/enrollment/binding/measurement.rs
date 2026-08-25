@@ -1,63 +1,65 @@
+use std::sync::Arc;
+
 use super::super::{CredentialBindingDigest, CredentialEnrollmentError};
+use crate::credential::enrollment::authority::EnrollmentAuthoritySeal;
 
-macro_rules! measured_source {
-    ($name:ident, $doc:literal) => {
-        #[doc = $doc]
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-        pub struct $name(CredentialBindingDigest);
+mod source;
 
-        impl $name {
-            /// Captures a non-zero digest from this exact independent source.
-            pub fn from_measured(bytes: [u8; 32]) -> Result<Self, CredentialEnrollmentError> {
-                Ok(Self(CredentialBindingDigest::from_measured(bytes)?))
-            }
+pub use source::*;
 
-            /// Returns the canonical stored binding digest.
-            pub const fn digest(self) -> CredentialBindingDigest {
-                self.0
-            }
-        }
-    };
+/// Store-issued expected metadata for one installation readback.
+pub struct ExpectedInstallMeasurement {
+    digest: CredentialBindingDigest,
+    seal: Arc<EnrollmentAuthoritySeal>,
 }
 
-measured_source!(
-    CandidateSourceIdentity,
-    "Measured candidate source identity."
-);
-measured_source!(ReleaseManifestDigest, "Measured release manifest digest.");
-measured_source!(
-    DesktopExecutableIdentity,
-    "Measured desktop executable identity."
-);
-measured_source!(
-    WriterExecutableIdentity,
-    "Measured writer executable identity."
-);
-measured_source!(
-    ReaderExecutableIdentity,
-    "Measured reader executable identity."
-);
-measured_source!(ContractBundleDigest, "Measured contract bundle digest.");
-measured_source!(DaemonAuthorityId, "Measured daemon authority identity.");
-measured_source!(ProtectedSessionId, "Measured protected-session identity.");
-measured_source!(WriterLaunchId, "Measured writer launch identity.");
-measured_source!(
-    WriterProcessStartIdentity,
-    "OS-native writer process start identity."
-);
-measured_source!(
-    WriterProcessHandleIdentity,
-    "Retained writer process handle identity."
-);
-measured_source!(
-    BrokerChannelBinding,
-    "Measured inherited broker channel binding."
-);
-measured_source!(
-    ContinuationBindingDigest,
-    "Accepted continuation authority digest."
-);
+impl ExpectedInstallMeasurement {
+    pub(crate) fn issue(
+        seal: Arc<EnrollmentAuthoritySeal>,
+        bytes: [u8; 32],
+    ) -> Result<Self, CredentialEnrollmentError> {
+        Ok(Self {
+            digest: CredentialBindingDigest::from_measured(bytes)?,
+            seal,
+        })
+    }
 
+    /// Returns metadata-only expected installation identity.
+    pub const fn digest(&self) -> CredentialBindingDigest {
+        self.digest
+    }
+
+    pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
+        Arc::ptr_eq(&self.seal, seal)
+    }
+}
+
+/// Reader-issued observed metadata for one installation readback.
+pub struct ObservedInstallMeasurement {
+    digest: CredentialBindingDigest,
+    seal: Arc<EnrollmentAuthoritySeal>,
+}
+
+impl ObservedInstallMeasurement {
+    pub(crate) fn issue(
+        seal: Arc<EnrollmentAuthoritySeal>,
+        bytes: [u8; 32],
+    ) -> Result<Self, CredentialEnrollmentError> {
+        Ok(Self {
+            digest: CredentialBindingDigest::from_measured(bytes)?,
+            seal,
+        })
+    }
+
+    /// Returns metadata-only observed installation identity.
+    pub const fn digest(&self) -> CredentialBindingDigest {
+        self.digest
+    }
+
+    pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
+        Arc::ptr_eq(&self.seal, seal)
+    }
+}
 /// Independently measured live writer process identity; paths and PIDs are absent.
 ///
 /// ```compile_fail
@@ -66,11 +68,20 @@ measured_source!(
 /// let handle = WriterProcessHandleIdentity::from_measured([2; 32]).unwrap();
 /// let _ = CredentialProcessBinding::new(handle, start);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct CredentialProcessBinding {
     start_identity: WriterProcessStartIdentity,
     retained_handle_identity: WriterProcessHandleIdentity,
 }
+
+impl PartialEq for CredentialProcessBinding {
+    fn eq(&self, other: &Self) -> bool {
+        self.start_identity.digest() == other.start_identity.digest()
+            && self.retained_handle_identity.digest() == other.retained_handle_identity.digest()
+    }
+}
+
+impl Eq for CredentialProcessBinding {}
 
 impl CredentialProcessBinding {
     /// Combines source-specific start and retained-handle measurements.
@@ -85,12 +96,12 @@ impl CredentialProcessBinding {
     }
 
     /// Returns the process-start binding digest.
-    pub const fn start_identity(self) -> CredentialBindingDigest {
+    pub const fn start_identity(&self) -> CredentialBindingDigest {
         self.start_identity.digest()
     }
 
     /// Returns the retained-handle binding digest.
-    pub const fn retained_handle_digest(self) -> CredentialBindingDigest {
+    pub const fn retained_handle_digest(&self) -> CredentialBindingDigest {
         self.retained_handle_identity.digest()
     }
 }
@@ -114,7 +125,7 @@ pub struct CredentialMeasurementSnapshot {
 }
 
 impl CredentialMeasurementSnapshot {
-    /// Validates that no independent source aliases another source digest.
+    /// Validates one authority source and distinct digests for every measurement.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         candidate_source_identity: CandidateSourceIdentity,
@@ -131,6 +142,22 @@ impl CredentialMeasurementSnapshot {
         broker_channel_binding: BrokerChannelBinding,
         continuation_binding_digest: ContinuationBindingDigest,
     ) -> Result<Self, CredentialEnrollmentError> {
+        let seal = candidate_source_identity.authority_seal();
+        if !release_manifest_digest.belongs_to(seal)
+            || !desktop_executable_identity.belongs_to(seal)
+            || !writer_executable_identity.belongs_to(seal)
+            || !reader_executable_identity.belongs_to(seal)
+            || !contract_bundle_digest.belongs_to(seal)
+            || !daemon_authority_id.belongs_to(seal)
+            || !protected_session_id.belongs_to(seal)
+            || !writer_launch_id.belongs_to(seal)
+            || !writer_process_start_identity.belongs_to(seal)
+            || !writer_process_handle_identity.belongs_to(seal)
+            || !broker_channel_binding.belongs_to(seal)
+            || !continuation_binding_digest.belongs_to(seal)
+        {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
         let digests = [
             candidate_source_identity.digest(),
             release_manifest_digest.digest(),
@@ -169,14 +196,14 @@ impl CredentialMeasurementSnapshot {
     }
 
     /// Returns the source-typed live process binding.
-    pub const fn process_binding(&self) -> CredentialProcessBinding {
+    pub fn process_binding(&self) -> CredentialProcessBinding {
         CredentialProcessBinding::new(
-            self.writer_process_start_identity,
-            self.writer_process_handle_identity,
+            self.writer_process_start_identity.clone(),
+            self.writer_process_handle_identity.clone(),
         )
     }
 
-    pub(super) const fn digests(&self) -> [CredentialBindingDigest; 13] {
+    pub(super) fn digests(&self) -> [CredentialBindingDigest; 13] {
         [
             self.candidate_source_identity.digest(),
             self.release_manifest_digest.digest(),
@@ -192,5 +219,9 @@ impl CredentialMeasurementSnapshot {
             self.broker_channel_binding.digest(),
             self.continuation_binding_digest.digest(),
         ]
+    }
+
+    pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
+        self.candidate_source_identity.belongs_to(seal)
     }
 }

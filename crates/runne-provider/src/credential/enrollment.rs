@@ -1,3 +1,4 @@
+mod authority;
 mod binding;
 mod identity;
 mod operation;
@@ -7,11 +8,16 @@ mod state;
 mod verification;
 
 #[allow(unused_imports)]
+pub use authority::{
+    CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority,
+    CredentialEnrollmentStoreAuthority,
+};
 pub use binding::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
     CredentialClaimBinding, CredentialMeasurementSnapshot, CredentialProcessBinding,
     CredentialReleaseMigrationBinding, DaemonAuthorityId, DesktopExecutableIdentity,
-    ProtectedSessionId, ReaderExecutableIdentity, ReleaseManifestDigest, WriterExecutableIdentity,
+    ExpectedInstallMeasurement, ObservedInstallMeasurement, ProtectedSessionId,
+    ReaderExecutableIdentity, ReleaseManifestDigest, WriterExecutableIdentity,
     WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
     WriterProcessStartIdentity,
 };

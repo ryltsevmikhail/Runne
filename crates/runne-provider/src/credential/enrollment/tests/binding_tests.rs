@@ -1,8 +1,8 @@
 use super::super::{
-    CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialLifecycleRevision, CredentialOperationId, CredentialProcessBinding,
+    CredentialBindingDigest, CredentialEnrollmentAuthorityPair, CredentialEnrollmentError,
+    CredentialFence, CredentialLifecycleRevision, CredentialOperationId, CredentialProcessBinding,
     CredentialReleaseMigrationBinding, CredentialTicketAttempt, RawCredentialTicket,
-    WriterIdentityMigrationPhase, WriterProcessHandleIdentity, WriterProcessStartIdentity,
+    WriterIdentityMigrationPhase,
 };
 
 #[test]
@@ -99,9 +99,14 @@ fn migration_result(
 }
 
 fn process(seed: u8) -> CredentialProcessBinding {
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     CredentialProcessBinding::new(
-        WriterProcessStartIdentity::from_measured([seed; 32]).unwrap(),
-        WriterProcessHandleIdentity::from_measured([seed + 10; 32]).unwrap(),
+        measurements
+            .writer_process_start_identity([seed; 32])
+            .unwrap(),
+        measurements
+            .writer_process_handle_identity([seed + 10; 32])
+            .unwrap(),
     )
 }
 
