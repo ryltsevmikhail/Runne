@@ -75,6 +75,8 @@ impl CommandReconciliationHostPort for OutcomeHost {
                 committed_at: NonNegativeUnixMillis::new(7).unwrap(),
             }),
             CommandReconciliationWitnessRef::GenerateConversationText { .. } => unreachable!(),
+            CommandReconciliationWitnessRef::CancelTaskRun { .. } => unreachable!(),
+            CommandReconciliationWitnessRef::ApprovalDecision { .. } => unreachable!(),
         };
         CommandReconciliationDisposition::durably_recorded(&witness, outcome)
     }

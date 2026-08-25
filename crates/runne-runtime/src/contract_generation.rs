@@ -46,14 +46,20 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "golden/replay-retention-gap.json",
     "golden/replay-taskrun.json",
     "golden/sse-delivery.json",
+    "golden/workspace-diffs.json",
+    "golden/workspace-files.json",
     "openapi.json",
     "schemas/local-runtime-profile-v3.schema.json",
     "schemas/local-session-v2.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
     "schemas/project-workspace-v2.schema.json",
+    "schemas/provider-credentials-v1.schema.json",
     "schemas/replay-v1.schema.json",
     "schemas/sse-v1.schema.json",
     "schemas/task-run-v1.schema.json",
+    "schemas/workspace-diffs-v1.schema.json",
+    "schemas/workspace-editor-v1.schema.json",
+    "schemas/workspace-files-v1.schema.json",
 ];
 
 /// Contract generation or byte-check failure.
@@ -83,5 +89,12 @@ include!("contract_generation/task_run_schema.rs");
 include!("contract_generation/task_run_openapi.rs");
 include!("contract_generation/project_workspace_schema.rs");
 include!("contract_generation/project_workspace_openapi.rs");
+include!("contract_generation/workspace_files_schema.rs");
+include!("contract_generation/workspace_files_openapi.rs");
+include!("contract_generation/workspace_editor_schema.rs");
+include!("contract_generation/workspace_editor_openapi.rs");
+include!("contract_generation/workspace_diffs_schema.rs");
+include!("contract_generation/workspace_diffs_openapi.rs");
+include!("contract_generation/provider_credentials.rs");
 include!("contract_generation/openapi.rs");
 include!("contract_generation/replay_retention_goldens.rs");

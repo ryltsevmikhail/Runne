@@ -1,5 +1,8 @@
 use super::codec::{self, VERSION};
-use crate::{BoundedCanonicalId, MutationIdentity, MutationOperation, SecurityStateError};
+use crate::{BoundedCanonicalId, SecurityStateError};
+
+mod approval;
+pub use approval::ApprovalDecisionKind;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NormalizedMutationCommand {
@@ -38,12 +41,26 @@ pub enum NormalizedMutationCommand {
         expected_version: u64,
         text: String,
     },
+    CancelTaskRun {
+        task_run_id: BoundedCanonicalId,
+        expected_version: u64,
+    },
+    ApprovalRespond {
+        approval_id: BoundedCanonicalId,
+        expected_version: u64,
+        decision: ApprovalDecisionKind,
+        action_digest: [u8; 32],
+        policy_revision: u64,
+        renderer_generation: u64,
+    },
 }
 
 impl NormalizedMutationCommand {
+    /// Creates a validated project creation command.
+    ///
     /// # Errors
     ///
-    /// Returns an error for an empty or oversized display name.
+    /// Returns an error when the display name violates the canonical bounds.
     pub fn create_project(
         project_id: BoundedCanonicalId,
         display_name: String,
@@ -70,9 +87,13 @@ impl NormalizedMutationCommand {
             })
             .ok_or(SecurityStateError::InvalidTransition)
     }
+    /// Encodes the normalized command using the versioned ledger format.
+    ///
     /// # Errors
     ///
-    /// Returns an error when a command field violates its closed encoding.
+    /// Returns an error when a command field cannot be represented within the
+    /// canonical ledger bounds.
+    #[allow(clippy::too_many_lines)]
     pub fn encode(&self) -> Result<Vec<u8>, SecurityStateError> {
         let mut value = vec![VERSION];
         match self {
@@ -149,12 +170,42 @@ impl NormalizedMutationCommand {
                 put_version(&mut value, *expected_version)?;
                 codec::put_message_text(&mut value, text)?;
             }
+            Self::CancelTaskRun {
+                task_run_id,
+                expected_version,
+            } => {
+                value.push(9);
+                codec::put_id(&mut value, task_run_id)?;
+                put_version(&mut value, *expected_version)?;
+            }
+            Self::ApprovalRespond {
+                approval_id,
+                expected_version,
+                decision,
+                action_digest,
+                policy_revision,
+                renderer_generation,
+            } => {
+                value.push(10);
+                approval::encode(
+                    &mut value,
+                    approval_id,
+                    *expected_version,
+                    *decision,
+                    *action_digest,
+                    *policy_revision,
+                    *renderer_generation,
+                )?;
+            }
         }
         Ok(value)
     }
+    /// Decodes and validates a versioned normalized command.
+    ///
     /// # Errors
     ///
-    /// Returns an error for malformed, unknown, or trailing wire data.
+    /// Returns an error for an unknown version/tag, malformed field, trailing
+    /// bytes, or an invalid transition.
     pub fn decode(value: &[u8]) -> Result<Self, SecurityStateError> {
         let mut input = value;
         if codec::byte(&mut input)? != VERSION {
@@ -193,74 +244,33 @@ impl NormalizedMutationCommand {
                 expected_version: version(&mut input)?,
                 text: codec::message_text(&mut input)?,
             },
+            9 => Self::CancelTaskRun {
+                task_run_id: codec::id(&mut input)?,
+                expected_version: version(&mut input)?,
+            },
+            10 => {
+                let (
+                    approval_id,
+                    expected_version,
+                    decision,
+                    action_digest,
+                    policy_revision,
+                    renderer_generation,
+                ) = approval::decode(&mut input)?;
+                Self::ApprovalRespond {
+                    approval_id,
+                    expected_version,
+                    decision,
+                    action_digest,
+                    policy_revision,
+                    renderer_generation,
+                }
+            }
             _ => return Err(SecurityStateError::InvalidTransition),
         };
         command.encode()?;
         codec::finish(input)?;
         Ok(command)
-    }
-    pub(crate) fn matches_identity(&self, identity: &MutationIdentity) -> bool {
-        match self {
-            Self::CreateProject { project_id, .. } => {
-                identity.operation() == MutationOperation::ProjectCreate
-                    && identity.expected_version() == 0
-                    && project_id.as_bytes() == identity.target()
-            }
-            Self::ArchiveProject {
-                project_id,
-                expected_version,
-            } => {
-                identity.operation() == MutationOperation::ProjectArchive
-                    && *expected_version == identity.expected_version()
-                    && project_id.as_bytes() == identity.target()
-            }
-            Self::DeleteProject {
-                project_id,
-                expected_version,
-            } => {
-                identity.operation() == MutationOperation::ProjectDelete
-                    && *expected_version == identity.expected_version()
-                    && project_id.as_bytes() == identity.target()
-            }
-            Self::CreateWorkspace { workspace_id, .. } => {
-                identity.operation() == MutationOperation::WorkspaceCreate
-                    && identity.expected_version() == 0
-                    && workspace_id.as_bytes() == identity.target()
-            }
-            Self::BindWorkspaceRoot {
-                workspace_id,
-                expected_version,
-                ..
-            } => {
-                identity.operation() == MutationOperation::WorkspaceBindRoot
-                    && *expected_version == identity.expected_version()
-                    && workspace_id.as_bytes() == identity.target()
-            }
-            Self::OpenWorkspace {
-                workspace_id,
-                expected_version,
-            } => {
-                identity.operation() == MutationOperation::WorkspaceOpen
-                    && *expected_version == identity.expected_version()
-                    && workspace_id.as_bytes() == identity.target()
-            }
-            Self::CreateConversation {
-                conversation_id, ..
-            } => {
-                identity.operation() == MutationOperation::ConversationCreate
-                    && identity.expected_version() == 0
-                    && conversation_id.as_bytes() == identity.target()
-            }
-            Self::GenerateText {
-                conversation_id,
-                expected_version,
-                ..
-            } => {
-                identity.operation() == MutationOperation::ConversationGenerateText
-                    && *expected_version == identity.expected_version()
-                    && conversation_id.as_bytes() == identity.target()
-            }
-        }
     }
 }
 

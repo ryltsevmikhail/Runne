@@ -16,7 +16,14 @@ impl AppCore {
                 profile,
             ),
         );
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        let secure: Arc<dyn SecureStore> = Arc::new(
+            runne_secure_store::NativeKeyringStore::for_security_profile(
+                DESKTOP_SECURITY_PROFILE_ID_V1,
+                profile,
+            ),
+        );
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         let secure: Arc<dyn SecureStore> = Arc::new(runne_secure_store::StubStore::new());
         Self::open_production_anchored(path, runtime_mode, secure, profile)
     }

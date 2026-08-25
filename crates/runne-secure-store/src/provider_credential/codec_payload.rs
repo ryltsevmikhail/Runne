@@ -128,6 +128,10 @@ impl StoredProviderCredential {
         self.acl_set_digest
     }
 
+    pub const fn source_revision(&self) -> Option<ProviderCredentialSourceRevision> {
+        self.source_revision
+    }
+
     pub fn into_material(self) -> ProviderCredentialMaterial {
         self.material
     }

@@ -1,15 +1,43 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { defineComponent, h, shallowRef, type Ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 
+import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
 import ProjectsPage from './ProjectsPage.vue'
 
 const project = {
   projectId: '01890e00-0000-7000-8000-000000000001',
-  workspaceId: '01890e00-0000-7000-8000-000000000002',
   displayName: 'gocode-ui',
-  lastOpenedAt: 1_753_500_000_000,
+  version: 1,
+  archived: false,
 } as const
+
+function liveContext(): RuntimeSessionContext {
+  const snapshot = shallowRef<RuntimeSessionSnapshot>({
+    runtime: 'live', status: 'live', canMutate: true,
+  })
+  return {
+    snapshot: snapshot as Readonly<Ref<RuntimeSessionSnapshot>>,
+    connect: async () => snapshot.value,
+    retry: async () => snapshot.value,
+    close: async () => {},
+    observeBootstrap: () => snapshot.value,
+  }
+}
+
+function mountWithRuntimeSession(
+  componentProps: { readonly loadProjects: () => Promise<readonly typeof project[]> },
+  router: ReturnType<typeof createTestRouter>,
+) {
+  const Harness = defineComponent({
+    setup() {
+      provideRuntimeSession(liveContext())
+      return () => h(ProjectsPage, componentProps)
+    },
+  })
+  return mount(Harness, { global: { plugins: [router] } })
+}
 
 function createTestRouter() {
   return createRouter({
@@ -31,16 +59,47 @@ function createTestRouter() {
 }
 
 describe('projects page', () => {
+  it('waits for the injected runtime session before loading canonical projects', async () => {
+    const router = createTestRouter()
+    await router.push('/')
+    await router.isReady()
+    const snapshot = shallowRef<RuntimeSessionSnapshot>({
+      runtime: 'unconfigured', status: 'empty', canMutate: false,
+    })
+    const context: RuntimeSessionContext = {
+      snapshot: snapshot as Readonly<Ref<RuntimeSessionSnapshot>>,
+      connect: async () => snapshot.value,
+      retry: async () => snapshot.value,
+      close: async () => {},
+      observeBootstrap: () => snapshot.value,
+    }
+    let loads = 0
+    const Harness = defineComponent({
+      setup() {
+        provideRuntimeSession(context)
+        return () => h(ProjectsPage, {
+          loadProjects: async () => {
+            loads += 1
+            return [project]
+          },
+        })
+      },
+    })
+    mount(Harness, { global: { plugins: [router] } })
+    await flushPromises()
+
+    expect(loads).toBe(0)
+    snapshot.value = { runtime: 'live', status: 'live', canMutate: true }
+    await flushPromises()
+
+    expect(loads).toBe(1)
+  })
+
   it('renders persisted projects and opens their project details route', async () => {
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
-    const wrapper = mount(ProjectsPage, {
-      props: {
-        loadProjects: async () => [project],
-      },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountWithRuntimeSession({ loadProjects: async () => [project] }, router)
     await flushPromises()
 
     expect(wrapper.text()).toContain('gocode-ui')
@@ -57,17 +116,32 @@ describe('projects page', () => {
     const router = createTestRouter()
     await router.push('/')
     await router.isReady()
-    const wrapper = mount(ProjectsPage, {
-      props: {
-        loadProjects: async () => [],
-      },
-      global: { plugins: [router] },
-    })
+    const wrapper = mountWithRuntimeSession({ loadProjects: async () => [] }, router)
     await flushPromises()
 
     await wrapper.get('[aria-label="Open local project"]').trigger('click')
     await flushPromises()
 
     expect(router.currentRoute.value.fullPath).toBe('/projects/open')
+  })
+
+  it('fails closed without a runtime session provider', async () => {
+    const router = createTestRouter()
+    await router.push('/')
+    await router.isReady()
+    let loads = 0
+    const wrapper = mount(ProjectsPage, {
+      props: {
+        loadProjects: async () => {
+          loads += 1
+          return [project]
+        },
+      },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+
+    expect(loads).toBe(0)
+    expect(wrapper.get('[role="alert"]').text()).toContain('Projects unavailable')
   })
 })

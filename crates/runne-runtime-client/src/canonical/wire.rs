@@ -12,6 +12,12 @@ struct GenerateTextWire<'a> {
     text: &'a str,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExistingTaskRunWire {
+    expected_version: u64,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ConversationCreatedWire {
@@ -189,14 +195,26 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
             | "invalid_root_admission"
             | "invalid_command_id"
             | "invalid_idempotency_key"
+            | "invalid_task_run_id"
+            | "invalid_attempt_id"
+            | "invalid_invocation_id"
             | "message_text_empty"
-            | "message_text_too_large",
+            | "message_text_too_large"
+            | "invalid_process_id"
+            | "invalid_output_query"
+            | "invalid_process_output_query"
+            | "invalid_process_output_limit"
+            | "invalid_process_output"
+            | "invalid_provider"
+            | "invalid_provider_credential",
         ) => RuntimeApiErrorKind::InvalidRequest,
-        (401, "unauthorized") => RuntimeApiErrorKind::Unauthorized,
-        (404, "conversation_not_found" | "task_run_not_found" | "project_workspace_not_found") => RuntimeApiErrorKind::NotFound,
-        (409, "conversation_conflict" | "task_run_conflict" | "project_workspace_conflict" | "command_conflict") => RuntimeApiErrorKind::Conflict,
-        (429 | 503, "runtime_backpressure") => RuntimeApiErrorKind::Backpressure,
-        (503, "runtime_unavailable") => RuntimeApiErrorKind::Unavailable,
+        (401, "unauthorized")
+        | (403, "forbidden" | "provider_credential_forbidden") => RuntimeApiErrorKind::Unauthorized,
+        (404, "conversation_not_found" | "task_run_not_found" | "project_workspace_not_found" | "process_not_found") => RuntimeApiErrorKind::NotFound,
+        (409, "conversation_conflict" | "task_run_conflict" | "project_workspace_conflict" | "command_conflict" | "process_conflict" | "provider_credential_conflict") => RuntimeApiErrorKind::Conflict,
+        (413, "process_output_too_large") => RuntimeApiErrorKind::ResponseTooLarge,
+        (429, "runtime_backpressure") => RuntimeApiErrorKind::Backpressure,
+        (503, "runtime_unavailable" | "provider_credential_unsupported" | "provider_credential_unavailable") => RuntimeApiErrorKind::Unavailable,
         _ => RuntimeApiErrorKind::InvalidResponse,
     };
     if kind == RuntimeApiErrorKind::InvalidResponse {

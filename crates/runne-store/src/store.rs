@@ -120,6 +120,7 @@ mod events;
 mod ids;
 mod parse_helpers;
 mod position_helpers;
+pub mod process;
 mod provider_terminal;
 pub(crate) mod snapshot;
 mod text;

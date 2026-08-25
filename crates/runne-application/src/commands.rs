@@ -45,6 +45,15 @@ pub struct AdmitTaskRunInput {
     pub expected_version: u64,
 }
 
+/// Input for requesting cancellation of an existing task run.
+#[derive(Debug, Clone)]
+pub struct CancelTaskRunInput {
+    /// The task run to cancel.
+    pub taskrun_id: TaskRunId,
+    /// The version the caller expects.
+    pub expected_version: u64,
+}
+
 /// Input for starting a new execution attempt.
 #[derive(Debug, Clone)]
 pub struct StartAttemptInput {

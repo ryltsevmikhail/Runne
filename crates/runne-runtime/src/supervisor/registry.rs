@@ -230,6 +230,7 @@ fn extract_reply(request: PerRunRequest) -> Reply {
         PerRunRequest::Queue { reply, .. }
         | PerRunRequest::Admit { reply, .. }
         | PerRunRequest::StartAttempt { reply, .. }
+        | PerRunRequest::Cancel { reply, .. }
         | PerRunRequest::Complete { reply, .. } => reply,
     }
 }

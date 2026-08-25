@@ -2,6 +2,33 @@ use super::parse_helpers::*;
 use super::*;
 
 impl AppEventStore for StoreTransaction {
+    fn list_task_runs(&self) -> Result<Vec<TaskRunId>, EventStoreError> {
+        let conn = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| EventStoreError::Unavailable)?;
+        let mut statement = conn
+            .prepare(
+                "SELECT aggregate_id
+                 FROM aggregate_streams
+                 WHERE aggregate_type = ?1
+                 ORDER BY aggregate_id ASC",
+            )
+            .map_err(map_event_store_read_error)?;
+        statement
+            .query_map(params![CORRELATION_TYPE_TASK_RUN], |row| {
+                row.get::<_, Vec<u8>>(0)
+            })
+            .map_err(map_event_store_read_error)?
+            .map(|row| {
+                let bytes = row.map_err(map_event_store_read_error)?;
+                let bytes: [u8; 16] = bytes.try_into().map_err(|_| EventStoreError::CorruptData)?;
+                Ok(TaskRunId::from_bytes(bytes))
+            })
+            .collect()
+    }
+
     fn load_task_run(&self, taskrun_id: TaskRunId) -> Result<LoadedStream, EventStoreError> {
         let mut conn = self
             .inner

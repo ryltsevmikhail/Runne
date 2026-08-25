@@ -6,8 +6,8 @@ use runne_api::{
     TaskRunCommandHostPort, TaskRunHostError, TaskRunQueryHostPort, TaskRunSnapshot,
 };
 use runne_application::commands::{
-    AdmitTaskRunInput, CommandOutcome, CompleteTaskRunInput, CreateTaskRunInput, QueueTaskRunInput,
-    StartAttemptInput,
+    AdmitTaskRunInput, CancelTaskRunInput, CommandOutcome, CompleteTaskRunInput,
+    CreateTaskRunInput, QueueTaskRunInput, StartAttemptInput,
 };
 use runne_application::errors::ApplicationError;
 use runne_application::ports::{

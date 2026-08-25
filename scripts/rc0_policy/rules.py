@@ -199,7 +199,7 @@ def validate_source_capture(
             errors.append(f"source capture {field} does not bind candidate source")
     pairs = (("raw_tree_oid", "current_tree_oid", 40, None),)
     if profile == "gocode.rc0.evidence-profile/4":
-        if capture.get("remote_url") != "https://git.sourcecraft.dev/ryltsevmg/gocode.git":
+        if capture.get("remote_url") != "https://git.sourcecraft.dev/ryltsevmg/runne.git":
             errors.append("source capture remote_url is not canonical SourceCraft HTTPS")
         pairs += (("upstream_tree_oid", "upstream_tree_oid", 40, None),)
         if type(capture.get("upstream_blob_count")) is not int or capture["upstream_blob_count"] < 1:

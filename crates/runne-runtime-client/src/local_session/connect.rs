@@ -143,13 +143,14 @@ async fn connect_with_peer(
         .await
         .map_err(|_| RuntimeTransportError::Unavailable)?;
     let remote: SessionRuntimeProfileWire = read_json(profile_response).await?;
-    let session = verify_remote_profile(&profile, remote, issued_session_id)?;
+    let (session, provider_statuses) = verify_remote_profile(&profile, remote, issued_session_id)?;
     Ok(match transport_kind {
         RuntimeTransportKind::ExternalLocal => AuthenticatedRuntimeClient::from_local_session(
             client,
             profile.origin,
             credential,
             session,
+            provider_statuses,
         ),
         RuntimeTransportKind::ProtectedBundled => {
             AuthenticatedRuntimeClient::from_protected_bundled_session(
@@ -157,6 +158,7 @@ async fn connect_with_peer(
                 profile.origin,
                 credential,
                 session,
+                provider_statuses,
             )
         }
     })

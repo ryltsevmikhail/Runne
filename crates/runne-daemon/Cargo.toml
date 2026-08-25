@@ -23,6 +23,7 @@ runne-provider-openai = { path = "../runne-provider-openai" }
 runne-provider-deepseek = { path = "../runne-provider-deepseek" }
 runne-provider = { path = "../runne-provider" }
 runne-platform = { path = "../runne-platform" }
+runne-platform-ports = { path = "../runne-platform-ports" }
 runne-platform-desktop = { path = "../runne-platform-desktop", optional = true }
 runne-http = { path = "../runne-http" }
 runne-daemon-openai-effect = { path = "../runne-daemon-openai-effect" }
@@ -60,7 +61,13 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], optional = true
 zeroize = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+runne-windows-native-handle = { path = "../runne-windows-native-handle" }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Pipes",
+    "Win32_System_SystemServices",
+] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

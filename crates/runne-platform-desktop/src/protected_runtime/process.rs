@@ -1,11 +1,11 @@
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 enum DesktopLaunchRequest {
     V1(ProtectedLaunchRequestV1),
     V2(ProtectedLaunchRequestV2),
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl DesktopLaunchRequest {
     const fn compatibility(&self) -> &ProtectedLaunchRequestV1 {
         match self {
@@ -51,13 +51,13 @@ impl DesktopLaunchRequest {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 enum DesktopReady {
     V1(ProtectedReadyV1),
     V2(ProtectedReadyV2),
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl DesktopReady {
     const fn compatibility(&self) -> &ProtectedReadyV1 {
         match self {
@@ -101,7 +101,7 @@ impl DesktopReady {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[allow(clippy::large_enum_variant)]
 enum ProtectedProcessActivation {
     V1 {
@@ -119,7 +119,7 @@ enum ProtectedProcessActivation {
     Test { owned: ProtectedOwnedLaunchV1 },
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl ProtectedProcessActivation {
     #[allow(clippy::missing_const_for_fn)]
     fn compatibility_ready(&self) -> &ProtectedReadyV1 {

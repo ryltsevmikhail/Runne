@@ -10,6 +10,10 @@ pub enum AppCoreError {
     RecentRoot(#[from] RecentRootError),
     #[error("stored theme is invalid")]
     InvalidTheme,
+    #[error("stored locale is invalid")]
+    InvalidLocale,
+    #[error("stored shortcuts are invalid")]
+    InvalidShortcuts,
     #[error("application state unavailable")]
     StateUnavailable,
     #[error("diagnostics unavailable")]

@@ -54,6 +54,30 @@ impl GenerateTextRequest {
     }
 }
 
+/// Validated request for asking the runtime to cancel a `TaskRun`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CancelTaskRunRequest {
+    pub(crate) identity: CommandIdentity,
+    pub(crate) task_run_id: CanonicalId,
+    pub(crate) expected_version: u64,
+}
+
+impl CancelTaskRunRequest {
+    /// Creates a typed cancellation request.
+    #[must_use]
+    pub const fn new(
+        identity: CommandIdentity,
+        task_run_id: CanonicalId,
+        expected_version: u64,
+    ) -> Self {
+        Self {
+            identity,
+            task_run_id,
+            expected_version,
+        }
+    }
+}
+
 /// Durable Conversation creation acknowledgement.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

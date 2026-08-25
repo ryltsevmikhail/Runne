@@ -259,7 +259,9 @@ class Rc0PolicySchemaTests(unittest.TestCase):
             with self.subTest(field=right):
                 diagnostics = model.validate_source_capture(changed, source)
                 self.assertTrue(any(left in item or right in item for item in diagnostics))
-
+        v4 = {"remote_url": "https://git.sourcecraft.dev/ryltsevmg/runne.git"}
+        self.assertFalse(any("remote_url" in item for item in model.validate_source_capture(v4, source, "gocode.rc0.evidence-profile/4")))
+        self.assertTrue(any("remote_url" in item for item in model.validate_source_capture({**v4, "remote_url": "https://git.sourcecraft.dev/ryltsevmg/gocode.git"}, source, "gocode.rc0.evidence-profile/4")))
     def test_schemas_require_raw_capture_and_reject_path_or_policy_aliases(self):
         schemas = policy_module("schemas")
         source = "a" * 40
@@ -294,7 +296,5 @@ class Rc0PolicySchemaTests(unittest.TestCase):
             artifact_record, "gocode.rc0.schema.artifact-inventory/3"
         )
         self.assertTrue(any("relative_path" in item or "locator" in item for item in diagnostics))
-
-
 if __name__ == "__main__":
     unittest.main()

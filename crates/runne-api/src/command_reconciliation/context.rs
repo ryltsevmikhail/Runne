@@ -48,4 +48,6 @@ pub enum ReconciliationOperation {
     OpenWorkspace,
     CreateConversation,
     GenerateConversationText,
+    CancelTaskRun,
+    ApprovalDecision,
 }

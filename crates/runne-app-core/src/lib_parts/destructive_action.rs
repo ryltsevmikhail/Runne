@@ -223,7 +223,7 @@ impl AppCore {
             &mut action.lease, None, false, false, false,
         ).await? {
             MutationDispatchResult::Project(ack) => Ok(ack),
-            MutationDispatchResult::Workspace(_) | MutationDispatchResult::ConversationCreated(_) | MutationDispatchResult::TextGenerated(_) => Err(AppCoreError::InvalidMutation),
+            MutationDispatchResult::Workspace(_) | MutationDispatchResult::ConversationCreated(_) | MutationDispatchResult::TextGenerated(_) | MutationDispatchResult::TaskRunCancellationRequested(_) | MutationDispatchResult::ApprovalDecision(_) => Err(AppCoreError::InvalidMutation),
         }
     }
 

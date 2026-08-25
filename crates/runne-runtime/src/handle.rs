@@ -3,8 +3,9 @@
 use std::sync::Arc;
 
 use runne_application::commands::{
-    AdmitTaskRunInput, BeginConversationTextInput, CommandOutcome, CompleteTaskRunInput,
-    CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput, StartAttemptInput,
+    AdmitTaskRunInput, BeginConversationTextInput, CancelTaskRunInput, CommandOutcome,
+    CompleteTaskRunInput, CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput,
+    StartAttemptInput,
 };
 use runne_application::ports::{ApplicationCommandContext, TextGenerationReceipt};
 use tokio::sync::{Semaphore, mpsc};
@@ -155,6 +156,19 @@ impl RuntimeHandle {
         input: StartAttemptInput,
     ) -> Result<CommandOutcome, RuntimeError> {
         self.send_request(move |reply| RuntimeRequest::StartAttempt {
+            context,
+            input,
+            reply,
+        })
+        .await
+    }
+
+    pub async fn cancel_task_run(
+        &self,
+        context: ApplicationCommandContext,
+        input: CancelTaskRunInput,
+    ) -> Result<CommandOutcome, RuntimeError> {
+        self.send_request(move |reply| RuntimeRequest::Cancel {
             context,
             input,
             reply,

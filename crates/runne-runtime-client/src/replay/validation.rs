@@ -97,8 +97,7 @@ pub(super) fn validate_canonical_event(
             ReplayClientErrorKind::SchemaMismatch,
         ));
     }
-    let payload =
-        payload::validate_payload(aggregate_kind, &wire.event_type, wire.payload.clone())?;
+    let payload = payload::validate_payload(aggregate_kind, &wire.event_type, &wire.payload)?;
     let mut canonical_value = serde_json::to_value(&wire)
         .map_err(|_| ReplayClientError::new(ReplayClientErrorKind::Integrity))?;
     canonical_value

@@ -2,7 +2,7 @@ use super::VerifiedOwnerPrivateConfig;
 use super::provider_selection::{provider_credential_id, select_provider_runtime};
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 pub(super) struct StartupProvider {
     activation: ProviderActivation,
@@ -53,7 +53,7 @@ impl StartupProvider {
         }
     }
 
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     pub(super) fn verified_protected(
         start: &VerifiedProtectedApplicationStart,
         keys: runne_api::ProtectedActivationKeys,

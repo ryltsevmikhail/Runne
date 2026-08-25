@@ -4,7 +4,10 @@ where
     H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
 {
     Router::new()
-        .route("/v1/task-runs", post(create_task_run::<H>))
+        .route(
+            "/v1/task-runs",
+            get(list_task_runs::<H>).post(create_task_run::<H>),
+        )
         .route("/v1/task-runs/{taskrun_id}", get(get_task_run::<H>))
         .route(
             "/v1/task-runs/{taskrun_id}/queue",
@@ -13,6 +16,10 @@ where
         .route(
             "/v1/task-runs/{taskrun_id}/admit",
             post(admit_task_run::<H>),
+        )
+        .route(
+            "/v1/task-runs/{taskrun_id}/cancel",
+            post(cancel_task_run::<H>),
         )
         .route(
             "/v1/task-runs/{taskrun_id}/attempts",
@@ -114,6 +121,29 @@ where
     .await
 }
 
+async fn cancel_task_run<H>(
+    State(state): State<TaskRunHttpState<H>>,
+    Extension(principal): Extension<AuthenticatedPrincipal>,
+    Extension(request_id): Extension<RequestId>,
+    Path(taskrun_id): Path<String>,
+    headers: HeaderMap,
+    body: Result<Json<ExistingTaskRunBody>, JsonRejection>,
+) -> Response
+where
+    H: TaskRunCommandHostPort + TaskRunQueryHostPort,
+{
+    existing_command(
+        state,
+        principal,
+        request_id,
+        taskrun_id,
+        headers,
+        body,
+        ExistingOperation::Cancel,
+    )
+    .await
+}
+
 async fn start_attempt<H>(
     State(state): State<TaskRunHttpState<H>>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
@@ -141,6 +171,7 @@ where
 enum ExistingOperation {
     Queue,
     Admit,
+    Cancel,
     StartAttempt,
 }
 
@@ -176,6 +207,12 @@ where
     let result = match operation {
         ExistingOperation::Queue => state.host.queue_task_run(context, command).await,
         ExistingOperation::Admit => state.host.admit_task_run(context, command).await,
+        ExistingOperation::Cancel => {
+            state
+                .host
+                .request_task_run_cancellation(context, command)
+                .await
+        }
         ExistingOperation::StartAttempt => state.host.start_attempt(context, command).await,
     };
     command_response(result, &request_id)

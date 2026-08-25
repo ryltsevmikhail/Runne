@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { connectRuntime, loadBootstrap, saveTheme } from './bootstrap'
+import { loadLocale, saveLocale } from './locale'
 
 describe('bootstrap IPC adapter', () => {
   it('accepts the closed sanitized bootstrap response', async () => {
@@ -113,6 +114,18 @@ describe('bootstrap IPC adapter', () => {
     })
 
     expect(calls).toEqual([['set_theme', { theme: 'light' }]])
+  })
+
+  it('accepts and persists only the closed locale vocabulary', async () => {
+    await expect(loadLocale(async () => ({ locale: 'ru' }))).resolves.toEqual({ locale: 'ru' })
+    await expect(loadLocale(async () => ({ locale: 'de' }))).rejects.toThrow('Invalid locale response')
+
+    const calls: Array<[string, Record<string, unknown> | undefined]> = []
+    await saveLocale('ru', async (command, args) => {
+      calls.push([command, args])
+      return { locale: 'ru' }
+    })
+    expect(calls).toEqual([['set_locale', { locale: 'ru' }]])
   })
 
   it('accepts only a closed runtime state from the host connection command', async () => {

@@ -12,6 +12,7 @@ use super::{
 pub struct WindowsContainment;
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code, non_camel_case_types, clippy::upper_case_acronyms)]
 mod winapi {
     use std::ffi::c_void;
 

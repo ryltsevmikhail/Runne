@@ -1,4 +1,4 @@
-#[cfg(all(unix, feature = "protected-channel-integration"))]
+#[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 impl ProtectedBundledRuntimeProcess {
     /// Transfers one verified root only over this process' authenticated inherited channel.
     ///
@@ -48,7 +48,10 @@ impl ProtectedBundledRuntimeProcess {
         if self.graceful_requested { return Err(ProtectedBundledRuntimeError::InvalidState); }
         let receiver_pid = self.child.id();
         let sender_pid = std::process::id();
+        #[cfg(unix)]
         let effective_uid = rustix::process::geteuid().as_raw();
+        #[cfg(windows)]
+        let effective_uid = 0;
         let now = unix_millis()?;
         let expires = now.checked_add(30_000).ok_or(ProtectedBundledRuntimeError::InvalidState)?;
         let context = runne_api::RootHandleTransferContext::new(
@@ -84,10 +87,25 @@ impl ProtectedBundledRuntimeProcess {
         if ready.offer_digest() != &offer_digest {
             return Err(ProtectedBundledRuntimeError::OwnershipMismatch);
         }
+        #[cfg(unix)]
         let mut endpoint = crate::ProtectedRootHandleEndpoint::from_owned_protected_channel(
-            self.channel.try_clone().map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?,
-            authenticator.clone(), &context, *ready.offer_digest(),
-        ).map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+            self.channel
+                .try_clone()
+                .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?,
+            authenticator.clone(),
+            &context,
+            *ready.offer_digest(),
+        )
+        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
+        #[cfg(windows)]
+        let mut endpoint = crate::ProtectedRootHandleEndpoint::from_parent_protected_channel(
+            self.channel
+                .try_clone()
+                .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?,
+            &self.child,
+            &context,
+        )
+        .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
         endpoint.send(root).map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         endpoint.finish().map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         let result = runne_api::RootHandleControlFrame::decode_and_verify(
@@ -107,14 +125,16 @@ impl ProtectedBundledRuntimeProcess {
     }
 
     fn poison_root_transport(&mut self) {
+        #[cfg(unix)]
         use std::net::Shutdown;
+        #[cfg(unix)]
         let _ = self.channel.shutdown(Shutdown::Both);
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
 
-#[cfg(all(unix, feature = "protected-channel-integration"))]
+#[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 struct RootHandleTransaction {
     authenticator: runne_api::RootHandleTransferAuthenticator,
     context: runne_api::RootHandleTransferContext,
@@ -122,7 +142,7 @@ struct RootHandleTransaction {
     offer: runne_api::RootHandleTransferOffer,
 }
 
-#[cfg(not(all(unix, feature = "protected-channel-integration")))]
+#[cfg(not(all(any(unix, windows), feature = "protected-channel-integration")))]
 impl ProtectedBundledRuntimeProcess {
     /// Protected root-handle transport is unavailable without its native integration feature.
     ///

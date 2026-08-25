@@ -64,6 +64,7 @@
                 certificate_sha256: "certificate".to_owned(),
                 capability_digest: "capabilities".to_owned(),
             },
+            Vec::new(),
         )
     }
 

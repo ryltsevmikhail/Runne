@@ -5,6 +5,7 @@ import { computed, onMounted, ref } from 'vue'
 
 import type { BootstrapState } from '@/shared/api/platform/bootstrap'
 import { loadBootstrap } from '@/shared/api/platform/bootstrap'
+import { translate } from '@/shared/i18n'
 
 type LoadRuntime = () => Promise<BootstrapState>
 
@@ -42,27 +43,32 @@ onMounted(async () => {
     <header class="page-header">
       <div>
         <h1 id="runtime-settings-title">
-          Runtime
+          {{ translate('runtimeSettings.title') }}
         </h1>
-        <p>The selected native mode is fixed for this desktop process. Connection failures never change it.</p>
+        <p>{{ translate('runtimeSettings.description') }}</p>
       </div>
     </header>
+    <nav class="page-subnav" :aria-label="translate('runtimeSettings.navigation')">
+      <RouterLink to="/settings/runtimes">{{ translate('runtimeSettings.title') }}</RouterLink>
+      <RouterLink to="/settings/appearance">{{ translate('runtimeSettings.appearance') }}</RouterLink>
+      <RouterLink to="/settings/diagnostics">{{ translate('diagnostics.title') }}</RouterLink>
+    </nav>
 
     <GcAlert
       v-if="unavailable || runtime === null"
       level="error"
-      title="Runtime status unavailable"
+      :title="translate('runtimeSettings.statusUnavailable')"
     >
-      Safe runtime metadata could not be read.
+      {{ translate('runtimeSettings.metadataUnavailable') }}
     </GcAlert>
 
     <GcAlert
       v-else-if="bundled"
       level="info"
-      title="Protected bundled runtime"
+      :title="translate('runtimeSettings.protectedTitle')"
     >
-      <p>Desktop launches only the verified bundled daemon through protected one-time activation.</p>
-      <p>macOS support in this slice is development/ad-hoc only.</p>
+      <p>{{ translate('runtimeSettings.protectedMessage') }}</p>
+      <p>{{ translate('runtimeSettings.developmentSupport') }}</p>
       <GcBadge :status="runtime.runtimeLifecycle === 'ready' ? 'ready' : 'offline'">
         {{ runtime.runtimeLifecycle }}
       </GcBadge>
@@ -71,9 +77,9 @@ onMounted(async () => {
     <GcAlert
       v-else
       level="info"
-      title="External runtime mode"
+      :title="translate('runtimeSettings.externalTitle')"
     >
-      <p>This mode was selected explicitly. Desktop connects through the external profile but never stops or adopts that daemon.</p>
+      <p>{{ translate('runtimeSettings.externalMessage') }}</p>
       <GcBadge :status="runtime.runtime === 'live' ? 'ready' : 'offline'">
         {{ runtime.runtime }}
       </GcBadge>

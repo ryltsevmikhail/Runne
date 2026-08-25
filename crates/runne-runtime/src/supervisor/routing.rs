@@ -7,6 +7,7 @@ fn reject_request(request: RuntimeRequest) {
         | RuntimeRequest::Queue { reply, .. }
         | RuntimeRequest::Admit { reply, .. }
         | RuntimeRequest::StartAttempt { reply, .. }
+        | RuntimeRequest::Cancel { reply, .. }
         | RuntimeRequest::Complete { reply, .. } => {
             let _ = reply.send(Err(RuntimeError::RuntimeClosed));
         }
@@ -147,6 +148,19 @@ fn dispatch_admitted<E, U, I>(
         } => {
             let tid = input.taskrun_id;
             let per_run = PerRunRequest::StartAttempt {
+                context,
+                input,
+                reply,
+            };
+            route_to_worker(tid, per_run, lease, registry);
+        }
+        RuntimeRequest::Cancel {
+            context,
+            input,
+            reply,
+        } => {
+            let tid = input.taskrun_id;
+            let per_run = PerRunRequest::Cancel {
                 context,
                 input,
                 reply,

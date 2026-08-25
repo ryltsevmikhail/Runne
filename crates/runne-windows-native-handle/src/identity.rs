@@ -142,6 +142,10 @@ impl DirectoryHandle {
         self.handle.raw()
     }
 
+    pub(crate) const fn owned_handle(&self) -> &OwnedHandle {
+        &self.handle
+    }
+
     pub(crate) fn from_owned(handle: OwnedHandle) -> Result<Self, NativeHandleError> {
         let identity = identity_for(handle.raw())?;
         Ok(Self { handle, identity })

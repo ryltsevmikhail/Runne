@@ -1,13 +1,13 @@
 use std::fs::File;
-use std::io::{IoSlice, IoSliceMut, Read, Write};
+use std::io::{IoSlice, IoSliceMut, Read, Seek, SeekFrom, Write};
 use std::mem::MaybeUninit;
-use std::os::fd::{AsFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 
 use rand::RngCore;
 use runne_api::RootHandleTransferAuthenticator;
-use rustix::fs::{Mode, OFlags, fstat, open, openat};
+use rustix::fs::{FileType, Mode, OFlags, RawDir, fstat, open, openat};
 #[cfg(target_os = "linux")]
 use rustix::fs::{ResolveFlags, openat2};
 use rustix::net::{
@@ -20,11 +20,69 @@ use super::{
     RootHandleBrokerError, RootHandleTransferBinding, StableFilesystemIdentity, VerifiedRootHandle,
 };
 
+include!("unix_files.rs");
+include!("unix_editor.rs");
+
 pub(super) type NativeDirectoryHandle = File;
 pub(super) type NativeTransferChannel = UnixStream;
 const CHALLENGE_BYTES: usize = 96;
 const TRANSFER_FRAME_BYTES: usize = 160;
 const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
+pub(super) struct NativeProcessFiles {
+    pub(super) executable: File,
+    pub(super) cwd: File,
+    pub(super) executable_content_digest: [u8; 32],
+    pub(super) executable_filesystem_identity_digest: [u8; 32],
+    pub(super) cwd_filesystem_identity_digest: [u8; 32],
+}
+
+pub(super) fn open_process_files(
+    root: &NativeDirectoryHandle,
+    executable: &Path,
+    cwd: &Path,
+) -> Result<NativeProcessFiles, RootHandleBrokerError> {
+    let executable = open_file_below(root, executable)?;
+    let cwd = open_directory_below(root, cwd)?;
+    let executable_filesystem_identity_digest = file_identity_digest(&executable)?;
+    let cwd_filesystem_identity_digest = file_identity_digest(&cwd)?;
+    let executable_content_digest = content_digest(&executable)?;
+    Ok(NativeProcessFiles {
+        executable,
+        cwd,
+        executable_content_digest,
+        executable_filesystem_identity_digest,
+        cwd_filesystem_identity_digest,
+    })
+}
+
+pub(super) fn executable_command_path(files: &NativeProcessFiles) -> std::path::PathBuf {
+    #[cfg(target_os = "linux")]
+    let prefix = "/proc/self/fd/";
+    #[cfg(target_os = "macos")]
+    let prefix = "/dev/fd/";
+    std::path::PathBuf::from(format!("{prefix}{}", files.executable.as_raw_fd()))
+}
+
+pub(super) fn cwd_command_path(files: &NativeProcessFiles) -> std::path::PathBuf {
+    #[cfg(target_os = "linux")]
+    let prefix = "/proc/self/fd/";
+    #[cfg(target_os = "macos")]
+    let prefix = "/dev/fd/";
+    std::path::PathBuf::from(format!("{prefix}{}", files.cwd.as_raw_fd()))
+}
+
+pub(super) const fn executable_content_digest(files: &NativeProcessFiles) -> [u8; 32] {
+    files.executable_content_digest
+}
+
+pub(super) const fn executable_filesystem_identity_digest(files: &NativeProcessFiles) -> [u8; 32] {
+    files.executable_filesystem_identity_digest
+}
+
+pub(super) const fn cwd_filesystem_identity_digest(files: &NativeProcessFiles) -> [u8; 32] {
+    files.cwd_filesystem_identity_digest
+}
 
 pub(super) fn open_directory(path: &Path) -> Result<VerifiedRootHandle, RootHandleBrokerError> {
     let mut current = File::from(

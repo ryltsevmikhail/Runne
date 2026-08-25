@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "content": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "maxLength": 1048576,
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 1048576
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\u0000-\\u001f\\\\]+(?:/[^\\u0000-\\u001f\\\\]+)*$",
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 4096
+        },
+        "sizeBytes": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "content",
+        "sizeBytes"
+      ],
+      "type": "object"
+    },
+    "entry": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "type": "string"
+        },
+        "path": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\u0000-\\u001f\\\\]+(?:/[^\\u0000-\\u001f\\\\]+)*$",
+          "type": "string",
+          "x-gocode-maxUtf8Bytes": 4096
+        },
+        "sizeBytes": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "sizeBytes"
+      ],
+      "type": "object"
+    },
+    "error": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "type": "string"
+        },
+        "requestId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "requestId"
+      ],
+      "type": "object"
+    },
+    "page": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/entry"
+          },
+          "maxItems": 200,
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/workspace-files-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "$ref": "#/$defs/content"
+    },
+    "entry": {
+      "$ref": "#/$defs/entry"
+    },
+    "error": {
+      "$ref": "#/$defs/error"
+    },
+    "page": {
+      "$ref": "#/$defs/page"
+    }
+  },
+  "required": [
+    "entry",
+    "page",
+    "content",
+    "error"
+  ],
+  "title": "Workspace Files V1",
+  "type": "object"
+}

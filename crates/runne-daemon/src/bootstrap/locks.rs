@@ -34,6 +34,11 @@ fn acquire_existing_authority_lock(
 
 /// Open DB file with no-follow for verify / file-identity lock.
 fn open_verify_no_follow(db_path: &Path) -> Result<fs::File, DaemonError> {
+    #[cfg(windows)]
+    runne_windows_native_handle::inspect_regular_file(db_path).map_err(|_| {
+        DaemonError::Bootstrap("cannot validate Windows DB reparse identity".into())
+    })?;
+
     let mut opts = fs::OpenOptions::new();
     opts.read(true).write(false).create(false);
 

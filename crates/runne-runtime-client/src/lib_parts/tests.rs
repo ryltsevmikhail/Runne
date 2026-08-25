@@ -204,6 +204,7 @@ fn supported_capability_profiles_are_exactly_ordered() {
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
             "task_run.get.v1",
+            "task_run.cancel.v1",
             "replay.aggregate.open.v1",
             "replay.aggregate.retention_baseline.v1",
             "replay.aggregate.retention_baseline_resume.v2",
@@ -213,6 +214,8 @@ fn supported_capability_profiles_are_exactly_ordered() {
             "replay.aggregate.continue_live.v1",
             "replay.aggregate.sse.v1",
             "runtime.operational-telemetry.v1",
+            "approval.control.v1",
+            "provider.credential-control.v1",
             "project.list.v1",
             "project.get.v1",
             "project.create.v1",
@@ -227,5 +230,8 @@ fn supported_capability_profiles_are_exactly_ordered() {
     );
     let mut protected = REQUIRED_RUNTIME_CAPABILITIES.to_vec();
     protected.push("workspace.bind_root.v3");
+    protected.push("workspace.files.read.v1");
+    protected.push("workspace.changes.read.v1");
+    protected.push("workspace.editor.open.v1");
     assert_eq!(PROTECTED_RUNTIME_CAPABILITIES, protected);
 }

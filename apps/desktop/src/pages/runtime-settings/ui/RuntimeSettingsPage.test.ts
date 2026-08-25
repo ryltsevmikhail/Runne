@@ -15,6 +15,7 @@ describe('runtime settings page', () => {
           runtimeFailure: null,
         }),
       },
+      global: { stubs: { RouterLink: true } },
     })
     await flushPromises()
 
@@ -34,6 +35,7 @@ describe('runtime settings page', () => {
           runtimeFailure: null,
         }),
       },
+      global: { stubs: { RouterLink: true } },
     })
     await flushPromises()
 

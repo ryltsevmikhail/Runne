@@ -1,28 +1,33 @@
 use core::fmt;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::Mutex;
 
 use runne_api::ExecutableIdentityV1;
 use zeroize::Zeroizing;
 
 use crate::SecureStoreError;
 
+#[cfg(test)]
+pub static EXECUTABLE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 include!("provider_credential/policy.rs");
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 include!("provider_credential/codec_layout.rs");
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 include!("provider_credential/codec.rs");
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 include!("provider_credential/codec_helpers.rs");
 include!("provider_credential/store.rs");
 include!("provider_credential/versioned.rs");
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 pub mod source_update;
 
 #[cfg(test)]
 #[path = "provider_credential/source_update_tests.rs"]
 mod source_update_tests;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
 pub fn generate_provider_credential_source_revision()
 -> Result<ProviderCredentialSourceRevision, SecureStoreError> {
     use rand::RngCore as _;

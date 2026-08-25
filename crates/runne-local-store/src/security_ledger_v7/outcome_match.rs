@@ -8,6 +8,7 @@ impl CanonicalMutationOutcome {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn simple_matches(outcome: &CanonicalMutationOutcome, command: &NormalizedMutationCommand) -> bool {
     match (outcome, command) {
         (
@@ -77,6 +78,42 @@ fn simple_matches(outcome: &CanonicalMutationOutcome, command: &NormalizedMutati
                 workspace_id,
             },
         ) => result == conversation_id && result_workspace == workspace_id && *stream_version == 1,
+        (
+            CanonicalMutationOutcome::TaskRunCancellationRequested {
+                task_run_id: result,
+                new_version,
+            },
+            NormalizedMutationCommand::CancelTaskRun {
+                task_run_id,
+                expected_version,
+            },
+        ) => result == task_run_id && expected_version.checked_add(1) == Some(*new_version),
+        (
+            CanonicalMutationOutcome::ApprovalRespond {
+                approval_id: result,
+                new_version,
+                state,
+            },
+            NormalizedMutationCommand::ApprovalRespond {
+                approval_id,
+                expected_version,
+                decision,
+                ..
+            },
+        ) => {
+            result == approval_id
+                && expected_version.checked_add(1) == Some(*new_version)
+                && matches!(
+                    (decision, state),
+                    (
+                        super::command::ApprovalDecisionKind::Approve,
+                        super::outcome::ApprovalOutcomeState::Approved
+                    ) | (
+                        super::command::ApprovalDecisionKind::Deny,
+                        super::outcome::ApprovalOutcomeState::Denied
+                    )
+                )
+        }
         _ => false,
     }
 }

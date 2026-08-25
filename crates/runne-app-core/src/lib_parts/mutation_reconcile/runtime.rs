@@ -80,6 +80,8 @@ impl AppCore {
             Outcome::ConversationTextCompleted(value) => Ok(MutationDispatchResult::TextGenerated((**value).clone())),
             Outcome::ConversationTextRejected(_) => Err(AppCoreError::GenerationRejected),
             Outcome::ConversationTextProhibitedInputRejected(_) => Err(AppCoreError::ProhibitedInputRejected),
+            Outcome::TaskRunCancellationRequested(value) => Ok(MutationDispatchResult::TaskRunCancellationRequested(*value)),
+            Outcome::ApprovalDecision(value) => Ok(MutationDispatchResult::ApprovalDecision(*value)),
         }
     }
 }

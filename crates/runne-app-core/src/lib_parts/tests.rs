@@ -1,5 +1,5 @@
     use super::{
-        AppCore, BootstrapState, CanonicalId, RuntimeAvailability, RuntimeLifecycleStatus,
+        AppCore, AppCoreError, BootstrapState, CanonicalId, RuntimeAvailability, RuntimeLifecycleStatus,
         RuntimeMode, StoredConversationReference, StoredConversationReferenceV1, load_bootstrap,
     };
     use crate::replay::StableRuntimeIdentity;
@@ -40,6 +40,50 @@
     }
 
     #[test]
+    fn locale_change_is_owner_persisted_and_invalid_values_are_rejected() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let path = directory.path().join("profile.sqlite3");
+        let core = AppCore::open(&path).expect("open core");
+
+        assert_eq!(core.locale().expect("default locale"), "en");
+        core.set_locale("ru").expect("save locale");
+        assert!(matches!(
+            core.set_locale("de"),
+            Err(AppCoreError::InvalidLocale)
+        ));
+        drop(core);
+
+        let reopened = AppCore::open(&path).expect("reopen core");
+        assert_eq!(reopened.locale().expect("load locale"), "ru");
+    }
+
+    #[test]
+    fn shortcut_bindings_are_owner_persisted_and_conflicts_are_rejected() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let path = directory.path().join("profile.sqlite3");
+        let core = AppCore::open(&path).expect("open core");
+
+        assert_eq!(core.shortcuts().expect("default shortcuts"), ShortcutSettings::default());
+        let changed = ShortcutSettings::new("Ctrl+P", "Ctrl+O").expect("valid shortcuts");
+        assert_eq!(
+            serde_json::to_value(&changed).expect("wire shortcuts"),
+            serde_json::json!({"commandPalette": "Ctrl+P", "openProject": "Ctrl+O"})
+        );
+        core.set_shortcuts(&changed).expect("save shortcuts");
+        assert!(matches!(
+        core.set_shortcuts(&ShortcutSettings {
+                command_palette: "Ctrl+P".to_owned(),
+                open_project: "Ctrl+P".to_owned(),
+            }),
+            Err(AppCoreError::InvalidShortcuts)
+        ));
+        drop(core);
+
+        let reopened = AppCore::open(&path).expect("reopen core");
+        assert_eq!(reopened.shortcuts().expect("load shortcuts"), changed);
+    }
+
+    #[test]
     fn canonical_recent_root_makes_it_available_after_app_restart() {
         let directory = tempfile::tempdir().expect("temp directory");
         let database_path = directory.path().join("profile.sqlite3");
@@ -68,6 +112,30 @@
         assert_eq!(restored.project_id, "01890e00-0000-7000-8000-000000000001");
         assert_eq!(restored.workspace_id, "01890e00-0000-7000-8000-000000000002");
         assert!(!serde_json::to_string(&restored).expect("serialize").contains("native-root-1"));
+    }
+
+    #[tokio::test]
+    async fn canonical_project_queries_do_not_fall_back_to_local_metadata() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let database_path = directory.path().join("profile.sqlite3");
+        let mut store = LocalStore::open(&database_path).expect("open store");
+        store
+            .record_recent_root(
+                "01890e00-0000-7000-8000-000000000001",
+                "01890e00-0000-7000-8000-000000000002",
+                "Project one",
+                1,
+                "native-root-1",
+            )
+            .expect("record root");
+        drop(store);
+
+        let core = AppCore::open(&database_path).expect("open core");
+
+        assert!(matches!(
+            core.list_canonical_projects().await,
+            Err(AppCoreError::RuntimeUnavailable)
+        ));
     }
 
     #[test]

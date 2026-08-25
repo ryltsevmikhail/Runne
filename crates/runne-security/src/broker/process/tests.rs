@@ -183,6 +183,49 @@ mod tests {
         );
     }
 
+    #[test]
+    fn structured_argv_rejects_control_bytes_and_redirect_delimiters() {
+        let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
+        let mut spec = valid_spec();
+        spec.argv = vec!["line\nbreak".into()];
+        assert_eq!(
+            broker.validate_spec(&spec),
+            Err(ProcessError::ShellCommandForbidden)
+        );
+
+        let mut spec = valid_spec();
+        spec.argv = vec!["output > file".into()];
+        assert_eq!(
+            broker.validate_spec(&spec),
+            Err(ProcessError::ShellCommandForbidden)
+        );
+    }
+
+    #[test]
+    fn structured_environment_is_bounded() {
+        let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
+        let mut spec = valid_spec();
+        spec.allowed_env_keys = (0..65).map(|index| format!("K{index:02}")).collect();
+        spec.env = spec
+            .allowed_env_keys
+            .iter()
+            .map(|key| (key.clone(), "value".into()))
+            .collect();
+        assert_eq!(
+            broker.validate_spec(&spec),
+            Err(ProcessError::EnvironmentTooLarge)
+        );
+
+        let mut spec = valid_spec();
+        spec.allowed_env_keys = (0..64)
+            .map(|index| format!("K{index:02}{}", "x".repeat(2_048)))
+            .collect();
+        assert_eq!(
+            broker.validate_spec(&spec),
+            Err(ProcessError::EnvironmentTooLarge)
+        );
+    }
+
     fn valid_spec() -> ProcessSpec {
         let cwd = virtual_cwd();
         ProcessSpec {

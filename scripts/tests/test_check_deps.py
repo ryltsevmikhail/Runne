@@ -111,6 +111,21 @@ class CheckDepsTests(unittest.TestCase):
             self.assertEqual(len(errors), 2)
             self.assertTrue(all("apps/desktop/src-tauri/src" in error for error in errors))
 
+    def test_owner_consumer_scan_allows_generic_store_operation_names(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            source = root / "crates/runne-store/src/approvals.rs"
+            source.parent.mkdir(parents=True)
+            manifest = source.parents[1] / "Cargo.toml"
+            manifest.write_text("[package]", encoding="utf-8")
+            source.write_text("fn create_pending() {}", encoding="utf-8")
+            packages = [{
+                "name": "runne-store",
+                "manifest_path": str(manifest),
+                "targets": [{"src_path": str(source)}],
+            }]
+            self.assertFalse(checker.project_owner_store_consumer_errors(packages))
+
 
 if __name__ == "__main__":
     unittest.main()

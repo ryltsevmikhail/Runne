@@ -4,6 +4,9 @@ use super::outcome_generation::{
 };
 use crate::{BoundedCanonicalId, SecurityStateError};
 
+mod approval;
+pub use approval::ApprovalOutcomeState;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CanonicalMutationOutcome {
     ProjectCreate {
@@ -45,6 +48,15 @@ pub enum CanonicalMutationOutcome {
         task_run_stream_version: u64,
         user_message: LedgerMessage,
         assistant: Box<GenerationAssistant>,
+    },
+    TaskRunCancellationRequested {
+        task_run_id: BoundedCanonicalId,
+        new_version: u64,
+    },
+    ApprovalRespond {
+        approval_id: BoundedCanonicalId,
+        new_version: u64,
+        state: ApprovalOutcomeState,
     },
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -170,6 +182,17 @@ impl CanonicalMutationOutcome {
                     }
                 }
             }
+            Self::TaskRunCancellationRequested {
+                task_run_id,
+                new_version,
+            } => {
+                simple(&mut value, 9, task_run_id, *new_version)?;
+            }
+            Self::ApprovalRespond {
+                approval_id,
+                new_version,
+                state,
+            } => approval::encode(&mut value, approval_id, *new_version, *state)?,
         }
         Ok(value)
     }
@@ -195,6 +218,11 @@ impl CanonicalMutationOutcome {
                 committed_at: version(&mut input)?,
             },
             8 => generation(&mut input)?,
+            9 => Self::TaskRunCancellationRequested {
+                task_run_id: codec::id(&mut input)?,
+                new_version: version(&mut input)?,
+            },
+            10 => approval::decode(&mut input)?,
             _ => return Err(SecurityStateError::InvalidTransition),
         };
         codec::finish(input)?;

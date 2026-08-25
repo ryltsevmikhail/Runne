@@ -70,6 +70,8 @@ pub enum TaskRunCommandAckKind {
     Created,
     /// A TaskRun entered the queue.
     Queued,
+    /// Cancellation was durably requested.
+    CancellationRequested,
     /// A TaskRun was admitted.
     Admitted,
     /// A new execution attempt started.
@@ -214,6 +216,15 @@ pub trait TaskRunCommandHostPort: Send + Sync {
         command: ExistingTaskRunCommand,
     ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send;
 
+    /// Requests cancellation through the authoritative TaskRun aggregate.
+    fn request_task_run_cancellation(
+        &self,
+        _context: TaskRunCommandContext,
+        _command: ExistingTaskRunCommand,
+    ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send {
+        async { Err(TaskRunHostError::Unavailable) }
+    }
+
     /// Admits one queued TaskRun.
     fn admit_task_run(
         &self,
@@ -243,4 +254,12 @@ pub trait TaskRunQueryHostPort: Send + Sync {
         &self,
         taskrun_id: TaskRunId,
     ) -> impl std::future::Future<Output = Result<TaskRunSnapshot, TaskRunHostError>> + Send;
+
+    /// Reconstructs every committed TaskRun for bounded lifecycle decisions.
+    fn list_task_runs(
+        &self,
+    ) -> impl std::future::Future<Output = Result<Vec<TaskRunSnapshot>, TaskRunHostError>> + Send
+    {
+        async { Err(TaskRunHostError::Unavailable) }
+    }
 }

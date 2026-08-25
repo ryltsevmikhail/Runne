@@ -207,15 +207,12 @@ impl ProviderCredentialAccessPolicy {
     pub(crate) fn reader_path(&self) -> &Path {
         &self.reader_path
     }
-    #[cfg(target_os = "macos")]
     pub(crate) fn validate_writer_current(&self) -> Result<(), SecureStoreError> {
         validate_current_identity(&self.writer_identity)
     }
-    #[cfg(target_os = "macos")]
     pub(crate) fn validate_reader_current(&self) -> Result<(), SecureStoreError> {
         validate_current_identity(&self.reader_identity)
     }
-    #[cfg(target_os = "macos")]
     pub(crate) fn validate_writer_or_reader_current(&self) -> Result<(), SecureStoreError> {
         if self.validate_writer_current().is_ok() || self.validate_reader_current().is_ok() {
             Ok(())
@@ -223,7 +220,6 @@ impl ProviderCredentialAccessPolicy {
             Err(SecureStoreError::CredentialAccessDenied)
         }
     }
-    #[cfg(target_os = "macos")]
     pub(crate) fn remeasure(&self) -> Result<(), SecureStoreError> {
         let (_, writer) = measure_executable(&self.writer_path)?;
         let (_, reader) = measure_executable(&self.reader_path)?;
@@ -244,7 +240,7 @@ impl fmt::Debug for ProviderCredentialAccessPolicy {
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 fn validate_current_identity(expected: &ExecutableIdentityV1) -> Result<(), SecureStoreError> {
     let current =
         std::env::current_exe().map_err(|_| SecureStoreError::CredentialIdentityMismatch)?;

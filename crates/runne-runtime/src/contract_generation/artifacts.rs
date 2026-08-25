@@ -76,6 +76,14 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&project_workspace_golden())?,
         ),
         (
+            "golden/workspace-files.json",
+            canonical_json(&workspace_files_golden())?,
+        ),
+        (
+            "golden/workspace-diffs.json",
+            canonical_json(&workspace_diffs_golden())?,
+        ),
+        (
             "golden/replay-retention-gap-v2.json",
             canonical_json(&replay_retention_baseline_v2_golden())?,
         ),
@@ -117,6 +125,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&project_workspace_schema())?,
         ),
         (
+            "schemas/provider-credentials-v1.schema.json",
+            canonical_json(&provider_credentials_schema())?,
+        ),
+        (
             "schemas/replay-v1.schema.json",
             canonical_json(&replay_schema())?,
         ),
@@ -124,6 +136,18 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
         (
             "schemas/task-run-v1.schema.json",
             canonical_json(&task_run_schema())?,
+        ),
+        (
+            "schemas/workspace-files-v1.schema.json",
+            canonical_json(&workspace_files_schema())?,
+        ),
+        (
+            "schemas/workspace-editor-v1.schema.json",
+            canonical_json(&workspace_editor_schema())?,
+        ),
+        (
+            "schemas/workspace-diffs-v1.schema.json",
+            canonical_json(&workspace_diffs_schema())?,
         ),
     ]);
 

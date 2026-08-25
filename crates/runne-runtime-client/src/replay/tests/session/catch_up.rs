@@ -12,6 +12,7 @@
             "http://127.0.0.1:9".to_owned(),
             crate::RuntimeSessionAuthority::from_local_session([8; 32]),
             second_session,
+            Vec::new(),
         );
 
         assert_eq!(
@@ -47,6 +48,7 @@
                 "http://127.0.0.1:9".to_owned(),
                 crate::RuntimeSessionAuthority::from_local_session([9; 32]),
                 changed_session,
+                Vec::new(),
             );
             assert_ne!(
                 first.replay_persistence_binding().digest(),

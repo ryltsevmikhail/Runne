@@ -11,9 +11,9 @@ import sys
 from pathlib import Path
 
 if __package__:
-    from .capability_manifest_impl.io import canonical_source_content_digest, evidence_only_difference
+    from .capability_manifest_impl.io import SOURCECRAFT_ATTEST_VERIFIER_PATH, canonical_source_content_digest, evidence_only_difference
 else:
-    from capability_manifest_impl.io import canonical_source_content_digest, evidence_only_difference
+    from capability_manifest_impl.io import SOURCECRAFT_ATTEST_VERIFIER_PATH, canonical_source_content_digest, evidence_only_difference
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "docs/schemas/desktop-native-platform-foundation-v1.schema.json"
@@ -25,6 +25,8 @@ SPECIFIC_BLOCKERS = frozenset({"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PR
 ALLOWED_BLOCKERS = {MANDATORY_PLATFORMS[0]: frozenset({"MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED"}), MANDATORY_PLATFORMS[1]: frozenset({"MACOS_STAGED_DAEMON_IDENTITY_UNVERIFIED"}), MANDATORY_PLATFORMS[2]: frozenset({"WINDOWS_SECURE_IDENTITY_UNVERIFIED", "WINDOWS_PROTECTED_LAUNCH_UNVERIFIED"}), MANDATORY_PLATFORMS[3]: frozenset({"LINUX_SECURE_IDENTITY_UNVERIFIED", "LINUX_PROTECTED_LAUNCH_UNVERIFIED"})}
 SIMULATED_MARKERS = ("simulated", "stub", "synthetic", "loopback", "fixture", "fake", "mock", "test-double")
 UNTRUSTED_SIGNING_MARKERS = ("ad-hoc", "adhoc", "self-signed", "unsigned")
+SOURCECRAFT_NATIVE_VERIFIER_PATH = SOURCECRAFT_ATTEST_VERIFIER_PATH
+SOURCECRAFT_REPOSITORY = "https://git@git.sourcecraft.dev/ryltsevmg/runne.git"
 
 
 def load_json(path: Path) -> dict[str, object]:
@@ -92,42 +94,35 @@ def validate_evidence(evidence: object) -> list[str]:
 
 
 def _policy_from_env() -> dict[str, str] | None:
-    keys = {"issuer": "GOCODE_NATIVE_PROVENANCE_ISSUER", "repository": "GITHUB_REPOSITORY", "workflow": "GOCODE_NATIVE_PROVENANCE_WORKFLOW", "ref": "GOCODE_NATIVE_PROVENANCE_REF"}
+    keys = {"repository": "SOURCECRAFT_REPO_URL", "workflow": "SOURCECRAFT_WORKFLOW", "ref": "SOURCECRAFT_COMMIT_REF"}
     policy = {key: os.environ.get(env, "") for key, env in keys.items()}
-    return policy if os.environ.get("GITHUB_ACTIONS") == "true" and all(policy.values()) and policy["ref"].startswith("refs/") else None
+    return policy if os.environ.get("SOURCECRAFT_CI") == "true" and policy["repository"] == SOURCECRAFT_REPOSITORY and all(policy.values()) and policy["ref"].startswith("refs/") else None
 
 
-def _verified_predicate(result: object, package_sha256: str, evidence_sha256: str, source_ref: str, policy: dict[str, str]) -> dict[str, object] | None:
-    if not isinstance(result, list) or len(result) != 1 or not isinstance(result[0], dict): return None
-    verified = result[0].get("verificationResult")
-    statement = verified.get("statement") if isinstance(verified, dict) else None
-    if not isinstance(statement, dict) or statement.get("predicateType") != "https://slsa.dev/provenance/v1": return None
-    subject, predicate = statement.get("subject"), statement.get("predicate")
-    digests = [row.get("digest", {}).get("sha256") for row in subject if isinstance(row, dict)] if isinstance(subject, list) else []
-    if len(digests) != 2 or set(digests) != {package_sha256, evidence_sha256} or len(set(digests)) != 2 or not isinstance(predicate, dict): return None
-    build = predicate.get("buildDefinition")
-    if not isinstance(build, dict): return None
-    workflow = build.get("externalParameters", {}).get("workflow") if isinstance(build.get("externalParameters"), dict) else None
-    dependencies = build.get("resolvedDependencies")
-    repository = workflow.get("repository") if isinstance(workflow, dict) else ""
-    expected_repository = {policy["repository"], f"https://github.com/{policy['repository']}"}
-    if not isinstance(workflow, dict) or repository not in expected_repository or workflow.get("path") != policy["workflow"] or workflow.get("ref") != policy["ref"] or not isinstance(dependencies, list) or len(dependencies) != 1 or dependencies[0].get("digest", {}).get("gitCommit") != source_ref: return None
-    return predicate
+def _verified_predicate(result: object, subject_sha256: str, source_ref: str, policy: dict[str, str]) -> dict[str, object] | None:
+    required = {"verified", "subject_sha256", "repository", "workflow", "source_ref", "source_digest", "predicate"}
+    if not isinstance(result, dict) or set(result) != required or result["verified"] is not True or result["subject_sha256"] != subject_sha256:
+        return None
+    if result["repository"] != policy["repository"] or result["workflow"] != policy["workflow"] or result["source_ref"] != policy["ref"] or result["source_digest"] != source_ref or not isinstance(result["predicate"], dict):
+        return None
+    return result["predicate"]
 
 
 def verify_provenance_payload(evidence: object, package_sha256: str, source_ref: str | None, policy: dict[str, str] | None, gate: object, evidence_sha256: str | None = None) -> list[str]:
-    if not isinstance(evidence, dict) or policy is None or not is_sha256(package_sha256) or not is_sha256(evidence_sha256) or evidence.get("source_ref") != source_ref or evidence.get("artifact_sha256") != package_sha256 or not isinstance(gate, dict): return ["RUNNER_TRUST_UNVERIFIED"]
-    package_predicate = _verified_predicate(gate.get("package"), package_sha256, evidence_sha256, source_ref, policy)
-    evidence_predicate = _verified_predicate(gate.get("evidence"), package_sha256, evidence_sha256, source_ref, policy)
+    if not isinstance(evidence, dict) or policy is None or not isinstance(source_ref, str) or len(source_ref) != 40 or not all(char in "0123456789abcdef" for char in source_ref) or not is_sha256(package_sha256) or not is_sha256(evidence_sha256) or evidence.get("source_ref") != source_ref or evidence.get("artifact_sha256") != package_sha256 or not isinstance(gate, dict): return ["RUNNER_TRUST_UNVERIFIED"]
+    package_predicate = _verified_predicate(gate.get("package"), package_sha256, source_ref, policy)
+    evidence_predicate = _verified_predicate(gate.get("evidence"), evidence_sha256, source_ref, policy)
     return [] if package_predicate is not None and evidence_predicate is not None else ["RUNNER_TRUST_UNVERIFIED"]
 
 
 def _verify_bundle(package: Path, bundle: Path, policy: dict[str, str], source_ref: str) -> object | None:
-    command = ["gh", "attestation", "verify", str(package), "--bundle", str(bundle), "--repo", policy["repository"], "--signer-workflow", policy["workflow"], "--cert-oidc-issuer", policy["issuer"], "--source-ref", policy["ref"], "--source-digest", source_ref, "--predicate-type", "https://slsa.dev/provenance/v1", "--no-public-good", "--format", "json"]
+    verifier = SOURCECRAFT_NATIVE_VERIFIER_PATH
+    if set(policy) != {"repository", "workflow", "ref"} or policy["repository"] != SOURCECRAFT_REPOSITORY or not policy["workflow"] or not policy["ref"].startswith("refs/") or not verifier.is_file() or not os.access(verifier, os.X_OK): return None
+    command = [str(verifier), "verify", "--subject", str(package), "--bundle", str(bundle), "--repository", policy["repository"], "--workflow", policy["workflow"], "--source-ref", policy["ref"], "--source-digest", source_ref, "--format", "json"]
     try:
         result = subprocess.run(command, check=False, capture_output=True, text=True)
         return json.loads(result.stdout) if result.returncode == 0 else None
-    except (FileNotFoundError, OSError, ValueError): return None
+    except (FileNotFoundError, OSError, TypeError, ValueError): return None
 
 
 def verify_provenance_command(package: Path | None, evidence: Path | None, source_ref: str | None, gate_bundle: Path | None, output: Path | None) -> int:
@@ -146,7 +141,7 @@ def verify_provenance_command(package: Path | None, evidence: Path | None, sourc
 
 
 def verify_provenance_errors(source_ref: str | None) -> list[str]:
-    return ["RUNNER_TRUST_UNVERIFIED: provenance requires protected CI"] if source_ref or not IN_TOTO_PATH.exists() or not _policy_from_env() else ["RUNNER_TRUST_UNVERIFIED: attestation verification required"]
+    return ["RUNNER_TRUST_UNVERIFIED: provenance requires protected SourceCraft CI"] if source_ref or not IN_TOTO_PATH.exists() or not _policy_from_env() else ["RUNNER_TRUST_UNVERIFIED: SourceCraft attestation verification required"]
 
 
 def _provisional_row(probe: dict[str, object], verification: dict[str, object]) -> dict[str, object]:

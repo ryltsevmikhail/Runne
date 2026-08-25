@@ -1,8 +1,9 @@
 use std::net::Ipv4Addr;
 
 use runne_runtime_client::{
-    CanonicalId, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiErrorKind, RuntimeSessionInfo,
-    TaskRunState, TaskRunTerminalResult, mock_authenticated_runtime_client,
+    CancelTaskRunRequest, CanonicalId, CommandIdentity, REQUIRED_RUNTIME_CAPABILITIES,
+    RuntimeApiErrorKind, RuntimeSessionInfo, TaskRunState, TaskRunTerminalResult,
+    mock_authenticated_runtime_client,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -11,6 +12,53 @@ use tokio::{
 
 const TASK_RUN_ID: &str = "018f2e3a-7000-7000-8000-000000000210";
 const ATTEMPT_ID: &str = "018f2e3a-7000-7000-8000-000000000211";
+const COMMAND_ID: &str = "018f2e3a-7000-7000-8000-000000000212";
+
+#[tokio::test]
+async fn task_run_cancel_uses_authenticated_command_and_validates_ack() {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .await
+        .expect("listener");
+    let origin = format!("http://{}", listener.local_addr().expect("address"));
+    let server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let read = stream.read(&mut buffer).await.expect("read");
+            assert_ne!(read, 0, "request headers");
+            request.extend_from_slice(&buffer[..read]);
+        }
+        let body = format!(
+            "{{\"taskRunId\":\"{TASK_RUN_ID}\",\"streamVersion\":5,\"transition\":\"cancellation_requested\",\"attemptId\":null,\"terminalResult\":null}}"
+        );
+        stream
+            .write_all(response(202, "Accepted", &body).as_bytes())
+            .await
+            .expect("response");
+        String::from_utf8(request).expect("request UTF-8")
+    });
+    let client = mock_authenticated_runtime_client(&origin, session()).expect("client");
+    let task_run_id = CanonicalId::parse(TASK_RUN_ID).expect("task run ID");
+    let identity = CommandIdentity::new(
+        CanonicalId::parse(COMMAND_ID).expect("command ID"),
+        "cancel-1",
+    )
+    .expect("identity");
+
+    let acknowledgement = client
+        .cancel_task_run(CancelTaskRunRequest::new(identity, task_run_id, 4))
+        .await
+        .expect("cancellation acknowledgement");
+    let request = server.await.expect("server");
+    assert!(request.starts_with(&format!("POST /v1/task-runs/{TASK_RUN_ID}/cancel HTTP/1.1")));
+    assert!(request.contains("authorization: GocodeSession "));
+    assert!(request.contains("x-command-id: 018f2e3a-7000-7000-8000-000000000212"));
+    assert!(request.contains("idempotency-key: cancel-1"));
+    assert!(request.contains("{\"expectedVersion\":4}"));
+    assert_eq!(acknowledgement.task_run_id(), task_run_id);
+    assert_eq!(acknowledgement.stream_version(), 5);
+}
 
 #[tokio::test]
 async fn task_run_query_uses_authenticated_exact_get_and_decodes_running_snapshot() {

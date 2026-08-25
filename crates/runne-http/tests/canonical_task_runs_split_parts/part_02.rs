@@ -96,6 +96,34 @@ async fn maps_every_canonical_route_to_the_exact_host_command() {
 }
 
 #[tokio::test]
+async fn exposes_an_authenticated_task_run_cancel_command() {
+    let host = RecordingHost::default();
+    let app = app(host.clone());
+    let response = app
+        .oneshot(command_request(
+            &format!("/v1/task-runs/{TASKRUN_ID}/cancel"),
+            6,
+            "cancel-1",
+            r#"{"expectedVersion":4}"#,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = json(response).await;
+    assert_eq!(body["transition"], "cancellation_requested");
+    assert_eq!(body["streamVersion"], 5);
+    let calls = host.calls();
+    assert_eq!(calls.len(), 1);
+    let Call::Cancel(context, command) = &calls[0] else {
+        panic!("cancel route did not reach the cancellation host command");
+    };
+    assert_eq!(context.idempotency_key.as_str(), "cancel-1");
+    assert_eq!(command.taskrun_id.to_string(), TASKRUN_ID);
+    assert_eq!(command.expected_version, 4);
+}
+
+#[tokio::test]
 async fn rejects_auth_headers_paths_and_bodies_before_host_dispatch() {
     let host = RecordingHost::default();
     let app = app(host.clone());

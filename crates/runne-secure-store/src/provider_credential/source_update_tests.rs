@@ -116,7 +116,8 @@ impl ProviderCredentialSourceSlotBackend for FakeNativeSlots {
 #[test]
 fn every_source_update_boundary_recovers_one_committed_pair_and_replays_idempotently() {
     let executable = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&executable, &executable).unwrap();
+    let access_path = unique_executable_copy(&executable);
+    let access = ProviderCredentialAccessPolicy::new(&access_path, &access_path).unwrap();
     let old = ProviderCredentialMaterial::new(b"old-native-secret".to_vec()).unwrap();
     let replacement = ProviderCredentialMaterial::new(b"new-native-secret".to_vec()).unwrap();
     let old_revision = ProviderCredentialSourceRevision::new([0x31; 16]).unwrap();
@@ -204,4 +205,18 @@ fn every_source_update_boundary_recovers_one_committed_pair_and_replays_idempote
                 .any(|part| part == b"native-secret")
         }));
     }
+}
+
+fn unique_executable_copy(source: &std::path::Path) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "runne-secure-store-source-update-{}",
+        std::process::id()
+    ));
+    std::fs::copy(source, &path).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500)).unwrap();
+    }
+    path
 }

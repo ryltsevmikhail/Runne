@@ -69,7 +69,7 @@
       "properties": {
         "remote_url": {
           "type": "string",
-          "pattern": "^https://git\\.sourcecraft\\.dev/ryltsevmg/gocode\\.git$"
+          "pattern": "^https://git\\.sourcecraft\\.dev/ryltsevmg/runne\\.git$"
         },
         "captured_origin_main_revision": {
           "$ref": "#/$defs/gitSha"

@@ -1,6 +1,9 @@
 use runne_platform::containment::{ContainmentRequest, NativeCertificate, RuntimeProbe};
+use runne_platform_ports::process::ProcessLifecycleBindingV1;
 use runne_security::broker::process::{
-    LaunchedProcess, ProcessBroker, ProcessError, ProcessLauncher, ProcessSpec,
+    LaunchedProcess, OwnedProcessHandleV1, OwnerBoundProcessError, OwnerBoundProcessLauncher,
+    OwnerBoundProcessRequest, ProcessBroker, ProcessError, ProcessInvocationIdV1, ProcessLauncher,
+    ProcessSpec,
 };
 use thiserror::Error;
 
@@ -59,9 +62,15 @@ pub enum ProcessToolError {
     /// The security broker rejected or could not admit execution.
     #[error(transparent)]
     Broker(#[from] ProcessError),
+    /// The owner-bound lifecycle broker rejected the operation.
+    #[error(transparent)]
+    OwnerBound(#[from] OwnerBoundProcessError),
     /// PTY has no certified production profile.
     #[error("PTY backend unavailable")]
     PtyBackendUnavailable,
+    /// Generic raw process specifications cannot cross the production launch boundary.
+    #[error("owner-bound prepared process invocation required")]
+    OwnerBoundRequired,
     /// Lifecycle evidence belongs to a stale worker generation.
     #[error("stale process lifecycle generation")]
     StaleGeneration,
@@ -98,19 +107,45 @@ impl ProcessToolExecutor {
     pub fn start(
         &self,
         request: ProcessStartRequest<'_>,
-        launcher: &dyn ProcessLauncher,
+        _launcher: &dyn ProcessLauncher,
     ) -> Result<LaunchedProcess, ProcessToolError> {
         if request.operation == ProcessOperation::Pty {
             return Err(ProcessToolError::PtyBackendUnavailable);
         }
+        let _ = (
+            request.spec,
+            request.containment,
+            request.certificate,
+            request.probes,
+        );
+        let _ = &self.broker;
+        Err(ProcessToolError::OwnerBoundRequired)
+    }
+
+    /// Starts one structured process only after exact containment admission.
+    pub fn start_owner_bound(
+        &self,
+        request: OwnerBoundProcessRequest,
+        containment: &ContainmentRequest,
+        certificate: Option<&NativeCertificate>,
+        probes: &[RuntimeProbe],
+        launcher: &dyn OwnerBoundProcessLauncher,
+    ) -> Result<OwnedProcessHandleV1, ProcessToolError> {
         self.broker
-            .prepare_contained(
-                request.spec,
-                request.containment,
-                request.certificate,
-                request.probes,
-                launcher,
-            )
+            .prepare_contained_owner_bound(request, containment, certificate, probes, launcher)
+            .map_err(Into::into)
+    }
+
+    /// Stops only the exact owner/invocation handle admitted by this broker.
+    pub fn stop_owner_bound(
+        &self,
+        binding: ProcessLifecycleBindingV1,
+        invocation: ProcessInvocationIdV1,
+        handle: OwnedProcessHandleV1,
+        launcher: &dyn OwnerBoundProcessLauncher,
+    ) -> Result<(), ProcessToolError> {
+        self.broker
+            .stop_owner_bound(binding, invocation, handle, launcher)
             .map_err(Into::into)
     }
 

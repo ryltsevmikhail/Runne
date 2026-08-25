@@ -19,6 +19,10 @@ const MAX_PENDING: usize = 64;
 const TTL_MILLIS: u64 = 30_000;
 const PRINCIPAL: &str = "local-owner";
 include!("root_handle_admission/issued.rs");
+include!("root_handle_admission/files.rs");
+include!("root_handle_admission/editor.rs");
+include!("root_handle_admission/diffs.rs");
+include!("root_handle_admission/process.rs");
 #[derive(Clone)]
 pub(crate) struct RootAdmissionGateway(Option<Arc<RootHandleAdmissionAuthority>>);
 impl RootAdmissionGateway {
@@ -37,19 +41,7 @@ pub(crate) struct RootHandleAdmissionAuthority {
     store: ProjectWorkspaceStore,
     runtime_authority: Arc<str>,
 }
-struct State {
-    leases: usize,
-    stopped: bool,
-    pending: HashMap<[u8; 16], Pending>,
-}
-struct Pending {
-    workspace: runne_domain::id::WorkspaceId,
-    version: u64,
-    identity: [u8; 32],
-    digest: [u8; 32],
-    expires_at: u64,
-    _handle: VerifiedRootHandle,
-}
+include!("root_handle_admission/state.rs");
 pub(crate) struct Lease(Arc<RootHandleAdmissionAuthority>);
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -70,6 +62,7 @@ impl RootHandleAdmissionAuthority {
                 leases: 0,
                 stopped: false,
                 pending: HashMap::new(),
+                active: HashMap::new(),
             })),
             authenticator: Arc::new(RootAdmissionAuthenticator::from_protected_activation(keys)),
             sessions,
@@ -102,6 +95,16 @@ impl RootHandleAdmissionAuthority {
         let expires_at = now
             .checked_add(TTL_MILLIS)
             .ok_or(RootAdmissionVerifierError::Unavailable)?;
+        let baseline = self
+            .store
+            .with_current_workspace_version(PRINCIPAL, transfer.workspace_id(), |version| {
+                if version != transfer.expected_version() {
+                    return Err(ProjectWorkspaceRepositoryError::Unavailable);
+                }
+                WorkspaceBaseline::capture(&root)
+                    .map_err(|_| ProjectWorkspaceRepositoryError::Unavailable)
+            })
+            .map_err(|_| RootAdmissionVerifierError::Unavailable)?;
         let mut nonce = [0; 16];
         rand::rngs::OsRng.fill_bytes(&mut nonce);
         let identity = root.filesystem_identity_digest();
@@ -137,6 +140,7 @@ impl RootHandleAdmissionAuthority {
                 identity,
                 digest,
                 expires_at,
+                baseline,
                 _handle: root,
             },
         );
@@ -152,12 +156,14 @@ impl RootHandleAdmissionAuthority {
             return Err(RootAdmissionVerifierError::Unavailable);
         }
         state.pending.clear();
+        state.active.clear();
         Ok(())
     }
     pub(crate) fn shutdown(&self) {
         if let Ok(mut state) = self.state.lock() {
             state.stopped = true;
             state.pending.clear();
+            state.active.clear();
         }
     }
 
@@ -246,6 +252,21 @@ impl RootAdmissionVerifier for RootAdmissionGateway {
             && claims.admission_digest() == pending.digest
             && claims.expires_at_unix_millis() == pending.expires_at
             && pending.expires_at > moment;
+        if matching {
+            let baseline = pending.baseline.clone();
+            let handle = pending
+                ._handle
+                .try_clone()
+                .map_err(|_| RootAdmissionVerifierError::Unavailable)?;
+            state.active.insert(
+                claims.workspace_id(),
+                ActiveRoot {
+                    version: claims.expected_version(),
+                    baseline,
+                    handle,
+                },
+            );
+        }
         matching
             .then_some(claims)
             .ok_or(RootAdmissionVerifierError::Rejected)

@@ -4,6 +4,7 @@ import { ref } from 'vue'
 
 import type { DirectorySelection } from '@/entities/project'
 import { selectAndOpenLocalProject } from '@/features/open-local-project'
+import { translate } from '@/shared/i18n'
 
 type OpenProject = () => Promise<DirectorySelection | null>
 
@@ -22,11 +23,11 @@ async function chooseFolder() {
   try {
     const selection = await props.openProject()
     if (selection !== null) {
-      error.value = 'Folder selected. Choose a workspace to continue.'
+      error.value = translate('openProject.folderSelected')
     }
   }
   catch {
-    error.value = 'The selected folder could not be opened.'
+    error.value = translate('openProject.openFailed')
   }
   finally {
     opening.value = false
@@ -42,12 +43,12 @@ async function chooseFolder() {
     <header class="page-header">
       <div>
         <p class="eyebrow">
-          Local project
+          {{ translate('openProject.localProject') }}
         </p>
         <h1 id="open-project-title">
-          Open a project
+          {{ translate('openProject.title') }}
         </h1>
-        <p>Select a folder on this device. Runne stores only the local project record.</p>
+        <p>{{ translate('openProject.description') }}</p>
       </div>
     </header>
 
@@ -55,7 +56,7 @@ async function chooseFolder() {
       <button
         class="project-card project-card--open"
         type="button"
-        aria-label="Choose project folder"
+        :aria-label="translate('openProject.chooseFolder')"
         :disabled="opening"
         @click="chooseFolder"
       >
@@ -66,8 +67,8 @@ async function chooseFolder() {
           />
         </span>
         <span class="project-copy">
-          <strong>{{ opening ? 'Opening…' : 'Choose folder' }}</strong>
-          <small>The folder remains on this device</small>
+          <strong>{{ opening ? translate('openProject.opening') : translate('openProject.chooseFolderAction') }}</strong>
+          <small>{{ translate('openProject.folderOnDevice') }}</small>
         </span>
         <span class="project-arrow">→</span>
       </button>

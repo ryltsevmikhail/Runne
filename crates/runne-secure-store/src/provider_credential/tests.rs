@@ -7,11 +7,53 @@ impl Drop for ExecutableCopy {
     }
 }
 
+struct CurrentExecutablePermissions {
+    path: PathBuf,
+    _lock: std::sync::MutexGuard<'static, ()>,
+    #[cfg(unix)]
+    original_mode: u32,
+}
+
+impl Drop for CurrentExecutablePermissions {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(
+                &self.path,
+                std::fs::Permissions::from_mode(self.original_mode),
+            );
+        }
+    }
+}
+
+fn private_current_executable() -> CurrentExecutablePermissions {
+    let lock = EXECUTABLE_TEST_LOCK.lock().expect("executable test lock");
+    let path = std::env::current_exe().expect("current test executable");
+    #[cfg(unix)]
+    let original_mode = {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&path)
+            .expect("current executable metadata")
+            .permissions()
+            .mode();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500))
+            .expect("restrict current executable");
+        mode
+    };
+    CurrentExecutablePermissions {
+        path,
+        _lock: lock,
+        #[cfg(unix)]
+        original_mode,
+    }
+}
+
 #[test]
 fn enrolled_reader_mismatch_is_a_closed_access_denial() {
-    let current = std::env::current_exe().expect("current test executable");
-    let reader = ExecutableCopy(unique_executable_copy(&current, "reader-mismatch"));
-    let policy = ProviderCredentialAccessPolicy::new(&current, &reader.0).unwrap();
+    let current = private_current_executable();
+    let reader = ExecutableCopy(unique_executable_copy(&current.path, "reader-mismatch"));
+    let policy = ProviderCredentialAccessPolicy::new(&current.path, &reader.0).unwrap();
     let material = ProviderCredentialMaterial::new(b"test-only-marker".to_vec()).unwrap();
     let encoded = StoredProviderCredential::encode(&material, &policy, [7; 32]).unwrap();
     let stored = StoredProviderCredential::decode(&encoded).unwrap();
@@ -19,6 +61,7 @@ fn enrolled_reader_mismatch_is_a_closed_access_denial() {
         stored.validate_reader_current(),
         Err(SecureStoreError::CredentialAccessDenied)
     );
+    drop(current);
 }
 
 fn unique_executable_copy(source: &Path, label: &str) -> PathBuf {
@@ -42,8 +85,8 @@ fn unique_executable_copy(source: &Path, label: &str) -> PathBuf {
 
 #[test]
 fn complete_metadata_preserves_v1_upgrade_and_rollback_layout() {
-    let current = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+    let current = private_current_executable();
+    let access = ProviderCredentialAccessPolicy::new(&current.path, &current.path).unwrap();
     let metadata = ProviderCredentialMetadata::from_access(&access, [7; 32]);
     let encoded = metadata.encode();
     assert_eq!(encoded.len(), 184);
@@ -54,12 +97,13 @@ fn complete_metadata_preserves_v1_upgrade_and_rollback_layout() {
             .is_complete()
     );
     assert_ne!(&metadata.encode_incomplete()[..8], b"GCPMDV1\0");
+    drop(current);
 }
 
 #[test]
 fn source_revision_v2_roundtrips_and_v1_is_unavailable() {
-    let current = std::env::current_exe().unwrap();
-    let access = ProviderCredentialAccessPolicy::new(&current, &current).unwrap();
+    let current = private_current_executable();
+    let access = ProviderCredentialAccessPolicy::new(&current.path, &current.path).unwrap();
     let material = ProviderCredentialMaterial::new(b"source-revision-fixture".to_vec()).unwrap();
     let revision = ProviderCredentialSourceRevision::new([0x91; 16]).unwrap();
     let metadata = ProviderCredentialMetadata::from_access_revision(&access, [7; 32], revision);
@@ -97,4 +141,5 @@ fn source_revision_v2_roundtrips_and_v1_is_unavailable() {
             .unwrap_err(),
         SecureStoreError::ProviderCredentialSourceRevisionUnavailable
     );
+    drop(current);
 }

@@ -29,7 +29,7 @@ use runne_store::schema::LaunchAuthorityConsumptionError;
 use rusqlite::OptionalExtension;
 use sha2::{Digest, Sha256};
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::protected_activation::validate_protected_bootstrap_connection;
 
 const SIDECAR_MIGRATION_MARKER_KEY: &str = "local_session_sidecars_v1";

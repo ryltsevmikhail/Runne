@@ -20,7 +20,7 @@ fn current_schema_installs_authoritative_aggregate_snapshot_table() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
     let exists: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master

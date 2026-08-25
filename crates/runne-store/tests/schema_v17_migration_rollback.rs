@@ -44,6 +44,7 @@ fn v16_fixture(
     {
         use std::os::unix::fs::PermissionsExt as _;
 
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let database = daemon.join(format!("{label}.sqlite"));
@@ -93,6 +94,11 @@ fn v16_fixture(
          DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
          DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
          DROP TABLE IF EXISTS aggregate_state_snapshots;
+         DROP TABLE IF EXISTS process_output;
+         DROP INDEX IF EXISTS idx_process_registry_owner;
+         DROP TABLE IF EXISTS process_registry;
+         DROP INDEX IF EXISTS idx_approvals_pending;
+         DROP TABLE IF EXISTS approvals;
          DELETE FROM schema_version WHERE version >= 19;",
         )
         .unwrap();

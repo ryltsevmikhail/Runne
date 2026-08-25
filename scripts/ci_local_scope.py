@@ -182,10 +182,9 @@ def run_selected(root: Path, gates: Sequence[str]) -> tuple[int, dict[str, str]]
         for gate in (gate for gate in gates if gate in ALL_GATES):
             results[gate] = status
         python = environment["GOCODE_TRUSTED_PYTHON"]
-        bash = environment["GOCODE_TRUSTED_BASH"]
         if DOCS in gates:
             docs = subprocess.run(
-                (bash, root / "scripts/ci-local-docs.sh"), cwd=root,
+                (python, root / "scripts/desktop/validate-docs.py", "--strict"), cwd=root,
                 env=environment, check=False,
             )
             results[DOCS] = "PASS" if docs.returncode == 0 else "FAILED"

@@ -3,13 +3,13 @@
 use super::*;
 
 /// Validated protected launch retained only by the daemon native host.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(super) enum DaemonLaunchRequest {
     V1(ProtectedLaunchRequestV1),
     V2(ProtectedLaunchRequestV2),
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl DaemonLaunchRequest {
     pub(super) fn decode_frame(frame: &[u8]) -> Result<Self, LaunchAuthorityError> {
         if let Ok(request) = ProtectedLaunchRequestV2::decode_frame(frame) {

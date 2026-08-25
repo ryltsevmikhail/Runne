@@ -44,6 +44,21 @@ impl MutationRequest {
                 expected_version: self.expected_version,
                 text: text.clone(),
             }),
+            CanonicalMutationCommand::CancelTaskRun { task_run_id } => Ok(Command::CancelTaskRun {
+                task_run_id: id(*task_run_id)?,
+                expected_version: self.expected_version,
+            }),
+            CanonicalMutationCommand::ApprovalRespond { approval_id, decision, action_digest, policy_revision, renderer_generation } => Ok(Command::ApprovalRespond {
+                approval_id: id(*approval_id)?,
+                expected_version: self.expected_version,
+                decision: match decision {
+                    runne_runtime_client::ApprovalDecisionDto::Approve => runne_local_store::ApprovalDecisionKind::Approve,
+                    runne_runtime_client::ApprovalDecisionDto::Deny => runne_local_store::ApprovalDecisionKind::Deny,
+                },
+                action_digest: *action_digest,
+                policy_revision: *policy_revision,
+                renderer_generation: *renderer_generation,
+            }),
         }
     }
 }

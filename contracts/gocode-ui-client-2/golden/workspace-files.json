@@ -1,0 +1,15 @@
+{
+  "content": {
+    "content": "fn main() {}\\n",
+    "path": "src/main.rs",
+    "sizeBytes": 13
+  },
+  "entry": {
+    "kind": "file",
+    "path": "src/main.rs",
+    "sizeBytes": 13
+  },
+  "page": {
+    "items": []
+  }
+}

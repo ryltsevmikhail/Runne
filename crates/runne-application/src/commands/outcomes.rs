@@ -17,6 +17,13 @@ pub enum CommandOutcome {
         /// The new stream version.
         new_version: u64,
     },
+    /// Cancellation was durably requested for a task run.
+    TaskRunCancellationRequested {
+        /// The task run ID.
+        taskrun_id: TaskRunId,
+        /// The new stream version.
+        new_version: u64,
+    },
     /// A task run was admitted for execution.
     TaskRunAdmitted {
         /// The task run ID.

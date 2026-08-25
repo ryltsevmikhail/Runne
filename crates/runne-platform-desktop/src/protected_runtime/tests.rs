@@ -8,11 +8,11 @@ impl ProtectedBundledRuntimeProcess {
     /// Returns the authenticated non-secret provider binding for V2 launches.
     #[must_use]
     pub const fn provider_activation(&self) -> Option<&ProviderActivationBindingV1> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             None
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             self.activation.provider_activation()
         }
@@ -56,12 +56,12 @@ impl ProtectedBundledRuntimeProcess {
     /// launch and protected transport.
     #[must_use]
     pub fn matches_client(&self, client: &AuthenticatedRuntimeClient) -> bool {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = client;
             false
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if client.transport_kind() != RuntimeTransportKind::ProtectedBundled {
                 return false;
@@ -97,11 +97,11 @@ impl ProtectedBundledRuntimeProcess {
     /// Returns a closed ownership or platform error if the handle cannot be
     /// observed.
     pub fn status(&mut self) -> Result<BundledRuntimeProcessStatus, ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             self.child
                 .try_wait()
@@ -122,11 +122,11 @@ impl ProtectedBundledRuntimeProcess {
     ///
     /// Returns a closed channel, proof, ownership, or shutdown failure.
     pub fn request_graceful_stop(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if self.graceful_requested {
                 return Ok(());
@@ -216,11 +216,11 @@ impl ProtectedBundledRuntimeProcess {
     ///
     /// Returns a closed ownership or incomplete-shutdown failure.
     pub fn terminate(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if self.status()? == BundledRuntimeProcessStatus::Exited {
                 return Ok(());

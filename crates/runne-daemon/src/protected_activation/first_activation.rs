@@ -173,6 +173,10 @@ pub(super) fn validate_runtime_root(path: &Path) -> Result<PathBuf, LaunchAuthor
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(LaunchAuthorityError::InvalidContract);
     }
+    #[cfg(windows)]
+    if !super::windows_acl::enforce_owner_acl(path) {
+        return Err(LaunchAuthorityError::InvalidContract);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
@@ -189,6 +193,10 @@ pub(super) fn read_owner_private_uuid(path: &Path) -> Result<[u8; 16], LaunchAut
     let metadata = std::fs::symlink_metadata(path)
         .map_err(|_| LaunchAuthorityError::MissingExpectedStableBinding)?;
     if metadata.file_type().is_symlink() || !metadata.is_file() || metadata.len() != 16 {
+        return Err(LaunchAuthorityError::MissingExpectedStableBinding);
+    }
+    #[cfg(windows)]
+    if !super::windows_acl::enforce_owner_acl(path) {
         return Err(LaunchAuthorityError::MissingExpectedStableBinding);
     }
     #[cfg(unix)]

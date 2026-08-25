@@ -9,19 +9,23 @@
 pub fn discover_bundled_runtime(
     desktop_executable: &Path,
 ) -> Result<PathBuf, ProtectedBundledRuntimeError> {
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = desktop_executable;
         Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let desktop = std::fs::canonicalize(desktop_executable)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableUnavailable)?;
         let directory = desktop
             .parent()
             .ok_or(ProtectedBundledRuntimeError::ExecutableUnavailable)?;
-        let daemon = directory.join("runned");
+        let daemon = if cfg!(windows) {
+            directory.join("runned.exe")
+        } else {
+            directory.join("runned")
+        };
         if daemon.exists() {
             return validate_executable_path(&daemon);
         }
@@ -168,7 +172,7 @@ impl StoredPendingV1 {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[derive(Debug)]
 struct ActivationStateStore {
     directory: PathBuf,

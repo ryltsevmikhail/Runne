@@ -3,7 +3,7 @@ fn verify_remote_profile(
     local: &SessionPeer,
     remote: SessionRuntimeProfileWire,
     issued_session_id: [u8; 16],
-) -> Result<RuntimeSessionInfo, LocalRuntimeConnectError> {
+) -> Result<(RuntimeSessionInfo, Vec<runne_api::ProviderStatusSnapshotV1>), LocalRuntimeConnectError> {
     let session_id = decode_lower_hex_16(&remote.session_id)?;
     if session_id != issued_session_id
         || local
@@ -26,10 +26,11 @@ fn verify_remote_profile(
         || remote.runtime_version.is_empty()
         || remote.runtime_version.len() > 64
         || remote.runtime_version.chars().any(char::is_control)
+        || !valid_provider_statuses(&remote.provider_statuses)
     {
         return Err(incompatible());
     }
-    Ok(RuntimeSessionInfo {
+    Ok((RuntimeSessionInfo {
         profile_id: remote.profile_id,
         schema_hash: remote.schema_hash,
         runtime_version: remote.runtime_version,
@@ -44,7 +45,29 @@ fn verify_remote_profile(
         sensitivity_ceiling: remote.sensitivity_ceiling,
         certificate_sha256: remote.certificate_sha256,
         capability_digest: remote.capability_digest,
-    })
+    }, remote.provider_statuses))
+}
+
+fn valid_provider_statuses(statuses: &[runne_api::ProviderStatusSnapshotV1]) -> bool {
+    if statuses.len() > 8 {
+        return false;
+    }
+    let mut selected = 0_usize;
+    for (index, status) in statuses.iter().enumerate() {
+        if status.validate().is_err() {
+            return false;
+        }
+        if status.selected() {
+            selected += 1;
+        }
+        if statuses[..index]
+            .iter()
+            .any(|previous| previous.provider_id() == status.provider_id())
+        {
+            return false;
+        }
+    }
+    selected <= 1
 }
 
 async fn read_json<T: DeserializeOwned>(
@@ -156,4 +179,5 @@ struct SessionRuntimeProfileWire {
     authorization_epoch: u64,
     sensitivity_ceiling: String,
     certificate_sha256: String,
+    provider_statuses: Vec<runne_api::ProviderStatusSnapshotV1>,
 }

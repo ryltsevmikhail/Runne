@@ -79,7 +79,7 @@ export async function getProject(
   projectId: string,
   invoke: Invoke = tauriInvoke,
 ): Promise<readonly Project[]> {
-  if (!isCanonicalId(projectId)) {
+  if (!isCanonicalRuntimeId(projectId)) {
     throw new Error('Invalid project identifier')
   }
   const value = await invoke('get_project', { projectId })
@@ -93,7 +93,7 @@ export async function getWorkspace(
   workspaceId: string,
   invoke: Invoke = tauriInvoke,
 ): Promise<Project | null> {
-  if (!isCanonicalId(workspaceId)) {
+  if (!isCanonicalRuntimeId(workspaceId)) {
     throw new Error('Invalid workspace identifier')
   }
   const value = await invoke('get_workspace', { workspaceId })
@@ -139,8 +139,8 @@ function isProject(value: unknown): value is Project {
   const record = value as Record<string, unknown>
   return (
     Object.keys(record).length === 4
-    && isCanonicalId(record.projectId)
-    && isCanonicalId(record.workspaceId)
+    && isCanonicalRuntimeId(record.projectId)
+    && isCanonicalRuntimeId(record.workspaceId)
     && typeof record.displayName === 'string'
     && record.displayName.length > 0
     && record.displayName.length <= 256
@@ -151,7 +151,7 @@ function isProject(value: unknown): value is Project {
   )
 }
 
-function isCanonicalId(value: unknown): value is string {
+export function isCanonicalRuntimeId(value: unknown): value is string {
   return typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
 }

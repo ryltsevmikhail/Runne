@@ -38,7 +38,7 @@ fn load_or_migrate_local_sidecars(
 }
 
 /// Read-only validation for sidecars left before first launch consumption.
-#[cfg(any(unix, test))]
+#[cfg(any(unix, windows, test))]
 pub(crate) fn preflight_recoverable_first_activation_sidecars(
     config: &ConfigurationSnapshot,
     expected_authority: &[u8; 16],

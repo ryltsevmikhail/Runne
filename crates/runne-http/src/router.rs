@@ -10,12 +10,14 @@ use std::{
 
 use axum::{Router, middleware as axum_mw};
 use runne_api::{
-    ConversationCommandHostPort, ConversationQueryHostPort, OPERATIONAL_TELEMETRY_CAPABILITY_V1,
+    ApprovalCommandHostPort, ApprovalQueryHostPort, ConversationCommandHostPort,
+    ConversationQueryHostPort, OPERATIONAL_TELEMETRY_CAPABILITY_V1,
     ProjectWorkspaceCommandHostPort, ProjectWorkspaceQueryHostPort, TaskRunCommandHostPort,
-    TaskRunQueryHostPort,
+    TaskRunQueryHostPort, WorkspaceDiffHostPort, WorkspaceFileHostPort,
 };
 
 use crate::admission::{AdmissionState, admission_middleware};
+use crate::approvals::{ApprovalHttpState, approval_router};
 use crate::auth::{AuthLayer, SessionAuthLayer};
 use crate::command_reconciliation::{
     CommandReconciliationHttpState, command_reconciliation_router,
@@ -28,17 +30,21 @@ use crate::opencode::{OpenCodeSessionState, opencode_session_router};
 use crate::operational_telemetry::{
     OperationalTelemetryHttpState, no_store_response, operational_telemetry_router,
 };
+use crate::processes::{ProcessHttpState, process_router};
 use crate::project_workspace::{ProjectWorkspaceHttpState, project_workspace_router};
 use crate::replay::{ReplayHttpState, replay_router};
 use crate::runtime_profile::{
     RuntimeProfileHttpState, runtime_profile_router, runtime_profile_session_router,
 };
 use crate::task_runs::{TaskRunHttpState, task_run_router};
+use crate::workspace_diffs::{WorkspaceDiffHttpState, workspace_diff_router};
+use crate::workspace_files::{WorkspaceFileHttpState, workspace_file_router};
 
 include!("router_parts/production.rs");
 include!("router_parts/project_workspace.rs");
 include!("router_parts/command_reconciliation.rs");
 include!("router_parts/command_reconciliation_production.rs");
+include!("router_parts/approvals.rs");
 
 #[cfg(test)]
 mod tests {

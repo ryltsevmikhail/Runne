@@ -19,7 +19,7 @@ from scripts.rc0_policy.upstream_policy_v4 import (
     pinned_upstream_content_digest,
 )
 
-SOURCECRAFT_ORIGIN = "https://git.sourcecraft.dev/ryltsevmg/gocode.git"
+SOURCECRAFT_ORIGIN = "https://git.sourcecraft.dev/ryltsevmg/runne.git"
 _GIT_SHA = re.compile(r"[0-9a-f]{40}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 

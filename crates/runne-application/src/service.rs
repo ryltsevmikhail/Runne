@@ -8,11 +8,11 @@ use runne_domain::task_run::TaskRunState;
 use runne_domain::verification::PlanEvaluationResult;
 
 use crate::commands::{
-    ActivateScheduledRetryInput, AdmitTaskRunInput, CommandOutcome, CommitContextInput,
-    CommitLoopCheckpointInput, CommitPlanInput, CommitRecoveryResumeInput, CompleteLoopCycleInput,
-    CompleteTaskRunInput, CreateNextCycleInput, CreateTaskRunInput, QueueTaskRunInput,
-    RecordStepOutcomeInput, ResumeLoopWaitInput, ScheduleRetryInput, StartAttemptInput,
-    StartLoopCycleInput,
+    ActivateScheduledRetryInput, AdmitTaskRunInput, CancelTaskRunInput, CommandOutcome,
+    CommitContextInput, CommitLoopCheckpointInput, CommitPlanInput, CommitRecoveryResumeInput,
+    CompleteLoopCycleInput, CompleteTaskRunInput, CreateNextCycleInput, CreateTaskRunInput,
+    QueueTaskRunInput, RecordStepOutcomeInput, ResumeLoopWaitInput, ScheduleRetryInput,
+    StartAttemptInput, StartLoopCycleInput,
 };
 use crate::errors::ApplicationError;
 use crate::fingerprint::{CommandFingerprint, checkpoint_body_digest};

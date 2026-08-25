@@ -83,6 +83,36 @@ where
         }
     }
 
+    async fn request_task_run_cancellation(
+        &self,
+        context: TaskRunCommandContext,
+        command: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        let outcome = self
+            .handle
+            .cancel_task_run(
+                into_application_context(context)?,
+                CancelTaskRunInput {
+                    taskrun_id: command.taskrun_id,
+                    expected_version: command.expected_version,
+                },
+            )
+            .await
+            .map_err(map_runtime_error)?;
+
+        match outcome {
+            CommandOutcome::TaskRunCancellationRequested {
+                taskrun_id,
+                new_version,
+            } => Ok(TaskRunCommandAck {
+                taskrun_id,
+                new_version,
+                kind: TaskRunCommandAckKind::CancellationRequested,
+            }),
+            _ => Err(TaskRunHostError::InvariantViolation),
+        }
+    }
+
     async fn admit_task_run(
         &self,
         context: TaskRunCommandContext,

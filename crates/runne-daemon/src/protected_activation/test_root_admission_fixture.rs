@@ -88,6 +88,13 @@ fn child_authority(
     keys: &ProtectedActivationKeys,
     directory: &std::path::Path,
 ) -> RootAdmissionHarness {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700))
+            .expect("runtime directory permissions");
+    }
     let daemon_directory = directory.join("daemon");
     std::fs::create_dir(&daemon_directory).expect("daemon directory");
     #[cfg(unix)]

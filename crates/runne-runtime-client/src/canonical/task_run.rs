@@ -37,6 +37,29 @@ pub struct TaskRunSnapshot {
     terminal_result: Option<TaskRunTerminalResult>,
 }
 
+/// Runtime acknowledgement that a cancellation request was durably accepted.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TaskRunCancellationAcknowledgement {
+    task_run_id: CanonicalId,
+    stream_version: u64,
+}
+
+impl TaskRunCancellationAcknowledgement {
+    pub(crate) const fn observed(task_run_id: CanonicalId, stream_version: u64) -> Self {
+        Self { task_run_id, stream_version }
+    }
+
+    #[must_use]
+    pub const fn task_run_id(self) -> CanonicalId {
+        self.task_run_id
+    }
+
+    #[must_use]
+    pub const fn stream_version(self) -> u64 {
+        self.stream_version
+    }
+}
+
 impl TaskRunSnapshot {
     #[must_use]
     pub const fn task_run_id(&self) -> CanonicalId {
@@ -74,6 +97,36 @@ struct TaskRunSnapshotWire {
     active_attempt_id: PresentOption<CanonicalId>,
     #[serde(default)]
     terminal_result: PresentOption<TaskRunTerminalResultWire>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct TaskRunCancellationAcknowledgementWire {
+    task_run_id: CanonicalId,
+    stream_version: u64,
+    transition: String,
+    attempt_id: Option<CanonicalId>,
+    terminal_result: Option<TaskRunTerminalResultWire>,
+}
+
+impl TryFrom<TaskRunCancellationAcknowledgementWire>
+    for TaskRunCancellationAcknowledgement
+{
+    type Error = RuntimeApiError;
+
+    fn try_from(wire: TaskRunCancellationAcknowledgementWire) -> Result<Self, Self::Error> {
+        if wire.stream_version == 0
+            || wire.transition != "cancellation_requested"
+            || wire.attempt_id.is_some()
+            || wire.terminal_result.is_some()
+        {
+            return Err(invalid_task_run_response());
+        }
+        Ok(Self {
+            task_run_id: wire.task_run_id,
+            stream_version: wire.stream_version,
+        })
+    }
 }
 
 #[derive(Default)]

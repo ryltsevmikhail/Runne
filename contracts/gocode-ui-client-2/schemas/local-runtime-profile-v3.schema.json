@@ -16,8 +16,8 @@
       "oneOf": [
         {
           "items": false,
-          "maxItems": 23,
-          "minItems": 23,
+          "maxItems": 26,
+          "minItems": 26,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -33,6 +33,10 @@
             },
             {
               "const": "task_run.get.v1",
+              "type": "string"
+            },
+            {
+              "const": "task_run.cancel.v1",
               "type": "string"
             },
             {
@@ -69,6 +73,14 @@
             },
             {
               "const": "runtime.operational-telemetry.v1",
+              "type": "string"
+            },
+            {
+              "const": "approval.control.v1",
+              "type": "string"
+            },
+            {
+              "const": "provider.credential-control.v1",
               "type": "string"
             },
             {
@@ -116,8 +128,8 @@
         },
         {
           "items": false,
-          "maxItems": 24,
-          "minItems": 24,
+          "maxItems": 30,
+          "minItems": 30,
           "prefixItems": [
             {
               "const": "conversation.create.v1",
@@ -133,6 +145,10 @@
             },
             {
               "const": "task_run.get.v1",
+              "type": "string"
+            },
+            {
+              "const": "task_run.cancel.v1",
               "type": "string"
             },
             {
@@ -169,6 +185,14 @@
             },
             {
               "const": "runtime.operational-telemetry.v1",
+              "type": "string"
+            },
+            {
+              "const": "approval.control.v1",
+              "type": "string"
+            },
+            {
+              "const": "provider.credential-control.v1",
               "type": "string"
             },
             {
@@ -213,6 +237,18 @@
             },
             {
               "const": "workspace.bind_root.v3",
+              "type": "string"
+            },
+            {
+              "const": "workspace.files.read.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.changes.read.v1",
+              "type": "string"
+            },
+            {
+              "const": "workspace.editor.open.v1",
               "type": "string"
             }
           ],

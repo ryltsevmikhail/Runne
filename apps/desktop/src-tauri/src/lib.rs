@@ -1,13 +1,20 @@
 mod bundled_runtime;
 pub mod conversation_channel;
 mod destructive_intent;
+mod diagnostics_export;
 mod directory_selection;
 mod directory_selection_response;
+mod external_activation;
+mod notifications;
 mod open_selected_workspace_request;
 mod operational_telemetry_command;
 mod prepare_workspace_request;
 mod prepared_workspace;
 mod renderer_generation;
+pub mod task_run_channel;
+mod tray;
+mod updater_config;
+mod updater_status;
 #[cfg(feature = "test-support")]
 pub use bundled_runtime::NativeOpenAiActivationTestGate;
 pub use bundled_runtime::{BundledRuntimeController, BundledShutdownOutcome};
@@ -22,9 +29,13 @@ use prepared_workspace::{
     PreparedWorkspaceBinding, PreparedWorkspaceManager, PreparedWorkspaceReservationGuard,
     PreparedWorkspaceResponse,
 };
+use runne_api::ProviderStatusSnapshotV1;
 use runne_app_core::{
-    AppCore, AppCoreError, BootstrapState, DiagnosticsSnapshot, ProjectSummary,
-    RuntimeAvailability, RuntimeFailureCode, RuntimeMode,
+    AppCore, AppCoreError, BootstrapState, CanonicalProcessOutputPage, CanonicalProcessSnapshot,
+    CanonicalProjectDetails, CanonicalProjectSummary, CanonicalWorkspaceChangeSet,
+    CanonicalWorkspaceDiff, CanonicalWorkspaceFileContent, CanonicalWorkspaceFilePage,
+    CanonicalWorkspaceSummary, DiagnosticsSnapshot, ProjectSummary, RuntimeAvailability,
+    RuntimeDeviceSnapshot, RuntimeFailureCode, RuntimeMode, ShortcutSettings,
 };
 use runne_platform_desktop::ProfileLock;
 use runne_platform_desktop::{ProtectedRootHandleAdmission, VerifiedRootHandle, WorkspaceId};
@@ -34,9 +45,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use task_run_channel::TaskRunSubscriptionManager;
 use tauri::{Manager, RunEvent, State, WebviewWindow, WindowEvent};
 use tauri_plugin_dialog::DialogExt;
-
+pub use updater_status::{UpdateStatusSnapshot, UpdateStatusStore};
 #[derive(Serialize)]
 struct IpcError {
     code: &'static str,
@@ -278,6 +290,11 @@ where
 }
 
 include!("lib_parts/commands.rs");
+include!("lib_parts/settings_commands.rs");
+include!("lib_parts/workspace_file_commands.rs");
+include!("lib_parts/workspace_diff_commands.rs");
+include!("lib_parts/process_commands.rs");
+include!("lib_parts/editor_commands.rs");
 include!("lib_parts/prepared_commit.rs");
 include!("lib_parts/run.rs");
 include!("lib_parts/test_modules.rs");

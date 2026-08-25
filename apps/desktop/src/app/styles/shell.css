@@ -241,3 +241,58 @@ nav {
   gap: 3px;
   margin-top: 8px;
 }
+
+.app-shell__activation-notice {
+  margin: 0;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--runne-warning);
+  font-size: 12px;
+}
+
+.approval-list { display: grid; gap: 12px; list-style: none; margin: 24px 0 0; padding: 0; }
+.approval-card { align-items: flex-start; background: var(--gc-surface-raised); border: 1px solid var(--gc-border-subtle); border-radius: 12px; display: flex; justify-content: space-between; padding: 16px; }
+.approval-card div { display: grid; gap: 4px; }
+.approval-card span, .approval-card small { color: var(--gc-text-muted); }
+.approval-state { color: var(--gc-accent); font-size: 12px; text-transform: uppercase; }
+.approval-card strong { color: var(--gc-text); }
+
+.appearance-options {
+  display: grid;
+  max-width: 480px;
+  gap: 10px;
+  margin: 24px 0 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.page-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 18px;
+  font-size: 12px;
+}
+
+.page-subnav a {
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.page-subnav a.router-link-active {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.appearance-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+
+.appearance-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}

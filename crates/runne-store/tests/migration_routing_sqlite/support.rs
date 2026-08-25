@@ -104,6 +104,7 @@ impl TestDb {
         {
             use std::os::unix::fs::PermissionsExt;
 
+            fs::set_permissions(root.path(), fs::Permissions::from_mode(0o700)).unwrap();
             fs::set_permissions(&daemon, fs::Permissions::from_mode(0o700)).unwrap();
         }
         let path = daemon.join(format!("{label}.sqlite"));

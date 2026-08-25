@@ -145,6 +145,7 @@ pub(crate) use uuid_v7_newtype;
 // ── UUIDv7 newtypes ────────────────────────────────────────────────────────
 
 uuid_v7_newtype!(TaskRunId, "UUIDv7 identifier for a task run aggregate.");
+uuid_v7_newtype!(ApprovalId, "UUIDv7 identifier for an approval request.");
 uuid_v7_newtype!(
     ConversationId,
     "UUIDv7 identifier for a conversation aggregate."

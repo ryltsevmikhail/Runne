@@ -184,6 +184,40 @@ where
         .merge(protected)
 }
 
+/// Builds the authenticated Workspace file projection surface.
+pub fn create_router_with_workspace_files<H>(
+    token: [u8; 32],
+    health_state: HealthState,
+    admission_state: AdmissionState,
+    workspace_file_state: WorkspaceFileHttpState<H>,
+) -> Router
+where
+    H: WorkspaceFileHostPort + 'static,
+{
+    let protected = workspace_file_router(workspace_file_state)
+        .layer(axum_mw::from_fn_with_state(admission_state, admission_middleware))
+        .layer(AuthLayer::new(token))
+        .layer(axum_mw::from_fn(request_id_middleware));
+    Router::new().merge(health_router(health_state)).merge(protected)
+}
+
+/// Builds the authenticated Workspace change and diff projection surface.
+pub fn create_router_with_workspace_diffs<H>(
+    token: [u8; 32],
+    health_state: HealthState,
+    admission_state: AdmissionState,
+    workspace_diff_state: WorkspaceDiffHttpState<H>,
+) -> Router
+where
+    H: WorkspaceDiffHostPort + 'static,
+{
+    let protected = workspace_diff_router(workspace_diff_state)
+        .layer(axum_mw::from_fn_with_state(admission_state, admission_middleware))
+        .layer(AuthLayer::new(token))
+        .layer(axum_mw::from_fn(request_id_middleware));
+    Router::new().merge(health_router(health_state)).merge(protected)
+}
+
 /// Builds the production canonical TaskRun and Conversation message surface.
 pub fn create_router_with_conversations<T, C>(
     token: [u8; 32],

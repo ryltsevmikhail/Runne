@@ -1,17 +1,20 @@
 //! Authenticated exact runtime profile query.
-
 #![allow(dead_code)] // Mounted only by the crate-owned local TLS boundary in Task 4B.
 
+use crate::runtime_profile_helpers::sensitivity_label;
 use axum::{
     Json, Router,
     extract::Extension,
     response::{IntoResponse, Response},
     routing::get,
 };
+use runne_api::{ApiActor, ProviderCredentialControlHostPort, ProviderStatusSnapshotV1};
 use runne_application::local_session::AuthenticatedRuntimeSession;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::sync::Arc;
 
+use crate::provider_credentials::{ProviderCredentialHttpState, provider_credential_router};
 /// Immutable exact profile advertised by the running daemon.
 #[derive(Clone)]
 pub struct RuntimeProfileHttpState {
@@ -19,10 +22,11 @@ pub struct RuntimeProfileHttpState {
     schema_hash: &'static str,
     runtime_version: &'static str,
     capabilities: &'static [&'static str],
+    provider_statuses: Vec<ProviderStatusSnapshotV1>,
+    provider_credential_control: Option<ProviderCredentialHttpState>,
 }
 
 impl RuntimeProfileHttpState {
-    /// Creates the built-in profile response.
     #[must_use]
     pub const fn new(
         profile_id: &'static str,
@@ -35,132 +39,30 @@ impl RuntimeProfileHttpState {
             schema_hash,
             runtime_version,
             capabilities,
+            provider_statuses: Vec::new(),
+            provider_credential_control: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_provider_statuses(mut self, statuses: Vec<ProviderStatusSnapshotV1>) -> Self {
+        self.provider_statuses = statuses;
+        self
+    }
+
+    #[must_use]
+    pub fn with_provider_credential_control(
+        mut self,
+        host: Arc<dyn ProviderCredentialControlHostPort>,
+        actor: ApiActor,
+    ) -> Self {
+        self.provider_credential_control = Some(ProviderCredentialHttpState::new(host, actor));
+        self
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::{
-        body::{Body, to_bytes},
-        http::{Request, StatusCode},
-    };
-    use runne_api::{
-        ApiPrincipalId, DaemonInstanceId, RuntimeSessionBinding, StableRuntimeBinding,
-    };
-    use runne_application::local_session::AuthenticatedRuntimeSession;
-    use runne_domain::{event::Sensitivity, id::EventLogLineageId};
-    use std::time::Duration;
-    use tower::ServiceExt;
-
-    fn binding() -> RuntimeSessionBinding {
-        RuntimeSessionBinding::new(
-            StableRuntimeBinding::new(
-                [1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 1],
-                ApiPrincipalId::new("local-owner").unwrap(),
-                "018f2e3a-7000-7000-8000-000000000003"
-                    .parse::<EventLogLineageId>()
-                    .unwrap(),
-                "gocode-ui-client/2",
-                [3; 32],
-                ordered_capability_digest(&["conversation.create.v1", "conversation.list.v1"]),
-            )
-            .unwrap(),
-            DaemonInstanceId::from_bytes([
-                1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 2,
-            ]),
-            7,
-            [5; 16],
-            3,
-            Sensitivity::Internal,
-            [6; 32],
-        )
-        .unwrap()
-    }
-
-    #[tokio::test]
-    async fn session_profile_is_exact_binding_tuple_without_secret_fields() {
-        let state = RuntimeProfileHttpState::new(
-            "untrusted-handler-copy",
-            "untrusted-handler-copy",
-            "0.1.0-test",
-            &["conversation.create.v1", "conversation.list.v1"],
-        );
-        let session = AuthenticatedRuntimeSession {
-            binding: binding(),
-            expires_at_monotonic: Duration::from_secs(600),
-        };
-        let mut request = Request::builder()
-            .uri("/v1/runtime/profile")
-            .body(Body::empty())
-            .unwrap();
-        request.extensions_mut().insert(session);
-        let response = runtime_profile_session_router(state)
-            .oneshot(request)
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        let body: serde_json::Value =
-            serde_json::from_slice(&to_bytes(response.into_body(), 8192).await.unwrap()).unwrap();
-        assert_eq!(body["profileId"], "gocode-ui-client/2");
-        assert_eq!(body["schemaHash"], hex::encode([3; 32]));
-        assert_eq!(body["runtimeVersion"], "0.1.0-test");
-        assert_eq!(
-            body["capabilities"],
-            serde_json::json!(["conversation.create.v1", "conversation.list.v1"])
-        );
-        assert_eq!(
-            body["capabilityDigest"],
-            hex::encode(ordered_capability_digest(&[
-                "conversation.create.v1",
-                "conversation.list.v1"
-            ]))
-        );
-        assert_eq!(
-            body["authorityId"],
-            hex::encode([1, 143, 46, 58, 112, 0, 112, 0, 128, 0, 0, 0, 0, 0, 0, 1])
-        );
-        assert_eq!(body["principalId"], "local-owner");
-        assert_eq!(
-            body["eventLogLineageId"],
-            "018f2e3a-7000-7000-8000-000000000003"
-        );
-        assert_eq!(
-            body["daemonInstanceId"],
-            "018f2e3a-7000-7000-8000-000000000002"
-        );
-        assert_eq!(body["launchGeneration"], 7);
-        assert_eq!(body["sessionId"], hex::encode([5; 16]));
-        assert_eq!(body["authorizationEpoch"], 3);
-        assert_eq!(body["sensitivityCeiling"], "internal");
-        assert_eq!(body["certificateSha256"], hex::encode([6; 32]));
-        for forbidden in [
-            "authority",
-            "bootstrap",
-            "proof",
-            "privateKey",
-            "replayIntegrityKey",
-            "expiresAtMonotonic",
-            "token",
-            "bearer",
-        ] {
-            assert!(body.get(forbidden).is_none(), "profile leaked {forbidden}");
-        }
-    }
-
-    #[test]
-    fn ordered_capability_digest_is_domain_separated_and_ordered() {
-        assert_eq!(
-            hex::encode(ordered_capability_digest(&["a", "b"])),
-            "91cdbd7c7dd645123152088fe50eca060dbc7cba7800af8440bab92568f8f89a"
-        );
-        assert_ne!(
-            ordered_capability_digest(&["a", "b"]),
-            ordered_capability_digest(&["b", "a"])
-        );
-    }
-}
+mod tests;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -169,6 +71,7 @@ struct RuntimeProfileWire {
     schema_hash: &'static str,
     runtime_version: &'static str,
     capabilities: &'static [&'static str],
+    provider_statuses: Vec<ProviderStatusSnapshotV1>,
 }
 
 #[derive(Serialize)]
@@ -188,6 +91,7 @@ struct SessionRuntimeProfileWire {
     authorization_epoch: u64,
     sensitivity_ceiling: String,
     certificate_sha256: String,
+    provider_statuses: Vec<ProviderStatusSnapshotV1>,
 }
 
 /// Builds the profile query route. Authentication is applied by the parent
@@ -201,6 +105,7 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
                 schema_hash: state.schema_hash,
                 runtime_version: state.runtime_version,
                 capabilities: state.capabilities,
+                provider_statuses: state.provider_statuses,
             })
         }),
     )
@@ -212,9 +117,17 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
 /// extension rather than from daemon-owned handler state. This keeps the
 /// advertised profile tied to the authority validated by `SessionAuthLayer`.
 pub(crate) fn runtime_profile_session_router(state: RuntimeProfileHttpState) -> Router {
-    Router::new()
+    let provider_control = state
+        .provider_credential_control
+        .clone()
+        .filter(|_| state.advertises(runne_api::PROVIDER_CREDENTIAL_CONTROL_CAPABILITY_V1));
+    let router = Router::new()
         .route("/v1/runtime/profile", get(session_runtime_profile))
-        .with_state(state)
+        .with_state(state.clone());
+    match provider_control {
+        Some(control) => router.merge(provider_credential_router(control)),
+        None => router,
+    }
 }
 
 async fn session_runtime_profile(
@@ -238,16 +151,9 @@ async fn session_runtime_profile(
         authorization_epoch: ephemeral.authorization_epoch(),
         sensitivity_ceiling: sensitivity_label(ephemeral.sensitivity_ceiling()).to_owned(),
         certificate_sha256: hex::encode(session.binding.certificate_sha256()),
+        provider_statuses: state.provider_statuses,
     })
     .into_response()
-}
-
-const fn sensitivity_label(sensitivity: runne_domain::event::Sensitivity) -> &'static str {
-    match sensitivity {
-        runne_domain::event::Sensitivity::Public => "public",
-        runne_domain::event::Sensitivity::Internal => "internal",
-        runne_domain::event::Sensitivity::Sensitive => "sensitive",
-    }
 }
 
 /// Computes the domain-separated digest of the exact ordered capabilities.

@@ -95,5 +95,12 @@ struct TaskRunSnapshotWire {
     terminal_result: Option<TerminalResultWire>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TaskRunListWire {
+    task_runs: Vec<TaskRunSnapshotWire>,
+}
+
 include!("task_runs/handlers.rs");
+include!("task_runs/list.rs");
 include!("task_runs/helpers.rs");

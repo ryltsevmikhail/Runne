@@ -64,8 +64,19 @@ type SqliteConversationService = ConversationService<StoreTransaction, StoreTran
 
 mod executable_identity;
 mod http_startup;
+mod http_startup_support;
+#[cfg(feature = "desktop-protected")]
+pub(crate) mod native_process;
+#[cfg(feature = "desktop-protected")]
+pub(crate) mod native_process_provider;
+#[cfg(feature = "desktop-protected")]
+mod native_process_registry;
+#[cfg(not(feature = "desktop-protected"))]
+mod process_unavailable;
+mod provider_credential_control;
 mod provider_selection;
 mod provider_startup;
+mod provider_status;
 mod readiness;
 mod replay_authorization;
 #[cfg(all(feature = "test-support", feature = "desktop-protected"))]

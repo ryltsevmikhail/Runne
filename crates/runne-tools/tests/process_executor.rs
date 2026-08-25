@@ -4,8 +4,16 @@ use runne_platform::containment::{
     ContainmentBackendId, ContainmentBackendVersion, ContainmentGate, ContainmentRequest,
     HostPlatform, RunnerIdentity, RuntimeProbe,
 };
+use runne_platform_ports::process::{
+    HeldFileIdentityV1, HeldProcessTreeHandleV1, ProcessAttemptIdV1, ProcessFileKindV1,
+    ProcessGenerationIdV1, ProcessLifecycleBindingV1, ProcessOwnerIdV1, ProcessPlatformRequestV1,
+    ProcessSessionIdV1, ProcessSymlinkProofV1, VerifiedCwdV1, VerifiedExecutableV1,
+};
 use runne_security::broker::process::{
-    CommandPolicy, LaunchedProcess, ProcessBroker, ProcessError, ProcessLauncher, ProcessSpec,
+    CommandPolicy, LaunchedProcess, OwnedProcessHandleV1, OwnerBoundProcessError,
+    OwnerBoundProcessLaunchRequest, OwnerBoundProcessLauncher, OwnerBoundProcessRequest,
+    ProcessBroker, ProcessError, ProcessInvocationIdV1, ProcessLaunchObservationV1,
+    ProcessLauncher, ProcessSpec,
 };
 use runne_tools::{
     ProcessLifecycleReport, ProcessOperation, ProcessStartRequest, ProcessToolError,
@@ -18,6 +26,19 @@ struct PanicLauncher;
 impl ProcessLauncher for PanicLauncher {
     fn launch(&self, _spec: &ProcessSpec) -> Result<LaunchedProcess, ProcessError> {
         panic!("launcher must remain untouched without certified containment")
+    }
+}
+
+impl OwnerBoundProcessLauncher for PanicLauncher {
+    fn launch(
+        &self,
+        _request: &OwnerBoundProcessLaunchRequest<'_>,
+    ) -> Result<ProcessLaunchObservationV1, OwnerBoundProcessError> {
+        panic!("owner launcher must remain untouched without certified containment")
+    }
+
+    fn stop(&self, _handle: &OwnedProcessHandleV1) -> Result<(), OwnerBoundProcessError> {
+        panic!("owner stopper must remain untouched without a live launch")
     }
 }
 
@@ -85,6 +106,32 @@ fn containment() -> ContainmentRequest {
     .unwrap()
 }
 
+fn binding() -> ProcessLifecycleBindingV1 {
+    ProcessLifecycleBindingV1::new(
+        ProcessOwnerIdV1::new([1; 16]).unwrap(),
+        ProcessAttemptIdV1::new([2; 16]).unwrap(),
+        ProcessSessionIdV1::new([3; 16]).unwrap(),
+        ProcessGenerationIdV1::new([4; 16]).unwrap(),
+        HeldProcessTreeHandleV1::new([5; 16]).unwrap(),
+    )
+}
+
+fn prepared() -> ProcessPlatformRequestV1 {
+    let executable = VerifiedExecutableV1::new(
+        HeldFileIdentityV1::new([9; 16], [1; 32], [7; 32], [2; 32], 1).unwrap(),
+        ProcessFileKindV1::RegularFile,
+        ProcessSymlinkProofV1::VerifiedNotSymlink,
+    )
+    .unwrap();
+    let cwd = VerifiedCwdV1::new(
+        HeldFileIdentityV1::new([8; 16], [3; 32], [4; 32], [5; 32], 1).unwrap(),
+        ProcessFileKindV1::Directory,
+        ProcessSymlinkProofV1::VerifiedNotSymlink,
+    )
+    .unwrap();
+    ProcessPlatformRequestV1::new([6; 32], executable, cwd).unwrap()
+}
+
 #[test]
 fn process_executor_never_bypasses_unavailable_containment() {
     let executor = ProcessToolExecutor::new(ProcessBroker::new(CommandPolicy::StructuredOnly));
@@ -101,12 +148,7 @@ fn process_executor_never_bypasses_unavailable_containment() {
         },
         &PanicLauncher,
     );
-    assert_eq!(
-        result,
-        Err(ProcessToolError::Broker(
-            ProcessError::ContainmentUnavailable
-        ))
-    );
+    assert_eq!(result, Err(ProcessToolError::OwnerBoundRequired));
 }
 
 #[test]
@@ -126,6 +168,24 @@ fn selected_pty_is_explicitly_unavailable() {
             &PanicLauncher,
         ),
         Err(ProcessToolError::PtyBackendUnavailable)
+    );
+}
+
+#[test]
+fn owner_bound_executor_never_bypasses_unavailable_containment() {
+    let executor = ProcessToolExecutor::new(ProcessBroker::new(CommandPolicy::StructuredOnly));
+    let request = OwnerBoundProcessRequest::new_prepared(
+        spec(),
+        prepared(),
+        binding(),
+        ProcessInvocationIdV1::new([6; 16]).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        executor.start_owner_bound(request, &containment(), None, &[], &PanicLauncher),
+        Err(ProcessToolError::OwnerBound(
+            OwnerBoundProcessError::ContainmentUnavailable
+        ))
     );
 }
 

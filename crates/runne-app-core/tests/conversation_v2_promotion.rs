@@ -121,6 +121,25 @@ async fn taskrun_uses_the_same_v2_coordinator_without_a_renderer_surface() {
 }
 
 #[tokio::test]
+async fn reopened_taskrun_subscription_stays_blocked_by_authenticated_opaque_baseline() {
+    let fixture = support::Fixture::opened().await;
+    let task_run = runne_app_core::CanonicalId::parse("018f2e3a-7000-7000-8000-000000000150")
+        .expect("TaskRun ID");
+    fixture.runtime.force_retention_v2_gap_once();
+    runne_app_core::test_support::promote_task_run_v2_for_test(&fixture.core, task_run)
+        .await
+        .expect("TaskRun V2 promotion");
+    let reopened = fixture.reopen().await;
+    let opens = fixture.runtime.open_count();
+    let error = reopened
+        .subscribe_task_run_timeline(&task_run.to_string(), |_| {})
+        .await
+        .expect_err("opaque baseline must block live replay after restart");
+    assert_eq!(error.to_string(), "replay_resync_required");
+    assert_eq!(fixture.runtime.open_count(), opens);
+}
+
+#[tokio::test]
 async fn malformed_v2_admission_responses_close_the_server_session() {
     for mode in [1, 2, 3] {
         let fixture = support::Fixture::opened().await;

@@ -1,8 +1,10 @@
 //! Read-only command-reconciliation adapter over the authoritative writer.
 
+mod approval;
 mod conversation;
 mod project_workspace;
 mod shared;
+mod task_run;
 
 use runne_api::{
     CommandReconciliationContext, CommandReconciliationWitness, CommandReconciliationWitnessRef,
@@ -40,6 +42,12 @@ fn lookup(
         CommandReconciliationWitnessRef::CreateConversation { .. }
         | CommandReconciliationWitnessRef::GenerateConversationText { .. } => {
             conversation_lookup(transaction, store, context, witness)
+        }
+        CommandReconciliationWitnessRef::CancelTaskRun { .. } => {
+            task_run::lookup(transaction, store, context, witness)
+        }
+        CommandReconciliationWitnessRef::ApprovalDecision { .. } => {
+            approval::lookup(transaction, context, witness)
         }
         _ => project_workspace_lookup(transaction, store, context, witness),
     }

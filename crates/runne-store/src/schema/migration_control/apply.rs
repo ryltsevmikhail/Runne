@@ -91,6 +91,9 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         18 => project_workspace_schema::v18_matches(conn, version)?,
         19 => replay_snapshot_schema::v19_matches(conn, version)?,
         20 => replay_promotion_snapshot_schema::v20_matches(conn, version)?,
+        21 => v21_matches(conn, version)?,
+        22 => v22_matches(conn, version)?,
+        23 => v23_matches(conn, version)?,
         _ => false,
     };
     compatible
@@ -175,6 +178,15 @@ fn apply_v12_and_later(
     }
     if source_version < 20 && target_version >= 20 {
         replay_promotion_snapshot_schema::apply_v20_migration(conn, original_version == 19)?;
+    }
+    if source_version < 21 && target_version >= 21 {
+        apply_v21_migration(conn)?;
+    }
+    if source_version < 22 && target_version >= 22 {
+        apply_v22_migration(conn)?;
+    }
+    if source_version < 23 && target_version >= 23 {
+        apply_v23_migration(conn)?;
     }
     Ok(())
 }

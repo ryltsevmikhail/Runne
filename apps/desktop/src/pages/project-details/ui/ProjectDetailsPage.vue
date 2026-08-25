@@ -1,37 +1,41 @@
 <script setup lang="ts">
 import { GcAlert, GcButton } from '@runne/product/shared/ui'
-import { isTauri } from '@tauri-apps/api/core'
 import { ArrowRight, FolderOpen } from 'lucide-vue-next'
-import { onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { Project } from '@/entities/project'
-import { getProject } from '@/entities/project'
+import type { CanonicalProjectDetails } from '@/entities/project'
+import { getCanonicalProject, isCanonicalRuntimeId } from '@/entities/project'
+import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
+import { translate } from '@/shared/i18n'
 
-type LoadProject = (id: string) => Promise<readonly Project[]>
+type LoadProject = (id: string) => Promise<CanonicalProjectDetails>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
 }>(), {
-  loadProject: async (id: string) => isTauri() ? getProject(id) : [],
+  loadProject: getCanonicalProject,
 })
 
 const route = useRoute()
 const router = useRouter()
-const projects = ref<readonly Project[]>([])
+const details = ref<CanonicalProjectDetails | null>(null)
 const loading = ref(true)
 const error = ref(false)
+const runtimeSession = tryUseRuntimeSession()
+const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 
-onMounted(async () => {
+async function refreshProject() {
+  error.value = false
+  loading.value = true
   const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
-  if (id === '') {
+  if (!isCanonicalRuntimeId(id)) {
     error.value = true
     loading.value = false
     return
   }
   try {
-    projects.value = await props.loadProject(id)
-    error.value = projects.value.length === 0
+    details.value = await props.loadProject(id)
   }
   catch {
     error.value = true
@@ -39,7 +43,22 @@ onMounted(async () => {
   finally {
     loading.value = false
   }
-})
+}
+
+watch(runtimeStatus, status => {
+  if (runtimeSession === undefined) {
+    error.value = true
+    loading.value = false
+    return
+  }
+  if (status === 'live') {
+    void refreshProject()
+  }
+  else if (details.value === null) {
+    error.value = true
+    loading.value = false
+  }
+}, { immediate: true })
 
 async function openWorkspace(workspaceId: string) {
   await router.push({
@@ -59,54 +78,57 @@ async function returnToProjects() {
     class="empty-state"
     aria-live="polite"
   >
-    <h1>Loading project</h1>
+    <h1>{{ translate('projectDetails.loading') }}</h1>
   </section>
 
   <section
-    v-else-if="error || projects.length === 0"
+    v-else-if="error || details === null"
     class="empty-state"
     role="alert"
   >
     <GcAlert
       level="error"
-      title="Project unavailable"
+      :title="translate('projectDetails.unavailable')"
     >
-      The saved local project could not be restored.
+      {{ translate('projectDetails.restoreMessage') }}
     </GcAlert>
     <GcButton
       variant="secondary"
       @click="returnToProjects"
     >
-      Back to projects
+      {{ translate('projectDetails.back') }}
     </GcButton>
   </section>
 
-  <section
-    v-else
-    aria-labelledby="project-title"
-  >
+  <section v-else-if="details !== null" aria-labelledby="project-title">
     <header class="page-header">
       <div>
-        <span class="workspace-kicker">Local project</span>
+        <span class="workspace-kicker">{{ translate('projectDetails.kicker') }}</span>
         <h1 id="project-title">
-          {{ projects[0]?.displayName }}
+          {{ details.project.displayName }}
         </h1>
-        <p>Local root</p>
+        <p>{{ translate('projectDetails.version', { version: details.project.version }) }}</p>
+        <p class="runtime-summary">{{ translate('projectDetails.runtimeSummary', { status: runtimeStatus }) }}</p>
       </div>
     </header>
 
-    <div class="content-section">
+    <GcAlert v-if="details.project.archived" level="warning" :title="translate('projectDetails.archived')">
+      {{ translate('projectDetails.archivedMessage') }}
+    </GcAlert>
+
+    <div v-else class="content-section">
       <div class="section-heading">
-        <h2>Workspaces</h2>
-        <span>Local</span>
+        <h2>{{ translate('projectDetails.workspaces') }}</h2>
+        <span>{{ translate('projectDetails.runtime') }}</span>
       </div>
       <button
-        v-for="project in projects"
-        :key="project.workspaceId"
+        v-for="workspace in details.workspaces"
+        :key="workspace.workspaceId"
         class="project-card project-card--workspace"
         type="button"
-        :aria-label="`Open workspace ${project.displayName}`"
-        @click="openWorkspace(project.workspaceId)"
+        :aria-label="translate('projectDetails.openWorkspace', { name: workspace.displayName })"
+        :disabled="runtimeStatus !== 'live'"
+        @click="openWorkspace(workspace.workspaceId)"
       >
         <span class="project-icon">
           <FolderOpen
@@ -115,8 +137,11 @@ async function returnToProjects() {
           />
         </span>
         <span class="project-copy">
-          <strong>{{ project.displayName }}</strong>
-          <small>Local root</small>
+          <strong>{{ workspace.displayName }}</strong>
+          <small>{{ translate('projectDetails.workspaceVersion', {
+            version: workspace.version,
+            state: workspace.open ? translate('projectDetails.open') : translate('projectDetails.closed'),
+          }) }}</small>
         </span>
         <ArrowRight
           class="project-arrow"

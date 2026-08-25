@@ -30,7 +30,7 @@ impl AppCore {
         let lease = self.prepare_mutation(request).await?;
         match self.dispatch_prepared_mutation(lease).await? {
             MutationDispatchResult::Project(value) => Ok(value),
-            MutationDispatchResult::Workspace(_) | MutationDispatchResult::ConversationCreated(_) | MutationDispatchResult::TextGenerated(_) => Err(AppCoreError::InvalidMutation),
+            MutationDispatchResult::Workspace(_) | MutationDispatchResult::ConversationCreated(_) | MutationDispatchResult::TextGenerated(_) | MutationDispatchResult::TaskRunCancellationRequested(_) | MutationDispatchResult::ApprovalDecision(_) => Err(AppCoreError::InvalidMutation),
         }
     }
 
@@ -38,7 +38,7 @@ impl AppCore {
         let lease = self.prepare_mutation(request).await?;
         match self.dispatch_prepared_mutation(lease).await? {
             MutationDispatchResult::Workspace(value) => Ok(value),
-            MutationDispatchResult::Project(_) | MutationDispatchResult::ConversationCreated(_) | MutationDispatchResult::TextGenerated(_) => Err(AppCoreError::InvalidMutation),
+            MutationDispatchResult::Project(_) | MutationDispatchResult::ConversationCreated(_) | MutationDispatchResult::TextGenerated(_) | MutationDispatchResult::TaskRunCancellationRequested(_) | MutationDispatchResult::ApprovalDecision(_) => Err(AppCoreError::InvalidMutation),
         }
     }
 

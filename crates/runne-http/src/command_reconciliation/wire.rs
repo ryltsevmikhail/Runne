@@ -1,7 +1,8 @@
 use runne_api::{
-    CanonicalMessageText, CommandReconciliationWitness, ProjectWorkspaceDisplayNameInput,
+    ApprovalDecision, CanonicalMessageText, CommandReconciliationWitness,
+    ProjectWorkspaceDisplayNameInput,
 };
-use runne_domain::id::{ConversationId, ProjectId, WorkspaceId};
+use runne_domain::id::{ApprovalId, ConversationId, ProjectId, WorkspaceId};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -46,6 +47,14 @@ pub(super) enum ReconciliationBody {
         conversation_id: String,
         expected_version: u64,
         text: String,
+    },
+    ApprovalDecision {
+        approval_id: String,
+        expected_version: u64,
+        decision: String,
+        action_digest: String,
+        policy_revision: u64,
+        renderer_generation: u64,
     },
 }
 impl ReconciliationBody {
@@ -113,6 +122,25 @@ impl ReconciliationBody {
                 version(expected_version)?,
                 CanonicalMessageText::new(text).ok()?,
             )),
+            Self::ApprovalDecision {
+                approval_id,
+                expected_version,
+                decision,
+                action_digest,
+                policy_revision,
+                renderer_generation,
+            } => Some(CommandReconciliationWitness::approval_decision(
+                approval(&approval_id)?,
+                version(expected_version)?,
+                match decision.as_str() {
+                    "approve" => ApprovalDecision::Approve,
+                    "deny" => ApprovalDecision::Deny,
+                    _ => return None,
+                },
+                digest(&action_digest)?,
+                version(policy_revision)?,
+                version(renderer_generation)?,
+            )),
         }
     }
 }
@@ -123,6 +151,9 @@ fn workspace(value: &str) -> Option<WorkspaceId> {
     value.parse().ok()
 }
 fn conversation(value: &str) -> Option<ConversationId> {
+    value.parse().ok()
+}
+fn approval(value: &str) -> Option<ApprovalId> {
     value.parse().ok()
 }
 fn version(value: u64) -> Option<u64> {

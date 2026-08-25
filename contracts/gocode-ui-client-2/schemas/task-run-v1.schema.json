@@ -1,4 +1,52 @@
 {
+  "$defs": {
+    "cancelRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedVersion"
+      ],
+      "type": "object"
+    },
+    "cancellationAcknowledgement": {
+      "additionalProperties": false,
+      "properties": {
+        "attemptId": {
+          "type": "null"
+        },
+        "streamVersion": {
+          "maximum": 18446744073709551615,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "taskRunId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "terminalResult": {
+          "type": "null"
+        },
+        "transition": {
+          "const": "cancellation_requested",
+          "type": "string"
+        }
+      },
+      "required": [
+        "attemptId",
+        "streamVersion",
+        "taskRunId",
+        "terminalResult",
+        "transition"
+      ],
+      "type": "object"
+    }
+  },
   "$id": "gocode://schemas/task-run-v1",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,

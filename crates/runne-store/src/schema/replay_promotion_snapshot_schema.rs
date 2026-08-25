@@ -54,29 +54,48 @@ pub(super) fn apply_v20_migration(connection: &Connection, replaces_v19: bool) -
 }
 
 pub(super) fn v20_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 20
-        || !super::project_workspace_schema::v18_base_matches_with_additional_triggers(
+    if version != 20 || !v20_catalog_matches(connection, false, true)? {
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+pub(super) fn v20_catalog_matches(
+    connection: &Connection,
+    include_process_catalog: bool,
+    validate_inherited_schema: bool,
+) -> SqliteResult<bool> {
+    if !v20_base_matches(connection, validate_inherited_schema)? {
+        return Ok(false);
+    }
+    catalog_matches(connection, include_process_catalog)
+}
+
+pub(super) fn v20_base_matches(
+    connection: &Connection,
+    validate_inherited_schema: bool,
+) -> SqliteResult<bool> {
+    let v18 = !validate_inherited_schema
+        || super::project_workspace_schema::v18_base_matches_with_additional_triggers(
             connection,
             &[
                 "aggregate_state_snapshots_bind_insert",
                 "aggregate_state_snapshots_bind_update",
             ],
-        )?
-        || !super::table_sql_matches_migration(
-            connection,
-            "aggregate_state_snapshots",
-            MIGRATION_V20,
-        )?
-        || !super::index_matches(
-            connection,
-            "idx_aggregate_state_snapshots_head_position",
-            "aggregate_state_snapshots",
-            &["head_global_position"],
-        )?
-    {
+        )?;
+    let table =
+        super::table_sql_matches_migration(connection, "aggregate_state_snapshots", MIGRATION_V20)?;
+    let index = super::index_matches(
+        connection,
+        "idx_aggregate_state_snapshots_head_position",
+        "aggregate_state_snapshots",
+        &["head_global_position"],
+    )?;
+    let triggers = triggers_match(connection)?;
+    if !v18 || !table || !index {
         return Ok(false);
     }
-    Ok(triggers_match(connection)? && catalog_matches(connection)?)
+    Ok(triggers)
 }
 
 fn triggers_match(connection: &Connection) -> SqliteResult<bool> {
@@ -107,7 +126,18 @@ fn triggers_match(connection: &Connection) -> SqliteResult<bool> {
     })
 }
 
-fn catalog_matches(connection: &Connection) -> SqliteResult<bool> {
+pub(super) fn catalog_matches(
+    connection: &Connection,
+    include_process_catalog: bool,
+) -> SqliteResult<bool> {
+    catalog_matches_with_approvals(connection, include_process_catalog, false)
+}
+
+pub(super) fn catalog_matches_with_approvals(
+    connection: &Connection,
+    include_process_catalog: bool,
+    include_approvals: bool,
+) -> SqliteResult<bool> {
     let mut tables = super::RELEASED_V13_TABLES.to_vec();
     tables.extend([
         "provider_effect_starts",
@@ -126,6 +156,12 @@ fn catalog_matches(connection: &Connection) -> SqliteResult<bool> {
         "task_run_workspace_lineage",
         "aggregate_state_snapshots",
     ]);
+    if include_process_catalog {
+        tables.extend(["process_registry", "process_output"]);
+    }
+    if include_approvals {
+        tables.push("approvals");
+    }
     let actual = connection.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")?
         .query_map([], |row| row.get::<_, String>(0))?.collect::<SqliteResult<Vec<_>>>()?;
     tables.sort_unstable();
@@ -145,6 +181,12 @@ fn catalog_matches(connection: &Connection) -> SqliteResult<bool> {
         "bootstrap_reservation_unexpired",
         "idx_aggregate_state_snapshots_head_position",
     ]);
+    if include_process_catalog {
+        expected.push("idx_process_registry_owner");
+    }
+    if include_approvals {
+        expected.push("idx_approvals_pending");
+    }
     expected.sort_unstable();
     let views: i64 = connection.query_row(
         "SELECT COUNT(*) FROM sqlite_master WHERE type = 'view'",

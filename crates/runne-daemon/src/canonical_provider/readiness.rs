@@ -131,7 +131,14 @@ pub(super) fn native_journal_keyring(authority: [u8; 16]) -> Arc<dyn ProviderJou
     )))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub(super) fn native_journal_keyring(authority: [u8; 16]) -> Arc<dyn ProviderJournalKeyring> {
+    Arc::new(runne_secure_store::NativeKeyringStore::with_profile_id(
+        hex::encode(authority),
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub(super) fn native_journal_keyring(_authority: [u8; 16]) -> Arc<dyn ProviderJournalKeyring> {
     Arc::new(runne_secure_store::StubStore::new())
 }
@@ -143,7 +150,14 @@ pub(super) fn native_withheld_tail_store(authority: [u8; 16]) -> Arc<NativeWithh
     )))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub(super) fn native_withheld_tail_store(authority: [u8; 16]) -> Arc<NativeWithheldTailStore> {
+    Arc::new(runne_secure_store::NativeKeyringStore::with_profile_id(
+        hex::encode(authority),
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub(super) fn native_withheld_tail_store(_authority: [u8; 16]) -> Arc<NativeWithheldTailStore> {
     Arc::new(runne_secure_store::StubStore::new())
 }

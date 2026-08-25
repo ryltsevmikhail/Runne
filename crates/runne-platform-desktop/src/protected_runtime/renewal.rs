@@ -5,9 +5,9 @@ impl ProtectedBundledRuntimeProcess {
     ///
     /// Returns a typed failure for stale ownership, replay, channel, or ticket proof failures.
     pub fn renew_profile(&mut self) -> Result<ProtectedBundledRuntimeProfile, ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         { Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend) }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if self.graceful_requested { return Err(ProtectedBundledRuntimeError::InvalidState); }
             let sequence = self.renewal_sequence.checked_add(1).ok_or(ProtectedBundledRuntimeError::InvalidState)?;

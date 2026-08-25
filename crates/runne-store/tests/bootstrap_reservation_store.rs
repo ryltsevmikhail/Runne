@@ -23,6 +23,7 @@ fn concurrent_legitimate_preallocation_has_one_reservation() {
     {
         use std::os::unix::fs::PermissionsExt;
 
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let path = std::fs::canonicalize(daemon)

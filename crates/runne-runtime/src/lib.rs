@@ -7,6 +7,7 @@
 
 //! `runne-runtime` — multi-worker dispatch runtime for Runne.
 
+pub mod approval_host;
 pub mod command_reconciliation_host;
 pub mod config;
 pub mod controller;
@@ -20,6 +21,7 @@ pub mod migration_router;
 pub mod migration_shadow;
 pub mod opencode_session;
 pub mod plugin_host;
+pub mod process_host;
 pub mod project_workspace_host;
 pub mod provider_execution;
 pub mod provider_redaction;
@@ -28,16 +30,24 @@ pub mod qualification_matrix;
 pub mod session_host;
 pub mod task_run_host;
 pub mod types;
+pub mod workspace_diff_host;
+pub mod workspace_editor_host;
+pub mod workspace_file_host;
 
 mod supervisor;
 mod worker;
 
 mod startup;
+pub use approval_host::RuntimeApprovalHost;
+pub use process_host::RuntimeProcessHost;
 pub use project_workspace_host::{PROJECT_WORKSPACE_WORKER_CAPACITY, RuntimeProjectWorkspaceHost};
 pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };
 pub use task_run_host::RuntimeTaskRunHost;
+pub use workspace_diff_host::RuntimeWorkspaceDiffHost;
+pub use workspace_editor_host::RuntimeWorkspaceEditorHost;
+pub use workspace_file_host::RuntimeWorkspaceFileHost;
 pub mod bundle;
 pub mod canonical_conversation_host;
 pub mod canonical_provider_execution;

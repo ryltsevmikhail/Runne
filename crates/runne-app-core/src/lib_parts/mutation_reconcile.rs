@@ -42,6 +42,23 @@ fn reconciliation_request_from_anchored(
         Command::GenerateText { conversation_id, expected_version, text } => {
             Request::generate_conversation_text(identity, id(conversation_id)?, *expected_version, text).map_err(|_| AppCoreError::MutationUnavailable)
         }
+        Command::CancelTaskRun { task_run_id, expected_version } => {
+            Ok(Request::cancel_task_run(identity, id(task_run_id)?, *expected_version))
+        }
+        Command::ApprovalRespond { approval_id, expected_version, decision, action_digest, policy_revision, renderer_generation } => {
+            Request::approval_decision(
+                identity,
+                id(approval_id)?,
+                *expected_version,
+                match decision {
+                    runne_local_store::ApprovalDecisionKind::Approve => runne_runtime_client::ApprovalDecisionDto::Approve,
+                    runne_local_store::ApprovalDecisionKind::Deny => runne_runtime_client::ApprovalDecisionDto::Deny,
+                },
+                *action_digest,
+                *policy_revision,
+                *renderer_generation,
+            ).map_err(|_| AppCoreError::MutationUnavailable)
+        }
     }
 }
 
@@ -119,6 +136,21 @@ pub(crate) fn reconciliation_outcome_to_ledger(
                     ConversationGenerationFailureReason::ProviderOutputRejected => GenerationFailureReason::ProviderOutputRejected,
                 },
             }),
+        },
+        Outcome::TaskRunCancellationRequested(value) => LedgerOutcome::TaskRunCancellationRequested {
+            task_run_id: id(value.task_run_id())?,
+            new_version: value.stream_version(),
+        },
+        Outcome::ApprovalDecision(value) => LedgerOutcome::ApprovalRespond {
+            approval_id: id(value.approval_id())?,
+            new_version: value.new_version(),
+            state: match value.state() {
+                runne_runtime_client::ApprovalStateDto::Approved => runne_local_store::ApprovalOutcomeState::Approved,
+                runne_runtime_client::ApprovalStateDto::Denied => runne_local_store::ApprovalOutcomeState::Denied,
+                runne_runtime_client::ApprovalStateDto::Expired => runne_local_store::ApprovalOutcomeState::Expired,
+                runne_runtime_client::ApprovalStateDto::Cancelled => runne_local_store::ApprovalOutcomeState::Cancelled,
+                runne_runtime_client::ApprovalStateDto::Pending => return Err(AppCoreError::MutationUnavailable),
+            },
         },
     };
     outcome

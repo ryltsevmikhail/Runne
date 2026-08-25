@@ -1,11 +1,8 @@
 use super::replay_authorization::DaemonReplayAuthorization;
 use super::shutdown::map_recovery_state;
 use super::*;
-use crate::operational_telemetry::compose_operational_telemetry_query;
-
 mod command_hosts;
 mod session;
-
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
@@ -65,7 +62,6 @@ pub(super) async fn start_http_and_runtime(
         }
         .map_err(|error| DaemonError::Bootstrap(format!("start runtime: {error}")))?;
     let runtime_liveness = handle.clone();
-
     let task_run_host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
     let conversation_host = if provider_activation.requires_openai_execution()
         || provider_activation.requires_deepseek_execution()
@@ -94,7 +90,9 @@ pub(super) async fn start_http_and_runtime(
         0,
     )
     .map_err(|error| DaemonError::Bootstrap(format!("configure replay transport: {error}")))?;
-    let replay_integrity_secret = replay_cursor_integrity_secret(&bootstrap.replay_integrity_key);
+    let replay_integrity_secret = super::http_startup_support::replay_cursor_integrity_secret(
+        &bootstrap.replay_integrity_key,
+    );
     let replay_store = ReplayStore::new(replay_connection);
     let retention_manifest = replay_store
         .retention_manifest(&replay_lineage, &replay_integrity_secret)
@@ -153,7 +151,11 @@ pub(super) async fn start_http_and_runtime(
             Arc::clone(&local_session_service),
         )),
     );
-    let telemetry_state = operational_telemetry_state(provider_service.as_ref(), &binding);
+    let telemetry_state = super::http_startup_support::operational_telemetry_state(
+        provider_service.as_ref(),
+        &binding,
+    );
+    let provider_credential_control = super::http_startup_support::provider_credential_control();
     let command_hosts = command_hosts::compose(
         &store,
         root_admission_keys,
@@ -178,16 +180,29 @@ pub(super) async fn start_http_and_runtime(
             runne_runtime::bundle::PUBLISHED_BUNDLE_HASH,
             env!("CARGO_PKG_VERSION"),
             runtime_capabilities,
-        ),
+        )
+        .with_provider_statuses(super::provider_status::provider_statuses(
+            &provider_activation,
+            provider_readiness,
+        ))
+        .with_provider_credential_control(provider_credential_control, actor.clone()),
         TaskRunHttpState::new(task_run_host, actor.clone()),
-        ConversationHttpState::new(conversation_host, actor),
+        ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
             command_hosts.project_workspace,
-            ApiActor::new("runne-daemon").expect("the built-in daemon actor identity is valid"),
+            actor.clone(),
+        ),
+        runne_http::workspace_files::WorkspaceFileHttpState::new(command_hosts.workspace_files),
+        runne_http::workspace_diffs::WorkspaceDiffHttpState::new(command_hosts.workspace_diffs),
+        runne_http::processes::ProcessHttpState::new(command_hosts.process, actor.clone()),
+        runne_http::editors::WorkspaceEditorHttpState::new(
+            command_hosts.workspace_editor,
+            actor.clone(),
         ),
         runne_http::command_reconciliation::CommandReconciliationHttpState::new(
             command_hosts.reconciliation,
         ),
+        runne_http::approvals::ApprovalHttpState::new(command_hosts.approval, actor.clone()),
         ReplayHttpState::new(
             replay_service,
             replay_binding,
@@ -243,7 +258,6 @@ pub(super) async fn start_http_and_runtime(
             }
         }
     };
-
     Ok(DaemonApplication {
         bootstrap,
         store,
@@ -266,32 +280,17 @@ pub(super) async fn start_http_and_runtime(
         runtime_capabilities,
     })
 }
-
 #[cfg(feature = "desktop-protected")]
 fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static str] {
     if protected && has_keys {
-        return runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES;
+        runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
+    } else {
+        runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
     }
-    runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
 }
-
 #[cfg(not(feature = "desktop-protected"))]
 fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
     runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
-}
-
-fn replay_cursor_integrity_secret(key: &crate::replay_key::ReplayIntegrityKey) -> [u8; 32] {
-    key.derive_hmac(b"gocode/replay-cursor-hmac/v1\0")
-}
-
-fn operational_telemetry_state(
-    provider_service: Option<&Arc<DaemonCanonicalProviderService>>,
-    binding: &RuntimeSessionBinding,
-) -> OperationalTelemetryHttpState {
-    OperationalTelemetryHttpState::new(compose_operational_telemetry_query(
-        provider_service,
-        binding.ephemeral().launch_generation(),
-    ))
 }
 
 #[cfg(test)]

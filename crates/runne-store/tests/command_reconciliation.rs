@@ -31,9 +31,10 @@ mod conversation_cases;
 mod negative;
 #[path = "command_reconciliation/project_workspace.rs"]
 mod project_workspace;
+#[path = "command_reconciliation/task_run.rs"]
+mod task_run;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
-
 fn context(command: CommandId) -> CommandReconciliationContext {
     CommandReconciliationContext::new(
         command,

@@ -5,6 +5,7 @@ import {
   useConversationChat,
   type ConversationChatOptions,
 } from '../model/useConversationChat'
+import { translate } from '@/shared/i18n'
 
 const props = defineProps<ConversationChatOptions>()
 
@@ -35,16 +36,16 @@ const {
   >
     <header class="conversation-chat__header">
       <div>
-        <span class="conversation-chat__kicker">Conversation</span>
+        <span class="conversation-chat__kicker">{{ translate('conversation.kicker') }}</span>
         <h2 id="conversation-title">
-          Coding agent
+          {{ translate('conversation.title') }}
         </h2>
       </div>
       <span
         class="conversation-chat__runtime"
         :class="{ 'conversation-chat__runtime--live': runtimeState === 'live' && recovery === 'live' }"
       >
-        Runtime {{ recovery === 'live' ? runtimeState : recovery }}
+        {{ translate('conversation.runtime', { status: recovery === 'live' ? runtimeState : recovery }) }}
       </span>
     </header>
 
@@ -53,7 +54,7 @@ const {
       class="conversation-chat__state"
       aria-live="polite"
     >
-      Connecting to runtime…
+      {{ translate('conversation.connecting') }}
     </div>
 
     <div
@@ -63,15 +64,15 @@ const {
     >
       <GcAlert
         level="error"
-        title="Runtime unavailable"
+        :title="translate('conversation.unavailable')"
       >
-        Start the local runtime and retry the connection.
+        {{ translate('conversation.retryMessage') }}
       </GcAlert>
       <GcButton
         variant="secondary"
         @click="loadConversation"
       >
-        Retry
+        {{ translate('conversation.retry') }}
       </GcButton>
     </div>
 
@@ -91,12 +92,12 @@ const {
             :disabled="!canResync"
             @click="resyncConversation"
           >
-            {{ resyncing ? 'Resyncing…' : 'Resync' }}
+            {{ resyncing ? translate('conversation.resyncing') : translate('conversation.resync') }}
           </GcButton>
         </div>
         <ol
           class="conversation-chat__messages"
-          aria-label="Conversation messages"
+          :aria-label="translate('conversation.messages')"
           aria-live="polite"
         >
           <li
@@ -108,7 +109,7 @@ const {
             :data-message-role="message.role"
           >
             <span class="conversation-chat__role">
-              {{ message.role === 'user' ? 'You' : 'Runne' }}
+              {{ message.role === 'user' ? translate('conversation.you') : 'Runne' }}
             </span>
             <p>{{ message.text }}</p>
           </li>
@@ -116,7 +117,7 @@ const {
             v-if="snapshot?.messages.length === 0"
             class="conversation-chat__empty"
           >
-            Send a message to start this project conversation.
+            {{ translate('conversation.empty') }}
           </li>
         </ol>
       </div>
@@ -127,8 +128,8 @@ const {
       >
         <GcTextarea
           v-model="draft"
-          label="Message"
-          placeholder="Ask Runne to work on this project"
+          :label="translate('conversation.message')"
+          :placeholder="translate('conversation.placeholder')"
           :rows="3"
           :state="canCompose ? 'default' : 'disabled'"
         />
@@ -136,7 +137,7 @@ const {
           :disabled="!canSend"
           type="submit"
         >
-          {{ sending ? 'Running…' : 'Send' }}
+          {{ sending ? translate('conversation.running') : translate('conversation.send') }}
         </GcButton>
       </form>
     </template>

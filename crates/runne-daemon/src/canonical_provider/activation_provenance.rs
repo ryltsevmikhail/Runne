@@ -3,7 +3,7 @@ use runne_application::provider::ProviderLeaseBindingKind;
 use sha2::{Digest as _, Sha256};
 
 use crate::application::VerifiedOwnerPrivateConfig;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 const DOMAIN: &[u8] = b"GOCODE_DAEMON_ACTIVATION_BINDING_V1\0";
@@ -15,7 +15,7 @@ pub(crate) struct DaemonActivationProvenance {
 }
 
 impl DaemonActivationProvenance {
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     pub(crate) fn from_verified_protected_launch(
         start: &VerifiedProtectedApplicationStart,
     ) -> Self {

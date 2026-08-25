@@ -7,9 +7,10 @@ rust-version.workspace = true
 
 [dependencies]
 sha2 = { workspace = true }
+uuid.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Threading", "Wdk_Foundation", "Wdk_Storage_FileSystem"] }
+windows-sys = { version = "=0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading", "Wdk_Foundation", "Wdk_Storage_FileSystem"] }
 
 [dev-dependencies]
 tempfile = "=3.27.0"

@@ -44,6 +44,22 @@ pub(super) enum OutcomeWire {
         #[serde(default)]
         reason: StrictOptional<FailureReasonWire>,
     },
+    CancelTaskRun { task_run_id: CanonicalId, new_version: u64 },
+    ApprovalDecision {
+        approval_id: CanonicalId,
+        new_version: u64,
+        task_run_id: CanonicalId,
+        state: ApprovalStateWire,
+    },
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum ApprovalStateWire {
+    Approved,
+    Denied,
+    Expired,
+    Cancelled,
 }
 
 #[derive(Deserialize)]

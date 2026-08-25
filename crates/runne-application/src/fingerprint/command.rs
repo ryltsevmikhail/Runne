@@ -90,6 +90,14 @@ impl CommandFingerprint {
         Self(hasher.finalize().into())
     }
 
+    /// Create a fingerprint for requesting TaskRun cancellation.
+    pub fn for_cancel(taskrun_id: &TaskRunId, expected_version: u64) -> Self {
+        let mut hasher = begin(TAG_CANCEL_TASK_RUN);
+        hasher.update(taskrun_id.as_bytes());
+        hasher.update(expected_version.to_be_bytes());
+        Self(hasher.finalize().into())
+    }
+
     /// Create a fingerprint for `StartAttempt`.
     pub fn for_start_attempt(taskrun_id: &TaskRunId, expected_version: u64) -> Self {
         let mut hasher = Sha256::new();

@@ -17,13 +17,9 @@ use runne_app_core::{
     AppCore, AppCoreError, BundledRuntimeActivationLease, RuntimeAvailability, RuntimeFailureCode,
 };
 use runne_platform_desktop::{
-    BundledRuntimeLifecycleState, BundledRuntimeStopDisposition, ProtectedBundledRuntimeError,
-    ProtectedBundledRuntimeSupervisor,
-};
-#[cfg(feature = "test-support")]
-use runne_platform_desktop::{
-    DevelopmentBundledRuntimeLauncher, PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
-    ProtectedBundledRuntimeLaunchSpec, discover_bundled_runtime,
+    BundledRuntimeLifecycleState, BundledRuntimeStopDisposition, DevelopmentBundledRuntimeLauncher,
+    PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedBundledRuntimeError,
+    ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
 
 const BUNDLED_CLIENT_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -59,7 +55,6 @@ struct RuntimeOperationFence {
 }
 
 impl RuntimeOperationFence {
-    #[cfg(any(test, feature = "test-support"))]
     fn new() -> Self {
         Self {
             stopping: AtomicBool::new(false),
@@ -98,7 +93,6 @@ struct ProtectedSessionRenewalSchedule {
 }
 
 impl ProtectedSessionRenewalSchedule {
-    #[cfg(any(test, feature = "test-support"))]
     const fn new(renew_after: Duration) -> Self {
         Self {
             renew_after,

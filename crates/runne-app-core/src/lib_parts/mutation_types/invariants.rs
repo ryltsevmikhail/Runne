@@ -26,6 +26,8 @@ fn command_matches(request: &MutationRequest) -> bool {
         (Operation::WorkspaceBindRoot, target, CanonicalMutationCommand::BindWorkspaceRoot { workspace_id, .. }) | (Operation::WorkspaceOpen, target, CanonicalMutationCommand::OpenWorkspace { workspace_id }) => request.expected_version != 0 && target_matches(target, *workspace_id),
         (Operation::ConversationCreate, target, CanonicalMutationCommand::CreateConversation { conversation_id, .. }) => request.expected_version == 0 && target_matches(target, *conversation_id),
         (Operation::ConversationGenerateText, target, CanonicalMutationCommand::GenerateText { conversation_id, .. }) => request.expected_version != 0 && target_matches(target, *conversation_id),
+        (Operation::TaskRunCancel, target, CanonicalMutationCommand::CancelTaskRun { task_run_id }) => request.expected_version != 0 && target_matches(target, *task_run_id),
+        (Operation::ApprovalRespond, target, CanonicalMutationCommand::ApprovalRespond { approval_id, action_digest, policy_revision, renderer_generation, .. }) => request.expected_version != 0 && target_matches(target, *approval_id) && *action_digest != [0; 32] && *policy_revision != 0 && *renderer_generation != 0,
         _ => false,
     }
 }

@@ -6,6 +6,13 @@ fn require_runtime_admission(lifecycle: &RuntimeLifecycleManager) -> Result<(), 
     }
     Ok(())
 }
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn get_pending_external_activation(
+    state: State<'_, external_activation::ActivationManager>,
+) -> Option<external_activation::ActivationTarget> {
+    state.take()
+}
 
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
@@ -29,6 +36,88 @@ fn list_projects(state: State<'_, Arc<AppCore>>) -> Result<Vec<ProjectSummary>, 
     state.list_projects().map_err(|_| IpcError {
         code: "projects_unavailable",
     })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn list_canonical_projects(state: State<'_, Arc<AppCore>>) -> Result<Vec<CanonicalProjectSummary>, IpcError> {
+    state.list_canonical_projects().await.map_err(|_| IpcError { code: "projects_unavailable" })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn get_canonical_project(
+    state: State<'_, Arc<AppCore>>,
+    project_id: String,
+) -> Result<CanonicalProjectDetails, IpcError> {
+    state.get_canonical_project(&project_id).await.map_err(|_| IpcError { code: "project_unavailable" })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn get_canonical_workspace(
+    state: State<'_, Arc<AppCore>>,
+    workspace_id: String,
+) -> Result<CanonicalWorkspaceSummary, IpcError> {
+    state.get_canonical_workspace(&workspace_id).await.map_err(|_| IpcError { code: "project_unavailable" })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn get_task_run_timeline(
+    state: State<'_, Arc<AppCore>>,
+    task_run_id: String,
+) -> Result<runne_app_core::TaskRunTimelineSnapshot, IpcError> {
+    state
+        .get_task_run_timeline(&task_run_id)
+        .await
+        .map_err(|_| IpcError {
+            code: "task_run_unavailable",
+        })
+}
+
+#[tauri::command]
+async fn resync_task_run_timeline(
+    state: State<'_, Arc<AppCore>>,
+    task_run_id: String,
+) -> Result<runne_app_core::TaskRunTimelineSnapshot, IpcError> {
+    state.resync_task_run_timeline(&task_run_id).await.map_err(|_| IpcError { code: "task_run_unavailable" })
+}
+
+include!("task_run_commands.rs");
+include!("approval_commands.rs");
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn subscribe_task_run_timeline(
+    window: WebviewWindow,
+    state: State<'_, Arc<AppCore>>,
+    subscriptions: State<'_, TaskRunSubscriptionManager>,
+    task_run_id: String,
+    on_update: tauri::ipc::Channel<task_run_channel::TaskRunChannelEvent>,
+) -> Result<String, task_run_channel::TaskRunChannelError> {
+    subscriptions.subscribe(Arc::clone(&*state), &task_run_id, window.label(), on_update)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn ack_task_run_update(
+    window: WebviewWindow,
+    subscriptions: State<'_, TaskRunSubscriptionManager>,
+    subscription_id: String,
+    projection_revision: u64,
+) -> Result<(), task_run_channel::TaskRunChannelError> {
+    subscriptions.ack(window.label(), &subscription_id, projection_revision)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn cancel_task_run_subscription(
+    window: WebviewWindow,
+    subscriptions: State<'_, TaskRunSubscriptionManager>,
+    subscription_id: String,
+) -> Result<(), task_run_channel::TaskRunChannelError> {
+    subscriptions.cancel(window.label(), &subscription_id).await
 }
 
 #[tauri::command]

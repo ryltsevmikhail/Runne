@@ -88,6 +88,8 @@ fn released_v8_database(name: &str) -> PathBuf {
              DROP TABLE provider_effect_authorities;
              DROP TABLE provider_dispatch_attempts;
              DROP TABLE provider_prepared_requests;
+             DROP INDEX idx_approvals_pending;
+             DROP TABLE approvals;
              DROP TABLE schema_lineage;
              DROP TABLE consumption_intents;
              DROP TABLE verification_evidence;

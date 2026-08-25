@@ -1,3 +1,13 @@
+#[test]
+fn task_run_cancellation_is_an_anchored_task_run_mutation() {
+    let task_run_id = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000901").expect("task run");
+    let request = MutationRequest::cancel_task_run(task_run_id, 4).expect("request");
+    assert_eq!(request.operation, runne_local_store::MutationOperation::TaskRunCancel);
+    assert_eq!(request.target.kind(), runne_local_store::MutationTargetKind::TaskRun);
+    assert_eq!(request.expected_version, 4);
+    assert!(request.validate_invariants().is_ok());
+}
+
 #[tokio::test]
 async fn cancellation_before_dispatch_transition_keeps_prepared_without_network() {
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.expect("listener");

@@ -146,6 +146,10 @@ fn openapi() -> Value {
     });
     task_run_openapi(&mut document);
     project_workspace_openapi(&mut document);
+    workspace_files_openapi(&mut document);
+    workspace_editor_openapi(&mut document);
+    workspace_diffs_openapi(&mut document);
+    provider_credentials_openapi(&mut document);
     document
 }
 

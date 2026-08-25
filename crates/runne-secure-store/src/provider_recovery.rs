@@ -1,14 +1,22 @@
 //! Native encrypted storage adapter for provider scanner withheld tails.
 
+#[cfg(any(
+    target_os = "macos",
+    not(any(target_os = "linux", target_os = "windows"))
+))]
 use runne_provider::{
     NativeSecretRef, SecureStoreError as TailStoreError, TailBinding, WithheldTailStore,
 };
+#[cfg(any(
+    target_os = "macos",
+    not(any(target_os = "linux", target_os = "windows"))
+))]
 use zeroize::Zeroizing;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub use crate::StubStore as NativeWithheldTailStore;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 impl WithheldTailStore for crate::StubStore {
     fn put_tail(
         &self,
@@ -38,6 +46,9 @@ impl WithheldTailStore for crate::StubStore {
         Err(TailStoreError::Unavailable)
     }
 }
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub use crate::NativeKeyringStore as NativeWithheldTailStore;
 
 #[cfg(target_os = "macos")]
 pub use crate::MacOsKeychainStore as NativeWithheldTailStore;

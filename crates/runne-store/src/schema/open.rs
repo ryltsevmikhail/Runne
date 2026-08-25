@@ -48,7 +48,7 @@ where
     }
 
     if is_new_file {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         secure_file_permissions(db_path)
             .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
     }
@@ -70,12 +70,12 @@ fn open_owner_private_hot_reader<F>(
 where
     F: FnMut(IdentityHookStage) -> SqliteResult<()>,
 {
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (path, identity_hook);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let mut identity = ConnectionIdentityGuard::owner_private(path).map_err(diagnostic_error)?;
         identity_hook(IdentityHookStage::Retained)?;
@@ -147,9 +147,9 @@ fn initialize_wal_once(connection: &Connection) -> SqliteResult<()> {
 }
 
 fn secure_present_sidecars(path: &Path) -> SqliteResult<()> {
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let _ = path;
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     for suffix in ["-wal", "-shm"] {
         let sidecar = sidecar_path(path, suffix);
         if sidecar.exists() {

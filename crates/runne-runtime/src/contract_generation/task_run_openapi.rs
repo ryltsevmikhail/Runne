@@ -28,6 +28,35 @@ fn task_run_openapi(document: &mut Value) {
             },
         }),
     );
+    paths.insert(
+        "/v1/task-runs/{taskRunId}/cancel".to_owned(),
+        json!({
+            "post": {
+                "parameters": [{
+                    "in": "path",
+                    "name": "taskRunId",
+                    "required": true,
+                    "schema": uuid_v7_schema(),
+                }],
+                "requestBody": {
+                    "content": {"application/json": {"schema": {"$ref": "schemas/task-run-v1.schema.json#/$defs/cancelRequest"}}},
+                    "required": true,
+                },
+                "security": [{"sessionAuth": []}],
+                "responses": {
+                    "202": {
+                        "content": {"application/json": {"schema": {"$ref": "schemas/task-run-v1.schema.json#/$defs/cancellationAcknowledgement"}}},
+                        "description": "Cancellation request accepted",
+                    },
+                    "400": task_run_error_response(),
+                    "401": task_run_error_response(),
+                    "404": task_run_error_response(),
+                    "409": task_run_error_response(),
+                    "503": task_run_error_response(),
+                },
+            },
+        }),
+    );
 }
 
 fn task_run_error_response() -> Value {

@@ -105,6 +105,16 @@ impl StableRuntimeIdentity {
             binding_digest: self.binding_digest.clone(),
         }
     }
+
+    pub fn task_run_scope(&self, task_run_id: CanonicalId) -> ReplayScopeKey {
+        ReplayScopeKey {
+            runtime_authority: self.authority.clone(),
+            principal: self.principal.clone(),
+            lineage: self.lineage.clone(),
+            scope: format!("task_run:{task_run_id}"),
+            binding_digest: self.binding_digest.clone(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

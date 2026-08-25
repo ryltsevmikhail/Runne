@@ -74,6 +74,7 @@
     #[test]
     fn test_all_newtypes_parse_identical_uuid() {
         let _: TaskRunId = VALID_UUID_V7.parse().unwrap();
+        let _: ApprovalId = VALID_UUID_V7.parse().unwrap();
         let _: ConversationId = VALID_UUID_V7.parse().unwrap();
         let _: WorkspaceId = VALID_UUID_V7.parse().unwrap();
         let _: AttemptId = VALID_UUID_V7.parse().unwrap();

@@ -27,6 +27,7 @@ enum Call {
     Create(TaskRunCommandContext, CreateTaskRunCommand),
     Queue(TaskRunCommandContext, ExistingTaskRunCommand),
     Admit(TaskRunCommandContext, ExistingTaskRunCommand),
+    Cancel(TaskRunCommandContext, ExistingTaskRunCommand),
     Start(TaskRunCommandContext, ExistingTaskRunCommand),
     Complete(TaskRunCommandContext, CompleteTaskRunCommand),
     Get(TaskRunId),
@@ -93,6 +94,19 @@ impl TaskRunCommandHostPort for RecordingHost {
             taskrun_id: command.taskrun_id,
             new_version: command.expected_version + 1,
             kind: TaskRunCommandAckKind::Admitted,
+        })
+    }
+
+    async fn request_task_run_cancellation(
+        &self,
+        context: TaskRunCommandContext,
+        command: ExistingTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        self.record(Call::Cancel(context, command))?;
+        Ok(TaskRunCommandAck {
+            taskrun_id: command.taskrun_id,
+            new_version: command.expected_version + 1,
+            kind: TaskRunCommandAckKind::CancellationRequested,
         })
     }
 

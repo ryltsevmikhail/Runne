@@ -164,7 +164,7 @@ fn inherited_socket_commits_first_activation_before_bootstrap() {
             .await
             .unwrap();
             let ready = application
-                .protected_ready(launch.request(), launch.keys())
+                .protected_ready(launch.request_v1().unwrap(), launch.keys())
                 .unwrap();
             let owned_launch = ready.owned_launch();
             let control_keys = launch.keys().clone();

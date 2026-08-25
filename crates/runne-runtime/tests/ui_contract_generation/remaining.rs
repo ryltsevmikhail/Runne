@@ -98,6 +98,7 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "conversation.generate_text.v1",
         "conversation.list_messages.v1",
         "task_run.get.v1",
+        "task_run.cancel.v1",
         "replay.aggregate.open.v1",
         "replay.aggregate.retention_baseline.v1",
         "replay.aggregate.retention_baseline_resume.v2",
@@ -107,6 +108,8 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "replay.aggregate.continue_live.v1",
         "replay.aggregate.sse.v1",
         "runtime.operational-telemetry.v1",
+        "approval.control.v1",
+        "provider.credential-control.v1",
         "project.list.v1",
         "project.get.v1",
         "project.create.v1",
@@ -118,6 +121,9 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "workspace.create.v1",
         "workspace.open.v1",
         "workspace.bind_root.v3",
+        "workspace.files.read.v1",
+        "workspace.changes.read.v1",
+        "workspace.editor.open.v1",
     ]);
     assert_eq!(bundle["publishedCapabilities"], expected_capabilities);
     assert_eq!(bundle["capabilityCatalog"], expected_capabilities);

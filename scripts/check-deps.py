@@ -45,9 +45,10 @@ PROJECT_OWNER_STORE_FEATURE = "project-owner-key-store"
 PROJECT_OWNER_STORE_OWNER = "runne-cli"
 PROJECT_OWNER_STORE_SYMBOLS = re.compile(
     r"\b(?:PendingProjectOwnerKey|ProjectOwnerAnchorFloor|ProjectOwnerKey\w*|StoreStatus|"
-    r"project_owner_key(?:_store)?|create_pending|sign_active|activate_pending|"
-    r"read_anchor_floor|write_anchor_floor|export_active_for_backup|restore_active|"
-    r"into_backup_seed|validate_transcript|MAX_PROJECT_OWNER_TRANSCRIPT_BYTES)\b"
+    r"ProjectOwnerKeyStore|project_owner_key(?:_store)?|create_or_resume_pending|"
+    r"commit_pending_and_floor|reset_after_compromise|sign_active|activate_pending|"
+    r"read_active_ref|read_anchor_floor|write_anchor_floor|export_active_for_backup|"
+    r"restore_active|into_backup_seed|validate_transcript|MAX_PROJECT_OWNER_TRANSCRIPT_BYTES)\b"
 )
 PROJECT_OWNER_STORE_WILDCARD_IMPORT = re.compile(r"\buse\s+runne_secure_store\s*::\s*\*")
 

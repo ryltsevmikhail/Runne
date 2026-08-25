@@ -8,6 +8,9 @@ import subprocess
 from pathlib import Path
 
 
+SOURCECRAFT_ATTEST_VERIFIER_PATH = Path("/opt/gocode/sourcecraft/bin/sourcecraft-attest-verify")
+
+
 def load_json(path: Path) -> object:
     """Read JSON and reject duplicate object keys at every nesting level."""
 
@@ -101,23 +104,27 @@ def canonical_source_content_digest(root: Path, source_ref: str) -> str:
 
 
 def protected_policy() -> dict[str, str] | None:
-    """Read only protected GitHub Actions inputs; local configuration is untrusted."""
+    """Read SourceCraft protected-attestation bindings; local input is untrusted."""
 
     names = {
-        "repository": "GOCODE_DESKTOP_ATTEST_REPOSITORY",
-        "signer_workflow": "GOCODE_DESKTOP_ATTEST_SIGNER_WORKFLOW",
-        "source_ref": "GOCODE_DESKTOP_ATTEST_SOURCE_REF",
+        "repository": "SOURCECRAFT_DESKTOP_ATTEST_REPOSITORY",
+        "workflow": "SOURCECRAFT_DESKTOP_ATTEST_WORKFLOW",
+        "source_ref": "SOURCECRAFT_DESKTOP_ATTEST_SOURCE_REF",
+        "signer": "SOURCECRAFT_DESKTOP_ATTEST_SIGNER",
     }
     values = {key: os.environ.get(name, "") for key, name in names.items()}
-    if os.environ.get("GITHUB_ACTIONS") != "true" or not all(values.values()):
+    if os.environ.get("SOURCECRAFT_CI") != "true" or not all(values.values()) or not values["source_ref"].startswith("refs/"):
         return None
     return values
 
 
 def verify_attestation(subject: Path, bundle: Path, policy: dict[str, str], source_commit: str) -> dict[str, object] | None:
-    """Verify one Sigstore attestation with the fixed GitHub CLI contract."""
+    """Verify through the pre-provisioned SourceCraft verifier only."""
 
-    command = ["gh", "attestation", "verify", str(subject), "--bundle", str(bundle), "--repo", policy["repository"], "--signer-workflow", policy["signer_workflow"], "--source-ref", policy["source_ref"], "--source-digest", source_commit, "--predicate-type", "https://slsa.dev/provenance/v1", "--no-public-good", "--format", "json"]
+    verifier = SOURCECRAFT_ATTEST_VERIFIER_PATH
+    if not verifier.is_file() or not os.access(verifier, os.X_OK):
+        return None
+    command = [str(verifier), "verify", "--subject", str(subject), "--bundle", str(bundle), "--repository", policy["repository"], "--workflow", policy["workflow"], "--source-ref", policy["source_ref"], "--signer", policy["signer"], "--source-digest", source_commit, "--format", "json"]
     try:
         result = subprocess.run(command, check=False, capture_output=True, text=True)
         if result.returncode != 0:
@@ -125,16 +132,6 @@ def verify_attestation(subject: Path, bundle: Path, policy: dict[str, str], sour
         value = json.loads(result.stdout)
     except (FileNotFoundError, OSError, json.JSONDecodeError):
         return None
-    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict) or not isinstance(value[0].get("attestation"), dict):
+    if not isinstance(value, dict) or set(value) != {"verified", "subject_sha256", "predicate"} or value["verified"] is not True or value["subject_sha256"] != sha256_file(subject) or not isinstance(value["predicate"], dict):
         return None
-    verified = value[0].get("verificationResult")
-    if not isinstance(verified, dict):
-        return None
-    statement = verified.get("statement")
-    if not isinstance(statement, dict) or not isinstance(statement.get("subject"), list) or len(statement["subject"]) != 1 or not isinstance(statement.get("predicate"), dict):
-        return None
-    subject_row = statement["subject"][0]
-    digest = subject_row.get("digest") if isinstance(subject_row, dict) else None
-    if not isinstance(digest, dict) or set(digest) != {"sha256"} or digest["sha256"] != sha256_file(subject):
-        return None
-    return statement["predicate"]
+    return value["predicate"]

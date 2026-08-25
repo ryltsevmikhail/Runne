@@ -172,7 +172,7 @@ if gate_enabled frontend; then
     node_at apps/site "$vue_tsc_target" -b
     node_at apps/site "$repo_root/apps/site/scripts/build.mjs"
     CI=1 "$trusted_node" "$playwright_target" test
-    "$trusted_python" -m unittest scripts.tests.test_desktop_qualification_workflow -v
+    "$trusted_python" -m unittest scripts.desktop.tests.test_desktop_qualification_workflow -v
     "$trusted_python" -m unittest scripts.tests.test_desktop_capability_manifest -v
     "$trusted_python" scripts/desktop/validate_architecture.py
 fi

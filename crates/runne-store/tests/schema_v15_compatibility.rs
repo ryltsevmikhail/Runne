@@ -177,7 +177,7 @@ fn v20_rejects_released_v15_fixture_without_complete_replay_histories() {
     preflight_existing_file(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
     assert!(apply_migrations(&connection).is_err());
-    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row

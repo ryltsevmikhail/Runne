@@ -6,7 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   test: {
     environment: 'jsdom',
-    include: ['shared/**/*.spec.ts'],
+    include: ['shared/**/*.spec.ts', 'entities/**/*.spec.ts', 'widgets/**/*.spec.ts'],
     globals: true,
   },
   resolve: {

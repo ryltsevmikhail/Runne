@@ -6,6 +6,14 @@ pub trait EventStore {
     ///
     /// Returns a [`LoadedStream`] or an [`EventStoreError`].
     fn load_task_run(&self, taskrun_id: TaskRunId) -> Result<LoadedStream, EventStoreError>;
+
+    /// Lists committed TaskRun identities for authoritative lifecycle queries.
+    ///
+    /// Adapters that cannot provide the bounded identity list remain closed;
+    /// callers must not infer that an unavailable list is empty.
+    fn list_task_runs(&self) -> Result<Vec<TaskRunId>, EventStoreError> {
+        Err(EventStoreError::Unavailable)
+    }
 }
 
 /// Atomic persistence boundary for conversation streams and create receipts.

@@ -97,7 +97,7 @@ def fixture_records_v4():
             value["schema_id"] = value["schema_id"].removesuffix("/3") + "/4"
             value["profile"] = "gocode.rc0.evidence-profile/4"
     records["source-gate-results.json"]["capture"] = {
-        "remote_url": "https://git.sourcecraft.dev/ryltsevmg/gocode.git",
+        "remote_url": "https://git.sourcecraft.dev/ryltsevmg/runne.git",
         "captured_origin_main_revision": SOURCE,
         "head_revision": SOURCE,
         "raw_tree_oid": "d" * 40,

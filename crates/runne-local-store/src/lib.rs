@@ -66,8 +66,9 @@ mod security_state_root;
 mod security_v6_migration;
 
 pub use security_ledger_v7::{
-    CanonicalMutationOutcome, GenerationAssistant, GenerationFailureReason, GenerationTerminal,
-    LedgerMessage, MessageRole, NormalizedMutationCommand,
+    ApprovalDecisionKind, ApprovalOutcomeState, CanonicalMutationOutcome, GenerationAssistant,
+    GenerationFailureReason, GenerationTerminal, LedgerMessage, MessageRole,
+    NormalizedMutationCommand,
 };
 pub use security_recovery_read_types::{
     MAX_MUTATION_RECOVERY_RECORDS, MutationRecoveryBatch, MutationRecoveryBinding,

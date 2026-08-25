@@ -133,7 +133,6 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
     assert_eq!(recovered.original.expected_version, 1);
     assert_eq!(recovered.original.text.as_str(), "hello provider");
     assert_eq!(recovered.started, started);
-
     let application = ConversationProviderTerminalApplication::new(store.clone(), service);
     let first = application
         .complete_provider_terminal(&record, b"provider answer")
@@ -143,7 +142,6 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
         .unwrap();
     assert_ne!(first, [0; 32]);
     assert_eq!(replay, first);
-
     let stream = store.load_conversation(conversation_id).unwrap();
     assert_eq!(stream.current_version, 3);
     assert_eq!(
@@ -181,6 +179,11 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
              DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
              DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
              DROP TABLE IF EXISTS aggregate_state_snapshots;
+             DROP TABLE IF EXISTS process_output;
+             DROP INDEX IF EXISTS idx_process_registry_owner;
+             DROP TABLE IF EXISTS process_registry;
+             DROP INDEX IF EXISTS idx_approvals_pending;
+             DROP TABLE IF EXISTS approvals;
              DELETE FROM schema_version WHERE version >= 19;",
         )
         .unwrap();

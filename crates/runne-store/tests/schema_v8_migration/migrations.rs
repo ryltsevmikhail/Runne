@@ -32,6 +32,11 @@ fn v6_to_v8_migration() {
          DROP TABLE security_budget_consumptions;
          DROP TABLE security_authorization_decisions;
          DROP TABLE security_dispatch_intents;
+         DROP TABLE process_output;
+         DROP INDEX idx_process_registry_owner;
+         DROP TABLE process_registry;
+         DROP INDEX idx_approvals_pending;
+         DROP TABLE approvals;
          DELETE FROM schema_version WHERE version >= 7;",
     )
     .unwrap();

@@ -60,8 +60,8 @@ pub fn open_existing_read_only(db_path: &Path) -> SqliteResult<Connection> {
 /// any writable PRAGMA is applied. The owner-private main/WAL/SHM file set is
 /// checked again before writes are enabled. Default openers never inherit this
 /// authorization.
-/// Windows intentionally fails closed until it has an equivalent protected
-/// handle-based implementation.
+/// Windows retains no-reparse native file identity and owner ACL evidence
+/// through the audited Windows native-handle boundary.
 pub fn reopen_managed_connection_validated<F>(
     db_path: &Path,
     mode: ConnectionMode,
@@ -86,12 +86,12 @@ where
     if !matches!(mode, ConnectionMode::Reader | ConnectionMode::ValidatedReopen) {
         return Err(rusqlite::Error::InvalidQuery);
     }
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (db_path, mode, identity_hook, validate);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let mut identity = ConnectionIdentityGuard::owner_private(db_path).map_err(diagnostic_error)?;
         identity_hook(IdentityHookStage::Retained)?;
@@ -123,12 +123,12 @@ pub fn with_protected_recovery_read_only_admission<F>(
 where
     F: FnOnce(&Connection) -> SqliteResult<()>,
 {
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (db_path, validate);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let mut identity = ConnectionIdentityGuard::owner_private(db_path).map_err(diagnostic_error)?;
         let connection = Connection::open_with_flags(

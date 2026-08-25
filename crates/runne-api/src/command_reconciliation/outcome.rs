@@ -1,6 +1,6 @@
 use crate::{
-    CanonicalConversationMessage, ConversationCreatedAck, ConversationTextResult,
-    ProjectCommandAck, WorkspaceCommandAck,
+    ApprovalDecisionAck, CanonicalConversationMessage, ConversationCreatedAck,
+    ConversationTextResult, ProjectCommandAck, TaskRunCommandAck, WorkspaceCommandAck,
 };
 use runne_domain::conversation::GenerationFailureReason;
 use runne_domain::id::{AttemptId, ConversationId, MessageId, TaskRunId};
@@ -49,6 +49,8 @@ enum Outcome {
     WorkspaceOpened(WorkspaceCommandAck),
     ConversationCreated(ConversationCreatedAck),
     ConversationText(AuthoritativeTextGenerationOutcome),
+    TaskRunCancellationRequested(TaskRunCommandAck),
+    ApprovalDecision(ApprovalDecisionAck),
 }
 
 impl AuthoritativeCommandOutcome {
@@ -100,6 +102,18 @@ impl AuthoritativeCommandOutcome {
             inner: Outcome::ConversationText(value),
         }
     }
+    #[must_use]
+    pub const fn task_run_cancellation_requested(value: TaskRunCommandAck) -> Self {
+        Self {
+            inner: Outcome::TaskRunCancellationRequested(value),
+        }
+    }
+    #[must_use]
+    pub const fn approval_decision(value: ApprovalDecisionAck) -> Self {
+        Self {
+            inner: Outcome::ApprovalDecision(value),
+        }
+    }
 
     #[must_use]
     pub const fn operation(&self) -> ReconciliationOperation {
@@ -112,6 +126,8 @@ impl AuthoritativeCommandOutcome {
             Outcome::WorkspaceOpened(_) => ReconciliationOperation::OpenWorkspace,
             Outcome::ConversationCreated(_) => ReconciliationOperation::CreateConversation,
             Outcome::ConversationText(_) => ReconciliationOperation::GenerateConversationText,
+            Outcome::TaskRunCancellationRequested(_) => ReconciliationOperation::CancelTaskRun,
+            Outcome::ApprovalDecision(_) => ReconciliationOperation::ApprovalDecision,
         }
     }
     #[must_use]
@@ -137,6 +153,12 @@ impl AuthoritativeCommandOutcome {
             Outcome::ConversationText(value) => {
                 AuthoritativeCommandOutcomeRef::ConversationText(value.view())
             }
+            Outcome::TaskRunCancellationRequested(value) => {
+                AuthoritativeCommandOutcomeRef::TaskRunCancellationRequested(value)
+            }
+            Outcome::ApprovalDecision(value) => {
+                AuthoritativeCommandOutcomeRef::ApprovalDecision(value)
+            }
         }
     }
 }
@@ -151,6 +173,8 @@ pub enum AuthoritativeCommandOutcomeRef<'a> {
     WorkspaceOpened(&'a WorkspaceCommandAck),
     ConversationCreated(&'a ConversationCreatedAck),
     ConversationText(AuthoritativeTextGenerationOutcomeRef<'a>),
+    TaskRunCancellationRequested(&'a TaskRunCommandAck),
+    ApprovalDecision(&'a ApprovalDecisionAck),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum AuthoritativeTextGenerationOutcomeRef<'a> {

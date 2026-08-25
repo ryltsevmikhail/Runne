@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCECRAFT = "https://git.sourcecraft.dev/ryltsevmg/gocode.git"
+SOURCECRAFT = "https://git.sourcecraft.dev/ryltsevmg/runne.git"
 PINNED = "66495a2a22cd0a57efcc4f721e65532f0987b4e8"
 PINNED_BLOB = ROOT / "upstream/opencode/packages/sdk/openapi.json"
 
@@ -150,6 +150,13 @@ class Rc0CandidateSourceV4Tests(unittest.TestCase):
         self.assertEqual(
             source.validate_fixture_source_v4(modules, self.expectation(source, modules)).blocked_reason,
             "SOURCE_GITMODULES_FORBIDDEN",
+        )
+
+    def test_v4_binds_to_renamed_sourcecraft_repository(self):
+        source = __import__("scripts.rc0_candidate.source_v4", fromlist=["unused"])
+        self.assertEqual(
+            source.SOURCECRAFT_ORIGIN,
+            "https://git.sourcecraft.dev/ryltsevmg/runne.git",
         )
 
     def test_v4_rejects_recomputed_arbitrary_upstream_content(self):

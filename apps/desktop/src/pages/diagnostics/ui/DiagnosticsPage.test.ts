@@ -157,4 +157,51 @@ describe('diagnostics page', () => {
     expect(wrapper.text()).toContain('8')
     expect(wrapper.find('[role="status"]').exists()).toBe(false)
   })
+
+  it('previews and exports only the bounded redacted report', async () => {
+    let exported = 0
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: diagnostics,
+        loadOperationalTelemetry: async () => telemetrySnapshot(),
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 512,
+        }),
+        exportReport: async () => {
+          exported += 1
+          return { status: 'saved' as const }
+        },
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(exported).toBe(1)
+    expect(wrapper.get('[role="status"]').text()).toContain('saved')
+  })
+
+  it('fails closed when the export preview is too large', async () => {
+    const wrapper = mount(DiagnosticsPage, {
+      props: {
+        loadDiagnostics: diagnostics,
+        loadOperationalTelemetry: async () => telemetrySnapshot(),
+        loadExportPreview: async () => ({
+          schemaVersion: 1,
+          redactionVersion: 1,
+          categories: ['application', 'runtime'],
+          estimatedBytes: 131_073,
+        }),
+        exportReport: async () => ({ status: 'saved' as const }),
+      },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="export-diagnostics"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[role="alert"]').text()).toContain('Diagnostics export unavailable')
+  })
 })

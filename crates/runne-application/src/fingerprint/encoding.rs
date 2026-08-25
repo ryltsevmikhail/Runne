@@ -23,6 +23,7 @@ const TAG_COMMIT_RECOVERY_RESUME: u8 = 15;
 const TAG_COMMIT_LOOP_CHECKPOINT: u8 = 16;
 const TAG_RESUME_LOOP_WAIT: u8 = 17;
 const TAG_GENERATE_CONVERSATION_TEXT: u8 = 18;
+const TAG_CANCEL_TASK_RUN: u8 = 19;
 const CHECKPOINT_BODY_PREFIX: &[u8] = b"gocode-loop-checkpoint-body\x01";
 
 fn begin(tag: u8) -> Sha256 {

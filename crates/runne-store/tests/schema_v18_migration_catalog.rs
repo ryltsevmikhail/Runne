@@ -12,10 +12,10 @@ use runne_store::schema::{
 use rusqlite::{Connection, params};
 
 #[test]
-fn complete_v19_history_rebuilds_to_v20() {
+fn complete_v19_history_rebuilds_to_v23() {
     let connection = v19_taskrun();
     apply_migrations(&connection).unwrap();
-    assert_eq!(version(&connection), 20);
+    assert_eq!(version(&connection), 23);
     let projection: Vec<u8> = connection
         .query_row(
             "SELECT promotion_projection_bytes FROM aggregate_state_snapshots",

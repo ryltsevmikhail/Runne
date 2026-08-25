@@ -4,6 +4,11 @@ use std::path::{Component, Path};
 use runne_api::RootHandleTransferAuthenticator;
 use thiserror::Error;
 
+mod editor;
+mod files;
+mod process_files;
+pub use files::{RootFileEntry, RootFileKind};
+pub use process_files::NativeProcessFiles;
 #[cfg(unix)]
 #[path = "root_handle_broker/unix.rs"]
 mod platform;
@@ -15,7 +20,10 @@ compile_error!("root-handle broker requires a supported desktop platform");
 #[cfg(all(unix, feature = "protected-channel-integration"))]
 #[path = "root_handle_broker/endpoint.rs"]
 mod endpoint;
-#[cfg(all(unix, feature = "protected-channel-integration"))]
+#[cfg(all(windows, feature = "protected-channel-integration"))]
+#[path = "root_handle_broker/windows_endpoint.rs"]
+mod endpoint;
+#[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 pub use endpoint::ProtectedRootHandleEndpoint;
 
 /// Fail-closed errors for native root-handle selection and transfer.
@@ -97,6 +105,7 @@ impl fmt::Debug for VerifiedRootHandle {
 
 /// Exact native channel and launch context bound into one transfer transcript.
 #[derive(Clone)]
+#[cfg_attr(windows, allow(dead_code))]
 pub struct RootHandleTransferBinding {
     channel_id: [u8; 16],
     launch_generation: u64,

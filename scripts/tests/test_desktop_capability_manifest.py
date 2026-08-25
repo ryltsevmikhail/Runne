@@ -176,38 +176,41 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
             self.assertIn("STATUS_RECORDED_AT", validate_status(definition(), value))
         value = status(); value["toolchain_identity"] = {"status": "unknown", "name": None, "version": None}; value["runner_identity"] = {"status": "unknown", "runner_id": None, "image_sha256": None}
         errors = validate_status(definition(), value); self.assertIn("STATUS_TOOLCHAIN", errors); self.assertIn("STATUS_RUNNER", errors)
-
-    def test_verifier_requires_exact_gh_arguments_and_authenticated_bindings(self) -> None:
-        from scripts.desktop.capability_manifest_impl.io import verify_attestation
-
-        evidence = self._evidence()
+    def test_protected_policy_requires_sourcecraft_ci_and_all_bound_fields(self) -> None:
+        from scripts.desktop.capability_manifest_impl.io import protected_policy
+        environment = {
+            "SOURCECRAFT_CI": "true",
+            "SOURCECRAFT_DESKTOP_ATTEST_REPOSITORY": "https://git@git.sourcecraft.dev/org/repo.git",
+            "SOURCECRAFT_DESKTOP_ATTEST_WORKFLOW": "desktop-qualification",
+            "SOURCECRAFT_DESKTOP_ATTEST_SOURCE_REF": "refs/tags/v1.0.0",
+            "SOURCECRAFT_DESKTOP_ATTEST_SIGNER": "desktop-release-attestor",
+        }
+        with patch.dict("os.environ", environment, clear=True):
+            self.assertEqual(protected_policy(), self._policy())
+        for name in environment:
+            with self.subTest(name=name), patch.dict("os.environ", {key: value for key, value in environment.items() if key != name}, clear=True):
+                self.assertIsNone(protected_policy())
+    def test_sourcecraft_verifier_requires_preprovisioned_external_contract(self) -> None:
+        from scripts.desktop.capability_manifest_impl import io as manifest_io
+        predicate = self._evidence()
         with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers") as directory:
             subject = Path(directory) / "gate.json"
-            subject.write_text(json.dumps(evidence), encoding="utf-8")
+            subject.write_text(json.dumps(predicate), encoding="utf-8")
             bundle = Path(f"{subject}.intoto.jsonl")
-            bundle.write_text("bundle", encoding="utf-8")
-            predicate = dict(evidence)
-            statement = {"subject": [{"digest": {"sha256": hashlib.sha256(subject.read_bytes()).hexdigest()}}], "predicate": predicate}
-            output = json.dumps([{"attestation": {"version": 1}, "verificationResult": {"statement": statement, "verified": True}}])
-            with patch("scripts.desktop.capability_manifest_impl.io.subprocess.run", return_value=CompletedProcess([], 0, output, "")) as run:
-                result = verify_attestation(subject, bundle, self._policy(), "commit-a")
-            self.assertEqual(result, predicate)
-            self.assertEqual(run.call_args.args[0], ["gh", "attestation", "verify", str(subject), "--bundle", str(bundle), "--repo", "org/repo", "--signer-workflow", ".github/workflows/qualify.yml", "--source-ref", "refs/heads/release", "--source-digest", "commit-a", "--predicate-type", "https://slsa.dev/provenance/v1", "--no-public-good", "--format", "json"])
-
-    def test_verifier_rejects_bad_result_shapes_and_each_evidence_binding(self) -> None:
-        from scripts.desktop.capability_manifest_impl.io import verify_attestation
-
-        evidence = self._evidence()
-        with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers") as directory:
-            subject = Path(directory) / "gate.json"
-            subject.write_text(json.dumps(evidence), encoding="utf-8")
-            bundle = Path(f"{subject}.intoto.jsonl")
-            bundle.write_text("bundle", encoding="utf-8")
-            statement = {"subject": [{"digest": {"sha256": hashlib.sha256(subject.read_bytes()).hexdigest()}}], "predicate": evidence}
-            cases = ("", "{}", "[]", json.dumps([{"attestation": {}, "verificationResult": {"statement": statement}}, {"attestation": {}, "verificationResult": {"statement": statement}}]), json.dumps([{"attestation": {}}]), json.dumps([{"attestation": {}, "verificationResult": {"statement": {**statement, "subject": []}}}]), *(json.dumps([{"attestation": bad, "verificationResult": {"statement": statement}}]) for bad in (None, "attestation", [], 1, True)))
-            for output in cases:
-                with self.subTest(output=output), patch("scripts.desktop.capability_manifest_impl.io.subprocess.run", return_value=CompletedProcess([], 0, output, "")):
-                    self.assertIsNone(verify_attestation(subject, bundle, self._policy(), "commit-a"))
+            bundle.write_text("external bundle", encoding="utf-8")
+            candidate_verifier = ROOT / "scripts/desktop/sourcecraft_attestation.py"
+            with patch.object(manifest_io, "SOURCECRAFT_ATTEST_VERIFIER_PATH", candidate_verifier):
+                self.assertIsNone(manifest_io.verify_attestation(subject, bundle, self._policy(), "a" * 40))
+            trusted_verifier = Path(directory) / "sourcecraft-attest-verify"
+            trusted_verifier.write_text("trusted pre-provisioned verifier", encoding="utf-8")
+            trusted_verifier.chmod(0o755)
+            output = json.dumps({"verified": True, "subject_sha256": hashlib.sha256(subject.read_bytes()).hexdigest(), "predicate": predicate})
+            with patch.object(manifest_io, "SOURCECRAFT_ATTEST_VERIFIER_PATH", trusted_verifier), patch.object(manifest_io.subprocess, "run", return_value=CompletedProcess([], 0, output, "")) as run:
+                self.assertEqual(manifest_io.verify_attestation(subject, bundle, self._policy(), "a" * 40), predicate)
+            command = run.call_args.args[0]
+            self.assertEqual(command[0], str(trusted_verifier))
+            self.assertNotIn("sourcecraft_attestation.py", command)
+            self.assertNotIn("SOURCECRAFT_DESKTOP_ATTEST_VERIFY_KEY", json.dumps(command))
 
     def test_gate_predicate_rejects_each_required_binding_mutation(self) -> None:
         from scripts.desktop.capability_manifest import _gate_predicate
@@ -243,15 +246,6 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
                 qualification = manifest._qualification(args, definition())
             self.assertIsNotNone(qualification); self.assertEqual(qualification.verified_gate_ids, ("GATE-CONTRACT-SCHEMA",))
 
-    def test_verifier_fails_closed_for_missing_or_nonzero_gh(self) -> None:
-        from scripts.desktop.capability_manifest_impl.io import verify_attestation
-
-        with tempfile.TemporaryDirectory(dir=ROOT / ".superpowers") as directory:
-            subject = Path(directory) / "gate.json"; subject.write_text("{}", encoding="utf-8"); bundle = Path(f"{subject}.intoto.jsonl")
-            for result in (FileNotFoundError(), CompletedProcess([], 1, "", "failure")):
-                with self.subTest(result=type(result).__name__), patch("scripts.desktop.capability_manifest_impl.io.subprocess.run", side_effect=result if isinstance(result, FileNotFoundError) else None, return_value=result if isinstance(result, CompletedProcess) else None):
-                    self.assertIsNone(verify_attestation(subject, bundle, self._policy(), "commit-a"))
-
     def test_candidate_source_digest_excludes_only_evidence_and_dirty_product_paths(self) -> None:
         from scripts.desktop.capability_manifest_impl.io import canonical_source_content_digest, clean_source_paths, evidence_only_difference
 
@@ -283,13 +277,16 @@ class DesktopCapabilityManifestTests(unittest.TestCase):
 
     def test_current_wave_defaults_to_v2_status_and_contract_bundle(self) -> None:
         from scripts.desktop import capability_manifest as manifest
-
         self.assertEqual(manifest.DEFAULT_STATUS, STATUS)
         self.assertEqual(manifest.DEFAULT_STATUS.name, "desktop-v1-capability-status-v2.json")
 
+    def test_current_wave_status_matches_checked_in_contract_bundle(self) -> None:
+        from scripts.desktop.capability_manifest_impl.validation import validate_repository
+        self.assertNotIn("STATUS_CONTRACT_WAVE_MISMATCH", validate_repository(ROOT, status_path=STATUS))
+
     @staticmethod
     def _policy() -> dict[str, str]:
-        return {"repository": "org/repo", "signer_workflow": ".github/workflows/qualify.yml", "source_ref": "refs/heads/release"}
+        return {"repository": "https://git@git.sourcecraft.dev/org/repo.git", "workflow": "desktop-qualification", "source_ref": "refs/tags/v1.0.0", "signer": "desktop-release-attestor"}
 
     @staticmethod
     def _evidence() -> dict[str, object]:

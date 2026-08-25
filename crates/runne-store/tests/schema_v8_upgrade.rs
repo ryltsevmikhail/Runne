@@ -38,6 +38,11 @@ fn released_v8_db() -> Connection {
     }
     conn.execute_batch(
         "DROP TABLE aggregate_state_snapshots;
+         DROP TABLE process_output;
+         DROP INDEX idx_process_registry_owner;
+         DROP TABLE process_registry;
+         DROP INDEX idx_approvals_pending;
+         DROP TABLE approvals;
          DROP TABLE task_run_workspace_lineage;
          DROP TABLE workspace_identity_history;
          DROP TABLE root_admission_nonces;
@@ -94,8 +99,8 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
-    assert_eq!(version, 20);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
+    assert_eq!(version, 23);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));

@@ -1,8 +1,9 @@
 //! Request/response envelope types for the runtime dispatch layer.
 
 use runne_application::commands::{
-    AdmitTaskRunInput, BeginConversationTextInput, CommandOutcome, CompleteTaskRunInput,
-    CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput, StartAttemptInput,
+    AdmitTaskRunInput, BeginConversationTextInput, CancelTaskRunInput, CommandOutcome,
+    CompleteTaskRunInput, CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput,
+    StartAttemptInput,
 };
 use runne_application::conversation_text_service::ConversationTextCommandService;
 use runne_application::errors::ApplicationError;
@@ -71,6 +72,11 @@ pub(crate) enum RuntimeRequest {
         input: AdmitTaskRunInput,
         reply: Reply,
     },
+    Cancel {
+        context: ApplicationCommandContext,
+        input: CancelTaskRunInput,
+        reply: Reply,
+    },
     StartAttempt {
         context: ApplicationCommandContext,
         input: StartAttemptInput,
@@ -106,6 +112,7 @@ impl RuntimeRequest {
             Self::Queue { input, .. } => Some(input.taskrun_id),
             Self::Admit { input, .. } => Some(input.taskrun_id),
             Self::StartAttempt { input, .. } => Some(input.taskrun_id),
+            Self::Cancel { input, .. } => Some(input.taskrun_id),
             Self::Complete { input, .. } => Some(input.taskrun_id),
             Self::BeginConversationText { .. } => None,
             Self::FinishConversationText { input, .. } => Some(input.started.taskrun_id),
@@ -156,6 +163,11 @@ pub(crate) enum PerRunRequest {
         input: AdmitTaskRunInput,
         reply: Reply,
     },
+    Cancel {
+        context: ApplicationCommandContext,
+        input: CancelTaskRunInput,
+        reply: Reply,
+    },
     StartAttempt {
         context: ApplicationCommandContext,
         input: StartAttemptInput,
@@ -187,6 +199,11 @@ impl PerRunRequest {
                 input,
                 reply,
             } => (PerRunCall::StartAttempt { context, input }, reply),
+            Self::Cancel {
+                context,
+                input,
+                reply,
+            } => (PerRunCall::Cancel { context, input }, reply),
             Self::Complete {
                 context,
                 input,
@@ -220,6 +237,10 @@ pub(crate) enum PerRunCall {
         context: ApplicationCommandContext,
         input: StartAttemptInput,
     },
+    Cancel {
+        context: ApplicationCommandContext,
+        input: CancelTaskRunInput,
+    },
     Complete {
         context: ApplicationCommandContext,
         input: CompleteTaskRunInput,
@@ -241,6 +262,7 @@ impl PerRunCall {
             Self::Queue { context, input } => service.queue_task_run(&context, input),
             Self::Admit { context, input } => service.admit_task_run(&context, input),
             Self::StartAttempt { context, input } => service.start_attempt(&context, input),
+            Self::Cancel { context, input } => service.cancel_task_run(&context, input),
             Self::Complete { context, input } => service.complete_task_run(&context, input),
         }
     }

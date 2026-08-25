@@ -39,6 +39,8 @@ pub enum OperationTag {
     ResumeLoopWait = 17,
     /// Append a user message and execute deterministic local text generation.
     GenerateConversationText = 18,
+    /// Request cancellation of an existing task run.
+    CancelTaskRun = 19,
 }
 
 /// The aggregate scope within which idempotency is enforced.

@@ -54,7 +54,7 @@
     }
 
     #[tokio::test]
-    async fn default_bundled_discovery_marks_configuration_required() {
+    async fn default_bundled_discovery_rejects_missing_packaged_runtime() {
         let temporary = tempfile::tempdir().expect("temporary profile");
         let core = Arc::new(
             AppCore::open_with_runtime_mode(
@@ -69,22 +69,22 @@
             temporary.path().join("runne-desktop").as_path(),
             temporary.path().join("bundled-runtime").as_path(),
         ) else {
-            panic!("default bundled discovery must require configuration");
+            panic!("default bundled discovery must reject missing runtime");
         };
-        assert_eq!(failure, RuntimeFailureCode::ConfigurationRequired);
+        assert_eq!(failure, RuntimeFailureCode::BundledExecutableUnavailable);
         core.mark_bundled_runtime_failed(failure)
             .await
-            .expect("mark configuration required");
+            .expect("mark missing packaged runtime");
 
         let bootstrap = core.bootstrap().expect("configuration bootstrap");
-        assert_eq!(bootstrap.runtime, runne_app_core::RuntimeAvailability::Unconfigured);
+        assert_eq!(bootstrap.runtime, runne_app_core::RuntimeAvailability::Fatal);
         assert_eq!(
             bootstrap.runtime_lifecycle,
-            runne_app_core::RuntimeLifecycleStatus::ConfigurationRequired
+            runne_app_core::RuntimeLifecycleStatus::Failed
         );
         assert_eq!(
             bootstrap.runtime_failure,
-            Some(RuntimeFailureCode::ConfigurationRequired)
+            Some(RuntimeFailureCode::BundledExecutableUnavailable)
         );
     }
 

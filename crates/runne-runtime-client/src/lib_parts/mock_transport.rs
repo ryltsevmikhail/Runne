@@ -16,6 +16,7 @@ pub fn mock_authenticated_runtime_client(
         origin,
         RuntimeSessionAuthority::from_local_session([0x5a; 32]),
         session,
+        Vec::new(),
     ))
 }
 
@@ -38,6 +39,7 @@ pub fn mock_protected_authenticated_runtime_client(
         origin,
         RuntimeSessionAuthority::from_local_session([0x5a; 32]),
         session,
+        Vec::new(),
     ))
 }
 

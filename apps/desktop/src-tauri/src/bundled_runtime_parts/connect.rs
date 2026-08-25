@@ -1,17 +1,33 @@
 impl BundledRuntimeController {
-    /// Rejects bundled startup until an authenticated native enrollment broker
-    /// supplies the provider activation.
+    /// Builds the production protected bundled-runtime supervisor.
     ///
     /// # Errors
     ///
     /// Returns one closed renderer-safe configuration code. No external
     /// runtime fallback is attempted.
     pub fn discover(
-        _core: Arc<AppCore>,
-        _desktop_executable: &std::path::Path,
-        _runtime_root: &std::path::Path,
+        core: Arc<AppCore>,
+        desktop_executable: &std::path::Path,
+        runtime_root: &std::path::Path,
     ) -> Result<Arc<Self>, RuntimeFailureCode> {
-        Err(RuntimeFailureCode::ConfigurationRequired)
+        let executable = discover_bundled_runtime(desktop_executable)
+            .map_err(map_protected_failure)?;
+        let spec = ProtectedBundledRuntimeLaunchSpec::new(&executable, runtime_root)
+            .map_err(map_protected_failure)?
+            .with_openai_provider_activation();
+        let supervisor = ProtectedBundledRuntimeSupervisor::new(
+            DevelopmentBundledRuntimeLauncher::new(),
+            spec,
+        );
+        Ok(Arc::new(Self {
+            core,
+            supervisor: Arc::new(Mutex::new(supervisor)),
+            operation_fence: Arc::new(RuntimeOperationFence::new()),
+            renewal_schedule: Mutex::new(ProtectedSessionRenewalSchedule::new(
+                PROTECTED_BUNDLED_SESSION_RENEW_AFTER,
+            )),
+            shutdown_outcome: Mutex::new(None),
+        }))
     }
 
     /// Starts the loopback fixture through an explicit native-only test gate.

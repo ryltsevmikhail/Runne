@@ -18,7 +18,7 @@ impl DevelopmentBundledRuntimeLauncher {
         &self,
         spec: &ProtectedBundledRuntimeLaunchSpec,
     ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = spec;
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
@@ -26,6 +26,10 @@ impl DevelopmentBundledRuntimeLauncher {
         #[cfg(unix)]
         {
             self.launch_unix(spec, &mut LaunchTestControls::production())
+        }
+        #[cfg(windows)]
+        {
+            self.launch_windows(spec, &mut LaunchTestControls::production())
         }
     }
 
@@ -39,7 +43,7 @@ impl DevelopmentBundledRuntimeLauncher {
         capture_output: bool,
         fail_at: Option<FirstActivationFaultPoint>,
     ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (spec, launch_secret, capture_output, fail_at);
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
@@ -54,6 +58,16 @@ impl DevelopmentBundledRuntimeLauncher {
         #[cfg(unix)]
         {
             self.launch_unix(spec, &mut controls)
+        }
+        #[cfg(windows)]
+        {
+            let mut controls = LaunchTestControls {
+                secret_override: Some(Zeroizing::new(launch_secret)),
+                capture_output,
+                fail_at: fail_at.map(Into::into),
+                fault_triggered: false,
+            };
+            self.launch_windows(spec, &mut controls)
         }
     }
 
@@ -262,7 +276,7 @@ impl DevelopmentBundledRuntimeLauncher {
                 activation,
                 runtime_profile: Some(runtime_profile),
                 renewal_sequence: 0,
-                #[cfg(all(unix, feature = "protected-channel-integration"))]
+                #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
                 root_control_sequence: 0,
                 graceful_requested: false,
                 #[cfg(feature = "test-support")]

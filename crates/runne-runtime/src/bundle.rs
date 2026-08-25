@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "e67a31cde429fd81a6c661b2abd850171778a25b3a4d324b2af72419afe42be4";
+    "4f38e7d4f59ff55081033c483992f4094eb50fb5d785ed8f1f0b5b4fb3b0597a";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -25,6 +25,7 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "task_run.get.v1",
+    "task_run.cancel.v1",
     "replay.aggregate.open.v1",
     "replay.aggregate.retention_baseline.v1",
     "replay.aggregate.retention_baseline_resume.v2",
@@ -34,6 +35,8 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -45,6 +48,9 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "workspace.create.v1",
     "workspace.open.v1",
     "workspace.bind_root.v3",
+    "workspace.files.read.v1",
+    "workspace.changes.read.v1",
+    "workspace.editor.open.v1",
 ];
 
 /// Exact base profile for external and deterministic daemon modes.
@@ -53,6 +59,7 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "task_run.get.v1",
+    "task_run.cancel.v1",
     "replay.aggregate.open.v1",
     "replay.aggregate.retention_baseline.v1",
     "replay.aggregate.retention_baseline_resume.v2",
@@ -62,6 +69,8 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -80,6 +89,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "conversation.generate_text.v1",
     "conversation.list_messages.v1",
     "task_run.get.v1",
+    "task_run.cancel.v1",
     "replay.aggregate.open.v1",
     "replay.aggregate.retention_baseline.v1",
     "replay.aggregate.retention_baseline_resume.v2",
@@ -89,6 +99,8 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "replay.aggregate.continue_live.v1",
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
+    "approval.control.v1",
+    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -100,6 +112,9 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "workspace.create.v1",
     "workspace.open.v1",
     "workspace.bind_root.v3",
+    "workspace.files.read.v1",
+    "workspace.changes.read.v1",
+    "workspace.editor.open.v1",
 ];
 
 #[cfg(test)]
@@ -113,6 +128,7 @@ mod tests {
             "conversation.generate_text.v1",
             "conversation.list_messages.v1",
             "task_run.get.v1",
+            "task_run.cancel.v1",
             "replay.aggregate.open.v1",
             "replay.aggregate.retention_baseline.v1",
             "replay.aggregate.retention_baseline_resume.v2",
@@ -122,6 +138,8 @@ mod tests {
             "replay.aggregate.continue_live.v1",
             "replay.aggregate.sse.v1",
             "runtime.operational-telemetry.v1",
+            "approval.control.v1",
+            "provider.credential-control.v1",
             "project.list.v1",
             "project.get.v1",
             "project.create.v1",
@@ -133,6 +151,9 @@ mod tests {
             "workspace.create.v1",
             "workspace.open.v1",
             "workspace.bind_root.v3",
+            "workspace.files.read.v1",
+            "workspace.changes.read.v1",
+            "workspace.editor.open.v1",
         ];
         assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
         assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);

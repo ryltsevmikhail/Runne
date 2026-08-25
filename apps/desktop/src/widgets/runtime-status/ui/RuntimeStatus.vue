@@ -7,6 +7,7 @@ import type {
   RuntimeLifecycleStatus,
   RuntimeMode,
 } from '@/shared/api/platform/bootstrap'
+import { translate, type LocaleKey } from '@/shared/i18n'
 
 const props = defineProps<{
   mode: RuntimeMode
@@ -15,51 +16,51 @@ const props = defineProps<{
   failure: RuntimeFailureCode | null
 }>()
 
-const failureLabels: Record<RuntimeFailureCode, string> = {
-  configuration_required: 'Provider configuration is required',
-  protected_activation_unavailable: 'Protected activation unavailable',
-  bundled_executable_unavailable: 'Bundled runtime is missing',
-  bundled_executable_identity_mismatch: 'Executable verification failed',
-  protected_readiness_rejected: 'Runtime verification failed',
-  bundled_restart_exhausted: 'Restart limit reached',
-  bundled_shutdown_incomplete: 'Shutdown could not be confirmed',
-  unsupported_platform_backend: 'Protected activation is unsupported',
-  downgraded_external_profile: 'Unsafe transport was rejected',
+const failureLabels: Record<RuntimeFailureCode, LocaleKey> = {
+  configuration_required: 'runtime.failure.configuration',
+  protected_activation_unavailable: 'runtime.failure.protectedActivation',
+  bundled_executable_unavailable: 'runtime.failure.executableMissing',
+  bundled_executable_identity_mismatch: 'runtime.failure.executableMismatch',
+  protected_readiness_rejected: 'runtime.failure.readinessRejected',
+  bundled_restart_exhausted: 'runtime.failure.restartExhausted',
+  bundled_shutdown_incomplete: 'runtime.failure.shutdownIncomplete',
+  unsupported_platform_backend: 'runtime.failure.unsupportedBackend',
+  downgraded_external_profile: 'runtime.failure.unsafeTransport',
 }
 
-const lifecycleTitles: Record<RuntimeLifecycleStatus, string> = {
-  configuration_required: 'Provider configuration required',
-  starting: 'Runtime starting',
-  ready: 'Runtime ready',
-  restarting: 'Runtime restarting',
-  degraded: 'Runtime degraded',
-  failed: 'Runtime failed',
-  external: 'External runtime',
+const lifecycleTitles: Record<RuntimeLifecycleStatus, LocaleKey> = {
+  configuration_required: 'runtime.title.configuration',
+  starting: 'runtime.title.starting',
+  ready: 'runtime.title.ready',
+  restarting: 'runtime.title.restarting',
+  degraded: 'runtime.title.degraded',
+  failed: 'runtime.title.failed',
+  external: 'runtime.title.external',
 }
 
-const title = computed(() => lifecycleTitles[props.lifecycle])
+const title = computed(() => translate(lifecycleTitles[props.lifecycle]))
 
 const detail = computed(() => {
   if (props.failure !== null) {
-    return failureLabels[props.failure]
+    return translate(failureLabels[props.failure])
   }
   switch (props.lifecycle) {
     case 'configuration_required':
-      return 'Configure a provider to start the bundled runtime'
+      return translate('runtime.detail.configureProvider')
     case 'starting':
-      return 'Protected activation'
+      return translate('runtime.detail.protectedActivation')
     case 'ready':
-      return props.connection === 'resync_required' ? 'Replay resync required' : 'Protected session'
+      return props.connection === 'resync_required' ? translate('runtime.detail.replayResync') : translate('runtime.detail.protectedSession')
     case 'restarting':
-      return 'Rotating runtime session'
+      return translate('runtime.detail.rotatingSession')
     case 'degraded':
-      return props.connection === 'resync_required' ? 'Replay resync required' : 'Retrying safely'
+      return props.connection === 'resync_required' ? translate('runtime.detail.replayResync') : translate('runtime.detail.retryingSafely')
     case 'failed':
-      return 'Open diagnostics for details'
+      return translate('runtime.detail.openDiagnostics')
     case 'external':
-      return props.connection === 'live' ? 'Explicit mode · connected' : `Explicit mode · ${props.connection}`
+      return props.connection === 'live' ? translate('runtime.detail.externalConnected') : translate('runtime.detail.externalConnection', { connection: props.connection })
   }
-  return 'Runtime unavailable'
+  return translate('runtime.detail.unavailable')
 })
 </script>
 

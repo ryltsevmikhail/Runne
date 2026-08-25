@@ -3,6 +3,8 @@ enum MutationDispatchResult {
     Workspace(runne_runtime_client::WorkspaceCommandAcknowledgement),
     ConversationCreated(runne_runtime_client::ConversationCreated),
     TextGenerated(runne_runtime_client::ConversationTextResult),
+    TaskRunCancellationRequested(runne_runtime_client::TaskRunCancellationAcknowledgement),
+    ApprovalDecision(runne_runtime_client::ApprovalDecisionAcknowledgementDto),
 }
 include!("mutation_dispatch/public.rs");
 impl AppCore {

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Condvar, Mutex};
 
 use runne_platform::containment::{
     AttestationVerdict, ContainmentError, ContainmentRequest, NativeCertificate, RuntimeProbe,
@@ -28,6 +29,10 @@ pub struct ProcessSpec {
     pub command_policy: CommandPolicy,
 }
 
+const MAX_ENV_ENTRIES: usize = 64;
+const MAX_ENV_VALUE_BYTES: usize = 4_096;
+const MAX_ENV_BYTES: usize = 65_536;
+
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum ProcessError {
     #[error("shell command forbidden in structured mode")]
@@ -48,6 +53,8 @@ pub enum ProcessError {
     AmbientEnvironmentForbidden,
     #[error("environment entry is not allowlisted")]
     EnvironmentNotAllowed,
+    #[error("process environment exceeds its bound")]
+    EnvironmentTooLarge,
     #[error("working directory is not authorized")]
     CwdNotAuthorized,
     #[error("worker generation is stale")]
@@ -69,12 +76,16 @@ pub trait ProcessLauncher {
 
 pub struct ProcessBroker {
     default_policy: CommandPolicy,
+    owner_bound: Mutex<HashMap<OwnerBoundLaunchKey, OwnerBoundRegistryEntry>>,
+    owner_bound_changed: Condvar,
 }
 
 impl ProcessBroker {
     pub fn new(policy: CommandPolicy) -> Self {
         Self {
             default_policy: policy,
+            owner_bound: Mutex::new(HashMap::new()),
+            owner_bound_changed: Condvar::new(),
         }
     }
 
@@ -102,6 +113,35 @@ impl ProcessBroker {
         }
         if spec.inherit_environment {
             return Err(ProcessError::AmbientEnvironmentForbidden);
+        }
+        let environment_bytes = spec
+            .env
+            .iter()
+            .try_fold(0_usize, |total, (key, value)| {
+                total
+                    .checked_add(key.len())
+                    .and_then(|total| total.checked_add(value.len()))
+            })
+            .ok_or(ProcessError::EnvironmentTooLarge)?;
+        let allowlisted_bytes = spec
+            .allowed_env_keys
+            .iter()
+            .try_fold(0_usize, |total, key| total.checked_add(key.len()))
+            .ok_or(ProcessError::EnvironmentTooLarge)?;
+        if spec.env.len() > MAX_ENV_ENTRIES
+            || spec.allowed_env_keys.len() > MAX_ENV_ENTRIES
+            || allowlisted_bytes > MAX_ENV_BYTES
+            || spec
+                .allowed_env_keys
+                .iter()
+                .any(|key| key.len() > MAX_ENV_VALUE_BYTES)
+            || environment_bytes > MAX_ENV_BYTES
+            || spec
+                .env
+                .iter()
+                .any(|(key, value)| key.len() > MAX_ENV_VALUE_BYTES || value.len() > MAX_ENV_VALUE_BYTES)
+        {
+            return Err(ProcessError::EnvironmentTooLarge);
         }
         if !spec
             .allowed_env_keys
@@ -155,11 +195,7 @@ impl ProcessBroker {
                 return Err(ProcessError::ShellCommandForbidden);
             }
             for argument in &spec.argv {
-                if argument.contains(';')
-                    || argument.contains('|')
-                    || argument.contains('$')
-                    || argument.contains('`')
-                {
+                if argument.bytes().any(is_forbidden_structured_argument_byte) {
                     return Err(ProcessError::ShellCommandForbidden);
                 }
             }
@@ -173,24 +209,10 @@ impl ProcessBroker {
         Ok(())
     }
 
-    pub fn prepare_contained(
-        &self,
-        spec: &ProcessSpec,
-        request: &ContainmentRequest,
-        certificate: Option<&NativeCertificate>,
-        probes: &[RuntimeProbe],
-        launcher: &dyn ProcessLauncher,
-    ) -> Result<LaunchedProcess, ProcessError> {
-        self.validate_spec(spec)?;
-        match current_platform_admission(request, certificate, probes) {
-            Ok(()) => {}
-            Err(ContainmentError::BackendUnavailable) => {
-                return Err(ProcessError::ContainmentUnavailable);
-            }
-            Err(error) => return Err(ProcessError::Containment(error)),
-        }
-        launcher.launch(spec)
-    }
+}
+
+fn is_forbidden_structured_argument_byte(byte: u8) -> bool {
+    byte < 0x20 || byte == 0x7f || matches!(byte, b';' | b'|' | b'$' | b'`' | b'>' | b'<' | b'&')
 }
 
 fn current_platform_admission(

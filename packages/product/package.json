@@ -9,6 +9,7 @@
   },
   "exports": {
     "./shared/ui": "./shared/ui/index.ts",
+    "./task-run-workspace": "./widgets/task-run-workspace/index.ts",
     "./shared/ui/styles/*": "./shared/ui/styles/*"
   },
   "dependencies": {

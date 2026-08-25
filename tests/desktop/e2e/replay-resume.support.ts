@@ -4,7 +4,8 @@ export const workspace = {
   projectId: '01890e00-0000-7000-8000-000000000001',
   workspaceId: '01890e00-0000-7000-8000-000000000002',
   displayName: 'gocode-ui',
-  lastOpenedAt: 1_753_500_000_000,
+  version: 1,
+  open: true,
 } as const
 
 export async function installDesktopAdapter(page: Page): Promise<void> {
@@ -38,7 +39,7 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
             }
           case 'connect_runtime':
             return 'live'
-          case 'get_workspace':
+          case 'get_canonical_workspace':
             return args?.workspaceId === currentWorkspace.workspaceId
               ? currentWorkspace
               : null

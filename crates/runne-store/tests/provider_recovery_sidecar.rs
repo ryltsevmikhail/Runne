@@ -16,6 +16,7 @@ fn fixture(name: &str) -> (tempfile::TempDir, PathBuf) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     (directory, PathBuf::from("runne-daemon/event-log.sqlite"))

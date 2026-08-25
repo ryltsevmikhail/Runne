@@ -39,6 +39,15 @@ enum CommandReconciliationWitness {
     OpenWorkspace { workspace_id: CanonicalId, expected_version: u64 },
     CreateConversation { conversation_id: CanonicalId, workspace_id: CanonicalId },
     GenerateConversationText { conversation_id: CanonicalId, expected_version: u64, text: String },
+    CancelTaskRun { task_run_id: CanonicalId, expected_version: u64 },
+    ApprovalDecision {
+        approval_id: CanonicalId,
+        expected_version: u64,
+        decision: ApprovalDecisionDto,
+        action_digest: String,
+        policy_revision: u64,
+        renderer_generation: u64,
+    },
 }
 
 impl CommandReconciliationRequest {
@@ -97,6 +106,43 @@ impl CommandReconciliationRequest {
     pub fn generate_conversation_text(identity: CommandIdentity, conversation_id: CanonicalId, expected_version: u64, text: impl Into<String>) -> Result<Self, RuntimeApiError> {
         let text = text.into(); validate_message_text(&text)?;
         Ok(Self { identity, witness: CommandReconciliationWitness::GenerateConversationText { conversation_id, expected_version: version(expected_version)?, text } })
+    }
+    #[must_use]
+    pub const fn cancel_task_run(identity: CommandIdentity, task_run_id: CanonicalId, expected_version: u64) -> Self {
+        Self { identity, witness: CommandReconciliationWitness::CancelTaskRun { task_run_id, expected_version } }
+    }
+
+    /// Builds a policy-bound approval decision reconciliation witness.
+    ///
+    /// # Errors
+    /// Returns `InvalidRequest` when a version is zero or the digest is empty.
+    pub fn approval_decision(
+        identity: CommandIdentity,
+        approval_id: CanonicalId,
+        expected_version: u64,
+        decision: ApprovalDecisionDto,
+        action_digest: [u8; 32],
+        policy_revision: u64,
+        renderer_generation: u64,
+    ) -> Result<Self, RuntimeApiError> {
+        if expected_version == 0
+            || policy_revision == 0
+            || renderer_generation == 0
+            || action_digest == [0; 32]
+        {
+            return Err(invalid_request());
+        }
+        Ok(Self {
+            identity,
+            witness: CommandReconciliationWitness::ApprovalDecision {
+                approval_id,
+                expected_version,
+                decision,
+                action_digest: hex::encode(action_digest),
+                policy_revision,
+                renderer_generation,
+            },
+        })
     }
 }
 

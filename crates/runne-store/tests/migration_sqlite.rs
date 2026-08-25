@@ -55,7 +55,7 @@ fn interrupted_v17_migration_recovers_on_reopen() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        20
+        23
     );
     assert_eq!(
         reopened

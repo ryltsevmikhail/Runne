@@ -7,7 +7,7 @@ use super::*;
 /// Any malformed, replayed, mismatched, or disconnected control exchange
 /// terminates the loop fail-closed. The caller uses loop completion as the
 /// daemon application's graceful-shutdown signal.
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) fn run_control_loop(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
@@ -18,13 +18,13 @@ pub(crate) fn run_control_loop(
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
-        #[cfg(all(unix, feature = "desktop-protected"))]
+        #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
         if let Some(sequence) = dispatch_root_handle_control_frame(
             &mut channel,
             &frame,
@@ -119,7 +119,7 @@ pub(crate) fn run_control_loop(
 
 /// Serves V2 control messages and rejects every V1 frame rather than allowing
 /// a provider-bound launch to downgrade its authenticated transcript.
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) fn run_control_loop_v2(
     mut channel: ProtectedActivationChannel,
     keys: ProtectedActivationKeys,
@@ -130,13 +130,13 @@ pub(crate) fn run_control_loop_v2(
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
-    #[cfg(all(unix, feature = "desktop-protected"))]
+    #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     let mut used_root_transfers = std::collections::VecDeque::new();
     loop {
         let frame = channel.read_control_frame()?;
-        #[cfg(all(unix, feature = "desktop-protected"))]
+        #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
         if let Some(sequence) = dispatch_root_handle_control_frame(
             &mut channel,
             &frame,
@@ -223,7 +223,7 @@ pub(crate) fn run_control_loop_v2(
     }
 }
 
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 fn unix_millis() -> Result<u64, LaunchAuthorityError> {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

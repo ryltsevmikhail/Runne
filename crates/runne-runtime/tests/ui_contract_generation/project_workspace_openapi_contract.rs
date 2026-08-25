@@ -112,7 +112,7 @@ fn project_workspace_openapi_is_structurally_exact_for_all_operations() {
         .flat_map(|(_, item)| item.as_object().unwrap().iter())
         .filter(|(key, _)| matches!(key.as_str(), "get" | "post" | "delete"))
         .count();
-    assert_eq!(operations, 11);
+    assert_eq!(operations, 16);
 }
 
 fn assert_template_parameters(path: &str, path_item: &Value, operation: &Value) {

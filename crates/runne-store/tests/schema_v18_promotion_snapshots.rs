@@ -51,7 +51,7 @@ fn current_schema_requires_bound_promotion_projection_columns() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 20);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
     for column in [
         "promotion_codec_version",
         "promotion_projection_bytes",
@@ -78,6 +78,7 @@ fn writes_promotions_with_exact_times_taskrun_view_and_tamper_rejection() {
     {
         use std::os::unix::fs::PermissionsExt as _;
 
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let database = daemon.join("promotion.sqlite");
@@ -224,7 +225,7 @@ fn nonempty_v15_histories_upgrade_directly_to_v20_without_v19_waypoint() {
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        20
+        CURRENT_SCHEMA_VERSION
     );
     assert_eq!(
         connection

@@ -19,12 +19,12 @@ fn reopen_managed_scanner_sidecar_with_hook<F>(
 where
     F: FnMut(IdentityHookStage) -> SqliteResult<()>,
 {
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     {
         let _ = (path, expected_authority, identity_hook);
         Err(diagnostic_error(SchemaOpenDiagnostic::SidecarPresent))
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         let mut identity = ConnectionIdentityGuard::owner_private(path).map_err(diagnostic_error)?;
         identity_hook(IdentityHookStage::Retained)?;

@@ -6,7 +6,9 @@ use runne_application::ports::{
 };
 use runne_domain::id::{CommandId, IdempotencyKey, ProjectId, WorkspaceId};
 use runne_domain::project_workspace::{Project, Workspace};
+use rusqlite::{OptionalExtension, params};
 
+mod approvals;
 mod fingerprint;
 pub(crate) mod lineage;
 mod mutation_support;
@@ -35,6 +37,31 @@ impl ProjectWorkspaceStore {
     /// Composes the repository with the authoritative runtime store.
     pub fn from_store(store: StoreTransaction) -> Self {
         Self { store }
+    }
+
+    /// Runs a bounded operation while the authoritative Workspace version is
+    /// held by the Project/Workspace writer transaction.
+    pub fn with_current_workspace_version<T>(
+        &self,
+        principal: &str,
+        id: WorkspaceId,
+        operation: impl FnOnce(u64) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        self.store
+            .with_project_workspace_transaction(|transaction| {
+                let version = transaction
+                    .query_row(
+                        "SELECT version FROM workspaces
+                     WHERE workspace_id = ?1 AND principal_id = ?2 AND live = 1",
+                        params![id.as_bytes(), principal],
+                        |row| row.get::<_, i64>(0),
+                    )
+                    .optional()
+                    .map_err(|_| Error::InvariantViolation)?
+                    .ok_or(Error::NotFound)?;
+                let version = u64::try_from(version).map_err(|_| Error::InvariantViolation)?;
+                operation(version)
+            })
     }
 }
 

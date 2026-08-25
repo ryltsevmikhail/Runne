@@ -11,14 +11,18 @@ import { GcSidebar } from '@runne/product/shared/ui'
 import '@runne/product/shared/ui/styles/tokens.css'
 import '@runne/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-
 import {
   connectRuntime,
   loadBootstrap,
   saveTheme,
 } from '@/shared/api/platform/bootstrap'
+import {
+  createRuntimeSessionContext,
+  createRuntimeSessionController,
+  provideRuntimeSession,
+} from '@/app/providers/runtime-session'
 import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
 import type {
   RuntimeFailureCode,
@@ -29,22 +33,37 @@ import brandIcon from '@/shared/assets/gocode-app-icon.png'
 import brandLockup from '@/shared/assets/gocode-lockup.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 import { RuntimeStatus } from '@/widgets/runtime-status'
-
-const theme = ref<'dark' | 'light'>('dark')
+import { appTheme } from '@/shared/model/theme'
+import {
+  listenExternalActivation,
+  loadPendingExternalActivation,
+  type ActivationTarget,
+} from '@/shared/api/platform/external-activation'
+import { syncNotifications } from '@/shared/api/platform/notifications'
+import { loadOwnedLocale, translate } from '@/shared/i18n'
+const theme = appTheme
 const runtimeState = ref<RuntimeConnectionState>('unconfigured')
 const runtimeMode = ref<RuntimeMode>('external_local')
 const runtimeLifecycle = ref<RuntimeLifecycleStatus>('external')
 const runtimeFailure = ref<RuntimeFailureCode | null>(null)
+const activationNotice = ref<string | null>(null)
 const sidebarCollapsed = ref(false)
 const route = useRoute()
 const router = useRouter()
+const runtimeSession = createRuntimeSessionContext(createRuntimeSessionController({
+  connect: connectRuntime,
+  loadBootstrap,
+}))
+provideRuntimeSession(runtimeSession)
 
-const sidebarItems = [
-  { id: 'projects', label: 'Projects', icon: '▦' },
-  { id: 'settings', label: 'Settings', icon: '⚙' },
-]
+const sidebarItems = computed(() => [
+  { id: 'projects', label: translate('projects.title'), icon: '▦' },
+  { id: 'settings', label: translate('settings.title'), icon: '⚙' },
+])
 const activeSidebarItem = computed(() => route.path.startsWith('/settings') ? 'settings' : 'projects')
 let runtimePoll: ReturnType<typeof setInterval> | undefined
+let notificationPoll: ReturnType<typeof setInterval> | undefined
+let stopExternalActivation: (() => void) | undefined
 
 function applyBootstrap(bootstrap: Awaited<ReturnType<typeof loadBootstrap>>) {
   theme.value = bootstrap.theme
@@ -52,6 +71,7 @@ function applyBootstrap(bootstrap: Awaited<ReturnType<typeof loadBootstrap>>) {
   runtimeState.value = bootstrap.runtime
   runtimeLifecycle.value = bootstrap.runtimeLifecycle
   runtimeFailure.value = bootstrap.runtimeFailure
+  runtimeSession.observeBootstrap(bootstrap)
 }
 
 async function refreshRuntimeStatus() {
@@ -61,28 +81,80 @@ async function refreshRuntimeStatus() {
   catch {
     runtimeLifecycle.value = 'failed'
     runtimeFailure.value = null
+    runtimeSession.observeBootstrap({ runtime: 'fatal' })
+  }
+}
+
+async function openExternalActivation(target: ActivationTarget) {
+  if (runtimeState.value !== 'live') return
+  if (target.runtime !== null) {
+    activationNotice.value = 'This activation belongs to a runtime that must be reconciled first.'
+    return
+  }
+  if (target.taskRunId !== null) {
+    await router.push({ name: 'task-run', params: { taskRunId: target.taskRunId } })
+  }
+  else if (target.approvalId !== null || target.event === 'approval') {
+    await router.push({ name: 'approvals' })
+  }
+  else if (target.workspaceId !== null) {
+    await router.push({ name: 'workspace', params: { workspaceId: target.workspaceId } })
+  }
+  else if (target.projectId !== null) {
+    await router.push({ name: 'project-details', params: { projectId: target.projectId } })
+  }
+  else {
+    activationNotice.value = 'This activation requires a current runtime approval surface.'
+  }
+}
+
+const pendingActivation = ref<ActivationTarget | null>(null)
+watch(runtimeState, () => {
+  if (pendingActivation.value === null || runtimeState.value !== 'live') return
+  const target = pendingActivation.value
+  pendingActivation.value = null
+  void openExternalActivation(target)
+})
+
+function receiveExternalActivation(target: ActivationTarget) {
+  pendingActivation.value = target
+  if (runtimeState.value === 'live') {
+    pendingActivation.value = null
+    void openExternalActivation(target)
   }
 }
 
 onMounted(async () => {
   if (isTauri()) {
-    await refreshRuntimeStatus()
     try {
-      runtimeState.value = await connectRuntime()
+      await loadOwnedLocale()
+      stopExternalActivation = await listenExternalActivation(receiveExternalActivation)
+      const pending = await loadPendingExternalActivation()
+      if (pending !== null) receiveExternalActivation(pending)
     }
     catch {
-      // The next sanitized bootstrap refresh carries the closed failure code.
+      activationNotice.value = 'External activation is unavailable.'
     }
+    await runtimeSession.connect()
     await refreshRuntimeStatus()
+    void syncNotifications().catch(() => undefined)
     runtimePoll = setInterval(() => {
       void refreshRuntimeStatus()
     }, 1_000)
+    notificationPoll = setInterval(() => {
+      void syncNotifications().catch(() => undefined)
+    }, 15_000)
   }
 })
 
 onBeforeUnmount(() => {
+  void runtimeSession.close()
+  stopExternalActivation?.()
   if (runtimePoll !== undefined) {
     clearInterval(runtimePoll)
+  }
+  if (notificationPoll !== undefined) {
+    clearInterval(notificationPoll)
   }
 })
 
@@ -121,7 +193,7 @@ async function navigateSidebar(id: string) {
         <RouterLink
           class="brand"
           to="/"
-          aria-label="Runne home"
+          :aria-label="translate('navigation.home')"
         >
           <img
             class="brand-lockup"
@@ -137,7 +209,7 @@ async function navigateSidebar(id: string) {
         <button
           class="icon-button collapse-button"
           type="button"
-          :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+          :aria-label="sidebarCollapsed ? translate('navigation.expandSidebar') : translate('navigation.collapseSidebar')"
           @click="sidebarCollapsed = !sidebarCollapsed"
         >
           <PanelLeft
@@ -158,7 +230,7 @@ async function navigateSidebar(id: string) {
         :items="sidebarItems"
         :active-item="activeSidebarItem"
         :collapsed="sidebarCollapsed"
-        aria-label="Primary"
+        :aria-label="translate('navigation.primary')"
         @navigate="navigateSidebar"
       />
 
@@ -174,8 +246,8 @@ async function navigateSidebar(id: string) {
           <RouterLink
             class="icon-button"
             to="/settings/diagnostics"
-            aria-label="Diagnostics"
-            title="Diagnostics"
+            :aria-label="translate('navigation.diagnostics')"
+            :title="translate('navigation.diagnostics')"
           >
             <Activity
               :size="16"
@@ -185,8 +257,8 @@ async function navigateSidebar(id: string) {
           <button
             class="icon-button"
             type="button"
-            aria-label="Help"
-            title="Help"
+            :aria-label="translate('navigation.help')"
+            :title="translate('navigation.help')"
           >
             <CircleHelp
               :size="16"
@@ -196,8 +268,8 @@ async function navigateSidebar(id: string) {
           <button
             class="icon-button"
             type="button"
-            :aria-label="theme === 'dark' ? 'Use light theme' : 'Use dark theme'"
-            :title="theme === 'dark' ? 'Use light theme' : 'Use dark theme'"
+            :aria-label="theme === 'dark' ? translate('navigation.useLightTheme') : translate('navigation.useDarkTheme')"
+            :title="theme === 'dark' ? translate('navigation.useLightTheme') : translate('navigation.useDarkTheme')"
             @click="toggleTheme"
           >
             <Sun
@@ -214,8 +286,14 @@ async function navigateSidebar(id: string) {
         </div>
       </div>
     </aside>
-
     <main class="workspace">
+      <p
+        v-if="activationNotice !== null"
+        class="app-shell__activation-notice"
+        role="alert"
+      >
+        {{ activationNotice }}
+      </p>
       <RouterView />
     </main>
   </div>

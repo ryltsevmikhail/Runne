@@ -4,7 +4,7 @@ use std::ffi::OsString;
 
 use runne_daemon::application::DaemonApplication;
 use runne_daemon::doctor::{format_report, run_doctor};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use runne_daemon::protected_activation::{
     ProtectedActivationChannel, run_verified_protected_channel,
 };
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing_subscriber::fmt::init();
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     match ProtectedActivationChannel::from_inherited_stdin() {
         Ok(Some(channel)) => {
             if run_protected(channel).is_err() {
@@ -127,7 +127,7 @@ fn run_external() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn run_protected(
     channel: ProtectedActivationChannel,
 ) -> Result<(), runne_daemon::error::DaemonError> {

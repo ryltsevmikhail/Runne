@@ -8,7 +8,7 @@ use super::request::DaemonLaunchRequest;
 use super::*;
 
 /// Validated protected launch retained only by the daemon native host.
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub struct VerifiedProtectedApplicationStart {
     config: ConfigurationSnapshot,
     provider_activation: ProviderActivation,
@@ -17,20 +17,20 @@ pub struct VerifiedProtectedApplicationStart {
 }
 
 /// Opaque verified startup package; its admission keys cannot be substituted.
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub struct VerifiedProtectedRuntimeStart {
     application: VerifiedProtectedApplicationStart,
     keys: ProtectedActivationKeys,
 }
 
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 impl VerifiedProtectedRuntimeStart {
     pub(crate) fn into_parts(self) -> (VerifiedProtectedApplicationStart, ProtectedActivationKeys) {
         (self.application, self.keys)
     }
 }
 
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 impl VerifiedProtectedApplicationStart {
     pub(crate) const fn provider_activation(&self) -> &ProviderActivation {
         &self.provider_activation
@@ -75,7 +75,7 @@ pub(crate) struct ProtectedDaemonLaunch {
     provider_activation: ProviderActivation,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl ProtectedDaemonLaunch {
     /// Reads, validates, and—when needed—two-phase commits first activation.
     pub(crate) fn accept<F>(
@@ -246,12 +246,6 @@ impl ProtectedDaemonLaunch {
             DaemonLaunchRequest::V1(request) => Some(request),
             DaemonLaunchRequest::V2(_) => None,
         }
-    }
-
-    /// Returns the test-only V1 compatibility identity.
-    #[cfg(test)]
-    pub(crate) const fn request(&self) -> &ProtectedLaunchRequestV1 {
-        self.request.compatibility()
     }
 
     pub(crate) const fn request_v2(&self) -> Option<&ProtectedLaunchRequestV2> {

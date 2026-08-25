@@ -5,15 +5,19 @@
 // for Linux contract testing. Unsupported native backends fail closed.
 
 use std::fmt;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::fs::{File, OpenOptions};
-#[cfg(any(unix, feature = "test-support"))]
+#[cfg(any(unix, windows, feature = "test-support"))]
 use std::io::Read;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::process::{Child, Command, Stdio};
+#[cfg(windows)]
+use std::os::windows::io::OwnedHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
@@ -28,7 +32,7 @@ use runne_api::{
     PendingFirstActivationV1, ProtectedRuntimeProfileV1, ProviderActivationBindingV1,
     ProviderActivationReadinessV1, StableRuntimeBindingV1,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use runne_api::{
     ActivationDispositionV1, LaunchSecret, ProtectedActivationKeys,
     ProtectedFirstActivationCommitV1, ProtectedFirstActivationPreparedV1, ProtectedLaunchRequestV1,
@@ -41,9 +45,9 @@ use runne_runtime_client::{
     AuthenticatedRuntimeClient, GOLDEN_BUNDLE_HASH, ProtectedBundledRuntimeProfile,
     PROTECTED_RUNTIME_CAPABILITIES,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use runne_runtime_client::RuntimeTransportKind;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -202,12 +206,12 @@ impl ProtectedBundledRuntimeLaunchSpec {
         executable: &Path,
         runtime_root: &Path,
     ) -> Result<Self, ProtectedBundledRuntimeError> {
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         {
             let _ = (executable, runtime_root);
             Err(ProtectedBundledRuntimeError::UnsupportedPlatformBackend)
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let executable = validate_executable_path(executable)?;
             let trusted_source_identity = ExecutableIdentityV1::measure(&executable)

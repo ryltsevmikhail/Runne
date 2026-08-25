@@ -51,6 +51,16 @@ pub(super) enum OutcomeWire<'a> {
         #[serde(flatten)]
         terminal: Box<TextTerminalWire<'a>>,
     },
+    CancelTaskRun {
+        task_run_id: String,
+        new_version: u64,
+    },
+    ApprovalDecision {
+        approval_id: String,
+        task_run_id: String,
+        new_version: u64,
+        state: &'static str,
+    },
 }
 #[derive(Serialize)]
 #[serde(tag = "terminal", rename_all = "snake_case")]
@@ -138,6 +148,18 @@ pub(super) fn durable(value: &AuthoritativeCommandOutcome) -> Option<OutcomeWire
                 terminal: Box::new(text_terminal(value)),
             }
         }
+        AuthoritativeCommandOutcomeRef::TaskRunCancellationRequested(value) => {
+            OutcomeWire::CancelTaskRun {
+                task_run_id: value.taskrun_id.to_string(),
+                new_version: value.new_version,
+            }
+        }
+        AuthoritativeCommandOutcomeRef::ApprovalDecision(value) => OutcomeWire::ApprovalDecision {
+            approval_id: value.approval_id().to_string(),
+            task_run_id: value.task_run_id().to_string(),
+            new_version: value.new_version(),
+            state: value.state().as_str(),
+        },
     })
 }
 

@@ -10,6 +10,28 @@ use tokio::{
 const PROJECT: &str = "018f2e3a-7000-7000-8000-000000000302";
 const WORKSPACE: &str = "018f2e3a-7000-7000-8000-000000000303";
 const CONVERSATION: &str = "018f2e3a-7000-7000-8000-000000000304";
+const TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000305";
+
+#[tokio::test]
+async fn task_run_cancellation_outcome_parses_and_correlates() {
+    let request = CommandReconciliationRequest::cancel_task_run(identity(), id(TASK_RUN), 3);
+    let body = format!(
+        r#"{{"disposition":"durably_recorded","outcome":{{"operation":"cancel_task_run","taskRunId":"{TASK_RUN}","newVersion":4}}}}"#
+    );
+    let expected_request = format!(
+        r#"{{"operation":"cancel_task_run","taskRunId":"{TASK_RUN}","expectedVersion":3}}"#
+    );
+    let (origin, server) = serve(body, expected_request).await;
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+
+    let result = client.reconcile_command(request).await.unwrap();
+    assert!(matches!(
+        result,
+        runne_runtime_client::CommandReconciliationDisposition::DurablyRecorded(outcome)
+            if matches!(outcome, CommandReconciliationOutcome::TaskRunCancellationRequested(_))
+    ));
+    server.await.unwrap();
+}
 
 #[tokio::test]
 async fn seven_non_text_outcomes_parse_and_correlate_to_the_request() {

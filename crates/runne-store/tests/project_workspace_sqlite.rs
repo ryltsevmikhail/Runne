@@ -12,4 +12,5 @@ mod project_workspace_sqlite {
     mod race;
     mod support;
     mod text_fence;
+    mod workspace_snapshot;
 }

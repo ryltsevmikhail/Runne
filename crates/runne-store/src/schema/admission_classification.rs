@@ -36,6 +36,9 @@ fn classify_existing_connection(conn: &Connection) -> SqliteResult<()> {
         18 => project_workspace_schema::v18_matches(conn, schema_version)?,
         19 => replay_snapshot_schema::v19_matches(conn, schema_version)?,
         20 => replay_promotion_snapshot_schema::v20_matches(conn, schema_version)?,
+        21 => v21_matches(conn, schema_version)?,
+        22 => v22_matches(conn, schema_version)?,
+        23 => v23_matches(conn, schema_version)?,
         _ => false,
     };
     if compatible {

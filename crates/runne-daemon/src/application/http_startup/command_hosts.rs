@@ -1,13 +1,22 @@
 use std::sync::{Arc, Mutex};
 
 use runne_application::local_session::LocalSessionService;
-use runne_runtime::{RuntimeCommandReconciliationHost, RuntimeProjectWorkspaceHost};
+use runne_runtime::{
+    RuntimeApprovalHost, RuntimeCommandReconciliationHost, RuntimeProcessHost,
+    RuntimeProjectWorkspaceHost, RuntimeWorkspaceDiffHost, RuntimeWorkspaceEditorHost,
+    RuntimeWorkspaceFileHost,
+};
 use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
+#[cfg(not(feature = "desktop-protected"))]
+use super::super::process_unavailable::UnavailableProcessProvider;
 #[cfg(not(feature = "desktop-protected"))]
 use super::super::root_admission_unavailable::UnavailableRootAdmission;
 #[cfg(feature = "desktop-protected")]
 use {
+    super::super::native_process_provider::{
+        AuthoritativeProcessInvocationRegistry, NativeProcessProvider,
+    },
     super::super::root_handle_admission::{RootAdmissionGateway, RootHandleAdmissionAuthority},
     crate::protected_activation::ProtectedRootControl,
 };
@@ -20,6 +29,12 @@ pub(super) struct CommandHosts {
         RootAdmissionGateway,
     >,
     pub(super) reconciliation: RuntimeCommandReconciliationHost<ProjectWorkspaceStore>,
+    pub(super) approval: RuntimeApprovalHost<ProjectWorkspaceStore>,
+    pub(super) workspace_files: RuntimeWorkspaceFileHost<RootAdmissionGateway>,
+    pub(super) workspace_diffs: RuntimeWorkspaceDiffHost<RootAdmissionGateway>,
+    pub(super) workspace_editor: RuntimeWorkspaceEditorHost<RootAdmissionGateway>,
+    pub(super) process:
+        RuntimeProcessHost<NativeProcessProvider<AuthoritativeProcessInvocationRegistry>>,
     pub(super) root_control: Option<Arc<ProtectedRootControl>>,
 }
 
@@ -31,6 +46,11 @@ pub(super) struct CommandHosts {
         UnavailableRootAdmission,
     >,
     pub(super) reconciliation: RuntimeCommandReconciliationHost<ProjectWorkspaceStore>,
+    pub(super) approval: RuntimeApprovalHost<ProjectWorkspaceStore>,
+    pub(super) workspace_files: RuntimeWorkspaceFileHost<UnavailableRootAdmission>,
+    pub(super) workspace_diffs: RuntimeWorkspaceDiffHost<UnavailableRootAdmission>,
+    pub(super) workspace_editor: RuntimeWorkspaceEditorHost<UnavailableRootAdmission>,
+    pub(super) process: RuntimeProcessHost<UnavailableProcessProvider>,
 }
 
 #[cfg(feature = "desktop-protected")]
@@ -56,6 +76,15 @@ pub(super) fn compose(
         .map_or_else(RootAdmissionGateway::unavailable, |value| {
             RootAdmissionGateway::protected(Arc::clone(value))
         });
+    let workspace_files = RuntimeWorkspaceFileHost::new(gateway.clone());
+    let workspace_diffs = RuntimeWorkspaceDiffHost::new(gateway.clone());
+    let workspace_editor = RuntimeWorkspaceEditorHost::new(gateway.clone());
+    let process_invocations = AuthoritativeProcessInvocationRegistry::default();
+    let process = RuntimeProcessHost::new(NativeProcessProvider::new(
+        process_invocations.clone(),
+        gateway.clone(),
+        store.clone(),
+    ));
     CommandHosts {
         project_workspace: RuntimeProjectWorkspaceHost::new(
             repository.clone(),
@@ -63,6 +92,11 @@ pub(super) fn compose(
             gateway,
         ),
         reconciliation: RuntimeCommandReconciliationHost::new(repository),
+        approval: RuntimeApprovalHost::new(ProjectWorkspaceStore::from_store(store.clone())),
+        workspace_files,
+        workspace_diffs,
+        workspace_editor,
+        process,
         root_control: authority.map(ProtectedRootControl::new),
     }
 }
@@ -82,5 +116,10 @@ pub(super) fn compose(
             UnavailableRootAdmission,
         ),
         reconciliation: RuntimeCommandReconciliationHost::new(repository),
+        approval: RuntimeApprovalHost::new(ProjectWorkspaceStore::from_store(store.clone())),
+        workspace_files: RuntimeWorkspaceFileHost::new(UnavailableRootAdmission),
+        workspace_diffs: RuntimeWorkspaceDiffHost::new(UnavailableRootAdmission),
+        workspace_editor: RuntimeWorkspaceEditorHost::new(UnavailableRootAdmission),
+        process: RuntimeProcessHost::new(UnavailableProcessProvider),
     }
 }

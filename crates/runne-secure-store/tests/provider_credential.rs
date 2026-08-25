@@ -5,13 +5,51 @@ use runne_secure_store::{
 };
 struct ControlledExecutable {
     access: ProviderCredentialAccessPolicy,
+    _permissions: CurrentExecutablePermissions,
+}
+
+struct CurrentExecutablePermissions {
+    path: std::path::PathBuf,
+    #[cfg(unix)]
+    original_mode: u32,
+}
+
+impl Drop for CurrentExecutablePermissions {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            let _ = std::fs::set_permissions(
+                &self.path,
+                std::fs::Permissions::from_mode(self.original_mode),
+            );
+        }
+    }
 }
 
 fn controlled_executable() -> ControlledExecutable {
     let executable = std::env::current_exe().expect("current test executable");
+    #[cfg(unix)]
+    let original_mode = {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(&executable)
+            .expect("current executable metadata")
+            .permissions()
+            .mode();
+        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o500))
+            .expect("restrict current executable");
+        mode
+    };
     let access = ProviderCredentialAccessPolicy::new(&executable, &executable)
         .expect("controlled executable access policy");
-    ControlledExecutable { access }
+    ControlledExecutable {
+        access,
+        _permissions: CurrentExecutablePermissions {
+            path: executable,
+            #[cfg(unix)]
+            original_mode,
+        },
+    }
 }
 
 struct StatusOnlyStore(ProviderCredentialStatus);
@@ -169,7 +207,7 @@ fn credential_errors_are_closed_and_never_carry_secret_or_path_context() {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 #[test]
 fn unsupported_platform_has_no_plaintext_fallback() {
     use runne_secure_store::{NativeProviderCredentialStore, StubStore};

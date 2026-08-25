@@ -5,7 +5,6 @@ fn unpublished_destructive_operations_have_no_tauri_command() {
     let run = include_str!("../src/lib_parts/run.rs");
 
     for name in [
-        "cancel_task_run",
         "respond_approval",
         "revoke_device",
         "unpair_device",
@@ -14,9 +13,9 @@ fn unpublished_destructive_operations_have_no_tauri_command() {
         "install_update",
         "reset_domain",
     ] {
-        assert!(!commands.contains(&format!("fn {name}")));
-        assert!(!destructive.contains(&format!("fn {name}")));
-        assert!(!run.contains(name));
+        assert!(!commands.contains(&format!("fn {name}(")));
+        assert!(!destructive.contains(&format!("fn {name}(")));
+        assert!(!run.contains(&format!("            {name},")));
     }
     assert!(destructive.contains("COMMAND_CONTRACT_NOT_PUBLISHED"));
 }

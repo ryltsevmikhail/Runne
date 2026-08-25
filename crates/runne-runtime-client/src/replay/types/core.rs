@@ -112,28 +112,6 @@ pub enum ConversationReplayPayload {
     Closed,
 }
 
-/// Validated closed `TaskRun` payload.
-///
-/// `TaskRun` projection is outside the Desktop slice, so the semantic value is
-/// retained as validated public JSON while its event type remains explicit.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TaskRunReplayPayload {
-    pub(super) event_type: String,
-    pub(super) value: serde_json::Value,
-}
-
-impl TaskRunReplayPayload {
-    #[must_use]
-    pub fn event_type(&self) -> &str {
-        &self.event_type
-    }
-
-    #[must_use]
-    pub const fn value(&self) -> &serde_json::Value {
-        &self.value
-    }
-}
-
 /// Closed validated canonical replay payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CanonicalReplayPayload {

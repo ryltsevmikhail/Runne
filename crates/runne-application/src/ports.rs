@@ -23,6 +23,10 @@ include!("ports/unit_of_work.rs");
 include!("ports/runtime.rs");
 include!("ports/idempotency.rs");
 include!("ports/project_workspace.rs");
+include!("ports/workspace_files.rs");
+include!("ports/workspace_editor.rs");
+include!("ports/workspace_diff.rs");
+include!("ports/process.rs");
 include!("ports/reexports.rs");
 
 #[cfg(test)]

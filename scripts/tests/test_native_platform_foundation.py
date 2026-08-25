@@ -8,7 +8,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
+from unittest.mock import patch
 
+import scripts.desktop.native_platform_foundation as native_foundation
 from scripts.desktop.native_platform_foundation import (
     EVIDENCE_PATH,
     ALLOWED_BLOCKERS,
@@ -20,17 +23,13 @@ from scripts.desktop.native_platform_foundation import (
     build_row,
     assemble_status,
     verify_provenance_payload,
+    _policy_from_env,
 )
-
-
 def baseline() -> dict:
     return load_json(EVIDENCE_PATH)
-
-
 class NativePlatformFoundationTests(unittest.TestCase):
     def test_baseline_evidence_validates(self) -> None:
         self.assertEqual(validate_evidence(baseline()), [])
-
     def test_baseline_keeps_every_platform_blocked(self) -> None:
         for row in baseline()["platforms"]:
             self.assertEqual(row["disposition"], "blocked")
@@ -58,7 +57,6 @@ class NativePlatformFoundationTests(unittest.TestCase):
         errors = row_errors(row)
         self.assertTrue(errors)
         self.assertTrue(any("missing" in error for error in errors))
-
     def test_simulated_secure_store_probe_rejected(self) -> None:
         row = copy.deepcopy(baseline()["platforms"][0])
         row["disposition"] = "verified"
@@ -86,7 +84,6 @@ class NativePlatformFoundationTests(unittest.TestCase):
         row["provenance"] = {"subject_sha256": "e" * 64, "predicate_sha256": "f" * 64}
         errors = row_errors(row)
         self.assertTrue(any("signing" in error for error in errors))
-
     def test_verified_row_requires_measured_runner_image(self) -> None:
         row = copy.deepcopy(baseline()["platforms"][0])
         row["disposition"] = "verified"
@@ -100,7 +97,6 @@ class NativePlatformFoundationTests(unittest.TestCase):
         row["provenance"] = {"subject_sha256": "e" * 64, "predicate_sha256": "f" * 64}
         errors = row_errors(row)
         self.assertTrue(any("runner" in error for error in errors))
-
     def test_verified_macos_row_requires_staged_daemon_and_notarization(self) -> None:
         row = copy.deepcopy(baseline()["platforms"][0])
         row.update(disposition="verified", blocker_code=None, source_sha256="a" * 64, artifact_sha256="b" * 64)
@@ -111,7 +107,6 @@ class NativePlatformFoundationTests(unittest.TestCase):
         row["provenance"] = {"subject_sha256": "f" * 64, "predicate_sha256": "0" * 64}
         errors = row_errors(row)
         self.assertTrue(any("staged daemon" in error or "notarization" in error for error in errors))
-
     def test_local_provenance_never_verifies(self) -> None:
         errors = verify_provenance_errors("refs/heads/main")
         self.assertTrue(errors)
@@ -133,29 +128,58 @@ class NativePlatformFoundationTests(unittest.TestCase):
         row["blocker_code"] = "GOCODER_TRUST_UNVERIFIED"
         self.assertTrue(row_errors(row))
 
-    def test_provenance_rejects_self_authored_or_wrong_policy_bindings(self) -> None:
-        package_sha = "a" * 64
-        evidence = {"artifact_sha256": package_sha, "source_ref": "commit-1", "canonical_source_content_sha256": "b" * 64,
-                    "provenance": {"issuer": "https://token.actions.githubusercontent.com", "repository": "gocode/repo",
-                                   "workflow": ".github/workflows/desktop-native-qualification.yml", "ref": "refs/heads/release",
-                                   "subject_sha256": package_sha, "predicate_sha256": "c" * 64}}
-        policy = {"issuer": "https://token.actions.githubusercontent.com", "repository": "gocode/repo",
-                  "workflow": ".github/workflows/desktop-native-qualification.yml", "ref": "refs/heads/release"}
-        self.assertTrue(verify_provenance_payload(evidence, package_sha, "commit-1", policy, {"subject_sha256": package_sha, "predicate_sha256": "c" * 64}))
-        evidence["provenance"]["repository"] = "attacker/repo"
-        self.assertTrue(verify_provenance_payload(evidence, package_sha, "commit-1", policy, {"subject_sha256": package_sha, "predicate_sha256": "c" * 64}))
+    def test_sourcecraft_policy_requires_exact_protected_binding(self) -> None:
+        environment = {
+            "SOURCECRAFT_CI": "true",
+            "SOURCECRAFT_REPO_URL": "https://git@git.sourcecraft.dev/ryltsevmg/runne.git",
+            "SOURCECRAFT_WORKFLOW": "desktop-qualification",
+            "SOURCECRAFT_COMMIT_REF": "refs/tags/v1.0.0",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            self.assertEqual(_policy_from_env(), {
+                "repository": environment["SOURCECRAFT_REPO_URL"],
+                "workflow": environment["SOURCECRAFT_WORKFLOW"],
+                "ref": environment["SOURCECRAFT_COMMIT_REF"],
+            })
+        for name in environment:
+            with self.subTest(name=name), patch.dict(os.environ, {key: value for key, value in environment.items() if key != name}, clear=True):
+                self.assertIsNone(_policy_from_env())
+        with patch.dict(os.environ, {**environment, "SOURCECRAFT_REPO_URL": "https://git.sourcecraft.dev/attacker/repo.git"}, clear=True):
+            self.assertIsNone(_policy_from_env())
 
-    def test_provenance_accepts_only_verified_sigstore_statement_bound_to_source(self) -> None:
+    def test_external_verifier_is_fixed_and_missing_or_checkout_verifier_blocks(self) -> None:
+        self.assertEqual(native_foundation.SOURCECRAFT_NATIVE_VERIFIER_PATH, Path("/opt/gocode/sourcecraft/bin/sourcecraft-attest-verify"))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package, bundle = root / "Runne.deb", root / "attestation.json"
+            package.write_bytes(b"package")
+            bundle.write_text("{}", encoding="utf-8")
+            candidate = Path(__file__).parents[1] / "desktop/sourcecraft_attestation.py"
+            policy = {"repository": "https://git@git.sourcecraft.dev/ryltsevmg/runne.git", "workflow": "workflow", "ref": "refs/tags/v1.0.0"}
+            self.assertIsNone(native_foundation._verify_bundle(package, bundle, policy, "a" * 40))
+            self.assertNotEqual(candidate, native_foundation.SOURCECRAFT_NATIVE_VERIFIER_PATH)
+            trusted = root / "sourcecraft-attest-verify"
+            trusted.write_text("trusted", encoding="utf-8")
+            trusted.chmod(0o755)
+            result = {"verified": True, "subject_sha256": hashlib.sha256(package.read_bytes()).hexdigest(), "repository": policy["repository"], "workflow": policy["workflow"], "source_ref": policy["ref"], "source_digest": "a" * 40, "predicate": {"buildType": "sourcecraft/native"}}
+            with patch.object(native_foundation, "SOURCECRAFT_NATIVE_VERIFIER_PATH", trusted), patch.object(native_foundation.subprocess, "run", return_value=CompletedProcess([], 0, json.dumps(result), "")) as run_command:
+                self.assertEqual(native_foundation._verify_bundle(package, bundle, policy, "a" * 40), result)
+            command = run_command.call_args.args[0]
+            self.assertEqual(command[0], str(trusted))
+            self.assertNotIn("gh", command)
+            self.assertNotIn("sourcecraft_attestation.py", command)
+
+    def test_provenance_accepts_only_verified_sourcecraft_result_bound_to_source(self) -> None:
         package_sha, evidence_sha, canonical = "a" * 64, "d" * 64, "b" * 64
-        policy = {"issuer": "https://token.actions.githubusercontent.com", "repository": "gocode/repo", "workflow": ".github/workflows/desktop-native-qualification.yml", "ref": "refs/heads/release"}
-        evidence = {"artifact_sha256": package_sha, "source_ref": "commit-1", "canonical_source_content_sha256": canonical}
-        def verified():
-            statement = {"subject": [{"digest": {"sha256": package_sha}}, {"digest": {"sha256": evidence_sha}}], "predicateType": "https://slsa.dev/provenance/v1", "predicate": {"buildDefinition": {"externalParameters": {"workflow": {"repository": f"https://github.com/{policy['repository']}", "path": policy["workflow"], "ref": policy["ref"]}}, "resolvedDependencies": [{"digest": {"gitCommit": "commit-1"}}], "internalParameters": {"github": {"runner_environment": "github-hosted"}}}}}
-            return [{"verificationResult": {"statement": statement}}]
-        gate = {"package": verified(), "evidence": verified()}
-        self.assertEqual(verify_provenance_payload(evidence, package_sha, "commit-1", policy, gate, evidence_sha), [])
-        gate["evidence"][0]["verificationResult"]["statement"]["subject"].append({"digest": {"sha256": "0" * 64}})
-        self.assertTrue(verify_provenance_payload(evidence, package_sha, "commit-1", policy, gate, evidence_sha))
+        source_sha = "c" * 40
+        policy = {"repository": "https://git@git.sourcecraft.dev/ryltsevmg/runne.git", "workflow": "desktop-qualification", "ref": "refs/tags/v1.0.0"}
+        evidence = {"artifact_sha256": package_sha, "source_ref": source_sha, "canonical_source_content_sha256": canonical}
+        def verified(subject_sha):
+            return {"verified": True, "subject_sha256": subject_sha, "repository": policy["repository"], "workflow": policy["workflow"], "source_ref": policy["ref"], "source_digest": source_sha, "predicate": {"buildDefinition": {"buildType": "sourcecraft/native"}}}
+        gate = {"package": verified(package_sha), "evidence": verified(evidence_sha)}
+        self.assertEqual(verify_provenance_payload(evidence, package_sha, source_sha, policy, gate, evidence_sha), [])
+        gate["evidence"]["source_digest"] = "0" * 40
+        self.assertTrue(verify_provenance_payload(evidence, package_sha, source_sha, policy, gate, evidence_sha))
 
     def test_build_row_requires_verified_attestation_result_not_raw_bundle(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -223,64 +247,50 @@ class NativePlatformFoundationTests(unittest.TestCase):
 
 
 ROOT_STATUS = EVIDENCE_PATH.parents[0] / "desktop-v1-capability-status-v2.json"
-DISABLED_NATIVE_WORKFLOW = EVIDENCE_PATH.parents[2] / ".github/workflows.disabled/desktop-native-qualification.yml"
+SOURCECRAFT_WORKFLOW = EVIDENCE_PATH.parents[2] / ".sourcecraft/ci.yaml"
 
 
 class NativeQualificationWorkflowTests(unittest.TestCase):
-    def test_native_workflow_installs_dependencies_and_runs_protected_process_gate(self) -> None:
-        workflow = DISABLED_NATIVE_WORKFLOW.read_text(encoding="utf-8")
-        command = "cargo test -p gocode-daemon --test protected_bundled_runtime_process --locked --features test-support,desktop-protected"
-        self.assertIn("pnpm install --frozen-lockfile", workflow)
-        self.assertIn(command, workflow)
-        local_ci = (EVIDENCE_PATH.parents[2] / "scripts/ci-local-inputs.sh").read_text(encoding="utf-8")
-        self.assertIn("cargo test -p runne-daemon --test protected_bundled_runtime_process", local_ci)
-        self.assertIn("--locked --features test-support,desktop-protected", local_ci)
-        daemon_manifest = (EVIDENCE_PATH.parents[2] / "crates/runne-daemon/Cargo.toml").read_text(encoding="utf-8")
-        self.assertIn('required-features = ["test-support", "desktop-protected"]', daemon_manifest)
-        self.assertIn("macos-13-arm64", workflow)
-        self.assertIn("windows-10-22h2-x86_64", workflow)
+    def test_sourcecraft_workflow_builds_native_packages_and_preserves_blockers(self) -> None:
+        workflow = SOURCECRAFT_WORKFLOW.read_text(encoding="utf-8")
+        qualification = workflow[workflow.index("  desktop-qualification:"):]
+        for required in (
+            "qualification-policy",
+            "qualification-native-linux",
+            "qualification-native-macos",
+            "qualification-native-macos-x86_64",
+            "qualification-native-windows",
+            "qualification-evidence",
+            "image: rust:1.97.1",
+            "pnpm install --frozen-lockfile",
+            "package_smoke.py --platform ubuntu-22.04-x86_64",
+            "package_smoke.py --platform macos-13-arm64",
+            "package_smoke.py --platform macos-13-x86_64",
+            "package_smoke.py --platform windows-10-22h2-x86_64",
+            "native_package_probe.py preflight",
+            "needs: [qualification-policy]",
+        ):
+            self.assertIn(required, qualification)
+        self.assertNotIn("exit 1", qualification[qualification.index("qualification-native-linux"):qualification.index("qualification-native-macos")])
 
-    def test_native_workflow_binds_protected_source_and_verified_attestation_output(self) -> None:
-        workflow = DISABLED_NATIVE_WORKFLOW.read_text(encoding="utf-8")
-        for required in ('INPUT_SOURCE_REF: ${{ inputs.source_ref }}', 'test "$INPUT_SOURCE_REF" = "$GITHUB_SHA"', 'ref: "${{ github.sha }}"', "persist-credentials: false", "GOCODE_NATIVE_PROVENANCE_ISSUER", "--bundle", "native-package-verified-attestation.json"):
-            self.assertIn(required, workflow)
-        self.assertNotIn("--native-secure-store-probe", workflow)
-        self.assertIn("GOCODE_NATIVE_PROVENANCE_REF: ${{ vars.NATIVE_PROVENANCE_REF }}", workflow)
-        self.assertNotIn("GOCODE_NATIVE_PROVENANCE_REF: ${{ github.ref }}", workflow)
-        self.assertIn("verify-admission", workflow)
-        self.assertIn("--runner-identity", workflow)
-        for required in ("--cert-oidc-issuer", "NATIVE_RUNNER_CONTROL_PLANE_PUBLIC_ROOT_SHA256: ${{ vars.NATIVE_RUNNER_CONTROL_PLANE_PUBLIC_ROOT_SHA256 }}", "--trust-root-sha256", "--oidc-token-file", "--job-id \"$GITHUB_JOB\" --workflow-run-id \"$GITHUB_RUN_ID\"", "ACTIONS_ID_TOKEN_REQUEST_URL", "gocode-native-runner-control-plane", "id-token: write"):
-            self.assertIn(required, workflow)
-
-    def test_native_workflow_never_interpolates_dispatch_inputs_in_shell(self) -> None:
-        workflow = DISABLED_NATIVE_WORKFLOW.read_text(encoding="utf-8")
-        lines = workflow.splitlines()
-        run_bodies = []
-        for index, line in enumerate(lines):
-            stripped = line.lstrip()
-            if not stripped.startswith("run:"):
-                continue
-            indent = len(line) - len(stripped)
-            value = stripped.removeprefix("run:").strip()
-            if value != "|":
-                run_bodies.append(value)
-                continue
-            block = []
-            for continuation in lines[index + 1 :]:
-                if continuation.strip() and len(continuation) - len(continuation.lstrip()) <= indent:
-                    break
-                block.append(continuation)
-            run_bodies.append("\n".join(block))
-        self.assertTrue(run_bodies)
-        self.assertTrue(all("${{ inputs." not in body for body in run_bodies))
-
-        with tempfile.TemporaryDirectory() as directory:
-            marker = Path(directory) / "executed"
-            environment = {**os.environ, "INPUT_SOURCE_REF": f"$(touch {marker})", "GITHUB_SHA": "candidate"}
-            result = subprocess.run(["bash", "-c", 'test "$INPUT_SOURCE_REF" = "$GITHUB_SHA"'], env=environment)
-            self.assertNotEqual(result.returncode, 0)
-            self.assertFalse(marker.exists())
-
-
+    def test_sourcecraft_workflow_binds_policy_and_external_evidence(self) -> None:
+        workflow = SOURCECRAFT_WORKFLOW.read_text(encoding="utf-8")
+        qualification = workflow[workflow.index("  desktop-qualification:"):]
+        for required in (
+            'test "$SOURCECRAFT_EVENT" = "manual"',
+            'test "$SOURCECRAFT_COMMIT_REF" = "$QUALIFICATION_PROTECTED_REF"',
+            'test "$SOURCECRAFT_COMMIT_SHA" = "$QUALIFICATION_CANDIDATE_SHA"',
+            'test "$SOURCECRAFT_REPO_URL" = "https://git@git.sourcecraft.dev/ryltsevmg/runne.git"',
+            "SOURCECRAFT_DESKTOP_ATTEST_REPOSITORY",
+            "SOURCECRAFT_DESKTOP_ATTEST_WORKFLOW",
+            "SOURCECRAFT_DESKTOP_ATTEST_SOURCE_REF",
+            "SOURCECRAFT_DESKTOP_ATTEST_SIGNER",
+            "/opt/gocode/sourcecraft/bin/sourcecraft-desktop-evidence-enforce",
+        ):
+            self.assertIn(required, qualification)
+        for forbidden in ("GITHUB", "gh ", "actions/"):
+            self.assertNotIn(forbidden, qualification)
+        self.assertNotIn(".github/workflows", qualification)
+        self.assertNotIn("SOURCECRAFT_DESKTOP_ATTEST_VERIFY_KEY", qualification)
 if __name__ == "__main__":
     unittest.main()

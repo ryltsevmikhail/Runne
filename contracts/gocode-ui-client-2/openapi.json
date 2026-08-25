@@ -1856,6 +1856,114 @@
         ]
       }
     },
+    "/v1/providers/{provider}/credential": {
+      "delete": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "openai",
+                "deepseek"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credentials-v1.schema.json#/$defs/mutationAcknowledgement"
+                }
+              }
+            },
+            "description": "Provider credential mutation accepted"
+          },
+          "400": {
+            "description": "Static redacted error response"
+          },
+          "401": {
+            "description": "Static redacted error response"
+          },
+          "403": {
+            "description": "Static redacted error response"
+          },
+          "409": {
+            "description": "Static redacted error response"
+          },
+          "503": {
+            "description": "Static redacted error response"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      },
+      "put": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "openai",
+                "deepseek"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/provider-credentials-v1.schema.json#/$defs/pairRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credentials-v1.schema.json#/$defs/mutationAcknowledgement"
+                }
+              }
+            },
+            "description": "Provider credential mutation accepted"
+          },
+          "400": {
+            "description": "Static redacted error response"
+          },
+          "401": {
+            "description": "Static redacted error response"
+          },
+          "403": {
+            "description": "Static redacted error response"
+          },
+          "409": {
+            "description": "Static redacted error response"
+          },
+          "503": {
+            "description": "Static redacted error response"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
     "/v1/replay/open-session": {
       "post": {
         "requestBody": {
@@ -2404,6 +2512,108 @@
         ]
       }
     },
+    "/v1/task-runs/{taskRunId}/cancel": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "taskRunId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/task-run-v1.schema.json#/$defs/cancelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/task-run-v1.schema.json#/$defs/cancellationAcknowledgement"
+                }
+              }
+            },
+            "description": "Cancellation request accepted"
+          },
+          "400": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Static redacted error response",
+            "headers": {
+              "Cache-Control": {
+                "description": "Responses are never stored",
+                "schema": {
+                  "const": "no-store",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
     "/v1/workspaces/{workspaceId}": {
       "get": {
         "parameters": [],
@@ -2607,6 +2817,499 @@
           }
         }
       ]
+    },
+    "/v1/workspaces/{workspaceId}/changes": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/page"
+                }
+              }
+            },
+            "description": "Bounded Workspace changes"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}/diff": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)(?:\\.|\\.\\.)(?:/|$))[^\\u0000-\\u001f\\u007f\\\\]+(?:/[^\\u0000-\\u001f\\u007f\\\\]+)*$",
+              "type": "string",
+              "x-gocode-maxUtf8Bytes": 4096
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/diff"
+                }
+              }
+            },
+            "description": "Bounded structured Workspace diff"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-diffs-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}/editor": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/request"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/receipt"
+                }
+              }
+            },
+            "description": "Editor action accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-editor-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}/files": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": false,
+            "schema": {
+              "maxLength": 4096,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/page"
+                }
+              }
+            },
+            "description": "Bounded Workspace file page"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/workspaces/{workspaceId}/files/content": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspaceId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/content"
+                }
+              }
+            },
+            "description": "Bounded UTF-8 Workspace file"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/workspace-files-v1.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
     },
     "/v1/workspaces/{workspaceId}/open": {
       "parameters": [

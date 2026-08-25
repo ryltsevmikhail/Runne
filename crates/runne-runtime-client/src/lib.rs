@@ -17,12 +17,21 @@ mod sse;
 
 pub use canonical::CommandReconciliationOutcome;
 pub use canonical::{
-    AuthenticatedRuntimeClient, CanonicalId, CommandIdentity, ConversationCreated,
-    ConversationMessage, ConversationMessageRole, ConversationMessages, ConversationTextResult,
-    CreateConversationRequest, GenerateTextRequest, PROTECTED_RUNTIME_CAPABILITIES,
-    REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError, RuntimeApiErrorKind, RuntimeSessionAuthority,
-    RuntimeSessionInfo, RuntimeTransportKind, TaskRunSnapshot, TaskRunState, TaskRunTerminalResult,
-    protected_profile_matches,
+    APPROVALS_CAPABILITY_V1, ApprovalDecisionAcknowledgementDto, ApprovalDecisionDto,
+    ApprovalDecisionRequest, ApprovalStateDto, ApprovalSummaryDto, AuthenticatedRuntimeClient,
+    CancelTaskRunRequest, CanonicalId, CommandIdentity, ConversationCreated, ConversationMessage,
+    ConversationMessageRole, ConversationMessages, ConversationTextResult,
+    CreateConversationRequest, EditorLaunchReceiptDto, EditorLaunchTargetDto, GenerateTextRequest,
+    OpenEditorCommandRequest, PROCESS_CONTROL_CAPABILITY_V1, PROTECTED_RUNTIME_CAPABILITIES,
+    ProcessOutputChunkDto, ProcessOutputPageDto, ProcessOutputStreamDto, ProcessSnapshotDto,
+    ProcessStateDto, REQUIRED_RUNTIME_CAPABILITIES, RuntimeApiError, RuntimeApiErrorKind,
+    RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind, StartProcessRequest,
+    StopProcessRequest, TaskRunCancellationAcknowledgement, TaskRunSnapshot, TaskRunState,
+    TaskRunTerminalResult, WORKSPACE_DIFFS_CAPABILITY_V1, WORKSPACE_EDITOR_CAPABILITY_V1,
+    WORKSPACE_FILES_CAPABILITY_V1, WorkspaceChangeEntryDto, WorkspaceChangeKindDto,
+    WorkspaceChangeSetDto, WorkspaceDiffDto, WorkspaceDiffHunkDto, WorkspaceDiffLineDto,
+    WorkspaceDiffLineKindDto, WorkspaceFileContentDto, WorkspaceFileEntryDto, WorkspaceFileKindDto,
+    WorkspaceFilePageDto, protected_profile_matches,
 };
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
@@ -32,6 +41,10 @@ pub use canonical::{
 };
 pub use canonical::{CommandReconciliationDisposition, CommandReconciliationRequest};
 pub use canonical::{ConversationGenerationFailureReason, ConversationTextRejection};
+pub use canonical::{
+    PairProviderCredentialRequest, ProviderCredentialMutationAckDto,
+    RevokeProviderCredentialRequest,
+};
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
 };
@@ -44,7 +57,7 @@ pub use replay::{
     ReplayPendingBaselineResume, ReplayPersistenceBinding, ReplayPersistenceHandoff,
     ReplayRecoveryDisposition, ReplayRetentionBaselineV1, ReplayRetentionBaselineV2, ReplayScope,
     ReplaySensitivity, ReplaySessionId, ReplayStreamEvent, ReplayTerminal, ReplayTerminalCode,
-    TaskRunReplayPayload, replay_persistence_digest,
+    TaskRunReplayPayload, TaskRunTimelineKind, replay_persistence_digest,
 };
 pub use runne_api::{
     ExpiryAggregateV1, MAX_OPERATIONAL_TELEMETRY_WIRE_BYTES_V1,

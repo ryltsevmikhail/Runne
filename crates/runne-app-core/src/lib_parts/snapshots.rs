@@ -24,6 +24,15 @@ pub struct DiagnosticsSnapshot {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RuntimeDeviceSnapshot {
+    pub connection: RuntimeAvailability,
+    pub authenticated: bool,
+    pub runtime_version: Option<String>,
+    pub launch_generation: Option<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProjectSummary {
     pub project_id: String,
     pub workspace_id: String,
@@ -71,6 +80,81 @@ pub struct ConversationTimelineUpdate {
     pub stream_version: u64,
     pub message: Option<ConversationMessageSummary>,
     pub recovery: ConversationRecoveryDisposition,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRunTimelineEntry {
+    pub event_id: String,
+    pub sequence: u64,
+    pub committed_at: i64,
+    pub kind: runne_runtime_client::TaskRunTimelineKind,
+    pub attempt_id: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRunTerminalDisposition {
+    Success,
+    Failure,
+    Cancelled,
+    BudgetExhausted,
+    PolicyDenied,
+    Unrecoverable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRunProjectionState {
+    Created,
+    Queued,
+    Admitted,
+    Running,
+    Waiting,
+    Retrying,
+    Checkpointing,
+    Cancelling,
+    Reconciling,
+    Succeeded,
+    Failed,
+    Cancelled,
+    BudgetExhausted,
+    PolicyDenied,
+    Unrecoverable,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRunRecoveryDisposition {
+    Live,
+    Reconnecting,
+    Incompatible,
+    Revoked,
+    ResyncRequired,
+    Fatal,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRunTimelineSnapshot {
+    pub task_run_id: String,
+    pub projection_revision: u64,
+    pub stream_version: u64,
+    pub state: TaskRunProjectionState,
+    pub active_attempt_id: Option<String>,
+    pub terminal: Option<TaskRunTerminalDisposition>,
+    pub entries: Vec<TaskRunTimelineEntry>,
+    pub recovery: TaskRunRecoveryDisposition,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskRunTimelineUpdate {
+    pub task_run_id: String,
+    pub projection_revision: u64,
+    pub stream_version: u64,
+    pub entry: Option<TaskRunTimelineEntry>,
+    pub recovery: TaskRunRecoveryDisposition,
 }
 
 impl From<RecentRoot> for ProjectSummary {

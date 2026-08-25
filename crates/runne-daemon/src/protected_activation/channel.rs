@@ -8,6 +8,80 @@ pub struct ProtectedActivationChannel {
     stream: std::os::unix::net::UnixStream,
 }
 
+#[cfg(windows)]
+pub struct ProtectedActivationChannel {
+    stream: std::fs::File,
+}
+
+#[cfg(windows)]
+impl ProtectedActivationChannel {
+    pub(crate) fn new(stream: std::fs::File) -> Result<Self, LaunchAuthorityError> {
+        Ok(Self { stream })
+    }
+
+    pub fn from_inherited_stdin() -> Result<Option<Self>, LaunchAuthorityError> {
+        crate::protected_activation::windows_channel::from_inherited_stdin()
+    }
+
+    pub(super) fn read_frame(&mut self) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
+        read_file_frame(&mut self.stream)
+    }
+
+    pub(super) fn write_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
+        write_file_frame(&mut self.stream, frame)
+    }
+
+    pub(crate) fn read_control_frame(
+        &mut self,
+    ) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
+        self.read_frame()
+    }
+
+    pub(crate) fn write_control_frame(&mut self, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
+        self.write_frame(frame)
+    }
+
+    #[cfg(any(feature = "desktop-protected", feature = "test-support"))]
+    pub(super) fn enter_control_loop(&self) -> Result<(), LaunchAuthorityError> {
+        Ok(())
+    }
+}
+
+#[cfg(windows)]
+fn read_file_frame(stream: &mut std::fs::File) -> Result<Zeroizing<Vec<u8>>, LaunchAuthorityError> {
+    let mut prefix = [0; 4];
+    stream
+        .read_exact(&mut prefix)
+        .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
+    let payload_length = u32::from_be_bytes(prefix) as usize;
+    if payload_length == 0 || payload_length > MAX_FRAME_PAYLOAD_BYTES {
+        return Err(LaunchAuthorityError::InvalidContract);
+    }
+    let frame_length = payload_length
+        .checked_add(4)
+        .ok_or(LaunchAuthorityError::InvalidContract)?;
+    let mut frame = vec![0; frame_length];
+    frame[..4].copy_from_slice(&prefix);
+    stream
+        .read_exact(&mut frame[4..])
+        .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?;
+    Ok(Zeroizing::new(frame))
+}
+
+#[cfg(windows)]
+fn write_file_frame(stream: &mut std::fs::File, frame: &[u8]) -> Result<(), LaunchAuthorityError> {
+    if frame.len() < 5
+        || frame.len() > MAX_FRAME_PAYLOAD_BYTES + 4
+        || u32::from_be_bytes(frame[..4].try_into().unwrap_or([0; 4])) as usize != frame.len() - 4
+    {
+        return Err(LaunchAuthorityError::InvalidContract);
+    }
+    stream
+        .write_all(frame)
+        .and_then(|()| stream.flush())
+        .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)
+}
+
 #[cfg(unix)]
 impl ProtectedActivationChannel {
     /// Wraps the inherited child endpoint and installs bounded I/O deadlines.
@@ -143,10 +217,35 @@ impl ProtectedActivationChannel {
     }
 }
 
-#[cfg(not(unix))]
+#[cfg(all(windows, feature = "desktop-protected"))]
+impl ProtectedActivationChannel {
+    pub(super) fn root_handle_endpoint(
+        &self,
+        _authenticator: RootHandleTransferAuthenticator,
+        context: &runne_api::RootHandleTransferContext,
+        offer_digest: [u8; 32],
+    ) -> Result<runne_platform_desktop::ProtectedRootHandleEndpoint, LaunchAuthorityError> {
+        runne_platform_desktop::ProtectedRootHandleEndpoint::from_owned_protected_channel(
+            self.stream
+                .try_clone()
+                .map_err(|_| LaunchAuthorityError::ProtectedChannelUnavailable)?,
+            context,
+            offer_digest,
+        )
+        .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
+    }
+
+    pub(super) fn peer_identity(&self) -> Result<(u32, u32), LaunchAuthorityError> {
+        runne_windows_native_handle::named_pipe_peer_process_id(&self.stream)
+            .map(|process_id| (process_id, 0))
+            .map_err(|_| LaunchAuthorityError::OwnershipMismatch)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub struct ProtectedActivationChannel;
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 impl ProtectedActivationChannel {
     pub fn from_inherited_stdin() -> Result<Option<Self>, LaunchAuthorityError> {
         Ok(None)

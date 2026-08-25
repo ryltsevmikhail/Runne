@@ -2,6 +2,8 @@ use super::{
     CanonicalId, ConversationCreated, ConversationMessage, ConversationTextResult,
     ProjectCommandAcknowledgement, WorkspaceCommandAcknowledgement,
 };
+use super::TaskRunCancellationAcknowledgement;
+use super::ApprovalDecisionAcknowledgementDto;
 
 /// Closed result of one authoritative reconciliation observation.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,6 +26,8 @@ pub enum CommandReconciliationOutcome {
     ConversationTextCompleted(Box<ConversationTextResult>),
     ConversationTextRejected(Box<ConversationTextRejection>),
     ConversationTextProhibitedInputRejected(Box<ConversationTextRejection>),
+    TaskRunCancellationRequested(TaskRunCancellationAcknowledgement),
+    ApprovalDecision(ApprovalDecisionAcknowledgementDto),
 }
 
 impl CommandReconciliationDisposition {

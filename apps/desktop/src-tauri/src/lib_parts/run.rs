@@ -12,8 +12,8 @@ fn fence_page_load<R: tauri::Runtime>(
                     .page_loaded(webview.label())
                     .map_err(|_| ())
             });
-        if let Some(intents) = webview
-            .try_state::<crate::destructive_intent::DestructiveIntentManager>()
+        if let Some(intents) =
+            webview.try_state::<crate::destructive_intent::DestructiveIntentManager>()
         {
             intents.invalidate_window(webview.label());
         }
@@ -27,17 +27,22 @@ fn fence_page_load<R: tauri::Runtime>(
 /// Panics when native desktop initialization or the event loop fails.
 #[allow(clippy::significant_drop_tightening, clippy::too_many_lines)]
 pub fn run() {
+    let activations = crate::external_activation::ActivationManager::default();
+    let second_instance_activations = activations.clone();
     let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
         .expect("fixed directory selection lifetime is valid");
     let prepared = selections.prepared_workspaces();
     let destructive_intents = crate::destructive_intent::DestructiveIntentManager::new(
         std::time::Duration::from_secs(30),
-    ).expect("fixed destructive intent lifetime is valid");
+    )
+    .expect("fixed destructive intent lifetime is valid");
     let app = tauri::Builder::default()
         .manage(selections)
         .manage(prepared)
         .manage(destructive_intents)
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .manage(activations)
+        .plugin(tauri_plugin_single_instance::init(move |app, args, _cwd| {
+            second_instance_activations.forward(app, args);
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.show();
                 let _ = window.unminimize();
@@ -45,26 +50,35 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .on_page_load(fence_page_load)
-        .on_window_event(|window, event| {
-            if matches!(event, WindowEvent::Destroyed) {
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            WindowEvent::Destroyed => {
                 window
                     .state::<ConversationSubscriptionManager>()
                     .cancel_window(window.label());
+                window
+                    .state::<TaskRunSubscriptionManager>()
+                    .cancel_window(window.label());
                 let _ = window
                     .try_state::<DirectorySelectionManager>()
-                        .and_then(|selections| {
+                    .and_then(|selections| {
                         selections
                             .renderer_generations()
                             .fence_destroyed(window.label())
                             .ok()
                     });
-                if let Some(intents) = window
-                    .try_state::<crate::destructive_intent::DestructiveIntentManager>()
+                if let Some(intents) =
+                    window.try_state::<crate::destructive_intent::DestructiveIntentManager>()
                 {
                     intents.invalidate_window(window.label());
                 }
             }
+            _ => {}
         })
         .setup(|app| {
             let profile_directory = app.path().app_data_dir()?;
@@ -101,18 +115,74 @@ pub fn run() {
                     }
                 }
             };
+            let notification_core = Arc::clone(&core);
+            let notification_state = Arc::new(crate::notifications::NotificationState::default());
             app.manage(profile_lock);
             app.manage(core);
+            app.manage(crate::updater_status::UpdateStatusStore::new(&profile_directory));
+            app.manage(Arc::clone(&notification_state));
+            app.state::<crate::external_activation::ActivationManager>()
+                .forward(app.handle(), std::env::args_os().skip(1));
             app.manage(ConversationSubscriptionManager::new());
+            app.manage(TaskRunSubscriptionManager::new());
             app.manage(lifecycle);
+            tray::install(app.handle())?;
+            let notification_app = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                    if notification_app.get_webview_window("main").is_none() {
+                        break;
+                    }
+                    let _ = crate::notifications::sync_notifications_inner(
+                        &notification_app,
+                        &notification_core,
+                        notification_state.as_ref(),
+                    )
+                    .await;
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_bootstrap,
             set_theme,
+            get_locale,
+            set_locale,
+            get_shortcuts,
+            set_shortcuts,
+        get_device_status,
+            get_provider_status,
+            pair_provider_credential,
+            revoke_provider_credential,
+            get_update_status,
+            check_update,
+            download_update,
+            prepare_update_install,
+            crate::notifications::sync_notifications,
             list_projects,
+            list_canonical_projects,
             get_project,
+            get_canonical_project,
             get_workspace,
+            get_canonical_workspace,
+            list_workspace_files,
+            read_workspace_file,
+            list_workspace_changes,
+            read_workspace_diff,
+            start_process,
+            get_process,
+            read_process_output,
+            stop_process,
+            open_workspace_editor,
+            get_task_run_timeline,
+            list_pending_approvals,
+            get_approval,
+            resync_task_run_timeline,
+            cancel_task_run,
+            subscribe_task_run_timeline,
+            ack_task_run_update,
+            cancel_task_run_subscription,
             acquire_renderer_generation,
             request_directory_selection,
             prepare_selected_workspace,
@@ -121,8 +191,11 @@ pub fn run() {
             prepare_destructive_project_action,
             dispatch_destructive_project_action,
             get_diagnostics,
+            diagnostics_export::get_diagnostics_export_preview,
+            diagnostics_export::export_diagnostics,
             operational_telemetry_command::get_operational_telemetry,
             connect_runtime,
+            get_pending_external_activation,
         ])
         .build(tauri::generate_context!())
         .expect("failed to initialize Runne desktop application");
@@ -135,6 +208,7 @@ pub fn run() {
                 app.state::<crate::destructive_intent::DestructiveIntentManager>()
                     .clear_pending();
                 app.state::<ConversationSubscriptionManager>().shutdown();
+                app.state::<TaskRunSubscriptionManager>().shutdown();
                 lifecycle.stop_owned_runtime();
             }
         }

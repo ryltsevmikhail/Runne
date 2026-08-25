@@ -10,6 +10,7 @@ mod tests {
         ActivationDispositionV1, ExecutableIdentityV1, LaunchSecret, ProtectedLaunchRequestV1,
         ProtectedLaunchRequestV2, ProtectedReadyV1, ProtectedReadyV2, ProtectedRuntimeProfileV1,
         ProviderActivationBindingV1, ProviderActivationReadinessV1, StableRuntimeBindingV1,
+        ProviderReadinessStatusV1, ProviderStatusSnapshotV1,
     };
 
     #[test]
@@ -33,8 +34,11 @@ mod tests {
     #[test]
     fn exact_session_tuple_mismatches_are_typed_incompatible() {
         let local = session_peer_fixture();
-        verify_remote_profile(&local, remote_profile_fixture(&local), [0x22; 16])
-            .expect("exact tuple");
+        let (_, statuses) =
+            verify_remote_profile(&local, remote_profile_fixture(&local), [0x22; 16])
+                .expect("exact tuple");
+        assert_eq!(statuses.len(), 1);
+        assert_eq!(statuses[0].provider_id(), "openai");
 
         macro_rules! reject_field {
             ($field:ident, $value:expr) => {{
@@ -167,6 +171,15 @@ mod tests {
             authorization_epoch: 0,
             sensitivity_ceiling: "sensitive".to_owned(),
             certificate_sha256: hex::encode(local.certificate_sha256),
+            provider_statuses: vec![ProviderStatusSnapshotV1::new(
+                "openai",
+                "openai_responses_text_v1",
+                "openai-responses-text-v1",
+                [0x11; 32],
+                ProviderReadinessStatusV1::Ready,
+                true,
+            )
+            .expect("provider status")],
         }
     }
 

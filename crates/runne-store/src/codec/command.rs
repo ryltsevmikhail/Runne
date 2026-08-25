@@ -108,6 +108,7 @@ pub(super) const CO_TAG_RETRY_SCHEDULED: u8 = 0x0D;
 pub(super) const CO_TAG_RETRY_ACTIVATED: u8 = 0x0E;
 pub(super) const CO_TAG_RECOVERY_RESUMED: u8 = 0x0F;
 pub(super) const CO_TAG_LOOP_CHECKPOINT_COMMITTED: u8 = 0x10;
+pub(super) const CO_TAG_CANCELLATION_REQUESTED: u8 = 0x11;
 
 /// Codec for [`CommandOutcome`] receipt BLOB.
 pub struct CommandOutcomeCodec;

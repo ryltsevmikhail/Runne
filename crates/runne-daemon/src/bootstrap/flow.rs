@@ -238,7 +238,7 @@ fn open_existing_bootstrap_database(
     runtime_dir: &Path,
 ) -> rusqlite::Result<schema::ManagedConnection> {
     let path = Path::new(&config.db_path);
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     {
         schema::reopen_managed_connection_validated(
             path,
@@ -274,9 +274,9 @@ fn open_existing_bootstrap_database(
         )
     }
 
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let _ = (protected, locks, runtime_dir);
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     match schema::open_managed_connection(path, schema::ConnectionMode::Writer) {
         Ok(connection) => Ok(connection),
         Err(default_error) => match metadata {

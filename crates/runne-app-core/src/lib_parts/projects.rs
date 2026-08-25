@@ -1,4 +1,85 @@
 impl AppCore {
+    /// Reads the complete bounded canonical Project projection from the runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when the authenticated runtime is not live or
+    /// exceeds the host-owned pagination safety bound.
+    pub async fn list_canonical_projects(
+        &self,
+    ) -> Result<Vec<CanonicalProjectSummary>, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        let client = self.live_runtime_client()?;
+        let mut cursor = None;
+        let mut projects = Vec::with_capacity(project_page_capacity());
+        for _ in 0..MAX_CANONICAL_PROJECT_PAGES {
+            let page = client
+                .list_projects(PROJECT_PAGE_LIMIT, cursor.as_ref())
+                .await
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+            projects.extend(page.items().iter().map(CanonicalProjectSummary::from));
+            match page.next_cursor().cloned() {
+                None => return Ok(projects),
+                Some(next) => cursor = Some(next),
+            }
+        }
+        Err(AppCoreError::RuntimeUnavailable)
+    }
+
+    /// Reads one canonical Project and its bounded canonical Workspaces.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for malformed IDs, a non-live runtime, or a
+    /// workspace sequence exceeding the host-owned pagination safety bound.
+    pub async fn get_canonical_project(
+        &self,
+        project_id: &str,
+    ) -> Result<CanonicalProjectDetails, AppCoreError> {
+        let project_id = CanonicalId::parse(project_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        let _operation = self.runtime_operation.lock().await;
+        let client = self.live_runtime_client()?;
+        let project = client
+            .get_project(project_id)
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        let mut cursor = None;
+        let mut workspaces = Vec::with_capacity(workspace_page_capacity());
+        for _ in 0..MAX_CANONICAL_WORKSPACE_PAGES {
+            let page = client
+                .list_workspaces(project_id, PROJECT_PAGE_LIMIT, cursor.as_ref())
+                .await
+                .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+            workspaces.extend(page.items().iter().map(CanonicalWorkspaceSummary::from));
+            match page.next_cursor().cloned() {
+                None => return Ok(CanonicalProjectDetails {
+                    project: CanonicalProjectSummary::from(&project),
+                    workspaces,
+                }),
+                Some(next) => cursor = Some(next),
+            }
+        }
+        Err(AppCoreError::RuntimeUnavailable)
+    }
+
+    /// Reads one canonical Workspace from the authenticated runtime.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for malformed IDs or a non-live runtime.
+    pub async fn get_canonical_workspace(
+        &self,
+        workspace_id: &str,
+    ) -> Result<CanonicalWorkspaceSummary, AppCoreError> {
+        let workspace_id = CanonicalId::parse(workspace_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        let _operation = self.runtime_operation.lock().await;
+        self.live_runtime_client()?
+            .get_workspace(workspace_id)
+            .await
+            .map(|workspace| CanonicalWorkspaceSummary::from(&workspace))
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
+    }
+
     /// Persists a validated appearance theme.
     ///
     /// # Errors
@@ -102,4 +183,68 @@ impl AppCore {
             runtime_failure: self.runtime_failure()?,
         })
     }
+}
+
+const PROJECT_PAGE_LIMIT: u16 = 100;
+const MAX_CANONICAL_PROJECT_PAGES: usize = 10;
+const MAX_CANONICAL_WORKSPACE_PAGES: usize = 10;
+
+const fn project_page_capacity() -> usize {
+    PROJECT_PAGE_LIMIT as usize * MAX_CANONICAL_PROJECT_PAGES
+}
+
+const fn workspace_page_capacity() -> usize {
+    PROJECT_PAGE_LIMIT as usize * MAX_CANONICAL_WORKSPACE_PAGES
+}
+
+/// Renderer-safe, runtime-authoritative Project projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalProjectSummary {
+    pub project_id: String,
+    pub display_name: String,
+    pub version: u64,
+    pub archived: bool,
+}
+
+impl From<&runne_runtime_client::ProjectSnapshotDto> for CanonicalProjectSummary {
+    fn from(value: &runne_runtime_client::ProjectSnapshotDto) -> Self {
+        Self {
+            project_id: value.id().to_string(),
+            display_name: value.display_name().to_owned(),
+            version: value.version(),
+            archived: value.archived(),
+        }
+    }
+}
+
+/// Renderer-safe, runtime-authoritative Workspace projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalWorkspaceSummary {
+    pub workspace_id: String,
+    pub project_id: String,
+    pub display_name: String,
+    pub version: u64,
+    pub open: bool,
+}
+
+impl From<&runne_runtime_client::WorkspaceSnapshotDto> for CanonicalWorkspaceSummary {
+    fn from(value: &runne_runtime_client::WorkspaceSnapshotDto) -> Self {
+        Self {
+            workspace_id: value.id().to_string(),
+            project_id: value.project_id().to_string(),
+            display_name: value.display_name().to_owned(),
+            version: value.version(),
+            open: value.is_open(),
+        }
+    }
+}
+
+/// Canonical Project plus its bounded Workspace projection.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalProjectDetails {
+    pub project: CanonicalProjectSummary,
+    pub workspaces: Vec<CanonicalWorkspaceSummary>,
 }

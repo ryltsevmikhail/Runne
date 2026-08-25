@@ -14,9 +14,9 @@ pub fn secure_file_permissions(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-pub fn secure_file_permissions(_path: &std::path::Path) -> std::io::Result<()> {
-    // Windows ACL is handled during file creation in lock.rs
-    Ok(())
+pub fn secure_file_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    runne_windows_native_handle::restrict_to_owner(path)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::PermissionDenied, "owner ACL"))
 }
 
 /// Protect parent directory: 0700 (Unix) / private DACL (Windows).
@@ -27,6 +27,7 @@ pub fn secure_dir_permissions(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 #[cfg(windows)]
-pub fn secure_dir_permissions(_path: &std::path::Path) -> std::io::Result<()> {
-    Ok(())
+pub fn secure_dir_permissions(path: &std::path::Path) -> std::io::Result<()> {
+    runne_windows_native_handle::restrict_to_owner(path)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::PermissionDenied, "owner ACL"))
 }

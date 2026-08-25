@@ -2,6 +2,12 @@
 
 mod protected_runtime;
 mod root_handle_broker;
+mod updater;
+mod updater_coordinator;
+mod updater_feed;
+mod updater_journal;
+mod updater_metadata;
+mod updater_trust;
 
 #[cfg(feature = "test-support")]
 pub use protected_runtime::FirstActivationFaultPoint;
@@ -10,18 +16,35 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
-#[cfg(all(unix, feature = "protected-channel-integration"))]
+#[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
 pub use root_handle_broker::test_transfer_pair;
 pub use root_handle_broker::{
-    RootHandleBrokerError, RootHandleTransferBinding, RootHandleTransferReceiver,
-    RootHandleTransferSender, VerifiedRootHandle,
+    NativeProcessFiles, RootHandleBrokerError, RootHandleTransferBinding,
+    RootHandleTransferReceiver, RootHandleTransferSender, VerifiedRootHandle,
 };
+pub use root_handle_broker::{RootFileEntry, RootFileKind};
 #[cfg(all(unix, feature = "test-support"))]
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 pub use runne_api::WorkspaceId;
 pub use runne_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
+pub use updater::{
+    StagedUpdate, UpdateInstallError, UpdateInstallPlan, UpdateInstallState, UpdateMetadataV1,
+    UpdatePayloadV1, UpdateTarget, UpdateVerificationError, VerifiedUpdate,
+    stage_verified_artifact, verify_update,
+};
+pub use updater_coordinator::{
+    UpdateCoordinator, UpdateCoordinatorError, UpdateTargetBindingConfig,
+};
+pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
+pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
+pub use updater_metadata::{
+    UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
+    UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
+    UpdateV2VerificationError, VerifiedUpdateV2, verify_update_v2,
+};
+pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 
 use std::collections::VecDeque;
 use std::fmt;
@@ -55,4 +78,9 @@ mod tests {
     include!("tests/supervisor.rs");
     include!("tests/recovery.rs");
     include!("tests/backoff_and_geometry.rs");
+    include!("tests/updater.rs");
+    #[cfg(unix)]
+    mod root_files {
+        include!("tests/root_files.rs");
+    }
 }

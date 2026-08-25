@@ -1,7 +1,7 @@
 
 impl Drop for ProtectedBundledRuntimeProcess {
     fn drop(&mut self) {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             if self.child.try_wait().ok().flatten().is_none() {
                 let _ = self.child.kill();

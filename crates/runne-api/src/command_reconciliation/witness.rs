@@ -1,5 +1,5 @@
-use crate::{CanonicalMessageText, ProjectWorkspaceDisplayNameInput};
-use runne_domain::id::{ConversationId, ProjectId, WorkspaceId};
+use crate::{ApprovalDecision, CanonicalMessageText, ProjectWorkspaceDisplayNameInput};
+use runne_domain::id::{ApprovalId, ConversationId, ProjectId, TaskRunId, WorkspaceId};
 
 use super::ReconciliationOperation;
 
@@ -19,6 +19,8 @@ enum Witness {
     OpenWorkspace(WorkspaceId, u64),
     CreateConversation(ConversationId, WorkspaceId),
     GenerateConversationText(ConversationId, u64, CanonicalMessageText),
+    CancelTaskRun(TaskRunId, u64),
+    ApprovalDecision(ApprovalId, u64, ApprovalDecision, [u8; 32], u64, u64),
 }
 
 impl CommandReconciliationWitness {
@@ -87,6 +89,34 @@ impl CommandReconciliationWitness {
     }
 
     #[must_use]
+    pub const fn cancel_task_run(id: TaskRunId, version: u64) -> Self {
+        Self {
+            inner: Witness::CancelTaskRun(id, version),
+        }
+    }
+
+    #[must_use]
+    pub const fn approval_decision(
+        id: ApprovalId,
+        version: u64,
+        decision: ApprovalDecision,
+        action_digest: [u8; 32],
+        policy_revision: u64,
+        renderer_generation: u64,
+    ) -> Self {
+        Self {
+            inner: Witness::ApprovalDecision(
+                id,
+                version,
+                decision,
+                action_digest,
+                policy_revision,
+                renderer_generation,
+            ),
+        }
+    }
+
+    #[must_use]
     pub const fn operation(&self) -> ReconciliationOperation {
         match self.inner {
             Witness::CreateProject(..) => ReconciliationOperation::CreateProject,
@@ -99,6 +129,8 @@ impl CommandReconciliationWitness {
             Witness::GenerateConversationText(..) => {
                 ReconciliationOperation::GenerateConversationText
             }
+            Witness::CancelTaskRun(..) => ReconciliationOperation::CancelTaskRun,
+            Witness::ApprovalDecision(..) => ReconciliationOperation::ApprovalDecision,
         }
     }
 
@@ -154,6 +186,27 @@ impl CommandReconciliationWitness {
                     text,
                 }
             }
+            Witness::CancelTaskRun(id, expected_version) => {
+                CommandReconciliationWitnessRef::CancelTaskRun {
+                    task_run_id: *id,
+                    expected_version: *expected_version,
+                }
+            }
+            Witness::ApprovalDecision(
+                id,
+                expected_version,
+                decision,
+                action_digest,
+                policy_revision,
+                renderer_generation,
+            ) => CommandReconciliationWitnessRef::ApprovalDecision {
+                approval_id: *id,
+                expected_version: *expected_version,
+                decision: *decision,
+                action_digest: *action_digest,
+                policy_revision: *policy_revision,
+                renderer_generation: *renderer_generation,
+            },
         }
     }
 }
@@ -195,5 +248,17 @@ pub enum CommandReconciliationWitnessRef<'a> {
         conversation_id: ConversationId,
         expected_version: u64,
         text: &'a CanonicalMessageText,
+    },
+    CancelTaskRun {
+        task_run_id: TaskRunId,
+        expected_version: u64,
+    },
+    ApprovalDecision {
+        approval_id: ApprovalId,
+        expected_version: u64,
+        decision: ApprovalDecision,
+        action_digest: [u8; 32],
+        policy_revision: u64,
+        renderer_generation: u64,
     },
 }

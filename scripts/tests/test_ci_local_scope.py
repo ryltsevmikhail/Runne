@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -165,6 +167,76 @@ class ChangedFilesTests(unittest.TestCase):
         self._run("mv", "modified.txt", "renamed.txt")
         changed = scope.changed_files(self.root, self.git, None)
         self.assertEqual(changed, ["renamed.txt"])
+
+
+class FoundationPlanTests(unittest.TestCase):
+    def test_foundation_plan_uses_current_runne_paths_and_docs_validator(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        plan = (root / "docs/superpowers/plans/2026-08-10-desktop-v1-foundation.md").read_text(encoding="utf-8")
+        stale_paths = re.findall(r"crates/gocode-[^/` ]+", plan)
+        stale_packages = re.findall(r"(?:cargo (?:clippy|run|test|tree) -p )gocode-[a-z-]+", plan)
+
+        self.assertEqual(stale_paths, [])
+        self.assertEqual(stale_packages, [])
+        self.assertTrue((root / "scripts/desktop/validate-docs.py").is_file())
+        self.assertNotIn("scripts/validate-docs.py", plan)
+        self.assertIn("python3 scripts/desktop/validate-docs.py --strict", plan)
+
+    def test_desktop_docs_validator_rejects_an_invalid_manifest(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            docs = fixture / "docs"
+            docs.mkdir()
+            (docs / "BROKEN.md").write_text("---\ntitle: Broken\n---\n", encoding="utf-8")
+            validator = fixture / "scripts/desktop/validate-docs.py"
+            validator.parent.mkdir(parents=True)
+            shutil.copy2(root / "scripts/desktop/validate-docs.py", validator)
+
+            result = subprocess.run(("python3", str(validator), "--strict"), cwd=fixture, capture_output=True, text=True)
+
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("BROKEN.md: missing front matter field status", result.stdout)
+
+    def test_scoped_docs_gate_invokes_the_real_desktop_docs_validator(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        source = (root / "scripts/ci_local_scope.py").read_text(encoding="utf-8")
+        self.assertIn('root / "scripts/desktop/validate-docs.py"', source)
+        self.assertNotIn("scripts/ci-local-docs.sh", source)
+
+    def test_foundation_plan_uses_current_desktop_selectors_and_targets(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        plan = (root / "docs/superpowers/plans/2026-08-10-desktop-v1-foundation.md").read_text(encoding="utf-8")
+        daemon_target = "protected_root_handle_admission_transport"
+
+        self.assertNotIn("@gocode/desktop", plan)
+        self.assertIn(f"--test {daemon_target}", plan)
+        self.assertIn(f"tests/{daemon_target}.rs", plan)
+        self.assertTrue((root / f"crates/runne-daemon/tests/{daemon_target}.rs").is_file())
+        self.assertNotIn("crates/runne-local-store/src/mutation.rs", plan)
+        self.assertIn("crates/runne-local-store/src/security_mutation.rs", plan)
+        self.assertTrue((root / "crates/runne-local-store/src/security_mutation.rs").is_file())
+
+    def test_visual_workflow_paths_match_the_validator_layout(self) -> None:
+        from scripts.desktop.validate_visual_fixtures import DEFAULT_GOLDENS, DEFAULT_REGISTRY
+
+        root = Path(__file__).resolve().parents[2]
+        capture = (root / "scripts/desktop/donor-capture/capture.spec.ts").read_text(encoding="utf-8")
+        plan = (root / "docs/desktop/superpowers/plans/2026-07-26-donor-visual-capture.md").read_text(encoding="utf-8")
+        master = (root / "docs/superpowers/plans/2026-08-23-desktop-production-completion.md").read_text(encoding="utf-8")
+        visual_spec = (root / "docs/desktop/07-testing/DESKTOP_VISUAL_REGRESSION_SPEC.md").read_text(encoding="utf-8")
+
+        self.assertEqual(DEFAULT_REGISTRY, root / "docs/desktop/07-testing/fixtures/desktop-visual-fixtures.yaml")
+        self.assertEqual(DEFAULT_GOLDENS, root / "tests/desktop/visual/goldens")
+        self.assertTrue(DEFAULT_REGISTRY.is_file())
+        self.assertTrue(DEFAULT_GOLDENS.is_dir())
+        self.assertIn("../../../docs/desktop/07-testing/fixtures/desktop-visual-fixtures-phase0.yaml", capture)
+        self.assertIn("../../../tests/desktop/visual/goldens", capture)
+        self.assertIn("../../../docs/desktop/07-testing/fixtures/desktop-visual-fixtures-phase0.yaml", plan)
+        self.assertIn("../../../tests/desktop/visual/goldens", plan)
+        for text in (plan, master, visual_spec):
+            self.assertNotIn("docs/07-testing/fixtures", text)
+            self.assertNotIn("tests/visual/goldens", text)
 
 
 if __name__ == "__main__":

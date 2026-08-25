@@ -7,24 +7,34 @@ import hashlib
 import json
 import os
 import platform as host_platform
-import shlex
+import stat
 import subprocess
 import sys
 from pathlib import Path
 
 if __package__:
+    from .native_package_commands import command as native_package_command
     from .native_runner_lifecycle import verify_admission_identity
+    from .package_artifact_snapshot import ArtifactAdmissionError, ArtifactSnapshot, stage_artifact
+    from .windows_package_snapshot import is_pinned_snapshot_path
 else:
+    from native_package_commands import command as native_package_command
     from native_runner_lifecycle import verify_admission_identity
+    from package_artifact_snapshot import ArtifactAdmissionError, ArtifactSnapshot, stage_artifact
+    from windows_package_snapshot import is_pinned_snapshot_path
 
 ROOT = Path(__file__).resolve().parents[2]
 PAIR_MATRIX = {
-    "macos-13-arm64": {"os": "darwin", "arch": "arm64", "version": (13,), "bundle": "app"},
-    "macos-13-x86_64": {"os": "darwin", "arch": "x86_64", "version": (13,), "bundle": "app"},
-    "windows-10-22h2-x86_64": {"os": "windows", "arch": "amd64", "build": "19045", "bundle": "nsis"},
-    "ubuntu-22.04-x86_64": {"os": "linux", "arch": "x86_64", "version": "22.04", "bundle": "deb"},
+    "macos-13-arm64": {"os": "darwin", "arch": "arm64", "version": (13,), "bundle": "app", "required_bundles": ("app", "dmg")},
+    "macos-13-x86_64": {"os": "darwin", "arch": "x86_64", "version": (13,), "bundle": "app", "required_bundles": ("app", "dmg")},
+    "windows-10-22h2-x86_64": {"os": "windows", "arch": "amd64", "build": "19045", "bundle": "nsis", "required_bundles": ("nsis",)},
+    "ubuntu-22.04-x86_64": {"os": "linux", "arch": "x86_64", "version": "22.04", "bundle": "deb", "required_bundles": ("appimage", "deb")},
 }
 OPERATIONS = ("install", "discover-installed-artifact", "executable-identity", "protected-launch", "protected-relaunch", "secure-store-writer-reader", "secure-store-third-process-deny", "signing-notarization", "uninstall")
+MAIN_BINARY_NAME = "runne-desktop"
+NON_APPLICABLE_OPERATIONS = {
+    "ubuntu-22.04-x86_64": frozenset({"signing-notarization"}),
+}
 
 
 def current_platform() -> tuple[str, str]:
@@ -75,7 +85,43 @@ def recompute_package_path(pair: str, bundle: str | None = None) -> str | None:
     product, version = conf.get("productName") or conf.get("package", {}).get("productName"), conf.get("version")
     bundle = bundle or PAIR_MATRIX.get(pair, {}).get("bundle")
     if not isinstance(product, str) or not isinstance(version, str): return None
-    return f"target/release/bundle/macos/{product}.app" if bundle == "app" else f"target/release/bundle/nsis/{product}_{version}_x64-setup.exe" if bundle == "nsis" else f"target/release/bundle/deb/{product}_{version}_amd64.deb" if bundle == "deb" else None
+    architecture = "aarch64" if pair == "macos-13-arm64" else "x64" if pair == "macos-13-x86_64" else "amd64"
+    return f"target/release/bundle/macos/{product}.app" if bundle == "app" else f"target/release/bundle/dmg/{product}_{version}_{architecture}.dmg" if bundle == "dmg" else f"target/release/bundle/nsis/{product}_{version}_x64-setup.exe" if bundle == "nsis" else f"target/release/bundle/appimage/{product}_{version}_amd64.AppImage" if bundle == "appimage" else f"target/release/bundle/deb/{product}_{version}_amd64.deb" if bundle == "deb" else None
+
+
+def required_package_paths(pair: str) -> set[str]:
+    """Return every bundle format that must be probed for one target pair."""
+    spec = PAIR_MATRIX.get(pair)
+    return set(spec["required_bundles"]) if spec else set()
+
+
+def required_native_operations(pair: str) -> tuple[str, ...]:
+    """Return operations that must be verified for a mandatory platform."""
+    excluded = NON_APPLICABLE_OPERATIONS.get(pair, frozenset())
+    return tuple(operation for operation in OPERATIONS if operation not in excluded)
+
+
+def _admit_package(pair: str, package: str | None) -> tuple[ArtifactSnapshot | None, list[ArtifactSnapshot], str | None]:
+    spec = PAIR_MATRIX.get(pair)
+    if spec is None or package is None:
+        return None, [], "PACKAGE_ARTIFACT_MISSING"
+    snapshots: list[ArtifactSnapshot] = []
+    try:
+        for bundle in spec["required_bundles"]:
+            recomputed = recompute_package_path(pair, bundle)
+            if bundle == spec["bundle"] and package != recomputed:
+                raise ArtifactAdmissionError("PACKAGE_ARTIFACT_PATH_UNSAFE")
+            snapshots.append(stage_artifact(ROOT, recomputed, bundle))
+    except ArtifactAdmissionError as error:
+        cleanup_error = None
+        for snapshot in snapshots:
+            try:
+                snapshot.close()
+            except Exception as close_error:
+                cleanup_error = close_error
+        return None, [], getattr(cleanup_error, "code", error.code)
+    primary = next((item for item, bundle in zip(snapshots, spec["required_bundles"]) if bundle == spec["bundle"]), None)
+    return primary, snapshots, None if primary is not None else "PACKAGE_ARTIFACT_PATH_UNRESOLVED"
 
 
 def artifact_sha256(path: Path) -> str:
@@ -90,26 +136,68 @@ def artifact_sha256(path: Path) -> str:
 
 
 def _command(pair: str, operation: str, package: str) -> list[str]:
-    quoted = shlex.quote(package)
-    windows_package = package.replace("'", "''")
-    mac = {"install": f"ditto {quoted} \"$NATIVE_PROBE_INSTALL_ROOT/Runne.app\"", "discover-installed-artifact": "test -d \"$NATIVE_PROBE_INSTALL_ROOT/Runne.app\"", "executable-identity": "codesign -dvv \"$NATIVE_PROBE_INSTALL_ROOT/Runne.app\"", "signing-notarization": "codesign --verify --deep --strict \"$NATIVE_PROBE_INSTALL_ROOT/Runne.app\" && spctl --assess --type execute \"$NATIVE_PROBE_INSTALL_ROOT/Runne.app\"", "uninstall": "rm -rf \"$NATIVE_PROBE_INSTALL_ROOT/Runne.app\""}
-    linux = {"install": f"dpkg --root \"$NATIVE_PROBE_INSTALL_ROOT\" --admindir \"$NATIVE_PROBE_INSTALL_ROOT/var/lib/dpkg\" --instdir \"$NATIVE_PROBE_INSTALL_ROOT\" -i {quoted}", "discover-installed-artifact": "find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name GOCODE -print -quit | grep -q .", "executable-identity": "find \"$NATIVE_PROBE_INSTALL_ROOT\" -type f -name GOCODE -exec sha256sum {} \\;", "signing-notarization": "false", "uninstall": "rm -rf \"$NATIVE_PROBE_INSTALL_ROOT\"/*"}
-    windows = {"install": f"Start-Process -Wait -FilePath '{windows_package}' -ArgumentList '/S'", "discover-installed-artifact": "Get-ChildItem $env:ProgramFiles -Filter GOCODE.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 | ForEach-Object {$_.FullName}", "executable-identity": "Get-AuthenticodeSignature (Get-ChildItem $env:ProgramFiles -Filter GOCODE.exe -Recurse | Select-Object -First 1).FullName", "signing-notarization": "(Get-AuthenticodeSignature (Get-ChildItem $env:ProgramFiles -Filter GOCODE.exe -Recurse | Select-Object -First 1).FullName).Status -eq 'Valid'", "uninstall": "Get-ChildItem $env:ProgramFiles -Filter unins*.exe -Recurse | Select-Object -First 1 | ForEach-Object {Start-Process -Wait -FilePath $_.FullName -ArgumentList '/S'}"}
-    if pair.startswith("macos"): return ["/usr/bin/env", "bash", "-lc", mac[operation]]
-    if pair.startswith("windows"): return ["powershell", "-NoProfile", "-Command", windows[operation]]
-    return ["/usr/bin/env", "bash", "-lc", linux[operation]]
+    return native_package_command(pair, operation, package, MAIN_BINARY_NAME)
 
 
-def native_probe(pair: str, operation: str, package: str) -> dict[str, object]:
-    """Run one real native adapter operation; caller remains blocked without CI proof."""
-    if operation in {"protected-launch", "protected-relaunch", "secure-store-writer-reader", "secure-store-third-process-deny"}:
-        return {"status": "blocked", "detail": "PACKAGED_NATIVE_PROBE_SURFACE_NOT_IMPLEMENTED"}
-    result = subprocess.run(_command(pair, operation, package), check=False, capture_output=True, text=True)
+def native_probe(pair: str, operation: str, package: str, snapshot: object | None = None, lease: object | None = None) -> dict[str, object]:
+    """Run one real native adapter operation against the admitted snapshot."""
+    if operation in NON_APPLICABLE_OPERATIONS.get(pair, frozenset()):
+        return {"status": "not_applicable", "detail": "platform has no signing or notarization gate"}
+    if snapshot is None or lease is None or not getattr(lease, "is_active_for", lambda _snapshot: False)(snapshot):
+        return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_SNAPSHOT_LEASE_REQUIRED"}
+    options: dict[str, object] = {
+        "check": False,
+        "capture_output": True,
+        "text": True,
+        "timeout": 180,
+    }
+    if os.name == "nt":
+        if not is_pinned_snapshot_path(package):
+            return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
+    elif os.name == "posix":
+        prefix = "/dev/fd/"
+        parts = package[len(prefix):].split("/") if package.startswith(prefix) else []
+        if len(parts) != 2 or not parts[0].isdecimal() or parts[1] in {"", ".", ".."}:
+            return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
+        pinned_fd = int(parts[0])
+        try:
+            if not stat.S_ISDIR(os.fstat(pinned_fd).st_mode):
+                return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
+        except OSError:
+            return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
+        options["pass_fds"] = (pinned_fd,)
+    else:
+        return {"status": "blocked", "detail": "PACKAGE_ARTIFACT_PATH_UNSAFE"}
+    result = subprocess.run(_command(pair, operation, package), **options)
     return {"status": "verified" if result.returncode == 0 else "blocked", "returncode": result.returncode, "detail": result.stderr.strip()}
 
 
+def _probe_snapshot(pair: str, snapshot: object, evidence_path: Path, host_blocked: bool) -> tuple[str | None, dict[str, object], str | None]:
+    try:
+        with snapshot.acquire_use() as lease:
+            snapshot_digest = getattr(snapshot, "sha256", None)
+            digest = snapshot_digest() if callable(snapshot_digest) else artifact_sha256(snapshot.path)
+            if host_blocked:
+                return digest, {}, None
+            install_root = evidence_path.parent / "native-package-probe-install"
+            install_root.mkdir(mode=0o700, exist_ok=True)
+            previous = os.environ.get("NATIVE_PROBE_INSTALL_ROOT")
+            os.environ["NATIVE_PROBE_INSTALL_ROOT"] = str(install_root)
+            try:
+                operations = {operation: native_probe(pair, operation, str(snapshot.path), snapshot, lease) for operation in OPERATIONS}
+            finally:
+                if previous is None: os.environ.pop("NATIVE_PROBE_INSTALL_ROOT", None)
+                else: os.environ["NATIVE_PROBE_INSTALL_ROOT"] = previous
+            return digest, operations, None
+    except Exception as error:
+        return None, {}, getattr(error, "code", "PACKAGE_ARTIFACT_PATH_UNSAFE")
+
+
 def run(pair: str, package: str | None, evidence_path: Path, runner_identity: Path | None = None, trust_root: Path | None = None, trust_root_sha256: str | None = None, job_id: str | None = None, workflow_run_id: str | None = None) -> int:
-    pre, actual = preflight(pair, package), Path(package) if package else None
+    pre, actual = preflight(pair, package), None
+    actual, snapshots, package_blocker = _admit_package(pair, package)
+    if package_blocker:
+        pre["detail"] = f"{pre['detail']}; {package_blocker}"
     try: identity = json.loads(runner_identity.read_text(encoding="utf-8")) if runner_identity else {}
     except (OSError, json.JSONDecodeError): identity = {}
     admission = identity.get("admission") if trust_root and trust_root_sha256 and job_id and workflow_run_id and verify_admission_identity(identity, str(trust_root), trust_root_sha256, pair, job_id, workflow_run_id) else None
@@ -117,23 +205,37 @@ def run(pair: str, package: str | None, evidence_path: Path, runner_identity: Pa
     if not isinstance(admission_digest, str) or admission_digest != hashlib.sha256(json.dumps(admission, sort_keys=True, separators=(",", ":")).encode()).hexdigest() or any(identity.get(key) != admission.get(key) for key in ("job_id", "workflow_run_id")):
         admission = None
     operations: dict[str, object] = {}
-    if actual and actual.exists() and not pre["detail"].startswith("host "):
-        install_root = evidence_path.parent / "native-package-probe-install"
-        install_root.mkdir(mode=0o700, exist_ok=True)
-        previous = os.environ.get("NATIVE_PROBE_INSTALL_ROOT")
-        os.environ["NATIVE_PROBE_INSTALL_ROOT"] = str(install_root)
-        try: operations = {operation: native_probe(pair, operation, str(actual)) for operation in OPERATIONS}
-        finally:
-            if previous is None: os.environ.pop("NATIVE_PROBE_INSTALL_ROOT", None)
-            else: os.environ["NATIVE_PROBE_INSTALL_ROOT"] = previous
-    row = {"schema_version": "desktop-native-platform-foundation.v1", "platform_id": pair, "disposition": "blocked",
-           "blocker_code": pre["blocker_code"], "detail": pre["detail"], "package": package, "package_present": bool(actual and actual.exists()), "native_operations": operations,
-           "artifact_sha256": artifact_sha256(actual) if actual and actual.exists() else None,
-           "source_ref": os.environ.get("GITHUB_SHA"), "canonical_source_content_sha256": os.environ.get("GOCODE_CANONICAL_SOURCE_CONTENT_SHA256"),
+    cleanup_blocker: str | None = None
+    try:
+        snapshot_blocker = None
+        digest = None
+        if actual:
+            digest, operations, snapshot_blocker = _probe_snapshot(pair, actual, evidence_path, pre["detail"].startswith("host "))
+            if snapshot_blocker:
+                pre["detail"] = f"{pre['detail']}; {snapshot_blocker}"
+        for snapshot in snapshots:
+            try:
+                snapshot.close()
+            except Exception as error:
+                cleanup_blocker = getattr(error, "code", "PACKAGE_ARTIFACT_PATH_UNSAFE")
+        if cleanup_blocker:
+            snapshot_blocker = cleanup_blocker
+            pre["detail"] = f"{pre['detail']}; {cleanup_blocker}"
+        required = required_native_operations(pair)
+        verified = isinstance(admission, dict) and actual is not None and bool(operations) and all(operations.get(operation, {}).get("status") == "verified" for operation in required) and all(operations.get(operation, {}).get("status") == "not_applicable" for operation in NON_APPLICABLE_OPERATIONS.get(pair, frozenset()))
+        row = {"schema_version": "desktop-native-platform-foundation.v1", "platform_id": pair, "disposition": "verified" if verified else "blocked",
+           "blocker_code": pre["blocker_code"], "detail": pre["detail"], "package": package, "package_present": actual is not None, "native_operations": operations,
+           "artifact_sha256": digest,
+           "source_ref": os.environ.get("SOURCECRAFT_COMMIT_SHA"), "canonical_source_content_sha256": os.environ.get("GOCODE_CANONICAL_SOURCE_CONTENT_SHA256"),
            "runner": {"runner_id": None, "instance_id": admission.get("instance_id") if isinstance(admission, dict) else None, "image_sha256": admission.get("image_sha256") if isinstance(admission, dict) else None, "boot_measurement_sha256": admission.get("boot_measurement_sha256") if isinstance(admission, dict) else None, "job_id": admission.get("job_id") if isinstance(admission, dict) else None, "workflow_run_id": admission.get("workflow_run_id") if isinstance(admission, dict) else None, "admission_sha256": admission_digest if isinstance(admission, dict) else None, "admission_issued_at": admission.get("issued_at") if isinstance(admission, dict) else None, "admission_expires_at": admission.get("expires_at") if isinstance(admission, dict) else None}}
-    if not isinstance(admission, dict): row["blocker_code"] = "RUNNER_TRUST_UNVERIFIED"
-    if not row["package_present"] or any(value.get("status") != "verified" for value in operations.values()): row["blocker_code"] = "RUNNER_TRUST_UNVERIFIED" if pre["blocker_code"] == "RUNNER_TRUST_UNVERIFIED" else _pair_blocker(pair)
-    evidence_path.write_text(json.dumps(row, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        if verified: row["blocker_code"] = None
+        elif not isinstance(admission, dict): row["blocker_code"] = "RUNNER_TRUST_UNVERIFIED"
+        elif not row["package_present"] or any(value.get("status") != "verified" for value in operations.values()): row["blocker_code"] = "RUNNER_TRUST_UNVERIFIED" if pre["blocker_code"] == "RUNNER_TRUST_UNVERIFIED" else _pair_blocker(pair)
+        if cleanup_blocker: row["blocker_code"] = cleanup_blocker
+        evidence_path.write_text(json.dumps(row, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    finally:
+        for snapshot in snapshots:
+            snapshot.close()
     return 0
 
 

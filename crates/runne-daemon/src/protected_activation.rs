@@ -2,18 +2,23 @@
 
 #![cfg_attr(not(feature = "desktop-protected"), allow(dead_code, unused_imports))]
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::io::{Read, Write};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::path::{Path, PathBuf};
-#[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
+#[cfg(all(
+    any(unix, windows),
+    any(feature = "desktop-protected", feature = "test-support")
+))]
 use std::sync::{Arc, Mutex};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use std::time::Duration;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use rand::{RngCore, rngs::OsRng};
-#[cfg(unix)]
+#[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
+use runne_api::LOCAL_RUNTIME_SESSION_TTL;
+#[cfg(any(unix, windows))]
 use runne_api::{
     ActivationDispositionV1, ExecutableIdentityV1, LaunchAuthorityError,
     LaunchAuthorityValidationV1, PendingFirstActivationV1, ProtectedActivationKeys,
@@ -21,48 +26,57 @@ use runne_api::{
     ProtectedLaunchRequestV2, ProtectedRuntimeProfileV1, ProviderActivationModeV1,
     StableRuntimeBindingV1,
 };
-#[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
+#[cfg(all(
+    any(unix, windows),
+    any(feature = "desktop-protected", feature = "test-support")
+))]
 use runne_api::{
-    LOCAL_RUNTIME_SESSION_TTL, ProtectedOwnedLaunchV1, ProtectedRenewRequestV1,
-    ProtectedRenewTicketV1, ProtectedShutdownAckV1, ProtectedShutdownV1, RuntimeSessionBinding,
+    ProtectedOwnedLaunchV1, ProtectedRenewRequestV1, ProtectedRenewTicketV1,
+    ProtectedShutdownAckV1, ProtectedShutdownV1, RuntimeSessionBinding,
 };
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 use runne_api::{
     ProtectedOwnedLaunchV2, ProtectedRenewRequestV2, ProtectedRenewTicketV2,
     ProtectedShutdownAckV2, ProtectedShutdownV2,
 };
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 use runne_api::{RootHandleControlFrame, RootHandleTransferAuthenticator, RootHandleTransferReady};
-#[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
+#[cfg(all(
+    any(unix, windows),
+    any(feature = "desktop-protected", feature = "test-support")
+))]
 use runne_application::local_session::LocalSessionService;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use runne_store::schema;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use sha2::{Digest, Sha256};
-#[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
+#[cfg(all(
+    any(unix, windows),
+    any(feature = "desktop-protected", feature = "test-support")
+))]
 use zeroize::Zeroize;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use zeroize::Zeroizing;
 
 #[cfg(feature = "desktop-protected")]
 use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::bootstrap::{
     BootstrapOutcome, bootstrap_protected, preflight_recoverable_first_activation_sidecars,
 };
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use crate::provider_activation::ProviderActivation;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const MAX_FRAME_PAYLOAD_BYTES: usize = 65_536;
 #[cfg(unix)]
 const CHANNEL_TIMEOUT: Duration = Duration::from_secs(30);
 #[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
 const CONTROL_IDLE_TIMEOUT: Duration =
     Duration::from_secs(LOCAL_RUNTIME_SESSION_TTL.as_secs() + CHANNEL_TIMEOUT.as_secs());
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 const LOCAL_PRINCIPAL: &str = "local-owner";
 
 #[cfg(feature = "desktop-protected")]
@@ -95,36 +109,47 @@ impl ProtectedRootControl {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod channel;
-#[cfg(all(unix, any(feature = "desktop-protected", feature = "test-support")))]
+#[cfg(all(
+    any(unix, windows),
+    any(feature = "desktop-protected", feature = "test-support")
+))]
 mod control;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod first_activation;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod host;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod launch;
 #[cfg(all(unix, feature = "test-support", feature = "desktop-protected"))]
 mod loopback_fixture;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod request;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 mod root_handle_control;
+#[cfg(windows)]
+mod windows_acl;
+#[cfg(windows)]
+mod windows_channel;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use channel::ProtectedActivationChannel;
-#[cfg(all(unix, feature = "test-support", not(feature = "desktop-protected")))]
+#[cfg(all(
+    any(unix, windows),
+    feature = "test-support",
+    not(feature = "desktop-protected")
+))]
 pub(crate) use control::run_control_loop;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use control::{run_control_loop, run_control_loop_v2};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use first_activation::random_control_secret;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub use host::run_verified_protected_channel;
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use launch::{VerifiedProtectedApplicationStart, VerifiedProtectedRuntimeStart};
-#[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 pub(crate) use root_handle_control::dispatch_root_handle_control_frame;
 #[cfg(all(test, unix, feature = "test-support"))]
 mod launch_channel_tests;
@@ -135,7 +160,7 @@ mod test_root_admission_fixture;
 #[cfg(all(unix, feature = "test-support"))]
 pub mod test_support;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub(crate) fn validate_protected_bootstrap_connection(
     config: &ConfigurationSnapshot,
     connection: &rusqlite::Connection,
@@ -147,15 +172,5 @@ pub(crate) fn validate_protected_bootstrap_connection(
             config, connection, pending,
         ),
         None => first_activation::validate_existing_connection(config, connection, expected, None),
-    }
-}
-
-#[cfg(not(unix))]
-pub struct ProtectedActivationChannel;
-
-#[cfg(not(unix))]
-impl ProtectedActivationChannel {
-    pub fn from_inherited_stdin() -> Result<Option<Self>, runne_api::LaunchAuthorityError> {
-        Ok(None)
     }
 }

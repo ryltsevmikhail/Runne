@@ -1,8 +1,8 @@
 //! OS-backed credential and key storage boundary.
 //!
 //! Stores a single authenticated `db_generation` anchor in the OS secure
-//! store. macOS uses Keychain; other platform backends remain fail-closed
-//! until their native capability spikes are accepted.
+//! store. macOS uses Keychain; Linux uses Secret Service/keyutils and Windows
+//! uses Credential Manager through the native keyring adapter.
 //! The anchor must match the `SQLite` `meta.db_generation` on every open;
 //! mismatch enters a named fail-closed state per `CLIENT_STORAGE_AND_RECOVERY.md`.
 
@@ -19,6 +19,7 @@ mod project_owner_key_tests;
 mod project_owner_key_transaction_tests;
 #[cfg(feature = "project-owner-key-store")]
 mod project_owner_keychain_policy;
+#[cfg_attr(any(target_os = "linux", target_os = "windows"), allow(dead_code))]
 mod provider_credential;
 mod provider_journal_key;
 mod provider_recovery;
@@ -253,8 +254,17 @@ pub use macos::MacOsKeychainStore;
 #[cfg(target_os = "macos")]
 pub use macos::MacOsProviderCredentialStore as NativeProviderCredentialStore;
 
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+mod keyring;
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub use keyring::NativeKeyringStore;
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+pub use keyring::NativeKeyringStore as NativeProviderCredentialStore;
+
 // ---------------------------------------------------------------------------
-// Stub implementations for platforms not yet wired
+// Stub implementations for unsupported targets
 // ---------------------------------------------------------------------------
 
 #[cfg(not(target_os = "macos"))]
@@ -263,5 +273,5 @@ mod stub;
 #[cfg(not(target_os = "macos"))]
 pub use stub::StubStore;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub use stub::StubStore as NativeProviderCredentialStore;

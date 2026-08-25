@@ -65,6 +65,33 @@ fn strict_delivery_rejects_unknown_payload_wrong_aggregate_and_binding() {
 }
 
 #[test]
+fn task_run_delivery_exposes_only_closed_typed_timeline_data() {
+    let task_run_id = "018f2e3a-7000-7000-8000-000000000210";
+    let mut value = fixture();
+    value["aggregateId"] = serde_json::json!(task_run_id);
+    value["aggregateType"] = serde_json::json!("taskRun");
+    value["correlationId"] = serde_json::json!(task_run_id);
+    value["correlationType"] = serde_json::json!("taskRun");
+    value["eventType"] = serde_json::json!("taskRun.attempt.started");
+    value["payload"] = serde_json::json!({
+        "attemptId": "018f2e3a-7000-7000-8000-000000000211",
+        "type": "taskRun.attempt.started"
+    });
+    let mut validator = DeliveryValidator::new(
+        ReplayScope::new(ReplayAggregateKind::TaskRun, CanonicalId::parse(task_run_id).unwrap()),
+        ReplayIdentityTracker::new(),
+    );
+
+    let delivery = validate(&mut validator, value).expect("typed task run delivery");
+
+    let CanonicalReplayPayload::TaskRun(payload) = delivery.event().payload() else {
+        panic!("task run payload");
+    };
+    assert_eq!(payload.kind(), TaskRunTimelineKind::AttemptStarted);
+    assert_eq!(payload.attempt_id(), CanonicalId::parse("018f2e3a-7000-7000-8000-000000000211").ok());
+}
+
+#[test]
 fn dedup_is_exact_and_never_auto_advances_conflicting_identity() {
     let mut validator = validator();
     assert_eq!(

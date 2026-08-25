@@ -76,5 +76,5 @@ pub use types::{
     CanonicalReplayEvent, CanonicalReplayPayload, ConversationReplayPayload, LiveDeliveryId,
     ReplayAggregateKind, ReplayCursor, ReplayDelivery, ReplayDeliveryDisposition,
     ReplayPersistenceBinding, ReplayPersistenceHandoff, ReplayScope, ReplaySensitivity,
-    ReplaySessionId, TaskRunReplayPayload, replay_persistence_digest,
+    ReplaySessionId, TaskRunReplayPayload, TaskRunTimelineKind, replay_persistence_digest,
 };

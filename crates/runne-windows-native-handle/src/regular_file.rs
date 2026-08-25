@@ -3,6 +3,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::ptr;
 
+use sha2::Digest;
 use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, GetLastError};
 use windows_sys::Win32::Storage::FileSystem::{
     CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT, FILE_ATTRIBUTE_TAG_INFO,
@@ -196,6 +197,16 @@ fn snapshot(handle: &OwnedHandle) -> Result<RegularFileSnapshot, NativeFileError
         },
         link_count: standard.NumberOfLinks,
     })
+}
+
+#[allow(clippy::redundant_pub_crate)]
+pub(crate) fn process_identity_digest(handle: &OwnedHandle) -> Result<[u8; 32], NativeFileError> {
+    let snapshot = snapshot(handle)?;
+    let mut digest = sha2::Sha256::new();
+    digest.update(b"runne.windows-process-file-identity.v1");
+    digest.update(snapshot.id.volume_serial.to_be_bytes());
+    digest.update(snapshot.id.file_id);
+    Ok(digest.finalize().into())
 }
 
 fn wide(path: &Path) -> Result<Vec<u16>, NativeFileError> {

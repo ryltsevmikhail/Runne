@@ -22,6 +22,16 @@ fn descriptor_identity(file: &fs::File) -> Result<FileIdentity, SchemaOpenDiagno
 #[derive(Debug, PartialEq, Eq)]
 struct FileIdentity(same_file::Handle);
 
+#[cfg(windows)]
+fn descriptor_identity(file: &fs::File) -> Result<FileIdentity, SchemaOpenDiagnostic> {
+    same_file::Handle::from_file(
+        file.try_clone()
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?,
+    )
+    .map(FileIdentity)
+    .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
+}
+
 fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     if fs::symlink_metadata(path)
         .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?
@@ -43,20 +53,22 @@ fn file_identity(path: &Path) -> Result<FileIdentity, SchemaOpenDiagnostic> {
     }
     #[cfg(windows)]
     {
+        runne_windows_native_handle::inspect_regular_file(path)
+            .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
         same_file::Handle::from_path(path)
             .map(FileIdentity)
             .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct RetainedFileIdentity {
     path: PathBuf,
     file: fs::File,
     identity: FileIdentity,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl RetainedFileIdentity {
     fn from_file(path: &Path, file: fs::File) -> Result<Self, SchemaOpenDiagnostic> {
         let identity = descriptor_identity(&file)?;
@@ -68,11 +80,14 @@ impl RetainedFileIdentity {
     }
 
     fn open(path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
-        use std::os::unix::fs::OpenOptionsExt as _;
-
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        let mut options = fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+        }
+        let file = options
             .open(path)
             .map_err(|_| SchemaOpenDiagnostic::FileIdentityUncertain)?;
         Self::from_file(path, file)
@@ -84,7 +99,7 @@ impl RetainedFileIdentity {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 struct ConnectionIdentityGuard {
     database: RetainedFileIdentity,
     wal: Option<RetainedFileIdentity>,
@@ -92,7 +107,7 @@ struct ConnectionIdentityGuard {
     owner_private: bool,
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 impl ConnectionIdentityGuard {
     fn main(path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
         Ok(Self {
@@ -179,9 +194,6 @@ impl ConnectionIdentityGuard {
     }
 }
 
-#[cfg(not(unix))]
-struct ConnectionIdentityGuard;
-
 #[derive(Clone, Copy)]
 enum IdentityHookStage {
     Retained,
@@ -189,38 +201,7 @@ enum IdentityHookStage {
     Classified,
 }
 
-#[cfg(not(unix))]
-impl ConnectionIdentityGuard {
-    fn main(_path: &Path) -> Result<Self, SchemaOpenDiagnostic> {
-        Err(SchemaOpenDiagnostic::FileIdentityUncertain)
-    }
-
-    fn from_created(_path: &Path, _file: fs::File) -> Result<Self, SchemaOpenDiagnostic> {
-        Err(SchemaOpenDiagnostic::FileIdentityUncertain)
-    }
-
-    fn verify(&self, _connection: &Connection) -> SqliteResult<()> {
-        Err(diagnostic_error(
-            SchemaOpenDiagnostic::FileIdentityUncertain,
-        ))
-    }
-
-
-    fn retain_created_sidecars(&mut self) -> SqliteResult<()> {
-        Err(diagnostic_error(
-            SchemaOpenDiagnostic::FileIdentityUncertain,
-        ))
-    }
-
-
-    fn verify_with_sidecar_handle(&self, _connection: &Connection) -> SqliteResult<()> {
-        Err(diagnostic_error(
-            SchemaOpenDiagnostic::FileIdentityUncertain,
-        ))
-    }
-}
-
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn retain_optional(path: &Path) -> Result<Option<RetainedFileIdentity>, SchemaOpenDiagnostic> {
     match fs::symlink_metadata(path) {
         Ok(_) => match RetainedFileIdentity::open(path) {
@@ -233,7 +214,7 @@ fn retain_optional(path: &Path) -> Result<Option<RetainedFileIdentity>, SchemaOp
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn optional_retained_unchanged(
     retained: &Option<RetainedFileIdentity>,
     path: &Path,
@@ -247,7 +228,7 @@ fn optional_retained_unchanged(
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn sqlite_main_has_moved(connection: &Connection) -> SqliteResult<bool> {
     runne_sqlite_handle_identity::main_file_has_moved(connection).map_err(|_| {
         diagnostic_error(SchemaOpenDiagnostic::FileIdentityUncertain)

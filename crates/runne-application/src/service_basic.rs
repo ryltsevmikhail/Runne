@@ -55,6 +55,29 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator, A> TaskRunService<E, U, I, A>
         )
     }
 
+    pub fn cancel_task_run(
+        &self,
+        context: &ApplicationCommandContext,
+        input: CancelTaskRunInput,
+    ) -> Result<CommandOutcome, ApplicationError> {
+        let fp = CommandFingerprint::for_cancel(&input.taskrun_id, input.expected_version);
+        self.pipeline.execute_existing(
+            context.command_id,
+            &context.idempotency_key,
+            &context.principal_id,
+            &context.actor,
+            input.taskrun_id,
+            input.expected_version,
+            TaskRunCommand::RequestCancellation,
+            &fp,
+            |new_version| CommandOutcome::TaskRunCancellationRequested {
+                taskrun_id: input.taskrun_id,
+                new_version,
+            },
+            OperationTag::CancelTaskRun,
+        )
+    }
+
     pub fn start_attempt(
         &self,
         context: &ApplicationCommandContext,
