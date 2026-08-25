@@ -14,10 +14,10 @@ type CreateWorkspace = (projectId: string, displayName: string) => Promise<Canon
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
-  createWorkspace?: CreateWorkspace
+  createWorkspaceMutation?: CreateWorkspace
 }>(), {
   loadProject: getCanonicalProject,
-  createWorkspace: createCanonicalWorkspace,
+  createWorkspaceMutation: createCanonicalWorkspace,
 })
 
 const route = useRoute()
@@ -78,7 +78,7 @@ async function createWorkspace() {
   creatingWorkspace.value = true
   createWorkspaceError.value = false
   try {
-    await props.createWorkspace(id, 'Workspace')
+    await props.createWorkspaceMutation(id, 'Workspace')
     await refreshProject()
   }
   catch {

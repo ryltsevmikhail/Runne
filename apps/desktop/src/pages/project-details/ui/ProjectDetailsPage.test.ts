@@ -54,7 +54,7 @@ async function mountPage(
   const Harness = defineComponent({
     setup() {
       provideRuntimeSession(liveContext())
-      return () => h(ProjectDetailsPage, { loadProject, createWorkspace })
+      return () => h(ProjectDetailsPage, { loadProject, createWorkspaceMutation: createWorkspace })
     },
   })
   const wrapper = mount(Harness, { global: { plugins: [router] } })
