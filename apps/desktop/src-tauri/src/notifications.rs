@@ -218,6 +218,7 @@ mod tests {
                 .values()
                 .any(|value| value.as_str() == Some("fs:write"))
         );
+        assert!(NotificationIntent::approval("018f2e3a-7000-4000-8000-000000000212", 42).is_none());
     }
 
     #[test]
