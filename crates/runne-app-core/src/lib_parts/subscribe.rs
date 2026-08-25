@@ -1,3 +1,4 @@
+#[allow(clippy::too_many_lines)]
 impl AppCore {
     /// Reconciles from the durable checkpoint and then emits acknowledged live
     /// Conversation updates until the stream terminates or the caller cancels
@@ -11,6 +12,36 @@ impl AppCore {
     pub async fn subscribe_project_conversation<F>(
         &self,
         project_id: i64,
+        on_update: F,
+    ) -> Result<(), AppCoreError>
+    where
+        F: FnMut(ConversationTimelineUpdate) + Send,
+    {
+        self.subscribe_conversation(ConversationReferenceOwner::Project(project_id), on_update)
+            .await
+    }
+
+    /// Reconciles and streams one canonical Workspace Conversation.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed local, replay, or runtime failure.
+    pub async fn subscribe_workspace_conversation<F>(
+        &self,
+        workspace_id: &str,
+        on_update: F,
+    ) -> Result<(), AppCoreError>
+    where
+        F: FnMut(ConversationTimelineUpdate) + Send,
+    {
+        let workspace_id = CanonicalId::parse(workspace_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        self.subscribe_conversation(ConversationReferenceOwner::Workspace(workspace_id), on_update)
+            .await
+    }
+
+    async fn subscribe_conversation<F>(
+        &self,
+        owner: ConversationReferenceOwner,
         mut on_update: F,
     ) -> Result<(), AppCoreError>
     where
@@ -27,7 +58,14 @@ impl AppCore {
             {
                 return Err(AppCoreError::RuntimeUnavailable);
             }
-            let reference = self.load_or_prepare_conversation_reference(project_id)?;
+            let reference = match owner {
+                ConversationReferenceOwner::Project(project_id) => {
+                    self.load_or_prepare_conversation_reference(project_id)?
+                }
+                ConversationReferenceOwner::Workspace(workspace_id) => {
+                    self.load_workspace_conversation_reference(&workspace_id.to_string())?
+                }
+            };
             let Some(bound) = reference.bound() else {
                 return Err(AppCoreError::InvalidConversationReference);
             };

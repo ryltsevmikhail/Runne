@@ -7,15 +7,15 @@ import type {
 import { maximumMessageBytes } from './constants'
 import {
   parseConversationSnapshot,
-  validateProjectId,
+  validateWorkspaceId,
 } from './validation'
 
-export async function openProjectConversation(
-  projectId: number,
+export async function openWorkspaceConversation(
+  workspaceId: string,
   invoke: Invoke = tauriInvoke,
 ): Promise<ConversationSnapshot> {
-  validateProjectId(projectId)
-  const value = await invoke('open_project_conversation', { projectId })
+  validateWorkspaceId(workspaceId)
+  const value = await invoke('open_workspace_conversation', { workspaceId })
   const snapshot = parseConversationSnapshot(value)
   if (snapshot === null) {
     throw new Error('Invalid conversation response')
@@ -23,12 +23,12 @@ export async function openProjectConversation(
   return snapshot
 }
 
-export async function resyncProjectConversation(
-  projectId: number,
+export async function resyncWorkspaceConversation(
+  workspaceId: string,
   invoke: Invoke = tauriInvoke,
 ): Promise<ConversationSnapshot> {
-  validateProjectId(projectId)
-  const value = await invoke('resync_project_conversation', { projectId })
+  validateWorkspaceId(workspaceId)
+  const value = await invoke('resync_workspace_conversation', { workspaceId })
   const snapshot = parseConversationSnapshot(value)
   if (snapshot === null) {
     throw new Error('Invalid conversation resync response')
@@ -36,16 +36,16 @@ export async function resyncProjectConversation(
   return snapshot
 }
 
-export async function sendProjectMessage(
-  projectId: number,
+export async function sendWorkspaceMessage(
+  workspaceId: string,
   text: string,
   invoke: Invoke = tauriInvoke,
 ): Promise<ConversationSnapshot> {
-  validateProjectId(projectId)
+  validateWorkspaceId(workspaceId)
   if (text.length === 0 || new TextEncoder().encode(text).length > maximumMessageBytes) {
     throw new Error('Invalid conversation message')
   }
-  const value = await invoke('send_project_message', { projectId, text })
+  const value = await invoke('send_workspace_message', { workspaceId, text })
   const snapshot = parseConversationSnapshot(value)
   if (snapshot === null) {
     throw new Error('Invalid conversation response')

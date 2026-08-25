@@ -7,8 +7,8 @@ import type {
   ConversationTimelineListener,
 } from '@/entities/conversation'
 import {
-  openProjectConversation,
-  subscribeProjectConversation,
+  openWorkspaceConversation,
+  subscribeWorkspaceConversation,
 } from '@/entities/conversation'
 import {
   connectRuntime,
@@ -16,15 +16,15 @@ import {
 } from '@/shared/api/platform/bootstrap'
 
 export type Connect = () => Promise<RuntimeConnectionState>
-export type OpenConversation = (projectId: number) => Promise<ConversationSnapshot>
+export type OpenConversation = (workspaceId: string) => Promise<ConversationSnapshot>
 export type SubscribeConversation = (
-  projectId: number,
+  workspaceId: string,
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
 ) => Promise<ConversationSession>
 
 export interface ConversationChatOptions {
-  projectId: number
+  workspaceId: string
   connect?: Connect | undefined
   openConversation?: OpenConversation | undefined
   subscribeConversation?: SubscribeConversation | undefined
@@ -34,22 +34,22 @@ async function defaultConnect(): Promise<RuntimeConnectionState> {
   return isTauri() ? connectRuntime() : 'unconfigured'
 }
 
-async function defaultOpenConversation(projectId: number): Promise<ConversationSnapshot> {
+async function defaultOpenConversation(workspaceId: string): Promise<ConversationSnapshot> {
   if (!isTauri()) {
     throw new Error('runtime unavailable')
   }
-  return openProjectConversation(projectId)
+  return openWorkspaceConversation(workspaceId)
 }
 
 async function defaultSubscribeConversation(
-  projectId: number,
+  workspaceId: string,
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
 ): Promise<ConversationSession> {
   if (!isTauri()) {
     throw new Error('runtime unavailable')
   }
-  return subscribeProjectConversation(projectId, initialSnapshot, onTimeline)
+  return subscribeWorkspaceConversation(workspaceId, initialSnapshot, onTimeline)
 }
 
 export function useConversationChat(options: ConversationChatOptions) {
@@ -128,7 +128,7 @@ export function useConversationChat(options: ConversationChatOptions) {
       if (runtimeState.value !== 'live') {
         throw new Error('runtime unavailable')
       }
-      const initial = await (options.openConversation ?? defaultOpenConversation)(options.projectId)
+      const initial = await (options.openConversation ?? defaultOpenConversation)(options.workspaceId)
       if (disposed || generation !== loadGeneration) {
         return
       }
@@ -136,7 +136,7 @@ export function useConversationChat(options: ConversationChatOptions) {
       const candidate = await (
         options.subscribeConversation ?? defaultSubscribeConversation
       )(
-        options.projectId,
+        options.workspaceId,
         initial,
         (value) => {
           if (!disposed && generation === loadGeneration) {

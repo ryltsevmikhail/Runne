@@ -11,7 +11,7 @@ test('restores the saved workspace through the desktop host boundary', async ({ 
 
   await expect(page.getByRole('heading', { name: workspace.displayName })).toBeVisible()
   await expect(page.getByText(`Version ${workspace.version} · Open`)).toBeVisible()
-  await expect(page.getByText('Runtime live')).toBeVisible()
+  await expect(page.locator('.workspace-status')).toHaveText('Runtime live')
   await expect(page.getByText('Runtime session controls this workspace.')).toBeVisible()
   await expect(page.getByText(workspace.workspaceId)).toBeVisible()
   await expect(page.getByText('/workspace/gocode-ui')).toHaveCount(0)

@@ -1,3 +1,5 @@
+export const workspaceId = '01890e00-0000-7000-8000-000000000002'
+
 export const snapshot = {
   conversationId: '018f2e3a-7000-7000-8000-000000000101',
   projectionRevision: 3,

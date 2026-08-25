@@ -15,6 +15,14 @@ export const project = {
   archived: false,
 } as const
 
+const conversationSnapshot = {
+  conversationId: '01890e00-0000-7000-8000-000000000003',
+  projectionRevision: 1,
+  streamVersion: 1,
+  messages: [],
+  recovery: 'live',
+} as const
+
 export async function installDesktopAdapter(page: Page): Promise<void> {
   await page.addInitScript(({ currentProject, currentWorkspace }) => {
     type TauriInternals = {
@@ -57,6 +65,15 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
             }
           case 'connect_runtime':
             return 'live'
+          case 'open_workspace_conversation':
+          case 'resync_workspace_conversation':
+          case 'send_workspace_message':
+            return conversationSnapshot
+          case 'subscribe_workspace_conversation':
+            return '01890e00-0000-7000-8000-000000000004'
+          case 'ack_conversation_update':
+          case 'cancel_conversation_subscription':
+            return null
           case 'get_canonical_workspace':
             return args?.workspaceId === currentWorkspace.workspaceId
               ? currentWorkspace

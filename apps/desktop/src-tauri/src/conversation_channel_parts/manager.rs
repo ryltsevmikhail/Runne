@@ -27,7 +27,58 @@ impl ConversationSubscriptionManager {
         if project_id <= 0 || window_label.is_empty() {
             return Err(ConversationChannelError::unavailable());
         }
-        let pair = (window_label.to_owned(), project_id);
+        self.subscribe_target(
+            source,
+            ConversationSubscriptionTarget::Project(project_id),
+            format!("project:{project_id}"),
+            window_label,
+            on_update,
+        )
+    }
+
+    /// Admits and starts one bounded subscription for an opaque `WorkspaceID`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed error for malformed identity, duplicate ownership, or
+    /// unavailable subscription capacity.
+    pub fn subscribe_workspace<S>(
+        &self,
+        source: Arc<S>,
+        workspace_id: &str,
+        window_label: &str,
+        on_update: Channel<ConversationChannelEvent>,
+    ) -> Result<String, ConversationChannelError>
+    where
+        S: ConversationUpdateSource,
+    {
+        let workspace_id = CanonicalId::parse(workspace_id)
+            .map_err(|_| ConversationChannelError::unavailable())?
+            .to_string();
+        if window_label.is_empty() {
+            return Err(ConversationChannelError::unavailable());
+        }
+        self.subscribe_target(
+            source,
+            ConversationSubscriptionTarget::Workspace(workspace_id.clone()),
+            format!("workspace:{workspace_id}"),
+            window_label,
+            on_update,
+        )
+    }
+
+    fn subscribe_target<S>(
+        &self,
+        source: Arc<S>,
+        target: ConversationSubscriptionTarget,
+        conversation_key: String,
+        window_label: &str,
+        on_update: Channel<ConversationChannelEvent>,
+    ) -> Result<String, ConversationChannelError>
+    where
+        S: ConversationUpdateSource,
+    {
+        let pair = (window_label.to_owned(), conversation_key.clone());
         let (subscription_id, control) = {
             let mut registry = self
                 .inner
@@ -50,7 +101,7 @@ impl ConversationSubscriptionManager {
                 subscription_id.clone(),
                 SubscriptionRecord {
                     window_label: window_label.to_owned(),
-                    project_id,
+                    conversation_key,
                     control: Arc::clone(&control),
                 },
             );
@@ -61,7 +112,7 @@ impl ConversationSubscriptionManager {
             Arc::downgrade(&self.inner),
             subscription_id.clone(),
             source,
-            project_id,
+            target,
             control,
             on_update,
         );

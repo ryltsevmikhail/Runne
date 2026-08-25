@@ -6,6 +6,7 @@ import type {
   ConversationSnapshot,
   ConversationTimelineListener,
 } from '@/entities/conversation'
+import { workspaceId } from '@/entities/conversation/api/conversations.test-support'
 
 import ConversationChat from './ConversationChat.vue'
 
@@ -55,43 +56,43 @@ function mockSession(
 }
 
 describe('conversation chat widget', () => {
-  it('connects, opens the project conversation, and renders durable messages', async () => {
+  it('connects, opens the workspace conversation, and renders durable messages', async () => {
     const calls: string[] = []
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => {
           calls.push('connect')
           return 'live'
         },
-        openConversation: async (projectId) => {
-          calls.push(`open:${projectId}`)
+        openConversation: async (id) => {
+          calls.push(`open:${id}`)
           return generated
         },
-        subscribeConversation: async (projectId) => {
-          calls.push(`subscribe:${projectId}`)
+        subscribeConversation: async (id) => {
+          calls.push(`subscribe:${id}`)
           return mockSession()
         },
       },
     })
     await flushPromises()
 
-    expect(calls).toEqual(['connect', 'open:7', 'subscribe:7'])
+    expect(calls).toEqual(['connect', `open:${workspaceId}`, `subscribe:${workspaceId}`])
     expect(wrapper.get('[aria-label="Conversation messages"]').text()).toContain('hello')
     expect(wrapper.text()).toContain('Runne local response: hello')
     expect(wrapper.text()).toContain('Runtime live')
   })
 
   it('submits text once, clears the composer, and renders the returned snapshot', async () => {
-    const sends: Array<[number, string]> = []
+    const sends: Array<[string, string]> = []
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => empty,
-        subscribeConversation: async (projectId, _initial, onTimeline) => {
+        subscribeConversation: async (id, _initial, onTimeline) => {
           return mockSession(async (text) => {
-            sends.push([projectId, text])
+            sends.push([id, text])
             onTimeline(generated)
             return generated
           })
@@ -104,7 +105,7 @@ describe('conversation chat widget', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
-    expect(sends).toEqual([[7, 'hello']])
+    expect(sends).toEqual([[workspaceId, 'hello']])
     expect(wrapper.get('textarea').element.value).toBe('')
     expect(wrapper.findAll('[data-message-role]')).toHaveLength(2)
   })
@@ -113,7 +114,7 @@ describe('conversation chat widget', () => {
     let attempts = 0
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => {
           attempts += 1
           throw new Error('unavailable')
@@ -134,10 +135,10 @@ describe('conversation chat widget', () => {
     let listener: ConversationTimelineListener | undefined
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => generated,
-        subscribeConversation: async (_projectId, _initial, onTimeline) => {
+        subscribeConversation: async (_workspaceId, _initial, onTimeline) => {
           listener = onTimeline
           return mockSession()
         },
@@ -170,7 +171,7 @@ describe('conversation chat widget', () => {
   ] as const)('renders %s recovery closed and disables sending', async (recovery, copy) => {
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => ({ ...generated, recovery }),
         subscribeConversation: async () => mockSession(),
@@ -189,7 +190,7 @@ describe('conversation chat widget', () => {
     })
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => ({ ...generated, recovery: 'resync_required' }),
         subscribeConversation: async () => mockSession(async () => generated, resync),
@@ -210,7 +211,7 @@ describe('conversation chat widget', () => {
     const unsubscribe = vi.fn(async () => undefined)
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => generated,
         subscribeConversation: async () => mockSession(
@@ -230,7 +231,7 @@ describe('conversation chat widget', () => {
   it('preserves confirmed messages read-only when sending loses the runtime', async () => {
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => generated,
         subscribeConversation: async () => mockSession(async () => {
@@ -253,10 +254,10 @@ describe('conversation chat widget', () => {
     let listener: ConversationTimelineListener | undefined
     const wrapper = mount(ConversationChat, {
       props: {
-        projectId: 7,
+        workspaceId,
         connect: async () => 'live',
         openConversation: async () => generated,
-        subscribeConversation: async (_projectId, _initial, onTimeline) => {
+        subscribeConversation: async (_workspaceId, _initial, onTimeline) => {
           listener = onTimeline
           return mockSession()
         },

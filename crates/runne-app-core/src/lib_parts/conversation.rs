@@ -1,3 +1,25 @@
+#[derive(Clone, Copy)]
+enum ConversationReferenceOwner {
+    Project(i64),
+    Workspace(CanonicalId),
+}
+
+impl ConversationReferenceOwner {
+    fn key(self) -> String {
+        match self {
+            Self::Project(project_id) => format!("runtime.conversation.project.{project_id}"),
+            Self::Workspace(workspace_id) => format!("runtime.conversation.workspace.{workspace_id}"),
+        }
+    }
+
+    fn workspace_id(self) -> CanonicalId {
+        match self {
+            Self::Project(_) => CanonicalId::now_v7(),
+            Self::Workspace(workspace_id) => workspace_id,
+        }
+    }
+}
+
 impl AppCore {
     fn load_or_prepare_conversation_reference(
         &self,
@@ -13,7 +35,54 @@ impl AppCore {
         if store.get_project(project_id)?.is_none() {
             return Err(AppCoreError::ProjectUnavailable);
         }
-        let key = format!("runtime.conversation.project.{project_id}");
+        let reference = Self::load_or_prepare_conversation_reference_in_store(
+            &mut store,
+            ConversationReferenceOwner::Project(project_id),
+        );
+        drop(store);
+        reference
+    }
+
+    fn load_or_prepare_workspace_conversation_reference(
+        &self,
+        workspace_id: &str,
+    ) -> Result<StoredConversationReference, AppCoreError> {
+        let workspace_id = CanonicalId::parse(workspace_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        let reference = Self::load_or_prepare_conversation_reference_in_store(
+            &mut store,
+            ConversationReferenceOwner::Workspace(workspace_id),
+        );
+        drop(store);
+        reference
+    }
+
+    fn load_workspace_conversation_reference(
+        &self,
+        workspace_id: &str,
+    ) -> Result<StoredConversationReference, AppCoreError> {
+        let workspace_id = CanonicalId::parse(workspace_id).map_err(|_| AppCoreError::ProjectUnavailable)?;
+        let store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        let key = ConversationReferenceOwner::Workspace(workspace_id).key();
+        let serialized = store
+            .get_setting(&key)?
+            .ok_or(AppCoreError::ProjectUnavailable)?;
+        let reference = parse_conversation_reference(&serialized);
+        drop(store);
+        reference
+    }
+
+    fn load_or_prepare_conversation_reference_in_store(
+        store: &mut LocalStore,
+        owner: ConversationReferenceOwner,
+    ) -> Result<StoredConversationReference, AppCoreError> {
+        let key = owner.key();
         if let Some(serialized) = store.get_setting(&key)? {
             return parse_conversation_reference(&serialized);
         }
@@ -21,20 +90,33 @@ impl AppCore {
         let reference = StoredConversationReference::V1(StoredConversationReferenceV1 {
             schema_version: 1,
             conversation_id: CanonicalId::now_v7(),
-            workspace_id: CanonicalId::now_v7(),
+            workspace_id: owner.workspace_id(),
             create_command_id: command_id,
             idempotency_key: command_id.to_string(),
         });
         let serialized = serde_json::to_string(&reference)
             .map_err(|_| AppCoreError::InvalidConversationReference)?;
         store.set_setting(&key, &serialized)?;
-        drop(store);
         Ok(reference)
     }
 
+    #[cfg(test)]
     fn bind_conversation_reference(
         &self,
         project_id: i64,
+        reference: StoredConversationReference,
+        identity: &replay::StableRuntimeIdentity,
+    ) -> Result<StoredConversationReference, AppCoreError> {
+        self.bind_conversation_reference_for_owner(
+            ConversationReferenceOwner::Project(project_id),
+            reference,
+            identity,
+        )
+    }
+
+    fn bind_conversation_reference_for_owner(
+        &self,
+        owner: ConversationReferenceOwner,
         reference: StoredConversationReference,
         identity: &replay::StableRuntimeIdentity,
     ) -> Result<StoredConversationReference, AppCoreError> {
@@ -52,10 +134,7 @@ impl AppCore {
             .store
             .lock()
             .map_err(|_| AppCoreError::StateUnavailable)?;
-        store.set_setting(
-            &format!("runtime.conversation.project.{project_id}"),
-            &serialized,
-        )?;
+        store.set_setting(&owner.key(), &serialized)?;
         drop(store);
         Ok(bound)
     }

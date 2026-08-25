@@ -1,9 +1,9 @@
 export {
-  openProjectConversation,
-  resyncProjectConversation,
-  sendProjectMessage,
+  openWorkspaceConversation,
+  resyncWorkspaceConversation,
+  sendWorkspaceMessage,
 } from './transport'
-export { subscribeProjectConversation } from './session'
+export { subscribeWorkspaceConversation } from './session'
 export { parseConversationChannelEvent } from './validation'
 export type {
   ConversationChannelError,

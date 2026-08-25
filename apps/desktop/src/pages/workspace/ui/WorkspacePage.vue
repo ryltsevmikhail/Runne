@@ -15,6 +15,7 @@ import { translate } from '@/shared/i18n'
 import { DiffViewer } from '@/widgets/diff-viewer'
 import { FileExplorer } from '@/widgets/file-explorer'
 import { TerminalPanel } from '@/widgets/terminal'
+import { ConversationChat } from '@/widgets/conversation-chat'
 type LoadProject = (id: string) => Promise<CanonicalWorkspace>
 type LoadFiles = (id: string, path: string, limit: number) => Promise<{
   readonly items: readonly WorkspaceFileEntry[]
@@ -210,7 +211,6 @@ async function returnToProjects() {
       </div>
       <span class="workspace-status">{{ translate('workspace.workspaceStatus', { status: runtimeStatus }) }}</span>
     </header>
-
     <div class="workspace-panels">
       <aside class="workspace-panel workspace-panel--tree">
         <div class="panel-heading">
@@ -271,6 +271,7 @@ async function returnToProjects() {
           :loading="diffLoading"
           :error="diffError"
         />
+        <ConversationChat :workspace-id="project.workspaceId" />
       </div>
 
       <aside class="workspace-panel workspace-panel--details">

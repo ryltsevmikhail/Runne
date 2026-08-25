@@ -14,9 +14,9 @@ import type {
   Invoke,
 } from './types'
 import {
-  openProjectConversation,
-  resyncProjectConversation,
-  sendProjectMessage,
+  openWorkspaceConversation,
+  resyncWorkspaceConversation,
+  sendWorkspaceMessage,
 } from './transport'
 import {
   isCanonicalId,
@@ -24,16 +24,16 @@ import {
   parseConversationSnapshot,
   recoveryForError,
   sameSnapshot,
-  validateProjectId,
+  validateWorkspaceId,
 } from './validation'
 
-export async function subscribeProjectConversation(
-  projectId: number,
+export async function subscribeWorkspaceConversation(
+  workspaceId: string,
   initialSnapshot: ConversationSnapshot,
   onTimeline: ConversationTimelineListener,
   invoke: Invoke = tauriInvoke,
 ): Promise<ConversationSession> {
-  validateProjectId(projectId)
+  validateWorkspaceId(workspaceId)
   const sanitizedInitial = parseConversationSnapshot(initialSnapshot)
   if (sanitizedInitial === null) {
     throw new Error('Invalid conversation response')
@@ -96,8 +96,8 @@ export async function subscribeProjectConversation(
       }
       void serialize(() => handleEvent(value, currentGeneration))
     })
-    const value = await invoke('subscribe_project_conversation', {
-      projectId,
+    const value = await invoke('subscribe_workspace_conversation', {
+      workspaceId,
       onUpdate: channel,
     })
     if (!isCanonicalId(value)) {
@@ -125,7 +125,7 @@ export async function subscribeProjectConversation(
     if (closed) {
       return
     }
-    const snapshot = await openProjectConversation(projectId, invoke)
+    const snapshot = await openWorkspaceConversation(workspaceId, invoke)
     if (closed) {
       return
     }
@@ -219,7 +219,7 @@ export async function subscribeProjectConversation(
     if (closed) {
       throw new Error('Conversation subscription is closed')
     }
-    const snapshot = await sendProjectMessage(projectId, text, invoke)
+    const snapshot = await sendWorkspaceMessage(workspaceId, text, invoke)
     if (closed) {
       throw new Error('Conversation subscription is closed')
     }
@@ -259,7 +259,7 @@ export async function subscribeProjectConversation(
       }
       let snapshot = resyncedSnapshot
       if (snapshot === null) {
-        snapshot = await resyncProjectConversation(projectId, invoke)
+        snapshot = await resyncWorkspaceConversation(workspaceId, invoke)
         if (
           snapshot.conversationId !== timeline.snapshot.conversationId
           || snapshot.recovery !== 'live'

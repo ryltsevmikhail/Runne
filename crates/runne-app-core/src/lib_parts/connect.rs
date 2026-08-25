@@ -62,7 +62,6 @@ impl AppCore {
         recovery_fence.disarm();
         Ok(RuntimeAvailability::Live)
     }
-
     /// Creates or restores the one durable runtime Conversation bound to a
     /// local project.
     ///
@@ -78,13 +77,40 @@ impl AppCore {
         self.open_project_conversation_under_operation(project_id, &context)
             .await
     }
-
     async fn open_project_conversation_under_operation(
         &self,
         project_id: i64,
         context: &RuntimeOperationContext,
     ) -> Result<ConversationSnapshot, AppCoreError> {
-        let reference = self.load_or_prepare_conversation_reference(project_id)?;
+        self.open_conversation_owner_under_operation(
+            ConversationReferenceOwner::Project(project_id),
+            context,
+        )
+        .await
+    }
+    async fn open_conversation_owner_under_operation(
+        &self,
+        owner: ConversationReferenceOwner,
+        context: &RuntimeOperationContext,
+    ) -> Result<ConversationSnapshot, AppCoreError> {
+        if let ConversationReferenceOwner::Workspace(workspace_id) = owner {
+            let workspace = self
+                .live_runtime_client()?
+                .get_workspace(workspace_id)
+                .await
+                .map_err(|_| AppCoreError::ProjectUnavailable)?;
+            if workspace.id() != workspace_id {
+                return Err(AppCoreError::ProjectUnavailable);
+            }
+        }
+        let reference = match owner {
+            ConversationReferenceOwner::Project(project_id) => {
+                self.load_or_prepare_conversation_reference(project_id)?
+            }
+            ConversationReferenceOwner::Workspace(workspace_id) => {
+                self.load_or_prepare_workspace_conversation_reference(&workspace_id.to_string())?
+            }
+        };
         if reference
             .bound()
             .is_some_and(|bound| !context.identity.matches_reference(bound))
@@ -114,8 +140,7 @@ impl AppCore {
             }
         }
         self.require_current_operation_context(context)?;
-        let reference =
-            self.bind_conversation_reference(project_id, reference, &context.identity)?;
+        let reference = self.bind_conversation_reference_for_owner(owner, reference, &context.identity)?;
         self.reconcile_conversation_under_operation(context, &reference, |_| {})
             .await
     }
@@ -166,46 +191,14 @@ impl AppCore {
     ///
     /// # Errors
     ///
-    /// This operation is admitted only from `resync_required`; identity
-    /// mismatch or failed authenticated promotion remains fail-closed.
+    /// Returns a closed replay or runtime failure when resync is not admitted.
     pub async fn resync_project_conversation(
         &self,
         project_id: i64,
     ) -> Result<ConversationSnapshot, AppCoreError> {
         let _operation = self.runtime_operation.lock().await;
         let context = self.resync_runtime_operation_context()?;
-        let reference = self.load_or_prepare_conversation_reference(project_id)?;
-        let Some(bound) = reference.bound() else {
-            return Err(AppCoreError::InvalidConversationReference);
-        };
-        if !context.identity.matches_reference(bound) {
-            self.set_runtime_failure(RuntimeAvailability::Fatal)?;
-            return Err(AppCoreError::RuntimeIdentityConflict);
-        }
-        let scope_key = context.identity.scope(&reference);
-        if matches!(
-            self.runtime_availability()?,
-            RuntimeAvailability::Fatal
-                | RuntimeAvailability::Incompatible
-                | RuntimeAvailability::Revoked
-        ) || !self.resync_required_for_scope(&scope_key)?
-        {
-            return Err(AppCoreError::ReplayResyncRequired);
-        }
-        match self
-            .reconcile_conversation_under_operation(&context, &reference, |_| {})
+        self.resync_conversation_owner(ConversationReferenceOwner::Project(project_id), &context)
             .await
-        {
-            Ok(snapshot) => {
-                self.clear_resync_scope(&scope_key)?;
-                Ok(snapshot)
-            }
-            Err(error) => {
-                if self.runtime_availability()? == RuntimeAvailability::Reconnecting {
-                    self.set_resync_required_for_scope(scope_key)?;
-                }
-                Err(error)
-            }
-        }
     }
 }

@@ -61,6 +61,7 @@ include!("lib_parts/operational_telemetry_events.rs");
 include!("lib_parts/operational_telemetry_state.rs");
 include!("lib_parts/operational_telemetry_snapshot.rs");
 include!("lib_parts/conversation.rs");
+include!("lib_parts/conversation_workspace.rs");
 include!("lib_parts/task_run.rs");
 include!("lib_parts/task_run_count.rs");
 include!("lib_parts/approvals.rs");
@@ -80,6 +81,7 @@ include!("lib_parts/bootstrap.rs");
 #[cfg(test)]
 mod tests {
     include!("lib_parts/tests.rs");
+    include!("lib_parts/conversation_workspace_tests.rs");
     mod canonical_project_pagination_tests {
         include!("lib_parts/canonical_project_pagination_tests.rs");
     }

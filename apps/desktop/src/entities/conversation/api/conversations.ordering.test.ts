@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { subscribeProjectConversation } from './conversations'
+import { subscribeWorkspaceConversation } from './conversations'
 import type { ConversationSnapshot } from './conversations'
-import { snapshot, update } from './conversations.test-support'
+import { snapshot, update, workspaceId } from './conversations.test-support'
 
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
@@ -36,18 +36,18 @@ describe('conversation IPC ordering and termination', () => {
       },
     }
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-      if (command === 'subscribe_project_conversation') {
+      if (command === 'subscribe_workspace_conversation') {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
-      if (command === 'send_project_message') {
+      if (command === 'send_workspace_message') {
         return sentSnapshot
       }
     })
     const revisions: number[] = []
 
-    const session = await subscribeProjectConversation(
-      7,
+    const session = await subscribeWorkspaceConversation(
+      workspaceId,
       snapshot,
       value => revisions.push(value.projectionRevision),
       invoke,
@@ -56,7 +56,7 @@ describe('conversation IPC ordering and termination', () => {
     onmessage?.(nextUpdate)
 
     await vi.waitFor(() => expect(revisions).toEqual([4, 5]))
-    expect(invoke).not.toHaveBeenCalledWith('open_project_conversation', expect.anything())
+    expect(invoke).not.toHaveBeenCalledWith('open_workspace_conversation', expect.anything())
     expect(invoke).not.toHaveBeenCalledWith(
       'cancel_conversation_subscription',
       expect.anything(),
@@ -77,15 +77,15 @@ describe('conversation IPC ordering and termination', () => {
     async (_case, message) => {
       let onmessage: ((value: unknown) => void) | undefined
       const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-        if (command === 'subscribe_project_conversation') {
+        if (command === 'subscribe_workspace_conversation') {
           onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
           return '018f2e3a-7000-7000-8000-000000000120'
         }
       })
       const values: ConversationSnapshot[] = []
 
-      const session = await subscribeProjectConversation(
-        7,
+      const session = await subscribeWorkspaceConversation(
+        workspaceId,
         snapshot,
         value => values.push(value),
         invoke,
@@ -115,14 +115,14 @@ describe('conversation IPC ordering and termination', () => {
   it('terminates an incompatible payload without acknowledging or exposing unknown data', async () => {
     let onmessage: ((value: unknown) => void) | undefined
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-      if (command === 'subscribe_project_conversation') {
+    if (command === 'subscribe_workspace_conversation') {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
     })
     const values: ConversationSnapshot[] = []
 
-    await subscribeProjectConversation(7, snapshot, value => values.push(value), invoke)
+    await subscribeWorkspaceConversation(workspaceId, snapshot, value => values.push(value), invoke)
     onmessage?.({ ...update, secretCursor: 'forbidden' })
 
     await vi.waitFor(() => {

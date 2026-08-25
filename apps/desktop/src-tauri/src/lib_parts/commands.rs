@@ -86,7 +86,7 @@ async fn resync_task_run_timeline(
 
 include!("task_run_commands.rs");
 include!("approval_commands.rs");
-
+include!("conversation_commands.rs");
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 fn subscribe_task_run_timeline(

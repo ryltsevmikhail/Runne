@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  openProjectConversation,
+  openWorkspaceConversation,
   parseConversationChannelEvent,
-  sendProjectMessage,
+  sendWorkspaceMessage,
 } from './conversations'
-import { snapshot, update } from './conversations.test-support'
+import { snapshot, update, workspaceId } from './conversations.test-support'
 
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
@@ -19,56 +19,56 @@ vi.mock('@tauri-apps/api/core', () => ({
 }))
 
 describe('conversation IPC transport validation', () => {
-  it('loads a strict sanitized timeline for one local project', async () => {
+  it('loads a strict sanitized timeline for one canonical workspace', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = []
 
-    const value = await openProjectConversation(7, async (command, args) => {
+    const value = await openWorkspaceConversation(workspaceId, async (command, args) => {
       calls.push([command, args])
       return snapshot
     })
 
     expect(value).toEqual(snapshot)
-    expect(calls).toEqual([['open_project_conversation', { projectId: 7 }]])
+    expect(calls).toEqual([['open_workspace_conversation', { workspaceId }]])
   })
 
-  it('sends only project identity and bounded text through typed IPC', async () => {
+  it('sends only workspace identity and bounded text through typed IPC', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = []
 
-    const value = await sendProjectMessage(7, 'hello', async (command, args) => {
+    const value = await sendWorkspaceMessage(workspaceId, 'hello', async (command, args) => {
       calls.push([command, args])
       return snapshot
     })
 
     expect(value.messages.at(1)?.text).toBe('Runne local response: hello')
     expect(calls).toEqual([
-      ['send_project_message', { projectId: 7, text: 'hello' }],
+      ['send_workspace_message', { workspaceId, text: 'hello' }],
     ])
   })
 
   it('rejects unknown fields, roles, and malformed canonical identities', async () => {
     await expect(
-      openProjectConversation(7, async () => ({
+      openWorkspaceConversation(workspaceId, async () => ({
         ...snapshot,
         token: 'must-not-cross-ipc',
       })),
     ).rejects.toThrow('Invalid conversation response')
 
     await expect(
-      openProjectConversation(7, async () => ({
+      openWorkspaceConversation(workspaceId, async () => ({
         ...snapshot,
         messages: [{ ...snapshot.messages[0], role: 'tool' }],
       })),
     ).rejects.toThrow('Invalid conversation response')
 
     await expect(
-      openProjectConversation(7, async () => ({
+      openWorkspaceConversation(workspaceId, async () => ({
         ...snapshot,
         conversationId: 'not-a-uuid',
       })),
     ).rejects.toThrow('Invalid conversation response')
 
     await expect(
-      openProjectConversation(7, async () => ({
+      openWorkspaceConversation(workspaceId, async () => ({
         ...snapshot,
         messages: [snapshot.messages[0], snapshot.messages[0]],
       })),

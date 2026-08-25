@@ -58,9 +58,9 @@ export function parseConversationChannelEvent(
   }
 }
 
-export function validateProjectId(projectId: number): void {
-  if (!Number.isSafeInteger(projectId) || projectId <= 0) {
-    throw new Error('Invalid project identity')
+export function validateWorkspaceId(workspaceId: string): void {
+  if (!isCanonicalId(workspaceId)) {
+    throw new Error('Invalid workspace identity')
   }
 }
 

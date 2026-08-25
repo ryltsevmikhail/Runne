@@ -1,8 +1,8 @@
 export {
-  openProjectConversation,
-  resyncProjectConversation,
-  subscribeProjectConversation,
-  sendProjectMessage,
+  openWorkspaceConversation,
+  resyncWorkspaceConversation,
+  subscribeWorkspaceConversation,
+  sendWorkspaceMessage,
 } from './api/conversations'
 export type {
   ConversationChannelError,

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { subscribeProjectConversation } from './conversations'
-import { snapshot, update } from './conversations.test-support'
+import { subscribeWorkspaceConversation } from './conversations'
+import { snapshot, update, workspaceId } from './conversations.test-support'
 
 vi.mock('@tauri-apps/api/core', () => ({
   Channel: class {
@@ -19,7 +19,7 @@ describe('conversation IPC recovery lifecycle', () => {
     const order: string[] = []
     let onmessage: ((value: unknown) => void) | undefined
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-      if (command === 'subscribe_project_conversation') {
+      if (command === 'subscribe_workspace_conversation') {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
@@ -28,8 +28,8 @@ describe('conversation IPC recovery lifecycle', () => {
       }
     })
 
-    const session = await subscribeProjectConversation(
-      7,
+    const session = await subscribeWorkspaceConversation(
+      workspaceId,
       snapshot,
       value => order.push(`render:${value.projectionRevision}`),
       invoke,
@@ -54,19 +54,19 @@ describe('conversation IPC recovery lifecycle', () => {
     }
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       order.push(command)
-      if (command === 'subscribe_project_conversation') {
+      if (command === 'subscribe_workspace_conversation') {
         channels.push((args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage)
         subscriptions += 1
         return `018f2e3a-7000-7000-8000-${String(120 + subscriptions).padStart(12, '0')}`
       }
-      if (command === 'open_project_conversation') {
+      if (command === 'open_workspace_conversation') {
         return reconciled
       }
     })
 
     const snapshots: number[] = []
-    const session = await subscribeProjectConversation(
-      7,
+    const session = await subscribeWorkspaceConversation(
+      workspaceId,
       snapshot,
       value => snapshots.push(value.projectionRevision),
       invoke,
@@ -75,10 +75,10 @@ describe('conversation IPC recovery lifecycle', () => {
 
     await vi.waitFor(() => expect(channels).toHaveLength(2))
     expect(order).toEqual([
-      'subscribe_project_conversation',
+      'subscribe_workspace_conversation',
       'cancel_conversation_subscription',
-      'open_project_conversation',
-      'subscribe_project_conversation',
+      'open_workspace_conversation',
+      'subscribe_workspace_conversation',
     ])
     expect(snapshots).toEqual([5])
 
@@ -91,18 +91,18 @@ describe('conversation IPC recovery lifecycle', () => {
     let subscriptions = 0
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       order.push(command)
-      if (command === 'subscribe_project_conversation') {
+      if (command === 'subscribe_workspace_conversation') {
         channels.push((args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage)
         subscriptions += 1
         return `018f2e3a-7000-7000-8000-${String(120 + subscriptions).padStart(12, '0')}`
       }
-      if (command === 'resync_project_conversation') {
+      if (command === 'resync_workspace_conversation') {
         return snapshot
       }
     })
     const recoveries: string[] = []
-    const session = await subscribeProjectConversation(
-      7,
+    const session = await subscribeWorkspaceConversation(
+      workspaceId,
       snapshot,
       value => recoveries.push(value.recovery),
       invoke,
@@ -115,10 +115,10 @@ describe('conversation IPC recovery lifecycle', () => {
     expect(restored.recovery).toBe('live')
     expect(recoveries).toEqual(['resync_required', 'reconnecting', 'live'])
     expect(order).toEqual([
-      'subscribe_project_conversation',
+      'subscribe_workspace_conversation',
       'cancel_conversation_subscription',
-      'resync_project_conversation',
-      'subscribe_project_conversation',
+      'resync_workspace_conversation',
+      'subscribe_workspace_conversation',
     ])
     await session.unsubscribe()
   })
@@ -126,17 +126,17 @@ describe('conversation IPC recovery lifecycle', () => {
   it('returns a failed explicit resync to the actionable closed state', async () => {
     let onmessage: ((value: unknown) => void) | undefined
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-      if (command === 'subscribe_project_conversation') {
+      if (command === 'subscribe_workspace_conversation') {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
-      if (command === 'resync_project_conversation') {
+      if (command === 'resync_workspace_conversation') {
         throw new Error('retention still unavailable')
       }
     })
     const recoveries: string[] = []
-    const session = await subscribeProjectConversation(
-      7,
+    const session = await subscribeWorkspaceConversation(
+      workspaceId,
       snapshot,
       value => recoveries.push(value.recovery),
       invoke,
@@ -154,7 +154,7 @@ describe('conversation IPC recovery lifecycle', () => {
     let onmessage: ((value: unknown) => void) | undefined
     let subscriptions = 0
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
-      if (command === 'subscribe_project_conversation') {
+      if (command === 'subscribe_workspace_conversation') {
         subscriptions += 1
         if (subscriptions === 2) {
           throw new Error('replacement subscription unavailable')
@@ -162,13 +162,13 @@ describe('conversation IPC recovery lifecycle', () => {
         onmessage = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage
         return '018f2e3a-7000-7000-8000-000000000120'
       }
-      if (command === 'resync_project_conversation') {
+      if (command === 'resync_workspace_conversation') {
         return snapshot
       }
     })
     const recoveries: string[] = []
-    const session = await subscribeProjectConversation(
-      7,
+    const session = await subscribeWorkspaceConversation(
+      workspaceId,
       snapshot,
       value => recoveries.push(value.recovery),
       invoke,
@@ -190,7 +190,7 @@ describe('conversation IPC recovery lifecycle', () => {
     expect(restored.recovery).toBe('live')
     expect(recoveries.slice(-2)).toEqual(['reconnecting', 'live'])
     expect(invoke).toHaveBeenCalledTimes(5)
-    expect(invoke.mock.calls.filter(([command]) => command === 'resync_project_conversation')).toHaveLength(1)
+    expect(invoke.mock.calls.filter(([command]) => command === 'resync_workspace_conversation')).toHaveLength(1)
     await session.unsubscribe()
   })
 

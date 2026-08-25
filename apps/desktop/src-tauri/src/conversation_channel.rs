@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use runne_app_core::{AppCore, AppCoreError, ConversationTimelineUpdate};
+use runne_app_core::{AppCore, AppCoreError, CanonicalId, ConversationTimelineUpdate};
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tokio::sync::{Notify, mpsc};
@@ -105,6 +105,15 @@ pub trait ConversationUpdateSource: Send + Sync + 'static {
         project_id: i64,
         on_update: Box<dyn FnMut(ConversationTimelineUpdate) + Send>,
     ) -> Pin<Box<dyn Future<Output = Result<(), AppCoreError>> + Send>>;
+
+    fn subscribe_workspace(
+        self: Arc<Self>,
+        workspace_id: String,
+        on_update: Box<dyn FnMut(ConversationTimelineUpdate) + Send>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppCoreError>> + Send>> {
+        let _ = (workspace_id, on_update);
+        Box::pin(async { Err(AppCoreError::ProjectUnavailable) })
+    }
 }
 
 impl ConversationUpdateSource for AppCore {
@@ -118,6 +127,22 @@ impl ConversationUpdateSource for AppCore {
                 .await
         })
     }
+
+    fn subscribe_workspace(
+        self: Arc<Self>,
+        workspace_id: String,
+        mut on_update: Box<dyn FnMut(ConversationTimelineUpdate) + Send>,
+    ) -> Pin<Box<dyn Future<Output = Result<(), AppCoreError>> + Send>> {
+        Box::pin(async move {
+            self.subscribe_workspace_conversation(&workspace_id, &mut on_update)
+                .await
+        })
+    }
+}
+
+enum ConversationSubscriptionTarget {
+    Project(i64),
+    Workspace(String),
 }
 
 struct SubscriptionControl {
@@ -193,14 +218,14 @@ impl SubscriptionControl {
 
 struct SubscriptionRecord {
     window_label: String,
-    project_id: i64,
+    conversation_key: String,
     control: Arc<SubscriptionControl>,
 }
 
 #[derive(Default)]
 struct Registry {
     subscriptions: HashMap<String, SubscriptionRecord>,
-    by_pair: HashMap<(String, i64), String>,
+    by_pair: HashMap<(String, String), String>,
     shutting_down: bool,
 }
 
