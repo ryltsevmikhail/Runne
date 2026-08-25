@@ -63,7 +63,12 @@ class PackageSmokeTests(unittest.TestCase):
         workflow = SOURCECRAFT_WORKFLOW.read_text(encoding="utf-8")
         qualification = workflow[workflow.index("  desktop-qualification:"):]
         self.assertIn("inputs:", qualification)
-        self.assertIn("options: [refs/tags/v1.0.0]", qualification)
+        self.assertIn(
+            "type: string\n"
+            "        required: true\n"
+            "        description: Immutable protected tag to qualify; policy accepts only refs/tags/v1.0.0.",
+            qualification,
+        )
         self.assertIn("candidate_sha:\n        type: string\n        required: true", qualification)
         self.assertNotIn("desktop-qualification", workflow[workflow.index("on:"):workflow.index("env:")])
         self.assertFalse((ROOT / ".github/workflows").exists())

@@ -49,6 +49,34 @@ if [ "$RUSTC_VER" != "$EXPECTED" ]; then
     exit 1
 fi
 
+stage_bundled_daemon() {
+    local host_target
+    local extension=""
+    local target_dir="${CARGO_TARGET_DIR:-target}"
+    local source
+    local destination
+    host_target=$(rustc -vV | sed -n 's/^host: //p')
+    if [[ "$host_target" == *windows* ]]; then
+        extension=".exe"
+    fi
+    destination="apps/desktop/src-tauri/binaries/runned-${host_target}${extension}"
+    echo "--- stage bundled daemon ($host_target) ---"
+    cargo build -p runne-daemon --bin runned --release --features desktop-protected --locked
+    source="${target_dir}/${host_target}/release/runned${extension}"
+    if [ ! -f "$source" ]; then
+        source="${target_dir}/release/runned${extension}"
+    fi
+    if [ ! -f "$source" ]; then
+        echo "ERROR: bundled daemon was not produced for $host_target"
+        exit 1
+    fi
+    mkdir -p "$(dirname "$destination")"
+    cp "$source" "$destination"
+    echo "staged bundled daemon: $destination"
+}
+
+stage_bundled_daemon
+
 echo "=== CI: $MODE mode (rustc $RUSTC_VER) ==="
 
 if command -v python3 &>/dev/null; then
