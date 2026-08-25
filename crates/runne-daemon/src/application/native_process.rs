@@ -196,7 +196,11 @@ impl OwnerBoundProcessLauncher for NativeOwnerBoundProcessLauncher {
         return native_windows::spawn(self, &prepared.files, request);
         #[cfg(target_os = "macos")]
         return native_macos::spawn(self, &prepared.files, request);
-        #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
+        #[cfg(all(
+            not(target_os = "linux"),
+            not(target_os = "windows"),
+            not(target_os = "macos")
+        ))]
         {
             let _ = (prepared, request);
             return Err(OwnerBoundProcessError::LifecycleRejected);
@@ -224,7 +228,11 @@ impl OwnerBoundProcessLauncher for NativeOwnerBoundProcessLauncher {
         native_windows::terminate(process)?;
         #[cfg(target_os = "macos")]
         native_macos::terminate(process)?;
-        #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
+        #[cfg(all(
+            not(target_os = "linux"),
+            not(target_os = "windows"),
+            not(target_os = "macos")
+        ))]
         return Err(OwnerBoundProcessError::LifecycleRejected);
         active.remove(&handle.pid());
         drop(active);

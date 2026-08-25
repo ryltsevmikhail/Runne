@@ -128,6 +128,7 @@ impl StoredProviderCredential {
         self.acl_set_digest
     }
 
+    #[cfg(not(target_os = "macos"))]
     pub const fn source_revision(&self) -> Option<ProviderCredentialSourceRevision> {
         self.source_revision
     }
