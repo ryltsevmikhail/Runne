@@ -148,7 +148,7 @@ impl CredentialClaimBinding {
         ] {
             push(&mut hasher, &value.as_bytes());
         }
-        push(&mut hasher, &self.operation_id.bytes());
+        push(&mut hasher, &self.operation_id.as_bytes());
         push(&mut hasher, &self.ticket_attempt.get().to_be_bytes());
         push(&mut hasher, &self.ticket_digest.as_bytes());
         push(&mut hasher, self.provider_id.as_str().as_bytes());

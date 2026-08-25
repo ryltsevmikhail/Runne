@@ -158,7 +158,7 @@ impl CredentialReleaseMigrationBinding {
     pub fn digest(&self) -> CredentialBindingDigest {
         let mut hasher = Sha256::new();
         push(&mut hasher, MIGRATION_BINDING_DOMAIN);
-        push(&mut hasher, &self.migration_id.bytes());
+        push(&mut hasher, &self.migration_id.as_bytes());
         push(&mut hasher, &[self.phase as u8]);
         for value in [
             self.old_candidate_and_manifest,

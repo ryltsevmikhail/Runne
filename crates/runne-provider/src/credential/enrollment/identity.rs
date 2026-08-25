@@ -42,7 +42,8 @@ impl CredentialOperationId {
         Ok(Self(value))
     }
 
-    pub(crate) const fn bytes(self) -> [u8; 16] {
+    /// Returns the fixed-width safe durable operation identity.
+    pub const fn as_bytes(self) -> [u8; 16] {
         self.0
     }
 }

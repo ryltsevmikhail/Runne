@@ -118,7 +118,7 @@ impl CredentialBrokerFrameCodec {
 }
 
 fn id(bytes: &mut Vec<u8>, value: CredentialOperationId) {
-    bytes.extend_from_slice(&value.bytes());
+    bytes.extend_from_slice(&value.as_bytes());
 }
 fn encode_attempt(bytes: &mut Vec<u8>, value: CredentialTicketAttempt) {
     bytes.extend_from_slice(&value.get().to_be_bytes());

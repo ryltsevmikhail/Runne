@@ -40,7 +40,7 @@ fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapsho
     )
     .unwrap();
     let binding = CredentialClaimBinding::new(measurements, &claim).unwrap();
-    assert_eq!(binding.operation_id().bytes(), [20; 16]);
+    assert_eq!(binding.operation_id().as_bytes(), [20; 16]);
     assert_ne!(binding.digest().as_bytes(), [0; 32]);
 }
 

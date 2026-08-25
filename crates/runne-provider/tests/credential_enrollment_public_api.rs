@@ -76,6 +76,7 @@ fn credential_enrollment_public_api_is_consumer_visible() {
 #[test]
 fn credential_enrollment_public_authorities_bind_commands_and_measurements_to_one_pair() {
     let operation_id = CredentialOperationId::from_bytes([11; 16]).unwrap();
+    assert_eq!(operation_id.as_bytes(), [11; 16]);
     let attempt = CredentialTicketAttempt::new(1).unwrap();
     let ticket = RawCredentialTicket::generate().unwrap();
     let frame = CredentialBrokerFrame::IssueTicket {
