@@ -232,6 +232,11 @@ pub fn verify_update_v2(
     {
         return Err(UpdateV2VerificationError::InvalidMetadata);
     }
+    let artifact_kind = crate::UpdateArtifactKind::from_url(&target.artifact_url)
+        .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
+    if !artifact_kind.supports_platform(&target.platform) {
+        return Err(UpdateV2VerificationError::InvalidMetadata);
+    }
     let version = crate::updater::parse_version(&target.version)
         .map_err(|_| UpdateV2VerificationError::InvalidMetadata)?;
     let current = crate::updater::parse_version(current_version)

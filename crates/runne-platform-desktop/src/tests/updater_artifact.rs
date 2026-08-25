@@ -1,0 +1,20 @@
+#[test]
+fn artifact_kind_is_bound_to_signed_url_and_platform() {
+    assert_eq!(
+        crate::UpdateArtifactKind::from_url("https://updates.example.test/runne.AppImage")
+            .unwrap(),
+        crate::UpdateArtifactKind::AppImage
+    );
+    assert_eq!(
+        crate::UpdateArtifactKind::from_url("https://updates.example.test/runne_1.2.3.dmg")
+            .unwrap()
+            .suffix(),
+        ".dmg"
+    );
+    assert!(crate::UpdateArtifactKind::AppImage.supports_platform("linux"));
+    assert!(!crate::UpdateArtifactKind::MacDmg.supports_platform("linux"));
+    assert_eq!(
+        crate::UpdateArtifactKind::from_url("https://updates.example.test/runne.tar"),
+        Err(crate::UpdateArtifactKindError::Unsupported)
+    );
+}

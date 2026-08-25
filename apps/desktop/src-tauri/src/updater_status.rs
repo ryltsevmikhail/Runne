@@ -1,5 +1,6 @@
 use runne_platform_desktop::{
-    UpdateInstallState, UpdateJournal, UpdateTrustJournal, VerifiedUpdateV2,
+    StagedUpdate, UpdateInstallRecord, UpdateInstallState, UpdateJournal, UpdateTrustJournal,
+    VerifiedUpdateV2,
 };
 use serde::Serialize;
 use std::path::Path;
@@ -118,14 +119,73 @@ impl UpdateStatusStore {
         &self,
         active_task_runs: u64,
         confirm_active_task_runs: bool,
-    ) -> Result<(), ()> {
+    ) -> Result<UpdateInstallRecord, ()> {
         let updater = self.updater.as_ref().ok_or(())?;
         let updater = updater.try_lock().map_err(|_| ())?;
         updater
             .coordinator
             .prepare_restart(active_task_runs, confirm_active_task_runs)
+            .map_err(|_| ())
+    }
+
+    pub(crate) fn abort_update_install(&self) -> Result<(), ()> {
+        let updater = self.updater.as_ref().ok_or(())?;
+        let updater = updater.try_lock().map_err(|_| ())?;
+        updater
+            .coordinator
+            .abort_restart()
             .map(|_| ())
             .map_err(|_| ())
+    }
+
+    pub(crate) fn begin_health_check_if_required(&self) -> Result<(), ()> {
+        let Some(updater) = self.updater.as_ref() else {
+            return Ok(());
+        };
+        let updater = updater.try_lock().map_err(|_| ())?;
+        if updater
+            .coordinator
+            .current()
+            .map_err(|_| ())?
+            .is_some_and(|record| record.state == UpdateInstallState::RestartRequired)
+        {
+            updater
+                .coordinator
+                .begin_health_check()
+                .map(|_| ())
+                .map_err(|_| ())?;
+        }
+        drop(updater);
+        Ok(())
+    }
+
+    pub(crate) fn complete_health_if_pending(&self, healthy: bool) -> Result<(), ()> {
+        let Some(updater) = self.updater.as_ref() else {
+            return Ok(());
+        };
+        let updater = updater.try_lock().map_err(|_| ())?;
+        if updater
+            .coordinator
+            .current()
+            .map_err(|_| ())?
+            .is_some_and(|record| record.state == UpdateInstallState::HealthCheck)
+        {
+            updater
+                .coordinator
+                .complete_health(healthy, env!("CARGO_PKG_VERSION"))
+                .map(|_| ())
+                .map_err(|_| ())?;
+        }
+        drop(updater);
+        Ok(())
+    }
+
+    #[must_use]
+    pub(crate) fn staged_update(record: &UpdateInstallRecord) -> StagedUpdate {
+        StagedUpdate {
+            path: record.staged_path.clone(),
+            artifact_sha256: record.artifact_sha256.clone(),
+        }
     }
 
     fn candidate_snapshot(&self) -> UpdateStatusSnapshot {

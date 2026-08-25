@@ -126,6 +126,7 @@ async fn download_update(
 
 #[tauri::command]
 async fn prepare_update_install(
+    app: tauri::AppHandle,
     state: tauri::State<'_, UpdateStatusStore>,
     core: tauri::State<'_, std::sync::Arc<AppCore>>,
     confirm_active_task_runs: bool,
@@ -133,10 +134,28 @@ async fn prepare_update_install(
     let active_task_runs = core.active_task_run_count().await.map_err(|_| IpcError {
         code: "update_active_task_runs_unavailable",
     })?;
-    state
+    let record = state
         .prepare_update_install(active_task_runs, confirm_active_task_runs)
         .map_err(|()| IpcError {
             code: "update_install_rejected",
         })?;
+    let Ok(current_executable) = std::env::current_exe() else {
+        let _ = state.abort_update_install();
+        return Err(IpcError {
+            code: "update_install_rejected",
+        });
+    };
+    if runne_platform_desktop::install_staged_update(
+        &UpdateStatusStore::staged_update(&record),
+        &current_executable,
+    )
+    .is_err()
+    {
+        let _ = state.abort_update_install();
+        return Err(IpcError {
+            code: "update_install_rejected",
+        });
+    }
+    app.request_restart();
     Ok(state.snapshot())
 }

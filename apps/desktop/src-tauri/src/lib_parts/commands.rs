@@ -285,16 +285,15 @@ fn get_diagnostics(state: State<'_, Arc<AppCore>>) -> Result<DiagnosticsSnapshot
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 async fn connect_runtime(
-    state: State<'_, Arc<AppCore>>,
-    lifecycle: State<'_, RuntimeLifecycleManager>,
+    state: State<'_, Arc<AppCore>>, lifecycle: State<'_, RuntimeLifecycleManager>, updates: State<'_, crate::UpdateStatusStore>,
 ) -> Result<RuntimeAvailability, IpcError> {
     require_runtime_admission(&lifecycle)?;
-    lifecycle
-        .connect_runtime(&state)
-        .await
-        .map_err(|_| IpcError {
-            code: "runtime_connection_unavailable",
-        })
+    let availability = lifecycle.connect_runtime(&state).await.map_err(|_| IpcError { code: "runtime_connection_unavailable" })?;
+    let terminal = matches!(availability, RuntimeAvailability::Incompatible | RuntimeAvailability::Revoked | RuntimeAvailability::Fatal);
+    if availability == RuntimeAvailability::Live || terminal {
+        let _ = updates.complete_health_if_pending(availability == RuntimeAvailability::Live);
+    }
+    Ok(availability)
 }
 
 include!("destructive_commands.rs");

@@ -122,6 +122,9 @@ pub fn run() {
             app.manage(profile_lock);
             app.manage(core);
             app.manage(crate::updater_status::UpdateStatusStore::new(&profile_directory));
+            let _ = app
+                .state::<crate::updater_status::UpdateStatusStore>()
+                .begin_health_check_if_required();
             app.manage(Arc::clone(&notification_state));
             app.state::<crate::external_activation::ActivationManager>()
                 .forward(app.handle(), std::env::args_os().skip(1));

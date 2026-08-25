@@ -120,7 +120,11 @@ impl UpdateCoordinator {
             return Err(UpdateCoordinatorError::TransactionActive);
         }
         let target = update.target();
-        let path = self.staged_path(&target.version, &target.artifact_sha256)?;
+        let path = self.staged_path(
+            &target.version,
+            &target.artifact_sha256,
+            &target.artifact_url,
+        )?;
         let staged = self
             .feed
             .download_and_stage(update, &path)
@@ -158,6 +162,16 @@ impl UpdateCoordinator {
         self.current_record()
     }
 
+    /// Returns a prepared transaction to the staged state when installation
+    /// could not be started by the native package backend.
+    pub fn abort_restart(&self) -> Result<UpdateInstallRecord, UpdateCoordinatorError> {
+        self.require_state(UpdateInstallState::RestartRequired)?;
+        self.journal
+            .transition(UpdateInstallState::Staged)
+            .map_err(UpdateCoordinatorError::Journal)?;
+        self.current_record()
+    }
+
     pub fn begin_health_check(&self) -> Result<UpdateInstallRecord, UpdateCoordinatorError> {
         self.require_state(UpdateInstallState::RestartRequired)?;
         self.journal
@@ -172,7 +186,7 @@ impl UpdateCoordinator {
         installed_version: &str,
     ) -> Result<UpdateInstallRecord, UpdateCoordinatorError> {
         let record = self.require_state(UpdateInstallState::HealthCheck)?;
-        if record.version != installed_version {
+        if healthy && record.version != installed_version {
             return Err(UpdateCoordinatorError::InvalidTransition);
         }
         if healthy {
@@ -209,16 +223,24 @@ impl UpdateCoordinator {
             .ok_or(UpdateCoordinatorError::InvalidTransition)
     }
 
-    fn staged_path(&self, version: &str, digest: &str) -> Result<PathBuf, UpdateCoordinatorError> {
+    fn staged_path(
+        &self,
+        version: &str,
+        digest: &str,
+        artifact_url: &str,
+    ) -> Result<PathBuf, UpdateCoordinatorError> {
         if crate::updater::parse_version(version).is_err()
             || !crate::updater::is_sha256(digest)
             || !self.staging_directory.is_absolute()
         {
             return Err(UpdateCoordinatorError::InvalidConfiguration);
         }
+        let suffix = crate::UpdateArtifactKind::from_url(artifact_url)
+            .map_err(|_| UpdateCoordinatorError::InvalidConfiguration)?
+            .suffix();
         Ok(self
             .staging_directory
-            .join(format!("runne-{version}-{digest}.update")))
+            .join(format!("runne-{version}-{digest}{suffix}")))
     }
 }
 

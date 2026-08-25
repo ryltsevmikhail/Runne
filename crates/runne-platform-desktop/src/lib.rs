@@ -3,8 +3,10 @@
 mod protected_runtime;
 mod root_handle_broker;
 mod updater;
+mod updater_artifact;
 mod updater_coordinator;
 mod updater_feed;
+mod updater_install;
 mod updater_journal;
 mod updater_metadata;
 mod updater_trust;
@@ -34,10 +36,12 @@ pub use updater::{
     UpdatePayloadV1, UpdateTarget, UpdateVerificationError, VerifiedUpdate,
     stage_verified_artifact, verify_update,
 };
+pub use updater_artifact::{UpdateArtifactKind, UpdateArtifactKindError};
 pub use updater_coordinator::{
     UpdateCoordinator, UpdateCoordinatorError, UpdateTargetBindingConfig,
 };
 pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
+pub use updater_install::{NativeUpdateInstallError, install_staged_update};
 pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
 pub use updater_metadata::{
     UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
@@ -78,6 +82,7 @@ mod tests {
     include!("tests/supervisor.rs");
     include!("tests/recovery.rs");
     include!("tests/backoff_and_geometry.rs");
+    include!("tests/updater_artifact.rs");
     include!("tests/updater.rs");
     #[cfg(unix)]
     mod root_files {

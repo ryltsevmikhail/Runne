@@ -226,7 +226,7 @@ const fn valid_transition(from: super::UpdateInstallState, to: super::UpdateInst
             super::UpdateInstallState::RestartRequired
         ) | (
             super::UpdateInstallState::RestartRequired,
-            super::UpdateInstallState::HealthCheck
+            super::UpdateInstallState::Staged | super::UpdateInstallState::HealthCheck
         ) | (
             super::UpdateInstallState::HealthCheck,
             super::UpdateInstallState::Committed | super::UpdateInstallState::RolledBack

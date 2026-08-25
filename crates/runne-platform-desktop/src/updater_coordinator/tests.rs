@@ -89,3 +89,29 @@ fn coordinator_persists_explicit_rollback_after_failed_health() {
         UpdateInstallState::RolledBack
     );
 }
+
+#[test]
+fn coordinator_preserves_signed_artifact_suffix_in_staging_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let coordinator = coordinator(directory.path());
+    let path = coordinator
+        .staged_path(
+            "1.2.0",
+            &"c".repeat(64),
+            "https://updates.example.test/runne_1.2.0.AppImage",
+        )
+        .unwrap();
+    assert!(path.ends_with("runne-1.2.0-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.AppImage"));
+}
+
+#[test]
+fn coordinator_can_abort_restart_when_native_install_does_not_start() {
+    let directory = tempfile::tempdir().unwrap();
+    let coordinator = coordinator(directory.path());
+    record(&coordinator, directory.path());
+    coordinator.prepare_restart(0, false).unwrap();
+    assert_eq!(
+        coordinator.abort_restart().unwrap().state,
+        UpdateInstallState::Staged
+    );
+}
