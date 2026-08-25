@@ -289,7 +289,11 @@ impl CredentialBackend for FakeBackend {
         Ok(())
     }
 
-    fn delete(&mut self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
+    fn delete(
+        &mut self,
+        _id: ProviderCredentialId,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
         self.configured = false;
         Ok(())
     }

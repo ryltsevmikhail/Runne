@@ -3,8 +3,11 @@ use runne_secure_store::{
     ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
     ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt as _;
 struct ControlledExecutable {
     access: ProviderCredentialAccessPolicy,
+    path: std::path::PathBuf,
     _permissions: CurrentExecutablePermissions,
 }
 
@@ -44,6 +47,7 @@ fn controlled_executable() -> ControlledExecutable {
         .expect("controlled executable access policy");
     ControlledExecutable {
         access,
+        path: executable.clone(),
         _permissions: CurrentExecutablePermissions {
             path: executable,
             #[cfg(unix)]
@@ -84,6 +88,7 @@ impl ProviderCredentialStore for StatusOnlyStore {
     fn delete_provider_credential(
         &self,
         _provider: ProviderCredentialId,
+        _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
@@ -182,6 +187,32 @@ fn native_store_routes_deepseek_to_distinct_missing_account() {
             .unwrap(),
         ProviderCredentialStatus::Missing
     );
+}
+
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[test]
+fn native_keyring_delete_rejects_current_reader_before_backend_delete() {
+    use runne_secure_store::NativeProviderCredentialStore;
+
+    let current = controlled_executable();
+    let writer = current.path.with_file_name(format!(
+        "runne-writer-copy-{}{}",
+        std::process::id(),
+        std::env::consts::EXE_SUFFIX
+    ));
+    std::fs::copy(&current.path, &writer).expect("copy writer executable");
+    #[cfg(unix)]
+    std::fs::set_permissions(&writer, std::fs::Permissions::from_mode(0o500))
+        .expect("restrict copied writer");
+    let reader_policy = ProviderCredentialAccessPolicy::new(&writer, &current.path)
+        .expect("policy that measures the current process only as reader");
+    let store = NativeProviderCredentialStore::new();
+
+    assert_eq!(
+        store.delete_provider_credential(ProviderCredentialId::OpenAi, &reader_policy),
+        Err(SecureStoreError::CredentialIdentityMismatch)
+    );
+    std::fs::remove_file(writer).expect("remove copied writer");
 }
 
 #[test]

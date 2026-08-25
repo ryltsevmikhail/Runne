@@ -50,16 +50,9 @@ impl NativeProviderCredentialVersionStore for MacOsProviderCredentialStore {
         &self,
         claim: CredentialGcClaim,
     ) -> Result<NativeCredentialDeletionProof, SecureStoreError> {
-        let authority = self.version_authority()?;
-        let reference = authority
-            .authorize_delete(&claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        let provider = provider_id_from_version_ref(reference)?;
-        self.version_store(reference)?
-            .delete_provider_credential(provider)?;
-        authority
-            .prove_deletion(claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)
+        // This native GC API does not carry the required writer/reader policy.
+        let _ = claim;
+        Err(SecureStoreError::CredentialAccessDenied)
     }
 }
 

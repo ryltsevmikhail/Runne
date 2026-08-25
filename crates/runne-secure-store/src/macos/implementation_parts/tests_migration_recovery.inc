@@ -98,7 +98,7 @@
             SecureStoreError::CredentialAccessDenied
         );
         store
-            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .delete_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
             .unwrap();
     }
 
@@ -194,7 +194,7 @@
                 ProviderCredentialStatus::Configured
             );
             store
-                .delete_provider_credential(ProviderCredentialId::OpenAi)
+                .delete_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
                 .unwrap();
         }
     }

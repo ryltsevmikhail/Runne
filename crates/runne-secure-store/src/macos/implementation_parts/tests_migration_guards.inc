@@ -44,7 +44,7 @@
             ProviderCredentialStatus::Configured
         );
         store
-            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .delete_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
             .unwrap();
     }
 
@@ -109,7 +109,7 @@
             )
             .unwrap();
         store
-            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .delete_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
             .unwrap();
     }
 

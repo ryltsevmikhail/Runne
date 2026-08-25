@@ -199,6 +199,7 @@ impl ProviderCredentialStore for StubStore {
     fn delete_provider_credential(
         &self,
         _provider: ProviderCredentialId,
+        _access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }

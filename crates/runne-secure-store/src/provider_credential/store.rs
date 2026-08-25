@@ -47,6 +47,7 @@ pub trait ProviderCredentialStore: Send + Sync {
     fn delete_provider_credential(
         &self,
         provider: ProviderCredentialId,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError>;
 
     /// # Errors

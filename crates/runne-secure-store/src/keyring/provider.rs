@@ -69,10 +69,12 @@ impl ProviderCredentialStore for NativeKeyringStore {
     fn delete_provider_credential(
         &self,
         provider: ProviderCredentialId,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        access.validate_writer_current()?;
+        access.remeasure()?;
         Self::delete_provider(provider)
     }
-
     fn migrate_provider_credential_access(
         &self,
         provider: ProviderCredentialId,
@@ -161,14 +163,9 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
         &self,
         claim: CredentialGcClaim,
     ) -> Result<NativeCredentialDeletionProof, SecureStoreError> {
-        let authority = self.version_authority()?;
-        let reference = authority
-            .authorize_delete(&claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        Self::delete_version_ref(reference)?;
-        authority
-            .prove_deletion(claim)
-            .map_err(|_| SecureStoreError::CredentialAccessDenied)
+        // This native GC API does not carry the required writer/reader policy.
+        let _ = claim;
+        Err(SecureStoreError::CredentialAccessDenied)
     }
 }
 
@@ -224,11 +221,6 @@ impl NativeKeyringStore {
     ) -> Result<(), SecureStoreError> {
         let (service, account) = version_key(reference);
         Self::write_secret(&service, &account, encoded)
-    }
-
-    fn delete_version_ref(reference: &CredentialVersionRef) -> Result<(), SecureStoreError> {
-        let (service, account) = version_key(reference);
-        Self::delete_secret(&service, &account)
     }
 }
 

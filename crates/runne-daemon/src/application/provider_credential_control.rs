@@ -97,13 +97,18 @@ impl ProviderCredentialControlHostPort for DaemonProviderCredentialControl {
     > {
         Box::pin(async move {
             Self::authorize(&context)?;
+            let access = self
+                .access
+                .clone()
+                .ok_or(ProviderCredentialHostError::Unavailable)?;
             let provider = command.provider();
             let provider_id = provider_id(provider);
             let store = Arc::clone(&self.store);
-            let result =
-                tokio::task::spawn_blocking(move || store.delete_provider_credential(provider_id))
-                    .await
-                    .map_err(|_| ProviderCredentialHostError::Unavailable)?;
+            let result = tokio::task::spawn_blocking(move || {
+                store.delete_provider_credential(provider_id, &access)
+            })
+            .await
+            .map_err(|_| ProviderCredentialHostError::Unavailable)?;
             match result {
                 Ok(()) | Err(SecureStoreError::ProviderCredentialNotFound) => {
                     Ok(ProviderCredentialMutationAckV1::new(

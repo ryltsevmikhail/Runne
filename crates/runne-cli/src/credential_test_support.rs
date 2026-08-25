@@ -28,9 +28,7 @@ pub fn run(
         store_calls: 0,
         store_received_stdin_secret: false,
     };
-    let resolver = Resolver::new(
-        scenario == "resolver-error" || scenario == "set-resolver-error" || scenario == "delete",
-    );
+    let resolver = Resolver::new(scenario == "resolver-error" || scenario == "set-resolver-error");
     let result = run_provider_credential_with(
         VecDeque::from(arguments),
         stdin,
@@ -130,7 +128,11 @@ impl CredentialBackend for Backend {
         Ok(())
     }
 
-    fn delete(&mut self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
+    fn delete(
+        &mut self,
+        _id: ProviderCredentialId,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
         self.delete_calls += 1;
         self.configured = false;
         Ok(())

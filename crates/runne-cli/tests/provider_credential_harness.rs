@@ -127,7 +127,7 @@ fn main() {
     assert_eq!(delete.outcome.stdout, "missing\n");
     assert_eq!(delete.outcome.stderr, "");
     assert_eq!(delete.delete_calls, 1);
-    assert_eq!(delete.resolver_calls, 0);
+    assert_eq!(delete.resolver_calls, 1);
 
     let set = credential_test_support::run(
         [

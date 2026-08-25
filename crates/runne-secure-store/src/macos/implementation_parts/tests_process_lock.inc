@@ -41,7 +41,7 @@
             );
 
             store
-                .delete_provider_credential(ProviderCredentialId::OpenAi)
+                .delete_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
                 .unwrap();
             assert_eq!(
                 store
@@ -56,7 +56,7 @@
                 SecureStoreError::ProviderCredentialNotFound
             );
             store
-                .delete_provider_credential(ProviderCredentialId::OpenAi)
+                .delete_provider_credential(ProviderCredentialId::OpenAi, &current_policy)
                 .unwrap();
         }
     }

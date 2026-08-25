@@ -86,7 +86,12 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
     fn delete_provider_credential(
         &self,
         provider: ProviderCredentialId,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        access
+            .validate_writer_current()
+            .map_err(map_identity_access_error)?;
+        access.remeasure().map_err(map_identity_access_error)?;
         let store = self.scoped_provider_store(provider);
         store.validate_provider(provider)?;
         Self::with_noninteractive(|keychain| {
@@ -98,6 +103,7 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
                 let Some((metadata, item)) = store.find_named_metadata(keychain, &service)? else {
                     continue;
                 };
+                access.remeasure().map_err(map_identity_access_error)?;
                 metadata.validate_writer_current()?;
                 verify_item_acl(&item, metadata.acl_set_digest())?;
                 runne_macos_keychain_acl::delete_item(&item).map_err(map_acl_error)?;

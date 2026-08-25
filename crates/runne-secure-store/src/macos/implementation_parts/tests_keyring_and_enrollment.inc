@@ -84,10 +84,10 @@
             b"native-test-replacement"
         );
         store
-            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .delete_provider_credential(ProviderCredentialId::OpenAi, &policy)
             .unwrap();
         store
-            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .delete_provider_credential(ProviderCredentialId::OpenAi, &policy)
             .unwrap();
         assert_eq!(
             store
@@ -230,7 +230,7 @@
             SecureStoreError::CredentialAccessDenied
         );
         store
-            .delete_provider_credential(ProviderCredentialId::OpenAi)
+            .delete_provider_credential(ProviderCredentialId::OpenAi, &policy)
             .unwrap();
 
         let reader = ExecutableCopy::new(&current, "reader-replacement");
