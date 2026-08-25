@@ -104,6 +104,10 @@ impl CredentialProcessBinding {
     pub const fn retained_handle_digest(&self) -> CredentialBindingDigest {
         self.retained_handle_identity.digest()
     }
+
+    pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
+        self.start_identity.belongs_to(seal) && self.retained_handle_identity.belongs_to(seal)
+    }
 }
 
 /// Validated, source-separated measurements for one exact live writer claim.

@@ -45,8 +45,12 @@ impl CredentialClaimBinding {
     /// Constructs a claim only from source-separated measurements and validated operation data.
     pub fn new(
         measurements: CredentialMeasurementSnapshot,
-        claim: ClaimCredentialOperation,
+        claim: &ClaimCredentialOperation,
     ) -> Result<Self, CredentialEnrollmentError> {
+        let credential_version = claim
+            .allocated_credential_version()
+            .cloned()
+            .ok_or(CredentialEnrollmentError::InvalidInput)?;
         let [
             candidate_source_identity,
             release_manifest_digest,
@@ -62,7 +66,7 @@ impl CredentialClaimBinding {
             broker_channel_binding,
             continuation_binding_digest,
         ] = measurements.digests();
-        Ok(Self {
+        let binding = Self {
             candidate_source_identity,
             release_manifest_digest,
             desktop_executable_identity,
@@ -83,12 +87,18 @@ impl CredentialClaimBinding {
             ticket_digest: claim.ticket_digest(),
             provider_id: claim.provider_id().clone(),
             action: claim.action(),
-            credential_version: claim.credential_version().clone(),
+            credential_version,
             expected_lifecycle_revision: claim.expected_lifecycle_revision(),
             expected_prior_fence: claim.expected_prior_fence(),
             issued_at_high_water: claim.issued_at_high_water(),
             expires_at_high_water: claim.expires_at_high_water(),
-        })
+        };
+        if continuation_binding_digest != claim.continuation_binding_digest()
+            || binding.digest() != claim.process_release_binding_digest()
+        {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(binding)
     }
 
     /// Returns the durable operation identity.

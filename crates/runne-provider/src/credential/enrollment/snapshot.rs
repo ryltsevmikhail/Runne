@@ -1,9 +1,13 @@
 use crate::{CredentialVersionRef, ProviderId};
 
 use super::{
-    CredentialEnrollmentError, CredentialFence, CredentialLifecycleRevision,
-    CredentialOperationAction, CredentialOperationId, CredentialOperationState,
+    CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
+    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
+    CredentialOperationMetadata, CredentialOperationState, CredentialReadinessRevision,
+    CredentialTerminalDisposition,
 };
+
+mod validation;
 
 /// Immutable durable view of one credential enrollment operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12,24 +16,30 @@ pub struct CredentialOperationSnapshot {
     provider_id: ProviderId,
     action: CredentialOperationAction,
     state: CredentialOperationState,
-    credential_version: CredentialVersionRef,
-    lifecycle_revision: CredentialLifecycleRevision,
-    fence: CredentialFence,
+    allocated_credential_version: Option<CredentialVersionRef>,
+    metadata: CredentialOperationMetadata,
 }
 
 impl CredentialOperationSnapshot {
-    /// Validates the provider/version binding of a durable operation view.
-    #[allow(clippy::too_many_arguments)]
+    /// Validates provider/version identity and v24 replay/tombstone metadata.
     pub fn new(
         operation_id: CredentialOperationId,
         provider_id: ProviderId,
         action: CredentialOperationAction,
         state: CredentialOperationState,
-        credential_version: CredentialVersionRef,
-        lifecycle_revision: CredentialLifecycleRevision,
-        fence: CredentialFence,
+        allocated_credential_version: Option<CredentialVersionRef>,
+        metadata: CredentialOperationMetadata,
     ) -> Result<Self, CredentialEnrollmentError> {
-        if credential_version.provider() != &provider_id {
+        if allocated_credential_version
+            .as_ref()
+            .is_some_and(|version| version.provider() != &provider_id)
+            || !validation::valid_snapshot_shape(
+                action,
+                state,
+                allocated_credential_version.as_ref(),
+                &metadata,
+            )
+        {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
         Ok(Self {
@@ -37,45 +47,61 @@ impl CredentialOperationSnapshot {
             provider_id,
             action,
             state,
-            credential_version,
-            lifecycle_revision,
-            fence,
+            allocated_credential_version,
+            metadata,
         })
     }
-
     /// Returns the durable operation identity.
     pub const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
     }
-
     /// Returns the provider identity.
     pub const fn provider(&self) -> &ProviderId {
         &self.provider_id
     }
-
     /// Returns the operation action.
     pub const fn action(&self) -> CredentialOperationAction {
         self.action
     }
-
     /// Returns the authoritative operation state.
     pub const fn state(&self) -> CredentialOperationState {
         self.state
     }
-
-    /// Returns the target credential version.
-    pub const fn credential_version(&self) -> &CredentialVersionRef {
-        &self.credential_version
+    /// Returns the allocated version when this operation has one.
+    pub const fn allocated_credential_version(&self) -> Option<&CredentialVersionRef> {
+        self.allocated_credential_version.as_ref()
     }
-
-    /// Returns the lifecycle revision observed with the operation.
+    /// Returns all immutable safe durable metadata.
+    pub const fn metadata(&self) -> &CredentialOperationMetadata {
+        &self.metadata
+    }
+    /// Returns the accepted begin proof digest.
+    pub const fn begin_proof_digest(&self) -> CredentialBindingDigest {
+        self.metadata.begin_proof_digest()
+    }
+    /// Returns the accepted continuation digest after claim.
+    pub const fn continuation_binding_digest(&self) -> Option<CredentialBindingDigest> {
+        self.metadata.continuation_binding_digest()
+    }
+    /// Returns the full process/release binding digest after claim.
+    pub const fn process_release_binding_digest(&self) -> Option<CredentialBindingDigest> {
+        self.metadata.process_release_binding_digest()
+    }
+    /// Returns the safe terminal disposition.
+    pub const fn terminal_disposition(&self) -> Option<CredentialTerminalDisposition> {
+        self.metadata.terminal_disposition()
+    }
+    /// Returns the permanent tombstone digest.
+    pub const fn tombstone_digest(&self) -> Option<CredentialBindingDigest> {
+        self.metadata.tombstone_digest()
+    }
+    /// Returns the expected lifecycle revision.
     pub const fn lifecycle_revision(&self) -> CredentialLifecycleRevision {
-        self.lifecycle_revision
+        self.metadata.expected_lifecycle_revision()
     }
-
-    /// Returns the provider fence observed with the operation.
+    /// Returns the expected provider fence.
     pub const fn fence(&self) -> CredentialFence {
-        self.fence
+        self.metadata.expected_prior_fence()
     }
 }
 
@@ -86,6 +112,7 @@ pub struct CredentialLifecycleSnapshot {
     active_version: Option<CredentialVersionRef>,
     lifecycle_revision: CredentialLifecycleRevision,
     fence: CredentialFence,
+    readiness_revision: CredentialReadinessRevision,
 }
 
 impl CredentialLifecycleSnapshot {
@@ -95,6 +122,7 @@ impl CredentialLifecycleSnapshot {
         active_version: Option<CredentialVersionRef>,
         lifecycle_revision: CredentialLifecycleRevision,
         fence: CredentialFence,
+        readiness_revision: CredentialReadinessRevision,
     ) -> Result<Self, CredentialEnrollmentError> {
         if active_version
             .as_ref()
@@ -107,27 +135,28 @@ impl CredentialLifecycleSnapshot {
             active_version,
             lifecycle_revision,
             fence,
+            readiness_revision,
         })
     }
-
     /// Returns the provider identity.
     pub const fn provider(&self) -> &ProviderId {
         &self.provider_id
     }
-
     /// Returns the active credential version, when one exists.
     pub const fn active_version(&self) -> Option<&CredentialVersionRef> {
         self.active_version.as_ref()
     }
-
     /// Returns the authoritative lifecycle revision.
     pub const fn lifecycle_revision(&self) -> CredentialLifecycleRevision {
         self.lifecycle_revision
     }
-
     /// Returns the authoritative provider fence.
     pub const fn fence(&self) -> CredentialFence {
         self.fence
+    }
+    /// Returns the authoritative readiness revision.
+    pub const fn readiness_revision(&self) -> CredentialReadinessRevision {
+        self.readiness_revision
     }
 }
 
@@ -150,7 +179,6 @@ impl CredentialRecoveryWork {
         }
         Ok(Self { operation })
     }
-
     /// Returns the immutable operation snapshot.
     pub const fn operation(&self) -> &CredentialOperationSnapshot {
         &self.operation
@@ -181,17 +209,14 @@ impl HardFenceProvider {
             new_fence,
         })
     }
-
     /// Returns the provider identity.
     pub const fn provider(&self) -> &ProviderId {
         &self.provider_id
     }
-
     /// Returns the compare-and-set prior fence.
     pub const fn expected_prior_fence(&self) -> CredentialFence {
         self.expected_prior_fence
     }
-
     /// Returns the requested successor fence.
     pub const fn new_fence(&self) -> CredentialFence {
         self.new_fence

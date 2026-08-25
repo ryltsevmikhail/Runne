@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use super::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
-    CredentialEnrollmentError, CredentialMeasurementSnapshot, CredentialOperationAction,
-    CredentialOperationState, CredentialTransitionEvidence, DaemonAuthorityId,
+    CredentialBindingDigest, CredentialEnrollmentError, CredentialMeasurementSnapshot,
+    CredentialMigrationMetadata, CredentialOperationAction, CredentialOperationState,
+    CredentialProcessBinding, CredentialReleaseMigrationBinding, CredentialTransitionEvidence,
+    CredentialVerificationCapability, CredentialVerificationLease, DaemonAuthorityId,
     DesktopExecutableIdentity, ExpectedInstallMeasurement, ObservedInstallMeasurement,
     ProtectedSessionId, ReaderExecutableIdentity, ReleaseManifestDigest, TransitionCommand,
     WriterExecutableIdentity, WriterLaunchId, WriterProcessHandleIdentity,
@@ -106,6 +108,93 @@ impl CredentialEnrollmentStoreAuthority {
         }
         Ok(expected.digest() == observed.digest())
     }
+
+    /// Issues a verification lease after the Task 3 store has accepted its persistence CAS.
+    ///
+    /// This provider-only authority seals the lease but cannot prove persistence ordering; Task 3
+    /// owns that cross-crate invariant and must call this only after successful acceptance.
+    pub fn issue_credential_verification_lease(
+        &self,
+        begin: super::BeginCredentialVerification,
+    ) -> CredentialVerificationLease {
+        CredentialVerificationLease::issue(self.seal.clone(), begin)
+    }
+
+    /// Rejects a capability not sealed by this store/measurement authority pair.
+    pub fn validate_credential_verification_capability(
+        &self,
+        capability: &CredentialVerificationCapability,
+    ) -> Result<(), CredentialEnrollmentError> {
+        if capability.belongs_to(&self.seal) {
+            Ok(())
+        } else {
+            Err(CredentialEnrollmentError::InvalidEvidence)
+        }
+    }
+
+    /// Materializes sealed migration metadata only from this pair's measured migration binding.
+    ///
+    /// ```compile_fail
+    /// use runne_provider::{
+    ///     CredentialBindingDigest, CredentialEnrollmentStoreAuthority,
+    ///     CredentialReleaseMigrationBinding,
+    /// };
+    ///
+    /// fn cannot_substitute_tuple_digests(
+    ///     store: &CredentialEnrollmentStoreAuthority,
+    ///     binding: &CredentialReleaseMigrationBinding,
+    ///     digest: CredentialBindingDigest,
+    /// ) {
+    ///     let _ = store.issue_credential_migration_metadata(binding, digest, digest);
+    /// }
+    /// ```
+    pub fn issue_credential_migration_metadata(
+        &self,
+        binding: &CredentialReleaseMigrationBinding,
+    ) -> Result<CredentialMigrationMetadata, CredentialEnrollmentError> {
+        if !binding.belongs_to(&self.seal) {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(CredentialMigrationMetadata::issue(
+            self.seal.clone(),
+            binding.migration_id(),
+            binding.phase(),
+            binding.old_tuple_digest(),
+            binding.new_tuple_digest(),
+        ))
+    }
+
+    /// Rehydrates safe migration fields after Task 3 validates an immutable v24 row.
+    ///
+    /// This does not admit a new migration or process effect. The store must call it only while
+    /// decoding metadata that its persistence boundary has already validated.
+    pub fn hydrate_persisted_credential_migration_metadata(
+        &self,
+        migration_id: super::CredentialOperationId,
+        phase: super::WriterIdentityMigrationPhase,
+        old_tuple_digest: CredentialBindingDigest,
+        new_tuple_digest: CredentialBindingDigest,
+    ) -> CredentialMigrationMetadata {
+        CredentialMigrationMetadata::issue(
+            self.seal.clone(),
+            migration_id,
+            phase,
+            old_tuple_digest,
+            new_tuple_digest,
+        )
+    }
+
+    /// Rejects migration metadata materialized by a different authority pair.
+    pub fn validate_credential_migration_metadata(
+        &self,
+        metadata: &CredentialMigrationMetadata,
+    ) -> Result<(), CredentialEnrollmentError> {
+        if metadata.belongs_to(&self.seal) {
+            Ok(())
+        } else {
+            Err(CredentialEnrollmentError::InvalidEvidence)
+        }
+    }
 }
 
 /// Independent issuer for observed installation and source measurements.
@@ -120,6 +209,52 @@ impl CredentialEnrollmentMeasurementAuthority {
         bytes: [u8; 32],
     ) -> Result<ObservedInstallMeasurement, CredentialEnrollmentError> {
         ObservedInstallMeasurement::issue(self.seal.clone(), bytes)
+    }
+
+    /// Binds a store lease to this process-local verifier digest under the shared authority seal.
+    pub fn issue_credential_verification_capability(
+        &self,
+        lease: CredentialVerificationLease,
+        binding_digest: CredentialBindingDigest,
+    ) -> Result<CredentialVerificationCapability, CredentialEnrollmentError> {
+        if !lease.belongs_to(&self.seal) {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(CredentialVerificationCapability::issue(
+            self.seal.clone(),
+            lease,
+            binding_digest,
+        ))
+    }
+
+    /// Issues one migration binding from same-pair, independently measured process evidence.
+    #[allow(clippy::too_many_arguments)]
+    pub fn issue_credential_release_migration_binding(
+        &self,
+        migration_id: super::CredentialOperationId,
+        phase: super::WriterIdentityMigrationPhase,
+        old_candidate_and_manifest: CredentialBindingDigest,
+        new_candidate_and_manifest: CredentialBindingDigest,
+        old_desktop_writer_reader_contract: CredentialBindingDigest,
+        new_desktop_writer_reader_contract: CredentialBindingDigest,
+        database_generation: u64,
+        expected_lifecycle_revision: super::CredentialLifecycleRevision,
+        expected_prior_fence: super::CredentialFence,
+        live_process: CredentialProcessBinding,
+    ) -> Result<CredentialReleaseMigrationBinding, CredentialEnrollmentError> {
+        CredentialReleaseMigrationBinding::issue(
+            self.seal.clone(),
+            migration_id,
+            phase,
+            old_candidate_and_manifest,
+            new_candidate_and_manifest,
+            old_desktop_writer_reader_contract,
+            new_desktop_writer_reader_contract,
+            database_generation,
+            expected_lifecycle_revision,
+            expected_prior_fence,
+            live_process,
+        )
     }
 }
 

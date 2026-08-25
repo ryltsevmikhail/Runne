@@ -26,9 +26,11 @@ fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapsho
         CredentialOperationId::from_bytes([20; 16]).unwrap(),
         CredentialTicketAttempt::new(1).unwrap(),
         digest(21),
+        digest(13),
+        canonical_claim_digest(),
         provider.clone(),
         CredentialOperationAction::Pair,
-        CredentialVersionRef::new(provider, 1).unwrap(),
+        Some(CredentialVersionRef::new(provider, 1).unwrap()),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         1,
@@ -37,9 +39,18 @@ fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapsho
         20,
     )
     .unwrap();
-    let binding = CredentialClaimBinding::new(measurements, claim).unwrap();
+    let binding = CredentialClaimBinding::new(measurements, &claim).unwrap();
     assert_eq!(binding.operation_id().bytes(), [20; 16]);
     assert_ne!(binding.digest().as_bytes(), [0; 32]);
+}
+
+fn canonical_claim_digest() -> super::super::CredentialBindingDigest {
+    super::super::CredentialBindingDigest::from_measured([
+        0x75, 0xc1, 0x03, 0xa9, 0x0d, 0x81, 0xee, 0xb8, 0x36, 0xdb, 0x12, 0xf4, 0x9e, 0xb4, 0xff,
+        0x11, 0x2e, 0x7b, 0xd3, 0xfd, 0xe6, 0x52, 0xef, 0x31, 0x6f, 0x06, 0x62, 0x35, 0x78, 0xaa,
+        0xae, 0x1f,
+    ])
+    .unwrap()
 }
 
 fn measurement_snapshot(

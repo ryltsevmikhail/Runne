@@ -1,116 +1,161 @@
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialLifecycleRevision, CredentialOperationId, CredentialOperationState,
+    CredentialLifecycleRevision, CredentialNativeEffectDisposition, CredentialOperationId,
+    CredentialOperationState, CredentialReadbackDisposition, CredentialReadinessObservation,
     CredentialTransitionEvidence,
 };
 
-macro_rules! digest_command {
-    ($name:ident, $doc:literal) => {
-        #[doc = $doc]
-        #[derive(Clone, Debug, PartialEq, Eq)]
-        pub struct $name {
-            operation_id: CredentialOperationId,
-            binding_digest: CredentialBindingDigest,
-        }
-        impl $name {
-            /// Constructs the immutable command.
-            pub const fn new(
-                operation_id: CredentialOperationId,
-                binding_digest: CredentialBindingDigest,
-            ) -> Self {
-                Self {
-                    operation_id,
-                    binding_digest,
-                }
-            }
-            /// Returns the operation identity.
-            pub const fn operation_id(&self) -> CredentialOperationId {
-                self.operation_id
-            }
-            /// Returns the exact binding digest.
-            pub const fn binding_digest(&self) -> CredentialBindingDigest {
-                self.binding_digest
-            }
-        }
-    };
-}
-
-digest_command!(
-    ObserveNativeEffect,
-    "Bound writer diagnostic that a native effect may have occurred."
-);
-digest_command!(
-    FailCredentialOperation,
-    "Exact-absence proof for a failed create or import operation."
-);
-
-/// Independent exact native readback bound to one operation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BindCredentialReadback {
+/// Bound writer diagnostic that a native effect may have occurred.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ObserveNativeEffect {
     operation_id: CredentialOperationId,
-    evidence: CredentialTransitionEvidence,
+    disposition: CredentialNativeEffectDisposition,
 }
 
-impl BindCredentialReadback {
-    /// Accepts only exact version or exact absence readback evidence.
-    pub fn new(
+impl ObserveNativeEffect {
+    /// Records a typed, non-secret possible-effect disposition.
+    pub const fn new(
         operation_id: CredentialOperationId,
-        evidence: CredentialTransitionEvidence,
-    ) -> Result<Self, CredentialEnrollmentError> {
-        if !matches!(
-            evidence,
-            CredentialTransitionEvidence::ExactAbsenceReadback(_)
-                | CredentialTransitionEvidence::ExactVersionReadback(_)
-        ) {
-            return Err(CredentialEnrollmentError::InvalidEvidence);
-        }
-        Ok(Self {
+        disposition: CredentialNativeEffectDisposition,
+    ) -> Self {
+        Self {
             operation_id,
-            evidence,
-        })
+            disposition,
+        }
     }
+
     /// Returns the operation identity.
     pub const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
     }
-    /// Returns the exact readback evidence.
+    /// Returns the safe native-effect disposition.
+    pub const fn disposition(&self) -> CredentialNativeEffectDisposition {
+        self.disposition
+    }
+}
+
+/// Exact-absence proof for a failed create or import operation.
+#[derive(Debug, PartialEq, Eq)]
+pub struct FailCredentialOperation {
+    operation_id: CredentialOperationId,
+    absence_digest: CredentialBindingDigest,
+}
+
+impl FailCredentialOperation {
+    /// Binds independently verified exact absence to an operation.
+    pub const fn new(
+        operation_id: CredentialOperationId,
+        absence_digest: CredentialBindingDigest,
+    ) -> Self {
+        Self {
+            operation_id,
+            absence_digest,
+        }
+    }
+
+    /// Returns the operation identity.
+    pub const fn operation_id(&self) -> CredentialOperationId {
+        self.operation_id
+    }
+    /// Returns the exact absence observation digest.
+    pub const fn absence_digest(&self) -> CredentialBindingDigest {
+        self.absence_digest
+    }
+}
+
+/// Independent exact native readback bound to one operation.
+#[derive(Debug, PartialEq, Eq)]
+pub struct BindCredentialReadback {
+    operation_id: CredentialOperationId,
+    disposition: CredentialReadbackDisposition,
+    observation_digest: CredentialBindingDigest,
+}
+
+impl BindCredentialReadback {
+    /// Binds one exact version or exact absence observation digest.
+    pub const fn new(
+        operation_id: CredentialOperationId,
+        disposition: CredentialReadbackDisposition,
+        observation_digest: CredentialBindingDigest,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        Ok(Self {
+            operation_id,
+            disposition,
+            observation_digest,
+        })
+    }
+
+    /// Returns the operation identity.
+    pub const fn operation_id(&self) -> CredentialOperationId {
+        self.operation_id
+    }
+    /// Returns the exact readback disposition.
+    pub const fn disposition(&self) -> CredentialReadbackDisposition {
+        self.disposition
+    }
+    /// Returns the exact independent observation digest.
+    pub const fn observation_digest(&self) -> CredentialBindingDigest {
+        self.observation_digest
+    }
+    /// Converts this typed readback to the transition-guard evidence vocabulary.
     pub const fn evidence(&self) -> CredentialTransitionEvidence {
-        self.evidence
+        match self.disposition {
+            CredentialReadbackDisposition::ExactVersion => {
+                CredentialTransitionEvidence::ExactVersionReadback(self.observation_digest)
+            }
+            CredentialReadbackDisposition::ExactAbsence => {
+                CredentialTransitionEvidence::ExactAbsenceReadback(self.observation_digest)
+            }
+        }
     }
 }
 
 /// Lifecycle-CAS completion input after action-specific readback validation.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CompleteCredentialOperation {
     operation_id: CredentialOperationId,
-    evidence: CredentialTransitionEvidence,
+    readback: BindCredentialReadback,
     expected_lifecycle_revision: CredentialLifecycleRevision,
     expected_prior_fence: CredentialFence,
+    readiness_observation: Option<CredentialReadinessObservation>,
 }
 
 impl CompleteCredentialOperation {
-    /// Accepts only exact readback evidence and a non-zero lifecycle snapshot.
+    /// Requires an exact readback for the same operation before lifecycle completion.
     pub fn new(
         operation_id: CredentialOperationId,
-        evidence: CredentialTransitionEvidence,
+        readback: BindCredentialReadback,
         expected_lifecycle_revision: CredentialLifecycleRevision,
         expected_prior_fence: CredentialFence,
     ) -> Result<Self, CredentialEnrollmentError> {
-        BindCredentialReadback::new(operation_id, evidence)?;
+        if readback.operation_id() != operation_id {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
         Ok(Self {
             operation_id,
-            evidence,
+            readback,
             expected_lifecycle_revision,
             expected_prior_fence,
+            readiness_observation: None,
         })
     }
+
+    /// Attaches the bounded readiness observation atomically persisted with completion.
+    pub fn with_readiness_observation(
+        mut self,
+        observation: CredentialReadinessObservation,
+    ) -> Self {
+        self.readiness_observation = Some(observation);
+        self
+    }
+
     /// Returns the operation identity.
     pub const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
     }
-    /// Returns the exact readback evidence.
-    pub const fn evidence(&self) -> CredentialTransitionEvidence {
-        self.evidence
+    /// Returns the exact readback input.
+    pub const fn readback(&self) -> &BindCredentialReadback {
+        &self.readback
     }
     /// Returns the expected revision.
     pub const fn expected_lifecycle_revision(&self) -> CredentialLifecycleRevision {
@@ -119,6 +164,10 @@ impl CompleteCredentialOperation {
     /// Returns the expected fence.
     pub const fn expected_prior_fence(&self) -> CredentialFence {
         self.expected_prior_fence
+    }
+    /// Returns the readiness observation when completion must publish one.
+    pub const fn readiness_observation(&self) -> Option<&CredentialReadinessObservation> {
+        self.readiness_observation.as_ref()
     }
 }
 
@@ -148,6 +197,7 @@ impl ClosePreparedCredentialOperation {
             terminal_state,
         })
     }
+
     /// Returns the operation identity.
     pub const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
@@ -185,6 +235,7 @@ impl TombstoneCredentialOperation {
             terminal_state,
         })
     }
+
     /// Returns the operation identity.
     pub const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id

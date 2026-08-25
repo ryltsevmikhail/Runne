@@ -48,9 +48,39 @@ fn credential_enrollment_claim_binding_changes_for_each_approved_field() {
     changed!(expires_at_high_water, 3);
 }
 
+#[test]
+fn credential_claim_binding_rejects_a_continuation_digest_not_independently_measured() {
+    assert!(
+        CredentialClaimBinding::new(measurements(13), &claim(measured(16), measured(17)),).is_err()
+    );
+}
+
+#[test]
+fn credential_claim_binding_rejects_a_noncanonical_process_release_digest() {
+    assert!(
+        CredentialClaimBinding::new(measurements(13), &claim(measured(13), measured(17)),).is_err()
+    );
+}
+
 fn claim_binding() -> CredentialClaimBinding {
+    let claim = claim(measured(13), canonical_claim_digest());
+    let binding = CredentialClaimBinding::new(measurements(13), &claim).unwrap();
+    assert_eq!(binding.operation_id(), claim.operation_id());
+    binding
+}
+
+fn canonical_claim_digest() -> CredentialBindingDigest {
+    CredentialBindingDigest::from_measured([
+        0x54, 0xb7, 0xa4, 0x5c, 0x10, 0x0d, 0x59, 0x20, 0x54, 0xe5, 0x7d, 0xa1, 0xbd, 0x70, 0x88,
+        0x86, 0x62, 0xc9, 0x9c, 0xae, 0x13, 0x0a, 0x8d, 0x20, 0xda, 0x36, 0xca, 0x6b, 0x3c, 0x54,
+        0x27, 0xf6,
+    ])
+    .unwrap()
+}
+
+fn measurements(continuation: u8) -> CredentialMeasurementSnapshot {
     let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    let measurements = CredentialMeasurementSnapshot::new(
+    CredentialMeasurementSnapshot::new(
         measurements.candidate_source_identity([1; 32]).unwrap(),
         measurements.release_manifest_digest([2; 32]).unwrap(),
         measurements.desktop_executable_identity([3; 32]).unwrap(),
@@ -67,16 +97,26 @@ fn claim_binding() -> CredentialClaimBinding {
             .writer_process_handle_identity([11; 32])
             .unwrap(),
         measurements.broker_channel_binding([12; 32]).unwrap(),
-        measurements.continuation_binding_digest([13; 32]).unwrap(),
+        measurements
+            .continuation_binding_digest([continuation; 32])
+            .unwrap(),
     )
-    .unwrap();
-    let claim = ClaimCredentialOperation::new(
+    .unwrap()
+}
+
+fn claim(
+    continuation: CredentialBindingDigest,
+    process_release: CredentialBindingDigest,
+) -> ClaimCredentialOperation {
+    ClaimCredentialOperation::new(
         CredentialOperationId::from_bytes([14; 16]).unwrap(),
         CredentialTicketAttempt::new(1).unwrap(),
         measured(15),
+        continuation,
+        process_release,
         ProviderId::new("openai").unwrap(),
         CredentialOperationAction::Pair,
-        version("openai", 1),
+        Some(version("openai", 1)),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         1,
@@ -84,8 +124,7 @@ fn claim_binding() -> CredentialClaimBinding {
         1,
         2,
     )
-    .unwrap();
-    CredentialClaimBinding::new(measurements, claim).unwrap()
+    .unwrap()
 }
 
 fn measured(value: u8) -> CredentialBindingDigest {
