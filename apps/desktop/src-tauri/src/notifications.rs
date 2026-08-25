@@ -1,5 +1,5 @@
 use notify_rust::{Notification, NotificationResponse};
-use runne_app_core::{AppCore, CanonicalApprovalState};
+use runne_app_core::{AppCore, CanonicalApprovalState, CanonicalId};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -29,7 +29,7 @@ pub struct NotificationIntent {
 
 impl NotificationIntent {
     fn approval(approval_id: &str, created_at: i64) -> Option<Self> {
-        if created_at <= 0 || Uuid::parse_str(approval_id).is_err() {
+        if created_at <= 0 || CanonicalId::parse(approval_id).is_err() {
             return None;
         }
         Some(Self {
