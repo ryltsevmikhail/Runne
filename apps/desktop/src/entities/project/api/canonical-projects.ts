@@ -73,6 +73,21 @@ export async function createCanonicalWorkspace(
   return value
 }
 
+export async function openCanonicalWorkspace(
+  workspaceId: string,
+  expectedVersion: number,
+  invoke: Invoke = tauriInvoke,
+): Promise<CanonicalWorkspaceMutationAck> {
+  if (!isCanonicalRuntimeId(workspaceId) || !version(expectedVersion)) {
+    throw new Error('Invalid canonical workspace mutation')
+  }
+  const value = await invoke('open_runtime_workspace', { workspaceId, expectedVersion })
+  if (!isCanonicalWorkspaceMutationAck(value) || value.workspaceId !== workspaceId) {
+    throw new Error('Invalid canonical workspace mutation response')
+  }
+  return value
+}
+
 export async function createCanonicalProject(
   displayName: string,
   invoke: Invoke = tauriInvoke,

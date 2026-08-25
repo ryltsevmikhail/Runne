@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createCanonicalProject,
   createCanonicalWorkspace,
+  openCanonicalWorkspace,
   getCanonicalProject,
   getCanonicalWorkspace,
   listCanonicalProjects,
@@ -66,6 +67,16 @@ describe('canonical project IPC adapter', () => {
     })
 
     expect(ack).toEqual({ projectId: project.projectId, newVersion: 1 })
+  })
+
+  it('opens a closed canonical workspace at its exact version', async () => {
+    const ack = await openCanonicalWorkspace(workspace.workspaceId, workspace.version, async (command, args) => {
+      expect(command).toBe('open_runtime_workspace')
+      expect(args).toEqual({ workspaceId: workspace.workspaceId, expectedVersion: workspace.version })
+      return { workspaceId: workspace.workspaceId, newVersion: workspace.version + 1 }
+    })
+
+    expect(ack).toEqual({ workspaceId: workspace.workspaceId, newVersion: workspace.version + 1 })
   })
 
   it('rejects invalid workspace mutation input before IPC', async () => {

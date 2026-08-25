@@ -76,6 +76,8 @@ const russian: Record<keyof typeof english, string> = {
   'projectDetails.createWorkspaceFailed': 'Не удалось создать workspace.',
   'projectDetails.runtime': 'Runtime',
   'projectDetails.openWorkspace': 'Открыть workspace {name}',
+  'projectDetails.openingWorkspace': 'Открытие…',
+  'projectDetails.openWorkspaceFailed': 'Не удалось открыть workspace.',
   'projectDetails.workspaceVersion': 'Версия {version} · {state}',
   'projectDetails.open': 'Открыт',
   'projectDetails.closed': 'Закрыт',

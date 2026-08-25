@@ -74,6 +74,8 @@ const english = {
   'projectDetails.createWorkspaceFailed': 'The workspace could not be created.',
   'projectDetails.runtime': 'Runtime',
   'projectDetails.openWorkspace': 'Open workspace {name}',
+  'projectDetails.openingWorkspace': 'Opening…',
+  'projectDetails.openWorkspaceFailed': 'The workspace could not be opened.',
   'projectDetails.workspaceVersion': 'Version {version} · {state}',
   'projectDetails.open': 'Open',
   'projectDetails.closed': 'Closed',

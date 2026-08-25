@@ -5,19 +5,22 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import type { CanonicalProjectDetails, CanonicalWorkspaceMutationAck } from '@/entities/project'
-import { createCanonicalWorkspace, getCanonicalProject, isCanonicalRuntimeId } from '@/entities/project'
+import { createCanonicalWorkspace, getCanonicalProject, isCanonicalRuntimeId, openCanonicalWorkspace } from '@/entities/project'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
 
 type LoadProject = (id: string) => Promise<CanonicalProjectDetails>
 type CreateWorkspace = (projectId: string, displayName: string) => Promise<CanonicalWorkspaceMutationAck>
+type OpenWorkspace = (workspaceId: string, expectedVersion: number) => Promise<CanonicalWorkspaceMutationAck>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
   createWorkspaceMutation?: CreateWorkspace
+  openWorkspaceMutation?: OpenWorkspace
 }>(), {
   loadProject: getCanonicalProject,
   createWorkspaceMutation: createCanonicalWorkspace,
+  openWorkspaceMutation: openCanonicalWorkspace,
 })
 
 const route = useRoute()
@@ -27,6 +30,8 @@ const loading = ref(true)
 const error = ref(false)
 const creatingWorkspace = ref(false)
 const createWorkspaceError = ref(false)
+const openWorkspaceError = ref(false)
+const openingWorkspaceId = ref<string | null>(null)
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 
@@ -66,6 +71,23 @@ watch(runtimeStatus, status => {
 }, { immediate: true })
 
 async function openWorkspace(workspaceId: string) {
+  const selected = details.value?.workspaces.find(workspace => workspace.workspaceId === workspaceId)
+  if (selected === undefined || runtimeStatus.value !== 'live' || openingWorkspaceId.value !== null) return
+  openWorkspaceError.value = false
+  openingWorkspaceId.value = workspaceId
+  try {
+    if (!selected.open) {
+      await props.openWorkspaceMutation(workspaceId, selected.version)
+      await refreshProject()
+    }
+  }
+  catch {
+    openWorkspaceError.value = true
+    return
+  }
+  finally {
+    openingWorkspaceId.value = null
+  }
   await router.push({
     name: 'workspace',
     params: { workspaceId },
@@ -143,6 +165,7 @@ async function returnToProjects() {
         <h2>{{ translate('projectDetails.workspaces') }}</h2>
         <span>{{ translate('projectDetails.runtime') }}</span>
       </div>
+      <p v-if="openWorkspaceError" role="alert">{{ translate('projectDetails.openWorkspaceFailed') }}</p>
       <div v-if="details.workspaces.length === 0" class="content-section">
         <p>{{ translate('projectDetails.noWorkspaces') }}</p>
         <GcButton
@@ -160,7 +183,7 @@ async function returnToProjects() {
         class="project-card project-card--workspace"
         type="button"
         :aria-label="translate('projectDetails.openWorkspace', { name: workspace.displayName })"
-        :disabled="runtimeStatus !== 'live'"
+        :disabled="runtimeStatus !== 'live' || openingWorkspaceId !== null"
         @click="openWorkspace(workspace.workspaceId)"
       >
         <span class="project-icon">
@@ -170,7 +193,7 @@ async function returnToProjects() {
           />
         </span>
         <span class="project-copy">
-          <strong>{{ workspace.displayName }}</strong>
+          <strong>{{ openingWorkspaceId === workspace.workspaceId ? translate('projectDetails.openingWorkspace') : workspace.displayName }}</strong>
           <small>{{ translate('projectDetails.workspaceVersion', {
             version: workspace.version,
             state: workspace.open ? translate('projectDetails.open') : translate('projectDetails.closed'),

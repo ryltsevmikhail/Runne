@@ -40,6 +40,7 @@ function liveContext(): RuntimeSessionContext {
 async function mountPage(
   loadProject: (id: string) => Promise<CanonicalProjectDetails>,
   createWorkspace: (projectId: string, displayName: string) => Promise<{ workspaceId: string; newVersion: number }> = async () => ({ workspaceId: workspace.workspaceId, newVersion: 1 }),
+  openWorkspace: (workspaceId: string, expectedVersion: number) => Promise<{ workspaceId: string; newVersion: number }> = async () => ({ workspaceId: workspace.workspaceId, newVersion: 2 }),
 ) {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -54,7 +55,7 @@ async function mountPage(
   const Harness = defineComponent({
     setup() {
       provideRuntimeSession(liveContext())
-      return () => h(ProjectDetailsPage, { loadProject, createWorkspaceMutation: createWorkspace })
+      return () => h(ProjectDetailsPage, { loadProject, createWorkspaceMutation: createWorkspace, openWorkspaceMutation: openWorkspace })
     },
   })
   const wrapper = mount(Harness, { global: { plugins: [router] } })
@@ -145,6 +146,25 @@ describe('project details page', () => {
     await wrapper.get('[aria-label="Open workspace gocode-docs"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.fullPath).toBe(`/workspaces/${otherWorkspace.workspaceId}`)
+  })
+
+  it('opens a closed workspace through the exact-version mutation before routing', async () => {
+    const closedWorkspace = { ...workspace, open: false, version: 4 } as const
+    let opened: [string, number] | null = null
+    const { router, wrapper } = await mountPage(
+      async () => ({ project, workspaces: [closedWorkspace] }),
+      undefined,
+      async (workspaceId, expectedVersion) => {
+        opened = [workspaceId, expectedVersion]
+        return { workspaceId, newVersion: expectedVersion + 1 }
+      },
+    )
+
+    await wrapper.get('[aria-label="Open workspace gocode-ui"]').trigger('click')
+    await flushPromises()
+
+    expect(opened).toEqual([closedWorkspace.workspaceId, closedWorkspace.version])
+    expect(router.currentRoute.value.fullPath).toBe(`/workspaces/${closedWorkspace.workspaceId}`)
   })
 
   it('fails closed when the project is unavailable', async () => {

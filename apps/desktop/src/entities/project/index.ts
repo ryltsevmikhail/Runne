@@ -18,6 +18,7 @@ export {
   getCanonicalWorkspace,
   createCanonicalProject,
   createCanonicalWorkspace,
+  openCanonicalWorkspace,
   listCanonicalProjects,
   type CanonicalProject,
   type CanonicalProjectDetails,

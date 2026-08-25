@@ -25,6 +25,13 @@ struct ProjectMutationResponse {
     new_version: u64,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct OpenRuntimeWorkspaceRequest {
+    workspace_id: String,
+    expected_version: u64,
+}
+
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 async fn create_runtime_project(
@@ -82,6 +89,39 @@ async fn create_runtime_workspace(
     if acknowledgement.workspace_id() != workspace_id {
         return Err(IpcError {
             code: "workspace_creation_rejected",
+        });
+    }
+    Ok(WorkspaceMutationResponse {
+        workspace_id: workspace_id.to_string(),
+        new_version: acknowledgement.new_version(),
+    })
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn open_runtime_workspace(
+    state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
+    request: OpenRuntimeWorkspaceRequest,
+) -> Result<WorkspaceMutationResponse, IpcError> {
+    require_runtime_admission(&lifecycle)?;
+    let workspace_id = runne_app_core::CanonicalId::parse(&request.workspace_id).map_err(|_| IpcError {
+        code: "workspace_open_rejected",
+    })?;
+    if request.expected_version == 0 {
+        return Err(IpcError {
+            code: "workspace_open_rejected",
+        });
+    }
+    let acknowledgement = state
+        .open_runtime_workspace(workspace_id, request.expected_version)
+        .await
+        .map_err(|_| IpcError {
+            code: "workspace_open_rejected",
+        })?;
+    if acknowledgement.workspace_id() != workspace_id {
+        return Err(IpcError {
+            code: "workspace_open_rejected",
         });
     }
     Ok(WorkspaceMutationResponse {
