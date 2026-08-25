@@ -251,8 +251,9 @@ class NativePackageProbeTests(unittest.TestCase):
             snapshot = stage_artifact(root, "Runne.deb", "deb")
             try:
                 self.assertEqual(snapshot.path.parent.stat().st_mode & 0o222, 0)
-                with self.assertRaises(PermissionError):
-                    snapshot.path.unlink()
+                if os.geteuid() != 0:
+                    with self.assertRaises(PermissionError):
+                        snapshot.path.unlink()
                 self.assertEqual(snapshot.path.read_bytes(), b"admitted")
             finally:
                 snapshot.close()
