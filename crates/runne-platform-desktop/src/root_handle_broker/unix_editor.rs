@@ -8,7 +8,10 @@ pub(super) fn launch_system_default_editor(
     open_file_below(root, relative_path)?;
     let root_path = root_path(root)?;
     let target = root_path.join(relative_path);
+    #[cfg(target_os = "linux")]
     let opener = default_opener()?;
+    #[cfg(target_os = "macos")]
+    let opener = default_opener();
     Command::new(opener)
         .arg(target)
         .env_clear()
@@ -35,8 +38,8 @@ fn default_opener() -> Result<&'static str, RootHandleBrokerError> {
 }
 
 #[cfg(target_os = "macos")]
-const fn default_opener() -> Result<&'static str, RootHandleBrokerError> {
-    Ok("/usr/bin/open")
+const fn default_opener() -> &'static str {
+    "/usr/bin/open"
 }
 
 fn allowlisted_environment() -> Vec<(String, String)> {
