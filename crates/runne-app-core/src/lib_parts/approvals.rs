@@ -98,6 +98,27 @@ impl From<&runne_runtime_client::ApprovalSummaryDto> for CanonicalApprovalSummar
     }
 }
 
+/// Renderer-safe acknowledgement for one committed approval decision.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalApprovalDecisionAcknowledgement {
+    pub approval_id: String,
+    pub task_run_id: String,
+    pub new_version: u64,
+    pub state: CanonicalApprovalState,
+}
+
+impl From<runne_runtime_client::ApprovalDecisionAcknowledgementDto> for CanonicalApprovalDecisionAcknowledgement {
+    fn from(value: runne_runtime_client::ApprovalDecisionAcknowledgementDto) -> Self {
+        Self {
+            approval_id: value.approval_id().to_string(),
+            task_run_id: value.task_run_id().to_string(),
+            new_version: value.new_version(),
+            state: CanonicalApprovalState::from(value.state()),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CanonicalApprovalState {

@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { getApproval, listPendingApprovals } from './approvals'
+import { decideApproval, getApproval, listPendingApprovals } from './approvals'
 
 const id = '018f2e3a-7000-7000-8000-000000000212'
-const approval = { approvalId: id, taskRunId: id, attemptId: null, invocationId: id, action: 'fs:write', resource: 'workspace:/src/main.rs', actionDigest: '1'.repeat(64), policyRevision: 7, requestVersion: 3, expiresAt: 2_000, riskSummary: 'write source', state: 'pending' }
+const approval = { approvalId: id, taskRunId: id, attemptId: null, invocationId: id, action: 'fs:write', resource: 'workspace:/src/main.rs', actionDigest: '1'.repeat(64), policyRevision: 7, requestVersion: 3, expiresAt: 2_000, riskSummary: 'write source', state: 'pending' as const }
 
 describe('approval adapter', () => {
   it('accepts only the exact renderer-safe summary', async () => {
@@ -16,5 +16,31 @@ describe('approval adapter', () => {
     await expect(listPendingApprovals(vi.fn().mockResolvedValue([{ ...approval, extra: true }]))).rejects.toThrow()
     await expect(listPendingApprovals(vi.fn().mockResolvedValue([{ ...approval, action: 'bad\nvalue' }]))).rejects.toThrow()
     await expect(getApproval(id, vi.fn().mockResolvedValue({ ...approval, approvalId: id.replace('212', '213') }))).rejects.toThrow()
+  })
+
+  it('submits the exact version-bound decision and validates the acknowledgement', async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      approvalId: id,
+      taskRunId: id,
+      newVersion: 4,
+      state: 'approved',
+    })
+
+    await expect(decideApproval(approval, 'approve', 8, invoke)).resolves.toEqual({
+      approvalId: id,
+      taskRunId: id,
+      newVersion: 4,
+      state: 'approved',
+    })
+    expect(invoke).toHaveBeenCalledWith('respond_to_approval', {
+      request: {
+        approvalId: id,
+        expectedVersion: 3,
+        decision: 'approve',
+        actionDigest: '1'.repeat(64),
+        policyRevision: 7,
+        rendererGeneration: 8,
+      },
+    })
   })
 })

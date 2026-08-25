@@ -1,15 +1,35 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { listPendingApprovals, type ApprovalSummary } from '@/entities/approval'
+import { acquireRendererGeneration } from '@/entities/project'
+import { decideApproval, listPendingApprovals, type ApprovalDecision, type ApprovalSummary } from '@/entities/approval'
 import { translate } from '@/shared/i18n'
 
 const props = withDefaults(defineProps<{
   load?: () => Promise<readonly ApprovalSummary[]>
+  acquireGeneration?: () => Promise<number>
+  decide?: (approval: ApprovalSummary, decision: ApprovalDecision, rendererGeneration: number) => Promise<{ readonly approvalId: string }>
 }>(), { load: listPendingApprovals })
 const approvals = ref<readonly ApprovalSummary[]>([])
 const loading = ref(true)
 const unavailable = ref(false)
+const decisionId = ref<string | null>(null)
+const decisionFailed = ref(false)
+
+async function decideItem(approval: ApprovalSummary, decision: ApprovalDecision) {
+  if (approval.state !== 'pending' || decisionId.value !== null) return
+  decisionId.value = approval.approvalId
+  decisionFailed.value = false
+  try {
+    const generation = await (props.acquireGeneration ?? acquireRendererGeneration)()
+    const acknowledgement = await (props.decide ?? decideApproval)(approval, decision, generation)
+    approvals.value = approvals.value.filter(item => item.approvalId !== acknowledgement.approvalId)
+  } catch {
+    decisionFailed.value = true
+  } finally {
+    decisionId.value = null
+  }
+}
 
 onMounted(async () => {
   try { approvals.value = await props.load() }
@@ -27,6 +47,7 @@ onMounted(async () => {
     </header>
     <p v-if="loading" aria-live="polite">{{ translate('approvals.loading') }}</p>
     <p v-else-if="unavailable" role="alert">{{ translate('approvals.unavailable') }}</p>
+    <p v-else-if="decisionFailed" role="alert">{{ translate('approvals.decisionFailed') }}</p>
     <p v-else-if="approvals.length === 0">{{ translate('approvals.empty') }}</p>
     <ul v-else class="approval-list">
       <li v-for="approval in approvals" :key="approval.approvalId" class="approval-card">
@@ -36,6 +57,24 @@ onMounted(async () => {
           <small>{{ approval.riskSummary }}</small>
         </div>
         <span class="approval-state">{{ approval.state }}</span>
+        <div v-if="approval.state === 'pending'" class="approval-actions">
+          <button
+            type="button"
+            data-approval-action="approve"
+            :disabled="decisionId !== null"
+            @click="decideItem(approval, 'approve')"
+          >
+            {{ translate('approvals.approve') }}
+          </button>
+          <button
+            type="button"
+            data-approval-action="deny"
+            :disabled="decisionId !== null"
+            @click="decideItem(approval, 'deny')"
+          >
+            {{ translate('approvals.deny') }}
+          </button>
+        </div>
       </li>
     </ul>
   </section>

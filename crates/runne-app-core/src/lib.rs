@@ -11,7 +11,7 @@ use runne_local_store::{
     LocalStore, ProjectOpenError, RecentRoot, RecentRootError, ReplayScopeKey,
     SecurityTransactionError, StoreOpenError,
 };
-pub use runne_runtime_client::CanonicalId;
+pub use runne_runtime_client::{ApprovalDecisionDto, CanonicalId};
 use runne_runtime_client::{
     AuthenticatedRuntimeClient, CommandIdentity, CreateConversationRequest, CreateProjectRequest,
     CreateWorkspaceRequest, ExistingProjectRequest, ExistingWorkspaceRequest, GenerateTextRequest,

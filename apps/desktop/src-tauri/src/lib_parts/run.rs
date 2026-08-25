@@ -183,6 +183,7 @@ pub fn run() {
             get_task_run_timeline,
             list_pending_approvals,
             get_approval,
+            respond_to_approval,
             resync_task_run_timeline,
             cancel_task_run,
             subscribe_task_run_timeline,

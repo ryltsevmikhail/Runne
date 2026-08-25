@@ -1,2 +1,2 @@
-export { getApproval, listPendingApprovals } from './api/approvals'
-export type { ApprovalState, ApprovalSummary } from './api/approvals'
+export { decideApproval, getApproval, listPendingApprovals } from './api/approvals'
+export type { ApprovalDecision, ApprovalDecisionAcknowledgement, ApprovalDecisionState, ApprovalState, ApprovalSummary } from './api/approvals'

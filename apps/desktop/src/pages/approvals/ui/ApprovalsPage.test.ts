@@ -13,4 +13,14 @@ describe('ApprovalsPage', () => {
     expect(wrapper.text()).toContain('fs:write')
     expect(wrapper.text()).toContain('workspace:/src/main.rs')
   })
+
+  it('offers version-bound approve and deny actions and removes the acknowledged item', async () => {
+    const decide = async () => ({ approvalId: id, taskRunId: id, newVersion: 4, state: 'approved' as const })
+    const wrapper = mount(ApprovalsPage, {
+      props: { load: async () => [approval], acquireGeneration: async () => 8, decide },
+    })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await wrapper.get('[data-approval-action="approve"]').trigger('click')
+    expect(wrapper.text()).toContain('No pending approvals.')
+  })
 })
