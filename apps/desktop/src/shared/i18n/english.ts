@@ -43,7 +43,6 @@ const english = {
   'openProject.chooseFolderAction': 'Choose folder',
   'openProject.opening': 'Opening…',
   'openProject.folderOnDevice': 'The folder remains on this device',
-  'openProject.folderSelected': 'Folder selected. Choose a workspace to continue.',
   'openProject.openFailed': 'The selected folder could not be opened.',
   'files.workspaceFiles': 'Workspace files',
   'files.loading': 'Loading files…',

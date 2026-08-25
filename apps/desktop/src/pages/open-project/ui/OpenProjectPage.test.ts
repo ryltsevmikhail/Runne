@@ -16,25 +16,37 @@ function createTestRouter() {
         name: 'project-details',
         component: { template: '<div>Project details</div>' },
       },
+      {
+        path: '/workspaces/:workspaceId',
+        name: 'workspace',
+        component: { template: '<div>Workspace</div>' },
+      },
     ],
   })
 }
 
 describe('open project page', () => {
-  it('retains only an opaque host selection pending workspace preparation', async () => {
+  it('routes to the opened canonical workspace after protected local import', async () => {
     const router = createTestRouter()
     await router.push('/projects/open')
     await router.isReady()
     const wrapper = mount(OpenProjectPage, {
-      props: { openProject: async () => selection },
+      props: {
+        openProject: async () => {
+          expect(selection.reference).toHaveLength(64)
+          return {
+            projectId: '01890e00-0000-7000-8000-000000000001',
+            workspaceId: '01890e00-0000-7000-8000-000000000002',
+          }
+        },
+      },
       global: { plugins: [router] },
     })
 
     await wrapper.get('[aria-label="Choose project folder"]').trigger('click')
     await flushPromises()
 
-    expect(router.currentRoute.value.fullPath).toBe('/projects/open')
-    expect(wrapper.text()).toContain('Folder selected. Choose a workspace to continue.')
+    expect(router.currentRoute.value.fullPath).toBe('/workspaces/01890e00-0000-7000-8000-000000000002')
   })
 
   it('fails closed without exposing a rejected local path', async () => {

@@ -1,5 +1,5 @@
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CreateRuntimeWorkspaceRequest {
     project_id: String,
     display_name: String,
@@ -10,6 +10,50 @@ struct CreateRuntimeWorkspaceRequest {
 struct WorkspaceMutationResponse {
     workspace_id: String,
     new_version: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreateRuntimeProjectRequest {
+    display_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProjectMutationResponse {
+    project_id: String,
+    new_version: u64,
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+async fn create_runtime_project(
+    state: State<'_, Arc<AppCore>>,
+    lifecycle: State<'_, RuntimeLifecycleManager>,
+    request: CreateRuntimeProjectRequest,
+) -> Result<ProjectMutationResponse, IpcError> {
+    require_runtime_admission(&lifecycle)?;
+    if !valid_project_name(&request.display_name) {
+        return Err(IpcError {
+            code: "project_creation_rejected",
+        });
+    }
+    let project_id = runne_app_core::CanonicalId::now_v7();
+    let acknowledgement = state
+        .create_runtime_project(project_id, request.display_name)
+        .await
+        .map_err(|_| IpcError {
+            code: "project_creation_rejected",
+        })?;
+    if acknowledgement.project_id() != project_id {
+        return Err(IpcError {
+            code: "project_creation_rejected",
+        });
+    }
+    Ok(ProjectMutationResponse {
+        project_id: project_id.to_string(),
+        new_version: acknowledgement.new_version(),
+    })
 }
 
 #[tauri::command]
@@ -48,4 +92,22 @@ async fn create_runtime_workspace(
 
 fn valid_workspace_name(value: &str) -> bool {
     !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+}
+
+fn valid_project_name(value: &str) -> bool {
+    valid_workspace_name(value)
+}
+
+#[cfg(test)]
+mod project_command_tests {
+    use super::{valid_project_name, valid_workspace_name};
+
+    #[test]
+    fn project_and_workspace_names_are_bounded_and_control_free() {
+        assert!(valid_project_name("Selected folder"));
+        assert!(valid_workspace_name("Workspace"));
+        assert!(!valid_project_name(""));
+        assert!(!valid_workspace_name("\u{0000}"));
+        assert!(!valid_project_name(&"x".repeat(257)));
+    }
 }

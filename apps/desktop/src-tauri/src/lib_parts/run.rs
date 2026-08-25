@@ -164,6 +164,7 @@ pub fn run() {
             crate::notifications::sync_notifications,
             list_projects,
             list_canonical_projects,
+            create_runtime_project,
             create_runtime_workspace,
             get_project,
             get_canonical_project,

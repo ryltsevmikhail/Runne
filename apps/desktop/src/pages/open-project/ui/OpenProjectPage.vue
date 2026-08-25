@@ -2,18 +2,19 @@
 import { FolderOpen } from 'lucide-vue-next'
 import { ref } from 'vue'
 
-import type { DirectorySelection } from '@/entities/project'
-import { selectAndOpenLocalProject } from '@/features/open-local-project'
+import { selectAndCreateLocalProject, type LocalProjectOpenResult } from '@/features/open-local-project'
 import { translate } from '@/shared/i18n'
+import { useRouter } from 'vue-router'
 
-type OpenProject = () => Promise<DirectorySelection | null>
+type OpenProject = () => Promise<LocalProjectOpenResult | null>
 
 const props = withDefaults(defineProps<{
   openProject?: OpenProject
 }>(), {
-  openProject: selectAndOpenLocalProject,
+  openProject: selectAndCreateLocalProject,
 })
 
+const router = useRouter()
 const opening = ref(false)
 const error = ref<string | null>(null)
 
@@ -21,9 +22,12 @@ async function chooseFolder() {
   opening.value = true
   error.value = null
   try {
-    const selection = await props.openProject()
-    if (selection !== null) {
-      error.value = translate('openProject.folderSelected')
+    const opened = await props.openProject()
+    if (opened !== null) {
+      await router.push({
+        name: 'workspace',
+        params: { workspaceId: opened.workspaceId },
+      })
     }
   }
   catch {

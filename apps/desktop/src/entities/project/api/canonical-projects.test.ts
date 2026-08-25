@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  createCanonicalProject,
   createCanonicalWorkspace,
   getCanonicalProject,
   getCanonicalWorkspace,
@@ -57,6 +58,16 @@ describe('canonical project IPC adapter', () => {
     expect(ack).toEqual({ workspaceId: workspace.workspaceId, newVersion: 1 })
   })
 
+  it('creates a canonical project through a host-generated opaque ID', async () => {
+    const ack = await createCanonicalProject('selected-folder', async (command, args) => {
+      expect(command).toBe('create_runtime_project')
+      expect(args).toEqual({ displayName: 'selected-folder' })
+      return { projectId: project.projectId, newVersion: 1 }
+    })
+
+    expect(ack).toEqual({ projectId: project.projectId, newVersion: 1 })
+  })
+
   it('rejects invalid workspace mutation input before IPC', async () => {
     let invoked = false
     await expect(createCanonicalWorkspace('7', 'docs', async () => {
@@ -67,6 +78,15 @@ describe('canonical project IPC adapter', () => {
       invoked = true
       return null
     })).rejects.toThrow('Invalid canonical workspace mutation')
+    expect(invoked).toBe(false)
+  })
+
+  it('rejects invalid project mutation input before IPC', async () => {
+    let invoked = false
+    await expect(createCanonicalProject('', async () => {
+      invoked = true
+      return null
+    })).rejects.toThrow('Invalid canonical project mutation')
     expect(invoked).toBe(false)
   })
 })

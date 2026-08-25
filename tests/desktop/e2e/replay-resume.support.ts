@@ -37,6 +37,16 @@ export async function installDesktopAdapter(page: Page): Promise<void> {
       },
       async invoke(command, args) {
         switch (command) {
+          case 'acquire_renderer_generation':
+            return 1
+          case 'request_directory_selection':
+            return { reference: 'a'.repeat(64) }
+          case 'create_runtime_project':
+            return { projectId: currentProject.projectId, newVersion: 1 }
+          case 'prepare_selected_workspace':
+            return { reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' } }
+          case 'open_selected_workspace':
+            return null
           case 'get_bootstrap':
             return {
               theme: 'dark',

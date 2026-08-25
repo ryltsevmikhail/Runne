@@ -45,7 +45,6 @@ const russian: Record<keyof typeof english, string> = {
   'openProject.chooseFolderAction': 'Выбрать папку',
   'openProject.opening': 'Открытие…',
   'openProject.folderOnDevice': 'Папка остаётся на этом устройстве',
-  'openProject.folderSelected': 'Папка выбрана. Выберите workspace, чтобы продолжить.',
   'openProject.openFailed': 'Не удалось открыть выбранную папку.',
   'files.workspaceFiles': 'Файлы workspace',
   'files.loading': 'Загрузка файлов…',

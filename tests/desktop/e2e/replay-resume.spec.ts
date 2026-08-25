@@ -32,3 +32,12 @@ test('creates a workspace through the canonical project mutation flow', async ({
   await page.getByRole('button', { name: 'Create workspace' }).click()
   await expect(page.getByRole('button', { name: 'Open workspace gocode-ui' })).toBeVisible()
 })
+
+test('imports a local folder through canonical creation and protected open', async ({ page }) => {
+  await page.goto('/projects/open')
+
+  await page.getByRole('button', { name: 'Choose project folder' }).click()
+
+  await expect(page).toHaveURL(new RegExp(`/workspaces/${workspace.workspaceId}$`))
+  await expect(page.getByRole('heading', { name: workspace.displayName })).toBeVisible()
+})

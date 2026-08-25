@@ -28,6 +28,12 @@ export interface WorkspacePreparation {
   readonly expectedVersion: number
 }
 
+export interface PreparedWorkspaceOpenRequest {
+  readonly prepared: string
+  readonly rendererGeneration: number
+  readonly requestId: string
+}
+
 export async function acquireRendererGeneration(
   invoke: Invoke = tauriInvoke,
 ): Promise<number> {
@@ -55,6 +61,13 @@ export async function prepareSelectedWorkspace(
     throw new Error('Invalid prepared workspace response')
   }
   return value
+}
+
+export async function openSelectedWorkspace(
+  request: PreparedWorkspaceOpenRequest,
+  invoke: Invoke = tauriInvoke,
+): Promise<void> {
+  await invoke('open_selected_workspace', { request })
 }
 
 export async function requestDirectorySelection(

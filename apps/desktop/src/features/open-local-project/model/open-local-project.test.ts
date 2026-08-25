@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { selectAndOpenLocalProject, selectAndPrepareLocalProject } from './open-local-project'
+import {
+  selectAndCreateLocalProject,
+  selectAndOpenLocalProject,
+  selectAndPrepareLocalProject,
+} from './open-local-project'
 
 const selection = { reference: 'a'.repeat(64) } as const
 
@@ -46,5 +50,43 @@ describe('open local project', () => {
       reference: 'b'.repeat(64),
       summary: { displayName: 'Selected folder' },
     })
+  })
+
+  it('creates and opens a canonical project only after protected preparation', async () => {
+    const calls: string[] = []
+    const result = await selectAndCreateLocalProject(
+      async () => 7,
+      async (requestId, rendererGeneration) => {
+        expect(requestId).toMatch(/^[0-9a-f-]{36}$/)
+        expect(rendererGeneration).toBe(7)
+        return selection
+      },
+      async displayName => {
+        calls.push(`project:${displayName}`)
+        return { projectId: '01890e00-0000-7000-8000-000000000001', newVersion: 1 }
+      },
+      async (projectId, displayName) => {
+        calls.push(`workspace:${projectId}:${displayName}`)
+        return { workspaceId: '01890e00-0000-7000-8000-000000000002', newVersion: 1 }
+      },
+      async request => {
+        calls.push(`prepare:${request.workspaceId}:${request.expectedVersion}`)
+        return { reference: 'b'.repeat(64), summary: { displayName: 'Selected folder' } }
+      },
+      async request => {
+        calls.push(`open:${request.prepared}`)
+      },
+    )
+
+    expect(result).toEqual({
+      projectId: '01890e00-0000-7000-8000-000000000001',
+      workspaceId: '01890e00-0000-7000-8000-000000000002',
+    })
+    expect(calls).toEqual([
+      'project:Selected folder',
+      'workspace:01890e00-0000-7000-8000-000000000001:Selected folder',
+      'prepare:01890e00-0000-7000-8000-000000000002:1',
+      'open:'.concat('b'.repeat(64)),
+    ])
   })
 })

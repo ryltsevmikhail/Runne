@@ -5,6 +5,7 @@ import {
   getProject,
   listProjects,
   prepareSelectedWorkspace,
+  openSelectedWorkspace,
   requestDirectorySelection,
 } from './projects'
 
@@ -53,6 +54,24 @@ describe('project IPC adapter', () => {
     })
 
     expect(prepared.summary.displayName).toBe('Selected folder')
+  })
+
+  it('opens only the host-issued prepared workspace reference', async () => {
+    await openSelectedWorkspace({
+      prepared: 'b'.repeat(64),
+      rendererGeneration: 4,
+      requestId: 'request-1',
+    }, async (command, args) => {
+      expect(command).toBe('open_selected_workspace')
+      expect(args).toEqual({
+        request: {
+          prepared: 'b'.repeat(64),
+          rendererGeneration: 4,
+          requestId: 'request-1',
+        },
+      })
+      return undefined
+    })
   })
 
   it('rejects malformed host generations and prepared path leaks', async () => {

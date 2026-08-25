@@ -27,6 +27,11 @@ export interface CanonicalWorkspaceMutationAck {
   readonly newVersion: number
 }
 
+export interface CanonicalProjectMutationAck {
+  readonly projectId: string
+  readonly newVersion: number
+}
+
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
 
 export async function listCanonicalProjects(
@@ -64,6 +69,20 @@ export async function createCanonicalWorkspace(
   const value = await invoke('create_runtime_workspace', { projectId, displayName })
   if (!isCanonicalWorkspaceMutationAck(value)) {
     throw new Error('Invalid canonical workspace mutation response')
+  }
+  return value
+}
+
+export async function createCanonicalProject(
+  displayName: string,
+  invoke: Invoke = tauriInvoke,
+): Promise<CanonicalProjectMutationAck> {
+  if (!displayNameValue(displayName)) {
+    throw new Error('Invalid canonical project mutation')
+  }
+  const value = await invoke('create_runtime_project', { displayName })
+  if (!isCanonicalProjectMutationAck(value)) {
+    throw new Error('Invalid canonical project mutation response')
   }
   return value
 }
@@ -130,6 +149,12 @@ function displayNameValue(value: unknown): value is string {
 function isCanonicalWorkspaceMutationAck(value: unknown): value is CanonicalWorkspaceMutationAck {
   return closed(value, ['workspaceId', 'newVersion'])
     && isCanonicalRuntimeId(value.workspaceId)
+    && version(value.newVersion)
+}
+
+function isCanonicalProjectMutationAck(value: unknown): value is CanonicalProjectMutationAck {
+  return closed(value, ['projectId', 'newVersion'])
+    && isCanonicalRuntimeId(value.projectId)
     && version(value.newVersion)
 }
 
