@@ -4,23 +4,26 @@ import { ArrowRight, FolderOpen } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { CanonicalProjectDetails, CanonicalWorkspaceMutationAck } from '@/entities/project'
-import { createCanonicalWorkspace, getCanonicalProject, isCanonicalRuntimeId, openCanonicalWorkspace } from '@/entities/project'
+import type { CanonicalProjectDetails, CanonicalProjectDestructiveOperation, CanonicalWorkspaceMutationAck } from '@/entities/project'
+import { createCanonicalWorkspace, executeCanonicalProjectDestructiveAction, getCanonicalProject, isCanonicalRuntimeId, openCanonicalWorkspace } from '@/entities/project'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
 
 type LoadProject = (id: string) => Promise<CanonicalProjectDetails>
 type CreateWorkspace = (projectId: string, displayName: string) => Promise<CanonicalWorkspaceMutationAck>
 type OpenWorkspace = (workspaceId: string, expectedVersion: number) => Promise<CanonicalWorkspaceMutationAck>
+type DestructiveProjectAction = (projectId: string, expectedVersion: number, operation: CanonicalProjectDestructiveOperation) => Promise<void>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
   createWorkspaceMutation?: CreateWorkspace
   openWorkspaceMutation?: OpenWorkspace
+  destructiveProjectAction?: DestructiveProjectAction
 }>(), {
   loadProject: getCanonicalProject,
   createWorkspaceMutation: createCanonicalWorkspace,
   openWorkspaceMutation: openCanonicalWorkspace,
+  destructiveProjectAction: executeCanonicalProjectDestructiveAction,
 })
 
 const route = useRoute()
@@ -32,6 +35,8 @@ const creatingWorkspace = ref(false)
 const createWorkspaceError = ref(false)
 const openWorkspaceError = ref(false)
 const openingWorkspaceId = ref<string | null>(null)
+const destructiveOperation = ref<CanonicalProjectDestructiveOperation | null>(null)
+const destructiveError = ref(false)
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 
@@ -111,6 +116,29 @@ async function createWorkspace() {
   }
 }
 
+async function executeDestructiveAction(operation: CanonicalProjectDestructiveOperation) {
+  const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
+  const project = details.value?.project
+  if (!isCanonicalRuntimeId(id) || project === undefined || runtimeStatus.value !== 'live' || destructiveOperation.value !== null) return
+  destructiveError.value = false
+  destructiveOperation.value = operation
+  try {
+    await props.destructiveProjectAction(id, project.version, operation)
+    if (operation === 'delete') {
+      await returnToProjects()
+    }
+    else {
+      await refreshProject()
+    }
+  }
+  catch {
+    destructiveError.value = true
+  }
+  finally {
+    destructiveOperation.value = null
+  }
+}
+
 async function returnToProjects() {
   await router.push('/')
 }
@@ -154,7 +182,27 @@ async function returnToProjects() {
         <p>{{ translate('projectDetails.version', { version: details.project.version }) }}</p>
         <p class="runtime-summary">{{ translate('projectDetails.runtimeSummary', { status: runtimeStatus }) }}</p>
       </div>
+      <div class="project-actions">
+        <GcButton
+          v-if="!details.project.archived"
+          variant="secondary"
+          :aria-label="translate('projectDetails.archiveProject')"
+          :disabled="runtimeStatus !== 'live' || destructiveOperation !== null"
+          @click="executeDestructiveAction('archive')"
+        >
+          {{ destructiveOperation === 'archive' ? translate('projectDetails.archivingProject') : translate('projectDetails.archiveProject') }}
+        </GcButton>
+        <GcButton
+          variant="delete"
+          :aria-label="translate('projectDetails.deleteProject')"
+          :disabled="runtimeStatus !== 'live' || destructiveOperation !== null"
+          @click="executeDestructiveAction('delete')"
+        >
+          {{ destructiveOperation === 'delete' ? translate('projectDetails.deletingProject') : translate('projectDetails.deleteProject') }}
+        </GcButton>
+      </div>
     </header>
+    <p v-if="destructiveError" role="alert">{{ translate('projectDetails.destructiveActionFailed') }}</p>
 
     <GcAlert v-if="details.project.archived" level="warning" :title="translate('projectDetails.archived')">
       {{ translate('projectDetails.archivedMessage') }}

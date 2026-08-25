@@ -117,7 +117,7 @@ impl DestructiveConfirmationPort for DesktopConfirmationPort {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PrepareDestructiveProjectRequest {
     project_id: String,
     expected_version: u64,
@@ -126,7 +126,7 @@ struct PrepareDestructiveProjectRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DispatchDestructiveProjectRequest {
     intent: DestructiveIntentRef,
     renderer_generation: u64,

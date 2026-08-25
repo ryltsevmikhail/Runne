@@ -4,7 +4,7 @@ import { defineComponent, h, shallowRef, type Ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 
 import { provideRuntimeSession, type RuntimeSessionContext, type RuntimeSessionSnapshot } from '@/app/providers/runtime-session'
-import type { CanonicalProjectDetails } from '@/entities/project'
+import type { CanonicalProjectDetails, CanonicalProjectDestructiveOperation } from '@/entities/project'
 
 import ProjectDetailsPage from './ProjectDetailsPage.vue'
 
@@ -41,6 +41,7 @@ async function mountPage(
   loadProject: (id: string) => Promise<CanonicalProjectDetails>,
   createWorkspace: (projectId: string, displayName: string) => Promise<{ workspaceId: string; newVersion: number }> = async () => ({ workspaceId: workspace.workspaceId, newVersion: 1 }),
   openWorkspace: (workspaceId: string, expectedVersion: number) => Promise<{ workspaceId: string; newVersion: number }> = async () => ({ workspaceId: workspace.workspaceId, newVersion: 2 }),
+  destructiveAction: (_projectId: string, _expectedVersion: number, _operation: CanonicalProjectDestructiveOperation) => Promise<void> = async () => {},
 ) {
   const router = createRouter({
     history: createMemoryHistory(),
@@ -55,7 +56,12 @@ async function mountPage(
   const Harness = defineComponent({
     setup() {
       provideRuntimeSession(liveContext())
-      return () => h(ProjectDetailsPage, { loadProject, createWorkspaceMutation: createWorkspace, openWorkspaceMutation: openWorkspace })
+      return () => h(ProjectDetailsPage, {
+        loadProject,
+        createWorkspaceMutation: createWorkspace,
+        openWorkspaceMutation: openWorkspace,
+        destructiveProjectAction: destructiveAction,
+      })
     },
   })
   const wrapper = mount(Harness, { global: { plugins: [router] } })
@@ -174,6 +180,23 @@ describe('project details page', () => {
 
     expect(wrapper.get('[role="alert"]').text()).toContain('Project unavailable')
     expect(wrapper.find('[aria-label^="Open workspace"]').exists()).toBe(false)
+  })
+
+  it('dispatches archive through the native destructive intent boundary', async () => {
+    let action: [string, number, CanonicalProjectDestructiveOperation] | null = null
+    const { wrapper } = await mountPage(
+      async () => details,
+      undefined,
+      undefined,
+      async (projectId, expectedVersion, operation) => {
+        action = [projectId, expectedVersion, operation]
+      },
+    )
+
+    await wrapper.get('[aria-label="Archive project"]').trigger('click')
+    await flushPromises()
+
+    expect(action).toEqual([project.projectId, project.version, 'archive'])
   })
 
   it('fails closed without a runtime session provider', async () => {

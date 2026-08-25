@@ -26,3 +26,7 @@ export {
   type CanonicalWorkspace,
   type CanonicalWorkspaceMutationAck,
 } from './api/canonical-projects'
+export {
+  executeCanonicalProjectDestructiveAction,
+  type CanonicalProjectDestructiveOperation,
+} from './api/destructive'
