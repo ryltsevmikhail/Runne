@@ -244,6 +244,7 @@ class NativePackageProbeTests(unittest.TestCase):
         self.assertEqual(value["artifact_sha256"], __import__("hashlib").sha256(b"admitted").hexdigest())
 
     def test_staged_artifact_cannot_be_replaced_before_cleanup(self) -> None:
+        if os.name != "posix": self.skipTest("POSIX mode-bit invariant")
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "Runne.deb"
@@ -251,9 +252,7 @@ class NativePackageProbeTests(unittest.TestCase):
             snapshot = stage_artifact(root, "Runne.deb", "deb")
             try:
                 self.assertEqual(snapshot.path.parent.stat().st_mode & 0o222, 0)
-                if os.geteuid() != 0:
-                    with self.assertRaises(PermissionError):
-                        snapshot.path.unlink()
+                if getattr(os, "geteuid", lambda: -1)() != 0: self.assertRaises(PermissionError, snapshot.path.unlink)
                 self.assertEqual(snapshot.path.read_bytes(), b"admitted")
             finally:
                 snapshot.close()
