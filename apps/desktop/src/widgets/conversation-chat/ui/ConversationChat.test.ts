@@ -7,6 +7,7 @@ import type {
   ConversationTimelineListener,
 } from '@/entities/conversation'
 import { workspaceId } from '@/entities/conversation/api/conversations.test-support'
+import { currentLocale } from '@/shared/i18n'
 
 import ConversationChat from './ConversationChat.vue'
 
@@ -161,6 +162,25 @@ describe('conversation chat widget', () => {
     ).size).toBe(2)
     expect(wrapper.text()).toContain('Reconnecting')
     expect(wrapper.get('textarea').attributes('disabled')).toBeDefined()
+  })
+
+  it('localizes recovery status through the owned catalog', async () => {
+    const previousLocale = currentLocale.value
+    currentLocale.value = 'ru'
+    try {
+      const wrapper = mount(ConversationChat, {
+        props: {
+          workspaceId,
+          connect: async () => 'live',
+          openConversation: async () => ({ ...generated, recovery: 'incompatible' }),
+          subscribeConversation: async () => mockSession(),
+        },
+      })
+      await flushPromises()
+      expect(wrapper.text()).toContain('Версия runtime несовместима.')
+    } finally {
+      currentLocale.value = previousLocale
+    }
   })
 
   it.each([

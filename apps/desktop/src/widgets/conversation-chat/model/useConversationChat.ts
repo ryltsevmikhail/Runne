@@ -14,6 +14,7 @@ import {
   connectRuntime,
   type RuntimeConnectionState,
 } from '@/shared/api/platform/bootstrap'
+import { translate } from '@/shared/i18n'
 
 export type Connect = () => Promise<RuntimeConnectionState>
 export type OpenConversation = (workspaceId: string) => Promise<ConversationSnapshot>
@@ -85,15 +86,15 @@ export function useConversationChat(options: ConversationChatOptions) {
       case 'live':
         return null
       case 'reconnecting':
-        return 'Reconnecting — confirmed messages remain read-only.'
+        return translate('conversation.reconnecting')
       case 'incompatible':
-        return 'Runtime version is incompatible.'
+        return translate('conversation.incompatible')
       case 'revoked':
-        return 'Runtime access was revoked.'
+        return translate('conversation.revoked')
       case 'resync_required':
-        return 'Conversation resync is required.'
+        return translate('conversation.resyncRequired')
       case 'fatal':
-        return 'Conversation recovery failed.'
+        return translate('conversation.recoveryFailed')
       default:
         return null
     }
