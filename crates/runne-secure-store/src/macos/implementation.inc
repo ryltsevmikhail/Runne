@@ -14,4 +14,5 @@ mod tests {
     include!("implementation_parts/tests_migration_recovery.inc");
     include!("implementation_parts/tests_migration_guards.inc");
     include!("implementation_parts/tests_process_lock.inc");
+    include!("implementation_parts/tests_provider_delete.inc");
 }

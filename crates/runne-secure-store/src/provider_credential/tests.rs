@@ -143,3 +143,23 @@ fn source_revision_v2_roundtrips_and_v1_is_unavailable() {
     );
     drop(current);
 }
+
+#[test]
+fn delete_metadata_requires_the_exact_access_and_acl_digest() {
+    let current = private_current_executable();
+    let other_reader = ExecutableCopy(unique_executable_copy(&current.path, "delete-reader"));
+    let enrolled = ProviderCredentialAccessPolicy::new(&current.path, &current.path).unwrap();
+    let mismatched = ProviderCredentialAccessPolicy::new(&current.path, &other_reader.0).unwrap();
+    let metadata = ProviderCredentialMetadata::from_access(&enrolled, [7; 32]);
+
+    assert_eq!(
+        metadata.validate_delete_access(&mismatched, [7; 32]),
+        Err(SecureStoreError::CredentialAclMigrationRequired)
+    );
+    assert_eq!(
+        metadata.validate_delete_access(&enrolled, [8; 32]),
+        Err(SecureStoreError::CredentialAccessDenied)
+    );
+    assert!(metadata.validate_delete_access(&enrolled, [7; 32]).is_ok());
+    drop(current);
+}

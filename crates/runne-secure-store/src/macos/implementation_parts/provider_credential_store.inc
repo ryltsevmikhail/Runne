@@ -94,6 +94,8 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
         access.remeasure().map_err(map_identity_access_error)?;
         let store = self.scoped_provider_store(provider);
         store.validate_provider(provider)?;
+        let exact_access = ExactKeychainAccess::new(access.writer_path(), access.reader_path())
+            .map_err(map_acl_error)?;
         Self::with_noninteractive(|keychain| {
             for service in [
                 store.source_alternate_service(),
@@ -103,9 +105,9 @@ impl ProviderCredentialStore for MacOsProviderCredentialStore {
                 let Some((metadata, item)) = store.find_named_metadata(keychain, &service)? else {
                     continue;
                 };
-                access.remeasure().map_err(map_identity_access_error)?;
-                metadata.validate_writer_current()?;
+                metadata.validate_delete_access(access, exact_access.digest())?;
                 verify_item_acl(&item, metadata.acl_set_digest())?;
+                access.remeasure().map_err(map_identity_access_error)?;
                 runne_macos_keychain_acl::delete_item(&item).map_err(map_acl_error)?;
             }
             Ok(())

@@ -15,20 +15,24 @@ pub struct ProcessResult {
     pub store_received_stdin_secret: bool,
 }
 
+/// # Panics
+///
+/// Panics when the test fixture executable cannot be measured.
 pub fn run(
     arguments: Vec<OsString>,
     stdin: &mut impl Read,
     stdin_is_terminal: bool,
     scenario: &str,
 ) -> ProcessResult {
+    let resolver = Resolver::new(scenario == "resolver-error" || scenario == "set-resolver-error");
     let mut backend = Backend {
         configured: scenario == "status",
         failure: scenario == "backend-error" || scenario == "set-backend-error",
         delete_calls: 0,
         store_calls: 0,
         store_received_stdin_secret: false,
+        expected_access: resolver.access().expect("resolver access"),
     };
-    let resolver = Resolver::new(scenario == "resolver-error" || scenario == "set-resolver-error");
     let result = run_provider_credential_with(
         VecDeque::from(arguments),
         stdin,
@@ -80,6 +84,12 @@ impl CredentialIdentityResolver for Resolver {
         if self.fail {
             return Err(CliError::CredentialOperation);
         }
+        self.access()
+    }
+}
+
+impl Resolver {
+    fn access(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
         ProviderCredentialAccessPolicy::new(&self.executable, &self.executable)
             .map_err(|_| CliError::CredentialOperation)
     }
@@ -91,14 +101,27 @@ struct Backend {
     delete_calls: usize,
     store_calls: usize,
     store_received_stdin_secret: bool,
+    expected_access: ProviderCredentialAccessPolicy,
+}
+
+impl Backend {
+    fn validate_access(
+        &self,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        (access == &self.expected_access)
+            .then_some(())
+            .ok_or(SecureStoreError::CredentialAccessDenied)
+    }
 }
 
 impl CredentialBackend for Backend {
     fn status(
         &self,
         _id: ProviderCredentialId,
-        _access: &ProviderCredentialAccessPolicy,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError> {
+        self.validate_access(access)?;
         if self.failure {
             return Err(SecureStoreError::OperationFailed(
                 "backend-detail".to_owned(),
@@ -115,8 +138,9 @@ impl CredentialBackend for Backend {
         &mut self,
         _id: ProviderCredentialId,
         credential: &ProviderCredentialMaterial,
-        _access: &ProviderCredentialAccessPolicy,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.validate_access(access)?;
         self.store_calls += 1;
         self.store_received_stdin_secret = credential.with_bytes(|bytes| bytes == b"stdin-secret");
         if self.failure {
@@ -131,8 +155,9 @@ impl CredentialBackend for Backend {
     fn delete(
         &mut self,
         _id: ProviderCredentialId,
-        _access: &ProviderCredentialAccessPolicy,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.validate_access(access)?;
         self.delete_calls += 1;
         self.configured = false;
         Ok(())

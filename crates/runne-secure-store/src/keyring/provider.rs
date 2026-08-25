@@ -71,9 +71,11 @@ impl ProviderCredentialStore for NativeKeyringStore {
         provider: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
-        access.validate_writer_current()?;
-        access.remeasure()?;
-        Self::delete_provider(provider)
+        super::provider_delete::delete_provider_record_with(
+            access,
+            || Self::read_provider(provider),
+            || Self::delete_provider(provider),
+        )
     }
     fn migrate_provider_credential_access(
         &self,
@@ -266,7 +268,7 @@ fn validate_reader_or_writer(
     access.remeasure()
 }
 
-fn validate_stored(
+pub(super) fn validate_stored(
     stored: &StoredProviderCredential,
     access: &ProviderCredentialAccessPolicy,
 ) -> Result<(), SecureStoreError> {
@@ -279,7 +281,7 @@ fn validate_stored(
     Ok(())
 }
 
-fn access_digest(access: &ProviderCredentialAccessPolicy) -> [u8; 32] {
+pub(super) fn access_digest(access: &ProviderCredentialAccessPolicy) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(ACCESS_DIGEST_DOMAIN);
     for identity in [access.writer_identity(), access.reader_identity()] {

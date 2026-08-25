@@ -1,6 +1,7 @@
 use super::*;
 use runne_api::ProviderActivationReadinessV1;
 use runne_secure_store::{ProviderCredentialId, SecureStoreError};
+use std::path::Path;
 
 /// Typed pre-readiness failures for exact provider composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -116,12 +117,23 @@ pub(crate) fn credential_access_policy(
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
     let reader = std::fs::canonicalize(reader)
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
-    let writer: PathBuf = reader
-        .parent()
-        .map(|directory| directory.join("runne"))
+    let writer = packaged_writer_path(&reader)
         .ok_or_else(|| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
     ProviderCredentialAccessPolicy::new(&writer, &reader)
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))
+}
+
+fn packaged_writer_path(reader: &Path) -> Option<PathBuf> {
+    if reader.file_name() != Some(std::ffi::OsStr::new(&native_executable_name("runned"))) {
+        return None;
+    }
+    reader
+        .parent()
+        .map(|directory| directory.join(native_executable_name("runne")))
+}
+
+fn native_executable_name(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
 #[cfg(target_os = "macos")]
@@ -160,4 +172,21 @@ pub(super) fn native_withheld_tail_store(authority: [u8; 16]) -> Arc<NativeWithh
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub(super) fn native_withheld_tail_store(_authority: [u8; 16]) -> Arc<NativeWithheldTailStore> {
     Arc::new(runne_secure_store::StubStore::new())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn packaged_writer_uses_the_target_executable_suffix() {
+        let reader = std::path::Path::new("/package")
+            .join(format!("runned{}", std::env::consts::EXE_SUFFIX));
+        let writer = super::packaged_writer_path(&reader).expect("packaged writer path");
+        assert_eq!(
+            writer.file_name(),
+            Some(std::ffi::OsStr::new(&format!(
+                "runne{}",
+                std::env::consts::EXE_SUFFIX
+            )))
+        );
+    }
 }

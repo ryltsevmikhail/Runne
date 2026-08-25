@@ -227,6 +227,20 @@ impl ProviderCredentialMetadata {
         self.writer_identity == *access.writer_identity()
             && self.reader_identity == *access.reader_identity()
     }
+
+    pub fn validate_delete_access(
+        &self,
+        access: &ProviderCredentialAccessPolicy,
+        acl_set_digest: [u8; 32],
+    ) -> Result<(), SecureStoreError> {
+        if !self.access_matches(access) {
+            return Err(SecureStoreError::CredentialAclMigrationRequired);
+        }
+        if self.acl_set_digest != acl_set_digest {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        self.validate_writer_current()
+    }
 }
 
 include!("codec_payload.rs");

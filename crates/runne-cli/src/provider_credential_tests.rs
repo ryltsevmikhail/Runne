@@ -146,6 +146,27 @@ fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
 }
 
 #[test]
+fn credential_delete_double_rejects_a_substituted_policy_before_side_effect() {
+    let resolver = FakeResolver::new();
+    let mismatched = FakeResolver::new();
+    let mut backend = FakeBackend::for_resolver(&mismatched);
+
+    assert!(matches!(
+        execute_provider_credential_on_platform(
+            ProviderCredentialCommand::Delete(ProviderCredentialId::OpenAi),
+            &mut b"".as_slice(),
+            false,
+            &mut backend,
+            &resolver,
+            true,
+        ),
+        Err(CliError::CredentialOperation)
+    ));
+    assert!(!backend.configured);
+    assert_eq!(backend.delete_calls, 0);
+}
+
+#[test]
 fn unsupported_backend_never_reports_persistence() {
     let mut backend = FakeBackend::unsupported();
     let resolver = FakeResolver::new();
@@ -209,92 +230,5 @@ fn args(values: &[&str]) -> VecDeque<OsString> {
     values.iter().map(OsString::from).collect()
 }
 
-struct FakeResolver {
-    _temporary: tempfile::TempDir,
-    executable: std::path::PathBuf,
-}
-
-impl FakeResolver {
-    fn new() -> Self {
-        let temporary = tempfile::tempdir().expect("temporary executable directory");
-        #[cfg(unix)]
-        std::fs::set_permissions(temporary.path(), std::fs::Permissions::from_mode(0o700))
-            .expect("restrict temporary executable directory");
-        let executable = temporary.path().join("runne-test-executable");
-        let current = std::env::current_exe().expect("current CLI test executable");
-        std::fs::copy(current, &executable).expect("copy test executable");
-        #[cfg(unix)]
-        std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700))
-            .expect("restrict test executable");
-        Self {
-            _temporary: temporary,
-            executable,
-        }
-    }
-}
-
+include!("provider_credential_test_doubles.rs");
 include!("provider_credential_path_tests.rs");
-
-impl CredentialIdentityResolver for FakeResolver {
-    fn resolve(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
-        ProviderCredentialAccessPolicy::new(&self.executable, &self.executable)
-            .map_err(|_| CliError::CredentialOperation)
-    }
-}
-
-#[derive(Default)]
-struct FakeBackend {
-    configured: bool,
-    unsupported: bool,
-    failure: bool,
-}
-
-impl FakeBackend {
-    fn unsupported() -> Self {
-        Self {
-            unsupported: true,
-            ..Self::default()
-        }
-    }
-}
-
-impl CredentialBackend for FakeBackend {
-    fn status(
-        &self,
-        _id: ProviderCredentialId,
-        _access: &ProviderCredentialAccessPolicy,
-    ) -> Result<CredentialOutcome, SecureStoreError> {
-        if self.failure {
-            return Err(SecureStoreError::OperationFailed("backend-detail".into()));
-        }
-        Ok(if self.unsupported {
-            CredentialOutcome::Unsupported
-        } else if self.configured {
-            CredentialOutcome::Configured
-        } else {
-            CredentialOutcome::Missing
-        })
-    }
-
-    fn store(
-        &mut self,
-        _id: ProviderCredentialId,
-        _credential: &ProviderCredentialMaterial,
-        _access: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        if self.unsupported {
-            return Err(SecureStoreError::UnsupportedSecureStoreBackend);
-        }
-        self.configured = true;
-        Ok(())
-    }
-
-    fn delete(
-        &mut self,
-        _id: ProviderCredentialId,
-        _access: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        self.configured = false;
-        Ok(())
-    }
-}

@@ -84,7 +84,7 @@ impl CredentialIdentityResolver for NativeCredentialIdentityResolver {
         #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
         {
             let writer = std::env::current_exe().map_err(|_| CliError::CredentialOperation)?;
-            resolve_packaged_credential_access(&writer)
+            resolve_authenticated_packaged_credential_access(&writer)
         }
         #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
         {
@@ -93,31 +93,7 @@ impl CredentialIdentityResolver for NativeCredentialIdentityResolver {
     }
 }
 
-fn resolve_packaged_credential_access(
-    current_writer: &std::path::Path,
-) -> Result<ProviderCredentialAccessPolicy, CliError> {
-    let writer = std::fs::canonicalize(current_writer).map_err(|_| CliError::CredentialOperation)?;
-    if writer.file_name() != Some(std::ffi::OsStr::new(&native_executable_name("runne"))) {
-        return Err(CliError::CredentialOperation);
-    }
-    let reader = packaged_daemon_path(&writer)?;
-    ProviderCredentialAccessPolicy::new(&writer, &reader).map_err(|_| CliError::CredentialOperation)
-}
-
-fn packaged_daemon_path(writer: &std::path::Path) -> Result<std::path::PathBuf, CliError> {
-    let directory = writer
-        .parent()
-        .ok_or(CliError::CredentialOperation)?;
-    let reader = std::fs::canonicalize(directory.join(native_executable_name("runned")))
-        .map_err(|_| CliError::CredentialOperation)?;
-    (reader.parent() == Some(directory))
-        .then_some(reader)
-        .ok_or(CliError::CredentialOperation)
-}
-
-fn native_executable_name(name: &str) -> String {
-    format!("{name}{}", std::env::consts::EXE_SUFFIX)
-}
+include!("provider_credential_identity.rs");
 
 const fn native_credential_backend_supported() -> bool {
     cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows"))

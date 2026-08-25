@@ -106,6 +106,21 @@ impl StoredProviderCredential {
             && self.reader_identity == *access.reader_identity()
     }
 
+    pub fn validate_delete_access(
+        &self,
+        access: &ProviderCredentialAccessPolicy,
+        acl_set_digest: [u8; 32],
+    ) -> Result<(), SecureStoreError> {
+        if !self.access_matches(access) {
+            return Err(SecureStoreError::CredentialAclMigrationRequired);
+        }
+        if self.acl_set_digest != acl_set_digest {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        validate_current_identity(&self.writer_identity)
+            .map_err(|_| SecureStoreError::CredentialAccessDenied)
+    }
+
     pub fn metadata_matches(&self, metadata: &ProviderCredentialMetadata) -> bool {
         self.writer_identity == metadata.writer_identity
             && self.reader_identity == metadata.reader_identity

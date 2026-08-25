@@ -1,6 +1,9 @@
 mod anchor;
 mod journal;
 mod provider;
+mod provider_delete;
+#[cfg(test)]
+mod provider_delete_tests;
 mod tail;
 
 use std::sync::Mutex;
