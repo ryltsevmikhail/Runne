@@ -17,7 +17,7 @@ class DesktopQualificationWorkflowTest(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         qualification = self._qualification()
         self.assertNotIn("desktop-qualification", workflow[workflow.index("on:"):workflow.index("env:")])
-        self.assertIn("inputs:\n      protected_ref:\n        type: choice\n        required: true\n        options: [refs/tags/v1.0.0]", qualification)
+        self.assertIn("inputs:\n      protected_ref:\n        type: string\n        required: true\n        description: Immutable protected tag to qualify; policy accepts only refs/tags/v1.0.0.", qualification)
         self.assertIn("candidate_sha:\n        type: string\n        required: true", qualification)
         self.assertFalse((ROOT / ".github/workflows").exists())
 
