@@ -22,6 +22,7 @@ const workspace = {
   open: true,
 } as const
 const details = { project, workspaces: [workspace] } as const
+const emptyDetails = { project, workspaces: [] } as const
 
 function liveContext(): RuntimeSessionContext {
   const snapshot = shallowRef<RuntimeSessionSnapshot>({
@@ -36,7 +37,10 @@ function liveContext(): RuntimeSessionContext {
   }
 }
 
-async function mountPage(loadProject: (id: string) => Promise<CanonicalProjectDetails>) {
+async function mountPage(
+  loadProject: (id: string) => Promise<CanonicalProjectDetails>,
+  createWorkspace: (projectId: string, displayName: string) => Promise<{ workspaceId: string; newVersion: number }> = async () => ({ workspaceId: workspace.workspaceId, newVersion: 1 }),
+) {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -50,7 +54,7 @@ async function mountPage(loadProject: (id: string) => Promise<CanonicalProjectDe
   const Harness = defineComponent({
     setup() {
       provideRuntimeSession(liveContext())
-      return () => h(ProjectDetailsPage, { loadProject })
+      return () => h(ProjectDetailsPage, { loadProject, createWorkspace })
     },
   })
   const wrapper = mount(Harness, { global: { plugins: [router] } })
@@ -59,6 +63,32 @@ async function mountPage(loadProject: (id: string) => Promise<CanonicalProjectDe
 }
 
 describe('project details page', () => {
+  it('offers a runtime workspace creation action for an empty project', async () => {
+    const { wrapper } = await mountPage(async () => emptyDetails)
+
+    expect(wrapper.find('[aria-label="Create workspace"]').exists()).toBe(true)
+  })
+
+  it('refreshes the authoritative project after creating a workspace', async () => {
+    let reads = 0
+    let created: [string, string] | null = null
+    const { wrapper } = await mountPage(
+      async () => {
+        reads += 1
+        return reads === 1 ? emptyDetails : details
+      },
+      async (projectId, displayName) => {
+        created = [projectId, displayName]
+        return { workspaceId: workspace.workspaceId, newVersion: 1 }
+      },
+    )
+
+    await wrapper.get('[aria-label="Create workspace"]').trigger('click')
+    await flushPromises()
+    expect(created).toEqual([project.projectId, 'Workspace'])
+    expect(wrapper.find('[aria-label="Open workspace gocode-ui"]').exists()).toBe(true)
+  })
+
   it('does not restore a project from a legacy numeric route ID', async () => {
     const requestedIds: string[] = []
     const router = createRouter({

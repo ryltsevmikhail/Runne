@@ -4,17 +4,20 @@ import { ArrowRight, FolderOpen } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import type { CanonicalProjectDetails } from '@/entities/project'
-import { getCanonicalProject, isCanonicalRuntimeId } from '@/entities/project'
+import type { CanonicalProjectDetails, CanonicalWorkspaceMutationAck } from '@/entities/project'
+import { createCanonicalWorkspace, getCanonicalProject, isCanonicalRuntimeId } from '@/entities/project'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
 
 type LoadProject = (id: string) => Promise<CanonicalProjectDetails>
+type CreateWorkspace = (projectId: string, displayName: string) => Promise<CanonicalWorkspaceMutationAck>
 
 const props = withDefaults(defineProps<{
   loadProject?: LoadProject
+  createWorkspace?: CreateWorkspace
 }>(), {
   loadProject: getCanonicalProject,
+  createWorkspace: createCanonicalWorkspace,
 })
 
 const route = useRoute()
@@ -22,6 +25,8 @@ const router = useRouter()
 const details = ref<CanonicalProjectDetails | null>(null)
 const loading = ref(true)
 const error = ref(false)
+const creatingWorkspace = ref(false)
+const createWorkspaceError = ref(false)
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 
@@ -65,6 +70,23 @@ async function openWorkspace(workspaceId: string) {
     name: 'workspace',
     params: { workspaceId },
   })
+}
+
+async function createWorkspace() {
+  const id = typeof route.params.projectId === 'string' ? route.params.projectId : ''
+  if (!isCanonicalRuntimeId(id) || runtimeStatus.value !== 'live' || creatingWorkspace.value) return
+  creatingWorkspace.value = true
+  createWorkspaceError.value = false
+  try {
+    await props.createWorkspace(id, 'Workspace')
+    await refreshProject()
+  }
+  catch {
+    createWorkspaceError.value = true
+  }
+  finally {
+    creatingWorkspace.value = false
+  }
 }
 
 async function returnToProjects() {
@@ -120,6 +142,17 @@ async function returnToProjects() {
       <div class="section-heading">
         <h2>{{ translate('projectDetails.workspaces') }}</h2>
         <span>{{ translate('projectDetails.runtime') }}</span>
+      </div>
+      <div v-if="details.workspaces.length === 0" class="content-section">
+        <p>{{ translate('projectDetails.noWorkspaces') }}</p>
+        <GcButton
+          :aria-label="translate('projectDetails.createWorkspace')"
+          :disabled="creatingWorkspace || runtimeStatus !== 'live'"
+          @click="createWorkspace"
+        >
+          {{ creatingWorkspace ? translate('projectDetails.creatingWorkspace') : translate('projectDetails.createWorkspace') }}
+        </GcButton>
+        <p v-if="createWorkspaceError" role="alert">{{ translate('projectDetails.createWorkspaceFailed') }}</p>
       </div>
       <button
         v-for="workspace in details.workspaces"

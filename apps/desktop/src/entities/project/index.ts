@@ -14,8 +14,10 @@ export {
 export {
   getCanonicalProject,
   getCanonicalWorkspace,
+  createCanonicalWorkspace,
   listCanonicalProjects,
   type CanonicalProject,
   type CanonicalProjectDetails,
   type CanonicalWorkspace,
+  type CanonicalWorkspaceMutationAck,
 } from './api/canonical-projects'
