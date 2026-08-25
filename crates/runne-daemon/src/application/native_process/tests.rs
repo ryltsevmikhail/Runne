@@ -2,6 +2,11 @@
 use runne_security::broker::process::ProcessInvocationIdV1;
 use std::fs;
 
+fn verified_root(path: &std::path::Path) -> VerifiedRootHandle {
+    let canonical = fs::canonicalize(path).expect("canonical root path");
+    VerifiedRootHandle::open(&canonical).expect("verified root")
+}
+
 #[test]
 fn preparation_binds_open_file_identities_and_rejects_replay() {
     let root = tempfile::tempdir().expect("temporary root");
@@ -9,7 +14,7 @@ fn preparation_binds_open_file_identities_and_rejects_replay() {
     fs::create_dir(root.path().join("workspace")).expect("workspace");
     fs::write(root.path().join("bin/tool"), b"native-tool").expect("tool");
     let launcher = NativeOwnerBoundProcessLauncher::new(
-        VerifiedRootHandle::open(root.path()).expect("verified root"),
+        verified_root(root.path()),
     );
     let request = launcher
         .prepare([7; 32], "bin/tool", "workspace")
@@ -29,7 +34,7 @@ fn preparation_rejects_symlinked_executable() {
     fs::create_dir(root.path().join("workspace")).expect("workspace");
     std::os::unix::fs::symlink("/bin/sh", root.path().join("tool")).expect("symlink");
     let launcher = NativeOwnerBoundProcessLauncher::new(
-        VerifiedRootHandle::open(root.path()).expect("verified root"),
+        verified_root(root.path()),
     );
     assert_eq!(
         launcher.prepare([8; 32], "tool", "workspace"),
@@ -46,7 +51,7 @@ fn re_adoption_rejects_a_pid_without_the_runtime_launch_nonce() {
     };
     let root = tempfile::tempdir().expect("temporary root");
     let launcher = NativeOwnerBoundProcessLauncher::new(
-        VerifiedRootHandle::open(root.path()).expect("verified root"),
+        verified_root(root.path()),
     );
     let binding = ProcessLifecycleBindingV1::new(
         ProcessOwnerIdV1::new([1; 16]).unwrap(),
@@ -79,7 +84,7 @@ fn re_adoption_accepts_the_exact_marker_and_stop_identity() {
     use std::os::unix::process::CommandExt;
     let root = tempfile::tempdir().expect("temporary root");
     let launcher = NativeOwnerBoundProcessLauncher::new(
-        VerifiedRootHandle::open(root.path()).expect("verified root"),
+        verified_root(root.path()),
     );
     let nonce = [9; 16];
     let mut child = std::process::Command::new("/bin/sleep")

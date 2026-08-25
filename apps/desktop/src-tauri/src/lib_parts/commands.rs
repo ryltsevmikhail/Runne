@@ -182,7 +182,7 @@ fn request_directory_selection(
     {
         return Err(IpcError { code: "directory_selection_rejected" });
     }
-    let path = selected.into_path().map_err(|_| IpcError { code: "directory_selection_rejected" })?;
+    let path = std::fs::canonicalize(&selected.into_path().map_err(|_| IpcError { code: "directory_selection_rejected" })?).map_err(|_| IpcError { code: "directory_selection_rejected" })?;
     let root = VerifiedRootHandle::open(&path)
         .map_err(|_| IpcError { code: "directory_selection_rejected" })?;
     selections

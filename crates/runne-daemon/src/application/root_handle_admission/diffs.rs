@@ -268,7 +268,8 @@ mod diff_tests {
         std::fs::write(directory.path().join("src/README.md"), "hello\n").expect("text file");
         std::fs::write(directory.path().join(".env"), "TOKEN=secret\n").expect("secret file");
         std::fs::write(directory.path().join("image.bin"), [0, 159, 146, 150]).expect("binary file");
-        let root = VerifiedRootHandle::open(directory.path()).expect("verified root");
+        let canonical = std::fs::canonicalize(directory.path()).expect("canonical root path");
+        let root = VerifiedRootHandle::open(&canonical).expect("verified root");
         let snapshot = capture_text_files(&root).expect("baseline snapshot");
         assert!(snapshot.contains_key("src/README.md"));
         assert!(!snapshot.contains_key(".env"));
