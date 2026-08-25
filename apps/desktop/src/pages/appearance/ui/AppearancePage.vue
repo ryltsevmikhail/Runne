@@ -105,9 +105,9 @@ function onLocaleChange(event: Event) {
       </div>
     </header>
     <nav class="page-subnav" :aria-label="translate('settings.title')">
-      <RouterLink to="/settings/runtimes">Runtime</RouterLink>
+      <RouterLink to="/settings/runtimes">{{ translate('runtimeSettings.title') }}</RouterLink>
       <RouterLink to="/settings/appearance">{{ translate('appearance.title') }}</RouterLink>
-      <RouterLink to="/settings/diagnostics">Diagnostics</RouterLink>
+      <RouterLink to="/settings/diagnostics">{{ translate('navigation.diagnostics') }}</RouterLink>
     </nav>
 
     <div v-if="loading" class="empty-state" aria-live="polite">

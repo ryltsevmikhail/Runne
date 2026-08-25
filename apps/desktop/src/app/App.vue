@@ -88,7 +88,7 @@ async function refreshRuntimeStatus() {
 async function openExternalActivation(target: ActivationTarget) {
   if (runtimeState.value !== 'live') return
   if (target.runtime !== null) {
-    activationNotice.value = 'This activation belongs to a runtime that must be reconciled first.'
+    activationNotice.value = translate('activation.runtimeReconciliationRequired')
     return
   }
   if (target.taskRunId !== null) {
@@ -104,7 +104,7 @@ async function openExternalActivation(target: ActivationTarget) {
     await router.push({ name: 'project-details', params: { projectId: target.projectId } })
   }
   else {
-    activationNotice.value = 'This activation requires a current runtime approval surface.'
+    activationNotice.value = translate('activation.surfaceUnavailable')
   }
 }
 
@@ -133,7 +133,7 @@ onMounted(async () => {
       if (pending !== null) receiveExternalActivation(pending)
     }
     catch {
-      activationNotice.value = 'External activation is unavailable.'
+      activationNotice.value = translate('activation.unavailable')
     }
     await runtimeSession.connect()
     await refreshRuntimeStatus()
