@@ -2,6 +2,51 @@
 #![deny(missing_docs)]
 
 //! Provider-neutral contracts for Runne runtime adapters.
+//!
+//! Process-local credential capabilities deliberately fail durable trait bounds.
+//!
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::RawCredentialTicket>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::RawCredentialTicket>();
+//! ```
+//! ```compile_fail
+//! fn require_durable<T: Into<runne_provider::CredentialOperationSnapshot>>() {}
+//! require_durable::<runne_provider::RawCredentialTicket>();
+//! ```
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::CredentialNativeCreateClaim>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::CredentialNativeCreateClaim>();
+//! ```
+//! ```compile_fail
+//! fn require_durable<T: Into<runne_provider::CredentialOperationSnapshot>>() {}
+//! require_durable::<runne_provider::CredentialNativeCreateClaim>();
+//! ```
+//! ```compile_fail
+//! fn require_clone<T: Clone>() {}
+//! require_clone::<runne_provider::CredentialGcClaim>();
+//! ```
+//! ```compile_fail
+//! fn require_serialize<T: serde::Serialize>() {}
+//! require_serialize::<runne_provider::CredentialGcClaim>();
+//! ```
+//! ```compile_fail
+//! fn require_durable<T: Into<runne_provider::CredentialOperationSnapshot>>() {}
+//! require_durable::<runne_provider::CredentialGcClaim>();
+//! ```
+//!
+//! Broker decoding remains internal to the provider crate.
+//!
+//! ```compile_fail
+//! let _ = runne_provider::CredentialBrokerFrameCodec::decode(&[]);
+//! ```
 
 mod coordination;
 mod credential;
@@ -22,13 +67,30 @@ pub use coordination::{
     ProviderRepositoryState,
 };
 pub use credential::{
-    CredentialAuthorityPair, CredentialDispatchCapability, CredentialGcClaim, CredentialLease,
-    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialNativeCreateAuthorization,
-    CredentialNativeCreateClaim, CredentialNativeCreateIssuer, CredentialNativeCreateProgression,
-    CredentialNativeCreateValidator, CredentialProvisionSource, CredentialVersionRef,
-    CredentialVersionState, NativeCredentialAuthority, NativeCredentialDeletionProof,
-    PrepareCredentialVersion, ProviderCredentialVersionStore, ReconcileCredentialVersions,
-    RevokeCredentialVersion,
+    BeginCredentialOperation, BeginCredentialVerification, BindCredentialReadback,
+    BrokerChannelBinding, CandidateSourceIdentity, ClaimCredentialOperation,
+    ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
+    ContinuationBindingDigest, ContractBundleDigest, CredentialAuthorityPair,
+    CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,
+    CredentialClaimBinding, CredentialDispatchCapability, CredentialDisposition,
+    CredentialEnrollmentError, CredentialFence, CredentialGcClaim, CredentialLease,
+    CredentialLifecycleAuthority, CredentialLifecycleError, CredentialLifecycleRevision,
+    CredentialLifecycleSnapshot, CredentialMeasurementSnapshot,
+    CredentialNativeCreateAuthorization, CredentialNativeCreateClaim, CredentialNativeCreateIssuer,
+    CredentialNativeCreateProgression, CredentialNativeCreateValidator, CredentialOperationAction,
+    CredentialOperationId, CredentialOperationSnapshot, CredentialOperationState,
+    CredentialProcessBinding, CredentialProvisionSource, CredentialRecoveryWork,
+    CredentialReleaseMigrationBinding, CredentialTicketAttempt, CredentialTransitionEvidence,
+    CredentialVerificationCapability, CredentialVerificationLease,
+    CredentialVerificationObservation, CredentialVersionRef, CredentialVersionState,
+    DaemonAuthorityId, DesktopExecutableIdentity, FailCredentialOperation, HardFenceProvider,
+    IssueCredentialTicketDigest, NativeCredentialAuthority, NativeCredentialDeletionProof,
+    ObserveNativeEffect, PrepareCredentialVersion, ProtectedSessionId,
+    ProviderCredentialVersionStore, RawCredentialTicket, ReaderExecutableIdentity,
+    ReconcileCredentialVersions, ReleaseManifestDigest, RevokeCredentialVersion,
+    TombstoneCredentialOperation, TransitionCommand, WriterExecutableIdentity,
+    WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
+    WriterProcessStartIdentity, allows_structural_transition,
 };
 pub use digest::{
     CanonicalProviderError, ProviderCallDigest, ProviderCallDigestVersion,

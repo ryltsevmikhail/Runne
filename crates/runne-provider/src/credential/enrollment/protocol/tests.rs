@@ -7,7 +7,7 @@ use super::super::{
 fn credential_enrollment_codec_round_trips_only_known_versioned_frames() {
     let operation_id = CredentialOperationId::from_bytes([1; 16]).unwrap();
     let attempt = CredentialTicketAttempt::new(1).unwrap();
-    let ticket = RawCredentialTicket::from_os_random([2; 32]).unwrap();
+    let ticket = RawCredentialTicket::generate().unwrap();
     let frame = CredentialBrokerFrame::IssueTicket {
         operation_id,
         attempt,
@@ -27,6 +27,21 @@ fn credential_enrollment_codec_rejects_unknown_version_kind_and_oversized_frames
     ] {
         assert!(CredentialBrokerFrameCodec::decode(&frame).is_err());
     }
+}
+
+#[test]
+fn credential_enrollment_codec_rejects_short_and_long_raw_tickets() {
+    let frame = CredentialBrokerFrame::IssueTicket {
+        operation_id: CredentialOperationId::from_bytes([2; 16]).unwrap(),
+        attempt: CredentialTicketAttempt::new(1).unwrap(),
+        ticket: RawCredentialTicket::generate().unwrap(),
+    };
+    let mut bytes = CredentialBrokerFrameCodec::encode(frame).unwrap();
+    let mut long = bytes.clone();
+    long.push(0);
+    bytes.pop();
+    assert!(CredentialBrokerFrameCodec::decode(&bytes).is_err());
+    assert!(CredentialBrokerFrameCodec::decode(&long).is_err());
 }
 
 #[test]

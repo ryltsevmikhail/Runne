@@ -1,0 +1,56 @@
+use super::super::{
+    CredentialBindingDigest, CredentialEnrollmentError, CredentialOperationId,
+    CredentialTicketAttempt, RawCredentialTicket,
+};
+
+/// Durable non-secret digest record for one issued raw ticket attempt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IssueCredentialTicketDigest {
+    operation_id: CredentialOperationId,
+    ticket_attempt: CredentialTicketAttempt,
+    ticket_digest: CredentialBindingDigest,
+    issued_at_high_water: i64,
+    expires_at_high_water: i64,
+}
+
+impl IssueCredentialTicketDigest {
+    /// Derives the digest from an OS-generated raw ticket and validates its lifetime.
+    pub fn new(
+        operation_id: CredentialOperationId,
+        ticket_attempt: CredentialTicketAttempt,
+        ticket: &RawCredentialTicket,
+        issued_at_high_water: i64,
+        expires_at_high_water: i64,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        if issued_at_high_water < 0 || expires_at_high_water <= issued_at_high_water {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        Ok(Self {
+            operation_id,
+            ticket_attempt,
+            ticket_digest: ticket.binding_digest(),
+            issued_at_high_water,
+            expires_at_high_water,
+        })
+    }
+    /// Returns the operation identity.
+    pub const fn operation_id(&self) -> CredentialOperationId {
+        self.operation_id
+    }
+    /// Returns the ticket attempt.
+    pub const fn ticket_attempt(&self) -> CredentialTicketAttempt {
+        self.ticket_attempt
+    }
+    /// Returns the durable ticket digest.
+    pub const fn ticket_digest(&self) -> CredentialBindingDigest {
+        self.ticket_digest
+    }
+    /// Returns the issue timestamp.
+    pub const fn issued_at_high_water(&self) -> i64 {
+        self.issued_at_high_water
+    }
+    /// Returns the expiry timestamp.
+    pub const fn expires_at_high_water(&self) -> i64 {
+        self.expires_at_high_water
+    }
+}

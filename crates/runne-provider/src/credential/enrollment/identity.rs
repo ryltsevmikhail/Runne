@@ -1,5 +1,7 @@
 use core::fmt;
 
+use rand::RngCore;
+use sha2::{Digest, Sha256};
 use zeroize::Zeroize;
 
 use super::CredentialEnrollmentError;
@@ -71,26 +73,50 @@ impl CredentialBindingDigest {
     }
 }
 
-/// Opaque 256-bit ticket whose bytes may only enter the broker codec.
+const TICKET_DIGEST_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_TICKET_V2\0";
+
+/// Opaque 256-bit OS-CSPRNG ticket whose bytes may only enter the broker codec.
 pub struct RawCredentialTicket([u8; 32]);
 
 impl RawCredentialTicket {
-    /// Accepts exactly one non-zero nonce produced by the platform OS CSPRNG.
-    pub fn from_os_random(value: [u8; 32]) -> Result<Self, CredentialEnrollmentError> {
-        if value == [0; 32] {
-            return Err(CredentialEnrollmentError::InvalidInput);
-        }
-        Ok(Self(value))
+    /// Generates a fresh 256-bit nonce directly from the operating-system CSPRNG.
+    pub fn generate() -> Result<Self, CredentialEnrollmentError> {
+        generate_ticket_with(|bytes| rand::rngs::OsRng.try_fill_bytes(bytes).map_err(|_| ()))
     }
 
-    /// Fails closed when the platform entropy source failed before issue.
-    pub fn from_entropy<E>(value: Result<[u8; 32], E>) -> Result<Self, CredentialEnrollmentError> {
-        Self::from_os_random(value.map_err(|_| CredentialEnrollmentError::EntropyUnavailable)?)
+    /// Returns the durable domain-separated digest; raw bytes remain opaque.
+    pub fn binding_digest(&self) -> CredentialBindingDigest {
+        let mut hasher = Sha256::new();
+        hasher.update(TICKET_DIGEST_DOMAIN);
+        hasher.update((self.0.len() as u64).to_be_bytes());
+        hasher.update(self.0);
+        CredentialBindingDigest::from_measured(hasher.finalize().into())
+            .expect("SHA-256 is non-zero")
     }
 
     pub(crate) const fn bytes(&self) -> &[u8; 32] {
         &self.0
     }
+
+    #[allow(dead_code)]
+    pub(super) fn from_decoded(value: [u8; 32]) -> Result<Self, CredentialEnrollmentError> {
+        if value == [0; 32] {
+            return Err(CredentialEnrollmentError::InvalidFrame);
+        }
+        Ok(Self(value))
+    }
+}
+
+fn generate_ticket_with(
+    fill: impl FnOnce(&mut [u8; 32]) -> Result<(), ()>,
+) -> Result<RawCredentialTicket, CredentialEnrollmentError> {
+    let mut bytes = [0_u8; 32];
+    fill(&mut bytes).map_err(|_| CredentialEnrollmentError::EntropyUnavailable)?;
+    if bytes == [0; 32] {
+        bytes.zeroize();
+        return Err(CredentialEnrollmentError::EntropyUnavailable);
+    }
+    Ok(RawCredentialTicket(bytes))
 }
 
 impl Drop for RawCredentialTicket {
@@ -104,3 +130,7 @@ impl fmt::Debug for RawCredentialTicket {
         formatter.write_str("RawCredentialTicket(<redacted>)")
     }
 }
+
+#[cfg(test)]
+#[path = "identity/tests.rs"]
+mod tests;

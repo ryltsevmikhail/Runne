@@ -73,7 +73,7 @@ impl CredentialBrokerFrameCodec {
     }
 
     /// Decodes exactly one bounded, known-version frame; all other input fails closed.
-    pub fn decode(bytes: &[u8]) -> Result<CredentialBrokerFrame, CredentialEnrollmentError> {
+    pub(crate) fn decode(bytes: &[u8]) -> Result<CredentialBrokerFrame, CredentialEnrollmentError> {
         if bytes.len() < 2 || bytes.len() > Self::MAX_FRAME_BYTES || bytes[0] != Self::VERSION {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
@@ -174,7 +174,7 @@ fn read_ticket(
     bytes: &[u8],
     cursor: &mut usize,
 ) -> Result<RawCredentialTicket, CredentialEnrollmentError> {
-    RawCredentialTicket::from_os_random(
+    RawCredentialTicket::from_decoded(
         take(bytes, cursor, 32)?
             .try_into()
             .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,

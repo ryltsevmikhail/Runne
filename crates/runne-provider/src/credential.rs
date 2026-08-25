@@ -6,7 +6,6 @@ use thiserror::Error;
 use crate::ProviderId;
 
 mod authority;
-#[allow(dead_code)]
 mod enrollment;
 
 pub use authority::{
@@ -16,15 +15,7 @@ pub use authority::{
     CredentialNativeCreateValidator, CredentialProvisionSource, NativeCredentialAuthority,
     NativeCredentialDeletionProof,
 };
-#[allow(unused_imports)]
-pub use enrollment::{
-    CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialClaimBinding, CredentialDisposition, CredentialEnrollmentError, CredentialFence,
-    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
-    CredentialOperationState, CredentialProcessBinding, CredentialReleaseMigrationBinding,
-    CredentialTicketAttempt, CredentialTransitionEvidence, RawCredentialTicket, TransitionCommand,
-    WriterIdentityMigrationPhase, allows_structural_transition,
-};
+pub use enrollment::*;
 
 const CREDENTIAL_REF_DOMAIN: &[u8] = b"GOCODE_CREDENTIAL_VERSION_REF_V1\0";
 

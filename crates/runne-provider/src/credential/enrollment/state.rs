@@ -96,14 +96,10 @@ pub enum CredentialTransitionEvidence {
 
 /// Store-constructed and validated transition request.
 pub struct TransitionCommand {
-    /// Closed operation action.
-    pub action: CredentialOperationAction,
-    /// Authoritative prior state.
-    pub from: CredentialOperationState,
-    /// Requested successor state.
-    pub to: CredentialOperationState,
-    /// Independently recorded transition evidence.
-    pub evidence: CredentialTransitionEvidence,
+    action: CredentialOperationAction,
+    from: CredentialOperationState,
+    to: CredentialOperationState,
+    evidence: CredentialTransitionEvidence,
 }
 
 impl TransitionCommand {
@@ -126,6 +122,26 @@ impl TransitionCommand {
             to,
             evidence,
         })
+    }
+
+    /// Returns the closed operation action.
+    pub const fn action(&self) -> CredentialOperationAction {
+        self.action
+    }
+
+    /// Returns the authoritative prior state.
+    pub const fn from(&self) -> CredentialOperationState {
+        self.from
+    }
+
+    /// Returns the validated successor state.
+    pub const fn to(&self) -> CredentialOperationState {
+        self.to
+    }
+
+    /// Returns the independently recorded transition evidence.
+    pub const fn evidence(&self) -> CredentialTransitionEvidence {
+        self.evidence
     }
 }
 
@@ -180,13 +196,30 @@ fn allows_evidence(
             CredentialOperationState::ReadbackVerified,
         )
         | (CredentialOperationState::ReadbackVerified, CredentialOperationState::Completed) => {
-            matches!(
-                evidence,
-                CredentialTransitionEvidence::ExactAbsenceReadback(_)
-                    | CredentialTransitionEvidence::ExactVersionReadback(_)
-            )
+            action_accepts_readback(action, evidence)
         }
         _ => matches!(evidence, CredentialTransitionEvidence::None),
+    }
+}
+
+fn action_accepts_readback(
+    action: CredentialOperationAction,
+    evidence: CredentialTransitionEvidence,
+) -> bool {
+    match action {
+        CredentialOperationAction::Pair
+        | CredentialOperationAction::MigrateLegacy
+        | CredentialOperationAction::WriterIdentityMigrationVerify => matches!(
+            evidence,
+            CredentialTransitionEvidence::ExactVersionReadback(_)
+        ),
+        CredentialOperationAction::Revoke
+        | CredentialOperationAction::RetiredVersionCleanup
+        | CredentialOperationAction::LegacySourceCleanup => matches!(
+            evidence,
+            CredentialTransitionEvidence::ExactAbsenceReadback(_)
+        ),
+        CredentialOperationAction::WriterIdentityMigrationEffect => false,
     }
 }
 
@@ -205,6 +238,7 @@ pub enum CredentialDisposition {
 }
 
 impl CredentialDisposition {
+    #[allow(dead_code)]
     pub(crate) const fn from_byte(value: u8) -> Option<Self> {
         match value {
             1 => Some(Self::AccessDenied),
