@@ -7,9 +7,9 @@ use std::path::Path;
 
 use rand::RngCore;
 use runne_api::RootHandleTransferAuthenticator;
-use rustix::fs::{FileType, Mode, OFlags, RawDir, fstat, open, openat};
+use rustix::fs::{FileType, Mode, OFlags, fstat, open, openat};
 #[cfg(target_os = "linux")]
-use rustix::fs::{ResolveFlags, openat2};
+use rustix::fs::{RawDir, ResolveFlags, openat2};
 use rustix::net::{
     RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
     SendAncillaryMessage, SendFlags, recvmsg, sendmsg,

@@ -6,6 +6,7 @@ pub(super) fn clone_root(root: &VerifiedRootHandle) -> Result<VerifiedRootHandle
     verified_from_handle(root.handle.try_clone().map_err(|_| RootHandleBrokerError::Unavailable)?)
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn list_relative(
     root: &NativeDirectoryHandle,
     path: &Path,
@@ -36,6 +37,57 @@ pub(super) fn list_relative(
         };
         let relative_path = if path.as_os_str().is_empty() {
             name.to_owned()
+        } else {
+            format!("{}/{name}", path.display())
+        };
+        let size_bytes = u64::try_from(stat.st_size).map_err(|_| RootHandleBrokerError::Rejected)?;
+        entries.push(entry(relative_path, kind, size_bytes));
+    }
+    entries.sort_by(|left, right| left.relative_path().cmp(right.relative_path()));
+    Ok(entries)
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn list_relative(
+    root: &NativeDirectoryHandle,
+    path: &Path,
+    limit: usize,
+) -> Result<Vec<RootFileEntry>, RootHandleBrokerError> {
+    let directory = open_directory_below(root, path)?;
+    let descriptor_path = format!("/dev/fd/{}", directory.as_raw_fd());
+    let mut entries = Vec::new();
+    for item in std::fs::read_dir(descriptor_path)
+        .map_err(|_| RootHandleBrokerError::Unavailable)?
+    {
+        let item = item.map_err(|_| RootHandleBrokerError::Unavailable)?;
+        let name = item
+            .file_name()
+            .to_str()
+            .ok_or(RootHandleBrokerError::Rejected)?
+            .to_owned();
+        if name == "." || name == ".." {
+            continue;
+        }
+        if entries.len() >= limit {
+            return Err(RootHandleBrokerError::Rejected);
+        }
+        let opened = openat(
+            &directory,
+            item.file_name(),
+            OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )
+        .map_err(|_| RootHandleBrokerError::Rejected)?;
+        let stat = fstat(&opened).map_err(|_| RootHandleBrokerError::Unavailable)?;
+        let kind = if FileType::from_raw_mode(stat.st_mode).is_file() {
+            RootFileKind::File
+        } else if FileType::from_raw_mode(stat.st_mode).is_dir() {
+            RootFileKind::Directory
+        } else {
+            return Err(RootHandleBrokerError::Rejected);
+        };
+        let relative_path = if path.as_os_str().is_empty() {
+            name
         } else {
             format!("{}/{name}", path.display())
         };
