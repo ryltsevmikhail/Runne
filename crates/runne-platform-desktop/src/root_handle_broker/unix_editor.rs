@@ -8,7 +8,7 @@ pub(super) fn launch_system_default_editor(
     open_file_below(root, relative_path)?;
     let root_path = root_path(root)?;
     let target = root_path.join(relative_path);
-    let opener = default_opener().ok_or(RootHandleBrokerError::Unavailable)?;
+    let opener = default_opener()?;
     Command::new(opener)
         .arg(target)
         .env_clear()
@@ -27,15 +27,16 @@ fn root_path(root: &NativeDirectoryHandle) -> Result<std::path::PathBuf, RootHan
 }
 
 #[cfg(target_os = "linux")]
-fn default_opener() -> Option<&'static str> {
+fn default_opener() -> Result<&'static str, RootHandleBrokerError> {
     ["/usr/bin/xdg-open", "/bin/xdg-open"]
         .into_iter()
         .find(|path| Path::new(path).is_file())
+        .ok_or(RootHandleBrokerError::Unavailable)
 }
 
 #[cfg(target_os = "macos")]
-fn default_opener() -> Option<&'static str> {
-    Some("/usr/bin/open")
+const fn default_opener() -> Result<&'static str, RootHandleBrokerError> {
+    Ok("/usr/bin/open")
 }
 
 fn allowlisted_environment() -> Vec<(String, String)> {

@@ -149,7 +149,10 @@ pub(super) fn open_file_below(root: &NativeDirectoryHandle, path: &Path) -> Resu
 fn file_identity_digest(file: &File) -> Result<[u8; 32], RootHandleBrokerError> {
     let stat = fstat(file).map_err(|_| RootHandleBrokerError::Unavailable)?;
     let mut digest = Sha256::new();
-    digest.update((stat.st_dev as u64).to_be_bytes());
+    #[cfg(target_os = "macos")]
+    digest.update(i64::from(stat.st_dev).to_be_bytes());
+    #[cfg(not(target_os = "macos"))]
+    digest.update(stat.st_dev.to_be_bytes());
     digest.update((stat.st_ino as u64).to_be_bytes());
     Ok(digest.finalize().into())
 }
