@@ -7,30 +7,18 @@ use crate::application::workspace_internal::{
     ProtectedProviderDependencyCapsule, ProviderDependencyState,
 };
 use runne_observability::operational::RecoveryObservationRegistry;
+mod credential_reader;
 
 pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
 pub(super) const PROVIDER_POLICY_V1_COST_BUDGET_MICROS: u64 = 10_000_000;
 pub(super) const PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS: u64 = 120;
 pub(super) const PROVIDER_POLICY_V1_LEASE_SECONDS: u64 = 600;
 pub(super) const PROVIDER_POLICY_V1_REVISION: u64 = 1;
-pub async fn compose_selected_provider<T, F, Fut>(
-    activation: &ProviderActivation,
-    compose: F,
-) -> Result<Option<T>, DaemonError>
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<T, DaemonError>>,
-{
-    if activation.requires_openai_execution() || activation.requires_deepseek_execution() {
-        compose().await.map(Some)
-    } else {
-        Ok(None)
-    }
-}
 pub struct DaemonCanonicalProviderService {
     pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,
     pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
     pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
+    pub(super) credential_readback: Option<Arc<dyn ProviderCredentialReadback>>,
     pub(super) runtime_store: Arc<runtime_store::DaemonProviderRuntimeStore>,
     pub(super) conversation_store: StoreTransaction,
     pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
@@ -98,6 +86,7 @@ impl DaemonCanonicalProviderService {
             credential_id,
             dependencies,
         } = composition;
+        #[cfg(any(test, feature = "test-support"))]
         let (effect_source, retained_keyring, terminal_store_decorator, credential_versions) =
             match dependencies.into_provider_state() {
                 ProviderDependencyState::Production => (None, None, None, None),
@@ -113,27 +102,16 @@ impl DaemonCanonicalProviderService {
                     Some(credential_versions),
                 ),
             };
+        #[cfg(not(any(test, feature = "test-support")))]
+        let (retained_keyring, terminal_store_decorator) = match dependencies.into_provider_state()
+        {
+            ProviderDependencyState::Production => (None, None),
+        };
+        #[cfg(not(any(test, feature = "test-support")))]
+        let effect_source: Option<Arc<dyn CanonicalProviderEffect>> = None;
         if profile.profile_digest() != expected_profile_digest {
             return Err(DaemonError::Bootstrap(
                 "provider profile binding mismatch".into(),
-            ));
-        }
-        let status = if effect_source.is_some() {
-            ProviderCredentialStatus::Configured
-        } else {
-            let access = credential_access_policy(credential_id)?;
-            let credential_store: Arc<dyn ProviderCredentialStore> =
-                Arc::new(NativeProviderCredentialStore::new());
-            crate::canonical_provider_factory::provider_credential_status(
-                credential_store,
-                credential_id,
-                access,
-            )
-            .await?
-        };
-        if status != ProviderCredentialStatus::Configured {
-            return Err(DaemonError::Bootstrap(
-                "provider credential unavailable".into(),
             ));
         }
         let dispatch_store = Arc::new(
@@ -197,13 +175,27 @@ impl DaemonCanonicalProviderService {
             runtime_generation,
             terminal_store_decorator,
         );
-        let credentials = super::credential_versions::compose_credential_lifecycle(
+        #[cfg(any(test, feature = "test-support"))]
+        let credentials = match effect_source.clone() {
+            Some(effect) => credential_reader::fixture(
+                credential_connection,
+                runtime_authority_id,
+                runtime_generation,
+                credential_id,
+                credential_versions,
+                effect,
+            )?,
+            None => credential_reader::production(
+                credential_connection,
+                credential_id,
+                adapter_factory.as_ref(),
+            )?,
+        };
+        #[cfg(not(any(test, feature = "test-support")))]
+        let credentials = credential_reader::production(
             credential_connection,
-            runtime_authority_id,
-            runtime_generation,
             credential_id,
-            effect_source.is_some(),
-            credential_versions,
+            adapter_factory.as_ref(),
         )?;
         let matcher = ProhibitedContentCredentialMatcher::new(prohibited_content.as_ref());
         let redaction = ProviderEventRedactionBoundary::new(
@@ -257,26 +249,23 @@ impl DaemonCanonicalProviderService {
             activation_profile_id: profile.profile_id().to_owned(),
             activation_profile_digest: expected_profile_digest,
             retained_key_backend: keyring.retains_multiple_provider_journal_keys(),
-            credential_status: status,
+            credential_status: credentials.status,
             journal_binding: Some(journal_binding),
             journal_key_status: journal_status,
             runtime_authority_id,
             database_generation: 1,
         }
-        .validate()
+        .validate_control_plane()
         .map_err(|error| DaemonError::Bootstrap(error.to_string()))?;
-        let adapter = match effect_source {
-            Some(effect) => effect,
-            None => adapter_factory(credentials.native_authority)?,
-        };
         let service = Arc::new(Self {
             dispatch_store,
             execution_store,
             credential_store: credentials.store,
+            credential_readback: credentials.readback,
             runtime_store,
             conversation_store,
             conversation_service,
-            adapter,
+            adapter: credentials.adapter,
             profile,
             provider_id,
             model_id,
@@ -291,6 +280,11 @@ impl DaemonCanonicalProviderService {
             fencing_token,
             recovery_registry,
         });
+        if service.credential_readback.is_none() && effect_source.is_none() {
+            return Err(DaemonError::Bootstrap(
+                "provider credential reader unavailable".into(),
+            ));
+        }
         service.recover_pending().await?;
         Ok(service)
     }

@@ -20,6 +20,19 @@ include!("provider_credential/codec.rs");
 include!("provider_credential/codec_helpers.rs");
 include!("provider_credential/store.rs");
 include!("provider_credential/versioned.rs");
+mod broker;
+#[cfg(feature = "provider-credential-broker-writer")]
+pub use broker::{
+    BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
+    BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
+    BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
+    NativeProviderCredentialWriters, WriterIdentityMigrationObservation,
+};
+pub use broker::{
+    CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
+    NativeProviderCredentialReaders, ProviderCredentialDispatchMaterializer,
+    ProviderCredentialReadback, ProviderCredentialVerificationMaterializer,
+};
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 pub mod source_update;
 

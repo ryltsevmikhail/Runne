@@ -1,53 +1,20 @@
 //! Metadata-only provider readiness diagnostics for `runned doctor`.
 //!
 //! Runs before bootstrap and before the protected-activation channel: reads
-//! only the non-secret external configuration and credential *metadata* from
-//! the native secure store. No credential bytes, journal keys, database state,
-//! or secret filesystem material ever enters the report or the error text.
+//! only the non-secret external configuration. Authoritative credential state
+//! remains daemon-owned and is reported as missing until runtime status is open.
 
 use std::path::PathBuf;
 
 use runne_provider_deepseek::{DEEPSEEK_MODEL_ID, DEEPSEEK_MODEL_REVISION};
 use runne_provider_openai::{OPENAI_MODEL_ID, OPENAI_MODEL_REVISION};
-use runne_secure_store::{
-    NativeProviderCredentialStore, ProviderCredentialId, ProviderCredentialStatus,
-    ProviderCredentialStore, SecureStoreError,
-};
+use runne_secure_store::ProviderCredentialId;
 
-use crate::canonical_provider::readiness::credential_access_policy;
 use crate::config::{external_config_path, load_external_config};
 use crate::provider_activation::ProviderActivation;
-
-/// Metadata-only credential disposition for one provider.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CredentialDisposition {
-    Configured,
-    Missing,
-    Unsupported,
-    AccessDenied,
-    IdentityMismatch,
-    Unavailable,
-}
-
-impl CredentialDisposition {
-    /// Stable non-secret display name.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Configured => "configured",
-            Self::Missing => "missing",
-            Self::Unsupported => "unsupported",
-            Self::AccessDenied => "access denied",
-            Self::IdentityMismatch => "identity mismatch",
-            Self::Unavailable => "unavailable",
-        }
-    }
-
-    #[must_use]
-    pub const fn is_configured(self) -> bool {
-        matches!(self, Self::Configured)
-    }
-}
+mod provider_credentials;
+use provider_credentials::credential_disposition;
+pub use provider_credentials::{CredentialDisposition, credential_source};
 
 /// Non-secret description of the exact active provider selection.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -101,33 +68,6 @@ impl DoctorReport {
                 }
             },
         }
-    }
-}
-
-/// Stable non-secret name of the native credential backend on this platform.
-#[must_use]
-pub const fn credential_source() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "macOS keychain"
-    } else {
-        "unsupported on this platform"
-    }
-}
-
-fn credential_disposition(id: ProviderCredentialId) -> CredentialDisposition {
-    let Ok(access) = credential_access_policy(id) else {
-        return CredentialDisposition::Unavailable;
-    };
-    let store = NativeProviderCredentialStore::new();
-    match store.provider_credential_status(id, &access) {
-        Ok(ProviderCredentialStatus::Configured) => CredentialDisposition::Configured,
-        Ok(ProviderCredentialStatus::Missing) => CredentialDisposition::Missing,
-        Ok(ProviderCredentialStatus::Unsupported) => CredentialDisposition::Unsupported,
-        Err(SecureStoreError::CredentialAccessDenied) => CredentialDisposition::AccessDenied,
-        Err(SecureStoreError::CredentialIdentityMismatch) => {
-            CredentialDisposition::IdentityMismatch
-        }
-        Err(_) => CredentialDisposition::Unavailable,
     }
 }
 

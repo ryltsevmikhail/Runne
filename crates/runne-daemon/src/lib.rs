@@ -6,7 +6,6 @@
 pub mod application;
 pub mod bootstrap;
 pub mod canonical_provider;
-mod canonical_provider_factory;
 mod client_profile;
 pub mod config;
 pub mod doctor;
@@ -20,3 +19,6 @@ pub mod provider_activation;
 pub mod recovery;
 pub mod replay_key;
 pub mod shutdown;
+
+#[cfg(test)]
+mod source_boundary_tests;

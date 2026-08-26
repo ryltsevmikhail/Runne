@@ -41,11 +41,21 @@ pub use project_owner_keychain_policy::{
     PROJECT_OWNER_KEYCHAIN_ACCESS_GROUP, PROJECT_OWNER_KEYCHAIN_SERVICE,
     ProjectOwnerKeychainAccount, ProjectOwnerKeychainQuery, map_project_owner_keychain_status,
 };
+#[cfg(feature = "provider-credential-broker-writer")]
 pub use provider_credential::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialVersionStore,
-    PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
-    ProviderCredentialStatus, ProviderCredentialStore,
+    BrokeredCreateInput, BrokeredDeleteInput, BrokeredLegacySourceDeleteInput,
+    BrokeredMigrateLegacyInput, BrokeredProviderCredentialWriter,
+    BrokeredWriterIdentityMigrationInput, BrokeredWriterIdentityVerificationInput,
+    NativeProviderCredentialWriters, WriterIdentityMigrationObservation,
+};
+pub use provider_credential::{
+    CredentialReadbackObservation, ExactAbsenceReadback, ExactVersionReadback,
+    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialReaders,
+    NativeProviderCredentialVersionStore, PROVIDER_CREDENTIAL_SERVICE,
+    ProviderCredentialAccessPolicy, ProviderCredentialDispatchMaterializer, ProviderCredentialId,
+    ProviderCredentialMaterial, ProviderCredentialReadback, ProviderCredentialSource,
+    ProviderCredentialSourceRevision, ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderCredentialVerificationMaterializer,
 };
 pub use provider_journal_key::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,

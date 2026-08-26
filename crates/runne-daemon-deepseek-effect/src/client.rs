@@ -1,12 +1,9 @@
 use reqwest::redirect::Policy;
-use runne_provider::{CredentialDispatchCapability, NativeCredentialAuthority, ProviderFuture};
+use runne_provider::{CredentialDispatchCapability, ProviderFuture};
 use runne_provider_deepseek::{
     DeepSeekCredentialError, DeepSeekCredentialMaterializer, DeepSeekTransportPolicy,
 };
-use runne_secure_store::{
-    NativeProviderCredentialStore, NativeProviderCredentialVersionStore,
-    ProviderCredentialAccessPolicy, SecureStoreError,
-};
+use runne_secure_store::{ProviderCredentialDispatchMaterializer, SecureStoreError};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use subtle::ConstantTimeEq as _;
@@ -46,8 +43,7 @@ fn client_builder(policy: &DeepSeekTransportPolicy) -> reqwest::ClientBuilder {
 }
 
 pub(super) struct NativeCredential {
-    store: Arc<dyn NativeProviderCredentialVersionStore>,
-    access: ProviderCredentialAccessPolicy,
+    materializer: Arc<dyn ProviderCredentialDispatchMaterializer>,
 }
 
 impl NativeCredential {
@@ -55,14 +51,10 @@ impl NativeCredential {
         Err(())
     }
 
-    pub(super) fn versioned(authority: NativeCredentialAuthority) -> Result<Self, ()> {
-        let reader =
-            std::fs::canonicalize(std::env::current_exe().map_err(|_| ())?).map_err(|_| ())?;
-        let writer = reader.parent().ok_or(())?.join("runne");
-        Ok(Self {
-            store: Arc::new(NativeProviderCredentialStore::new_versioned(authority)),
-            access: ProviderCredentialAccessPolicy::new(&writer, &reader).map_err(|_| ())?,
-        })
+    pub(super) fn from_materializer(
+        materializer: Arc<dyn ProviderCredentialDispatchMaterializer>,
+    ) -> Self {
+        Self { materializer }
     }
 }
 
@@ -71,13 +63,12 @@ impl DeepSeekCredentialMaterializer for NativeCredential {
         &self,
         capability: &CredentialDispatchCapability,
     ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, DeepSeekCredentialError>> {
-        let store = Arc::clone(&self.store);
-        let access = self.access.clone();
+        let materializer = Arc::clone(&self.materializer);
         let capability = capability.clone();
         Box::pin(async move {
             tokio::task::spawn_blocking(move || {
-                store
-                    .load_version(&capability, &access)
+                materializer
+                    .materialize_active(&capability)
                     .map(|value| value.with_bytes(|bytes| Zeroizing::new(bytes.to_vec())))
                     .map_err(|error| match error {
                         SecureStoreError::ProviderCredentialNotFound => {
@@ -129,5 +120,76 @@ impl DeepSeekCredentialMaterializer for FixtureCredential {
         _capability: &CredentialDispatchCapability,
     ) -> ProviderFuture<'_, Result<Zeroizing<Vec<u8>>, DeepSeekCredentialError>> {
         Box::pin(async { Ok(Zeroizing::new(FIXTURE_CREDENTIAL.to_vec())) })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use runne_provider::{
+        CredentialAuthorityPair, CredentialLease, CredentialVersionRef, ProviderId,
+    };
+    use runne_secure_store::{ProviderCredentialDispatchMaterializer, ProviderCredentialMaterial};
+
+    use super::*;
+
+    struct Materializer {
+        expected: CredentialVersionRef,
+        calls: AtomicUsize,
+        result: Result<Vec<u8>, ()>,
+    }
+
+    impl ProviderCredentialDispatchMaterializer for Materializer {
+        fn materialize_active(
+            &self,
+            capability: &CredentialDispatchCapability,
+        ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+            assert_eq!(capability.version_ref(), &self.expected);
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let bytes = self
+                .result
+                .clone()
+                .map_err(|_| SecureStoreError::ProviderCredentialNotFound)?;
+            ProviderCredentialMaterial::new(bytes)
+        }
+    }
+
+    fn capability() -> CredentialDispatchCapability {
+        let (lifecycle, _) = CredentialAuthorityPair::new().split();
+        let reference = CredentialVersionRef::new(ProviderId::new("deepseek").unwrap(), 7).unwrap();
+        lifecycle.issue_dispatch(CredentialLease::new(reference, [1; 16], 1, 1).unwrap())
+    }
+
+    #[tokio::test]
+    async fn native_credential_materializes_active_capability_into_zeroizing_bytes() {
+        let capability = capability();
+        let materializer = Arc::new(Materializer {
+            expected: capability.version_ref().clone(),
+            calls: AtomicUsize::new(0),
+            result: Ok(b"narrow-material".to_vec()),
+        });
+        let dispatch: Arc<dyn ProviderCredentialDispatchMaterializer> = materializer.clone();
+        let credential = NativeCredential::from_materializer(dispatch);
+
+        let material = credential.materialize(&capability).await.unwrap();
+
+        assert_eq!(material.as_slice(), b"narrow-material");
+        assert_eq!(materializer.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn native_credential_maps_missing_material_to_missing() {
+        let capability = capability();
+        let credential = NativeCredential::from_materializer(Arc::new(Materializer {
+            expected: capability.version_ref().clone(),
+            calls: AtomicUsize::new(0),
+            result: Err(()),
+        }));
+
+        assert!(matches!(
+            credential.materialize(&capability).await,
+            Err(DeepSeekCredentialError::Missing)
+        ));
     }
 }

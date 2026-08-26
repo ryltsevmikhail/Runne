@@ -18,6 +18,7 @@ zeroize.workspace = true
 [features]
 default = []
 project-owner-key-store = ["dep:ed25519-dalek"]
+provider-credential-broker-writer = []
 test-support = []
 
 [target.'cfg(target_os = "macos")'.dependencies]
