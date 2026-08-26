@@ -40,6 +40,7 @@ fn credential_enrollment_persistence_inputs_carry_replay_and_claim_digests() {
         revision,
         fence,
         begin_proof,
+        10,
     )
     .unwrap();
     assert_eq!(begin.command_id(), command_id);
@@ -59,6 +60,7 @@ fn credential_enrollment_persistence_inputs_carry_replay_and_claim_digests() {
             revision,
             fence,
             begin_proof,
+            10,
         )
         .is_ok()
     );

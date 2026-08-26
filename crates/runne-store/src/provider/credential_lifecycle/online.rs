@@ -25,8 +25,10 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
     fn begin(
         &self,
         input: runne_provider::BeginCredentialOperation,
-    ) -> Result<runne_provider::CredentialOperationSnapshot, runne_provider::CredentialLifecycleError>
-    {
+    ) -> Result<
+        runne_provider::BeginCredentialOperationOutcome,
+        runne_provider::CredentialLifecycleError,
+    > {
         begin::begin(self, input)
     }
     fn issue_ticket_attempt(
@@ -158,6 +160,12 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
 #[cfg(test)]
 #[path = "online/admission_tests.rs"]
 mod online_admission_tests;
+#[cfg(test)]
+#[path = "online/begin_admission_tests.rs"]
+mod online_begin_admission_tests;
+#[cfg(test)]
+#[path = "online/ticket_expiry_tests.rs"]
+mod online_ticket_expiry_tests;
 #[cfg(test)]
 #[path = "online/claim_test_support.rs"]
 mod online_claim_test_support;

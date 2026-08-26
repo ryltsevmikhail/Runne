@@ -18,8 +18,8 @@ fn credential_online_begin_exactly_replays_the_durable_operation() {
     let first = ProviderCredentialEnrollmentStore::begin(&store, input).unwrap();
     let replay = ProviderCredentialEnrollmentStore::begin(&store, begin(1, "pair", 2)).unwrap();
 
-    assert_eq!(first, replay);
-    assert_eq!(first.state(), CredentialOperationState::Prepared);
+    assert_eq!(first.snapshot(), replay.snapshot());
+    assert_eq!(first.snapshot().state(), CredentialOperationState::Prepared);
 }
 
 #[test]
@@ -183,7 +183,10 @@ fn credential_aba_tombstone_blocks_replaying_old_begin_proof() {
 
     let replay = ProviderCredentialEnrollmentStore::begin(&store, begin(30, "aba", 31)).unwrap();
 
-    assert_eq!(replay.state(), CredentialOperationState::Tombstoned);
+    assert_eq!(
+        replay.snapshot().state(),
+        CredentialOperationState::Tombstoned
+    );
 }
 
 #[test]
@@ -227,6 +230,7 @@ fn credential_online_migrate_legacy_is_deferred_without_head_mutation() {
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(62),
+        200,
     )
     .unwrap();
 

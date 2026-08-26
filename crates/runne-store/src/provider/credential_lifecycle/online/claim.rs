@@ -30,6 +30,18 @@ pub(super) fn issue_ticket(
         return Err(CredentialLifecycleError::Conflict);
     }
     let effective_now = head.observed_at.max((store.now)());
+    let begin_expiry: i64 = transaction
+        .query_row(
+            "SELECT begin_proof_expires_at_high_water FROM provider_credential_operations WHERE operation_id=?1",
+            [input.operation_id().as_bytes().as_slice()],
+            |row| row.get(0),
+        )
+        .map_err(map_sql)?;
+    if begin_expiry <= 0 || effective_now >= begin_expiry {
+        advance_observed_at_high_water(&transaction, operation.provider(), effective_now)?;
+        transaction.commit().map_err(map_sql)?;
+        return Err(CredentialLifecycleError::StaleLease);
+    }
     let previous: Option<(i64, String)> = transaction.query_row("SELECT attempt, state FROM provider_credential_ticket_attempts WHERE operation_id=?1 ORDER BY attempt DESC LIMIT 1", [input.operation_id().as_bytes().as_slice()], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(map_sql)?;
     let attempt = match previous {
         Some((attempt, state)) => {
@@ -51,16 +63,43 @@ pub(super) fn issue_ticket(
     let expires = effective_now
         .checked_add(input.ticket_ttl_seconds())
         .ok_or(CredentialLifecycleError::InvalidInput)?;
-    transaction.execute("INSERT INTO provider_credential_ticket_attempts (operation_id, attempt, ticket_digest, continuation_binding_digest, issued_at, expires_at, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'ISSUED')", params![input.operation_id().as_bytes().as_slice(), attempt.get(), input.ticket_digest().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice(), effective_now, expires]).map_err(map_sql)?;
-    let changed = transaction.execute("UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1", params![effective_now, operation.provider().as_str()]).map_err(map_sql)?;
-    if changed != 1 {
-        return Err(CredentialLifecycleError::Conflict);
-    }
+    transaction.execute("INSERT INTO provider_credential_ticket_attempts (operation_id, attempt, ticket_digest, continuation_binding_digest, issued_at, expires_at, state) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'ISSUED')", params![input.operation_id().as_bytes().as_slice(), attempt.get(), input.ticket_digest().as_bytes().as_slice(), input.continuation_binding_digest().as_bytes().as_slice(), effective_now, expires]).map_err(map_ticket_issue_sql)?;
+    advance_observed_at_high_water(&transaction, operation.provider(), effective_now)?;
     transaction.commit().map_err(map_sql)?;
     store
         .enrollment_authority
         .hydrate_issued_credential_ticket_attempt(operation, attempt, effective_now, expires)
         .map_err(|_| CredentialLifecycleError::CorruptState)
+}
+
+fn advance_observed_at_high_water(
+    transaction: &rusqlite::Transaction<'_>,
+    provider: &runne_provider::ProviderId,
+    effective_now: i64,
+) -> Result<(), CredentialLifecycleError> {
+    let changed = transaction
+        .execute(
+            "UPDATE provider_credential_authority_heads SET observed_at_high_water=?1
+             WHERE provider_id=?2 AND observed_at_high_water<=?1",
+            params![effective_now, provider.as_str()],
+        )
+        .map_err(map_sql)?;
+    if changed == 1 {
+        Ok(())
+    } else {
+        Err(CredentialLifecycleError::Conflict)
+    }
+}
+
+fn map_ticket_issue_sql(error: rusqlite::Error) -> CredentialLifecycleError {
+    match &error {
+        rusqlite::Error::SqliteFailure(_, Some(message))
+            if message == "credential ticket begin proof expiry is stale" =>
+        {
+            CredentialLifecycleError::StaleLease
+        }
+        _ => map_sql(error),
+    }
 }
 
 pub(super) fn claim(

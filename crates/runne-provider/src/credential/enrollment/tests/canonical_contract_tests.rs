@@ -24,6 +24,7 @@ fn credential_enrollment_review_canonical_inputs_validate_closed_boundaries() {
             revision,
             fence,
             digest,
+            1,
         )
         .is_ok()
     );
@@ -40,6 +41,7 @@ fn credential_enrollment_review_canonical_inputs_validate_closed_boundaries() {
             revision,
             fence,
             digest,
+            1,
         )
         .is_err()
     );

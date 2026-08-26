@@ -76,6 +76,7 @@ fn unrelated_begin(provider: ProviderId) -> BeginCredentialOperation {
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(102),
+        200,
     )
     .unwrap()
 }

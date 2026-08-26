@@ -36,12 +36,12 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 24);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 25);
     assert_eq!(
         conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
             .get::<_, i64>(0))
             .unwrap(),
-        24
+        25
     );
     assert!(
         conn.execute(
@@ -54,14 +54,14 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 }
 
 #[test]
-fn every_supported_schema_upgrades_to_v24() {
-    for source in 8..=23 {
+fn every_supported_schema_upgrades_to_v25() {
+    for source in 8..=24 {
         let conn = Connection::open_in_memory().unwrap();
         initialize_supported_schema(&conn, source);
         assert_eq!(schema_marker(&conn), source);
         apply_migrations(&conn).unwrap();
-        assert_eq!(schema_marker(&conn), 24, "source V{source}");
-        assert!(v24_matches(&conn, 24).unwrap(), "source V{source}");
+        assert_eq!(schema_marker(&conn), 25, "source V{source}");
+        assert!(v25_matches(&conn, 25).unwrap(), "source V{source}");
     }
 }
 
@@ -91,7 +91,7 @@ fn initialize_supported_schema(conn: &Connection, version: i64) {
         17 => apply_migrations_through_v17_for_test(conn).unwrap(),
         18 => apply_migrations_through_v18_for_test(conn).unwrap(),
         19 => apply_migrations_through_v19_for_test(conn).unwrap(),
-        20..=23 => apply_migrations_internal(conn, version).unwrap(),
+        20..=24 => apply_migrations_internal(conn, version).unwrap(),
         _ => unreachable!("test controls supported schema versions"),
     }
 }
@@ -126,7 +126,7 @@ fn schema_marker(conn: &Connection) -> i64 {
 fn authority_head_persists_release_migration_fence() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_released_v23(&conn);
-    apply_migrations(&conn).unwrap();
+    apply_migrations_internal(&conn, 24).unwrap();
     conn.execute("INSERT INTO provider_credential_authority_heads (provider_id, lifecycle_revision, credential_fence, readiness_revision, next_credential_version) VALUES ('release', 1, 1, 1, 1)", []).unwrap();
     conn.execute("INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, state, begin_proof_digest, migration_id, migration_phase, migration_old_tuple_digest, migration_new_tuple_digest, created_at, updated_at) VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', 'release', 'WRITER_IDENTITY_MIGRATION_VERIFY', ?1, 'verify', 1, 1, 'PREPARED', ?2, ?3, 'VERIFY', ?4, ?5, 1, 1)", params![[18_u8; 16], [19_u8; 32], [20_u8; 16], [21_u8; 32], [17_u8; 32]]).unwrap();
     assert!(conn.execute("UPDATE provider_credential_authority_heads SET release_migration_fence = 1, release_migration_binding_digest = ?1, release_migration_operation_id = ?2, release_migration_state = 'PENDING' WHERE provider_id = 'release'", params![[22_u8; 32], [18_u8; 16]]).is_err());

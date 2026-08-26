@@ -3,7 +3,7 @@ mod begin_claim;
 mod lifecycle;
 mod ticket;
 
-pub use begin::BeginCredentialOperation;
+pub use begin::{BeginCredentialOperation, BeginCredentialOperationOutcome};
 pub use begin_claim::ClaimCredentialOperation;
 pub use lifecycle::{
     BindCredentialReadback, ClosePreparedCredentialOperation, CompleteCredentialOperation,

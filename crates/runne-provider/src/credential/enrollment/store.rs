@@ -1,13 +1,13 @@
 use crate::{CredentialLifecycleError, ProviderId};
 
 use super::{
-    BeginCredentialOperation, BeginCredentialVerification, BindCredentialReadback,
-    ClaimCredentialOperation, ClosePreparedCredentialOperation, CompleteCredentialOperation,
-    CompleteCredentialVerification, CredentialLifecycleSnapshot, CredentialOperationId,
-    CredentialOperationSnapshot, CredentialRecoveryWork, CredentialVerificationLease,
-    CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
-    TombstoneCredentialOperation,
+    BeginCredentialOperation, BeginCredentialOperationOutcome, BeginCredentialVerification,
+    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
+    CompleteCredentialOperation, CompleteCredentialVerification, CredentialLifecycleSnapshot,
+    CredentialOperationId, CredentialOperationSnapshot, CredentialRecoveryWork,
+    CredentialVerificationLease, CredentialVerificationObservation, FailCredentialOperation,
+    HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
+    ObserveNativeEffect, TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
@@ -16,7 +16,7 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
     fn begin(
         &self,
         input: BeginCredentialOperation,
-    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError>;
+    ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError>;
 
     /// Records one digest-only ticket attempt.
     fn issue_ticket_attempt(

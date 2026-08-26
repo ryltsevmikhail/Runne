@@ -1,6 +1,6 @@
 use runne_provider::{
-    BeginCredentialOperation, CredentialLifecycleError, CredentialLifecycleSnapshot,
-    CredentialOperationAction, CredentialOperationSnapshot,
+    BeginCredentialOperation, BeginCredentialOperationOutcome, CredentialLifecycleError,
+    CredentialLifecycleSnapshot, CredentialOperationAction, CredentialOperationSnapshot,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
@@ -32,7 +32,7 @@ pub(super) fn admission_snapshot(
 pub(super) fn begin(
     store: &SqliteProviderCredentialLifecycleStore,
     input: BeginCredentialOperation,
-) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
+) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
     let mut connection = store.connection.lock().map_err(super::map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -45,20 +45,58 @@ pub(super) fn begin(
         return Err(CredentialLifecycleError::InvalidInput);
     }
     let head = ensure_head(&transaction, input.provider_id())?;
-    match snapshot(
-        &transaction,
-        input.operation_id(),
-        &store.enrollment_authority,
-    ) {
-        Ok(existing) => {
-            if exact_replay(&existing, &input) {
-                transaction.commit().map_err(map_sql)?;
-                return Ok(existing);
+    let replay_id: Option<Vec<u8>> = transaction
+        .query_row(
+            "SELECT operation_id FROM provider_credential_operations WHERE begin_proof_digest=?1",
+            [input.begin_proof_digest().as_bytes().as_slice()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sql)?;
+    if let Some(replay_id) = replay_id {
+        let operation = runne_provider::CredentialOperationId::from_bytes(
+            replay_id
+                .try_into()
+                .map_err(|_| CredentialLifecycleError::CorruptState)?,
+        )
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
+        if input.operation_id() != operation {
+            let occupied: bool = transaction
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM provider_credential_operations WHERE operation_id=?1)",
+                    [input.operation_id().as_bytes().as_slice()],
+                    |row| row.get(0),
+                )
+                .map_err(map_sql)?;
+            if occupied {
+                return Err(CredentialLifecycleError::Conflict);
             }
-            return Err(CredentialLifecycleError::Conflict);
         }
-        Err(CredentialLifecycleError::NotFound) => {}
-        Err(error) => return Err(error),
+        let expiry: i64 = transaction.query_row(
+            "SELECT begin_proof_expires_at_high_water FROM provider_credential_operations WHERE operation_id=?1",
+            [operation.as_bytes().as_slice()],
+            |row| row.get(0),
+        ).map_err(map_sql)?;
+        let existing = snapshot(&transaction, operation, &store.enrollment_authority)?;
+        if exact_replay(&existing, expiry, &input) {
+            transaction.commit().map_err(map_sql)?;
+            return Ok(BeginCredentialOperationOutcome::ExactReplay(existing));
+        }
+        return Err(CredentialLifecycleError::Conflict);
+    }
+    let expiry = i64::try_from(input.begin_proof_expires_at_high_water())
+        .map_err(|_| CredentialLifecycleError::InvalidInput)?;
+    if expiry <= 0 {
+        return Err(CredentialLifecycleError::InvalidInput);
+    }
+    let effective_now = now.max(head.observed_at);
+    if effective_now >= expiry {
+        transaction.execute(
+            "UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1",
+            params![effective_now, input.provider_id().as_str()],
+        ).map_err(map_sql)?;
+        transaction.commit().map_err(map_sql)?;
+        return Err(CredentialLifecycleError::StaleLease);
     }
     if head.hard_fenced
         || head.lifecycle != input.expected_lifecycle_revision().get() as i64
@@ -66,7 +104,7 @@ pub(super) fn begin(
     {
         return Err(CredentialLifecycleError::Conflict);
     }
-    let duplicate: Option<i64> = transaction.query_row("SELECT 1 FROM provider_credential_operations WHERE command_id=?1 OR idempotency_key=?2 OR begin_proof_digest=?3", params![input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str(), input.begin_proof_digest().as_bytes().as_slice()], |row| row.get(0)).optional().map_err(map_sql)?;
+    let duplicate: Option<i64> = transaction.query_row("SELECT 1 FROM provider_credential_operations WHERE operation_id=?1 OR command_id=?2 OR idempotency_key=?3", params![input.operation_id().as_bytes().as_slice(), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str()], |row| row.get(0)).optional().map_err(map_sql)?;
     if duplicate.is_some() {
         return Err(CredentialLifecycleError::Conflict);
     }
@@ -78,15 +116,15 @@ pub(super) fn begin(
         return Err(CredentialLifecycleError::Conflict);
     }
     transaction.execute(
-        "INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, allocated_credential_version, allocated_ref_digest, target_credential_version, target_ref_digest, state, begin_proof_digest, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'PREPARED', ?13, ?14, ?14)",
-        params![input.operation_id().as_bytes().as_slice(), input.installation_owner_id().as_bytes().as_slice(), input.provider_id().as_str(), action_sql(input.action()), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get(), input.allocated_credential_version().map(|v| v.version()), input.allocated_credential_version().map(|v| v.ref_digest().to_vec()), input.target_credential_version().map(|v| v.version()), input.target_credential_version().map(|v| v.ref_digest().to_vec()), input.begin_proof_digest().as_bytes().as_slice(), now],
+        "INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, allocated_credential_version, allocated_ref_digest, target_credential_version, target_ref_digest, state, begin_proof_digest, begin_proof_expires_at_high_water, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'PREPARED', ?13, ?14, ?15, ?15)",
+        params![input.operation_id().as_bytes().as_slice(), input.installation_owner_id().as_bytes().as_slice(), input.provider_id().as_str(), action_sql(input.action()), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get(), input.allocated_credential_version().map(|v| v.version()), input.allocated_credential_version().map(|v| v.ref_digest().to_vec()), input.target_credential_version().map(|v| v.version()), input.target_credential_version().map(|v| v.ref_digest().to_vec()), input.begin_proof_digest().as_bytes().as_slice(), expiry, effective_now],
     ).map_err(map_sql)?;
     match input.action() {
         CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
-            transaction.execute("UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1", params![now, input.provider_id().as_str()]).map_err(map_sql)?;
+            transaction.execute("UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1", params![effective_now, input.provider_id().as_str()]).map_err(map_sql)?;
         }
         CredentialOperationAction::Revoke => {
-            let changed = transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=NULL, active_ref_digest=NULL, observed_at_high_water=?1 WHERE provider_id=?2 AND lifecycle_revision=?3 AND credential_fence=?4", params![now, input.provider_id().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()]).map_err(map_sql)?;
+            let changed = transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=NULL, active_ref_digest=NULL, observed_at_high_water=?1 WHERE provider_id=?2 AND lifecycle_revision=?3 AND credential_fence=?4", params![effective_now, input.provider_id().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()]).map_err(map_sql)?;
             if changed != 1 {
                 return Err(CredentialLifecycleError::Conflict);
             }
@@ -99,10 +137,14 @@ pub(super) fn begin(
         &store.enrollment_authority,
     )?;
     transaction.commit().map_err(map_sql)?;
-    Ok(result)
+    Ok(BeginCredentialOperationOutcome::FreshWinner(result))
 }
 
-fn exact_replay(existing: &CredentialOperationSnapshot, input: &BeginCredentialOperation) -> bool {
+fn exact_replay(
+    existing: &CredentialOperationSnapshot,
+    expiry: i64,
+    input: &BeginCredentialOperation,
+) -> bool {
     existing.provider() == input.provider_id()
         && existing.installation_owner_id() == input.installation_owner_id()
         && existing.action() == input.action()
@@ -111,6 +153,7 @@ fn exact_replay(existing: &CredentialOperationSnapshot, input: &BeginCredentialO
         && existing.lifecycle_revision() == input.expected_lifecycle_revision()
         && existing.fence() == input.expected_prior_fence()
         && existing.begin_proof_digest() == input.begin_proof_digest()
+        && u64::try_from(expiry).ok() == Some(input.begin_proof_expires_at_high_water())
         && existing.metadata().command_id() == input.command_id()
         && existing.metadata().idempotency_key() == input.idempotency_key()
 }

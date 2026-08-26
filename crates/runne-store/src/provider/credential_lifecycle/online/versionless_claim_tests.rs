@@ -75,10 +75,10 @@ fn insert_operation(
             "INSERT INTO provider_credential_operations
              (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key,
               expected_lifecycle_revision, expected_credential_fence, state,
-              begin_proof_digest, migration_id, migration_phase,
+              begin_proof_digest, begin_proof_expires_at_high_water, migration_id, migration_phase,
               migration_old_tuple_digest, migration_new_tuple_digest,
               created_at, updated_at)
-             VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', 'openai', ?2, ?1, ?3, 1, 1, 'PREPARED', ?4,
+             VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', 'openai', ?2, ?1, ?3, 1, 1, 'PREPARED', ?4, 200,
                      ?5, ?6, ?7, ?8, 100, 100)",
             rusqlite::params![
                 [id; 16],

@@ -6,6 +6,7 @@ use runne_provider::{
 };
 
 use super::SqliteProviderCredentialLifecycleStore;
+use crate::schema::open_test_shared_writer;
 
 thread_local! {
     static MEASUREMENT_AUTHORITIES: RefCell<HashMap<usize, CredentialEnrollmentMeasurementAuthority>> =
@@ -17,6 +18,24 @@ pub(super) fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredential
     let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
     let store = SqliteProviderCredentialLifecycleStore::open_with_authorities_and_now(
         path,
+        lifecycle,
+        store_authority,
+        Arc::new(move || now),
+    )
+    .unwrap();
+    let key = Arc::as_ptr(&store.connection) as usize;
+    MEASUREMENT_AUTHORITIES.with(|authorities| {
+        authorities.borrow_mut().insert(key, measurement_authority);
+    });
+    store
+}
+
+pub(super) fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
+    let (lifecycle, _) = CredentialAuthorityPair::new().split();
+    let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
+    let connection = open_test_shared_writer(path).unwrap();
+    let store = SqliteProviderCredentialLifecycleStore::open_with_connection_authorities_and_now(
+        connection,
         lifecycle,
         store_authority,
         Arc::new(move || now),

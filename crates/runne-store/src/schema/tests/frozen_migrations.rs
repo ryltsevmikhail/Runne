@@ -1,5 +1,5 @@
 #[test]
-fn released_v1_v23_migration_bytes_are_unchanged() {
+fn released_v1_v24_migration_bytes_are_unchanged() {
     let migrations = [
         MIGRATION_V1,
         MIGRATION_V2,
@@ -24,13 +24,14 @@ fn released_v1_v23_migration_bytes_are_unchanged() {
         MIGRATION_V21,
         MIGRATION_V22,
         MIGRATION_V23,
+        MIGRATION_V24,
     ];
     let actual = migrations.map(|migration| {
         let mut digest = Sha256::new();
         digest.update(migration.as_bytes());
         format!("{:x}", digest.finalize())
     });
-    assert_eq!(CURRENT_SCHEMA_VERSION, 24);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 25);
     assert_eq!(
         actual,
         [
@@ -57,6 +58,7 @@ fn released_v1_v23_migration_bytes_are_unchanged() {
             "cdc282527e6bcc6c76f67975a55ee2ba563f8b56864ed747424c47d4f0b5b400",
             "3f735024c6a874c8fa45b0bf70f5193ddd596b3e96010fd4dba2da70de50dbef",
             "a2d2fcfbfca0aba790816d9415576a48ba8289ec68d0281ef6526a44fc9d8266",
+            "6dbb769ba132d11d851d4263d4797a99eec50b7e807e740721df7efc6b39a654",
         ]
     );
 }

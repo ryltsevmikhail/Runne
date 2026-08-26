@@ -2,6 +2,7 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 
 use crate::{CredentialVersionRef, ProviderId};
 
+use super::super::CredentialOperationSnapshot;
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
     CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialOperationAction,
@@ -22,6 +23,7 @@ pub struct BeginCredentialOperation {
     expected_lifecycle_revision: CredentialLifecycleRevision,
     expected_prior_fence: CredentialFence,
     begin_proof_digest: CredentialBindingDigest,
+    begin_proof_expires_at_high_water: u64,
 }
 
 #[allow(missing_docs)]
@@ -40,6 +42,7 @@ impl BeginCredentialOperation {
         expected_lifecycle_revision: CredentialLifecycleRevision,
         expected_prior_fence: CredentialFence,
         begin_proof_digest: CredentialBindingDigest,
+        begin_proof_expires_at_high_water: u64,
     ) -> Result<Self, CredentialEnrollmentError> {
         let valid = match action {
             CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
@@ -56,7 +59,10 @@ impl BeginCredentialOperation {
             }
             _ => false,
         };
-        if !valid {
+        if !valid
+            || begin_proof_expires_at_high_water == 0
+            || begin_proof_expires_at_high_water > i64::MAX as u64
+        {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
         Ok(Self {
@@ -71,6 +77,7 @@ impl BeginCredentialOperation {
             expected_lifecycle_revision,
             expected_prior_fence,
             begin_proof_digest,
+            begin_proof_expires_at_high_water,
         })
     }
 
@@ -106,5 +113,38 @@ impl BeginCredentialOperation {
     }
     pub const fn begin_proof_digest(&self) -> CredentialBindingDigest {
         self.begin_proof_digest
+    }
+    pub const fn begin_proof_expires_at_high_water(&self) -> u64 {
+        self.begin_proof_expires_at_high_water
+    }
+}
+
+/// Durable disposition of one proof-bound begin admission.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BeginCredentialOperationOutcome {
+    /// This transaction created the sole durable operation and may mint an effect authority.
+    FreshWinner(CredentialOperationSnapshot),
+    /// This request exactly projects an already committed durable operation.
+    ExactReplay(CredentialOperationSnapshot),
+}
+
+impl BeginCredentialOperationOutcome {
+    /// Returns the durable projection without exposing effect authority.
+    pub const fn snapshot(&self) -> &CredentialOperationSnapshot {
+        match self {
+            Self::FreshWinner(snapshot) | Self::ExactReplay(snapshot) => snapshot,
+        }
+    }
+
+    /// Consumes the disposition into its durable projection.
+    pub fn into_snapshot(self) -> CredentialOperationSnapshot {
+        match self {
+            Self::FreshWinner(snapshot) | Self::ExactReplay(snapshot) => snapshot,
+        }
+    }
+
+    /// Whether this call durably admitted the unique begin effect.
+    pub const fn is_fresh_winner(&self) -> bool {
+        matches!(self, Self::FreshWinner(_))
     }
 }

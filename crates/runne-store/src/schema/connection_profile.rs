@@ -99,6 +99,22 @@ pub fn open_managed_connection(
     managed_after_profile(connection, mode, path == Path::new(":memory:"), identity)
 }
 
+#[cfg(test)]
+pub(crate) fn open_test_shared_writer(db_path: &Path) -> SqliteResult<ManagedConnection> {
+    let connection = Connection::open(db_path)?;
+    connection.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
+    )?;
+    Ok(ManagedConnection {
+        connection,
+        _validated: ConnectionProfileCapability {
+            mode: ConnectionMode::Writer,
+            memory_database: false,
+        },
+        identity: None,
+    })
+}
+
 fn managed_after_profile(
     connection: Connection,
     mode: ConnectionMode,

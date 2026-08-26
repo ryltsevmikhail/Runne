@@ -14,9 +14,19 @@ use super::SqliteProviderCredentialLifecycleStore;
 use super::online_claim_test_support::{open_test_store, seal_claim};
 
 pub(super) fn begin(operation: u8, key: &str, proof: u8) -> BeginCredentialOperation {
+    begin_with_operation(operation, operation, key, proof, 200)
+}
+
+pub(super) fn begin_with_operation(
+    command: u8,
+    operation: u8,
+    key: &str,
+    proof: u8,
+    expiry: u64,
+) -> BeginCredentialOperation {
     let provider = provider();
     BeginCredentialOperation::new(
-        CommandId::from_bytes([operation.wrapping_add(20); 16]),
+        CommandId::from_bytes([command.wrapping_add(20); 16]),
         IdempotencyKey::new(key).unwrap(),
         operation_id(operation),
         owner(),
@@ -27,6 +37,7 @@ pub(super) fn begin(operation: u8, key: &str, proof: u8) -> BeginCredentialOpera
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(proof),
+        expiry,
     )
     .unwrap()
 }
@@ -123,6 +134,7 @@ pub(super) fn revoke(
         CredentialLifecycleRevision::new(revision).unwrap(),
         CredentialFence::new(fence).unwrap(),
         digest(operation.wrapping_add(1)),
+        200,
     )
     .unwrap()
 }

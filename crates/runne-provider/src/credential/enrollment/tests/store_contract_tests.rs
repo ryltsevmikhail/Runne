@@ -1,13 +1,13 @@
 use crate::{CredentialLifecycleError, ProviderId};
 
 use super::super::{
-    BeginCredentialOperation, BeginCredentialVerification, BindCredentialReadback,
-    ClaimCredentialOperation, ClosePreparedCredentialOperation, CompleteCredentialOperation,
-    CompleteCredentialVerification, CredentialLifecycleSnapshot, CredentialOperationId,
-    CredentialOperationSnapshot, CredentialRecoveryWork, CredentialVerificationLease,
-    CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
-    ProviderCredentialEnrollmentStore, TombstoneCredentialOperation,
+    BeginCredentialOperation, BeginCredentialOperationOutcome, BeginCredentialVerification,
+    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
+    CompleteCredentialOperation, CompleteCredentialVerification, CredentialLifecycleSnapshot,
+    CredentialOperationId, CredentialOperationSnapshot, CredentialRecoveryWork,
+    CredentialVerificationLease, CredentialVerificationObservation, FailCredentialOperation,
+    HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
+    ObserveNativeEffect, ProviderCredentialEnrollmentStore, TombstoneCredentialOperation,
 };
 
 struct PublicEnrollmentStore;
@@ -16,7 +16,7 @@ impl ProviderCredentialEnrollmentStore for PublicEnrollmentStore {
     fn begin(
         &self,
         _: BeginCredentialOperation,
-    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
+    ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
         unreachable!()
     }
 

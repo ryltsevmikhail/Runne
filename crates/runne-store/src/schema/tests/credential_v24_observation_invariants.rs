@@ -175,7 +175,7 @@ fn leased_verification_survives_reopen_with_its_expiry_guard() {
     let path = directory.path().join("lease.sqlite");
     let conn = Connection::open(&path).unwrap();
     initialize_released_v23(&conn);
-    apply_migrations(&conn).unwrap();
+    apply_migrations_internal(&conn, 24).unwrap();
     activate_verification_head(&conn, "restart-expiry", 97);
     drop(conn);
     let conn = Connection::open(&path).unwrap();

@@ -40,10 +40,10 @@ pub use metadata::{
     CredentialVerifierRevision,
 };
 pub use operation::{
-    BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
-    ClosePreparedCredentialOperation, CompleteCredentialOperation, FailCredentialOperation,
-    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
-    TombstoneCredentialOperation,
+    BeginCredentialOperation, BeginCredentialOperationOutcome, BindCredentialReadback,
+    ClaimCredentialOperation, ClosePreparedCredentialOperation, CompleteCredentialOperation,
+    FailCredentialOperation, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
+    ObserveNativeEffect, TombstoneCredentialOperation,
 };
 pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMetadata};
 pub use protocol::{

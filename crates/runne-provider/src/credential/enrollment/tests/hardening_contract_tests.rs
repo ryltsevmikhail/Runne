@@ -24,6 +24,7 @@ fn hardening_begin_requires_the_exact_installation_owner() {
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(4),
+        1,
     )
     .unwrap();
 
