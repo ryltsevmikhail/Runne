@@ -29,6 +29,7 @@ test-support = [
 axum = "0.8"
 base64.workspace = true
 runne-runtime-client = { path = "../runne-runtime-client", features = ["test-support"] }
+runne-secure-store = { path = "../runne-secure-store", default-features = false, features = ["test-support"] }
 hmac = "0.12"
 sha2.workspace = true
 tempfile = "=3.27.0"
