@@ -63,6 +63,52 @@ impl CandidateSourceIdentity {
         &self.seal
     }
 }
+
+/// Independently measured desktop supervisor generation.
+#[derive(Clone)]
+pub struct DesktopSupervisorGeneration {
+    generation: u64,
+    seal: Arc<EnrollmentAuthoritySeal>,
+}
+
+impl fmt::Debug for DesktopSupervisorGeneration {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_tuple("DesktopSupervisorGeneration")
+            .field(&self.generation)
+            .finish()
+    }
+}
+
+impl PartialEq for DesktopSupervisorGeneration {
+    fn eq(&self, other: &Self) -> bool {
+        self.generation == other.generation && Arc::ptr_eq(&self.seal, &other.seal)
+    }
+}
+
+impl Eq for DesktopSupervisorGeneration {}
+
+impl DesktopSupervisorGeneration {
+    pub(crate) fn issue(
+        seal: Arc<EnrollmentAuthoritySeal>,
+        generation: u64,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        if generation == 0 {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        Ok(Self { generation, seal })
+    }
+
+    /// Returns the independently measured supervisor generation.
+    pub const fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
+        Arc::ptr_eq(&self.seal, seal)
+    }
+}
+
 measured_source!(ReleaseManifestDigest, "Measured release manifest digest.");
 measured_source!(
     DesktopExecutableIdentity,

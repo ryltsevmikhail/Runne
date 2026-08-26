@@ -12,6 +12,10 @@ use super::{
     WriterProcessStartIdentity,
 };
 
+pub(crate) mod claim;
+mod ticket;
+pub mod writer;
+
 #[derive(Debug)]
 pub(crate) struct EnrollmentAuthoritySeal;
 
@@ -116,8 +120,9 @@ impl CredentialEnrollmentStoreAuthority {
     pub fn issue_credential_verification_lease(
         &self,
         begin: super::BeginCredentialVerification,
+        active_credential_version: crate::CredentialVersionRef,
     ) -> CredentialVerificationLease {
-        CredentialVerificationLease::issue(self.seal.clone(), begin)
+        CredentialVerificationLease::issue(self.seal.clone(), begin, active_credential_version)
     }
 
     /// Rejects a capability not sealed by this store/measurement authority pair.
@@ -209,6 +214,14 @@ impl CredentialEnrollmentMeasurementAuthority {
         bytes: [u8; 32],
     ) -> Result<ObservedInstallMeasurement, CredentialEnrollmentError> {
         ObservedInstallMeasurement::issue(self.seal.clone(), bytes)
+    }
+
+    /// Issues the independently observed desktop supervisor generation.
+    pub fn desktop_supervisor_generation(
+        &self,
+        generation: u64,
+    ) -> Result<super::DesktopSupervisorGeneration, CredentialEnrollmentError> {
+        super::DesktopSupervisorGeneration::issue(self.seal.clone(), generation)
     }
 
     /// Binds a store lease to this process-local verifier digest under the shared authority seal.

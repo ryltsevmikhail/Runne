@@ -6,9 +6,10 @@ pub use claim::CredentialClaimBinding;
 pub use measurement::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
     CredentialMeasurementSnapshot, CredentialProcessBinding, DaemonAuthorityId,
-    DesktopExecutableIdentity, ExpectedInstallMeasurement, ObservedInstallMeasurement,
-    ProtectedSessionId, ReaderExecutableIdentity, ReleaseManifestDigest, WriterExecutableIdentity,
-    WriterLaunchId, WriterProcessHandleIdentity, WriterProcessStartIdentity,
+    DesktopExecutableIdentity, DesktopSupervisorGeneration, ExpectedInstallMeasurement,
+    ObservedInstallMeasurement, ProtectedSessionId, ReaderExecutableIdentity,
+    ReleaseManifestDigest, WriterExecutableIdentity, WriterLaunchId, WriterProcessHandleIdentity,
+    WriterProcessStartIdentity,
 };
 pub use migration::{CredentialReleaseMigrationBinding, WriterIdentityMigrationPhase};
 

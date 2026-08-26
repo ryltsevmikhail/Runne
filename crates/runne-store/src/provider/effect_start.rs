@@ -101,7 +101,10 @@ pub(super) fn start_effect(
                            AND credential.lease_expires_at = ?15
                            AND credential.lease_fencing_token = ?16
                            AND credential.lease_expires_at > ?8
-                           AND credential.revocation_fence < credential.lease_fencing_token)
+                           AND credential.revocation_fence < credential.lease_fencing_token
+                           AND NOT EXISTS(
+                               SELECT 1 FROM provider_credential_authority_heads online_head
+                               WHERE online_head.provider_id = credential.provider_id))
         )",
         params![
             claim.attempt_id.as_bytes().as_slice(), claim.permit_id.as_slice(),

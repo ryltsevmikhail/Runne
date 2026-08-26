@@ -2,11 +2,11 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentAuthorityPair, CredentialFence,
-    CredentialLifecycleRevision, CredentialMigrationMetadata, CredentialNativeEffectDisposition,
-    CredentialOperationAction, CredentialOperationId, CredentialOperationMetadata,
-    CredentialOperationSnapshot, CredentialOperationState, CredentialProcessBinding,
-    CredentialReadbackDisposition, CredentialReadinessRevision, CredentialTerminalDisposition,
-    WriterIdentityMigrationPhase,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialMigrationMetadata,
+    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
+    CredentialOperationMetadata, CredentialOperationSnapshot, CredentialOperationState,
+    CredentialProcessBinding, CredentialReadbackDisposition, CredentialReadinessRevision,
+    CredentialTerminalDisposition, WriterIdentityMigrationPhase,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
@@ -17,6 +17,7 @@ fn credential_operation_snapshots_preserve_nullable_allocation_and_replay_metada
     let metadata = CredentialOperationMetadata::new(
         CommandId::from_bytes([1; 16]),
         IdempotencyKey::new("pair-1").unwrap(),
+        owner(),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(2),
@@ -35,6 +36,7 @@ fn credential_operation_snapshots_preserve_nullable_allocation_and_replay_metada
         CredentialOperationAction::Pair,
         CredentialOperationState::Tombstoned,
         Some(version),
+        None,
         metadata,
     )
     .unwrap();
@@ -49,13 +51,15 @@ fn credential_operation_snapshots_preserve_nullable_allocation_and_replay_metada
 
     let revoke = CredentialOperationSnapshot::new(
         CredentialOperationId::from_bytes([8; 16]).unwrap(),
-        provider,
+        provider.clone(),
         CredentialOperationAction::Revoke,
         CredentialOperationState::Prepared,
         None,
+        Some(CredentialVersionRef::new(provider, 1).unwrap()),
         CredentialOperationMetadata::new(
             CommandId::from_bytes([9; 16]),
             IdempotencyKey::new("revoke-1").unwrap(),
+            owner(),
             CredentialLifecycleRevision::new(1).unwrap(),
             CredentialFence::new(1).unwrap(),
             digest(10),
@@ -77,9 +81,11 @@ fn credential_lifecycle_snapshot_carries_readiness_revision() {
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         CredentialReadinessRevision::new(1).unwrap(),
+        7,
     )
     .unwrap();
     assert_eq!(snapshot.readiness_revision().get(), 1);
+    assert_eq!(snapshot.next_credential_version(), 7);
 }
 
 #[test]
@@ -88,6 +94,7 @@ fn credential_writer_migration_snapshot_requires_a_matching_sealed_tuple() {
     let metadata = CredentialOperationMetadata::new(
         CommandId::from_bytes([12; 16]),
         IdempotencyKey::new("migration-1").unwrap(),
+        owner(),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(13),
@@ -102,6 +109,7 @@ fn credential_writer_migration_snapshot_requires_a_matching_sealed_tuple() {
             CredentialOperationAction::WriterIdentityMigrationEffect,
             CredentialOperationState::Prepared,
             None,
+            None,
             metadata.clone(),
         )
         .is_err()
@@ -112,6 +120,7 @@ fn credential_writer_migration_snapshot_requires_a_matching_sealed_tuple() {
             provider,
             CredentialOperationAction::WriterIdentityMigrationEffect,
             CredentialOperationState::Prepared,
+            None,
             None,
             metadata.with_migration(migration_metadata()),
         )
@@ -125,6 +134,7 @@ fn credential_operation_snapshot_rejects_invalid_action_allocation_and_evidence_
     let metadata = CredentialOperationMetadata::new(
         CommandId::from_bytes([20; 16]),
         IdempotencyKey::new("shape-1").unwrap(),
+        owner(),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(21),
@@ -139,6 +149,7 @@ fn credential_operation_snapshot_rejects_invalid_action_allocation_and_evidence_
             CredentialOperationAction::Pair,
             CredentialOperationState::Prepared,
             None,
+            None,
             metadata.clone(),
         )
         .is_err()
@@ -150,6 +161,7 @@ fn credential_operation_snapshot_rejects_invalid_action_allocation_and_evidence_
             CredentialOperationAction::Revoke,
             CredentialOperationState::Prepared,
             Some(CredentialVersionRef::new(provider.clone(), 1).unwrap()),
+            None,
             metadata.clone(),
         )
         .is_err()
@@ -157,10 +169,11 @@ fn credential_operation_snapshot_rejects_invalid_action_allocation_and_evidence_
     assert!(
         CredentialOperationSnapshot::new(
             CredentialOperationId::from_bytes([24; 16]).unwrap(),
-            provider,
+            provider.clone(),
             CredentialOperationAction::Revoke,
             CredentialOperationState::Claimed,
             None,
+            Some(CredentialVersionRef::new(provider, 1).unwrap()),
             metadata,
         )
         .is_err()
@@ -169,6 +182,10 @@ fn credential_operation_snapshot_rejects_invalid_action_allocation_and_evidence_
 
 fn digest(value: u8) -> CredentialBindingDigest {
     CredentialBindingDigest::from_measured([value; 32]).unwrap()
+}
+
+fn owner() -> CredentialInstallationOwnerId {
+    CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap()
 }
 
 fn migration_metadata() -> CredentialMigrationMetadata {

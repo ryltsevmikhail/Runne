@@ -11,11 +11,12 @@ use runne_provider::{
     CredentialProcessBinding, CredentialRecoveryWork, CredentialReleaseMigrationBinding,
     CredentialTicketAttempt, CredentialTransitionEvidence, CredentialVerificationCapability,
     CredentialVerificationLease, CredentialVerificationObservation, DaemonAuthorityId,
-    DesktopExecutableIdentity, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, ObserveNativeEffect, ProtectedSessionId, RawCredentialTicket,
-    ReaderExecutableIdentity, ReleaseManifestDigest, TombstoneCredentialOperation,
-    TransitionCommand, WriterExecutableIdentity, WriterIdentityMigrationPhase, WriterLaunchId,
-    WriterProcessHandleIdentity, WriterProcessStartIdentity,
+    DesktopExecutableIdentity, DesktopSupervisorGeneration, FailCredentialOperation,
+    HardFenceProvider, IssueCredentialTicketDigest, ObserveNativeEffect, ProtectedSessionId,
+    RawCredentialTicket, ReaderExecutableIdentity, ReleaseManifestDigest,
+    TombstoneCredentialOperation, TransitionCommand, WriterExecutableIdentity,
+    WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
+    WriterProcessStartIdentity,
 };
 
 #[test]
@@ -55,6 +56,7 @@ fn credential_enrollment_public_api_is_consumer_visible() {
         CredentialVerificationObservation,
         DaemonAuthorityId,
         DesktopExecutableIdentity,
+        DesktopSupervisorGeneration,
         FailCredentialOperation,
         HardFenceProvider,
         IssueCredentialTicketDigest,
@@ -172,6 +174,7 @@ fn measurement_snapshot(
         measurements.contract_bundle_digest([6; 32])?,
         measurements.daemon_authority_id([7; 32])?,
         measurements.protected_session_id([8; 32])?,
+        measurements.desktop_supervisor_generation(1)?,
         measurements.writer_launch_id([9; 32])?,
         measurements.writer_process_start_identity([10; 32])?,
         measurements.writer_process_handle_identity([11; 32])?,

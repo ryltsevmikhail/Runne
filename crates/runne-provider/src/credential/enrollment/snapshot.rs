@@ -2,9 +2,9 @@ use crate::{CredentialVersionRef, ProviderId};
 
 use super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
-    CredentialOperationMetadata, CredentialOperationState, CredentialReadinessRevision,
-    CredentialTerminalDisposition,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialOperationAction,
+    CredentialOperationId, CredentialOperationMetadata, CredentialOperationState,
+    CredentialReadinessRevision, CredentialTerminalDisposition,
 };
 
 mod validation;
@@ -17,6 +17,7 @@ pub struct CredentialOperationSnapshot {
     action: CredentialOperationAction,
     state: CredentialOperationState,
     allocated_credential_version: Option<CredentialVersionRef>,
+    target_credential_version: Option<CredentialVersionRef>,
     metadata: CredentialOperationMetadata,
 }
 
@@ -28,15 +29,21 @@ impl CredentialOperationSnapshot {
         action: CredentialOperationAction,
         state: CredentialOperationState,
         allocated_credential_version: Option<CredentialVersionRef>,
+        target_credential_version: Option<CredentialVersionRef>,
         metadata: CredentialOperationMetadata,
     ) -> Result<Self, CredentialEnrollmentError> {
-        if allocated_credential_version
-            .as_ref()
-            .is_some_and(|version| version.provider() != &provider_id)
+        if [
+            allocated_credential_version.as_ref(),
+            target_credential_version.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|version| version.provider() != &provider_id)
             || !validation::valid_snapshot_shape(
                 action,
                 state,
                 allocated_credential_version.as_ref(),
+                target_credential_version.as_ref(),
                 &metadata,
             )
         {
@@ -48,6 +55,7 @@ impl CredentialOperationSnapshot {
             action,
             state,
             allocated_credential_version,
+            target_credential_version,
             metadata,
         })
     }
@@ -71,9 +79,17 @@ impl CredentialOperationSnapshot {
     pub const fn allocated_credential_version(&self) -> Option<&CredentialVersionRef> {
         self.allocated_credential_version.as_ref()
     }
+    /// Returns the immutable destructive-operation target, when present.
+    pub const fn target_credential_version(&self) -> Option<&CredentialVersionRef> {
+        self.target_credential_version.as_ref()
+    }
     /// Returns all immutable safe durable metadata.
     pub const fn metadata(&self) -> &CredentialOperationMetadata {
         &self.metadata
+    }
+    /// Returns the immutable exact installation owner binding.
+    pub const fn installation_owner_id(&self) -> CredentialInstallationOwnerId {
+        self.metadata.installation_owner_id()
     }
     /// Returns the accepted begin proof digest.
     pub const fn begin_proof_digest(&self) -> CredentialBindingDigest {
@@ -113,6 +129,7 @@ pub struct CredentialLifecycleSnapshot {
     lifecycle_revision: CredentialLifecycleRevision,
     fence: CredentialFence,
     readiness_revision: CredentialReadinessRevision,
+    next_credential_version: u64,
 }
 
 impl CredentialLifecycleSnapshot {
@@ -123,10 +140,12 @@ impl CredentialLifecycleSnapshot {
         lifecycle_revision: CredentialLifecycleRevision,
         fence: CredentialFence,
         readiness_revision: CredentialReadinessRevision,
+        next_credential_version: u64,
     ) -> Result<Self, CredentialEnrollmentError> {
         if active_version
             .as_ref()
             .is_some_and(|version| version.provider() != &provider_id)
+            || next_credential_version == 0
         {
             return Err(CredentialEnrollmentError::InvalidInput);
         }
@@ -136,6 +155,7 @@ impl CredentialLifecycleSnapshot {
             lifecycle_revision,
             fence,
             readiness_revision,
+            next_credential_version,
         })
     }
     /// Returns the provider identity.
@@ -157,6 +177,10 @@ impl CredentialLifecycleSnapshot {
     /// Returns the authoritative readiness revision.
     pub const fn readiness_revision(&self) -> CredentialReadinessRevision {
         self.readiness_revision
+    }
+    /// Returns the next provider-local monotonic version allocation.
+    pub const fn next_credential_version(&self) -> u64 {
+        self.next_credential_version
     }
 }
 

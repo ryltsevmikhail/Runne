@@ -6,7 +6,8 @@ use super::{
     CompleteCredentialVerification, CredentialLifecycleSnapshot, CredentialOperationId,
     CredentialOperationSnapshot, CredentialRecoveryWork, CredentialVerificationLease,
     CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, ObserveNativeEffect, TombstoneCredentialOperation,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
@@ -21,7 +22,13 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
     fn issue_ticket_attempt(
         &self,
         input: IssueCredentialTicketDigest,
-    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError>;
+    ) -> Result<IssuedCredentialTicketAttempt, CredentialLifecycleError>;
+
+    /// Creates or loads the initial persisted provider authority snapshot.
+    fn begin_admission_snapshot(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<CredentialLifecycleSnapshot, CredentialLifecycleError>;
 
     /// Atomically consumes the ticket and process/release claim binding.
     fn claim(

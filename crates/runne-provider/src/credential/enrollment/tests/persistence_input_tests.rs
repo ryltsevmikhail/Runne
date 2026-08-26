@@ -3,12 +3,14 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 use super::super::{
     BeginCredentialOperation, BeginCredentialVerification, BindCredentialReadback,
     ClaimCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
-    CredentialBindingDigest, CredentialFence, CredentialLifecycleRevision,
-    CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
-    CredentialReadbackDisposition, CredentialReadinessDisposition, CredentialReadinessObservation,
-    CredentialReadinessRevision, CredentialTicketAttempt, CredentialVerificationKind,
-    CredentialVerificationObservation, CredentialVerificationResult, CredentialVerifierRevision,
-    FailCredentialOperation, IssueCredentialTicketDigest, ObserveNativeEffect,
+    CredentialBindingDigest, CredentialEnrollmentAuthorityPair, CredentialFence,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
+    CredentialOperationAction, CredentialOperationId, CredentialOperationMetadata,
+    CredentialOperationSnapshot, CredentialOperationState, CredentialReadbackDisposition,
+    CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
+    CredentialTicketAttempt, CredentialVerificationKind, CredentialVerificationObservation,
+    CredentialVerificationResult, CredentialVerifierRevision, FailCredentialOperation,
+    IssueCredentialTicketDigest, ObserveNativeEffect,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
@@ -30,9 +32,11 @@ fn credential_enrollment_persistence_inputs_carry_replay_and_claim_digests() {
         command_id,
         idempotency_key,
         operation_id,
+        owner(),
         provider.clone(),
         CredentialOperationAction::Pair,
         Some(version.clone()),
+        None,
         revision,
         fence,
         begin_proof,
@@ -47,9 +51,11 @@ fn credential_enrollment_persistence_inputs_carry_replay_and_claim_digests() {
             command_id,
             IdempotencyKey::new("credential-migrate-1").unwrap(),
             operation_id,
+            owner(),
             provider.clone(),
             CredentialOperationAction::MigrateLegacy,
             Some(version.clone()),
+            None,
             revision,
             fence,
             begin_proof,
@@ -57,32 +63,46 @@ fn credential_enrollment_persistence_inputs_carry_replay_and_claim_digests() {
         .is_ok()
     );
 
-    let ticket = IssueCredentialTicketDigest::new(
-        operation_id,
-        CredentialTicketAttempt::new(1).unwrap(),
-        ticket_digest,
-        continuation_digest,
-        10,
-        20,
-    )
-    .unwrap();
+    let ticket =
+        IssueCredentialTicketDigest::new(operation_id, ticket_digest, continuation_digest, 10)
+            .unwrap();
     assert_eq!(ticket.continuation_binding_digest(), continuation_digest);
 
+    let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+    let receipt = store
+        .hydrate_issued_credential_ticket_attempt(
+            CredentialOperationSnapshot::new(
+                operation_id,
+                provider.clone(),
+                CredentialOperationAction::Pair,
+                CredentialOperationState::Prepared,
+                Some(version.clone()),
+                None,
+                CredentialOperationMetadata::new(
+                    command_id,
+                    IdempotencyKey::new("credential-pair-1").unwrap(),
+                    owner(),
+                    revision,
+                    fence,
+                    begin_proof,
+                    10,
+                    10,
+                )
+                .unwrap(),
+            )
+            .unwrap(),
+            CredentialTicketAttempt::new(1).unwrap(),
+            10,
+            20,
+        )
+        .unwrap();
     let claim = ClaimCredentialOperation::new(
-        operation_id,
-        ticket.ticket_attempt(),
+        receipt,
         ticket.ticket_digest(),
         ticket.continuation_binding_digest(),
         claim_digest,
-        provider,
-        CredentialOperationAction::Pair,
-        Some(version),
-        revision,
-        fence,
         1,
         1,
-        10,
-        20,
     )
     .unwrap();
     assert_eq!(claim.continuation_binding_digest(), continuation_digest);
@@ -170,4 +190,8 @@ fn credential_enrollment_persistence_inputs_are_safe_and_exact() {
 
 fn digest(value: u8) -> CredentialBindingDigest {
     CredentialBindingDigest::from_measured([value; 32]).unwrap()
+}
+
+fn owner() -> CredentialInstallationOwnerId {
+    CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap()
 }

@@ -48,6 +48,25 @@ impl CredentialOperationId {
     }
 }
 
+/// Exact canonical installation owner binding for one durable operation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CredentialInstallationOwnerId([u8; 32]);
+
+impl CredentialInstallationOwnerId {
+    /// Validates a non-zero fixed-width installation owner identity.
+    pub fn from_bytes(value: [u8; 32]) -> Result<Self, CredentialEnrollmentError> {
+        if value == [0; 32] {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the canonical exact owner bytes for durable comparison.
+    pub const fn as_bytes(self) -> [u8; 32] {
+        self.0
+    }
+}
+
 non_zero_u64!(
     CredentialLifecycleRevision,
     "Non-zero authoritative lifecycle revision."

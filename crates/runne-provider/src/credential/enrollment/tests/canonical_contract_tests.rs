@@ -1,5 +1,5 @@
 use super::super::*;
-use crate::{CredentialVersionRef, ProviderId};
+use crate::{CredentialInstallationOwnerId, CredentialVersionRef, ProviderId};
 use runne_domain::id::{CommandId, IdempotencyKey};
 
 #[test]
@@ -16,9 +16,11 @@ fn credential_enrollment_review_canonical_inputs_validate_closed_boundaries() {
             command(1),
             key("pair"),
             operation_id,
+            owner(),
             provider.clone(),
             CredentialOperationAction::Pair,
             Some(version.clone()),
+            None,
             revision,
             fence,
             digest,
@@ -30,9 +32,11 @@ fn credential_enrollment_review_canonical_inputs_validate_closed_boundaries() {
             command(2),
             key("cleanup"),
             operation_id,
+            owner(),
             provider.clone(),
             CredentialOperationAction::RetiredVersionCleanup,
             Some(version.clone()),
+            None,
             revision,
             fence,
             digest,
@@ -98,6 +102,7 @@ fn credential_enrollment_review_canonical_snapshots_and_verification_are_immutab
         CredentialOperationAction::Pair,
         CredentialOperationState::Claimed,
         Some(version.clone()),
+        None,
         metadata(3, revision, fence, digest).with_claim(digest, digest),
     )
     .unwrap();
@@ -109,6 +114,7 @@ fn credential_enrollment_review_canonical_snapshots_and_verification_are_immutab
         revision,
         fence,
         CredentialReadinessRevision::new(1).unwrap(),
+        2,
     )
     .unwrap();
     assert_eq!(lifecycle.provider(), &provider);
@@ -116,7 +122,7 @@ fn credential_enrollment_review_canonical_snapshots_and_verification_are_immutab
     let begin = BeginCredentialVerification::new(
         CredentialOperationId::from_bytes([8; 16]).unwrap(),
         Some(operation_id),
-        provider,
+        provider.clone(),
         CredentialVerificationKind::Local,
         revision,
         fence,
@@ -127,7 +133,10 @@ fn credential_enrollment_review_canonical_snapshots_and_verification_are_immutab
     )
     .unwrap();
     let (store, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    let lease = store.issue_credential_verification_lease(begin);
+    let lease = store.issue_credential_verification_lease(
+        begin,
+        CredentialVersionRef::new(provider.clone(), 1).unwrap(),
+    );
     let capability = measurements
         .issue_credential_verification_capability(lease, digest)
         .unwrap();
@@ -148,17 +157,11 @@ fn credential_enrollment_review_canonical_snapshots_and_verification_are_immutab
 #[test]
 fn credential_enrollment_review_ticket_issue_and_operation_commands_are_safe() {
     let operation_id = CredentialOperationId::from_bytes([5; 16]).unwrap();
-    let attempt = CredentialTicketAttempt::new(1).unwrap();
     let ticket = CredentialBindingDigest::from_measured([6; 32]).unwrap();
     let continuation = CredentialBindingDigest::from_measured([7; 32]).unwrap();
-    let issued =
-        IssueCredentialTicketDigest::new(operation_id, attempt, ticket, continuation, 10, 20)
-            .unwrap();
+    let issued = IssueCredentialTicketDigest::new(operation_id, ticket, continuation, 10).unwrap();
     assert_eq!(issued.operation_id(), operation_id);
-    assert!(
-        IssueCredentialTicketDigest::new(operation_id, attempt, ticket, continuation, 20, 10,)
-            .is_err()
-    );
+    assert!(IssueCredentialTicketDigest::new(operation_id, ticket, continuation, 0).is_err());
 }
 
 fn command(value: u8) -> CommandId {
@@ -178,6 +181,7 @@ fn metadata(
     CredentialOperationMetadata::new(
         command(value),
         key("snapshot"),
+        owner(),
         revision,
         fence,
         digest,
@@ -185,4 +189,8 @@ fn metadata(
         1,
     )
     .unwrap()
+}
+
+fn owner() -> CredentialInstallationOwnerId {
+    CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap()
 }

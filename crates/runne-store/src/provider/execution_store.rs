@@ -9,6 +9,8 @@ mod dispatch_effect_tests;
 mod durable_readback;
 #[cfg(test)]
 mod effect_start_tests;
+#[cfg(test)]
+mod effect_start_v24_tests;
 
 include!("execution_store/decomposition/part_01.rs");
 include!("execution_store/decomposition/part_02.rs");

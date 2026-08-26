@@ -1,6 +1,7 @@
 pub(super) const MIGRATION_V24: &str = r#"
 CREATE TABLE provider_credential_operations (
     operation_id BLOB PRIMARY KEY CHECK(length(operation_id) = 16),
+    installation_owner_id BLOB NOT NULL CHECK(length(installation_owner_id) = 32 AND installation_owner_id != zeroblob(32)),
     provider_id TEXT NOT NULL CHECK(typeof(provider_id) = 'text' AND length(CAST(provider_id AS BLOB)) = length(provider_id) AND length(CAST(provider_id AS BLOB)) BETWEEN 1 AND 128 AND provider_id NOT GLOB '*[^!-~]*'),
     action TEXT NOT NULL CHECK(action IN ('PAIR', 'REVOKE', 'MIGRATE_LEGACY', 'RETIRED_VERSION_CLEANUP', 'LEGACY_SOURCE_CLEANUP', 'WRITER_IDENTITY_MIGRATION_EFFECT', 'WRITER_IDENTITY_MIGRATION_VERIFY')),
     command_id BLOB NOT NULL UNIQUE CHECK(length(command_id) = 16),
@@ -9,6 +10,8 @@ CREATE TABLE provider_credential_operations (
     expected_credential_fence INTEGER NOT NULL CHECK(expected_credential_fence > 0),
     allocated_credential_version INTEGER CHECK(allocated_credential_version > 0),
     allocated_ref_digest BLOB CHECK(allocated_ref_digest IS NULL OR length(allocated_ref_digest) = 32),
+    target_credential_version INTEGER CHECK(target_credential_version > 0),
+    target_ref_digest BLOB CHECK(target_ref_digest IS NULL OR length(target_ref_digest) = 32),
     state TEXT NOT NULL CHECK(state IN ('PREPARED', 'CLAIMED', 'NATIVE_EFFECT_OBSERVED', 'READBACK_VERIFIED', 'COMPLETED', 'FAILED', 'EXPIRED', 'CANCELLED', 'TOMBSTONED')),
     begin_proof_digest BLOB NOT NULL UNIQUE CHECK(length(begin_proof_digest) = 32),
     continuation_binding_digest BLOB CHECK(continuation_binding_digest IS NULL OR length(continuation_binding_digest) = 32),
@@ -24,6 +27,9 @@ CREATE TABLE provider_credential_operations (
     updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
     tombstone_digest BLOB CHECK(tombstone_digest IS NULL OR length(tombstone_digest) = 32),
     CHECK((allocated_credential_version IS NULL) = (allocated_ref_digest IS NULL)),
+    CHECK((action IN ('PAIR', 'MIGRATE_LEGACY')) = (allocated_credential_version IS NOT NULL)),
+    CHECK((target_credential_version IS NULL) = (target_ref_digest IS NULL)),
+    CHECK((action IN ('REVOKE', 'RETIRED_VERSION_CLEANUP')) = (target_credential_version IS NOT NULL)),
     CHECK((action = 'WRITER_IDENTITY_MIGRATION_EFFECT' AND migration_id IS NOT NULL AND migration_phase = 'EFFECT' AND migration_old_tuple_digest IS NOT NULL AND migration_new_tuple_digest IS NOT NULL) OR (action = 'WRITER_IDENTITY_MIGRATION_VERIFY' AND migration_id IS NOT NULL AND migration_phase = 'VERIFY' AND migration_old_tuple_digest IS NOT NULL AND migration_new_tuple_digest IS NOT NULL) OR (action NOT IN ('WRITER_IDENTITY_MIGRATION_EFFECT', 'WRITER_IDENTITY_MIGRATION_VERIFY') AND migration_id IS NULL AND migration_phase IS NULL AND migration_old_tuple_digest IS NULL AND migration_new_tuple_digest IS NULL)),
     CHECK((state = 'TOMBSTONED') = (tombstone_digest IS NOT NULL))
 ) STRICT;
@@ -90,6 +96,8 @@ CREATE TABLE provider_credential_verification_observations (
     verification_kind TEXT NOT NULL CHECK(verification_kind IN ('LOCAL', 'REMOTE')),
     lifecycle_revision INTEGER NOT NULL CHECK(lifecycle_revision > 0),
     credential_fence INTEGER NOT NULL CHECK(credential_fence > 0),
+    active_credential_version INTEGER NOT NULL CHECK(active_credential_version > 0),
+    active_ref_digest BLOB NOT NULL CHECK(length(active_ref_digest) = 32),
     state TEXT NOT NULL CHECK(state IN ('LEASED', 'COMPLETED')),
     result TEXT CHECK(result IS NULL OR result IN ('VERIFIED', 'FAILED', 'UNSUPPORTED', 'UNAVAILABLE', 'ACCESS_DENIED', 'CONFLICT')),
     intent_proof_digest BLOB NOT NULL UNIQUE CHECK(length(intent_proof_digest) = 32),
@@ -99,6 +107,7 @@ CREATE TABLE provider_credential_verification_observations (
     expires_at_high_water INTEGER NOT NULL CHECK(expires_at_high_water > started_at),
     observed_at INTEGER CHECK(observed_at IS NULL OR observed_at >= started_at),
     operation_id BLOB REFERENCES provider_credential_operations(operation_id),
+    CHECK(active_credential_version > 0 AND length(active_ref_digest) = 32),
     CHECK((state = 'LEASED') = (result IS NULL AND observed_at IS NULL))
 ) STRICT;
 "#;

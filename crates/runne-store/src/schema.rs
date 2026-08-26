@@ -140,5 +140,9 @@ mod tests {
     include!("schema/tests/credential_v24_observation_invariants.rs");
     include!("schema/tests/credential_v24_legacy_corruption.rs");
     include!("schema/tests/credential_v24_active_invariants.rs");
+    include!("schema/tests/credential_v24_target_invariants.rs");
+    include!("schema/tests/credential_v24_shape_invariants.rs");
+    include!("schema/tests/credential_v24_owner_invariants.rs");
+    include!("schema/tests/credential_v24_verification_ref_invariants.rs");
     include!("schema/tests/frozen_migrations.rs");
 }

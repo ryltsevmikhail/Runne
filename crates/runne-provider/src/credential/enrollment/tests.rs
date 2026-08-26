@@ -1,6 +1,8 @@
 mod authority_construction_tests;
 mod binding_tests;
 mod canonical_contract_tests;
+mod claim_admission_tests;
+mod hardening_contract_tests;
 mod measurement_tests;
 mod persistence_input_tests;
 mod snapshot_contract_tests;

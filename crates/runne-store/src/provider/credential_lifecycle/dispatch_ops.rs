@@ -9,6 +9,7 @@ impl SqliteProviderCredentialLifecycleStore {
             return Err(CredentialLifecycleError::InvalidInput);
         }
         let connection = self.connection.lock().map_err(map_lock)?;
+        rows::validate_dispatch_head(&connection, lease.version_ref().provider())?;
         let row = load_row(&connection, lease.version_ref())?
             .ok_or(CredentialLifecycleError::NotFound)?;
         validate_row_ref(&row, lease.version_ref())?;
@@ -38,6 +39,7 @@ impl SqliteProviderCredentialLifecycleStore {
             return Err(CredentialLifecycleError::InvalidInput);
         }
         let connection = self.connection.lock().map_err(map_lock)?;
+        rows::validate_dispatch_head(&connection, provider)?;
         let (row, reference) =
             load_active_row(&connection, provider)?.ok_or(CredentialLifecycleError::NotFound)?;
         validate_row_ref(&row, &reference)?;

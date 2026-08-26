@@ -163,7 +163,7 @@ fn operation_transitions_require_owned_evidence_at_each_boundary() {
 #[test]
 fn migration_operations_require_matching_action_phase() {
     let conn = v24_connection();
-    let insert = "INSERT INTO provider_credential_operations (operation_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, state, begin_proof_digest, migration_id, migration_phase, migration_old_tuple_digest, migration_new_tuple_digest, created_at, updated_at) VALUES (?1, 'provider', ?2, ?1, ?3, 1, 1, 'PREPARED', ?4, ?5, ?6, ?7, ?8, 1, 1)";
+    let insert = "INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, state, begin_proof_digest, migration_id, migration_phase, migration_old_tuple_digest, migration_new_tuple_digest, created_at, updated_at) VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', 'provider', ?2, ?1, ?3, 1, 1, 'PREPARED', ?4, ?5, ?6, ?7, ?8, 1, 1)";
     assert!(
         conn.execute(
             insert,
@@ -202,7 +202,7 @@ fn migration_operations_require_matching_action_phase() {
 fn v24_insert_guards_require_authoritative_heads_and_default_state() {
     let conn = v24_connection();
     assert!(conn
-        .execute("INSERT INTO provider_credential_operations (operation_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, allocated_credential_version, allocated_ref_digest, state, begin_proof_digest, created_at, updated_at) VALUES (?1, 'missing-head', 'PAIR', ?1, 'missing-head', 1, 1, 1, ?2, 'PREPARED', ?3, 1, 1)", rusqlite::params![[50_u8; 16], [51_u8; 32], [52_u8; 32]])
+        .execute("INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, allocated_credential_version, allocated_ref_digest, state, begin_proof_digest, created_at, updated_at) VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', 'missing-head', 'PAIR', ?1, 'missing-head', 1, 1, 1, ?2, 'PREPARED', ?3, 1, 1)", rusqlite::params![[50_u8; 16], [51_u8; 32], [52_u8; 32]])
         .is_err());
     assert!(conn
         .execute("INSERT INTO provider_credential_authority_heads (provider_id, lifecycle_revision, credential_fence, readiness_revision, next_credential_version, active_credential_version, active_ref_digest) VALUES ('active-on-insert', 1, 1, 1, 1, 1, ?1)", [[53_u8; 32]])
@@ -215,7 +215,7 @@ fn v24_insert_guards_require_authoritative_heads_and_default_state() {
 #[test]
 fn provider_ids_are_canonical_ascii_graphic_and_bounded() {
     let conn = v24_connection();
-    let operation = "INSERT INTO provider_credential_operations (operation_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, state, begin_proof_digest, created_at, updated_at) VALUES (?1, ?2, 'PAIR', ?1, ?3, 1, 1, 'PREPARED', ?4, 1, 1)";
+    let operation = "INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, state, begin_proof_digest, created_at, updated_at) VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', ?2, 'PAIR', ?1, ?3, 1, 1, 'PREPARED', ?4, 1, 1)";
     for (value, id) in [
         ("bad\nprovider", 56_u8),
         ("é", 57_u8),

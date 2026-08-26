@@ -1,8 +1,10 @@
 use super::super::{
     ClaimCredentialOperation, CredentialClaimBinding, CredentialEnrollmentAuthorityPair,
-    CredentialEnrollmentMeasurementAuthority, CredentialFence, CredentialLifecycleRevision,
-    CredentialMeasurementSnapshot, CredentialOperationAction, CredentialOperationId,
-    CredentialProcessBinding, CredentialTicketAttempt,
+    CredentialEnrollmentMeasurementAuthority, CredentialFence, CredentialInstallationOwnerId,
+    CredentialLifecycleRevision, CredentialMeasurementSnapshot, CredentialOperationAction,
+    CredentialOperationId, CredentialOperationMetadata, CredentialOperationSnapshot,
+    CredentialOperationState, CredentialProcessBinding, CredentialTicketAttempt,
+    IssuedCredentialTicketAttempt,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
@@ -23,20 +25,12 @@ fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapsho
 
     let provider = ProviderId::new("openai").unwrap();
     let claim = ClaimCredentialOperation::new(
-        CredentialOperationId::from_bytes([20; 16]).unwrap(),
-        CredentialTicketAttempt::new(1).unwrap(),
+        receipt(provider.clone()),
         digest(21),
         digest(13),
         canonical_claim_digest(),
-        provider.clone(),
-        CredentialOperationAction::Pair,
-        Some(CredentialVersionRef::new(provider, 1).unwrap()),
-        CredentialLifecycleRevision::new(1).unwrap(),
-        CredentialFence::new(1).unwrap(),
         1,
         1,
-        10,
-        20,
     )
     .unwrap();
     let binding = CredentialClaimBinding::new(measurements, &claim).unwrap();
@@ -44,11 +38,44 @@ fn credential_enrollment_review_claim_binding_uses_validated_measurement_snapsho
     assert_ne!(binding.digest().as_bytes(), [0; 32]);
 }
 
+fn receipt(provider: ProviderId) -> IssuedCredentialTicketAttempt {
+    let (store, _) = CredentialEnrollmentAuthorityPair::new().split();
+    let operation = CredentialOperationId::from_bytes([20; 16]).unwrap();
+    let snapshot = CredentialOperationSnapshot::new(
+        operation,
+        provider.clone(),
+        CredentialOperationAction::Pair,
+        CredentialOperationState::Prepared,
+        Some(CredentialVersionRef::new(provider, 1).unwrap()),
+        None,
+        CredentialOperationMetadata::new(
+            runne_domain::id::CommandId::from_bytes([20; 16]),
+            runne_domain::id::IdempotencyKey::new("measurement-claim").unwrap(),
+            CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap(),
+            CredentialLifecycleRevision::new(1).unwrap(),
+            CredentialFence::new(1).unwrap(),
+            digest(22),
+            10,
+            10,
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    store
+        .hydrate_issued_credential_ticket_attempt(
+            snapshot,
+            CredentialTicketAttempt::new(1).unwrap(),
+            10,
+            20,
+        )
+        .unwrap()
+}
+
 fn canonical_claim_digest() -> super::super::CredentialBindingDigest {
     super::super::CredentialBindingDigest::from_measured([
-        0x75, 0xc1, 0x03, 0xa9, 0x0d, 0x81, 0xee, 0xb8, 0x36, 0xdb, 0x12, 0xf4, 0x9e, 0xb4, 0xff,
-        0x11, 0x2e, 0x7b, 0xd3, 0xfd, 0xe6, 0x52, 0xef, 0x31, 0x6f, 0x06, 0x62, 0x35, 0x78, 0xaa,
-        0xae, 0x1f,
+        0xd8, 0x6b, 0x05, 0xe6, 0x02, 0x20, 0x7f, 0x65, 0x60, 0xfd, 0x8b, 0x66, 0xe5, 0x7a, 0xa2,
+        0x02, 0xe9, 0xa7, 0x65, 0x50, 0x74, 0x34, 0xac, 0xf3, 0x42, 0x44, 0xed, 0xda, 0xbd, 0x43,
+        0x2f, 0xc7,
     ])
     .unwrap()
 }
@@ -66,6 +93,7 @@ fn measurement_snapshot(
         measurements.contract_bundle_digest(alias)?,
         measurements.daemon_authority_id(alias)?,
         measurements.protected_session_id(alias)?,
+        measurements.desktop_supervisor_generation(1)?,
         measurements.writer_launch_id(alias)?,
         measurements.writer_process_start_identity(alias)?,
         measurements.writer_process_handle_identity(alias)?,
@@ -86,6 +114,7 @@ fn distinct_measurements(
         measurements.contract_bundle_digest([6; 32]).unwrap(),
         measurements.daemon_authority_id([7; 32]).unwrap(),
         measurements.protected_session_id([8; 32]).unwrap(),
+        measurements.desktop_supervisor_generation(1).unwrap(),
         measurements.writer_launch_id([9; 32]).unwrap(),
         measurements
             .writer_process_start_identity([10; 32])

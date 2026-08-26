@@ -9,28 +9,34 @@ pub(super) fn valid_snapshot_shape(
     action: CredentialOperationAction,
     state: CredentialOperationState,
     allocation: Option<&CredentialVersionRef>,
+    target: Option<&CredentialVersionRef>,
     metadata: &CredentialOperationMetadata,
 ) -> bool {
-    allocation_matches(action, allocation)
+    versions_match(action, allocation, target)
         && migration_matches(action, metadata)
         && state_matches(state, metadata)
 }
 
-fn allocation_matches(
+fn versions_match(
     action: CredentialOperationAction,
     allocation: Option<&CredentialVersionRef>,
+    target: Option<&CredentialVersionRef>,
 ) -> bool {
     matches!(
-        (action, allocation.is_some()),
+        (action, allocation.is_some(), target.is_some()),
         (
             CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy,
+            true,
+            false
+        ) | (
+            CredentialOperationAction::Revoke | CredentialOperationAction::RetiredVersionCleanup,
+            false,
             true
         ) | (
-            CredentialOperationAction::Revoke
-                | CredentialOperationAction::RetiredVersionCleanup
-                | CredentialOperationAction::LegacySourceCleanup
+            CredentialOperationAction::LegacySourceCleanup
                 | CredentialOperationAction::WriterIdentityMigrationEffect
                 | CredentialOperationAction::WriterIdentityMigrationVerify,
+            false,
             false
         )
     )

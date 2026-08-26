@@ -30,11 +30,12 @@ pub struct CredentialClaimBinding {
     broker_channel_binding: CredentialBindingDigest,
     continuation_binding_digest: CredentialBindingDigest,
     operation_id: CredentialOperationId,
+    installation_owner_id: super::super::CredentialInstallationOwnerId,
     ticket_attempt: CredentialTicketAttempt,
     ticket_digest: CredentialBindingDigest,
     provider_id: ProviderId,
     action: CredentialOperationAction,
-    credential_version: CredentialVersionRef,
+    credential_version: Option<CredentialVersionRef>,
     expected_lifecycle_revision: CredentialLifecycleRevision,
     expected_prior_fence: CredentialFence,
     issued_at_high_water: i64,
@@ -47,10 +48,18 @@ impl CredentialClaimBinding {
         measurements: CredentialMeasurementSnapshot,
         claim: &ClaimCredentialOperation,
     ) -> Result<Self, CredentialEnrollmentError> {
-        let credential_version = claim
-            .allocated_credential_version()
-            .cloned()
-            .ok_or(CredentialEnrollmentError::InvalidInput)?;
+        let binding = Self::measure(measurements, claim)?;
+        if binding.digest() != claim.process_release_binding_digest() {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(binding)
+    }
+
+    pub(crate) fn measure(
+        measurements: CredentialMeasurementSnapshot,
+        claim: &ClaimCredentialOperation,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        let credential_version = claim.effect_credential_version().cloned();
         let [
             candidate_source_identity,
             release_manifest_digest,
@@ -76,13 +85,14 @@ impl CredentialClaimBinding {
             daemon_authority_id,
             database_generation: claim.database_generation(),
             protected_session_id,
-            desktop_supervisor_generation: claim.desktop_supervisor_generation(),
+            desktop_supervisor_generation: measurements.desktop_supervisor_generation(),
             writer_launch_id,
             writer_process_start_identity,
             writer_process_handle_identity,
             broker_channel_binding,
             continuation_binding_digest,
             operation_id: claim.operation_id(),
+            installation_owner_id: claim.installation_owner_id(),
             ticket_attempt: claim.ticket_attempt(),
             ticket_digest: claim.ticket_digest(),
             provider_id: claim.provider_id().clone(),
@@ -93,8 +103,8 @@ impl CredentialClaimBinding {
             issued_at_high_water: claim.issued_at_high_water(),
             expires_at_high_water: claim.expires_at_high_water(),
         };
-        if continuation_binding_digest != claim.continuation_binding_digest()
-            || binding.digest() != claim.process_release_binding_digest()
+        if binding.desktop_supervisor_generation != claim.desktop_supervisor_generation()
+            || continuation_binding_digest != claim.continuation_binding_digest()
         {
             return Err(CredentialEnrollmentError::InvalidEvidence);
         }
@@ -105,6 +115,10 @@ impl CredentialClaimBinding {
     pub const fn operation_id(&self) -> CredentialOperationId {
         self.operation_id
     }
+    /// Returns the exact installation owner bound to this claim.
+    pub const fn installation_owner_id(&self) -> super::super::CredentialInstallationOwnerId {
+        self.installation_owner_id
+    }
     /// Returns the exact provider identity.
     pub const fn provider_id(&self) -> &ProviderId {
         &self.provider_id
@@ -114,8 +128,8 @@ impl CredentialClaimBinding {
         self.action
     }
     /// Returns the exact target credential version.
-    pub const fn credential_version(&self) -> &CredentialVersionRef {
-        &self.credential_version
+    pub const fn credential_version(&self) -> Option<&CredentialVersionRef> {
+        self.credential_version.as_ref()
     }
 
     /// Hashes every stored field in canonical declaration order with length prefixes.
@@ -149,19 +163,18 @@ impl CredentialClaimBinding {
             push(&mut hasher, &value.as_bytes());
         }
         push(&mut hasher, &self.operation_id.as_bytes());
+        push(&mut hasher, &self.installation_owner_id.as_bytes());
         push(&mut hasher, &self.ticket_attempt.get().to_be_bytes());
         push(&mut hasher, &self.ticket_digest.as_bytes());
         push(&mut hasher, self.provider_id.as_str().as_bytes());
         push(&mut hasher, &[self.action as u8]);
-        push(
-            &mut hasher,
-            self.credential_version.provider().as_str().as_bytes(),
-        );
-        push(
-            &mut hasher,
-            &self.credential_version.version().to_be_bytes(),
-        );
-        push(&mut hasher, self.credential_version.ref_digest());
+        if let Some(version) = self.credential_version.as_ref() {
+            push(&mut hasher, version.provider().as_str().as_bytes());
+            push(&mut hasher, &version.version().to_be_bytes());
+            push(&mut hasher, version.ref_digest());
+        } else {
+            push(&mut hasher, &[]);
+        }
         push(
             &mut hasher,
             &self.expected_lifecycle_revision.get().to_be_bytes(),

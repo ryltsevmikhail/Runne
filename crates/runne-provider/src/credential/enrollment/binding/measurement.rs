@@ -121,6 +121,7 @@ pub struct CredentialMeasurementSnapshot {
     contract_bundle_digest: ContractBundleDigest,
     daemon_authority_id: DaemonAuthorityId,
     protected_session_id: ProtectedSessionId,
+    desktop_supervisor_generation: DesktopSupervisorGeneration,
     writer_launch_id: WriterLaunchId,
     writer_process_start_identity: WriterProcessStartIdentity,
     writer_process_handle_identity: WriterProcessHandleIdentity,
@@ -140,6 +141,7 @@ impl CredentialMeasurementSnapshot {
         contract_bundle_digest: ContractBundleDigest,
         daemon_authority_id: DaemonAuthorityId,
         protected_session_id: ProtectedSessionId,
+        desktop_supervisor_generation: DesktopSupervisorGeneration,
         writer_launch_id: WriterLaunchId,
         writer_process_start_identity: WriterProcessStartIdentity,
         writer_process_handle_identity: WriterProcessHandleIdentity,
@@ -154,6 +156,7 @@ impl CredentialMeasurementSnapshot {
             || !contract_bundle_digest.belongs_to(seal)
             || !daemon_authority_id.belongs_to(seal)
             || !protected_session_id.belongs_to(seal)
+            || !desktop_supervisor_generation.belongs_to(seal)
             || !writer_launch_id.belongs_to(seal)
             || !writer_process_start_identity.belongs_to(seal)
             || !writer_process_handle_identity.belongs_to(seal)
@@ -191,6 +194,7 @@ impl CredentialMeasurementSnapshot {
             contract_bundle_digest,
             daemon_authority_id,
             protected_session_id,
+            desktop_supervisor_generation,
             writer_launch_id,
             writer_process_start_identity,
             writer_process_handle_identity,
@@ -223,6 +227,10 @@ impl CredentialMeasurementSnapshot {
             self.broker_channel_binding.digest(),
             self.continuation_binding_digest.digest(),
         ]
+    }
+
+    pub(super) const fn desktop_supervisor_generation(&self) -> u64 {
+        self.desktop_supervisor_generation.generation()
     }
 
     pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {

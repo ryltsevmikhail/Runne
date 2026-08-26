@@ -6,8 +6,8 @@ use super::super::{
     CompleteCredentialVerification, CredentialLifecycleSnapshot, CredentialOperationId,
     CredentialOperationSnapshot, CredentialRecoveryWork, CredentialVerificationLease,
     CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
-    TombstoneCredentialOperation,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    ProviderCredentialEnrollmentStore, TombstoneCredentialOperation,
 };
 
 struct PublicEnrollmentStore;
@@ -23,7 +23,14 @@ impl ProviderCredentialEnrollmentStore for PublicEnrollmentStore {
     fn issue_ticket_attempt(
         &self,
         _: IssueCredentialTicketDigest,
-    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
+    ) -> Result<IssuedCredentialTicketAttempt, CredentialLifecycleError> {
+        unreachable!()
+    }
+
+    fn begin_admission_snapshot(
+        &self,
+        _: &ProviderId,
+    ) -> Result<CredentialLifecycleSnapshot, CredentialLifecycleError> {
         unreachable!()
     }
 

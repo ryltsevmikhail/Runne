@@ -157,6 +157,7 @@ fn snapshot(
         CredentialOperationAction::Pair,
         state,
         version,
+        None,
         metadata,
     )
 }
@@ -165,6 +166,7 @@ fn metadata() -> CredentialOperationMetadata {
     CredentialOperationMetadata::new(
         CommandId::from_bytes([1; 16]),
         IdempotencyKey::new("metadata-shape").unwrap(),
+        CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap(),
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
         digest(1),

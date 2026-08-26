@@ -3,7 +3,7 @@ use super::super::{
     CredentialEnrollmentError, CredentialFence, CredentialLifecycleRevision, CredentialOperationId,
     CredentialVerificationKind, CredentialVerifierRevision, WriterIdentityMigrationPhase,
 };
-use crate::ProviderId;
+use crate::{CredentialVersionRef, ProviderId};
 
 #[test]
 fn credential_verification_capability_rejects_cross_pair_substitution() {
@@ -11,7 +11,7 @@ fn credential_verification_capability_rejects_cross_pair_substitution() {
     let (foreign_store, foreign_measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let capability = measurements
         .issue_credential_verification_capability(
-            store.issue_credential_verification_lease(begin(1)),
+            store.issue_credential_verification_lease(begin(1), active()),
             digest(2),
         )
         .unwrap();
@@ -28,14 +28,14 @@ fn credential_verification_capability_rejects_cross_pair_substitution() {
     assert!(
         measurements
             .issue_credential_verification_capability(
-                foreign_store.issue_credential_verification_lease(begin(3)),
+                foreign_store.issue_credential_verification_lease(begin(3), active()),
                 digest(4),
             )
             .is_err()
     );
     let foreign_capability = foreign_measurements
         .issue_credential_verification_capability(
-            foreign_store.issue_credential_verification_lease(begin(5)),
+            foreign_store.issue_credential_verification_lease(begin(5), active()),
             digest(6),
         )
         .unwrap();
@@ -44,6 +44,10 @@ fn credential_verification_capability_rejects_cross_pair_substitution() {
             .validate_credential_verification_capability(&foreign_capability)
             .is_err()
     );
+}
+
+fn active() -> CredentialVersionRef {
+    CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap()
 }
 
 #[test]

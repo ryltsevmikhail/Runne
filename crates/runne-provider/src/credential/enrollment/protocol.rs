@@ -1,11 +1,18 @@
 // The decoder is intentionally crate-private until a provider-owned ingress consumes it.
 #[allow(dead_code)]
 mod codec;
+mod command;
+mod command_codec;
+#[cfg(test)]
+#[path = "protocol/command_tests.rs"]
+mod command_tests;
 
 #[cfg(test)]
 mod tests;
 
 pub use codec::CredentialBrokerFrameCodec;
+pub use command::{CredentialBrokerCommand, CredentialBrokerTarget};
+pub use command_codec::CredentialBrokerCommandCodec;
 
 use super::{
     CredentialBindingDigest, CredentialDisposition, CredentialOperationId, CredentialTicketAttempt,

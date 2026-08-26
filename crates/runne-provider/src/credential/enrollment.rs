@@ -10,6 +10,10 @@ mod state;
 mod store;
 mod verification;
 
+pub use authority::writer::{
+    ClaimedWriterAuthorization, CredentialWriterAuthorityPair, CredentialWriterClaimIssuer,
+    CredentialWriterEffectAuthority, PendingCredentialWriterClaim,
+};
 #[allow(unused_imports)]
 pub use authority::{
     CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority,
@@ -19,14 +23,15 @@ pub use binding::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
     CredentialClaimBinding, CredentialMeasurementSnapshot, CredentialProcessBinding,
     CredentialReleaseMigrationBinding, DaemonAuthorityId, DesktopExecutableIdentity,
-    ExpectedInstallMeasurement, ObservedInstallMeasurement, ProtectedSessionId,
-    ReaderExecutableIdentity, ReleaseManifestDigest, WriterExecutableIdentity,
+    DesktopSupervisorGeneration, ExpectedInstallMeasurement, ObservedInstallMeasurement,
+    ProtectedSessionId, ReaderExecutableIdentity, ReleaseManifestDigest, WriterExecutableIdentity,
     WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
     WriterProcessStartIdentity,
 };
 pub use identity::{
-    CredentialBindingDigest, CredentialFence, CredentialLifecycleRevision, CredentialOperationId,
-    CredentialTicketAttempt, RawCredentialTicket,
+    CredentialBindingDigest, CredentialFence, CredentialInstallationOwnerId,
+    CredentialLifecycleRevision, CredentialOperationId, CredentialTicketAttempt,
+    RawCredentialTicket,
 };
 pub use metadata::{
     CredentialNativeEffectDisposition, CredentialReadbackDisposition,
@@ -37,10 +42,14 @@ pub use metadata::{
 pub use operation::{
     BeginCredentialOperation, BindCredentialReadback, ClaimCredentialOperation,
     ClosePreparedCredentialOperation, CompleteCredentialOperation, FailCredentialOperation,
-    IssueCredentialTicketDigest, ObserveNativeEffect, TombstoneCredentialOperation,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    TombstoneCredentialOperation,
 };
 pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMetadata};
-pub use protocol::{CredentialBrokerFrame, CredentialBrokerFrameCodec};
+pub use protocol::{
+    CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
+    CredentialBrokerFrameCodec, CredentialBrokerTarget,
+};
 pub use snapshot::{
     CredentialLifecycleSnapshot, CredentialOperationSnapshot, CredentialRecoveryWork,
     HardFenceProvider,

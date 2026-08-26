@@ -4,9 +4,9 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 
 use super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialLifecycleRevision, CredentialNativeEffectDisposition, CredentialOperationId,
-    CredentialReadbackDisposition, CredentialTerminalDisposition, WriterIdentityMigrationPhase,
-    authority::EnrollmentAuthoritySeal,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
+    CredentialOperationId, CredentialReadbackDisposition, CredentialTerminalDisposition,
+    WriterIdentityMigrationPhase, authority::EnrollmentAuthoritySeal,
 };
 
 /// Immutable migration fields persisted for a linked writer-identity operation.
@@ -80,6 +80,7 @@ impl CredentialMigrationMetadata {
 pub struct CredentialOperationMetadata {
     command_id: CommandId,
     idempotency_key: IdempotencyKey,
+    installation_owner_id: CredentialInstallationOwnerId,
     expected_lifecycle_revision: CredentialLifecycleRevision,
     expected_prior_fence: CredentialFence,
     begin_proof_digest: CredentialBindingDigest,
@@ -101,6 +102,7 @@ impl CredentialOperationMetadata {
     pub fn new(
         command_id: CommandId,
         idempotency_key: IdempotencyKey,
+        installation_owner_id: CredentialInstallationOwnerId,
         expected_lifecycle_revision: CredentialLifecycleRevision,
         expected_prior_fence: CredentialFence,
         begin_proof_digest: CredentialBindingDigest,
@@ -113,6 +115,7 @@ impl CredentialOperationMetadata {
         Ok(Self {
             command_id,
             idempotency_key,
+            installation_owner_id,
             expected_lifecycle_revision,
             expected_prior_fence,
             begin_proof_digest,
@@ -175,6 +178,10 @@ impl CredentialOperationMetadata {
     /// Returns the canonical idempotency identity.
     pub const fn idempotency_key(&self) -> &IdempotencyKey {
         &self.idempotency_key
+    }
+    /// Returns the exact immutable installation owner binding.
+    pub const fn installation_owner_id(&self) -> CredentialInstallationOwnerId {
+        self.installation_owner_id
     }
     /// Returns the expected lifecycle revision.
     pub const fn expected_lifecycle_revision(&self) -> CredentialLifecycleRevision {
