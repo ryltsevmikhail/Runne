@@ -14,13 +14,20 @@ import {
 import type { BootstrapState, ThemeAcknowledgement } from '@/shared/api/platform/bootstrap'
 import { loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
 import { loadLocale as loadOwnedLocaleSetting, saveLocale as saveOwnedLocaleSetting, type Locale } from '@/shared/api/platform/locale'
-import { currentLocale, translate } from '@/shared/i18n'
+import { translate } from '@/shared/i18n'
+import {
+  applyOwnerLocale,
+  captureLocaleRead,
+  commitLocale,
+  currentLocale,
+  localeWritePending,
+} from '@/shared/model/locale'
 
 type AppearanceState = Pick<BootstrapState, 'theme'>
 type LoadAppearance = () => Promise<AppearanceState>
 type SaveAppearance = (theme: AppTheme) => Promise<ThemeAcknowledgement>
 type LoadLocale = () => Promise<{ locale: Locale }>
-type SaveLocale = (locale: Locale) => Promise<void>
+type SaveLocale = (locale: Locale) => Promise<{ locale: Locale }>
 
 const props = withDefaults(defineProps<{
   loadAppearance?: LoadAppearance
@@ -37,8 +44,8 @@ const props = withDefaults(defineProps<{
   loadLocale: async (): Promise<{ locale: Locale }> => isTauri()
     ? loadOwnedLocaleSetting()
     : { locale: 'en' },
-  saveLocale: async (locale: Locale): Promise<void> => {
-    if (isTauri()) await saveOwnedLocaleSetting(locale)
+  saveLocale: async (locale: Locale): Promise<{ locale: Locale }> => {
+    return isTauri() ? saveOwnedLocaleSetting(locale) : { locale }
   },
 })
 
@@ -52,12 +59,13 @@ const localeSaveFailed = ref(false)
 onMounted(async () => {
   try {
     const themeRead = captureThemeRead()
+    const localeRead = captureLocaleRead()
     const value = await props.loadAppearance()
     applyOwnerTheme(value.theme, themeRead)
     selected.value = appTheme.value
     const locale = await props.loadLocale()
-    selectedLocale.value = locale.locale
-    currentLocale.value = locale.locale
+    applyOwnerLocale(locale.locale, localeRead)
+    selectedLocale.value = currentLocale.value
   }
   catch {
     unavailable.value = true
@@ -68,6 +76,7 @@ onMounted(async () => {
 })
 
 watch(appTheme, theme => { selected.value = theme })
+watch(currentLocale, locale => { selectedLocale.value = locale })
 
 async function selectTheme(theme: AppTheme) {
   if (theme === selected.value) return
@@ -85,16 +94,14 @@ async function selectTheme(theme: AppTheme) {
 }
 
 async function selectLocale(locale: Locale) {
-  const previous = selectedLocale.value
-  selectedLocale.value = locale
-  currentLocale.value = locale
+  if (locale === selectedLocale.value) return
   localeSaveFailed.value = false
   try {
-    await props.saveLocale(locale)
+    const acknowledgement = await commitLocale(locale, props.saveLocale)
+    if (acknowledgement !== null) selectedLocale.value = acknowledgement.locale
   }
   catch {
-    selectedLocale.value = previous
-    if (previous !== null) currentLocale.value = previous
+    selectedLocale.value = currentLocale.value
     localeSaveFailed.value = true
   }
 }
@@ -103,6 +110,7 @@ function onLocaleChange(event: Event) {
   const value = (event.target as HTMLSelectElement).value
   if (value === 'en' || value === 'ru') void selectLocale(value)
 }
+
 </script>
 
 <template>
@@ -143,17 +151,19 @@ function onLocaleChange(event: Event) {
           {{ translate('appearance.lightTheme') }}
         </label>
       </fieldset>
-      <label class="appearance-locale">
-        <span>{{ translate('appearance.language') }}</span>
-        <select
-          name="locale"
-          :value="selectedLocale ?? 'en'"
-          @change="onLocaleChange"
-        >
-          <option value="en">{{ translate('appearance.english') }}</option>
-          <option value="ru">{{ translate('appearance.russian') }}</option>
-        </select>
-      </label>
+      <fieldset class="appearance-locale" :aria-busy="localeWritePending" :disabled="localeWritePending">
+        <label>
+          <span>{{ translate('appearance.language') }}</span>
+          <select
+            name="locale"
+            :value="selectedLocale ?? 'en'"
+            @change="onLocaleChange"
+          >
+            <option value="en">{{ translate('appearance.english') }}</option>
+            <option value="ru">{{ translate('appearance.russian') }}</option>
+          </select>
+        </label>
+      </fieldset>
       <p class="appearance-status" role="status">
         {{ selected === 'light' ? translate('appearance.lightEnabled') : translate('appearance.darkEnabled') }}
       </p>
