@@ -1,6 +1,46 @@
 mod support;
 
 #[tokio::test]
+async fn taskrun_live_session_stays_owned_until_reconnect_backoff_finishes() {
+    let fixture = support::Fixture::opened().await;
+    fixture.runtime.wait_for_close(1).await;
+    fixture.runtime.clear_close_count();
+    let task_run = runne_app_core::CanonicalId::parse("018f2e3a-7000-7000-8000-000000000150")
+        .expect("TaskRun ID");
+    let core = std::sync::Arc::clone(&fixture.core);
+    let subscription = tokio::spawn(async move {
+        core.subscribe_task_run_timeline(&task_run.to_string(), |_| {})
+            .await
+    });
+
+    fixture.runtime.wait_for_live(1).await;
+    fixture.runtime.disconnect_live();
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            if fixture.core.bootstrap().expect("bootstrap").runtime
+                == runne_app_core::RuntimeAvailability::Reconnecting
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("reconnect backoff must begin");
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            fixture.runtime.wait_for_close(1),
+        )
+        .await
+        .is_err(),
+        "the live replay session must survive the 250ms reconnect backoff",
+    );
+    fixture.runtime.wait_for_close(1).await;
+    subscription.abort();
+}
+
+#[tokio::test]
 async fn authenticated_v2_baseline_promotes_before_live_activation() {
     let fixture = support::Fixture::opened().await;
     let opens_before = fixture.runtime.open_count();
