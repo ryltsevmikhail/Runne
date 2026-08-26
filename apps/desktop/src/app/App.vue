@@ -1,39 +1,30 @@
 <script setup lang="ts">
-import {
-  Activity,
-  ChevronLeft,
-  CircleHelp,
-  Moon,
-  PanelLeft,
-  Sun,
-} from 'lucide-vue-next'
+import { Activity, ChevronLeft, CircleHelp, Moon, PanelLeft, Sun } from 'lucide-vue-next'
 import { GcSidebar } from '@runne/product/shared/ui'
 import '@runne/product/shared/ui/styles/tokens.css'
 import '@runne/product/shared/ui/styles/base.css'
 import { isTauri } from '@tauri-apps/api/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  connectRuntime,
-  loadBootstrap,
-  saveTheme,
-} from '@/shared/api/platform/bootstrap'
+import { connectRuntime, loadBootstrap, saveTheme } from '@/shared/api/platform/bootstrap'
 import {
   createRuntimeSessionContext,
   createRuntimeSessionController,
   provideRuntimeSession,
 } from '@/app/providers/runtime-session'
 import type { RuntimeConnectionState } from '@/shared/api/platform/bootstrap'
-import type {
-  RuntimeFailureCode,
-  RuntimeLifecycleStatus,
-  RuntimeMode,
-} from '@/shared/api/platform/bootstrap'
+import type { RuntimeFailureCode, RuntimeLifecycleStatus, RuntimeMode } from '@/shared/api/platform/bootstrap'
 import brandIcon from '@/shared/assets/gocode-app-icon.png'
 import brandLockup from '@/shared/assets/gocode-lockup.png'
 import { DesktopTitleBar } from '@/widgets/desktop-title-bar'
 import { RuntimeStatus } from '@/widgets/runtime-status'
-import { appTheme } from '@/shared/model/theme'
+import {
+  appTheme,
+  applyOwnerTheme,
+  captureThemeRead,
+  commitTheme,
+  themeWritePending,
+} from '@/shared/model/theme'
 import {
   listenExternalActivation,
   loadPendingExternalActivation,
@@ -65,8 +56,11 @@ let runtimePoll: ReturnType<typeof setInterval> | undefined
 let notificationPoll: ReturnType<typeof setInterval> | undefined
 let stopExternalActivation: (() => void) | undefined
 
-function applyBootstrap(bootstrap: Awaited<ReturnType<typeof loadBootstrap>>) {
-  theme.value = bootstrap.theme
+function applyBootstrap(
+  bootstrap: Awaited<ReturnType<typeof loadBootstrap>>,
+  themeRead = captureThemeRead(),
+) {
+  applyOwnerTheme(bootstrap.theme, themeRead)
   runtimeMode.value = bootstrap.runtimeMode
   runtimeState.value = bootstrap.runtime
   runtimeLifecycle.value = bootstrap.runtimeLifecycle
@@ -76,7 +70,8 @@ function applyBootstrap(bootstrap: Awaited<ReturnType<typeof loadBootstrap>>) {
 
 async function refreshRuntimeStatus() {
   try {
-    applyBootstrap(await loadBootstrap())
+    const themeRead = captureThemeRead()
+    applyBootstrap(await loadBootstrap(), themeRead)
   }
   catch {
     runtimeLifecycle.value = 'failed'
@@ -159,16 +154,14 @@ onBeforeUnmount(() => {
 })
 
 async function toggleTheme() {
-  const previous = theme.value
-  theme.value = previous === 'dark' ? 'light' : 'dark'
-  if (!isTauri()) {
-    return
-  }
   try {
-    await saveTheme(theme.value)
+    await commitTheme(
+      theme.value === 'dark' ? 'light' : 'dark',
+      async next => isTauri() ? saveTheme(next) : { theme: next },
+    )
   }
   catch {
-    theme.value = previous
+    // The shared gate preserves the prior committed owner projection.
   }
 }
 
@@ -270,6 +263,8 @@ async function navigateSidebar(id: string) {
             type="button"
             :aria-label="theme === 'dark' ? translate('navigation.useLightTheme') : translate('navigation.useDarkTheme')"
             :title="theme === 'dark' ? translate('navigation.useLightTheme') : translate('navigation.useDarkTheme')"
+            :aria-busy="themeWritePending"
+            :disabled="themeWritePending"
             @click="toggleTheme"
           >
             <Sun

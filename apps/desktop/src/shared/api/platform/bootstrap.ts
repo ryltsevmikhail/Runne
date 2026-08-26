@@ -1,4 +1,8 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import { isThemeAcknowledgement } from '@/shared/model/theme'
+import type { ThemeAcknowledgement } from '@/shared/model/theme'
+
+export type { ThemeAcknowledgement } from '@/shared/model/theme'
 
 export interface BootstrapState {
   readonly theme: 'dark' | 'light'
@@ -115,8 +119,12 @@ export async function loadBootstrap(invoke: Invoke = tauriInvoke): Promise<Boots
 export async function saveTheme(
   theme: BootstrapState['theme'],
   invoke: Invoke = tauriInvoke,
-): Promise<void> {
-  await invoke('set_theme', { theme })
+): Promise<ThemeAcknowledgement> {
+  const value = await invoke('set_theme', { theme })
+  if (!isThemeAcknowledgement(value) || value.theme !== theme) {
+    throw new Error('Invalid theme acknowledgement')
+  }
+  return { theme: value.theme }
 }
 
 export async function connectRuntime(

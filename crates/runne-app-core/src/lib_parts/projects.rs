@@ -80,24 +80,6 @@ impl AppCore {
             .map_err(|_| AppCoreError::RuntimeUnavailable)
     }
 
-    /// Persists a validated appearance theme.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when validation, state locking or persistence fails.
-    pub fn set_theme(&self, theme: &str) -> Result<(), AppCoreError> {
-        if !matches!(theme, "dark" | "light") {
-            return Err(AppCoreError::InvalidTheme);
-        }
-        let mut store = self
-            .store
-            .lock()
-            .map_err(|_| AppCoreError::StateUnavailable)?;
-        store.set_setting("appearance.theme", theme)?;
-        drop(store);
-        Ok(())
-    }
-
     /// Records a native-only unresolved local root.
     ///
     /// # Errors

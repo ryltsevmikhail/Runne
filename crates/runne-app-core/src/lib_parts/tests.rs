@@ -27,12 +27,13 @@
     }
 
     #[test]
-    fn theme_change_is_persisted_by_app_core() {
+    fn theme_change_returns_the_exact_owner_readback() {
         let directory = tempfile::tempdir().expect("temp directory");
         let path = directory.path().join("profile.sqlite3");
         let core = AppCore::open(&path).expect("open core");
 
-        core.set_theme("light").expect("save theme");
+        let acknowledgement = core.set_theme("light").expect("save theme");
+        assert_eq!(acknowledgement.theme, "light");
         drop(core);
 
         let reopened = AppCore::open(&path).expect("reopen core");

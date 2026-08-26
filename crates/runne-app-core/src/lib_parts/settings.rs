@@ -1,6 +1,37 @@
 const DEFAULT_LOCALE: &str = "en";
 
+/// One-field, owner-read appearance acknowledgement safe for the renderer.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeAcknowledgement {
+    pub theme: String,
+}
+
 impl AppCore {
+    /// Persists a validated theme and returns its exact owner readback.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed validation, storage, or readback failure.
+    pub fn set_theme(&self, theme: &str) -> Result<ThemeAcknowledgement, AppCoreError> {
+        if !matches!(theme, "dark" | "light") {
+            return Err(AppCoreError::InvalidTheme);
+        }
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        store.set_setting("appearance.theme", theme)?;
+        let readback = store.get_setting("appearance.theme")?;
+        drop(store);
+        match readback.as_deref() {
+            Some(value) if value == theme => Ok(ThemeAcknowledgement {
+                theme: value.to_owned(),
+            }),
+            _ => Err(AppCoreError::InvalidTheme),
+        }
+    }
+
     /// Reads the Rust-owned interface locale without exposing local storage.
     ///
     /// # Errors

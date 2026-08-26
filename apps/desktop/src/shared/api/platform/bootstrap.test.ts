@@ -106,14 +106,29 @@ describe('bootstrap IPC adapter', () => {
     }))).rejects.toThrow('Invalid bootstrap response')
   })
 
-  it('sends a typed theme update without other settings', async () => {
+  it('accepts only the exact owner acknowledgement for a theme update', async () => {
     const calls: Array<[string, Record<string, unknown> | undefined]> = []
 
-    await saveTheme('light', async (command, args) => {
+    await expect(saveTheme('light', async (command, args) => {
       calls.push([command, args])
-    })
+      return { theme: 'light' }
+    })).resolves.toEqual({ theme: 'light' })
 
     expect(calls).toEqual([['set_theme', { theme: 'light' }]])
+
+    await expect(saveTheme('light', async () => ({ theme: 'dark' }))).rejects.toThrow(
+      'Invalid theme acknowledgement',
+    )
+    await expect(saveTheme('light', async () => ({ theme: 'light', revision: 1 }))).rejects.toThrow(
+      'Invalid theme acknowledgement',
+    )
+    await expect(saveTheme('light', async () => ({}))).rejects.toThrow(
+      'Invalid theme acknowledgement',
+    )
+    const inheritedTheme = Object.assign(Object.create({ theme: 'light' }), { unrelated: true })
+    await expect(saveTheme('light', async () => inheritedTheme)).rejects.toThrow(
+      'Invalid theme acknowledgement',
+    )
   })
 
   it('accepts and persists only the closed locale vocabulary', async () => {
