@@ -185,7 +185,7 @@ pub(super) async fn start_http_and_runtime(
             &provider_activation,
             provider_readiness,
         ))
-        .with_provider_credential_control(provider_credential_control, actor.clone()),
+        .with_provider_credential_control(Arc::new(provider_credential_control), actor.clone()),
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
