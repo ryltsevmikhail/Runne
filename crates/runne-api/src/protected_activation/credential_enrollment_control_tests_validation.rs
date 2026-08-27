@@ -12,6 +12,8 @@ fn enrollment_bindings_reject_zero_and_noncanonical_security_values() {
             [5; 32],
             [6; 32],
             [7; 32],
+            [8; 32],
+            [9; 32],
             100,
             200,
         )
@@ -29,6 +31,8 @@ fn enrollment_bindings_reject_zero_and_noncanonical_security_values() {
             [5; 32],
             [6; 32],
             [7; 32],
+            [8; 32],
+            [9; 32],
             100,
             200,
         )

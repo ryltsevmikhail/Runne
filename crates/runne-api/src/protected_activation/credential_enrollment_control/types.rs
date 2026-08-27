@@ -11,6 +11,8 @@ pub struct ProtectedCredentialEnrollmentRequestBinding {
     tauri_peer_process_evidence_digest: [u8; 32],
     native_confirmation_digest: [u8; 32],
     broker_process_evidence_digest: [u8; 32],
+    action_provider_revision_binding: [u8; 32],
+    command_identity_binding: [u8; 32],
     issued_at_unix_millis: u64,
     expires_at_unix_millis: u64,
 }
@@ -28,11 +30,20 @@ impl ProtectedCredentialEnrollmentRequestBinding {
         peer: [u8; 32],
         confirmation: [u8; 32],
         broker: [u8; 32],
+        action_provider_revision: [u8; 32],
+        command_identity: [u8; 32],
         issued: u64,
         expires: u64,
     ) -> Result<Self, LaunchAuthorityError> {
         if !valid_ids(&[authority, session, daemon, request])
-            || !valid_digests(&[release, peer, confirmation, broker])
+            || !valid_digests(&[
+                release,
+                peer,
+                confirmation,
+                broker,
+                action_provider_revision,
+                command_identity,
+            ])
             || launch == 0
             || supervisor == 0
             || issued == 0
@@ -52,6 +63,8 @@ impl ProtectedCredentialEnrollmentRequestBinding {
             tauri_peer_process_evidence_digest: peer,
             native_confirmation_digest: confirmation,
             broker_process_evidence_digest: broker,
+            action_provider_revision_binding: action_provider_revision,
+            command_identity_binding: command_identity,
             issued_at_unix_millis: issued,
             expires_at_unix_millis: expires,
         })
@@ -170,112 +183,4 @@ impl std::fmt::Debug for ProtectedCredentialEnrollmentControlFrame {
     }
 }
 
-/// Verified request claims obtained only after protected-frame verification.
-///
-/// ```compile_fail
-/// fn require_serialize<T: serde::Serialize>() {}
-/// require_serialize::<runne_api::VerifiedProtectedCredentialEnrollmentRequest>();
-/// ```
-pub struct VerifiedProtectedCredentialEnrollmentRequest {
-    request_digest: [u8; 32],
-    binding: ProtectedCredentialEnrollmentRequestBinding,
-    sequence: u64,
-    proof: [u8; 32],
-}
-
-impl std::fmt::Debug for VerifiedProtectedCredentialEnrollmentRequest {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("VerifiedProtectedCredentialEnrollmentRequest(<authenticated>)")
-    }
-}
-
-impl VerifiedProtectedCredentialEnrollmentRequest {
-    #[must_use]
-    pub const fn request_digest(&self) -> [u8; 32] {
-        self.request_digest
-    }
-    #[must_use]
-    pub const fn request_id(&self) -> [u8; 16] {
-        self.binding.request_id
-    }
-    #[must_use]
-    pub const fn sequence(&self) -> u64 {
-        self.sequence
-    }
-}
-
-/// Verified admission candidate, not an authority or bearer capability. A daemon owner must retain and atomically consume its admission ID and exact claims before Task 5 authority issuance.
-///
-/// ```compile_fail
-/// fn require_serialize<T: serde::Serialize>() {}
-/// require_serialize::<runne_api::VerifiedProtectedCredentialEnrollmentAdmission>();
-/// ```
-pub struct VerifiedProtectedCredentialEnrollmentAdmission {
-    request_digest: [u8; 32],
-    request_id: [u8; 16],
-    binding: ProtectedCredentialEnrollmentAdmissionBinding,
-    sequence: u64,
-}
-impl VerifiedProtectedCredentialEnrollmentAdmission {
-    #[must_use]
-    pub const fn request_digest(&self) -> [u8; 32] {
-        self.request_digest
-    }
-    #[must_use]
-    pub const fn request_id(&self) -> [u8; 16] {
-        self.request_id
-    }
-    #[must_use]
-    pub const fn admission_id(&self) -> [u8; 16] {
-        self.binding.admission_id
-    }
-    #[must_use]
-    pub const fn installation_identity(&self) -> [u8; 32] {
-        self.binding.installation_identity
-    }
-    #[must_use]
-    pub const fn release_tuple_digest(&self) -> [u8; 32] {
-        self.binding.release_tuple_digest
-    }
-    #[must_use]
-    pub const fn protected_session_binding(&self) -> [u8; 32] {
-        self.binding.protected_session_binding
-    }
-    #[must_use]
-    pub const fn desktop_supervisor_generation(&self) -> u64 {
-        self.binding.desktop_supervisor_generation
-    }
-    #[must_use]
-    pub const fn daemon_authority_binding(&self) -> [u8; 32] {
-        self.binding.daemon_authority_binding
-    }
-    #[must_use]
-    pub const fn database_generation(&self) -> u64 {
-        self.binding.database_generation
-    }
-    #[must_use]
-    pub const fn authenticated_tauri_peer_binding(&self) -> [u8; 32] {
-        self.binding.authenticated_tauri_peer_binding
-    }
-    #[must_use]
-    pub const fn native_confirmation_digest(&self) -> [u8; 32] {
-        self.binding.native_confirmation_digest
-    }
-    #[must_use]
-    pub const fn broker_process_evidence_digest(&self) -> [u8; 32] {
-        self.binding.broker_process_evidence_digest
-    }
-    #[must_use]
-    pub const fn expires_at_unix_millis(&self) -> u64 {
-        self.binding.expires_at_unix_millis
-    }
-    #[must_use]
-    pub const fn sequence(&self) -> u64 {
-        self.sequence
-    }
-}
-impl std::fmt::Debug for VerifiedProtectedCredentialEnrollmentAdmission {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("VerifiedProtectedCredentialEnrollmentAdmission(<candidate>)")
-    }
-}
+include!("types/verified.rs");
