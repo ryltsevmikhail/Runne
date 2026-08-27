@@ -6,8 +6,13 @@ use std::path::PathBuf;
 struct FakeProcess {
     kills: u8,
     reaps: u8,
+    start: [u8; 32],
 }
 impl RetainedWriterProcess for FakeProcess {
+    fn writer_start_identity(&self) -> Result<[u8; 32], BrokerHandoffError> {
+        Ok(self.start)
+    }
+
     fn terminate_retained_child(&mut self) -> Result<(), BrokerHandoffError> {
         self.kills += 1;
         Ok(())
@@ -22,9 +27,16 @@ fn evidence() -> WriterProcessEvidence {
     WriterProcessEvidence::test_only([1; 32], [2; 32], [3; 32])
 }
 
+fn process() -> FakeProcess {
+    FakeProcess {
+        start: [1; 32],
+        ..FakeProcess::default()
+    }
+}
+
 #[test]
 fn broker_rejects_duplicate_transfer_and_tauri_kill_after_daemon_ack() {
-    let mut broker = PlatformCredentialBroker::new(FakeProcess::default(), evidence()).unwrap();
+    let mut broker = PlatformCredentialBroker::new(process(), evidence()).unwrap();
     broker.transfer_to_daemon().unwrap();
     assert_eq!(
         broker.transfer_to_daemon(),
@@ -43,12 +55,51 @@ fn broker_rejects_duplicate_transfer_and_tauri_kill_after_daemon_ack() {
 fn broker_rejects_pid_reuse_and_mixed_child_evidence() {
     assert_eq!(
         PlatformCredentialBroker::new(
-            FakeProcess::default(),
+            process(),
             WriterProcessEvidence::test_only([0; 32], [2; 32], [3; 32])
         )
         .map(|_| ()),
         Err(BrokerHandoffError::Rejected),
     );
+
+    assert_eq!(
+        PlatformCredentialBroker::new(
+            FakeProcess {
+                start: [9; 32],
+                ..FakeProcess::default()
+            },
+            evidence(),
+        )
+        .map(|_| ()),
+        Err(BrokerHandoffError::Rejected),
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn verified_unix_launch_binds_evidence_to_the_retained_child() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let directory = tempfile::tempdir().unwrap();
+    let executable = directory.path().join("writer-fixture");
+    std::fs::write(
+        &executable,
+        "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = \"__provider-credential-broker-v1\" ] || exit 11\nIFS= read -r _\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let artifact = runne_platform_ports::provider_credential_broker::VerifiedWriterArtifact::new(
+        executable, [1; 32], [2; 32],
+    )
+    .unwrap();
+    let spec = runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec::new(
+        artifact,
+    );
+
+    let (_endpoints, process, evidence) = spawn_unix_writer(&spec).unwrap();
+    let mut broker = PlatformCredentialBroker::new(process, evidence).unwrap();
+    broker.terminate_exact_retained_child().unwrap();
+    broker.reap_exact_retained_child().unwrap();
 }
 
 #[test]

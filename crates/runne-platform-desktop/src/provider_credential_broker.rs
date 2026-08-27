@@ -12,7 +12,10 @@ use runne_platform_ports::provider_credential_broker::{
 
 pub use launch::writer_command;
 #[cfg(unix)]
-pub use unix::{UnixWriterBrokerEndpoints, configure_unix_writer_channels};
+pub use unix::{
+    UnixRetainedWriterProcess, UnixWriterBrokerEndpoints, configure_unix_writer_channels,
+    spawn_unix_writer,
+};
 
 /// Non-serializable process evidence accepted only after platform validation.
 pub struct WriterProcessEvidence {
@@ -22,6 +25,23 @@ pub struct WriterProcessEvidence {
 }
 
 impl WriterProcessEvidence {
+    #[cfg(unix)]
+    pub(crate) fn from_native_writer(
+        start: [u8; 32],
+        image: [u8; 32],
+        channel: [u8; 32],
+    ) -> Result<Self, BrokerHandoffError> {
+        let evidence = Self {
+            start,
+            image,
+            channel,
+        };
+        evidence
+            .is_complete()
+            .then_some(evidence)
+            .ok_or(BrokerHandoffError::Rejected)
+    }
+
     #[cfg(test)]
     const fn test_only(
         start_identity: [u8; 32],
@@ -48,6 +68,13 @@ impl fmt::Debug for WriterProcessEvidence {
 /// Exact desktop-held process operations. Implementations may only target the
 /// retained child handle, never a PID lookup.
 pub trait RetainedWriterProcess {
+    /// Re-measures the exact retained child before its evidence is accepted.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when the child no longer has its captured start identity.
+    fn writer_start_identity(&self) -> Result<[u8; 32], BrokerHandoffError>;
+
     /// # Errors
     ///
     /// Returns a closed failure when the retained child cannot be terminated.
@@ -73,7 +100,7 @@ impl<P: RetainedWriterProcess> PlatformCredentialBroker<P> {
     ///
     /// Returns a closed failure when evidence is incomplete.
     pub fn new(process: P, evidence: WriterProcessEvidence) -> Result<Self, BrokerHandoffError> {
-        if !evidence.is_complete() {
+        if !evidence.is_complete() || process.writer_start_identity()? != evidence.start {
             return Err(BrokerHandoffError::Rejected);
         }
         Ok(Self {
@@ -121,6 +148,9 @@ impl<P: RetainedWriterProcess> ProviderCredentialBrokerPort for PlatformCredenti
     ///
     /// Returns a closed failure if the retained child cannot be reaped or is already reaped.
     fn reap_exact_retained_child(&mut self) -> Result<(), BrokerHandoffError> {
+        if self.ownership.state() == WriterOwnershipState::Reaped {
+            return Err(BrokerHandoffError::Rejected);
+        }
         self.process.reap_retained_child()?;
         self.ownership.reap()
     }
