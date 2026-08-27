@@ -5,7 +5,8 @@ use runne_provider::{
     AttachCredentialProcess, ClaimCredentialOperation, CredentialBindingDigest,
     CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialEnrollmentError,
     CredentialEnrollmentMeasurementAuthority, CredentialMeasurementSnapshot,
-    CredentialOperationSnapshot, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
+    CredentialNativeEffectDisposition, CredentialOperationId, CredentialOperationSnapshot,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
     ProviderCredentialEnrollmentStore, RawCredentialTicket,
 };
 use zeroize::Zeroizing;
@@ -32,6 +33,13 @@ pub(super) trait CredentialBrokerChannel {
 
     /// Receives the one writer response admitted by the surrounding exchange.
     fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError>;
+}
+
+/// Move-only authority for the one post-claim possible-effect diagnostic.
+#[must_use = "the writer effect diagnostic must be consumed or reconciled after a claim"]
+pub(super) struct ClaimedBrokerEffect {
+    operation_id: CredentialOperationId,
+    binding: CredentialBindingDigest,
 }
 
 /// Daemon coordinator for digest-first credential-ticket issuance.
@@ -202,7 +210,8 @@ impl ProviderCredentialBroker {
         evidence: CredentialMeasurementSnapshot,
         store: &S,
         channel: &mut C,
-    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+    ) -> Result<ClaimedBrokerEffect, ProviderCredentialEnrollmentHostError> {
+        let operation_id = receipt.operation().operation_id();
         let claim = channel.receive()?;
         let accepted = self.claim_ticket(
             receipt,
@@ -213,7 +222,45 @@ impl ProviderCredentialBroker {
             claim,
             store,
         )?;
-        channel.send(Zeroizing::new(accepted))
+        let operation = store.load_operation(operation_id).map_err(map_store)?;
+        let binding = operation
+            .process_release_binding_digest()
+            .ok_or(ProviderCredentialEnrollmentHostError::InvariantViolation)?;
+        channel.send(Zeroizing::new(accepted))?;
+        Ok(ClaimedBrokerEffect {
+            operation_id,
+            binding,
+        })
+    }
+
+    /// Accepts only the exact bound possible-effect diagnostic after a claim.
+    pub(super) fn observe_effect_from_channel<
+        S: ProviderCredentialEnrollmentStore,
+        C: CredentialBrokerChannel,
+    >(
+        &self,
+        claimed: ClaimedBrokerEffect,
+        store: &S,
+        channel: &mut C,
+    ) -> Result<CredentialOperationSnapshot, ProviderCredentialEnrollmentHostError> {
+        let frame = channel.receive()?;
+        let CredentialBrokerFrame::NativeEffectObserved {
+            operation_id,
+            binding,
+        } = CredentialBrokerFrameCodec::decode(&frame)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?
+        else {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        };
+        if operation_id != claimed.operation_id || binding != claimed.binding {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        store
+            .mark_native_effect_observed(ObserveNativeEffect::new(
+                operation_id,
+                CredentialNativeEffectDisposition::PossibleEffect,
+            ))
+            .map_err(map_store)
     }
 }
 
