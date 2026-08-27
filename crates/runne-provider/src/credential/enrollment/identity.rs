@@ -104,6 +104,14 @@ impl RawCredentialTicket {
         generate_ticket_with(|bytes| rand::rngs::OsRng.try_fill_bytes(bytes).map_err(|_| ()))
     }
 
+    /// Test-only entropy seam; production generation always uses the OS CSPRNG.
+    #[cfg(feature = "test-support")]
+    pub fn generate_with_test_entropy(
+        fill: impl FnOnce(&mut [u8; 32]) -> Result<(), ()>,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        generate_ticket_with(fill)
+    }
+
     /// Returns the durable domain-separated digest; raw bytes remain opaque.
     pub fn binding_digest(&self) -> CredentialBindingDigest {
         let mut hasher = Sha256::new();

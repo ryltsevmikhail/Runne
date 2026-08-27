@@ -1,3 +1,4 @@
+mod broker;
 mod coordinator;
 mod effect_authority;
 mod operation_handle;
