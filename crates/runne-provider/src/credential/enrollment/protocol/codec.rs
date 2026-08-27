@@ -1,3 +1,7 @@
+use std::io::{Read, Write};
+
+use zeroize::Zeroizing;
+
 use super::CredentialBrokerFrame;
 use crate::credential::enrollment::{
     CredentialBindingDigest, CredentialDisposition, CredentialEnrollmentError,
@@ -114,6 +118,53 @@ impl CredentialBrokerFrameCodec {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
         Ok(frame)
+    }
+
+    /// Reads exactly one canonical frame from an inherited control stream.
+    ///
+    /// The frame type determines its exact fixed length, so a short frame or a
+    /// stream prefix with an unknown kind cannot be interpreted as a different
+    /// broker message.
+    pub fn read_from(
+        reader: &mut impl Read,
+    ) -> Result<CredentialBrokerFrame, CredentialEnrollmentError> {
+        let mut prefix = [0; 2];
+        reader
+            .read_exact(&mut prefix)
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        let length = exact_frame_length(prefix)?;
+        let mut bytes = Zeroizing::new(vec![0; length]);
+        bytes[..2].copy_from_slice(&prefix);
+        reader
+            .read_exact(&mut bytes[2..])
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        Self::decode(&bytes)
+    }
+
+    /// Writes one canonical frame to an inherited control stream and flushes it.
+    pub fn write_to(
+        writer: &mut impl Write,
+        frame: CredentialBrokerFrame,
+    ) -> Result<(), CredentialEnrollmentError> {
+        let bytes = Zeroizing::new(Self::encode(frame)?);
+        writer
+            .write_all(&bytes)
+            .and_then(|()| writer.flush())
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)
+    }
+}
+
+fn exact_frame_length(prefix: [u8; 2]) -> Result<usize, CredentialEnrollmentError> {
+    if prefix[0] != CredentialBrokerFrameCodec::VERSION {
+        return Err(CredentialEnrollmentError::InvalidFrame);
+    }
+    match prefix[1] {
+        1 => Ok(2 + 16 + 8 + 32),
+        2 => Ok(2 + 16 + 8 + 32 + 32),
+        3 => Ok(2 + 16 + 8),
+        4 => Ok(2 + 16 + 8 + 1),
+        5 => Ok(2 + 16 + 32),
+        _ => Err(CredentialEnrollmentError::InvalidFrame),
     }
 }
 
