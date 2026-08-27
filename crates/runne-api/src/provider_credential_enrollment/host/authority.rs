@@ -2,6 +2,9 @@ use core::fmt;
 use std::sync::Arc;
 
 use super::ProviderCredentialEnrollmentHostError;
+use crate::{
+    VerifiedProtectedCredentialEnrollmentAdmission, VerifiedProtectedCredentialEnrollmentRequest,
+};
 
 struct AuthoritySeal;
 
@@ -119,6 +122,50 @@ impl ProviderCredentialRequestAuthorityIssuer {
             command_identity_binding,
             expires_at_high_water,
         })
+    }
+
+    /// Consumes the verified protected enrollment claims at the authority bridge.
+    ///
+    /// The by-value API prevents accidental reuse of the verified envelope in the
+    /// caller. Durable one-use admission consumption and replay CAS remain the
+    /// daemon/store owner's responsibility before this bridge is invoked.
+    pub fn issue_from_verified_enrollment(
+        &self,
+        request: VerifiedProtectedCredentialEnrollmentRequest,
+        admission: VerifiedProtectedCredentialEnrollmentAdmission,
+    ) -> Result<
+        (
+            ProviderCredentialBaseRequestAuthority,
+            ProviderCredentialIntentConsumptionProof,
+        ),
+        ProviderCredentialEnrollmentHostError,
+    > {
+        if request.request_digest() != admission.request_digest()
+            || request.request_id() != admission.request_id()
+            || request.sequence().checked_add(1) != Some(admission.sequence())
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+
+        let expires_at_high_water = i64::try_from(admission.expires_at_unix_millis())
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        let authority = self.issue_base(
+            admission.installation_identity(),
+            admission.release_tuple_digest(),
+            admission.protected_session_binding(),
+            admission.desktop_supervisor_generation(),
+            admission.daemon_authority_binding(),
+            admission.database_generation(),
+            admission.authenticated_tauri_peer_binding(),
+        )?;
+        let proof = self.issue_intent_proof(
+            request.request_digest(),
+            admission.protected_session_binding(),
+            request.action_provider_revision_binding(),
+            request.command_identity_binding(),
+            expires_at_high_water,
+        )?;
+        Ok((authority, proof))
     }
 }
 

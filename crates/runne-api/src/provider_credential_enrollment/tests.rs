@@ -7,6 +7,7 @@ use super::{
     VerifyProviderCredential,
 };
 
+mod authority_bridge;
 mod host;
 
 const FORBIDDEN_KEYS: [&str; 7] = [
