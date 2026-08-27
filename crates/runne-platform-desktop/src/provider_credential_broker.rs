@@ -1,10 +1,14 @@
 //! Desktop-owned broker handoff and exact child cleanup.
 
+mod launch;
+
 use std::fmt;
 
 use runne_platform_ports::provider_credential_broker::{
     BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
 };
+
+pub use launch::writer_command;
 
 /// Non-serializable process evidence accepted only after platform validation.
 pub struct WriterProcessEvidence {

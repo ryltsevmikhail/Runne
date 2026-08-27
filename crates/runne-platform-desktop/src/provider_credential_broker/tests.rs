@@ -1,5 +1,6 @@
 use super::*;
 use runne_platform_ports::provider_credential_broker::ProviderCredentialBrokerPort;
+use std::path::PathBuf;
 
 #[derive(Default)]
 struct FakeProcess {
@@ -48,4 +49,23 @@ fn broker_rejects_pid_reuse_and_mixed_child_evidence() {
         .map(|_| ()),
         Err(BrokerHandoffError::Rejected),
     );
+}
+
+#[test]
+fn writer_command_clears_environment_and_uses_only_the_fixed_mode() {
+    let artifact = runne_platform_ports::provider_credential_broker::VerifiedWriterArtifact::new(
+        PathBuf::from("/bundle/runne"),
+        [1; 32],
+        [2; 32],
+    )
+    .unwrap();
+    let spec = runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec::new(
+        artifact,
+    );
+
+    let command = writer_command(&spec);
+
+    assert_eq!(command.get_program(), "/bundle/runne");
+    assert_eq!(command.get_args().collect::<Vec<_>>(), ["__provider-credential-broker-v1"]);
+    assert_eq!(command.get_envs().count(), 0);
 }

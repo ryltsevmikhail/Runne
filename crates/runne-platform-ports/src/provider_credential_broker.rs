@@ -1,7 +1,11 @@
 //! Native-only writer artifact and broker handoff contracts.
 
+mod launch;
+
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+pub use launch::VerifiedWriterLaunchSpec;
 
 /// An immutable measured packaged `runne` artifact. Construction is restricted
 /// to a verified bundle adapter (Task 15 in production).
@@ -236,5 +240,17 @@ mod tests {
             VerifiedWriterArtifact::new(PathBuf::from("runne"), [1; 32], [2; 32]),
             Err(VerifiedWriterArtifactError::Rejected),
         );
+    }
+
+    #[test]
+    fn writer_launch_spec_exposes_only_the_fixed_internal_mode_argument() {
+        let artifact =
+            VerifiedWriterArtifact::new(PathBuf::from("/bundle/runne"), [1; 32], [2; 32])
+                .unwrap();
+
+        let launch = VerifiedWriterLaunchSpec::new(artifact);
+
+        assert_eq!(launch.executable(), Path::new("/bundle/runne"));
+        assert_eq!(launch.arguments(), ["__provider-credential-broker-v1"]);
     }
 }
