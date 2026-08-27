@@ -39,7 +39,8 @@ impl ProviderCredentialEnrollmentStore for Fixture {
         &self,
         _: &ProviderId,
     ) -> Result<CredentialLifecycleSnapshot, CredentialLifecycleError> {
-        unreachable!()
+        self.event("begin_admission_snapshot");
+        Ok(self.lifecycle())
     }
 
     fn claim(

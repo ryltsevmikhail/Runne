@@ -53,6 +53,9 @@ where
     ) -> Result<ProviderCredentialSafeSnapshotV2, ProviderCredentialEnrollmentHostError> {
         self.admission.require_base(authority)?;
         let provider = provider_id(provider)?;
+        self.store
+            .begin_admission_snapshot(&provider)
+            .map_err(map_store)?;
         CredentialEnrollmentRecoveryGateway::new(self.store, self.reader)
             .reconcile_online(now_high_water)?;
         projection::safe_snapshot(self.store.safe_snapshot(&provider).map_err(map_store)?)

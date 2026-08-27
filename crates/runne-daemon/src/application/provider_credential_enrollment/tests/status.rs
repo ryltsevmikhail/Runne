@@ -37,6 +37,7 @@ fn authorized_status_recovers_before_returning_the_safe_projection() {
     assert_eq!(
         fixture.events(),
         [
+            "begin_admission_snapshot",
             "reconcile",
             "mark",
             "readback",
