@@ -1,8 +1,8 @@
 //! Desktop implementations of native capability ports.
 
 mod protected_runtime;
-#[cfg(test)]
-mod provider_credential_broker;
+/// Platform-validated writer-process handoff for protected credential enrollment.
+pub mod provider_credential_broker;
 mod root_handle_broker;
 mod updater;
 mod updater_artifact;

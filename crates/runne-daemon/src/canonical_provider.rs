@@ -49,6 +49,7 @@ mod credential_reader;
 #[cfg(test)]
 pub(crate) mod credential_versions;
 mod dispatch_binding;
+mod dynamic_readiness;
 mod effect_adapter;
 mod execution;
 mod loopback_tail;

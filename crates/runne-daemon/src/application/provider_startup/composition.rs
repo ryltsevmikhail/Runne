@@ -151,7 +151,11 @@ impl DaemonApplication {
             None => Ok(None),
         };
         let (provider_service, provider_readiness) = match compose_result {
-            Ok(service) => (service, ProviderActivationReadinessV1::Ready),
+            Ok(Some(service)) => {
+                let readiness = service.current_provider_readiness();
+                (Some(service), readiness)
+            }
+            Ok(None) => (None, ProviderActivationReadinessV1::Ready),
             Err(_error) if protected_activation => {
                 let readiness = match readiness_credential_id {
                     Some(credential_id) => {
