@@ -21,7 +21,7 @@ use super::CredentialBrokerChannel;
 pub(super) struct UnixCredentialBrokerChannel {
     control: std::os::unix::net::UnixStream,
     _evidence: WriterProcessEvidence,
-    received: bool,
+    received_frames: u8,
 }
 
 #[cfg_attr(
@@ -37,7 +37,7 @@ impl UnixCredentialBrokerChannel {
         Self {
             control,
             _evidence: evidence,
-            received: false,
+            received_frames: 0,
         }
     }
 
@@ -50,14 +50,17 @@ impl UnixCredentialBrokerChannel {
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)
     }
 
-    /// Receives the one permitted writer response then permanently closes input.
+    /// Receives a bounded writer response in the claim/effect sequence.
+    ///
+    /// The protocol admits a claim followed by one possible-effect diagnostic;
+    /// a third writer frame is always rejected before it is read.
     pub(super) fn receive_once(
         &mut self,
     ) -> Result<CredentialBrokerFrame, ProviderCredentialEnrollmentHostError> {
-        if self.received {
+        if self.received_frames >= 2 {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
-        self.received = true;
+        self.received_frames += 1;
         CredentialBrokerFrameCodec::read_from(&mut self.control)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
