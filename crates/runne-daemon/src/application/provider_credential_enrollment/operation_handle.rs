@@ -21,6 +21,10 @@ impl ProviderCredentialOperationHandleIssuer {
         }
     }
 
+    pub(super) fn duplicate(&self) -> Self {
+        Self::new(*self.key)
+    }
+
     pub(super) fn issue(
         &self,
         operation_id: CredentialOperationId,

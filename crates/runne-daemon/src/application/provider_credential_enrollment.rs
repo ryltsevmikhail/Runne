@@ -2,6 +2,7 @@ mod broker;
 mod begin;
 mod coordinator;
 mod effect_authority;
+mod host;
 mod operation_handle;
 mod operation_projection;
 mod projection;

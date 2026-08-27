@@ -185,6 +185,7 @@ impl CredentialEnrollmentStoreAuthority {
 }
 
 /// Independent issuer for observed installation and source measurements.
+#[derive(Clone)]
 pub struct CredentialEnrollmentMeasurementAuthority {
     seal: Arc<EnrollmentAuthoritySeal>,
 }
