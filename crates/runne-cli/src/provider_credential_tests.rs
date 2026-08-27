@@ -193,3 +193,25 @@ impl CredentialBackend for FakeBackend {
         })
     }
 }
+#[tokio::test]
+async fn internal_broker_mode_rejects_direct_invocation_and_argv_material() {
+    assert!(matches!(
+        run(
+            vec![OsString::from("__provider-credential-broker-v1")],
+            OutputFormat::Text
+        )
+        .await,
+        Err(CliError::UnsupportedCredentialBackend)
+    ));
+    assert!(matches!(
+        run(
+            vec![
+                OsString::from("__provider-credential-broker-v1"),
+                OsString::from("credential=secret"),
+            ],
+            OutputFormat::Text,
+        )
+        .await,
+        Err(CliError::Usage)
+    ));
+}

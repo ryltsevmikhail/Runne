@@ -29,6 +29,13 @@ pub(crate) enum ProviderDependencyState {
     Production,
     // fixture-only capability begin
     #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the fixture capsule is selected only by protected launch integration tests"
+        )
+    )]
     LoopbackFixture {
         effect: Arc<dyn CanonicalProviderEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
@@ -45,6 +52,13 @@ impl ProtectedProviderDependencyCapsule {
 
     // fixture-only capability begin
     #[cfg(any(test, feature = "test-support"))]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the fixture capsule is selected only by protected launch integration tests"
+        )
+    )]
     pub(crate) fn from_loopback_fixture(
         effect: Arc<dyn CanonicalProviderEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,

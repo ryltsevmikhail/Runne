@@ -1,14 +1,18 @@
 use super::composition::PROVIDER_POLICY_V1_LEASE_SECONDS;
 use crate::application::workspace_internal::LoopbackCredentialVersionStoreFactory;
 use crate::error::DaemonError;
+#[cfg(test)]
+use runne_provider::NativeCredentialAuthority;
 use runne_provider::{
-    CredentialAuthorityPair, CredentialLease, NativeCredentialAuthority,
-    ProviderCredentialVersionStore, ProviderId, RevokeCredentialVersion,
+    CredentialAuthorityPair, CredentialLease, ProviderCredentialVersionStore, ProviderId,
+    RevokeCredentialVersion,
 };
+#[cfg(test)]
+use runne_secure_store::ProviderCredentialStore;
 use runne_secure_store::{
     NativeProviderCredentialStore, NativeProviderCredentialVersionStore,
     ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
-    ProviderCredentialStatus, ProviderCredentialStore,
+    ProviderCredentialStatus,
 };
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 use runne_store::schema::ManagedConnection;
@@ -16,8 +20,17 @@ use std::sync::Arc;
 #[cfg(test)]
 include!("credential_versions/source.rs");
 const FIXTURE_SOURCE_REVISION: [u8; 16] = [0xF1; 16];
+
+#[derive(Clone, Copy)]
+struct ProvisionActivation {
+    owner: [u8; 16],
+    fencing_token: u64,
+    now: i64,
+}
+
 pub(super) struct ComposedCredentialLifecycle {
     pub(super) store: Arc<SqliteProviderCredentialLifecycleStore>,
+    #[cfg(test)]
     pub(super) native_authority: NativeCredentialAuthority,
 }
 
@@ -86,6 +99,7 @@ pub(super) fn compose_credential_lifecycle(
         .map_err(|_| unavailable())?;
     Ok(ComposedCredentialLifecycle {
         store,
+        #[cfg(test)]
         native_authority,
     })
 }

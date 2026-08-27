@@ -6,13 +6,6 @@ trait LegacyCredentialSource {
     ) -> Result<runne_secure_store::ProviderCredentialSource, runne_secure_store::SecureStoreError>;
 }
 
-#[derive(Clone, Copy)]
-struct ProvisionActivation {
-    owner: [u8; 16],
-    fencing_token: u64,
-    now: i64,
-}
-
 impl LegacyCredentialSource for NativeProviderCredentialStore {
     fn load_source(
         &self,

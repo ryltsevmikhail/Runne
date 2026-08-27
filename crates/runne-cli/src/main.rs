@@ -161,6 +161,7 @@ include!("cli/format.rs");
 include!("cli/completion.rs");
 include!("cli/conversation.rs");
 include!("cli/provider_credential.rs");
+include!("cli/provider_credential_broker.rs");
 include!("cli/parsing.rs");
 include!("cli/token_parsing.rs");
 include!("cli/error.rs");
