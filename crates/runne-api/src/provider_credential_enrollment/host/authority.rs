@@ -143,12 +143,17 @@ impl ProviderCredentialRequestAuthorityIssuer {
         if request.request_digest() != admission.request_digest()
             || request.request_id() != admission.request_id()
             || request.sequence().checked_add(1) != Some(admission.sequence())
+            || request.request_proof_binding() != admission.request_proof_binding()
         {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
 
-        let expires_at_high_water = i64::try_from(admission.expires_at_unix_millis())
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        let expires_at_high_water = i64::try_from(admission.expires_at_unix_millis() / 1_000)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?
+            .max(0);
+        if expires_at_high_water == 0 {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
         let authority = self.issue_base(
             admission.installation_identity(),
             admission.release_tuple_digest(),

@@ -38,9 +38,13 @@ impl VerifiedProtectedCredentialEnrollmentRequest {
     pub const fn sequence(&self) -> u64 {
         self.sequence
     }
+    #[must_use]
+    pub(crate) const fn request_proof_binding(&self) -> [u8; 32] {
+        self.proof
+    }
 }
 
-/// Verified admission candidate, not an authority or bearer capability. A daemon owner must retain and atomically consume its admission ID and exact claims before Task 5 authority issuance.
+/// Verified admission candidate, not an authority or bearer capability. The admission stays bound to the request proof of its authenticator domain. A daemon owner must retain and atomically consume its admission ID and exact claims before Task 5 authority issuance.
 ///
 /// ```compile_fail
 /// fn require_serialize<T: serde::Serialize>() {}
@@ -51,6 +55,7 @@ pub struct VerifiedProtectedCredentialEnrollmentAdmission {
     request_id: [u8; 16],
     binding: ProtectedCredentialEnrollmentAdmissionBinding,
     sequence: u64,
+    request_proof_binding: [u8; 32],
 }
 impl VerifiedProtectedCredentialEnrollmentAdmission {
     #[must_use]
@@ -108,6 +113,10 @@ impl VerifiedProtectedCredentialEnrollmentAdmission {
     #[must_use]
     pub const fn sequence(&self) -> u64 {
         self.sequence
+    }
+    #[must_use]
+    pub(crate) const fn request_proof_binding(&self) -> [u8; 32] {
+        self.request_proof_binding
     }
 }
 impl std::fmt::Debug for VerifiedProtectedCredentialEnrollmentAdmission {

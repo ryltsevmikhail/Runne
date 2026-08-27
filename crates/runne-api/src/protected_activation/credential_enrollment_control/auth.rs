@@ -105,6 +105,7 @@ impl ProtectedCredentialEnrollmentAuthenticator {
             request_id: request.request_id(),
             binding,
             sequence,
+            request_proof_binding: request.proof,
         })
     }
 

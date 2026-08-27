@@ -1,10 +1,8 @@
 use runne_api::{
-    ApiActor, ApiPrincipalId, BeginProviderCredentialEnrollment,
-    ProviderCredentialBeginIntentBinding, ProviderCredentialCommandContext,
+    BeginProviderCredentialEnrollment, ProviderCredentialBeginIntentBinding,
     ProviderCredentialEnrollmentActionV2, ProviderCredentialEnrollmentHostError,
     ProviderCredentialProviderV2, ProviderCredentialRequestAuthorityPair,
 };
-use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
     CredentialAuthorityPair, CredentialEnrollmentAuthorityPair, CredentialFence,
     CredentialLifecycleRevision, CredentialLifecycleSnapshot, CredentialOperationId,
@@ -13,6 +11,8 @@ use runne_provider::{
 
 use super::coordinator::ProviderCredentialBeginAdmission;
 use super::{ProviderCredentialAdmission, ProviderCredentialOperationHandleIssuer};
+
+pub(crate) use begin_admission_support::context;
 
 #[test]
 fn effect_authority_has_no_direct_store_begin_path() {
@@ -119,164 +119,7 @@ fn operation_handle_requires_the_daemon_hmac_before_store_lookup() {
     );
 }
 
-#[test]
-fn broker_claim_binding_rejects_a_foreign_transport_authority_before_admission() {
-    let (_, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
-    let (foreign_issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
-    let authority = foreign_issuer
-        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let admission = admission(verifier);
-
-    assert_eq!(
-        admission.require_base(&authority),
-        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-    );
-}
-
-#[test]
-fn broker_claim_binding_rejects_a_foreign_intent_proof_before_admission() {
-    let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
-    let (foreign_issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
-    let authority = issuer
-        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let proof = foreign_issuer
-        .issue_intent_proof([6; 32], [7; 32], [8; 32], [9; 32], 10)
-        .unwrap();
-    let admission = admission(verifier);
-
-    admission.require_base(&authority).unwrap();
-    assert_eq!(
-        admission.require_intent(&proof),
-        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-    );
-}
-
-#[test]
-fn broker_claim_binding_rejects_a_session_substituted_intent_proof() {
-    let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
-    let authority = issuer
-        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let proof = issuer
-        .issue_intent_proof([6; 32], [7; 32], [8; 32], [9; 32], 10)
-        .unwrap();
-    let admission = admission(verifier);
-
-    assert_eq!(
-        admission.require_begin(&authority, &proof),
-        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-    );
-}
-
-#[test]
-fn broker_claim_binding_accepts_the_exact_protected_session() {
-    let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
-    let authority = issuer
-        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let proof = issuer
-        .issue_intent_proof([6; 32], [3; 32], [8; 32], [9; 32], 10)
-        .unwrap();
-    let admission = admission(verifier);
-
-    admission.require_begin(&authority, &proof).unwrap();
-}
-
-#[test]
-fn broker_claim_binding_rejects_another_begin_command_in_the_same_session() {
-    let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
-    let authority = issuer
-        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let expected = begin(ProviderCredentialEnrollmentActionV2::Pair);
-    let substituted = begin(ProviderCredentialEnrollmentActionV2::Revoke);
-    let context = context();
-    let binding = ProviderCredentialBeginIntentBinding::new(&substituted, &context);
-    let proof = issuer
-        .issue_intent_proof(
-            [6; 32],
-            [3; 32],
-            *binding.action_provider_revision_digest(),
-            *binding.command_identity_digest(),
-            10,
-        )
-        .unwrap();
-    let admission = admission(verifier);
-
-    assert_eq!(
-        admission.require_begin_command(&authority, &proof, &expected, &context),
-        Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-    );
-}
-
-#[test]
-fn daemon_begin_allocates_the_operation_id_and_authoritative_next_version() {
-    let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
-    let authority = issuer
-        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
-        .unwrap();
-    let command = begin(ProviderCredentialEnrollmentActionV2::Pair);
-    let context = context();
-    let binding = ProviderCredentialBeginIntentBinding::new(&command, &context);
-    let proof = issuer
-        .issue_intent_proof(
-            [6; 32],
-            [3; 32],
-            *binding.action_provider_revision_digest(),
-            *binding.command_identity_digest(),
-            10,
-        )
-        .unwrap();
-    let snapshot = lifecycle_snapshot();
-    let admission = admission(verifier);
-
-    let effect = admission
-        .begin_input(&authority, &proof, &command, &context, snapshot)
-        .unwrap();
-
-    assert_eq!(effect.allocated_credential_version().unwrap().version(), 9);
-}
-
-fn lifecycle_snapshot() -> CredentialLifecycleSnapshot {
-    CredentialLifecycleSnapshot::new(
-        ProviderId::new("openai").unwrap(),
-        None,
-        CredentialLifecycleRevision::new(7).unwrap(),
-        CredentialFence::new(4).unwrap(),
-        CredentialReadinessRevision::new(1).unwrap(),
-        9,
-    )
-    .unwrap()
-}
-
-fn begin(action: ProviderCredentialEnrollmentActionV2) -> BeginProviderCredentialEnrollment {
-    BeginProviderCredentialEnrollment::new(
-        action,
-        ProviderCredentialProviderV2::OpenAi,
-        7,
-        "018f8d23-7f90-7c00-8000-000000000001",
-        "idempotency-a",
-        "intent-a",
-    )
-    .unwrap()
-}
-
-fn context() -> ProviderCredentialCommandContext {
-    ProviderCredentialCommandContext {
-        command_id: CommandId::from_bytes([1; 16]),
-        idempotency_key: IdempotencyKey::new("context-a").unwrap(),
-        principal: ApiPrincipalId::new("principal-a").unwrap(),
-        actor: ApiActor::new("actor-a").unwrap(),
-    }
-}
-
-fn admission(
-    verifier: runne_api::ProviderCredentialRequestAuthorityVerifier,
-) -> ProviderCredentialAdmission {
-    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
-    ProviderCredentialAdmission::new(verifier, measurements)
-}
-
+mod begin_admission;
+#[path = "tests/begin_admission_support.rs"]
+pub(crate) mod begin_admission_support;
 mod recovery;
