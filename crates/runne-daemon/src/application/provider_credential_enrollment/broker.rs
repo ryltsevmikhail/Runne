@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_provider::{
-    ClaimCredentialOperation, CredentialBindingDigest, CredentialBrokerFrame,
-    CredentialBrokerFrameCodec, CredentialEnrollmentError,
+    AttachCredentialProcess, ClaimCredentialOperation, CredentialBindingDigest,
+    CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialEnrollmentError,
     CredentialEnrollmentMeasurementAuthority, CredentialMeasurementSnapshot,
     CredentialOperationSnapshot, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
     ProviderCredentialEnrollmentStore, RawCredentialTicket,
@@ -105,6 +105,12 @@ impl ProviderCredentialBroker {
         channel: &mut C,
     ) -> Result<IssuedCredentialTicketAttempt, ProviderCredentialEnrollmentHostError> {
         let ticket = ticket.map_err(map_ticket_generation)?;
+        store
+            .attach_process(
+                AttachCredentialProcess::new(operation.operation_id(), continuation)
+                    .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
+            )
+            .map_err(map_store)?;
         let receipt = store
             .issue_ticket_attempt(
                 IssueCredentialTicketDigest::new(

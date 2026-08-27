@@ -8,7 +8,7 @@ use runne_provider::{
 
 use super::online_claim_test_support::seal_claim;
 use super::online_test_support::{
-    complete_pair, digest, operation, provider, qualified_release, revoke, store, ticket,
+    complete_pair, digest, issue_ticket, operation, provider, qualified_release, revoke, store, ticket,
 };
 
 #[test]
@@ -18,7 +18,7 @@ fn credential_online_revoke_completes_after_committed_fence_readback_and_missing
     let revoke_id = operation(20);
     ProviderCredentialEnrollmentStore::begin(&store, revoke(20, "revoke", 2, 2)).unwrap();
     let receipt =
-        ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(20, 1, 22, 23))
+        issue_ticket(&store, ticket(20, 1, 22, 23))
             .unwrap();
     ProviderCredentialEnrollmentStore::claim(
         &store,

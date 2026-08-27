@@ -1,12 +1,12 @@
 #[test]
-fn v28_is_the_current_schema_version() {
-    assert_eq!(CURRENT_SCHEMA_VERSION, 28);
+fn v28_remains_a_released_schema_version() {
+    assert_eq!(CURRENT_SCHEMA_VERSION, 29);
 }
 
 #[test]
 fn v28_catalog_matches_the_applied_receipt_schema() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 28).unwrap();
 
     for name in V28_TRIGGERS {
         assert!(
@@ -43,9 +43,12 @@ fn v28_catalog_matches_the_applied_receipt_schema() {
 }
 
 #[test]
-fn production_store_open_creates_migrates_and_reopens_v28() {
+fn production_store_open_migrates_v28_to_v29() {
     let directory = tempfile::tempdir().unwrap();
     let created = directory.path().join("created-v28.sqlite");
+    let connection = Connection::open(&created).unwrap();
+    apply_migrations_internal(&connection, 28).unwrap();
+    drop(connection);
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&created).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&created).unwrap());
 
@@ -57,8 +60,8 @@ fn production_store_open_creates_migrates_and_reopens_v28() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     let connection = Connection::open(&migrated).unwrap();
-    assert_eq!(current_schema_marker(&connection), 28);
-    assert!(v28_matches(&connection, 28).unwrap());
+    assert_eq!(current_schema_marker(&connection), 29);
+    assert!(v29_matches(&connection, 29).unwrap());
 }
 
 #[test]

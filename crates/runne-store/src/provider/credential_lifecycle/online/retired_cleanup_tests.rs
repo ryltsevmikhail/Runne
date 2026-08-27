@@ -10,7 +10,7 @@ use runne_provider::{
 
 use super::online_claim_test_support::seal_claim;
 use super::online_test_support::{
-    complete_pair, digest, operation, provider, qualified_release, store, ticket,
+    complete_pair, digest, issue_ticket, operation, provider, qualified_release, store, ticket,
 };
 
 #[test]
@@ -67,7 +67,7 @@ fn complete_version_two(
     .unwrap()
     .with_qualified_release_tuple(qualified_release(92));
     ProviderCredentialEnrollmentStore::begin(store, input).unwrap();
-    let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(store, ticket(11, 1, 13, 14)).unwrap();
+    let receipt = issue_ticket(store, ticket(11, 1, 13, 14)).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         store,
         seal_claim(store, ClaimCredentialOperation::new(receipt, digest(13), digest(14), digest(15), 1, 1).unwrap()),
@@ -131,7 +131,7 @@ fn prepare_retired_cleanup(
             qualified_release(92).digest().as_bytes().as_slice(),
         ],
     ).unwrap();
-    let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(store, ticket(12, 1, 18, 19)).unwrap();
+    let receipt = issue_ticket(store, ticket(12, 1, 18, 19)).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         store,
         seal_claim(store, ClaimCredentialOperation::new(receipt, digest(18), digest(19), digest(20), 1, 1).unwrap()),

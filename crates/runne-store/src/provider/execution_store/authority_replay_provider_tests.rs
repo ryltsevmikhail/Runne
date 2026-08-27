@@ -219,7 +219,11 @@ pub(super) fn upgraded_v25_for_provider(
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER provider_credential_qualified_release_tuple_insert;
+            "DROP TRIGGER provider_credential_attachment_insert;
+             DROP TRIGGER provider_credential_attachment_immutable;
+             DROP TRIGGER provider_credential_attachment_no_delete;
+             DROP TABLE provider_credential_process_attachments;
+             DROP TRIGGER provider_credential_qualified_release_tuple_insert;
              DROP TRIGGER provider_credential_qualified_release_tuple_immutable;
              DROP TABLE provider_credential_completion_receipts;
              DROP TRIGGER provider_credential_migration_provenance_insert;

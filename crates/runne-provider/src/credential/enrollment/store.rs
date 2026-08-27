@@ -1,14 +1,14 @@
 use crate::{CredentialLifecycleError, ProviderId};
 
 use super::{
-    BeginCredentialOperation, BeginCredentialOperationOutcome, BeginCredentialVerification,
-    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
-    CompleteCredentialOperation, CompleteCredentialVerification, CredentialCompletionReceipt,
-    CredentialLifecycleSnapshot, CredentialOperationId, CredentialOperationSnapshot,
-    CredentialRecoveryWork, CredentialSafeSnapshot, CredentialVerificationLease,
-    CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
-    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
-    TombstoneCredentialOperation,
+    AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
+    BeginCredentialVerification, BindCredentialReadback, ClaimCredentialOperation,
+    ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
+    CredentialCompletionReceipt, CredentialLifecycleSnapshot, CredentialOperationId,
+    CredentialOperationSnapshot, CredentialRecoveryWork, CredentialSafeSnapshot,
+    CredentialVerificationLease, CredentialVerificationObservation, FailCredentialOperation,
+    HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
+    ObserveNativeEffect, TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
@@ -18,6 +18,12 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         &self,
         input: BeginCredentialOperation,
     ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError>;
+
+    /// Attaches one protected writer continuation before broker ticket issuance.
+    fn attach_process(
+        &self,
+        input: AttachCredentialProcess,
+    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError>;
 
     /// Records one digest-only ticket attempt.
     fn issue_ticket_attempt(

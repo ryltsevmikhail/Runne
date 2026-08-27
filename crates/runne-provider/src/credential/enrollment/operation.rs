@@ -1,8 +1,10 @@
+mod attachment;
 mod begin;
 mod begin_claim;
 mod lifecycle;
 mod ticket;
 
+pub use attachment::AttachCredentialProcess;
 pub use begin::{BeginCredentialOperation, BeginCredentialOperationOutcome};
 pub use begin_claim::ClaimCredentialOperation;
 pub use lifecycle::{

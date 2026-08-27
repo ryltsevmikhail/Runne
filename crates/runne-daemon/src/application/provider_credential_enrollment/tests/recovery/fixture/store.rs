@@ -1,14 +1,14 @@
 use runne_provider::{
-    BeginCredentialOperation, BeginCredentialOperationOutcome, BeginCredentialVerification,
-    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
-    CompleteCredentialOperation, CompleteCredentialVerification, CredentialCompletionReceipt,
-    CredentialLifecycleError, CredentialLifecycleSnapshot, CredentialNativeEffectDisposition,
-    CredentialOperationId, CredentialOperationSnapshot, CredentialOperationState,
-    CredentialReadinessDisposition, CredentialSafeSnapshot, CredentialVerificationLease,
-    CredentialVerificationObservation, CredentialVerificationSnapshot, FailCredentialOperation,
-    HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
-    ObserveNativeEffect, ProviderCredentialEnrollmentStore, ProviderId,
-    TombstoneCredentialOperation,
+    AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
+    BeginCredentialVerification, BindCredentialReadback, ClaimCredentialOperation,
+    ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
+    CredentialCompletionReceipt, CredentialLifecycleError, CredentialLifecycleSnapshot,
+    CredentialNativeEffectDisposition, CredentialOperationId, CredentialOperationSnapshot,
+    CredentialOperationState, CredentialReadinessDisposition, CredentialSafeSnapshot,
+    CredentialVerificationLease, CredentialVerificationObservation, CredentialVerificationSnapshot,
+    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
+    IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
+    ProviderId, TombstoneCredentialOperation,
 };
 
 use super::{FailurePoint, Fixture};
@@ -18,6 +18,13 @@ impl ProviderCredentialEnrollmentStore for Fixture {
         &self,
         _: BeginCredentialOperation,
     ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
+        unreachable!()
+    }
+
+    fn attach_process(
+        &self,
+        _: AttachCredentialProcess,
+    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
         unreachable!()
     }
 

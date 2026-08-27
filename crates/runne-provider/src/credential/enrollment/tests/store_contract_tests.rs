@@ -1,14 +1,14 @@
 use crate::{CredentialLifecycleError, ProviderId};
 
 use super::super::{
-    BeginCredentialOperation, BeginCredentialOperationOutcome, BeginCredentialVerification,
-    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
-    CompleteCredentialOperation, CompleteCredentialVerification, CredentialCompletionReceipt,
-    CredentialLifecycleSnapshot, CredentialOperationId, CredentialOperationSnapshot,
-    CredentialRecoveryWork, CredentialVerificationLease, CredentialVerificationObservation,
-    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
-    IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
-    TombstoneCredentialOperation,
+    AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
+    BeginCredentialVerification, BindCredentialReadback, ClaimCredentialOperation,
+    ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
+    CredentialCompletionReceipt, CredentialLifecycleSnapshot, CredentialOperationId,
+    CredentialOperationSnapshot, CredentialRecoveryWork, CredentialVerificationLease,
+    CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    ProviderCredentialEnrollmentStore, TombstoneCredentialOperation,
 };
 
 struct PublicEnrollmentStore;
@@ -18,6 +18,13 @@ impl ProviderCredentialEnrollmentStore for PublicEnrollmentStore {
         &self,
         _: BeginCredentialOperation,
     ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
+        unreachable!()
+    }
+
+    fn attach_process(
+        &self,
+        _: AttachCredentialProcess,
+    ) -> Result<CredentialOperationSnapshot, CredentialLifecycleError> {
         unreachable!()
     }
 

@@ -88,6 +88,21 @@ pub(super) fn ticket_at(
     .unwrap()
 }
 
+pub(super) fn issue_ticket(
+    store: &SqliteProviderCredentialLifecycleStore,
+    input: IssueCredentialTicketDigest,
+) -> Result<IssuedCredentialTicketAttempt, runne_provider::CredentialLifecycleError> {
+    ProviderCredentialEnrollmentStore::attach_process(
+        store,
+        runne_provider::AttachCredentialProcess::new(
+            input.operation_id(),
+            input.continuation_binding_digest(),
+        )
+        .expect("test continuation binding is valid"),
+    )?;
+    ProviderCredentialEnrollmentStore::issue_ticket_attempt(store, input)
+}
+
 pub(super) fn claim(
     store: &SqliteProviderCredentialLifecycleStore,
     operation: u8,
@@ -144,11 +159,7 @@ pub(super) fn revoke(
 
 pub(super) fn admit_claim(store: &SqliteProviderCredentialLifecycleStore, id: u8, key: &str) {
     ProviderCredentialEnrollmentStore::begin(store, begin(id, key, id.wrapping_add(1))).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(
-        store,
-        ticket(id, 1, id.wrapping_add(2), id.wrapping_add(3)),
-    )
-    .unwrap();
+    issue_ticket(store, ticket(id, 1, id.wrapping_add(2), id.wrapping_add(3))).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         store,
         seal_claim(

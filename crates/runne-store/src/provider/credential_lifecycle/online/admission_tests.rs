@@ -4,7 +4,7 @@ use runne_provider::{
 
 use super::online_claim_test_support::{open_test_store, seal_claim};
 use super::online_test_support::{
-    begin, claim_at, complete_pair, digest, operation, provider, store, ticket, ticket_at,
+    begin, claim_at, complete_pair, digest, issue_ticket, operation, provider, store, ticket, ticket_at,
     ticket_state,
 };
 
@@ -107,7 +107,7 @@ fn credential_online_ticket_issue_rechecks_current_head() {
     .unwrap();
 
     let result =
-        ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(110, 1, 112, 113));
+        issue_ticket(&store, ticket(110, 1, 112, 113));
 
     assert_eq!(
         result.unwrap_err(),
@@ -130,7 +130,7 @@ fn credential_online_ticket_issue_rechecks_current_head() {
 fn credential_online_ticket_issue_uses_store_clock_not_caller_timestamps() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(120, "future-ticket", 121)).unwrap();
-    let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+    let receipt = issue_ticket(
         &store,
         ticket_at(120, 1, 122, 123, 150, 200),
     )
@@ -146,7 +146,7 @@ fn credential_online_expired_ticket_stays_closed_after_clock_rollback() {
     let path = directory.path().join("ticket-rollback.sqlite");
     let store = open_test_store(&path, 100);
     ProviderCredentialEnrollmentStore::begin(&store, begin(130, "expiry-rollback", 131)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+    issue_ticket(
         &store,
         ticket_at(130, 1, 132, 133, 100, 200),
     )
@@ -180,13 +180,13 @@ fn credential_online_expired_ticket_stays_closed_after_clock_rollback() {
 fn credential_online_ticket_reissue_tombstones_and_allocates_store_next_attempt() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(140, "issue-high-water", 141)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+    issue_ticket(
         &store,
         ticket_at(140, 1, 142, 143, 100, 200),
     )
     .unwrap();
 
-    let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+    let receipt = issue_ticket(
         &store,
         ticket_at(140, 2, 144, 145, 90, 200),
     )
@@ -201,7 +201,7 @@ fn credential_online_ticket_reissue_tombstones_and_allocates_store_next_attempt(
 fn credential_online_unsealed_claim_cannot_consume_a_matching_ticket() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(150, "unsealed-claim", 151)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+    issue_ticket(
         &store,
         ticket_at(150, 1, 152, 153, 100, 200),
     )
@@ -222,9 +222,7 @@ fn credential_online_claim_rejects_substituted_receipt_owner_without_consuming_t
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(160, "owner-substitution", 161))
         .unwrap();
-    let receipt =
-        ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(160, 1, 162, 163))
-            .unwrap();
+    let receipt = issue_ticket(&store, ticket(160, 1, 162, 163)).unwrap();
     let connection = store.connection.lock().unwrap();
     connection
         .execute_batch("DROP TRIGGER provider_credential_operation_transition")

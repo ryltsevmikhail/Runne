@@ -44,10 +44,10 @@ pub use metadata::{
     CredentialVerifierRevision,
 };
 pub use operation::{
-    BeginCredentialOperation, BeginCredentialOperationOutcome, BindCredentialReadback,
-    ClaimCredentialOperation, ClosePreparedCredentialOperation, CompleteCredentialOperation,
-    FailCredentialOperation, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
-    ObserveNativeEffect, TombstoneCredentialOperation,
+    AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
+    BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
+    CompleteCredentialOperation, FailCredentialOperation, IssueCredentialTicketDigest,
+    IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
 };
 pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMetadata};
 #[allow(unused_imports)]

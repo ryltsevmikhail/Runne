@@ -1,7 +1,7 @@
 use runne_provider::{CredentialLifecycleError, ProviderCredentialEnrollmentStore};
 
 use super::online_claim_test_support::{open_test_store, reopen_test_store};
-use super::online_test_support::{begin_with_operation, operation, ticket, ticket_state};
+use super::online_test_support::{begin_with_operation, issue_ticket, operation, ticket, ticket_state};
 
 #[test]
 fn credential_online_ticket_expiry_boundaries_gate_initial_issue() {
@@ -14,7 +14,7 @@ fn credential_online_ticket_expiry_boundaries_gate_initial_issue() {
     )
     .unwrap();
     assert!(
-        ProviderCredentialEnrollmentStore::issue_ticket_attempt(&valid, ticket(141, 1, 143, 144),)
+        issue_ticket(&valid, ticket(141, 1, 143, 144),)
             .is_ok()
     );
     drop(valid);
@@ -37,7 +37,7 @@ fn credential_online_two_connections_keep_expired_reissue_unchanged_after_reopen
         begin_with_operation(151, 151, "two-connections", 152, 100),
     )
     .unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&first, ticket(151, 1, 153, 154))
+    issue_ticket(&first, ticket(151, 1, 153, 154))
         .unwrap();
     let second = reopen_test_store(&path, 100);
 
@@ -57,7 +57,7 @@ fn assert_stale_reissue(
     high_water: i64,
 ) {
     assert_eq!(
-        ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+        issue_ticket(
             store,
             ticket(operation_value, 2, ticket_value, continuation),
         )

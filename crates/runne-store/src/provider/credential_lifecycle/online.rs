@@ -2,6 +2,8 @@
 mod begin;
 #[path = "online/claim.rs"]
 mod claim;
+#[path = "online/attachment.rs"]
+mod attachment;
 #[path = "online/compatibility_mirror.rs"]
 mod compatibility_mirror;
 #[path = "online/complete.rs"]
@@ -34,6 +36,13 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
         runne_provider::CredentialLifecycleError,
     > {
         begin::begin(self, input)
+    }
+    fn attach_process(
+        &self,
+        input: runne_provider::AttachCredentialProcess,
+    ) -> Result<runne_provider::CredentialOperationSnapshot, runne_provider::CredentialLifecycleError>
+    {
+        attachment::attach(self, input)
     }
     fn issue_ticket_attempt(
         &self,
@@ -179,6 +188,9 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
 #[cfg(test)]
 #[path = "online/admission_tests.rs"]
 mod online_admission_tests;
+#[cfg(test)]
+#[path = "online/attachment_tests.rs"]
+mod online_attachment_tests;
 #[cfg(test)]
 #[path = "online/begin_admission_tests.rs"]
 mod online_begin_admission_tests;

@@ -6,7 +6,7 @@ use runne_provider::{
 };
 
 use super::online_claim_test_support::seal_claim;
-use super::online_test_support::{digest, qualified_release, store, ticket};
+use super::online_test_support::{digest, issue_ticket, qualified_release, store, ticket};
 
 #[test]
 fn every_versionless_action_can_win_the_durable_claim_cas() {
@@ -32,7 +32,7 @@ fn every_versionless_action_can_win_the_durable_claim_cas() {
     ] {
         let store = store();
         insert_operation(&store, id, sql_action, phase);
-        let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(
+        let receipt = issue_ticket(
             &store,
             ticket(id, 1, id.wrapping_add(1), id.wrapping_add(2)),
         )

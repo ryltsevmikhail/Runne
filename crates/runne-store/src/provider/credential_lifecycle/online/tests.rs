@@ -26,8 +26,8 @@ fn credential_online_begin_exactly_replays_the_durable_operation() {
 fn credential_online_ticket_reissue_has_one_claim_winner() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(3, "ticket", 4)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(3, 1, 5, 6)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(3, 2, 7, 8)).unwrap();
+    issue_ticket(&store, ticket(3, 1, 5, 6)).unwrap();
+    issue_ticket(&store, ticket(3, 2, 7, 8)).unwrap();
 
     let accepted = seal_claim(&store, claim(&store, 3, 2, 7, 8, 9));
     let replay = seal_claim(&store, claim(&store, 3, 2, 7, 8, 9));
@@ -45,7 +45,7 @@ fn credential_online_ticket_reissue_has_one_claim_winner() {
 fn credential_online_claim_permanently_tombstones_ticket_attempt() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(6, "claim-tombstone", 7)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(6, 1, 8, 9)).unwrap();
+    issue_ticket(&store, ticket(6, 1, 8, 9)).unwrap();
 
     ProviderCredentialEnrollmentStore::claim(
         &store,
@@ -60,7 +60,7 @@ fn credential_online_claim_permanently_tombstones_ticket_attempt() {
 fn credential_online_cancel_permanently_tombstones_issued_ticket() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(7, "cancel-tombstone", 8)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(7, 1, 9, 10)).unwrap();
+    issue_ticket(&store, ticket(7, 1, 9, 10)).unwrap();
     let close = runne_provider::ClosePreparedCredentialOperation::new(
         operation(7),
         CredentialOperationState::Cancelled,
@@ -76,7 +76,7 @@ fn credential_online_cancel_permanently_tombstones_issued_ticket() {
 fn credential_online_claim_rechecks_current_head_before_consuming_ticket() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(11, "claim-head-cas", 12)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(11, 1, 13, 14)).unwrap();
+    issue_ticket(&store, ticket(11, 1, 13, 14)).unwrap();
     ProviderCredentialEnrollmentStore::hard_fence_provider(
         &store,
         HardFenceProvider::new(
@@ -110,7 +110,7 @@ fn credential_online_claim_rechecks_current_head_before_consuming_ticket() {
 fn forged_claim_does_not_hard_fence_provider() {
     let store = store();
     ProviderCredentialEnrollmentStore::begin(&store, begin(10, "forged", 11)).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket(10, 1, 12, 13)).unwrap();
+    issue_ticket(&store, ticket(10, 1, 12, 13)).unwrap();
 
     let result = ProviderCredentialEnrollmentStore::claim(&store, claim(&store, 10, 1, 14, 13, 15));
 

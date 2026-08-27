@@ -24,6 +24,19 @@ pub(super) fn issue_ticket(
     if operation.state() != CredentialOperationState::Prepared {
         return Err(CredentialLifecycleError::LifecycleClosed);
     }
+    let attached: Option<Vec<u8>> = transaction
+        .query_row(
+            "SELECT continuation_binding_digest
+             FROM provider_credential_process_attachments
+             WHERE operation_id=?1 AND state='ATTACHED'",
+            [input.operation_id().as_bytes().as_slice()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sql)?;
+    if attached.as_deref() != Some(&input.continuation_binding_digest().as_bytes()) {
+        return Err(CredentialLifecycleError::Conflict);
+    }
     let head = load_head(&transaction, operation.provider())?
         .ok_or(CredentialLifecycleError::CorruptState)?;
     if !claim_head_matches(&operation, &head)? {
@@ -238,7 +251,7 @@ pub(super) fn claim(
     Ok(result)
 }
 
-fn claim_head_matches(
+pub(super) fn claim_head_matches(
     operation: &CredentialOperationSnapshot,
     head: &Head,
 ) -> Result<bool, CredentialLifecycleError> {

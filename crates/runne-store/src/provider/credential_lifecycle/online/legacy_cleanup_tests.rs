@@ -8,7 +8,7 @@ use runne_provider::{
 
 use super::{
     online_claim_test_support::seal_claim,
-    online_test_support::{claim, digest, operation, provider, store, ticket},
+    online_test_support::{claim, digest, issue_ticket, operation, provider, store, ticket},
 };
 
 #[test]
@@ -52,7 +52,7 @@ fn credential_online_legacy_cleanup_persists_and_replays_without_head_transition
 
 fn prepare_legacy_source_cleanup(store: &super::SqliteProviderCredentialLifecycleStore) {
     ProviderCredentialEnrollmentStore::begin(store, legacy_source_cleanup_begin()).unwrap();
-    ProviderCredentialEnrollmentStore::issue_ticket_attempt(store, ticket(90, 1, 92, 93)).unwrap();
+    issue_ticket(store, ticket(90, 1, 92, 93)).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         store,
         seal_claim(store, claim(store, 90, 1, 92, 93, 94)),
