@@ -123,3 +123,6 @@ mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
 mod recovery;
+mod verified_frames;
+#[path = "tests/verified_frames_support.rs"]
+mod verified_frames_support;

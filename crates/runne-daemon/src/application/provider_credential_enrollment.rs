@@ -3,6 +3,7 @@ mod effect_authority;
 mod operation_handle;
 mod readback;
 mod recovery;
+mod verified_frames;
 
 #[allow(unused_imports)]
 pub(super) use coordinator::ProviderCredentialAdmission;
