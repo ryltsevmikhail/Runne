@@ -197,7 +197,9 @@ impl CredentialBackend for FakeBackend {
 async fn internal_broker_mode_rejects_direct_invocation_and_argv_material() {
     assert!(matches!(
         run(
-            vec![OsString::from("__provider-credential-broker-v1")],
+            vec![OsString::from(
+                runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1
+            )],
             OutputFormat::Text
         )
         .await,
@@ -206,7 +208,7 @@ async fn internal_broker_mode_rejects_direct_invocation_and_argv_material() {
     assert!(matches!(
         run(
             vec![
-                OsString::from("__provider-credential-broker-v1"),
+                OsString::from(runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1),
                 OsString::from("credential=secret"),
             ],
             OutputFormat::Text,

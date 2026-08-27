@@ -58,7 +58,7 @@ async fn run(arguments: Vec<OsString>, format: OutputFormat) -> Result<String, C
     if peek(&arguments) == Some("provider") {
         return run_provider_credential(arguments);
     }
-    if peek(&arguments) == Some(PROVIDER_CREDENTIAL_BROKER_MODE) {
+    if peek(&arguments) == Some(PROVIDER_CREDENTIAL_BROKER_MODE_V1) {
         return run_provider_credential_broker(arguments);
     }
 

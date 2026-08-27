@@ -14,6 +14,12 @@ pub use codec::CredentialBrokerFrameCodec;
 pub use command::{CredentialBrokerCommand, CredentialBrokerTarget};
 pub use command_codec::CredentialBrokerCommandCodec;
 
+/// The only non-secret argv token accepted by the packaged credential writer.
+///
+/// Channel descriptors and every credential value remain inherited capabilities;
+/// they are never represented in argv or environment variables.
+pub const PROVIDER_CREDENTIAL_BROKER_MODE_V1: &str = "__provider-credential-broker-v1";
+
 use super::{
     CredentialBindingDigest, CredentialDisposition, CredentialOperationId, CredentialTicketAttempt,
     RawCredentialTicket,

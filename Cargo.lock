@@ -3853,6 +3853,7 @@ dependencies = [
  "libc",
  "runne-daemon",
  "runne-project-owner-authority",
+ "runne-provider",
  "runne-release-authority",
  "runne-runtime-client",
  "runne-secure-store",

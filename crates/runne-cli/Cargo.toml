@@ -11,6 +11,7 @@ base64.workspace = true
 chrono.workspace = true
 dirs = "6"
 runne-runtime-client = { path = "../runne-runtime-client" }
+runne-provider = { path = "../runne-provider" }
 runne-project-owner-authority = { path = "../runne-project-owner-authority" }
 runne-release-authority = { path = "../runne-release-authority" }
 runne-secure-store = { path = "../runne-secure-store", default-features = false, features = ["project-owner-key-store"] }
