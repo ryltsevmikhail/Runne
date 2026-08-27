@@ -164,6 +164,32 @@ pub(super) fn begin(
     Ok(BeginCredentialOperationOutcome::FreshWinner(result))
 }
 
+pub(super) fn find_by_begin_proof(
+    store: &SqliteProviderCredentialLifecycleStore,
+    proof: runne_provider::CredentialBindingDigest,
+) -> Result<Option<CredentialOperationSnapshot>, CredentialLifecycleError> {
+    let connection = store.connection.lock().map_err(super::map_lock)?;
+    let operation_id: Option<Vec<u8>> = connection
+        .query_row(
+            "SELECT operation_id FROM provider_credential_operations WHERE begin_proof_digest=?1",
+            [proof.as_bytes().as_slice()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(map_sql)?;
+    operation_id
+        .map(|bytes| {
+            let operation = runne_provider::CredentialOperationId::from_bytes(
+                bytes
+                    .try_into()
+                    .map_err(|_| CredentialLifecycleError::CorruptState)?,
+            )
+            .map_err(|_| CredentialLifecycleError::CorruptState)?;
+            snapshot(&connection, operation, &store.enrollment_authority)
+        })
+        .transpose()
+}
+
 fn exact_replay(
     existing: &CredentialOperationSnapshot,
     expiry: i64,

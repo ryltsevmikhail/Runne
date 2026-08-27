@@ -1,9 +1,9 @@
+#[path = "online/attachment.rs"]
+mod attachment;
 #[path = "online/begin.rs"]
 mod begin;
 #[path = "online/claim.rs"]
 mod claim;
-#[path = "online/attachment.rs"]
-mod attachment;
 #[path = "online/compatibility_mirror.rs"]
 mod compatibility_mirror;
 #[path = "online/complete.rs"]
@@ -16,12 +16,12 @@ mod head;
 mod readback;
 #[path = "online/readiness_observation.rs"]
 mod readiness_observation;
-#[path = "online/safe_projection.rs"]
-mod safe_projection;
 #[path = "online/recovery.rs"]
 mod recovery;
 #[path = "online/rows.rs"]
 mod rows;
+#[path = "online/safe_projection.rs"]
+mod safe_projection;
 #[path = "online/verification.rs"]
 mod verification;
 
@@ -36,6 +36,15 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
         runne_provider::CredentialLifecycleError,
     > {
         begin::begin(self, input)
+    }
+    fn find_by_begin_proof(
+        &self,
+        proof: runne_provider::CredentialBindingDigest,
+    ) -> Result<
+        Option<runne_provider::CredentialOperationSnapshot>,
+        runne_provider::CredentialLifecycleError,
+    > {
+        begin::find_by_begin_proof(self, proof)
     }
     fn attach_process(
         &self,
@@ -207,11 +216,11 @@ mod online_head_decoder_tests;
 #[path = "online/legacy_cleanup_tests.rs"]
 mod online_legacy_cleanup_tests;
 #[cfg(test)]
-#[path = "online/provenance_tests.rs"]
-mod online_provenance_tests;
-#[cfg(test)]
 #[path = "online/migration_provenance_tests.rs"]
 mod online_migration_provenance_tests;
+#[cfg(test)]
+#[path = "online/provenance_tests.rs"]
+mod online_provenance_tests;
 #[cfg(test)]
 #[path = "online/readback_tests.rs"]
 mod online_readback_tests;
@@ -219,11 +228,11 @@ mod online_readback_tests;
 #[path = "online/recovery_tests.rs"]
 mod online_recovery_tests;
 #[cfg(test)]
-#[path = "online/retired_cleanup_tests.rs"]
-mod online_retired_cleanup_tests;
-#[cfg(test)]
 #[path = "online/replay_tests.rs"]
 mod online_replay_tests;
+#[cfg(test)]
+#[path = "online/retired_cleanup_tests.rs"]
+mod online_retired_cleanup_tests;
 #[cfg(test)]
 #[path = "online/revoke_tests.rs"]
 mod online_revoke_tests;

@@ -4,11 +4,11 @@ use super::{
     AttachCredentialProcess, BeginCredentialOperation, BeginCredentialOperationOutcome,
     BeginCredentialVerification, BindCredentialReadback, ClaimCredentialOperation,
     ClosePreparedCredentialOperation, CompleteCredentialOperation, CompleteCredentialVerification,
-    CredentialCompletionReceipt, CredentialLifecycleSnapshot, CredentialOperationId,
-    CredentialOperationSnapshot, CredentialRecoveryWork, CredentialSafeSnapshot,
-    CredentialVerificationLease, CredentialVerificationObservation, FailCredentialOperation,
-    HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
-    ObserveNativeEffect, TombstoneCredentialOperation,
+    CredentialBindingDigest, CredentialCompletionReceipt, CredentialLifecycleSnapshot,
+    CredentialOperationId, CredentialOperationSnapshot, CredentialRecoveryWork,
+    CredentialSafeSnapshot, CredentialVerificationLease, CredentialVerificationObservation,
+    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
+    IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
@@ -18,6 +18,16 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         &self,
         input: BeginCredentialOperation,
     ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError>;
+
+    /// Returns the prior operation for an already authenticated begin proof.
+    ///
+    /// Implementations that cannot index this proof may safely return `None`.
+    fn find_by_begin_proof(
+        &self,
+        _proof: CredentialBindingDigest,
+    ) -> Result<Option<CredentialOperationSnapshot>, CredentialLifecycleError> {
+        Ok(None)
+    }
 
     /// Attaches one protected writer continuation before broker ticket issuance.
     fn attach_process(

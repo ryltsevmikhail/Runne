@@ -114,7 +114,7 @@ impl ProviderCredentialAdmission {
 
     #[allow(clippy::too_many_arguments)]
     #[allow(dead_code)]
-    pub(super) fn admit_begin<S: ProviderCredentialEnrollmentStore>(
+    pub(super) fn admit_begin<S: ProviderCredentialEnrollmentStore + ?Sized>(
         &self,
         authority: &ProviderCredentialBaseRequestAuthority,
         proof: &ProviderCredentialIntentConsumptionProof,
