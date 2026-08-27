@@ -3,6 +3,8 @@
 mod launch;
 #[cfg(unix)]
 mod unix;
+#[cfg(unix)]
+mod unix_transfer;
 
 use std::fmt;
 
@@ -15,6 +17,10 @@ pub use launch::writer_command;
 pub use unix::{
     UnixRetainedWriterProcess, UnixWriterBrokerEndpoints, configure_unix_writer_channels,
     spawn_unix_writer,
+};
+#[cfg(unix)]
+pub use unix_transfer::{
+    UnixReceivedWriterControl, receive_unix_writer_control, transfer_unix_writer_control,
 };
 
 /// Non-serializable process evidence accepted only after platform validation.
@@ -56,6 +62,10 @@ impl WriterProcessEvidence {
     }
     fn is_complete(&self) -> bool {
         self.start != [0; 32] && self.image != [0; 32] && self.channel != [0; 32]
+    }
+
+    pub(crate) const fn handoff_digests(&self) -> ([u8; 32], [u8; 32], [u8; 32]) {
+        (self.start, self.image, self.channel)
     }
 }
 

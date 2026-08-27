@@ -20,7 +20,7 @@ const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024;
 /// The control endpoint is retained for authenticated daemon handoff. The
 /// secret pipe has a single write operation and is closed immediately after it.
 pub struct UnixWriterBrokerEndpoints {
-    control: UnixStream,
+    control: Option<UnixStream>,
     secret: Option<File>,
     channel_binding: [u8; 32],
 }
@@ -48,7 +48,7 @@ impl UnixWriterBrokerEndpoints {
         }
         Ok((
             Self {
-                control: parent_control,
+                control: Some(parent_control),
                 secret: Some(parent_secret),
                 channel_binding,
             },
@@ -68,9 +68,10 @@ impl UnixWriterBrokerEndpoints {
     ///
     /// Returns a closed failure when the endpoint is no longer writable.
     pub fn send_control(&mut self, frame: &[u8]) -> Result<(), BrokerHandoffError> {
-        self.control
+        let control = self.control.as_mut().ok_or(BrokerHandoffError::Rejected)?;
+        control
             .write_all(frame)
-            .and_then(|()| self.control.flush())
+            .and_then(|()| control.flush())
             .map_err(|_| BrokerHandoffError::Unavailable)
     }
 
@@ -88,6 +89,8 @@ impl UnixWriterBrokerEndpoints {
         }
         let mut frame = vec![0; length];
         self.control
+            .as_mut()
+            .ok_or(BrokerHandoffError::Rejected)?
             .read_exact(&mut frame)
             .map_err(|_| BrokerHandoffError::Unavailable)?;
         Ok(frame)
@@ -111,6 +114,10 @@ impl UnixWriterBrokerEndpoints {
 
     pub(crate) const fn channel_binding(&self) -> [u8; 32] {
         self.channel_binding
+    }
+
+    pub(super) fn take_control_for_handoff(&mut self) -> Result<UnixStream, BrokerHandoffError> {
+        self.control.take().ok_or(BrokerHandoffError::Rejected)
     }
 }
 
@@ -137,7 +144,8 @@ pub fn configure_unix_writer_channels(
 }
 
 fn secret_pipe() -> Result<(File, File), BrokerHandoffError> {
-    let (read, write) = pipe_with(PipeFlags::CLOEXEC).map_err(|_| BrokerHandoffError::Unavailable)?;
+    let (read, write) =
+        pipe_with(PipeFlags::CLOEXEC).map_err(|_| BrokerHandoffError::Unavailable)?;
     Ok((File::from(read), File::from(write)))
 }
 
