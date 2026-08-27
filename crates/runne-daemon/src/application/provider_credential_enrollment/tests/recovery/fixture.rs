@@ -14,10 +14,10 @@ use runne_provider::{
 mod reader;
 mod store;
 
-pub(super) use reader::StatefulReader;
+pub(in super::super) use reader::StatefulReader;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum FailurePoint {
+pub(in super::super) enum FailurePoint {
     None,
     Mark,
     Readback,
@@ -25,7 +25,7 @@ pub(super) enum FailurePoint {
     Complete,
 }
 
-pub(super) struct Fixture {
+pub(in super::super) struct Fixture {
     authority: runne_provider::CredentialEnrollmentStoreAuthority,
     operation: Mutex<CredentialOperationSnapshot>,
     command: runne_provider::CredentialBrokerCommand,
@@ -37,7 +37,7 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub(super) fn retired_cleanup(failure: FailurePoint) -> Self {
+    pub(in super::super) fn retired_cleanup(failure: FailurePoint) -> Self {
         Self::new(CredentialOperationAction::RetiredVersionCleanup, failure)
     }
 
@@ -164,7 +164,7 @@ impl Fixture {
         self.operation.lock().unwrap().state()
     }
 
-    pub(super) fn events(&self) -> Vec<&'static str> {
+    pub(in super::super) fn events(&self) -> Vec<&'static str> {
         self.events.lock().unwrap().clone()
     }
 

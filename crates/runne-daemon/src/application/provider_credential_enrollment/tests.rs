@@ -125,7 +125,8 @@ pub(crate) mod begin_admission_support;
 mod broker;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
-mod recovery;
+pub(super) mod recovery;
+mod status;
 mod verified_frames;
 #[path = "tests/verified_frames_support.rs"]
 mod verified_frames_support;

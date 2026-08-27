@@ -4,7 +4,8 @@ use runne_provider::{
     CompleteCredentialOperation, CompleteCredentialVerification, CredentialCompletionReceipt,
     CredentialLifecycleError, CredentialLifecycleSnapshot, CredentialNativeEffectDisposition,
     CredentialOperationId, CredentialOperationSnapshot, CredentialOperationState,
-    CredentialVerificationLease, CredentialVerificationObservation, FailCredentialOperation,
+    CredentialReadinessDisposition, CredentialSafeSnapshot, CredentialVerificationLease,
+    CredentialVerificationObservation, CredentialVerificationSnapshot, FailCredentialOperation,
     HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
     ObserveNativeEffect, ProviderCredentialEnrollmentStore, ProviderId,
     TombstoneCredentialOperation,
@@ -147,7 +148,17 @@ impl ProviderCredentialEnrollmentStore for Fixture {
         &self,
         _: &ProviderId,
     ) -> Result<runne_provider::CredentialSafeSnapshot, CredentialLifecycleError> {
-        unreachable!()
+        self.event("safe_snapshot");
+        CredentialSafeSnapshot::new(
+            ProviderId::new("openai").unwrap(),
+            false,
+            runne_provider::CredentialLifecycleRevision::new(1).unwrap(),
+            runne_provider::CredentialReadinessRevision::new(1).unwrap(),
+            CredentialReadinessDisposition::Missing,
+            100,
+            CredentialVerificationSnapshot::not_verified(),
+        )
+        .map_err(|_| CredentialLifecycleError::CorruptState)
     }
 
     fn hard_fence_provider(

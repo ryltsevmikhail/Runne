@@ -5,6 +5,7 @@ mod operation_handle;
 mod projection;
 mod readback;
 mod recovery;
+mod status;
 mod verified_frames;
 
 #[allow(unused_imports)]
@@ -16,6 +17,8 @@ pub(crate) use readback::CredentialEnrollmentReadback;
 pub(crate) use recovery::CredentialEnrollmentRecoveryGateway;
 #[cfg(test)]
 use recovery::WriterExitDiagnostic;
+#[allow(unused_imports)]
+pub(crate) use status::ProviderCredentialEnrollmentStatus;
 
 #[cfg(test)]
 mod tests;

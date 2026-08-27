@@ -3,7 +3,7 @@ use runne_provider::{CredentialOperationAction, CredentialOperationState};
 
 use super::super::{CredentialEnrollmentRecoveryGateway, WriterExitDiagnostic};
 
-mod fixture;
+pub(super) mod fixture;
 
 use fixture::{FailurePoint, Fixture, StatefulReader};
 
