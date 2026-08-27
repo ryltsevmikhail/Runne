@@ -7,14 +7,17 @@ use crate::canonical_provider::CanonicalProviderEffect;
 use crate::canonical_provider::RuntimeStoreDecorator;
 // fixture-only capability begin
 #[cfg(any(test, feature = "test-support"))]
-use runne_provider::NativeCredentialAuthority;
-#[cfg(any(test, feature = "test-support"))]
-use runne_secure_store::{NativeProviderCredentialVersionStore, ProviderJournalKeyring};
+use runne_secure_store::ProviderJournalKeyring;
+// fixture-only capability end
 
-/// Fixture-only constructor for an authority-bound native credential store.
-#[doc(hidden)]
-#[cfg(any(test, feature = "test-support"))]
-pub type LoopbackCredentialVersionStoreFactory = dyn Fn(NativeCredentialAuthority) -> Arc<dyn NativeProviderCredentialVersionStore>
+// fixture-only capability begin
+#[cfg(test)]
+use runne_provider::NativeCredentialAuthority;
+#[cfg(test)]
+use runne_secure_store::NativeProviderCredentialVersionStore;
+
+#[cfg(test)]
+pub(crate) type LoopbackCredentialVersionStoreFactory = dyn Fn(NativeCredentialAuthority) -> Arc<dyn NativeProviderCredentialVersionStore>
     + Send
     + Sync;
 // fixture-only capability end
@@ -29,17 +32,12 @@ pub(crate) enum ProviderDependencyState {
     Production,
     // fixture-only capability begin
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the fixture capsule is selected only by protected launch integration tests"
-        )
-    )]
+    #[allow(dead_code)]
     LoopbackFixture {
         effect: Arc<dyn CanonicalProviderEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,
+        #[cfg(test)]
         credential_versions: Arc<LoopbackCredentialVersionStoreFactory>,
     },
     // fixture-only capability end
@@ -51,14 +49,8 @@ impl ProtectedProviderDependencyCapsule {
     }
 
     // fixture-only capability begin
-    #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the fixture capsule is selected only by protected launch integration tests"
-        )
-    )]
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn from_loopback_fixture(
         effect: Arc<dyn CanonicalProviderEffect>,
         keyring: Arc<dyn ProviderJournalKeyring>,
@@ -70,6 +62,20 @@ impl ProtectedProviderDependencyCapsule {
             keyring,
             decorator,
             credential_versions,
+        })
+    }
+
+    #[cfg(all(feature = "test-support", not(test)))]
+    #[allow(dead_code)]
+    pub(crate) fn from_loopback_fixture(
+        effect: Arc<dyn CanonicalProviderEffect>,
+        keyring: Arc<dyn ProviderJournalKeyring>,
+        decorator: Arc<RuntimeStoreDecorator>,
+    ) -> Self {
+        Self(ProviderDependencyState::LoopbackFixture {
+            effect,
+            keyring,
+            decorator,
         })
     }
     // fixture-only capability end

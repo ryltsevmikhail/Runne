@@ -8,6 +8,8 @@ use crate::application::workspace_internal::{
 };
 use runne_observability::operational::RecoveryObservationRegistry;
 mod credential_reader;
+#[cfg(all(feature = "test-support", not(test)))]
+mod fixture_credentials;
 
 pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
 pub(super) const PROVIDER_POLICY_V1_COST_BUDGET_MICROS: u64 = 10_000_000;
@@ -87,7 +89,7 @@ impl DaemonCanonicalProviderService {
             credential_id,
             dependencies,
         } = composition;
-        #[cfg(any(test, feature = "test-support"))]
+        #[cfg(test)]
         let (effect_source, retained_keyring, terminal_store_decorator, credential_versions) =
             match dependencies.into_provider_state() {
                 ProviderDependencyState::Production => (None, None, None, None),
@@ -102,6 +104,16 @@ impl DaemonCanonicalProviderService {
                     Some(decorator),
                     Some(credential_versions),
                 ),
+            };
+        #[cfg(all(feature = "test-support", not(test)))]
+        let (effect_source, retained_keyring, terminal_store_decorator) =
+            match dependencies.into_provider_state() {
+                ProviderDependencyState::Production => (None, None, None),
+                ProviderDependencyState::LoopbackFixture {
+                    effect,
+                    keyring,
+                    decorator,
+                } => (Some(effect), Some(keyring), Some(decorator)),
             };
         #[cfg(not(any(test, feature = "test-support")))]
         let (retained_keyring, terminal_store_decorator) = match dependencies.into_provider_state()
@@ -155,7 +167,7 @@ impl DaemonCanonicalProviderService {
             runtime_generation,
             terminal_store_decorator,
         );
-        #[cfg(any(test, feature = "test-support"))]
+        #[cfg(test)]
         let credentials = match effect_source.clone() {
             Some(effect) => credential_reader::fixture(
                 credential_connection,
@@ -163,6 +175,21 @@ impl DaemonCanonicalProviderService {
                 runtime_generation,
                 credential_id,
                 credential_versions,
+                effect,
+            )?,
+            None => credential_reader::production(
+                credential_connection,
+                credential_id,
+                adapter_factory.as_ref(),
+            )?,
+        };
+        #[cfg(all(feature = "test-support", not(test)))]
+        let credentials = match effect_source.clone() {
+            Some(effect) => credential_reader::fixture(
+                credential_connection,
+                runtime_authority_id,
+                runtime_generation,
+                credential_id,
                 effect,
             )?,
             None => credential_reader::production(
@@ -202,11 +229,12 @@ impl DaemonCanonicalProviderService {
                     })?;
             }
             None => {
-                execution
-                    .create_and_activate_key(runtime_authority_id, 1, 1)
-                    .map_err(|_| {
-                        DaemonError::Bootstrap("provider journal key unavailable".into())
-                    })?;
+                RuntimeProviderExecution::<
+                    dyn ProviderJournalKeyring,
+                    runtime_store::DaemonProviderRuntimeStore,
+                    SharedTextProviderProfile,
+                >::create_and_activate_key(&execution, runtime_authority_id, 1, 1)
+                .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
             }
         }
         let journal_binding = execution

@@ -35,7 +35,7 @@ pub(super) fn production(
 }
 
 // fixture-only capability begin
-#[cfg(any(test, feature = "test-support"))]
+#[cfg(test)]
 pub(super) fn fixture(
     connection: ManagedConnection,
     owner: [u8; 16],
@@ -56,6 +56,23 @@ pub(super) fn fixture(
     )?;
     Ok(CredentialBoundary {
         store: credentials.store,
+        readback: None,
+        adapter,
+        status: ProviderCredentialStatus::Configured,
+    })
+}
+
+#[cfg(all(feature = "test-support", not(test)))]
+pub(super) fn fixture(
+    connection: ManagedConnection,
+    _owner: [u8; 16],
+    _fencing_token: u64,
+    credential_id: ProviderCredentialId,
+    adapter: Arc<dyn CanonicalProviderEffect>,
+) -> Result<CredentialBoundary, DaemonError> {
+    let store = super::fixture_credentials::compose(connection, credential_id)?;
+    Ok(CredentialBoundary {
+        store,
         readback: None,
         adapter,
         status: ProviderCredentialStatus::Configured,

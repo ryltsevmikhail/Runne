@@ -36,6 +36,14 @@ pub fn credential(
     let ticket = digest(discriminator.wrapping_add(2));
     let continuation = digest(discriminator.wrapping_add(3));
 
+    let qualified_release = measurement_authority
+        .issue_qualified_credential_release_tuple(
+            measurement_authority
+                .release_manifest_digest([201; 32])
+                .unwrap(),
+        )
+        .unwrap();
+    let qualified_release_digest = qualified_release.digest();
     ProviderCredentialEnrollmentStore::begin(
         &store,
         BeginCredentialOperation::new(
@@ -52,7 +60,8 @@ pub fn credential(
             digest(discriminator.wrapping_add(1)),
             now.checked_add(600).unwrap(),
         )
-        .unwrap(),
+        .unwrap()
+        .with_qualified_release_tuple(qualified_release),
     )
     .unwrap();
     let receipt = ProviderCredentialEnrollmentStore::issue_ticket_attempt(
@@ -104,7 +113,7 @@ pub fn credential(
             CredentialReadinessRevision::new(2).unwrap(),
             CredentialReadinessDisposition::Ready,
             Some(CredentialBindingDigest::from_measured(*active.ref_digest()).unwrap()),
-            digest(discriminator.wrapping_add(6)),
+            qualified_release_digest,
             i64::try_from(observed).unwrap(),
         )
         .unwrap();

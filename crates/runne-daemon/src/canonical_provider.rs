@@ -46,8 +46,8 @@ mod activation_provenance;
 mod composition;
 mod composition_telemetry;
 mod credential_reader;
-#[cfg(any(test, feature = "test-support"))]
-mod credential_versions;
+#[cfg(test)]
+pub(crate) mod credential_versions;
 mod dispatch_binding;
 mod effect_adapter;
 mod execution;

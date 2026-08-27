@@ -43,6 +43,13 @@ impl<S: ProviderExecutionStore + ProviderTerminalPersistence + ?Sized> ProviderE
     ) -> Result<(), ProviderExecutionError> {
         self.inner.activate_journal_key(key)
     }
+    fn activate_journal_key_with_keyring(
+        &self,
+        keyring: &dyn runne_secure_store::ProviderJournalKeyring,
+        key: ProviderJournalKeyBinding,
+    ) -> Result<(), ProviderExecutionError> {
+        self.inner.activate_journal_key_with_keyring(keyring, key)
+    }
     fn journal_key_reference_count(
         &self,
         key: ProviderJournalKeyBinding,
