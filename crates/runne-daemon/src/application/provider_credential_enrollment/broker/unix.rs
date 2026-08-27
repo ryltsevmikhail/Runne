@@ -3,6 +3,9 @@ use runne_platform_desktop::provider_credential_broker::{
     UnixReceivedWriterControl, WriterProcessEvidence,
 };
 use runne_provider::{CredentialBrokerFrame, CredentialBrokerFrameCodec};
+use zeroize::Zeroizing;
+
+use super::CredentialBrokerChannel;
 
 /// Daemon-owned half of a control socket accepted by the native handoff.
 ///
@@ -56,6 +59,24 @@ impl UnixCredentialBrokerChannel {
         }
         self.received = true;
         CredentialBrokerFrameCodec::read_from(&mut self.control)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
+    }
+}
+
+impl CredentialBrokerChannel for UnixCredentialBrokerChannel {
+    fn send(
+        &mut self,
+        frame: Zeroizing<Vec<u8>>,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let frame = CredentialBrokerFrameCodec::decode(&frame)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        self.send_frame(frame)
+    }
+
+    fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError> {
+        let frame = self.receive_once()?;
+        CredentialBrokerFrameCodec::encode(frame)
+            .map(Zeroizing::new)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }

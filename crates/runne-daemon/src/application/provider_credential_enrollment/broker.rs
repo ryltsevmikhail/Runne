@@ -29,6 +29,9 @@ pub(super) trait CredentialBrokerChannel {
         &mut self,
         frame: Zeroizing<Vec<u8>>,
     ) -> Result<(), ProviderCredentialEnrollmentHostError>;
+
+    /// Receives the one writer response admitted by the surrounding exchange.
+    fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError>;
 }
 
 /// Daemon coordinator for digest-first credential-ticket issuance.
@@ -183,6 +186,34 @@ impl ProviderCredentialBroker {
             attempt: expected_attempt,
         })
         .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
+    }
+
+    /// Receives one claim, commits its durable CAS, then returns only its acknowledgement.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn claim_ticket_from_channel<
+        S: ProviderCredentialEnrollmentStore,
+        C: CredentialBrokerChannel,
+    >(
+        &self,
+        receipt: IssuedCredentialTicketAttempt,
+        continuation: CredentialBindingDigest,
+        database_generation: u64,
+        desktop_supervisor_generation: u64,
+        evidence: CredentialMeasurementSnapshot,
+        store: &S,
+        channel: &mut C,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        let claim = channel.receive()?;
+        let accepted = self.claim_ticket(
+            receipt,
+            continuation,
+            database_generation,
+            desktop_supervisor_generation,
+            evidence,
+            claim,
+            store,
+        )?;
+        channel.send(Zeroizing::new(accepted))
     }
 }
 

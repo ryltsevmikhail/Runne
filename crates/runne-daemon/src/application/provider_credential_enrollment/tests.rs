@@ -123,6 +123,7 @@ mod begin_admission;
 #[path = "tests/begin_admission_support.rs"]
 pub(crate) mod begin_admission_support;
 mod broker;
+mod broker_exchange;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
 pub(super) mod recovery;

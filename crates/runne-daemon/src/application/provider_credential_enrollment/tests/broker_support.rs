@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -111,6 +112,13 @@ pub(crate) fn claim_measurements(
 #[derive(Default)]
 pub(crate) struct RecordingChannel {
     pub(crate) frames: Vec<Vec<u8>>,
+    received: VecDeque<Zeroizing<Vec<u8>>>,
+}
+
+impl RecordingChannel {
+    pub(crate) fn queue_received(&mut self, frame: Zeroizing<Vec<u8>>) {
+        self.received.push_back(frame);
+    }
 }
 
 impl CredentialBrokerChannel for RecordingChannel {
@@ -120,5 +128,11 @@ impl CredentialBrokerChannel for RecordingChannel {
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
         self.frames.push(frame.to_vec());
         Ok(())
+    }
+
+    fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError> {
+        self.received
+            .pop_front()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)
     }
 }
