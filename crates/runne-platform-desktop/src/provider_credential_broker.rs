@@ -67,6 +67,12 @@ impl WriterProcessEvidence {
     pub(crate) const fn handoff_digests(&self) -> ([u8; 32], [u8; 32], [u8; 32]) {
         (self.start, self.image, self.channel)
     }
+
+    /// Returns the fresh one-shot binding accepted by the native handoff.
+    #[must_use]
+    pub const fn channel_binding(&self) -> [u8; 32] {
+        self.channel
+    }
 }
 
 impl fmt::Debug for WriterProcessEvidence {

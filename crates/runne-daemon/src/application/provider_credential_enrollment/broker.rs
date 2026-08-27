@@ -12,6 +12,9 @@ use zeroize::Zeroizing;
 
 use super::effect_authority::map_store;
 
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod unix;
+
 /// Authenticated inherited control channel; Task 11 owns its platform adapters.
 #[cfg_attr(
     not(test),
