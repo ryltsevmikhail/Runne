@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::process::{Command, Stdio};
@@ -7,6 +7,8 @@ use std::process::{Command, Stdio};
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 use runne_platform_ports::provider_credential_prompt::CredentialPipeBytes;
 use rustix::pipe::{PipeFlags, pipe_with};
+
+const MAX_CONTROL_FRAME_BYTES: usize = 4 * 1024;
 
 /// Tauri-owned halves of one writer's inherited control and secret channels.
 ///
@@ -60,6 +62,25 @@ impl UnixWriterBrokerEndpoints {
             .map_err(|_| BrokerHandoffError::Unavailable)
     }
 
+    /// Reads one exact-size broker-control response from the retained endpoint.
+    ///
+    /// The caller selects the fixed bounded frame size before this transport
+    /// adapter reads any byte.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure for an empty requested frame or an unavailable endpoint.
+    pub fn read_control_exact(&mut self, length: usize) -> Result<Vec<u8>, BrokerHandoffError> {
+        if length == 0 || length > MAX_CONTROL_FRAME_BYTES {
+            return Err(BrokerHandoffError::Rejected);
+        }
+        let mut frame = vec![0; length];
+        self.control
+            .read_exact(&mut frame)
+            .map_err(|_| BrokerHandoffError::Unavailable)?;
+        Ok(frame)
+    }
+
     /// Sends one bounded secret line and irrevocably closes the write end.
     ///
     /// # Errors
@@ -89,7 +110,12 @@ pub fn configure_unix_writer_channels(
     command: &mut Command,
     channels: UnixWriterChildChannels,
 ) -> Result<(), BrokerHandoffError> {
+    let control_stderr = channels
+        .control
+        .try_clone()
+        .map_err(|_| BrokerHandoffError::Unavailable)?;
     command.stdin(Stdio::from(OwnedFd::from(channels.control)));
+    command.stderr(Stdio::from(OwnedFd::from(control_stderr)));
     command.stdout(Stdio::from(OwnedFd::from(channels.secret)));
     Ok(())
 }

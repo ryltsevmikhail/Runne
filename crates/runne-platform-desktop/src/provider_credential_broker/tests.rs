@@ -79,7 +79,7 @@ fn writer_command_binds_control_and_secret_to_fixed_inherited_descriptors() {
     let executable = directory.path().join("writer-fixture");
     std::fs::write(
         &executable,
-        "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = \"__provider-credential-broker-v1\" ] || exit 11\nIFS= read -r control || exit 12\nIFS= read -r secret <&1 || exit 13\n[ \"$control\" = control ] && [ \"$secret\" = secret ] || exit 14\n",
+        "#!/bin/sh\n[ \"$#\" = 1 ] && [ \"$1\" = \"__provider-credential-broker-v1\" ] || exit 11\nIFS= read -r control || exit 12\nprintf reply >&2\nIFS= read -r secret <&1 || exit 13\n[ \"$control\" = control ] && [ \"$secret\" = secret ] || exit 14\n",
     )
     .unwrap();
     std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -98,6 +98,7 @@ fn writer_command_binds_control_and_secret_to_fixed_inherited_descriptors() {
 
     let mut child = command.spawn().unwrap();
     endpoints.send_control(b"control\n").unwrap();
+    assert_eq!(endpoints.read_control_exact(5).unwrap(), b"reply");
     endpoints
         .send_secret(
             runne_platform_ports::provider_credential_prompt::SecureCredentialMaterial::new(
@@ -109,4 +110,16 @@ fn writer_command_binds_control_and_secret_to_fixed_inherited_descriptors() {
         .unwrap();
 
     assert!(child.wait().unwrap().success());
+}
+
+#[cfg(unix)]
+#[test]
+fn writer_control_rejects_oversized_response_before_reading() {
+    let (mut endpoints, child_channels) = UnixWriterBrokerEndpoints::pair().unwrap();
+    drop(child_channels);
+
+    assert_eq!(
+        endpoints.read_control_exact(4_097),
+        Err(BrokerHandoffError::Rejected)
+    );
 }
