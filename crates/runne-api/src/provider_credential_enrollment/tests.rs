@@ -9,6 +9,7 @@ use super::{
 
 mod authority_bridge;
 mod host;
+mod intent_binding;
 
 const FORBIDDEN_KEYS: [&str; 7] = [
     "credential",

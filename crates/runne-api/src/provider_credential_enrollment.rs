@@ -22,7 +22,8 @@ pub use types::{
     ProviderCredentialPendingOperationV2, ProviderCredentialProviderV2,
     ProviderCredentialReadinessV2, ProviderCredentialSafeSnapshotV2, ProviderCredentialStateV2,
     ProviderCredentialValidationErrorV2, ProviderCredentialVerificationKindV2,
-    ProviderCredentialVerificationStateV2, VerifyProviderCredential,
+    ProviderCredentialVerificationStateV2, ProviderCredentialVerifyIntentBinding,
+    VerifyProviderCredential,
 };
 
 #[cfg(test)]

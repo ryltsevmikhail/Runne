@@ -129,3 +129,4 @@ mod recovery;
 mod verified_frames;
 #[path = "tests/verified_frames_support.rs"]
 mod verified_frames_support;
+mod verify_admission;

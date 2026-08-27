@@ -6,6 +6,7 @@ mod ids;
 mod intent_binding;
 mod operation;
 mod snapshot;
+mod verify_intent_binding;
 
 pub use ids::ProviderCredentialOperationHandleV2;
 pub use intent_binding::ProviderCredentialBeginIntentBinding;
@@ -18,6 +19,7 @@ pub use snapshot::{
     ProviderCredentialReadinessV2, ProviderCredentialSafeSnapshotV2, ProviderCredentialStateV2,
     ProviderCredentialVerificationStateV2,
 };
+pub use verify_intent_binding::ProviderCredentialVerifyIntentBinding;
 
 /// Closed public enrollment actions. Cleanup and release migration stay internal.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

@@ -4,7 +4,8 @@ use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
     ProviderCredentialBeginIntentBinding, ProviderCredentialCommandContext,
     ProviderCredentialEnrollmentHostError, ProviderCredentialIntentConsumptionProof,
-    ProviderCredentialRequestAuthorityVerifier,
+    ProviderCredentialRequestAuthorityVerifier, ProviderCredentialVerifyIntentBinding,
+    VerifyProviderCredential,
 };
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, CredentialBindingDigest,
@@ -78,6 +79,31 @@ impl ProviderCredentialAdmission {
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
         self.require_begin(authority, proof)?;
         let binding = ProviderCredentialBeginIntentBinding::new(command, context);
+        if proof.action_provider_revision_binding() != binding.action_provider_revision_digest()
+            || proof.command_identity_binding() != binding.command_identity_digest()
+        {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        }
+        Ok(())
+    }
+
+    /// Binds a verification proof to its exact provider, revision, kind, and command context.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Task 6 admission is prepared before the protected verification host is composed"
+        )
+    )]
+    pub(super) fn require_verify_command(
+        &self,
+        authority: &ProviderCredentialBaseRequestAuthority,
+        proof: &ProviderCredentialIntentConsumptionProof,
+        command: &VerifyProviderCredential,
+        context: &ProviderCredentialCommandContext,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        self.require_begin(authority, proof)?;
+        let binding = ProviderCredentialVerifyIntentBinding::new(command, context);
         if proof.action_provider_revision_binding() != binding.action_provider_revision_digest()
             || proof.command_identity_binding() != binding.command_identity_digest()
         {
