@@ -5,6 +5,7 @@ mod identity;
 mod metadata;
 mod operation;
 mod operation_metadata;
+mod projection;
 mod protocol;
 mod qualified_release;
 mod snapshot;
@@ -49,6 +50,8 @@ pub use operation::{
     ObserveNativeEffect, TombstoneCredentialOperation,
 };
 pub use operation_metadata::{CredentialMigrationMetadata, CredentialOperationMetadata};
+#[allow(unused_imports)]
+pub use projection::{CredentialSafeSnapshot, CredentialVerificationSnapshot};
 pub use protocol::{
     CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget,

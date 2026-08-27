@@ -14,6 +14,8 @@ mod head;
 mod readback;
 #[path = "online/readiness_observation.rs"]
 mod readiness_observation;
+#[path = "online/safe_projection.rs"]
+mod safe_projection;
 #[path = "online/recovery.rs"]
 mod recovery;
 #[path = "online/rows.rs"]
@@ -135,6 +137,13 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
     {
         complete::lifecycle(self, provider)
     }
+    fn safe_snapshot(
+        &self,
+        provider: &runne_provider::ProviderId,
+    ) -> Result<runne_provider::CredentialSafeSnapshot, runne_provider::CredentialLifecycleError>
+    {
+        safe_projection::load(self, provider)
+    }
     fn hard_fence_provider(
         &self,
         input: runne_provider::HardFenceProvider,
@@ -206,6 +215,9 @@ mod online_replay_tests;
 #[cfg(test)]
 #[path = "online/revoke_tests.rs"]
 mod online_revoke_tests;
+#[cfg(test)]
+#[path = "online/safe_projection_tests.rs"]
+mod online_safe_projection_tests;
 #[cfg(test)]
 #[path = "online/test_support.rs"]
 pub(crate) mod online_test_support;

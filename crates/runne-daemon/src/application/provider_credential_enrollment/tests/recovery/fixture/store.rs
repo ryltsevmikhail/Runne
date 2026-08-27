@@ -143,6 +143,13 @@ impl ProviderCredentialEnrollmentStore for Fixture {
         Ok(self.lifecycle())
     }
 
+    fn safe_snapshot(
+        &self,
+        _: &ProviderId,
+    ) -> Result<runne_provider::CredentialSafeSnapshot, CredentialLifecycleError> {
+        unreachable!()
+    }
+
     fn hard_fence_provider(
         &self,
         _: HardFenceProvider,

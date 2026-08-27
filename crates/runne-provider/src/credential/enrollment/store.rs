@@ -5,9 +5,10 @@ use super::{
     BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
     CompleteCredentialOperation, CompleteCredentialVerification, CredentialCompletionReceipt,
     CredentialLifecycleSnapshot, CredentialOperationId, CredentialOperationSnapshot,
-    CredentialRecoveryWork, CredentialVerificationLease, CredentialVerificationObservation,
-    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
-    IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
+    CredentialRecoveryWork, CredentialSafeSnapshot, CredentialVerificationLease,
+    CredentialVerificationObservation, FailCredentialOperation, HardFenceProvider,
+    IssueCredentialTicketDigest, IssuedCredentialTicketAttempt, ObserveNativeEffect,
+    TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
@@ -95,6 +96,12 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         &self,
         provider: &ProviderId,
     ) -> Result<CredentialLifecycleSnapshot, CredentialLifecycleError>;
+
+    /// Loads the current metadata-only lifecycle/readiness/verification projection.
+    fn safe_snapshot(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<CredentialSafeSnapshot, CredentialLifecycleError>;
 
     /// Permanently fences a provider after a post-admission invariant failure.
     fn hard_fence_provider(

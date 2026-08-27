@@ -112,6 +112,13 @@ impl ProviderCredentialEnrollmentStore for PublicEnrollmentStore {
         unreachable!()
     }
 
+    fn safe_snapshot(
+        &self,
+        _: &ProviderId,
+    ) -> Result<super::super::CredentialSafeSnapshot, CredentialLifecycleError> {
+        unreachable!()
+    }
+
     fn hard_fence_provider(
         &self,
         _: HardFenceProvider,
