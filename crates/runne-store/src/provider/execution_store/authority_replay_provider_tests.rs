@@ -239,7 +239,8 @@ pub(super) fn upgraded_v25_for_provider(
         .unwrap();
     assert_eq!(
         connection
-            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row.get::<_, i64>(0))
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| row
+                .get::<_, i64>(0))
             .unwrap(),
         25
     );

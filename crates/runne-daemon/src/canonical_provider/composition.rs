@@ -267,12 +267,13 @@ impl DaemonCanonicalProviderService {
             recovery_registry,
         });
         match service.credential_readback.as_deref() {
-            Some(reader) => CredentialEnrollmentRecoveryGateway::new(
-                service.credential_store.as_ref(),
-                reader,
-            )
-            .reconcile_online(chrono::Utc::now().timestamp())
-            .map_err(|_| DaemonError::Bootstrap("credential enrollment recovery unavailable".into()))?,
+            Some(reader) => {
+                CredentialEnrollmentRecoveryGateway::new(service.credential_store.as_ref(), reader)
+                    .reconcile_online(chrono::Utc::now().timestamp())
+                    .map_err(|_| {
+                        DaemonError::Bootstrap("credential enrollment recovery unavailable".into())
+                    })?
+            }
             None if effect_source.is_none() => {
                 return Err(DaemonError::Bootstrap(
                     "provider credential reader unavailable".into(),
