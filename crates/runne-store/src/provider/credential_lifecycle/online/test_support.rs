@@ -5,7 +5,8 @@ use runne_provider::{
     CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
     CredentialOperationAction, CredentialOperationId, CredentialReadbackDisposition,
     CredentialReadinessDisposition, CredentialReadinessObservation, CredentialReadinessRevision,
-    CredentialTicketAttempt, CredentialVersionRef, IssueCredentialTicketDigest,
+    CredentialEnrollmentAuthorityPair, CredentialTicketAttempt, CredentialVersionRef,
+    IssueCredentialTicketDigest,
     IssuedCredentialTicketAttempt, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
     ProviderId,
 };
@@ -40,6 +41,7 @@ pub(super) fn begin_with_operation(
         expiry,
     )
     .unwrap()
+    .with_qualified_release_tuple(qualified_release(92))
 }
 
 pub(super) fn store() -> SqliteProviderCredentialLifecycleStore {
@@ -48,7 +50,7 @@ pub(super) fn store() -> SqliteProviderCredentialLifecycleStore {
     open_test_store(&path, 100)
 }
 
-pub(super) fn provider() -> ProviderId {
+pub(crate) fn provider() -> ProviderId {
     ProviderId::new("openai").unwrap()
 }
 
@@ -137,6 +139,7 @@ pub(super) fn revoke(
         200,
     )
     .unwrap()
+    .with_qualified_release_tuple(qualified_release(92))
 }
 
 pub(super) fn admit_claim(store: &SqliteProviderCredentialLifecycleStore, id: u8, key: &str) {
@@ -163,7 +166,7 @@ pub(super) fn admit_claim(store: &SqliteProviderCredentialLifecycleStore, id: u8
     .unwrap();
 }
 
-pub(super) fn complete_pair(store: &SqliteProviderCredentialLifecycleStore, id: u8, key: &str) {
+pub(crate) fn complete_pair(store: &SqliteProviderCredentialLifecycleStore, id: u8, key: &str) {
     admit_claim(store, id, key);
     ProviderCredentialEnrollmentStore::mark_native_effect_observed(
         store,
@@ -194,7 +197,7 @@ pub(super) fn pair_completion(id: u8) -> CompleteCredentialOperation {
         CredentialReadinessRevision::new(2).unwrap(),
         CredentialReadinessDisposition::Ready,
         Some(active_digest),
-        digest(id.wrapping_add(6)),
+        qualified_release(92).digest(),
         100,
     )
     .unwrap();
@@ -264,5 +267,12 @@ fn receipt(
             issued_at,
             expires_at,
         )
+        .unwrap()
+}
+pub(super) fn qualified_release(value: u8) -> runne_provider::CredentialQualifiedReleaseTuple {
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let manifest = measurements.release_manifest_digest([value; 32]).unwrap();
+    measurements
+        .issue_qualified_credential_release_tuple(manifest)
         .unwrap()
 }

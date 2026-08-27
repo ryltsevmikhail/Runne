@@ -1,7 +1,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use runne_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
+use runne_application::provider::{
+    ProviderAuthorityIssueRequest, ProviderJournalKeyBinding, ProviderLeaseBindingKind,
+};
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchAttemptId, ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord,
@@ -11,24 +13,26 @@ use runne_provider::{
 use runne_runtime::provider_execution::ProviderEventJournalContext;
 use runne_store::provider::{
     MarkProviderStreaming, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderRuntimeAuthorityConfig, SqliteProviderExecutionStore,
+    ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderExecutionStore,
 };
 
 use crate::validated_reopen::ProviderTestDatabase;
 
-use super::task5_support::SECRET;
+use super::task5_support::{MemoryKeyring, SECRET};
 
 pub(super) struct Task5ProductionFixture {
     database: ProviderTestDatabase,
     execution: Arc<SqliteProviderExecutionStore>,
+    launch: ProviderRuntimeLaunchCapability,
     request: ProviderAuthorityIssueRequest,
     attempt: DispatchAttemptId,
     context: ProviderEventJournalContext,
     stream: ProviderStreamId,
+    journal_key: ProviderJournalKeyBinding,
 }
 
 impl Task5ProductionFixture {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(keyring: &MemoryKeyring) -> Self {
         let database = ProviderTestDatabase::new("provider-task5-production");
         let call = ProviderCall::new(
             ProviderCallId::from_bytes([4; 16]),
@@ -51,13 +55,17 @@ impl Task5ProductionFixture {
             render_digest: *prepared.render_digest(),
             profile_digest: [2; 32],
         };
-        let dispatch = database.dispatch();
-        dispatch.persist_prepared(&prepared_record).unwrap();
         let execution = Arc::new(database.execution());
-        execution
-            .install_runtime_authority(&runtime_authority())
+        let launch = execution
+            .activate_runtime_launch(&runtime_authority())
             .unwrap();
+        let dispatch = database.dispatch();
+        dispatch
+            .persist_prepared(&launch, &prepared_record)
+            .unwrap();
+        let journal_key = crate::online_proof::arm_with_keyring(execution.as_ref(), keyring, 7);
         let request = ProviderAuthorityIssueRequest {
+            provider_id: call.model_ref().provider_id().clone(),
             principal_id: "principal-1".into(),
             conversation_id: ConversationId::from_bytes([6; 16]),
             taskrun_id: TaskRunId::from_bytes([7; 16]),
@@ -76,7 +84,8 @@ impl Task5ProductionFixture {
             currency: "USD".into(),
             provider_idempotency_key: "provider-task5-production-1".into(),
         };
-        let ProviderAuthorityIssueOutcome::Winner(admitted) = execution.issue(&request).unwrap()
+        let ProviderAuthorityIssueOutcome::Winner(admitted) =
+            execution.issue(&launch, &request).unwrap()
         else {
             panic!("first issue must win")
         };
@@ -95,9 +104,7 @@ impl Task5ProductionFixture {
                 100,
             )
             .unwrap();
-        let receipt = execution
-            .start_effect(admitted.claim(), &binding)
-            .unwrap();
+        let receipt = execution.start_effect(admitted.claim(), &binding).unwrap();
         assert!(receipt.matches_claim(admitted.claim()));
         let attempt = admitted.claim().attempt_id;
         let fencing_token = admitted.claim().fencing_token;
@@ -119,10 +126,12 @@ impl Task5ProductionFixture {
         Self {
             database,
             execution,
+            launch,
             request,
             attempt,
             context,
             stream,
+            journal_key,
         }
     }
 
@@ -144,6 +153,10 @@ impl Task5ProductionFixture {
 
     pub(super) const fn stream(&self) -> &ProviderStreamId {
         &self.stream
+    }
+
+    pub(super) const fn journal_key(&self) -> ProviderJournalKeyBinding {
+        self.journal_key
     }
 
     pub(super) fn persisted_counts(&self) -> (i64, i64, i64, i64) {
@@ -206,7 +219,7 @@ impl Task5ProductionFixture {
     }
 
     pub(super) fn retry_idempotency_state(&self) -> ProviderRepositoryState {
-        match self.execution.issue(&self.request).unwrap() {
+        match self.execution.issue(&self.launch, &self.request).unwrap() {
             ProviderAuthorityIssueOutcome::Existing { state } => state,
             ProviderAuthorityIssueOutcome::Winner(_) => panic!("retry minted duplicate authority"),
         }

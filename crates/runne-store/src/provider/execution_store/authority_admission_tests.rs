@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use runne_application::provider::{ProviderAdmissionError, ProviderLeaseBindingKind};
+use runne_application::provider::ProviderLeaseBindingKind;
 use rusqlite::Connection;
 
 use super::authority_test_support::{Fixture, config, prepare_request};
@@ -248,18 +248,21 @@ fn migrated_v13_rows_are_legacy_unbound_readable_and_inactive_until_revalidated(
     assert_eq!(admission, ("legacy_unbound".into(), vec![0; 32]));
     drop(legacy);
 
+    let launch = reopened.activate_runtime_launch(&config()).unwrap();
+    super::online_proof_test_support::arm(&reopened);
     assert_eq!(
-        reopened.issue(&prepare_request(&path, 1)).unwrap(),
+        reopened
+            .issue(&launch, &prepare_request(&launch, &path, 1))
+            .unwrap(),
         ProviderAuthorityIssueOutcome::Existing {
             state: runne_provider::ProviderRepositoryState::Dispatching,
         }
     );
-    assert_eq!(
-        reopened.issue(&prepare_request(&path, 2)),
-        Err(ProviderAdmissionError::AuthorityDenied)
+    assert!(
+        reopened
+            .issue(&launch, &prepare_request(&launch, &path, 2))
+            .is_ok()
     );
-    reopened.install_runtime_authority(&config()).unwrap();
-    assert!(reopened.issue(&prepare_request(&path, 2)).is_ok());
 }
 
 fn table_columns(connection: &Connection, table: &str) -> Vec<String> {

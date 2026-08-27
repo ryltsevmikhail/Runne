@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn post_dispatch_stream_persistence_failure_is_uncertain() {
-    let (database, dispatch, execution, credential, request) = fixture();
+    let (database, dispatch, execution, credential, launch, request) = fixture();
     database
         .connection()
         .execute_batch(
@@ -15,7 +15,7 @@ fn post_dispatch_stream_persistence_failure_is_uncertain() {
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &Guard(true),

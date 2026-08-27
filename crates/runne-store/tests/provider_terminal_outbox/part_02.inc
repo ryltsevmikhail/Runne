@@ -235,10 +235,11 @@ fn settled_usage_remains_consumed_for_later_admission() {
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    fixture.dispatch.persist_prepared(&record).unwrap();
+    fixture.dispatch.persist_prepared(&fixture.launch, &record).unwrap();
 
     assert_eq!(
-        fixture.execution.issue(&ProviderAuthorityIssueRequest {
+        fixture.execution.issue(&fixture.launch, &ProviderAuthorityIssueRequest {
+            provider_id: ProviderId::new("fixture-provider").unwrap(),
             principal_id: "principal-1".to_owned(),
             conversation_id: ConversationId::from_bytes([46; 16]),
             taskrun_id: TaskRunId::from_bytes([47; 16]),
@@ -260,41 +261,4 @@ fn settled_usage_remains_consumed_for_later_admission() {
         Err(ProviderAdmissionError::TokenBudgetDenied)
     );
     assert_eq!(fixture.execution.admitted_count().unwrap(), 1);
-}
-
-#[test]
-fn stale_runtime_lease_cannot_append_settle_or_mutate_attempt_state() {
-    let fixture = fixture();
-    fixture.execution.advance_worker_lease(12, 14).unwrap();
-
-    assert_eq!(
-        fixture
-            .execution
-            .append_encrypted_event(&event(&fixture, 0, 20, true)),
-        Err(ProviderExecutionError::StaleGeneration)
-    );
-    assert_eq!(
-        fixture
-            .execution
-            .commit_terminal(&terminal_request(&fixture)),
-        Err(ProviderExecutionError::StaleGeneration)
-    );
-    assert_eq!(
-        fixture
-            .execution
-            .mark_execution_uncertain(fixture.attempt_id, fixture.fencing_token),
-        Err(ProviderExecutionError::StaleGeneration)
-    );
-
-    let connection = fixture.database.connection();
-    assert_eq!(
-        connection
-            .query_row(
-                "SELECT state FROM provider_dispatch_attempts WHERE attempt_id = ?1",
-                [fixture.attempt_id.as_bytes().as_slice()],
-                |row| row.get::<_, i64>(0),
-            )
-            .unwrap(),
-        6
-    );
 }

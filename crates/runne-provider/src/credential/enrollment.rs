@@ -1,10 +1,12 @@
 mod authority;
 mod binding;
+mod completion_receipt;
 mod identity;
 mod metadata;
 mod operation;
 mod operation_metadata;
 mod protocol;
+mod qualified_release;
 mod snapshot;
 mod state;
 mod store;
@@ -28,6 +30,7 @@ pub use binding::{
     WriterIdentityMigrationPhase, WriterLaunchId, WriterProcessHandleIdentity,
     WriterProcessStartIdentity,
 };
+pub use completion_receipt::CredentialCompletionReceipt;
 pub use identity::{
     CredentialBindingDigest, CredentialFence, CredentialInstallationOwnerId,
     CredentialLifecycleRevision, CredentialOperationId, CredentialTicketAttempt,
@@ -50,6 +53,7 @@ pub use protocol::{
     CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame,
     CredentialBrokerFrameCodec, CredentialBrokerTarget,
 };
+pub use qualified_release::CredentialQualifiedReleaseTuple;
 pub use snapshot::{
     CredentialLifecycleSnapshot, CredentialOperationSnapshot, CredentialRecoveryWork,
     HardFenceProvider,

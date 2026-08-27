@@ -1,10 +1,12 @@
 use runne_provider::{
-    ClaimCredentialOperation, CredentialOperationAction, CredentialOperationState,
-    ProviderCredentialEnrollmentStore,
+    ClaimCredentialOperation, CredentialEnrollmentAuthorityPair, CredentialFence,
+    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
+    CredentialOperationState, CredentialProcessBinding, ProviderCredentialEnrollmentStore,
+    WriterIdentityMigrationPhase,
 };
 
 use super::online_claim_test_support::seal_claim;
-use super::online_test_support::{digest, store, ticket};
+use super::online_test_support::{digest, qualified_release, store, ticket};
 
 #[test]
 fn every_versionless_action_can_win_the_durable_claim_cas() {
@@ -57,9 +59,49 @@ fn insert_operation(
     action: &str,
     phase: Option<&str>,
 ) {
-    let migration_id = phase.map(|_| vec![90_u8; 16]);
-    let old_tuple = phase.map(|_| vec![91_u8; 32]);
-    let new_tuple = phase.map(|_| vec![92_u8; 32]);
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let migration = phase.map(|phase| {
+        let phase = match phase {
+            "EFFECT" => WriterIdentityMigrationPhase::OldWriterEffect,
+            "VERIFY" => WriterIdentityMigrationPhase::NewWriterVerify,
+            _ => unreachable!("fixture phase is closed"),
+        };
+        let process = CredentialProcessBinding::new(
+            measurements
+                .writer_process_start_identity([id; 32])
+                .unwrap(),
+            measurements
+                .writer_process_handle_identity([id.wrapping_add(10); 32])
+                .unwrap(),
+        );
+        measurements
+            .issue_credential_release_migration_binding(
+                CredentialOperationId::from_bytes([90; 16]).unwrap(),
+                phase,
+                digest(91),
+                digest(92),
+                digest(93),
+                digest(94),
+                1,
+                CredentialLifecycleRevision::new(1).unwrap(),
+                CredentialFence::new(1).unwrap(),
+                process,
+            )
+            .unwrap()
+    });
+    let migration_id = migration
+        .as_ref()
+        .map(|binding| binding.migration_id().as_bytes().to_vec());
+    let old_tuple = migration
+        .as_ref()
+        .map(|binding| binding.old_tuple_digest().as_bytes().to_vec());
+    let new_tuple = migration
+        .as_ref()
+        .map(|binding| binding.new_tuple_digest().as_bytes().to_vec());
+    let migration_binding = migration
+        .as_ref()
+        .map(|binding| binding.digest().as_bytes().to_vec());
+    let qualified_release = qualified_release(92);
     let connection = store.connection.lock().unwrap();
     connection
         .execute(
@@ -77,9 +119,11 @@ fn insert_operation(
               expected_lifecycle_revision, expected_credential_fence, state,
               begin_proof_digest, begin_proof_expires_at_high_water, migration_id, migration_phase,
               migration_old_tuple_digest, migration_new_tuple_digest,
+              broker_migration_binding_digest,
+              qualified_release_tuple_digest,
               created_at, updated_at)
              VALUES (?1, X'0101010101010101010101010101010101010101010101010101010101010101', 'openai', ?2, ?1, ?3, 1, 1, 'PREPARED', ?4, 200,
-                     ?5, ?6, ?7, ?8, 100, 100)",
+                     ?5, ?6, ?7, ?8, ?9, ?10, 100, 100)",
             rusqlite::params![
                 [id; 16],
                 action,
@@ -89,6 +133,8 @@ fn insert_operation(
                 phase,
                 old_tuple,
                 new_tuple,
+                migration_binding,
+                qualified_release.digest().as_bytes().as_slice(),
             ],
         )
         .unwrap();

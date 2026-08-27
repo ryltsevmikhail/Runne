@@ -1,5 +1,5 @@
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
-use runne_provider::{MAX_PROVIDER_USAGE_TOKENS, PreparedProviderRecord};
+use runne_provider::{MAX_PROVIDER_USAGE_TOKENS, PreparedProviderRecord, ProviderId};
 
 use super::ProviderAdmissionError;
 
@@ -10,6 +10,8 @@ use super::ProviderAdmissionError;
 /// the concrete runtime-owned store.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderAuthorityIssueRequest {
+    /// Canonical provider selected before preparation and admission.
+    pub provider_id: ProviderId,
     /// Authenticated principal identity from command context.
     pub principal_id: String,
     /// Owning Conversation aggregate.

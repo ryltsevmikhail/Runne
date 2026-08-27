@@ -3831,6 +3831,7 @@ dependencies = [
  "runne-domain",
  "runne-pairing-crypto",
  "runne-provider",
+ "runne-secure-store",
  "serde_json",
  "sha2",
  "subtle",
@@ -4209,6 +4210,9 @@ dependencies = [
 [[package]]
 name = "runne-platform-ports"
 version = "0.1.0"
+dependencies = [
+ "zeroize",
+]
 
 [[package]]
 name = "runne-plugin-host"

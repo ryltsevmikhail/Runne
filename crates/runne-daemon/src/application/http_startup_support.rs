@@ -16,8 +16,3 @@ pub(super) fn operational_telemetry_state(
         binding.ephemeral().launch_generation(),
     ))
 }
-
-pub(super) const fn provider_credential_control()
--> super::provider_credential_control::DaemonProviderCredentialControl {
-    super::provider_credential_control::DaemonProviderCredentialControl::new()
-}

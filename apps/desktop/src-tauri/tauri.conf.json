@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "cargo build -p runne-daemon && pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm stage:bundled-daemon && pnpm build",
+    "beforeBuildCommand": "pnpm stage:bundled-daemon && pnpm stage:bundled-cli && pnpm build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -39,7 +39,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/runned"
+      "binaries/runned",
+      "binaries/runne"
     ],
     "macOS": {
       "hardenedRuntime": true,

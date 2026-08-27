@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use super::super::{PreparedProviderRecord, SqliteProviderDispatchStore};
@@ -74,9 +75,14 @@ pub(super) struct Fixture {
     pub(super) clock: Arc<TestClock>,
     pub(super) store: SqliteProviderExecutionStore,
     pub(super) config: ProviderRuntimeAuthorityConfig,
+    launch: OnceLock<crate::provider::ProviderRuntimeLaunchCapability>,
 }
 
 impl Fixture {
+    pub(super) fn new_unarmed(now: i64) -> Self {
+        Self::new(now)
+    }
+
     pub(super) fn new(now: i64) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let daemon = directory.path().join("runne-daemon");
@@ -105,11 +111,25 @@ impl Fixture {
             clock,
             store,
             config: config(),
+            launch: OnceLock::new(),
         }
     }
 
     pub(super) fn install(&self) {
-        self.store.install_runtime_authority(&self.config).unwrap();
+        let launch = self.store.activate_runtime_launch(&self.config).unwrap();
+        self.launch.set(launch).ok().unwrap();
+        super::online_proof_test_support::arm(&self.store);
+    }
+
+    pub(super) fn launch(&self) -> &crate::provider::ProviderRuntimeLaunchCapability {
+        self.launch.get().expect("fixture runtime launch is active")
+    }
+
+    pub(super) fn activate(
+        &self,
+        config: &ProviderRuntimeAuthorityConfig,
+    ) -> crate::provider::ProviderRuntimeLaunchCapability {
+        self.store.activate_runtime_launch(config).unwrap()
     }
 
     pub(super) fn issue(
@@ -117,8 +137,17 @@ impl Fixture {
         discriminator: u8,
     ) -> Result<ProviderAuthorityIssueOutcome, runne_application::provider::ProviderAdmissionError>
     {
-        let request = prepare_request(&self.path, discriminator);
-        self.store.issue(&request)
+        self.issue_with(self.launch(), discriminator)
+    }
+
+    pub(super) fn issue_with(
+        &self,
+        launch: &crate::provider::ProviderRuntimeLaunchCapability,
+        discriminator: u8,
+    ) -> Result<ProviderAuthorityIssueOutcome, runne_application::provider::ProviderAdmissionError>
+    {
+        let request = prepare_request(launch, &self.path, discriminator);
+        self.store.issue(launch, &request)
     }
 
     pub(super) fn credential(
@@ -184,15 +213,23 @@ pub(super) fn config() -> ProviderRuntimeAuthorityConfig {
     }
 }
 
-pub(super) fn prepare_request(path: &Path, discriminator: u8) -> ProviderAuthorityIssueRequest {
+pub(super) fn prepare_request(
+    launch: &crate::provider::ProviderRuntimeLaunchCapability,
+    path: &Path,
+    discriminator: u8,
+) -> ProviderAuthorityIssueRequest {
+    prepare_request_for_provider(launch, path, discriminator, "fixture-provider")
+}
+
+pub(super) fn prepare_request_for_provider(
+    launch: &crate::provider::ProviderRuntimeLaunchCapability,
+    path: &Path,
+    discriminator: u8,
+    provider: &str,
+) -> ProviderAuthorityIssueRequest {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([discriminator; 16]),
-        ModelRef::new(
-            ProviderId::new("fixture-provider").unwrap(),
-            "fixture-model",
-            "v1",
-        )
-        .unwrap(),
+        ModelRef::new(ProviderId::new(provider).unwrap(), "fixture-model", "v1").unwrap(),
         [5; 32],
         1_024,
         serde_json::Value::Null,
@@ -209,9 +246,10 @@ pub(super) fn prepare_request(path: &Path, discriminator: u8) -> ProviderAuthori
     let path_text = path.to_str().unwrap();
     SqliteProviderDispatchStore::open_with_connection(path_text, configured_connection(path))
         .unwrap()
-        .persist_prepared(&record)
+        .persist_prepared(launch, &record)
         .unwrap();
     ProviderAuthorityIssueRequest {
+        provider_id: ProviderId::new(provider).unwrap(),
         principal_id: "principal-1".into(),
         conversation_id: ConversationId::from_bytes([6; 16]),
         taskrun_id: TaskRunId::from_bytes([7; 16]),

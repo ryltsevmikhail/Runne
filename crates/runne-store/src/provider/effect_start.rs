@@ -7,6 +7,12 @@ use runne_provider::ProviderDispatchClaim;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 include!("effect_start/receipt.rs");
+mod online;
+mod online_proof;
+mod online_receipt;
+
+pub(super) use online::start_online_effect;
+pub(crate) use online_receipt::ProviderOnlineEffectStartReceipt;
 
 pub(super) fn start_effect(
     connection: &mut ManagedConnection,

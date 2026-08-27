@@ -1,15 +1,17 @@
 use std::sync::{Arc, Barrier};
 
+use runne_domain::id::{CommandId, IdempotencyKey};
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, CredentialBindingDigest,
     CredentialFence, CredentialInstallationOwnerId, CredentialLifecycleError,
     CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
     CredentialVersionRef, ProviderCredentialEnrollmentStore, ProviderId,
 };
-use runne_domain::id::{CommandId, IdempotencyKey};
 
 use super::online_claim_test_support::{open_test_store, reopen_test_store};
-use super::online_test_support::{begin, begin_with_operation, complete_pair, revoke};
+use super::online_test_support::{
+    begin, begin_with_operation, complete_pair, qualified_release, revoke,
+};
 
 #[test]
 fn credential_online_begin_first_commit_returns_fresh_winner() {
@@ -29,11 +31,14 @@ fn credential_online_begin_restart_replay_returns_exact_replay() {
     drop(store);
     let restarted = open_test_store(&path, 100);
     let replay = ProviderCredentialEnrollmentStore::begin(
-            &restarted,
-            begin_with_operation(72, 74, "replay", 73, 200)
-        )
-        .unwrap();
-    assert!(matches!(&replay, BeginCredentialOperationOutcome::ExactReplay(_)));
+        &restarted,
+        begin_with_operation(72, 74, "replay", 73, 200),
+    )
+    .unwrap();
+    assert!(matches!(
+        &replay,
+        BeginCredentialOperationOutcome::ExactReplay(_)
+    ));
     assert_eq!(
         replay.snapshot().operation_id(),
         CredentialOperationId::from_bytes([72; 16]).unwrap()
@@ -95,7 +100,18 @@ fn credential_online_begin_replay_requires_every_immutable_field() {
     }
 }
 
-type ReplayCase = (u8, u8, &'static str, u8, &'static str, u64, u64, u64, u8, u64);
+type ReplayCase = (
+    u8,
+    u8,
+    &'static str,
+    u8,
+    &'static str,
+    u64,
+    u64,
+    u64,
+    u8,
+    u64,
+);
 
 fn replay_input(
     (command, operation, key, owner, provider, allocated, revision, fence, proof, expiry): ReplayCase,
@@ -116,6 +132,7 @@ fn replay_input(
         expiry,
     )
     .unwrap()
+    .with_qualified_release_tuple(qualified_release(92))
 }
 
 #[test]

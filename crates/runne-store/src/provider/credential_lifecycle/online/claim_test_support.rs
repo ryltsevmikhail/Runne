@@ -13,7 +13,7 @@ thread_local! {
         RefCell::new(HashMap::new());
 }
 
-pub(super) fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
+pub(crate) fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
     let store = SqliteProviderCredentialLifecycleStore::open_with_authorities_and_now(
@@ -30,7 +30,7 @@ pub(super) fn open_test_store(path: &Path, now: i64) -> SqliteProviderCredential
     store
 }
 
-pub(super) fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
+pub(crate) fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifecycleStore {
     let (lifecycle, _) = CredentialAuthorityPair::new().split();
     let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
     let connection = open_test_shared_writer(path).unwrap();

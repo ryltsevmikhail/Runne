@@ -11,6 +11,10 @@ use std::{
 use thiserror::Error;
 use tokio::sync::oneshot;
 
+#[path = "destructive_intent/approval.rs"]
+mod approval;
+pub use approval::{ApprovalIntentId, ApprovalIntentManager};
+
 const MAX_INTENTS: usize = 64;
 const MAX_INTENT_TTL: Duration = Duration::from_secs(30);
 #[derive(Clone)]
@@ -217,3 +221,6 @@ fn random_reference() -> String {
 mod tests {
     include!("destructive_intent_parts/tests.rs");
 }
+
+#[cfg(test)]
+mod approval_intent_tests;

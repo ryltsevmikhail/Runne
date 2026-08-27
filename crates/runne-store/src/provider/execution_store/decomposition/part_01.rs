@@ -1,11 +1,13 @@
 use std::fmt::Write as _;
 use std::path::Path;
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
-#[cfg(test)]
 use std::sync::Barrier;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use rand::RngCore;
+use rand::rngs::OsRng;
 use runne_application::provider::{
     ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderBudgetUtilization,
     ProviderEffectAuthorityRef, ProviderEncryptedPayload, ProviderExecutionError,
@@ -20,14 +22,16 @@ use runne_provider::{
 use runne_runtime::provider_execution::{
     ProviderTerminalCommitRequest, ProviderTerminalPersistence,
 };
-use rand::RngCore;
-use rand::rngs::OsRng;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
 
+use super::OnlineEffectStartBinding;
 use super::authority_config::ProviderRuntimeAuthorityConfig;
 use super::authority_state::{RuntimeAuthorityState, binding_kind, load_utilization};
-use super::effect_start::{ProviderEffectStartReceipt, start_effect};
+use super::runtime_launch_capability::ProviderRuntimeLaunchCapability;
+use super::effect_start::{
+    ProviderEffectStartReceipt, ProviderOnlineEffectStartReceipt, start_effect, start_online_effect,
+};
 use crate::schema::{
     ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
     publication_from_managed, readiness_from_managed,
@@ -39,6 +43,7 @@ const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"GOCODE_PROVIDER_EXECUTION_SEMANT
 pub struct SqliteProviderExecutionStore {
     pub(super) connection: Mutex<ManagedConnection>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    pub(super) online_effect_proof: OnlineEffectProofState,
     #[cfg(test)]
     fail_effect_readback: AtomicBool,
     #[cfg(test)]

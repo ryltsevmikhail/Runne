@@ -1,5 +1,5 @@
 #[test]
-fn released_v1_v24_migration_bytes_are_unchanged() {
+fn released_v1_v25_migration_bytes_are_unchanged() {
     let migrations = [
         MIGRATION_V1,
         MIGRATION_V2,
@@ -25,13 +25,14 @@ fn released_v1_v24_migration_bytes_are_unchanged() {
         MIGRATION_V22,
         MIGRATION_V23,
         MIGRATION_V24,
+        MIGRATION_V25,
     ];
     let actual = migrations.map(|migration| {
         let mut digest = Sha256::new();
         digest.update(migration.as_bytes());
         format!("{:x}", digest.finalize())
     });
-    assert_eq!(CURRENT_SCHEMA_VERSION, 25);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 28);
     assert_eq!(
         actual,
         [
@@ -59,6 +60,23 @@ fn released_v1_v24_migration_bytes_are_unchanged() {
             "3f735024c6a874c8fa45b0bf70f5193ddd596b3e96010fd4dba2da70de50dbef",
             "a2d2fcfbfca0aba790816d9415576a48ba8289ec68d0281ef6526a44fc9d8266",
             "6dbb769ba132d11d851d4263d4797a99eec50b7e807e740721df7efc6b39a654",
+            "fd6be0f80740697ed47f12e599a34211186f5946b3464843dfbd24fe8004e4d2",
         ]
+    );
+}
+
+#[test]
+fn released_v26_migration_bytes_are_unchanged() {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(MIGRATION_V26.as_bytes())),
+        "d05eba44ea3e9a85f7ee4706cef15487495c2b911d0c302966810ec7c75fe7c7"
+    );
+}
+
+#[test]
+fn released_v27_migration_bytes_are_unchanged() {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(MIGRATION_V27.as_bytes())),
+        "6edf39fadbddbaf89c613dbfabd77a13a2938682b97d859481abbf0717f0a9b8"
     );
 }

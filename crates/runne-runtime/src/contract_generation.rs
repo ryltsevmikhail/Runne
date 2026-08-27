@@ -49,6 +49,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "golden/workspace-diffs.json",
     "golden/workspace-files.json",
     "openapi.json",
+    "schemas/approval-v1.schema.json",
     "schemas/local-runtime-profile-v3.schema.json",
     "schemas/local-session-v2.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
@@ -87,6 +88,8 @@ include!("contract_generation/local_schemas.rs");
 include!("contract_generation/operational_telemetry_schema.rs");
 include!("contract_generation/task_run_schema.rs");
 include!("contract_generation/task_run_openapi.rs");
+include!("contract_generation/approval_schema.rs");
+include!("contract_generation/approval_openapi.rs");
 include!("contract_generation/project_workspace_schema.rs");
 include!("contract_generation/project_workspace_openapi.rs");
 include!("contract_generation/workspace_files_schema.rs");

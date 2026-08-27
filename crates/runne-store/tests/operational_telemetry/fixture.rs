@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use runne_application::provider::{
-    ProviderAuthorityIssueRequest, ProviderLeaseBindingKind, ProviderOperationalTelemetryScope,
+    ProviderAuthorityIssueRequest, ProviderExecutionStore, ProviderJournalKeyBinding,
+    ProviderLeaseBindingKind, ProviderOperationalTelemetryScope,
     ProviderOperationalTelemetrySource,
 };
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
@@ -10,10 +11,14 @@ use runne_provider::{
     PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
     ProviderCallId, ProviderCredentialVersionStore, ProviderId,
 };
+use runne_secure_store::{
+    ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
+    ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
+};
 use runne_store::provider::{
     PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
-    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchStore,
-    SqliteProviderExecutionStore,
+    ProviderRuntimeLaunchCapability, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use runne_store::schema::{
     ConnectionMode, ManagedConnection, open_managed_connection, reopen_managed_connection_validated,
@@ -24,6 +29,7 @@ pub(super) struct Fixture {
     directory: tempfile::TempDir,
     path: PathBuf,
     store: SqliteProviderExecutionStore,
+    launch: ProviderRuntimeLaunchCapability,
 }
 
 impl Fixture {
@@ -44,11 +50,13 @@ impl Fixture {
         }
         let path = daemon.join(file_name);
         let store = SqliteProviderExecutionStore::open(&path).unwrap();
-        store.install_runtime_authority(&config()).unwrap();
+        let launch = store.activate_runtime_launch(&config()).unwrap();
+        arm_online_proof(&store);
         Self {
             directory,
             path,
             store,
+            launch,
         }
     }
 
@@ -58,18 +66,19 @@ impl Fixture {
     }
 
     pub(super) fn issue(&self, discriminator: u8) {
-        let record = record(&self.path, discriminator);
+        let record = record(&self.launch, &self.path, discriminator);
         let request = request(record, discriminator);
         assert!(matches!(
-            self.store.issue(&request).unwrap(),
+            self.store.issue(&self.launch, &request).unwrap(),
             ProviderAuthorityIssueOutcome::Winner(_)
         ));
     }
 
     pub(super) fn issue_and_start_effect(&self, discriminator: u8) {
-        let record = record(&self.path, discriminator);
+        let record = record(&self.launch, &self.path, discriminator);
         let request = request(record, discriminator);
-        let ProviderAuthorityIssueOutcome::Winner(admission) = self.store.issue(&request).unwrap()
+        let ProviderAuthorityIssueOutcome::Winner(admission) =
+            self.store.issue(&self.launch, &request).unwrap()
         else {
             panic!("expected a new admission");
         };
@@ -99,6 +108,66 @@ impl Fixture {
     > {
         self.store.read_durable_operational_telemetry(scope())
     }
+}
+
+struct OnlineProofKeyring;
+
+impl ProviderJournalKeyring for OnlineProofKeyring {
+    fn retains_multiple_provider_journal_keys(&self) -> bool {
+        true
+    }
+
+    fn store_provider_journal_key(
+        &self,
+        _: &ProviderJournalKeyMaterial,
+    ) -> Result<(), SecureStoreError> {
+        Ok(())
+    }
+
+    fn load_provider_journal_key(
+        &self,
+        key: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
+        if key == online_proof_key_ref() {
+            ProviderJournalKeyMaterial::new(key, [7; 32])
+        } else {
+            Err(SecureStoreError::ProviderJournalKeyNotFound)
+        }
+    }
+
+    fn delete_provider_journal_key(
+        &self,
+        _: ProviderJournalKeyRef,
+        _: ProviderJournalKeyDeletionProof,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::DeletionDenied)
+    }
+
+    fn provider_journal_key_status(
+        &self,
+        key: ProviderJournalKeyRef,
+    ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
+        Ok(if key == online_proof_key_ref() {
+            ProviderJournalKeyStatus::Available
+        } else {
+            ProviderJournalKeyStatus::Missing
+        })
+    }
+}
+
+fn online_proof_key_ref() -> ProviderJournalKeyRef {
+    ProviderJournalKeyRef::new([9; 16], 1, [1; 16], 7).unwrap()
+}
+
+fn arm_online_proof(store: &SqliteProviderExecutionStore) {
+    let keyring = OnlineProofKeyring;
+    let binding = ProviderJournalKeyBinding::new([9; 16], 1, [1; 16], 7).unwrap();
+    store
+        .activate_journal_key_with_keyring(&keyring, binding)
+        .unwrap();
+    store
+        .install_online_effect_proof_capability(&keyring, binding)
+        .unwrap();
 }
 
 fn scope() -> ProviderOperationalTelemetryScope {
@@ -133,7 +202,11 @@ fn config() -> ProviderRuntimeAuthorityConfig {
     }
 }
 
-fn record(path: &Path, discriminator: u8) -> PreparedProviderRecord {
+fn record(
+    launch: &ProviderRuntimeLaunchCapability,
+    path: &Path,
+    discriminator: u8,
+) -> PreparedProviderRecord {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([discriminator; 16]),
         ModelRef::new(
@@ -160,7 +233,7 @@ fn record(path: &Path, discriminator: u8) -> PreparedProviderRecord {
         configured_connection(path),
     )
     .unwrap()
-    .persist_prepared(&record)
+    .persist_prepared(launch, &record)
     .unwrap();
     record
 }
@@ -192,6 +265,7 @@ fn configured_connection(path: &Path) -> ManagedConnection {
 
 fn request(record: PreparedProviderRecord, discriminator: u8) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
+        provider_id: ProviderId::new("fixture-provider").unwrap(),
         principal_id: "principal-1".into(),
         conversation_id: ConversationId::from_bytes([6; 16]),
         taskrun_id: TaskRunId::from_bytes([7; 16]),

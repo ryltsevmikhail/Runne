@@ -72,30 +72,17 @@ fn get_provider_status(
 }
 
 #[tauri::command]
-async fn pair_provider_credential(
-    state: tauri::State<'_, std::sync::Arc<AppCore>>,
-    provider: String,
-    credential: String,
-) -> Result<runne_app_core::CanonicalProviderCredentialMutation, IpcError> {
-    state
-        .pair_provider_credential(&provider, credential.into_bytes())
-        .await
-        .map_err(|_| IpcError {
-            code: "provider_credential_pair_rejected",
-        })
-}
-
-#[tauri::command]
-async fn revoke_provider_credential(
-    state: tauri::State<'_, std::sync::Arc<AppCore>>,
-    provider: String,
-) -> Result<runne_app_core::CanonicalProviderCredentialMutation, IpcError> {
-    state
-        .revoke_provider_credential(&provider)
-        .await
-        .map_err(|_| IpcError {
-            code: "provider_credential_revoke_rejected",
-        })
+fn request_provider_credential_intent(
+    request: crate::provider_credential_enrollment::CredentialIntentIpc,
+) -> Result<crate::provider_credential_enrollment::CredentialIntentProjection, IpcError> {
+    if !request.valid() {
+        return Err(IpcError {
+            code: "provider_credential_intent_rejected",
+        });
+    }
+    // Step 5 waits for Tasks 6/9/10. Never substitute the legacy AppCore
+    // credential route while the trusted prompt/channel wiring is unavailable.
+    Ok(crate::provider_credential_enrollment::CredentialIntentProjection::Unavailable)
 }
 
 #[tauri::command]

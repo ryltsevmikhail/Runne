@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    ProviderCredentialLastDispositionV2, ProviderCredentialOperationIdV2,
+    ProviderCredentialLastDispositionV2, ProviderCredentialOperationHandleV2,
     ProviderCredentialProviderV2, ProviderCredentialValidationErrorV2,
 };
 
@@ -41,7 +41,8 @@ pub enum ProviderCredentialOperationStateV2 {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", try_from = "OperationSnapshotWire")]
 pub struct ProviderCredentialOperationSnapshotV2 {
-    operation_id: ProviderCredentialOperationIdV2,
+    #[serde(rename = "operationId")]
+    operation_handle: ProviderCredentialOperationHandleV2,
     broker_rendezvous_id: Option<String>,
     provider_id: ProviderCredentialProviderV2,
     operation_kind: ProviderCredentialOperationKindV2,
@@ -56,7 +57,7 @@ impl ProviderCredentialOperationSnapshotV2 {
     /// Constructs one validated safe operation response.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        operation_id: ProviderCredentialOperationIdV2,
+        operation_handle: ProviderCredentialOperationHandleV2,
         broker_rendezvous_id: Option<String>,
         provider_id: ProviderCredentialProviderV2,
         operation_kind: ProviderCredentialOperationKindV2,
@@ -67,7 +68,7 @@ impl ProviderCredentialOperationSnapshotV2 {
         last_disposition: Option<ProviderCredentialLastDispositionV2>,
     ) -> Result<Self, ProviderCredentialValidationErrorV2> {
         Self::try_from(OperationSnapshotWire {
-            operation_id,
+            operation_handle,
             broker_rendezvous_id,
             provider_id,
             operation_kind,
@@ -79,8 +80,8 @@ impl ProviderCredentialOperationSnapshotV2 {
         })
     }
 
-    pub const fn operation_id(&self) -> ProviderCredentialOperationIdV2 {
-        self.operation_id
+    pub const fn operation_handle(&self) -> ProviderCredentialOperationHandleV2 {
+        self.operation_handle
     }
     pub fn broker_rendezvous_id(&self) -> Option<&str> {
         self.broker_rendezvous_id.as_deref()
@@ -111,7 +112,8 @@ impl ProviderCredentialOperationSnapshotV2 {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct OperationSnapshotWire {
-    operation_id: ProviderCredentialOperationIdV2,
+    #[serde(rename = "operationId")]
+    operation_handle: ProviderCredentialOperationHandleV2,
     broker_rendezvous_id: Option<String>,
     provider_id: ProviderCredentialProviderV2,
     operation_kind: ProviderCredentialOperationKindV2,
@@ -134,7 +136,7 @@ impl TryFrom<OperationSnapshotWire> for ProviderCredentialOperationSnapshotV2 {
             return Err(ProviderCredentialValidationErrorV2::InvalidSnapshot);
         }
         Ok(Self {
-            operation_id: value.operation_id,
+            operation_handle: value.operation_handle,
             broker_rendezvous_id: value.broker_rendezvous_id,
             provider_id: value.provider_id,
             operation_kind: value.operation_kind,

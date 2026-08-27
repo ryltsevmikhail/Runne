@@ -27,7 +27,7 @@ fn uncertain_attempt_is_never_redispatched_through_recovery_paths() {
         Ok(ProviderDispatchState::Uncertain)
     );
     assert_eq!(
-        database.execution().issue(&request),
+        database.issue(&request),
         Ok(ProviderAuthorityIssueOutcome::Existing {
             state: runne_provider::ProviderRepositoryState::Uncertain,
         })

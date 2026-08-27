@@ -13,6 +13,8 @@ const ROOT_THRESHOLD: usize = 2;
 const MAX_ARTIFACT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_SIGNATURES: usize = 8;
 
+include!("updater_metadata/enrollment_tuple.rs");
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UpdateSignatureV2 {
@@ -39,6 +41,8 @@ pub struct UpdateTargetV2 {
     pub artifact_sha256: String,
     pub artifact_size: u64,
     pub artifact_url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub release_candidate_sha256: String,
     pub min_os: String,
     pub profile_id: String,
     pub bundle_sha256: String,
@@ -48,6 +52,8 @@ pub struct UpdateTargetV2 {
     pub published_at_unix_seconds: u64,
     pub expires_at_unix_seconds: u64,
     pub rollback_floor: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_enrollment_tuple: Option<NativeEnrollmentTupleV1>,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -145,6 +151,13 @@ impl VerifiedUpdateV2 {
     pub const fn target(&self) -> &UpdateTargetV2 {
         &self.target
     }
+
+    /// Returns the signed enrollment tuple. Callers must still match it to
+    /// measured installed bytes before treating it as package evidence.
+    #[must_use]
+    pub const fn native_enrollment_tuple(&self) -> Option<&NativeEnrollmentTupleV1> {
+        self.target.native_enrollment_tuple.as_ref()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Error)]
@@ -229,6 +242,13 @@ pub fn verify_update_v2(
         || !crate::updater::is_sha256(&target.bundle_sha256)
         || !crate::updater::is_sha256(&target.runtime_digest)
         || !crate::updater_feed::is_https_url(&target.artifact_url)
+    {
+        return Err(UpdateV2VerificationError::InvalidMetadata);
+    }
+    if target
+        .native_enrollment_tuple
+        .as_ref()
+        .is_some_and(|tuple| !tuple.matches_target(target))
     {
         return Err(UpdateV2VerificationError::InvalidMetadata);
     }

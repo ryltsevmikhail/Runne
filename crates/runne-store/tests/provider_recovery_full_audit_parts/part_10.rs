@@ -12,18 +12,17 @@ fn new_issue_after_rotation_gets_new_attempt_and_fence() {
     drop(before);
 
     database
-        .execution()
-        .install_runtime_authority_and_advance_worker_lease(&rotated_runtime_config())
+        .activate_runtime_launch(&rotated_runtime_config())
         .unwrap();
     let (new_request, _) = prepared_request(&database, 15);
-    let ProviderAuthorityIssueOutcome::Winner(new_admission) = database.execution().issue(&new_request).unwrap()
+    let ProviderAuthorityIssueOutcome::Winner(new_admission) = database.issue(&new_request).unwrap()
     else {
         panic!("new call after rotation must issue a new attempt");
     };
     assert_ne!(new_admission.claim().attempt_id, old_claim.attempt_id);
     assert_eq!(new_admission.claim().fencing_token, 14);
     assert_eq!(
-        database.execution().issue(&old_request),
+        database.issue(&old_request),
         Ok(ProviderAuthorityIssueOutcome::Existing {
             state: runne_provider::ProviderRepositoryState::Settled,
         })

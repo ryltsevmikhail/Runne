@@ -3,11 +3,11 @@ use crate::{CredentialLifecycleError, ProviderId};
 use super::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, BeginCredentialVerification,
     BindCredentialReadback, ClaimCredentialOperation, ClosePreparedCredentialOperation,
-    CompleteCredentialOperation, CompleteCredentialVerification, CredentialLifecycleSnapshot,
-    CredentialOperationId, CredentialOperationSnapshot, CredentialRecoveryWork,
-    CredentialVerificationLease, CredentialVerificationObservation, FailCredentialOperation,
-    HardFenceProvider, IssueCredentialTicketDigest, IssuedCredentialTicketAttempt,
-    ObserveNativeEffect, TombstoneCredentialOperation,
+    CompleteCredentialOperation, CompleteCredentialVerification, CredentialCompletionReceipt,
+    CredentialLifecycleSnapshot, CredentialOperationId, CredentialOperationSnapshot,
+    CredentialRecoveryWork, CredentialVerificationLease, CredentialVerificationObservation,
+    FailCredentialOperation, HardFenceProvider, IssueCredentialTicketDigest,
+    IssuedCredentialTicketAttempt, ObserveNativeEffect, TombstoneCredentialOperation,
 };
 
 /// Durable port for the authoritative online credential enrollment lifecycle.
@@ -53,6 +53,12 @@ pub trait ProviderCredentialEnrollmentStore: Send + Sync {
         &self,
         input: CompleteCredentialOperation,
     ) -> Result<CredentialLifecycleSnapshot, CredentialLifecycleError>;
+
+    /// Completes one lifecycle transition and returns its persisted receipt.
+    fn complete_with_receipt(
+        &self,
+        input: CompleteCredentialOperation,
+    ) -> Result<CredentialCompletionReceipt, CredentialLifecycleError>;
 
     /// Cancels an operation before ticket claim.
     fn cancel_before_claim(

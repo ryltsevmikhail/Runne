@@ -109,7 +109,6 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "replay.aggregate.sse.v1",
         "runtime.operational-telemetry.v1",
         "approval.control.v1",
-        "provider.credential-control.v1",
         "project.list.v1",
         "project.get.v1",
         "project.create.v1",

@@ -1,8 +1,8 @@
-use super::projection::{derived_identity, policy_binding_digest};
 use super::readiness::{
     credential_access_policy, native_journal_keyring, native_withheld_tail_store,
 };
 use super::*;
+use crate::application::provider_credential_enrollment::CredentialEnrollmentRecoveryGateway;
 use crate::application::workspace_internal::{
     ProtectedProviderDependencyCapsule, ProviderDependencyState,
 };
@@ -35,6 +35,7 @@ pub struct DaemonCanonicalProviderService {
     pub(super) database_generation: u64,
     pub(super) runtime_generation: u64,
     pub(super) fencing_token: u64,
+    pub(super) launch_capability: ProviderRuntimeLaunchCapability,
     pub(super) recovery_registry: Arc<RecoveryObservationRegistry>,
 }
 
@@ -133,35 +134,14 @@ impl DaemonCanonicalProviderService {
                 })?,
         );
         let fencing_token = runtime_generation;
-        let policy_binding =
-            policy_binding_digest(activation_provenance.digest(), profile.as_ref());
-        execution_store
-            .install_runtime_authority_and_advance_worker_lease(&ProviderRuntimeAuthorityConfig {
-                runtime_authority_id,
-                database_generation: 1,
-                principal_id: "local-owner".to_owned(),
-                owner_id: derived_identity("owner", policy_binding),
-                scope: scope.to_owned(),
-                generation: runtime_generation,
-                fencing_token,
-                capability_grant_id: derived_identity("capability", policy_binding),
-                capability_revision: PROVIDER_POLICY_V1_REVISION,
-                capability_allowed: true,
-                capability_revocation_epoch: PROVIDER_POLICY_V1_REVISION,
-                approval_id: derived_identity("approval", policy_binding),
-                approval_revision: PROVIDER_POLICY_V1_REVISION,
-                approval_allowed: true,
-                approval_revocation_epoch: PROVIDER_POLICY_V1_REVISION,
-                profile_digest: profile.profile_digest(),
-                pricing_revision_digest: profile.pricing_revision_digest(),
-                activation_binding_kind: activation_provenance.kind(),
-                activation_binding_digest: activation_provenance.digest(),
-                token_budget_limit: PROVIDER_POLICY_V1_TOKEN_BUDGET,
-                cost_budget_limit_micros: PROVIDER_POLICY_V1_COST_BUDGET_MICROS,
-                authority_ttl_seconds: PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS,
-                lease_ttl_seconds: PROVIDER_POLICY_V1_LEASE_SECONDS,
-            })
-            .map_err(|_| DaemonError::Bootstrap("provider authority unavailable".into()))?;
+        let launch_capability = runtime_launch::activate(
+            execution_store.as_ref(),
+            runtime_authority_id,
+            runtime_generation,
+            &activation_provenance,
+            profile.as_ref(),
+            scope,
+        )?;
         let recovery_registry = Arc::new(RecoveryObservationRegistry::new().0);
         let keyring =
             retained_keyring.unwrap_or_else(|| native_journal_keyring(runtime_authority_id));
@@ -232,6 +212,11 @@ impl DaemonCanonicalProviderService {
         let journal_binding = execution
             .preflight_existing_active_key(runtime_authority_id, 1)
             .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
+        execution_store
+            .install_online_effect_proof_capability(keyring.as_ref(), journal_binding)
+            .map_err(|_| {
+                DaemonError::Bootstrap("provider online effect proof unavailable".into())
+            })?;
         let journal_status = keyring
             .provider_journal_key_status(
                 runne_secure_store::ProviderJournalKeyRef::new(
@@ -278,12 +263,22 @@ impl DaemonCanonicalProviderService {
             database_generation: 1,
             runtime_generation,
             fencing_token,
+            launch_capability,
             recovery_registry,
         });
-        if service.credential_readback.is_none() && effect_source.is_none() {
-            return Err(DaemonError::Bootstrap(
-                "provider credential reader unavailable".into(),
-            ));
+        match service.credential_readback.as_deref() {
+            Some(reader) => CredentialEnrollmentRecoveryGateway::new(
+                service.credential_store.as_ref(),
+                reader,
+            )
+            .reconcile_online(chrono::Utc::now().timestamp())
+            .map_err(|_| DaemonError::Bootstrap("credential enrollment recovery unavailable".into()))?,
+            None if effect_source.is_none() => {
+                return Err(DaemonError::Bootstrap(
+                    "provider credential reader unavailable".into(),
+                ));
+            }
+            None => {}
         }
         service.recover_pending().await?;
         Ok(service)

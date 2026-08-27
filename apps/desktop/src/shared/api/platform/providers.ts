@@ -20,18 +20,8 @@ export interface ProviderStatusSnapshot {
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
 
 export type ProviderCredentialProvider = 'openai' | 'deepseek'
-export type ProviderCredentialStatus =
-  | 'configured'
-  | 'missing'
-  | 'unsupported'
-  | 'access_denied'
-  | 'identity_mismatch'
-  | 'unavailable'
-
-export interface ProviderCredentialMutation {
-  readonly providerId: ProviderCredentialProvider
-  readonly status: ProviderCredentialStatus
-}
+export type ProviderCredentialAction = 'pair' | 'revoke' | 'migrate_legacy'
+export type ProviderCredentialIntentDisposition = 'pending' | 'cancelled' | 'unavailable'
 
 export async function getProviderStatus(
   invoke: Invoke = tauriInvoke,
@@ -47,53 +37,25 @@ export async function getProviderStatus(
   return value
 }
 
-export async function pairProviderCredential(
+export async function requestProviderCredentialIntent(
   provider: ProviderCredentialProvider,
-  credential: string,
+  action: ProviderCredentialAction,
+  expectedRevision: number,
   invoke: Invoke = tauriInvoke,
-): Promise<ProviderCredentialMutation> {
-  if (!credential || credential.length > 4096
-    || credential.includes('\u0000')
-    || credential.includes('\r')
-    || credential.includes('\n')) {
-    throw new Error('Invalid provider credential')
+): Promise<ProviderCredentialIntentDisposition> {
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0) {
+    throw new Error('Invalid expected lifecycle revision')
   }
-  return parseMutation(await invoke('pair_provider_credential', { provider, credential }))
+  return parseIntentDisposition(await invoke('request_provider_credential_intent', {
+    request: { provider, action, expectedRevision },
+  }))
 }
 
-export async function revokeProviderCredential(
-  provider: ProviderCredentialProvider,
-  invoke: Invoke = tauriInvoke,
-): Promise<ProviderCredentialMutation> {
-  return parseMutation(await invoke('revoke_provider_credential', { provider }))
-}
-
-function parseMutation(value: unknown): ProviderCredentialMutation {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error('Invalid provider credential mutation')
+function parseIntentDisposition(value: unknown): ProviderCredentialIntentDisposition {
+  if (value !== 'pending' && value !== 'cancelled' && value !== 'unavailable') {
+    throw new Error('Invalid provider credential intent disposition')
   }
-  const candidate = value as Record<string, unknown>
-  const keys = ['providerId', 'status']
-  if (Object.keys(candidate).length !== keys.length || keys.some(key => !(key in candidate))) {
-    throw new Error('Invalid provider credential mutation')
-  }
-  if (!isCredentialProvider(candidate.providerId) || !isCredentialStatus(candidate.status)) {
-    throw new Error('Invalid provider credential mutation')
-  }
-  return { providerId: candidate.providerId, status: candidate.status }
-}
-
-function isCredentialProvider(value: unknown): value is ProviderCredentialProvider {
-  return value === 'openai' || value === 'deepseek'
-}
-
-function isCredentialStatus(value: unknown): value is ProviderCredentialStatus {
-  return value === 'configured'
-    || value === 'missing'
-    || value === 'unsupported'
-    || value === 'access_denied'
-    || value === 'identity_mismatch'
-    || value === 'unavailable'
+  return value
 }
 
 function isProviderStatus(value: unknown): value is ProviderStatusSnapshot {

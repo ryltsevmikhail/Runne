@@ -8,10 +8,6 @@ DROP TRIGGER provider_credential_ticket_insert_issued;
 pub(super) fn apply_v25_migration(conn: &Connection) -> SqliteResult<()> {
     let transaction = Transaction::new_unchecked(conn, TransactionBehavior::Exclusive)?;
     transaction.execute_batch(MIGRATION_V25)?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO schema_version (version) VALUES (19)",
-        [],
-    )?;
     install_v25_successor_triggers(&transaction)?;
     transaction.execute("INSERT INTO schema_version (version) VALUES (25)", [])?;
     transaction.commit()

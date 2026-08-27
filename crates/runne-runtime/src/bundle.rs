@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "4f38e7d4f59ff55081033c483992f4094eb50fb5d785ed8f1f0b5b4fb3b0597a";
+    "fd83580faa27046b6355996c9b3ba56689f096591b4a03c51fb6f3c6ce5ff220";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -36,7 +36,6 @@ pub const PUBLISHED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -70,7 +69,6 @@ pub const BASE_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -100,7 +98,6 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -139,7 +136,6 @@ mod tests {
             "replay.aggregate.sse.v1",
             "runtime.operational-telemetry.v1",
             "approval.control.v1",
-            "provider.credential-control.v1",
             "project.list.v1",
             "project.get.v1",
             "project.create.v1",

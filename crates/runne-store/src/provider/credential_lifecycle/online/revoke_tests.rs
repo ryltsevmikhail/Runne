@@ -8,7 +8,7 @@ use runne_provider::{
 
 use super::online_claim_test_support::seal_claim;
 use super::online_test_support::{
-    complete_pair, digest, operation, provider, revoke, store, ticket,
+    complete_pair, digest, operation, provider, qualified_release, revoke, store, ticket,
 };
 
 #[test]
@@ -49,7 +49,7 @@ fn credential_online_revoke_completes_after_committed_fence_readback_and_missing
         CredentialReadinessRevision::new(3).unwrap(),
         CredentialReadinessDisposition::Missing,
         None,
-        digest(27),
+        qualified_release(92).digest(),
         100,
     )
     .unwrap();

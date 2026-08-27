@@ -1,7 +1,7 @@
 use core::{future::Future, pin::Pin};
 
 use super::{
-    BeginProviderCredentialEnrollment, ProviderCredentialOperationIdV2,
+    BeginProviderCredentialEnrollment, ProviderCredentialOperationHandleV2,
     ProviderCredentialOperationSnapshotV2, ProviderCredentialProviderV2,
     ProviderCredentialSafeSnapshotV2, VerifyProviderCredential,
 };
@@ -54,7 +54,7 @@ pub trait ProviderCredentialEnrollmentHostPort: Send + Sync {
         &'a self,
         authority: ProviderCredentialBaseRequestAuthority,
         context: ProviderCredentialCommandContext,
-        operation_id: ProviderCredentialOperationIdV2,
+        operation_handle: ProviderCredentialOperationHandleV2,
     ) -> ProviderCredentialHostFuture<'a>;
     fn status<'a>(
         &'a self,

@@ -6,6 +6,8 @@ mod claim;
 mod compatibility_mirror;
 #[path = "online/complete.rs"]
 mod complete;
+#[path = "online/completion_receipt.rs"]
+mod completion_receipt;
 #[path = "online/head.rs"]
 mod head;
 #[path = "online/readback.rs"]
@@ -72,6 +74,14 @@ impl ProviderCredentialEnrollmentStore for SqliteProviderCredentialLifecycleStor
         &self,
         input: runne_provider::CompleteCredentialOperation,
     ) -> Result<runne_provider::CredentialLifecycleSnapshot, runne_provider::CredentialLifecycleError>
+    {
+        self.complete_with_receipt(input)
+            .map(|receipt| receipt.successor())
+    }
+    fn complete_with_receipt(
+        &self,
+        input: runne_provider::CompleteCredentialOperation,
+    ) -> Result<runne_provider::CredentialCompletionReceipt, runne_provider::CredentialLifecycleError>
     {
         complete::complete(self, input)
     }
@@ -164,11 +174,8 @@ mod online_admission_tests;
 #[path = "online/begin_admission_tests.rs"]
 mod online_begin_admission_tests;
 #[cfg(test)]
-#[path = "online/ticket_expiry_tests.rs"]
-mod online_ticket_expiry_tests;
-#[cfg(test)]
 #[path = "online/claim_test_support.rs"]
-mod online_claim_test_support;
+pub(crate) mod online_claim_test_support;
 #[cfg(test)]
 #[path = "online/completion_tests.rs"]
 mod online_completion_tests;
@@ -176,14 +183,23 @@ mod online_completion_tests;
 #[path = "online/head_decoder_tests.rs"]
 mod online_head_decoder_tests;
 #[cfg(test)]
+#[path = "online/legacy_cleanup_tests.rs"]
+mod online_legacy_cleanup_tests;
+#[cfg(test)]
 #[path = "online/provenance_tests.rs"]
 mod online_provenance_tests;
+#[cfg(test)]
+#[path = "online/migration_provenance_tests.rs"]
+mod online_migration_provenance_tests;
 #[cfg(test)]
 #[path = "online/readback_tests.rs"]
 mod online_readback_tests;
 #[cfg(test)]
 #[path = "online/recovery_tests.rs"]
 mod online_recovery_tests;
+#[cfg(test)]
+#[path = "online/retired_cleanup_tests.rs"]
+mod online_retired_cleanup_tests;
 #[cfg(test)]
 #[path = "online/replay_tests.rs"]
 mod online_replay_tests;
@@ -192,10 +208,13 @@ mod online_replay_tests;
 mod online_revoke_tests;
 #[cfg(test)]
 #[path = "online/test_support.rs"]
-mod online_test_support;
+pub(crate) mod online_test_support;
 #[cfg(test)]
 #[path = "online/tests.rs"]
 mod online_tests;
+#[cfg(test)]
+#[path = "online/ticket_expiry_tests.rs"]
+mod online_ticket_expiry_tests;
 #[cfg(test)]
 #[path = "online/verification_tests.rs"]
 mod online_verification_tests;

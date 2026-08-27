@@ -99,6 +99,14 @@ fn v16_fixture(
          DROP TABLE IF EXISTS process_registry;
          DROP INDEX IF EXISTS idx_approvals_pending;
          DROP TABLE IF EXISTS approvals;
+         DROP TABLE IF EXISTS provider_online_credential_effect_bindings;
+         DROP TABLE IF EXISTS provider_online_dispatch_claim_providers;
+         DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence;
+         DROP TABLE IF EXISTS provider_credential_verification_observations;
+         DROP TABLE IF EXISTS provider_credential_readiness_observations;
+         DROP TABLE IF EXISTS provider_credential_ticket_attempts;
+         DROP TABLE IF EXISTS provider_credential_authority_heads;
+         DROP TABLE IF EXISTS provider_credential_operations;
          DELETE FROM schema_version WHERE version >= 19;",
         )
         .unwrap();

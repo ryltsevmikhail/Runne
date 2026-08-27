@@ -15,7 +15,6 @@ pub const REQUIRED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -45,7 +44,6 @@ pub const PROTECTED_RUNTIME_CAPABILITIES: &[&str] = &[
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -125,4 +123,22 @@ fn nonempty_identity(session: &RuntimeSessionInfo) -> bool {
     .all(|value| !value.is_empty())
         && session.launch_generation != 0
         && session.authorization_epoch != 0
+}
+
+#[cfg(test)]
+mod capabilities_tests {
+    use super::*;
+
+    #[test]
+    fn v1_credential_control_is_not_advertised_by_any_supported_profile() {
+        for profile in [
+            REQUIRED_RUNTIME_CAPABILITIES,
+            PROTECTED_RUNTIME_CAPABILITIES,
+        ] {
+            assert!(
+                !profile.contains(&"provider.credential-control.v1"),
+                "V1 credential control must remain a compatibility artifact only"
+            );
+        }
+    }
 }

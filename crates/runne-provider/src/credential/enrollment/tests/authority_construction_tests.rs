@@ -112,6 +112,7 @@ fn credential_migration_metadata_restart_hydration_remains_store_authority_bound
         WriterIdentityMigrationPhase::NewWriterVerify,
         digest(22),
         digest(23),
+        digest(24),
     );
     assert_eq!(metadata.migration_id(), migration_id);
     assert_eq!(
@@ -120,6 +121,7 @@ fn credential_migration_metadata_restart_hydration_remains_store_authority_bound
     );
     assert_eq!(metadata.old_tuple_digest(), digest(22));
     assert_eq!(metadata.new_tuple_digest(), digest(23));
+    assert_eq!(metadata.binding_digest(), digest(24));
     assert!(
         store
             .validate_credential_migration_metadata(&metadata)

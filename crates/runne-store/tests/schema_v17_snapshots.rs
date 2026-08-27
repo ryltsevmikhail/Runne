@@ -5,9 +5,8 @@ use runne_domain::{
     timestamp::Timestamp,
 };
 use runne_store::schema::{
-    CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v15_for_test,
-    apply_migrations_through_v17_for_test, apply_migrations_through_v18_for_test,
-    apply_migrations_through_v19_for_test,
+    apply_migrations, apply_migrations_through_v15_for_test, apply_migrations_through_v17_for_test,
+    apply_migrations_through_v18_for_test, apply_migrations_through_v19_for_test,
 };
 use runne_store::{
     codec::{StoreCodec, TaskRunEventCodec},
@@ -20,7 +19,6 @@ fn current_schema_installs_authoritative_aggregate_snapshot_table() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
     let exists: bool = connection
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master

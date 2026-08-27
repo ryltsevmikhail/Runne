@@ -11,9 +11,8 @@ fn v24_to_v25_backfills_begin_proof_expiry_to_closed_sentinel_once() {
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 25).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 25);
     assert_eq!(current_schema_marker(&connection), 25);
     let after: (Vec<u8>, String, Vec<u8>, i64) = connection
         .query_row(
@@ -51,7 +50,7 @@ fn interrupted_v25_migration_rolls_back_to_exact_v24_and_retries() {
             )
             .is_err()
     );
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 25).unwrap();
     assert_eq!(current_schema_marker(&connection), 25);
     let migrated: (Vec<u8>, i64) = connection
         .query_row(
@@ -68,7 +67,7 @@ fn interrupted_v25_migration_rolls_back_to_exact_v24_and_retries() {
 fn corrupt_v25_begin_expiry_shape_or_trigger_is_rejected_before_open() {
     let connection = Connection::open_in_memory().unwrap();
     initialize_released_v23(&connection);
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 25).unwrap();
 
     connection
         .execute_batch("DROP TRIGGER provider_credential_ticket_insert_issued;")
@@ -80,7 +79,7 @@ fn corrupt_v25_begin_expiry_shape_or_trigger_is_rejected_before_open() {
 fn v25_matcher_rejects_an_extra_operation_column() {
     let connection = Connection::open_in_memory().unwrap();
     initialize_released_v23(&connection);
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 25).unwrap();
     connection
         .execute_batch("ALTER TABLE provider_credential_operations ADD COLUMN tampered INTEGER")
         .unwrap();
@@ -99,7 +98,7 @@ fn v25_matcher_rejects_tampered_inherited_table_index_trigger_and_marker() {
     ] {
         let connection = Connection::open_in_memory().unwrap();
         initialize_released_v23(&connection);
-        apply_migrations(&connection).unwrap();
+        apply_migrations_internal(&connection, 25).unwrap();
         connection.execute_batch(statement).unwrap();
         assert!(
             classify_existing_connection(&connection).is_err(),
@@ -114,7 +113,7 @@ fn v24_backfill_loads_but_cannot_reauthorize_begin() {
     initialize_released_v23(&connection);
     apply_migrations_internal(&connection, 24).unwrap();
     insert_operation(&connection, 26).unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 25).unwrap();
 
     let expiry: i64 = connection.query_row("SELECT begin_proof_expires_at_high_water FROM provider_credential_operations WHERE operation_id=?1", [[26_u8; 16]], |row| row.get(0)).unwrap();
     assert_eq!(expiry, 0);
@@ -122,43 +121,39 @@ fn v24_backfill_loads_but_cannot_reauthorize_begin() {
 }
 
 #[test]
-fn v24_sentinel_row_reopens_loads_and_rejects_ticket_issue() {
+fn v24_non_terminal_sentinel_row_is_rejected_by_v28_open() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("v24-sentinel.sqlite");
     let connection = Connection::open(&path).unwrap();
     initialize_released_v23(&connection);
     apply_migrations_internal(&connection, 24).unwrap();
     insert_operation(&connection, 27).unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 27).unwrap();
+    let predecessor: (String, i64) = connection
+        .query_row(
+            "SELECT state, begin_proof_expires_at_high_water
+             FROM provider_credential_operations WHERE operation_id=?1",
+            [[27_u8; 16]],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(predecessor, ("PREPARED".to_owned(), 0));
+    assert_eq!(current_schema_marker(&connection), 27);
     drop(connection);
 
-    let store = crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap();
-    let operation = runne_provider::CredentialOperationId::from_bytes([27; 16]).unwrap();
     assert_eq!(
-        runne_provider::ProviderCredentialEnrollmentStore::load_operation(&store, operation)
-            .unwrap()
-            .operation_id(),
-        operation
+        crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).err(),
+        Some(runne_provider::CredentialLifecycleError::StoreUnavailable)
     );
-    let ticket = runne_provider::IssueCredentialTicketDigest::new(
-        operation,
-        runne_provider::CredentialBindingDigest::from_measured([28; 32]).unwrap(),
-        runne_provider::CredentialBindingDigest::from_measured([29; 32]).unwrap(),
-        1,
-    )
-    .unwrap();
-    assert_eq!(
-        runne_provider::ProviderCredentialEnrollmentStore::issue_ticket_attempt(&store, ticket)
-            .unwrap_err(),
-        runne_provider::CredentialLifecycleError::StaleLease
-    );
+    let connection = Connection::open(&path).unwrap();
+    assert_eq!(current_schema_marker(&connection), 27);
 }
 
 #[test]
 fn v25_matcher_accepts_its_own_successor_shape() {
     let connection = Connection::open_in_memory().unwrap();
     initialize_released_v23(&connection);
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 25).unwrap();
 
     assert!(v24_predecessor_matches(&connection).unwrap(), "predecessor");
     assert!(v24_catalog_matches(&connection).unwrap(), "catalog");
@@ -167,6 +162,7 @@ fn v25_matcher_accepts_its_own_successor_shape() {
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).unwrap();
+    assert_eq!(marker, (25, 1, 24, 306));
     assert!(
         v25_marker_matches(&connection).unwrap(),
         "marker: {marker:?}"

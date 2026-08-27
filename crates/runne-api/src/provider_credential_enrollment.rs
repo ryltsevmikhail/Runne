@@ -15,14 +15,14 @@ pub use host::{
 };
 
 pub use types::{
-    BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
-    ProviderCredentialLastDispositionV2, ProviderCredentialOperationIdV2,
-    ProviderCredentialOperationKindV2, ProviderCredentialOperationSnapshotV2,
-    ProviderCredentialOperationStateV2, ProviderCredentialPendingOperationV2,
-    ProviderCredentialProviderV2, ProviderCredentialReadinessV2, ProviderCredentialSafeSnapshotV2,
-    ProviderCredentialStateV2, ProviderCredentialValidationErrorV2,
-    ProviderCredentialVerificationKindV2, ProviderCredentialVerificationStateV2,
-    VerifyProviderCredential,
+    BeginProviderCredentialEnrollment, ProviderCredentialBeginIntentBinding,
+    ProviderCredentialEnrollmentActionV2, ProviderCredentialLastDispositionV2,
+    ProviderCredentialOperationHandleV2, ProviderCredentialOperationKindV2,
+    ProviderCredentialOperationSnapshotV2, ProviderCredentialOperationStateV2,
+    ProviderCredentialPendingOperationV2, ProviderCredentialProviderV2,
+    ProviderCredentialReadinessV2, ProviderCredentialSafeSnapshotV2, ProviderCredentialStateV2,
+    ProviderCredentialValidationErrorV2, ProviderCredentialVerificationKindV2,
+    ProviderCredentialVerificationStateV2, VerifyProviderCredential,
 };
 
 #[cfg(test)]

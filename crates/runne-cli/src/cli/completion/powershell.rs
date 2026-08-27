@@ -1,6 +1,6 @@
 #[allow(clippy::needless_raw_string_hashes)]
 const SCRIPT: &str = concat!(
-        r#"
+    r#"
 # PowerShell completion for runne
 # Add to $PROFILE:
 #   Invoke-Expression (&runne completion powershell)
@@ -11,13 +11,13 @@ using namespace System.Management.Automation.Language
 Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     $commandElements = $commandAst.CommandElements
     $command = $commandElements[0].Value
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     # Top-level commands
     $commands = @(
         [CompletionResult]::new('conversation', 'conversation', [CompletionResultType]::ParameterValue, 'Manage conversations')
@@ -29,8 +29,8 @@ Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
         [CompletionResult]::new('help', 'help', [CompletionResultType]::ParameterValue, 'Show help information')
     )
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     # Global options
     $options = @(
         [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Show help information')
@@ -39,18 +39,18 @@ Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
         [CompletionResult]::new('--profile', '--profile', [CompletionResultType]::ParameterName, 'Path to runtime profile')
     )
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     if ($commandElements.Count -eq 1) {
         return $commands + $options
     }
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     $subcommand = $commandElements[1].Value
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     switch ($subcommand) {
         'conversation' {
             return @(
@@ -68,12 +68,9 @@ Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
         }
         'credential' {
             return @(
-                [CompletionResult]::new('set', 'set', [CompletionResultType]::ParameterValue, 'Store credential')
                 [CompletionResult]::new('status', 'status', [CompletionResultType]::ParameterValue, 'Check status')
-                [CompletionResult]::new('delete', 'delete', [CompletionResultType]::ParameterValue, 'Delete credential')
                 [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Show help')
                 [CompletionResult]::new('--provider', '--provider', [CompletionResultType]::ParameterName, 'Provider name')
-                [CompletionResult]::new('--stdin', '--stdin', [CompletionResultType]::ParameterName, 'Read from stdin')
             )
         }
         'completion' {
@@ -104,12 +101,12 @@ Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
         }
     }
 "#,
-        "    ",
-        r#"
+    "    ",
+    r#"
     return @()
 }
 "#,
-    );
+);
 
 pub(super) fn generate() -> String {
     SCRIPT.to_string()

@@ -11,39 +11,48 @@ use runne_store::provider::{
     SettleProviderDispatch as Settlement, SqliteProviderDispatchStore as Store,
 };
 use rusqlite::Connection;
-use tempfile::TempDir;
 
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/provider_credential_fixture.rs"]
 mod provider_credential_fixture;
 #[path = "support/recovery/mod.rs"]
 mod recovery_support;
+#[path = "support/runtime_launch.rs"]
+mod runtime_launch;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
 use recovery_support::claim_dispatch_row;
+use validated_reopen::ProviderTestDatabase;
 
-type Setup = (TempDir, Store, Claim);
+type Setup = (ProviderTestDatabase, Store, Claim);
 
 fn setup(name: &str) -> Setup {
     let (d, store, claim) = prepared_setup(name);
     assert!(matches!(
-        claim_dispatch_row(&d.path().join("s"), &claim),
+        claim_dispatch_row(d.as_path(), &claim),
         ProviderClaimOutcome::Winner { .. }
     ));
     (d, store, claim)
 }
 
 fn prepared_setup(name: &str) -> Setup {
-    let d = tempfile::Builder::new().prefix(name).tempdir().unwrap();
-    let store = Store::open(&d.path().join("s")).unwrap();
+    let d = ProviderTestDatabase::new(name);
+    let store = d.dispatch();
+    let execution = d.execution();
+    let launch = runtime_launch::activate(&execution);
     store
-        .persist_prepared(&Prepared {
-            call_id: Call::from_bytes([1; 16]),
-            call_digest_version: ProviderCallDigestVersion::V2,
-            prepared_digest: [2; 32],
-            render_digest: [3; 32],
-            profile_digest: [4; 32],
-        })
+        .persist_prepared(
+            &launch,
+            &Prepared {
+                call_id: Call::from_bytes([1; 16]),
+                call_digest_version: ProviderCallDigestVersion::V2,
+                prepared_digest: [2; 32],
+                render_digest: [3; 32],
+                profile_digest: [4; 32],
+            },
+        )
         .unwrap();
     let claim = Claim {
         call_id: Call::from_bytes([1; 16]),
@@ -64,8 +73,8 @@ fn snapshot(store: &Store, id: Attempt) -> runne_store::provider::ProviderDispat
     store.get_dispatch(id).unwrap().unwrap()
 }
 
-fn ignore_lifecycle_update(d: &TempDir, state: i64) {
-    let connection = Connection::open(d.path().join("s")).unwrap();
+fn ignore_lifecycle_update(d: &ProviderTestDatabase, state: i64) {
+    let connection = Connection::open(d.as_path()).unwrap();
     connection
         .execute_batch(&format!(
             "CREATE TRIGGER ignore_lifecycle_update

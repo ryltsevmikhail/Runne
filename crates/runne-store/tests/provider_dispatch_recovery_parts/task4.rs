@@ -22,7 +22,7 @@ fn settlement_request(claim: &Claim) -> Settlement {
 #[test]
 fn ordered_recovery_wins_and_settle_loses_terminally() {
     let (directory, store, claim) = setup("task4-recovery-settle");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let before = DispatchSnapshot::load(&path, claim.attempt_id);
     let settlement = settlement_request(&claim);
 
@@ -38,7 +38,7 @@ fn ordered_recovery_wins_and_settle_loses_terminally() {
 #[test]
 fn ordered_recovery_wins_and_streaming_loses_terminally() {
     let (directory, store, claim) = setup("task4-recovery-streaming");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let before = DispatchSnapshot::load(&path, claim.attempt_id);
     let streaming = stream_request(&claim);
 
@@ -54,7 +54,7 @@ fn ordered_recovery_wins_and_streaming_loses_terminally() {
 #[test]
 fn ordered_settlement_wins_and_recovery_observes_terminal_evidence() {
     let (directory, store, claim) = setup("task4-settle-recovery");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let before = DispatchSnapshot::load(&path, claim.attempt_id);
     let streaming = stream_request(&claim);
     let settlement = settlement_request(&claim);
@@ -79,7 +79,7 @@ fn ordered_settlement_wins_and_recovery_observes_terminal_evidence() {
 #[test]
 fn stale_dispatching_recovery_conflict_requires_fresh_streaming_snapshot() {
     let (directory, store, claim) = setup("task4-streaming-recovery");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let before = DispatchSnapshot::load(&path, claim.attempt_id);
     let streaming = stream_request(&claim);
 
@@ -109,22 +109,26 @@ fn stale_dispatching_recovery_conflict_requires_fresh_streaming_snapshot() {
 #[test]
 fn repeated_recovery_is_idempotent_without_simulated_redispatch() {
     let (directory, store, claim) = prepared_setup("task4-repeat-recovery");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let provider = CountingProvider::new();
     {
         let decorator = RecoveryFaultDecorator::new(
-            directory.path().join("s"),
+            directory.as_path().to_path_buf(),
             &store,
             &provider,
             RecoveryFaultPoint::AfterSettleBeforeAcknowledgement,
         );
-        assert!(matches!(decorator.claim(&claim), Ok(runne_store::provider::ProviderClaimOutcome::Winner { .. })));
+        assert!(matches!(
+            decorator.claim(&claim),
+            Ok(runne_store::provider::ProviderClaimOutcome::Winner { .. })
+        ));
         provider.assert_count(1);
     }
     let before = DispatchSnapshot::load(&path, claim.attempt_id);
 
     let first_recovery = store.recover_attempt(claim.attempt_id, claim.fencing_token, Dispatching);
-    let repeated_recovery = store.recover_attempt(claim.attempt_id, claim.fencing_token, Dispatching);
+    let repeated_recovery =
+        store.recover_attempt(claim.attempt_id, claim.fencing_token, Dispatching);
 
     assert_eq!(first_recovery, Ok(TransitionedToUncertain));
     assert_eq!(repeated_recovery, Ok(AlreadyUncertain));
@@ -139,19 +143,25 @@ fn repeated_recovery_is_idempotent_without_simulated_redispatch() {
             ..
         }
     ));
-    assert_eq!(DispatchSnapshot::load(&path, claim.attempt_id), retry_before);
-    assert_eq!(DispatchSnapshot::count(&path, claim.attempt_id), rows_before);
+    assert_eq!(
+        DispatchSnapshot::load(&path, claim.attempt_id),
+        retry_before
+    );
+    assert_eq!(
+        DispatchSnapshot::count(&path, claim.attempt_id),
+        rows_before
+    );
     provider.assert_count(1);
 }
 
 #[test]
 fn stale_fence_recovery_is_read_only_without_simulated_redispatch() {
     let (directory, store, claim) = prepared_setup("task4-stale-fence");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let provider = CountingProvider::new();
     {
         let decorator = RecoveryFaultDecorator::new(
-            directory.path().join("s"),
+            directory.as_path().to_path_buf(),
             &store,
             &provider,
             RecoveryFaultPoint::AfterSettleBeforeAcknowledgement,
@@ -172,14 +182,14 @@ fn stale_fence_recovery_is_read_only_without_simulated_redispatch() {
 #[test]
 fn duplicate_wakeup_and_after_acknowledgement_fault_preserve_single_settlement() {
     let (directory, store, claim) = prepared_setup("task4-duplicate-wakeup");
-    let path = directory.path().join("s");
+    let path = directory.as_path().to_path_buf();
     let provider = CountingProvider::new();
     let streaming = stream_request(&claim);
     let settlement = settlement_request(&claim);
 
     {
         let decorator = RecoveryFaultDecorator::new(
-            directory.path().join("s"),
+            directory.as_path().to_path_buf(),
             &store,
             &provider,
             RecoveryFaultPoint::AfterSettleBeforeAcknowledgement,
@@ -202,13 +212,16 @@ fn duplicate_wakeup_and_after_acknowledgement_fault_preserve_single_settlement()
 
         assert!(matches!(
             claim_dispatch_row(&path, &claim),
-            runne_store::provider::ProviderClaimOutcome::Existing {
-                state: Settled,
-                ..
-            }
+            runne_store::provider::ProviderClaimOutcome::Existing { state: Settled, .. }
         ));
-        assert_eq!(DispatchSnapshot::load(&path, claim.attempt_id), wakeup_before);
-        assert_eq!(DispatchSnapshot::count(&path, claim.attempt_id), rows_before);
+        assert_eq!(
+            DispatchSnapshot::load(&path, claim.attempt_id),
+            wakeup_before
+        );
+        assert_eq!(
+            DispatchSnapshot::count(&path, claim.attempt_id),
+            rows_before
+        );
     }
     assert_eq!(
         store.recover_attempt(claim.attempt_id, claim.fencing_token, Dispatching),

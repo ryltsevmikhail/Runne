@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 
 use super::{
     BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
-    ProviderCredentialOperationIdV2, ProviderCredentialProviderV2,
+    ProviderCredentialOperationHandleV2, ProviderCredentialProviderV2,
     ProviderCredentialSafeSnapshotV2, ProviderCredentialVerificationKindV2,
     VerifyProviderCredential,
 };
@@ -142,20 +142,20 @@ fn provider_credential_external_dtos_reject_unknown_fields() {
 }
 
 #[test]
-fn provider_credential_resume_identity_is_exact_nonzero_lower_hex() {
+fn provider_credential_resume_handle_is_exact_nonzero_lower_hex() {
     assert!(
-        serde_json::from_str::<ProviderCredentialOperationIdV2>(
-            "\"0102030405060708090a0b0c0d0e0f10\""
+        serde_json::from_str::<ProviderCredentialOperationHandleV2>(
+            "\"0102030405060708090a0b0c0d0e0f10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\""
         )
         .is_ok()
     );
     for invalid in [
         "\"\"",
-        "\"00000000000000000000000000000000\"",
-        "\"0102030405060708090A0B0C0D0E0F10\"",
+        "\"000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000\"",
+        "\"0102030405060708090A0B0C0D0E0F10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
         "\"0102\"",
     ] {
-        assert!(serde_json::from_str::<ProviderCredentialOperationIdV2>(invalid).is_err());
+        assert!(serde_json::from_str::<ProviderCredentialOperationHandleV2>(invalid).is_err());
     }
 }
 

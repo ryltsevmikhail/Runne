@@ -17,137 +17,182 @@ fn fence_page_load<R: tauri::Runtime>(
         {
             intents.invalidate_window(webview.label());
         }
+        if let Some(intents) =
+            webview.try_state::<crate::destructive_intent::ApprovalIntentManager>()
+        {
+            intents.invalidate_window(webview.label());
+        }
     }
 }
 
 include!("project_commands.rs");
+
+fn directory_managers() -> (
+    DirectorySelectionManager,
+    crate::prepared_workspace::PreparedWorkspaceManager,
+) {
+    let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
+        .expect("fixed directory selection lifetime is valid");
+    let prepared = selections.prepared_workspaces();
+    (selections, prepared)
+}
+
+fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
+    match event {
+        WindowEvent::CloseRequested { api, .. } => {
+            api.prevent_close();
+            let _ = window.hide();
+        }
+        WindowEvent::Destroyed => {
+            window
+                .state::<ConversationSubscriptionManager>()
+                .cancel_window(window.label());
+            window
+                .state::<TaskRunSubscriptionManager>()
+                .cancel_window(window.label());
+            let _ = window
+                .try_state::<DirectorySelectionManager>()
+                .and_then(|selections| {
+                    selections
+                        .renderer_generations()
+                        .fence_destroyed(window.label())
+                        .ok()
+                });
+            if let Some(intents) =
+                window.try_state::<crate::destructive_intent::DestructiveIntentManager>()
+            {
+                intents.invalidate_window(window.label());
+            }
+            if let Some(intents) =
+                window.try_state::<crate::destructive_intent::ApprovalIntentManager>()
+            {
+                intents.invalidate_window(window.label());
+            }
+        }
+        _ => {}
+    }
+}
+
+fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let profile_directory = app.path().app_data_dir()?;
+    std::fs::create_dir_all(&profile_directory)?;
+    let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
+    let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
+    let core = Arc::new(AppCore::open_production(
+        &profile_directory.join("profile.sqlite3"),
+        runtime_mode,
+    )?);
+    let lifecycle = match runtime_mode {
+        RuntimeMode::ExternalLocal => RuntimeLifecycleManager::external(),
+        RuntimeMode::Bundled => match std::env::current_exe()
+            .map_err(|_| RuntimeFailureCode::BundledExecutableUnavailable)
+            .and_then(|executable| {
+                BundledRuntimeController::discover(
+                    Arc::clone(&core),
+                    &executable,
+                    &profile_directory.join("bundled-runtime"),
+                )
+            }) {
+            Ok(controller) => {
+                controller.spawn_monitor();
+                RuntimeLifecycleManager::bundled_with_native_root(controller)
+            }
+            Err(failure) => {
+                tauri::async_runtime::block_on(core.mark_bundled_runtime_failed(failure))?;
+                RuntimeLifecycleManager::bundled_unavailable()
+            }
+        },
+    };
+    let notification_core = Arc::clone(&core);
+    let notification_state = Arc::new(crate::notifications::NotificationState::default());
+    app.manage(profile_lock);
+    app.manage(core);
+    app.manage(crate::updater_status::UpdateStatusStore::new(
+        &profile_directory,
+    ));
+    let _ = app
+        .state::<crate::updater_status::UpdateStatusStore>()
+        .begin_health_check_if_required();
+    app.manage(Arc::clone(&notification_state));
+    app.state::<crate::external_activation::ActivationManager>()
+        .forward(app.handle(), std::env::args_os().skip(1));
+    app.manage(ConversationSubscriptionManager::new());
+    app.manage(TaskRunSubscriptionManager::new());
+    app.manage(lifecycle);
+    tray::install(app.handle())?;
+    let notification_app = app.handle().clone();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+            if notification_app.get_webview_window("main").is_none() {
+                break;
+            }
+            let _ = crate::notifications::sync_notifications_inner(
+                &notification_app,
+                &notification_core,
+                notification_state.as_ref(),
+            )
+            .await;
+        }
+    });
+    Ok(())
+}
+
+fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
+    if !matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
+        return;
+    }
+    let lifecycle = app.state::<RuntimeLifecycleManager>();
+    if !lifecycle.begin_explicit_quit() {
+        return;
+    }
+    app.state::<DirectorySelectionManager>()
+        .clear_pending_authority();
+    app.state::<crate::destructive_intent::DestructiveIntentManager>()
+        .clear_pending();
+    app.state::<crate::destructive_intent::ApprovalIntentManager>()
+        .clear_pending();
+    app.state::<ConversationSubscriptionManager>().shutdown();
+    app.state::<TaskRunSubscriptionManager>().shutdown();
+    lifecycle.stop_owned_runtime();
+}
 
 /// Starts the native desktop application.
 ///
 /// # Panics
 ///
 /// Panics when native desktop initialization or the event loop fails.
-#[allow(clippy::significant_drop_tightening, clippy::too_many_lines)]
 pub fn run() {
     let activations = crate::external_activation::ActivationManager::default();
     let second_instance_activations = activations.clone();
-    let selections = DirectorySelectionManager::new(std::time::Duration::from_secs(30))
-        .expect("fixed directory selection lifetime is valid");
-    let prepared = selections.prepared_workspaces();
+    let (selections, prepared) = directory_managers();
     let destructive_intents = crate::destructive_intent::DestructiveIntentManager::new(
         std::time::Duration::from_secs(30),
     )
     .expect("fixed destructive intent lifetime is valid");
+    let approval_intents =
+        crate::destructive_intent::ApprovalIntentManager::new(std::time::Duration::from_secs(30))
+            .expect("fixed approval intent lifetime is valid");
     let app = tauri::Builder::default()
         .manage(selections)
         .manage(prepared)
         .manage(destructive_intents)
+        .manage(approval_intents)
         .manage(activations)
-        .plugin(tauri_plugin_single_instance::init(move |app, args, _cwd| {
-            second_instance_activations.forward(app, args);
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }))
+        .plugin(tauri_plugin_single_instance::init(
+            move |app, args, _cwd| {
+                second_instance_activations.forward(app, args);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            },
+        ))
         .plugin(tauri_plugin_dialog::init())
         .on_page_load(fence_page_load)
-        .on_window_event(|window, event| match event {
-            WindowEvent::CloseRequested { api, .. } => {
-                api.prevent_close();
-                let _ = window.hide();
-            }
-            WindowEvent::Destroyed => {
-                window
-                    .state::<ConversationSubscriptionManager>()
-                    .cancel_window(window.label());
-                window
-                    .state::<TaskRunSubscriptionManager>()
-                    .cancel_window(window.label());
-                let _ = window
-                    .try_state::<DirectorySelectionManager>()
-                    .and_then(|selections| {
-                        selections
-                            .renderer_generations()
-                            .fence_destroyed(window.label())
-                            .ok()
-                    });
-                if let Some(intents) =
-                    window.try_state::<crate::destructive_intent::DestructiveIntentManager>()
-                {
-                    intents.invalidate_window(window.label());
-                }
-            }
-            _ => {}
-        })
-        .setup(|app| {
-            let profile_directory = app.path().app_data_dir()?;
-            std::fs::create_dir_all(&profile_directory)?;
-            let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
-            let runtime_mode = select_runtime_mode(std::env::args_os().skip(1))?;
-            let core = Arc::new(AppCore::open_production(
-                &profile_directory.join("profile.sqlite3"),
-                runtime_mode,
-            )?);
-            let lifecycle = match runtime_mode {
-                RuntimeMode::ExternalLocal => RuntimeLifecycleManager::external(),
-                RuntimeMode::Bundled => {
-                    let controller = std::env::current_exe()
-                        .map_err(|_| RuntimeFailureCode::BundledExecutableUnavailable)
-                        .and_then(|desktop_executable| {
-                            BundledRuntimeController::discover(
-                                Arc::clone(&core),
-                                &desktop_executable,
-                                &profile_directory.join("bundled-runtime"),
-                            )
-                        });
-                    match controller {
-                        Ok(controller) => {
-                            controller.spawn_monitor();
-                            RuntimeLifecycleManager::bundled_with_native_root(controller)
-                        }
-                        Err(failure) => {
-                            tauri::async_runtime::block_on(
-                                core.mark_bundled_runtime_failed(failure),
-                            )?;
-                            RuntimeLifecycleManager::bundled_unavailable()
-                        }
-                    }
-                }
-            };
-            let notification_core = Arc::clone(&core);
-            let notification_state = Arc::new(crate::notifications::NotificationState::default());
-            app.manage(profile_lock);
-            app.manage(core);
-            app.manage(crate::updater_status::UpdateStatusStore::new(&profile_directory));
-            let _ = app
-                .state::<crate::updater_status::UpdateStatusStore>()
-                .begin_health_check_if_required();
-            app.manage(Arc::clone(&notification_state));
-            app.state::<crate::external_activation::ActivationManager>()
-                .forward(app.handle(), std::env::args_os().skip(1));
-            app.manage(ConversationSubscriptionManager::new());
-            app.manage(TaskRunSubscriptionManager::new());
-            app.manage(lifecycle);
-            tray::install(app.handle())?;
-            let notification_app = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-                    if notification_app.get_webview_window("main").is_none() {
-                        break;
-                    }
-                    let _ = crate::notifications::sync_notifications_inner(
-                        &notification_app,
-                        &notification_core,
-                        notification_state.as_ref(),
-                    )
-                    .await;
-                }
-            });
-            Ok(())
-        })
+        .on_window_event(handle_window_event)
+        .setup(setup_app)
         .invoke_handler(tauri::generate_handler![
             get_bootstrap,
             set_theme,
@@ -155,10 +200,9 @@ pub fn run() {
             set_locale,
             get_shortcuts,
             set_shortcuts,
-        get_device_status,
+            get_device_status,
             get_provider_status,
-            pair_provider_credential,
-            revoke_provider_credential,
+            request_provider_credential_intent,
             get_update_status,
             check_update,
             download_update,
@@ -185,7 +229,8 @@ pub fn run() {
             get_task_run_timeline,
             list_pending_approvals,
             get_approval,
-            respond_to_approval,
+            prepare_approval_decision,
+            consume_approval_decision,
             resync_task_run_timeline,
             cancel_task_run,
             subscribe_task_run_timeline,
@@ -213,18 +258,5 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("failed to initialize Runne desktop application");
-    app.run(|app, event| {
-        if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-            let lifecycle = app.state::<RuntimeLifecycleManager>();
-            if lifecycle.begin_explicit_quit() {
-                app.state::<DirectorySelectionManager>()
-                    .clear_pending_authority();
-                app.state::<crate::destructive_intent::DestructiveIntentManager>()
-                    .clear_pending();
-                app.state::<ConversationSubscriptionManager>().shutdown();
-                app.state::<TaskRunSubscriptionManager>().shutdown();
-                lifecycle.stop_owned_runtime();
-            }
-        }
-    });
+    app.run(|app, event| handle_run_event(app, &event));
 }

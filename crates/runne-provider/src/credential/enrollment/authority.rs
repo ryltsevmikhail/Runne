@@ -4,15 +4,16 @@ use super::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,
     CredentialBindingDigest, CredentialEnrollmentError, CredentialMeasurementSnapshot,
     CredentialMigrationMetadata, CredentialOperationAction, CredentialOperationState,
-    CredentialProcessBinding, CredentialReleaseMigrationBinding, CredentialTransitionEvidence,
-    CredentialVerificationCapability, CredentialVerificationLease, DaemonAuthorityId,
-    DesktopExecutableIdentity, ExpectedInstallMeasurement, ObservedInstallMeasurement,
-    ProtectedSessionId, ReaderExecutableIdentity, ReleaseManifestDigest, TransitionCommand,
-    WriterExecutableIdentity, WriterLaunchId, WriterProcessHandleIdentity,
-    WriterProcessStartIdentity,
+    CredentialProcessBinding, CredentialQualifiedReleaseTuple, CredentialReleaseMigrationBinding,
+    CredentialTransitionEvidence, CredentialVerificationCapability, CredentialVerificationLease,
+    DaemonAuthorityId, DesktopExecutableIdentity, ExpectedInstallMeasurement,
+    ObservedInstallMeasurement, ProtectedSessionId, ReaderExecutableIdentity,
+    ReleaseManifestDigest, TransitionCommand, WriterExecutableIdentity, WriterLaunchId,
+    WriterProcessHandleIdentity, WriterProcessStartIdentity,
 };
 
 pub(crate) mod claim;
+mod migration_metadata;
 mod ticket;
 pub mod writer;
 
@@ -166,27 +167,8 @@ impl CredentialEnrollmentStoreAuthority {
             binding.phase(),
             binding.old_tuple_digest(),
             binding.new_tuple_digest(),
+            binding.digest(),
         ))
-    }
-
-    /// Rehydrates safe migration fields after Task 3 validates an immutable v24 row.
-    ///
-    /// This does not admit a new migration or process effect. The store must call it only while
-    /// decoding metadata that its persistence boundary has already validated.
-    pub fn hydrate_persisted_credential_migration_metadata(
-        &self,
-        migration_id: super::CredentialOperationId,
-        phase: super::WriterIdentityMigrationPhase,
-        old_tuple_digest: CredentialBindingDigest,
-        new_tuple_digest: CredentialBindingDigest,
-    ) -> CredentialMigrationMetadata {
-        CredentialMigrationMetadata::issue(
-            self.seal.clone(),
-            migration_id,
-            phase,
-            old_tuple_digest,
-            new_tuple_digest,
-        )
     }
 
     /// Rejects migration metadata materialized by a different authority pair.
@@ -208,6 +190,20 @@ pub struct CredentialEnrollmentMeasurementAuthority {
 }
 
 impl CredentialEnrollmentMeasurementAuthority {
+    /// Seals one already-qualified release manifest for durable enrollment binding.
+    pub fn issue_qualified_credential_release_tuple(
+        &self,
+        release_manifest: ReleaseManifestDigest,
+    ) -> Result<CredentialQualifiedReleaseTuple, CredentialEnrollmentError> {
+        if !release_manifest.belongs_to(&self.seal) {
+            return Err(CredentialEnrollmentError::InvalidEvidence);
+        }
+        Ok(CredentialQualifiedReleaseTuple::issue(
+            self.seal.clone(),
+            release_manifest.digest(),
+        ))
+    }
+
     /// Issues the independently observed metadata-only installation measurement.
     pub fn observed_install_measurement(
         &self,

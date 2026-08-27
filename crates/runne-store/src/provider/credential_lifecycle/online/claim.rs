@@ -211,7 +211,7 @@ pub(super) fn claim(
     if changed != 1 {
         return Err(CredentialLifecycleError::Conflict);
     }
-    let changed = transaction.execute("UPDATE provider_credential_operations SET state='CLAIMED', continuation_binding_digest=?1, process_release_binding_digest=?2, updated_at=?3 WHERE operation_id=?4 AND state='PREPARED'", params![input.continuation_binding_digest().as_bytes().as_slice(), input.process_release_binding_digest().as_bytes().as_slice(), effective_now, input.operation_id().as_bytes().as_slice()]).map_err(map_sql)?;
+    let changed = transaction.execute("UPDATE provider_credential_operations SET state='CLAIMED', continuation_binding_digest=?1, process_release_binding_digest=?2, claimed_ticket_attempt=?3, updated_at=?4 WHERE operation_id=?5 AND state='PREPARED'", params![input.continuation_binding_digest().as_bytes().as_slice(), input.process_release_binding_digest().as_bytes().as_slice(), input.ticket_attempt().get(), effective_now, input.operation_id().as_bytes().as_slice()]).map_err(map_sql)?;
     if changed != 1 {
         return Err(CredentialLifecycleError::Conflict);
     }

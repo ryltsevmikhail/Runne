@@ -73,7 +73,7 @@ pub(crate) mod native_process_provider;
 mod native_process_registry;
 #[cfg(not(feature = "desktop-protected"))]
 mod process_unavailable;
-mod provider_credential_control;
+pub(crate) mod provider_credential_enrollment;
 mod provider_selection;
 mod provider_startup;
 mod provider_status;

@@ -53,16 +53,17 @@ export async function decideApproval(
 ): Promise<ApprovalDecisionAcknowledgement> {
   if (!isApproval(approval) || approval.state !== 'pending' || !['approve', 'deny'].includes(decision)) throw new Error('Invalid approval decision')
   if (!Number.isSafeInteger(rendererGeneration) || rendererGeneration < 0) throw new Error('Invalid renderer generation')
-  const value = await invoke('respond_to_approval', {
-    request: {
-      approvalId: approval.approvalId,
-      expectedVersion: approval.requestVersion,
-      decision,
-      actionDigest: approval.actionDigest,
-      policyRevision: approval.policyRevision,
-      rendererGeneration,
-    },
-  })
+  const request = {
+    approvalId: approval.approvalId,
+    expectedVersion: approval.requestVersion,
+    decision,
+    actionDigest: approval.actionDigest,
+    policyRevision: approval.policyRevision,
+    rendererGeneration,
+  }
+  const intent = await invoke('prepare_approval_decision', { request })
+  if (!opaqueIntent(intent)) throw new Error('Invalid approval intent')
+  const value = await invoke('consume_approval_decision', { intent, request })
   if (!isDecisionAcknowledgement(value, approval)) throw new Error('Invalid approval decision response')
   return value
 }
@@ -83,3 +84,4 @@ function record(value: unknown): value is Record<string, unknown> { return typeo
 function positive(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 }
 function display(value: unknown): value is string { return typeof value === 'string' && value.length > 0 && value.length <= 4096 && ![...value].some(character => character < ' ' || character === '\u007f') }
 function nullableId(value: unknown): value is string | null { return value === null || (typeof value === 'string' && id.test(value)) }
+function opaqueIntent(value: unknown): value is string { return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value) }

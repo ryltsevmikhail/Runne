@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "approval": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "actionDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "approvalId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "attemptId": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expiresAt": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "invocationId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "policyRevision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "requestVersion": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "resource": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "riskSummary": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "approved",
+            "denied",
+            "expired",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "taskRunId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "taskRunId",
+        "attemptId",
+        "invocationId",
+        "action",
+        "resource",
+        "actionDigest",
+        "policyRevision",
+        "requestVersion",
+        "expiresAt",
+        "riskSummary",
+        "state"
+      ],
+      "type": "object"
+    },
+    "decisionAcknowledgement": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        },
+        "newVersion": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "state": {
+          "enum": [
+            "approved",
+            "denied",
+            "expired",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "taskRunId": {
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "taskRunId",
+        "newVersion",
+        "state"
+      ],
+      "type": "object"
+    },
+    "decisionRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actionDigest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "approve",
+            "deny"
+          ],
+          "type": "string"
+        },
+        "expectedVersion": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "policyRevision": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "rendererGeneration": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "expectedVersion",
+        "decision",
+        "actionDigest",
+        "policyRevision",
+        "rendererGeneration"
+      ],
+      "type": "object"
+    },
+    "list": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/approval"
+          },
+          "maxItems": 1024,
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "gocode://schemas/approval-v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Approval API V1",
+  "type": "object"
+}

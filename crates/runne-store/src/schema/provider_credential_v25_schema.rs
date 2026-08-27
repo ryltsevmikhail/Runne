@@ -1,4 +1,4 @@
-const V25_REPLACED_TRIGGERS: [&str; 3] = [
+pub(super) const V25_REPLACED_TRIGGERS: [&str; 3] = [
     "provider_credential_operation_insert_prepared",
     "provider_credential_operation_transition",
     "provider_credential_ticket_insert_issued",
@@ -52,10 +52,10 @@ fn v25_marker_matches(connection: &Connection) -> SqliteResult<bool> {
         [],
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     )?;
-    Ok(tuple == (25, 1, 25, 325))
+    Ok(matches!(tuple, (25, 1, 24, 306) | (25, 1, 25, 325)))
 }
 
-fn v25_operation_table_matches(connection: &Connection) -> SqliteResult<bool> {
+pub(super) fn v25_operation_table_matches(connection: &Connection) -> SqliteResult<bool> {
     let sql: Option<String> = connection
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type='table' AND name='provider_credential_operations'",
@@ -79,7 +79,7 @@ fn v25_operation_table_source() -> String {
     )
 }
 
-fn v25_trigger(name: &str, source: &str) -> String {
+pub(super) fn v25_trigger(name: &str, source: &str) -> String {
     match name {
         "provider_credential_operation_insert_prepared" => source.replace(
             "WHEN NEW.state != 'PREPARED'",

@@ -9,10 +9,7 @@ use runne_domain::id::{AttemptId, CommandId, ConversationId, MessageId, TaskRunI
 use runne_store::{
     codec::{CommandOutcomeCodec, IdempotencyScopeCodec, StoreCodec, TextGenerationReceiptCodec},
     provider::SqliteProviderExecutionStore,
-    schema::{
-        CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v15_for_test,
-        preflight_existing_file,
-    },
+    schema::{apply_migrations, apply_migrations_through_v15_for_test, preflight_existing_file},
 };
 use rusqlite::{Connection, params};
 
@@ -177,7 +174,6 @@ fn v20_rejects_released_v15_fixture_without_complete_replay_histories() {
     preflight_existing_file(&path).unwrap();
     let connection = Connection::open(&path).unwrap();
     assert!(apply_migrations(&connection).is_err());
-    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
     assert_eq!(
         connection
             .query_row("SELECT MAX(version) FROM schema_version", [], |row| row

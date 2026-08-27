@@ -21,7 +21,7 @@ class PackageSmokeTests(unittest.TestCase):
         package = json.loads((ROOT / "apps/desktop/package.json").read_text(encoding="utf-8"))
         self.assertEqual(config["identifier"], "com.runne.desktop")
         self.assertEqual(config["mainBinaryName"], "runne-desktop")
-        self.assertEqual(config["bundle"]["externalBin"], ["binaries/runned"])
+        self.assertEqual(config["bundle"]["externalBin"], ["binaries/runned", "binaries/runne"])
         self.assertEqual(config["bundle"]["macOS"]["minimumSystemVersion"], "13.0")
         self.assertTrue(config["bundle"]["macOS"]["hardenedRuntime"])
         self.assertFalse(config["bundle"]["windows"]["allowDowngrades"])

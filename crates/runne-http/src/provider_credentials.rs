@@ -1,233 +1,136 @@
-//! Authenticated provider credential mutation routes.
+//! Closed compatibility routes for removed V1 credential mutation.
 
-use axum::{
-    Json, Router,
-    extract::{DefaultBodyLimit, Extension, Path, State},
-    http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
-    routing::put,
-};
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use runne_api::{
-    ApiActor, ProviderCredentialCommandContext, ProviderCredentialControlHostPort,
-    ProviderCredentialHostError, ProviderCredentialMutationAckV1, ProviderCredentialPairCommand,
-    ProviderCredentialProviderV1, ProviderCredentialRevokeCommand,
-};
-use runne_domain::id::{CommandId, IdempotencyKey};
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use axum::{Router, extract::Extension, http::StatusCode, response::Response, routing::put};
 
-use crate::{
-    auth::AuthenticatedPrincipal,
-    error::{RequestId, canonical_error_response},
-};
+use crate::error::{RequestId, canonical_error_response};
 
-const MAX_BODY_BYTES: usize = 8 * 1024;
+const V1_UNSUPPORTED_CODE: &str = "provider_credential_control_v1_unsupported";
 
-#[derive(Clone)]
-pub struct ProviderCredentialHttpState {
-    pub(super) host: Arc<dyn ProviderCredentialControlHostPort>,
-    pub(super) actor: ApiActor,
-}
-
-impl ProviderCredentialHttpState {
-    #[must_use]
-    pub fn new(host: Arc<dyn ProviderCredentialControlHostPort>, actor: ApiActor) -> Self {
-        Self { host, actor }
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct PairBody {
-    credential: String,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AckWire {
-    provider_id: &'static str,
-    status: &'static str,
-}
-
-pub fn provider_credential_router(state: ProviderCredentialHttpState) -> Router {
-    Router::new()
-        .route(
-            "/v1/providers/{provider}/credential",
-            put(pair).delete(revoke),
-        )
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .with_state(state)
-}
-
-async fn pair(
-    State(state): State<ProviderCredentialHttpState>,
-    Extension(principal): Extension<AuthenticatedPrincipal>,
-    Extension(request_id): Extension<RequestId>,
-    Path(provider): Path<String>,
-    headers: HeaderMap,
-    body: Result<Json<PairBody>, axum::extract::rejection::JsonRejection>,
-) -> Response {
-    let context = match command_context(&headers, &principal, &state.actor) {
-        Ok(value) => value,
-        Err(code) => return bad_request(code, &request_id),
-    };
-    let provider = match ProviderCredentialProviderV1::parse(&provider) {
-        Ok(value) => value,
-        Err(_) => return bad_request("invalid_provider", &request_id),
-    };
-    let Json(body) = match body {
-        Ok(value) => value,
-        Err(_) => return bad_request("invalid_request", &request_id),
-    };
-    let material = match URL_SAFE_NO_PAD.decode(body.credential.as_bytes()) {
-        Ok(value) => value,
-        Err(_) => return bad_request("invalid_provider_credential", &request_id),
-    };
-    let command = match ProviderCredentialPairCommand::new(provider, material) {
-        Ok(value) => value,
-        Err(_) => return bad_request("invalid_provider_credential", &request_id),
-    };
-    match state.host.pair_provider_credential(context, command).await {
-        Ok(ack) => accepted(ack),
-        Err(error) => host_error(error, &request_id),
-    }
-}
-
-async fn revoke(
-    State(state): State<ProviderCredentialHttpState>,
-    Extension(principal): Extension<AuthenticatedPrincipal>,
-    Extension(request_id): Extension<RequestId>,
-    Path(provider): Path<String>,
-    headers: HeaderMap,
-) -> Response {
-    let context = match command_context(&headers, &principal, &state.actor) {
-        Ok(value) => value,
-        Err(code) => return bad_request(code, &request_id),
-    };
-    let provider = match ProviderCredentialProviderV1::parse(&provider) {
-        Ok(value) => value,
-        Err(_) => return bad_request("invalid_provider", &request_id),
-    };
-    match state
-        .host
-        .revoke_provider_credential(context, ProviderCredentialRevokeCommand::new(provider))
-        .await
-    {
-        Ok(ack) => accepted(ack),
-        Err(error) => host_error(error, &request_id),
-    }
-}
-
-fn command_context(
-    headers: &HeaderMap,
-    principal: &AuthenticatedPrincipal,
-    actor: &ApiActor,
-) -> Result<ProviderCredentialCommandContext, &'static str> {
-    let command_id = exactly_one(headers, "x-command-id")
-        .and_then(|value| value.parse::<CommandId>().ok())
-        .ok_or("invalid_command_id")?;
-    let idempotency_key = exactly_one(headers, "idempotency-key")
-        .and_then(|value| IdempotencyKey::new(value).ok())
-        .ok_or("invalid_idempotency_key")?;
-    Ok(ProviderCredentialCommandContext {
-        command_id,
-        idempotency_key,
-        principal: principal.as_api_principal().clone(),
-        actor: actor.clone(),
-    })
-}
-
-fn exactly_one<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
-    let mut values = headers.get_all(name).iter();
-    let value = values.next()?;
-    values
-        .next()
-        .is_none()
-        .then(|| value.to_str().ok())
-        .flatten()
-}
-
-fn accepted(ack: ProviderCredentialMutationAckV1) -> Response {
-    (
-        StatusCode::ACCEPTED,
-        Json(AckWire {
-            provider_id: ack.provider().as_str(),
-            status: credential_status(ack.status()),
-        }),
+/// Mounts V1 paths only to return a fixed post-authentication rejection.
+///
+/// The handler has no path, header, state, or body extractor. In particular,
+/// it cannot deserialize or consume credential material from the request body.
+pub fn provider_credential_router() -> Router {
+    Router::new().route(
+        "/v1/providers/{provider}/credential",
+        put(v1_unsupported).delete(v1_unsupported),
     )
-        .into_response()
 }
 
-fn credential_status(status: runne_api::ProviderCredentialStatusV1) -> &'static str {
-    match status {
-        runne_api::ProviderCredentialStatusV1::Configured => "configured",
-        runne_api::ProviderCredentialStatusV1::Missing => "missing",
-        runne_api::ProviderCredentialStatusV1::Unsupported => "unsupported",
-        runne_api::ProviderCredentialStatusV1::AccessDenied => "access_denied",
-        runne_api::ProviderCredentialStatusV1::IdentityMismatch => "identity_mismatch",
-        runne_api::ProviderCredentialStatusV1::Unavailable => "unavailable",
-    }
-}
-
-fn host_error(error: ProviderCredentialHostError, request_id: &RequestId) -> Response {
-    let (status, code) = match error {
-        ProviderCredentialHostError::InvalidRequest => {
-            (StatusCode::BAD_REQUEST, "invalid_provider_credential")
-        }
-        ProviderCredentialHostError::Forbidden => {
-            (StatusCode::FORBIDDEN, "provider_credential_forbidden")
-        }
-        ProviderCredentialHostError::Conflict => {
-            (StatusCode::CONFLICT, "provider_credential_conflict")
-        }
-        ProviderCredentialHostError::Unsupported => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "provider_credential_unsupported",
-        ),
-        ProviderCredentialHostError::Unavailable => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "provider_credential_unavailable",
-        ),
-        ProviderCredentialHostError::InvariantViolation => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "runtime_invariant_violation",
-        ),
-    };
-    canonical_error_response(status, code, request_id)
-}
-
-fn bad_request(code: &'static str, request_id: &RequestId) -> Response {
-    canonical_error_response(StatusCode::BAD_REQUEST, code, request_id)
+async fn v1_unsupported(Extension(request_id): Extension<RequestId>) -> Response {
+    canonical_error_response(
+        StatusCode::SERVICE_UNAVAILABLE,
+        V1_UNSUPPORTED_CODE,
+        &request_id,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{body::Body, http::Request};
+    use futures::{future, stream};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use tower::ServiceExt as _;
 
-    #[test]
-    fn status_wire_is_closed_and_redacted() {
-        assert_eq!(
-            credential_status(runne_api::ProviderCredentialStatusV1::Configured),
-            "configured"
-        );
-        assert_eq!(
-            credential_status(runne_api::ProviderCredentialStatusV1::IdentityMismatch),
-            "identity_mismatch"
-        );
+    #[tokio::test]
+    async fn provider_credential_v1_is_closed_without_polling_accepted_body_shapes() {
+        for (shape, bytes, headers) in [
+            ("empty", b"".as_slice(), &[][..]),
+            ("malformed_json", b"{not-json".as_slice(), &[][..]),
+            (
+                "oversized",
+                b"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".as_slice(),
+                &[("content-length", "8192")][..],
+            ),
+            (
+                "chunked",
+                b"credential=must-not-be-read".as_slice(),
+                &[("transfer-encoding", "chunked")][..],
+            ),
+            (
+                "compressed",
+                b"not-a-gzip-stream".as_slice(),
+                &[("content-encoding", "gzip")][..],
+            ),
+            (
+                "expect_continue",
+                b"credential=must-not-be-read".as_slice(),
+                &[("expect", "100-continue")][..],
+            ),
+        ] {
+            for method in ["PUT", "DELETE"] {
+                let polls = Arc::new(AtomicUsize::new(0));
+                let mut builder = Request::builder()
+                    .method(method)
+                    .uri("/v1/providers/not-a-provider/credential");
+                for (name, value) in headers {
+                    builder = builder.header(*name, *value);
+                }
+                let mut request = builder
+                    .body(counted_body(bytes, Arc::clone(&polls)))
+                    .expect("request");
+                request.extensions_mut().insert(RequestId::generate());
+                let response = provider_credential_router()
+                    .oneshot(request)
+                    .await
+                    .expect("response");
+                assert_eq!(
+                    response.status(),
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{shape} {method}"
+                );
+                assert_eq!(polls.load(Ordering::SeqCst), 0, "{shape} {method}");
+                let body = axum::body::to_bytes(response.into_body(), 1024)
+                    .await
+                    .expect("error body");
+                assert!(
+                    std::str::from_utf8(&body)
+                        .expect("utf8")
+                        .contains(V1_UNSUPPORTED_CODE)
+                );
+            }
+        }
+
+        for method in ["PUT", "DELETE"] {
+            let polls = Arc::new(AtomicUsize::new(0));
+            let mut request = Request::builder()
+                .method(method)
+                .uri("/v1/providers/not-a-provider/credential")
+                .body(slow_counted_body(Arc::clone(&polls)))
+                .expect("request");
+            request.extensions_mut().insert(RequestId::generate());
+            let response = tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                provider_credential_router().oneshot(request),
+            )
+            .await
+            .expect("slow body must not delay rejection")
+            .expect("response");
+            assert_eq!(
+                response.status(),
+                StatusCode::SERVICE_UNAVAILABLE,
+                "slow {method}"
+            );
+            assert_eq!(polls.load(Ordering::SeqCst), 0, "slow {method}");
+        }
     }
 
-    #[test]
-    fn duplicate_header_is_rejected() {
-        let mut headers = HeaderMap::new();
-        headers.append(
-            "x-command-id",
-            "018f2e3a-7000-7000-8000-000000000003".parse().unwrap(),
-        );
-        headers.append(
-            "x-command-id",
-            "018f2e3a-7000-7000-8000-000000000004".parse().unwrap(),
-        );
-        assert!(exactly_one(&headers, "x-command-id").is_none());
+    fn counted_body(bytes: &[u8], polls: Arc<AtomicUsize>) -> Body {
+        let bytes = axum::body::Bytes::copy_from_slice(bytes);
+        Body::from_stream(stream::once(async move {
+            polls.fetch_add(1, Ordering::SeqCst);
+            Ok::<_, std::convert::Infallible>(bytes)
+        }))
+    }
+
+    fn slow_counted_body(polls: Arc<AtomicUsize>) -> Body {
+        Body::from_stream(stream::once(async move {
+            polls.fetch_add(1, Ordering::SeqCst);
+            future::pending::<Result<axum::body::Bytes, std::convert::Infallible>>().await
+        }))
     }
 }

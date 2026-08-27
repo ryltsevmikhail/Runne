@@ -1,6 +1,8 @@
 //! Desktop implementations of native capability ports.
 
 mod protected_runtime;
+#[cfg(test)]
+mod provider_credential_broker;
 mod root_handle_broker;
 mod updater;
 mod updater_artifact;
@@ -31,6 +33,14 @@ pub use root_handle_broker::{RootFileEntry, RootFileKind};
 pub use root_handle_broker::{test_transfer_receiver, test_transfer_sender};
 pub use runne_api::WorkspaceId;
 pub use runne_api::{PROTECTED_BUNDLED_SESSION_RENEW_AFTER, ProtectedRootHandleAdmission};
+pub use runne_platform_ports::provider_credential_broker::{
+    VerifiedWriterArtifact, VerifiedWriterArtifactError, VerifiedWriterArtifactPort,
+};
+pub use runne_platform_ports::provider_credential_prompt::{
+    CredentialPipeBytes, CredentialPromptAction, CredentialPromptProvider,
+    SecureCredentialMaterial, SecureCredentialPromptDisposition, SecureCredentialPromptError,
+    SecureCredentialPromptPort, SecureCredentialPromptRequest,
+};
 pub use updater::{
     StagedUpdate, UpdateInstallError, UpdateInstallPlan, UpdateInstallState, UpdateMetadataV1,
     UpdatePayloadV1, UpdateTarget, UpdateVerificationError, VerifiedUpdate,
@@ -44,6 +54,7 @@ pub use updater_feed::{UpdateFeedClient, UpdateFeedError};
 pub use updater_install::{NativeUpdateInstallError, install_staged_update};
 pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError};
 pub use updater_metadata::{
+    MeasuredNativeEnrollmentArtifactsV1, NativeEnrollmentTupleError, NativeEnrollmentTupleV1,
     UpdateMetadataV2, UpdateRootRoleV2, UpdateSignatureV2, UpdateSnapshotRoleV2, UpdateTargetV2,
     UpdateTargetV2Binding, UpdateTargetsRoleV2, UpdateTimestampRoleV2, UpdateTrustRootV2,
     UpdateV2VerificationError, VerifiedUpdateV2, verify_update_v2,

@@ -20,6 +20,7 @@ include!("protected_activation/root_bind_transport.rs");
 include!("protected_activation/root_admission_authenticator.rs");
 include!("protected_activation/root_handle_transfer_authenticator.rs");
 include!("protected_activation/root_handle_control.rs");
+include!("protected_activation/credential_enrollment_control.rs");
 include!("protected_activation_parts/port_17.rs");
 include!("protected_activation_parts/port_18.rs");
 include!("protected_activation_parts/port_19.rs");

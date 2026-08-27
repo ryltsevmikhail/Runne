@@ -71,7 +71,7 @@ impl ProviderRecoveryObserver for RecordingRecoveryObserver {
 
 async fn prepare_terminal_output(fixture: &recovery::Fixture, keyring: &recovery::MemoryKeyring) {
     let writer = recovery::runtime(keyring, fixture.execution.as_ref());
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
     recovery::poll_events(
         &writer,
         fixture,
@@ -102,7 +102,7 @@ where
 #[tokio::test(flavor = "current_thread")]
 async fn recovery_acknowledges_before_one_ignored_observer_call() {
     let fixture = recovery::fixture();
-    let keyring = recovery::MemoryKeyring::default();
+    let keyring = fixture.keyring();
     prepare_terminal_output(&fixture, &keyring).await;
     let runtime = recovery::runtime(&keyring, fixture.execution.as_ref());
     let outbox_id = pending_outbox_id(&runtime);
@@ -130,7 +130,7 @@ async fn recovery_observer_call_matrix_excludes_unsuccessful_acknowledgements() 
         Ok([0; 32]),
     ] {
         let fixture = recovery::fixture();
-        let keyring = recovery::MemoryKeyring::default();
+        let keyring = fixture.keyring();
         prepare_terminal_output(&fixture, &keyring).await;
         let runtime = recovery::runtime(&keyring, fixture.execution.as_ref());
         let outbox_id = pending_outbox_id(&runtime);
@@ -149,7 +149,7 @@ async fn recovery_observer_call_matrix_excludes_unsuccessful_acknowledgements() 
 #[tokio::test(flavor = "current_thread")]
 async fn recovery_ack_failure_does_not_call_observer() {
     let fixture = recovery::fixture();
-    let keyring = recovery::MemoryKeyring::default();
+    let keyring = fixture.keyring();
     prepare_terminal_output(&fixture, &keyring).await;
     let failing = recovery::FailFirstAcknowledgementStore {
         inner: Arc::clone(&fixture.execution),
@@ -174,7 +174,7 @@ async fn recovery_ack_failure_does_not_call_observer() {
 #[tokio::test(flavor = "current_thread")]
 async fn foreground_terminal_apply_never_calls_recovery_observer() {
     let fixture = recovery::fixture();
-    let keyring = recovery::MemoryKeyring::default();
+    let keyring = fixture.keyring();
     prepare_terminal_output(&fixture, &keyring).await;
     let runtime = recovery::runtime(&keyring, fixture.execution.as_ref());
     let outbox_id = pending_outbox_id(&runtime);
@@ -195,7 +195,7 @@ async fn foreground_terminal_apply_never_calls_recovery_observer() {
 #[tokio::test(flavor = "current_thread")]
 async fn recovery_keeps_ack_success_when_observer_returns_unavailable() {
     let fixture = recovery::fixture();
-    let keyring = recovery::MemoryKeyring::default();
+    let keyring = fixture.keyring();
     prepare_terminal_output(&fixture, &keyring).await;
     let runtime = recovery::runtime(&keyring, fixture.execution.as_ref());
     let outbox_id = pending_outbox_id(&runtime);

@@ -78,6 +78,7 @@ fn dispatch_request_rejects_unbound_render_evidence_before_adapter_effect() {
         .prepare(&call(vec![ProviderCapability::Streaming]))
         .unwrap();
     let mut claim = ProviderDispatchClaim {
+        provider_id: prepared.call().model_ref().provider_id().clone(),
         call_id: prepared.call().call_id(),
         attempt_id: DispatchAttemptId::from_bytes([3; 16]),
         permit_id: [4; 16],

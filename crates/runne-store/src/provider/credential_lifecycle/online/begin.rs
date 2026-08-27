@@ -1,6 +1,7 @@
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, CredentialLifecycleError,
     CredentialLifecycleSnapshot, CredentialOperationAction, CredentialOperationSnapshot,
+    WriterIdentityMigrationPhase,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
@@ -33,6 +34,25 @@ pub(super) fn begin(
     store: &SqliteProviderCredentialLifecycleStore,
     input: BeginCredentialOperation,
 ) -> Result<BeginCredentialOperationOutcome, CredentialLifecycleError> {
+    let qualified_release_tuple = input
+        .qualified_release_tuple()
+        .ok_or(CredentialLifecycleError::Conflict)?;
+    let migration = input.migration();
+    let is_migration = matches!(
+        input.action(),
+        CredentialOperationAction::WriterIdentityMigrationEffect
+            | CredentialOperationAction::WriterIdentityMigrationVerify
+    );
+    if is_migration != migration.is_some()
+        || migration.is_some_and(|value| {
+            store
+                .enrollment_authority
+                .validate_credential_migration_metadata(value)
+                .is_err()
+        })
+    {
+        return Err(CredentialLifecycleError::Conflict);
+    }
     let mut connection = store.connection.lock().map_err(super::map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -116,11 +136,15 @@ pub(super) fn begin(
         return Err(CredentialLifecycleError::Conflict);
     }
     transaction.execute(
-        "INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, allocated_credential_version, allocated_ref_digest, target_credential_version, target_ref_digest, state, begin_proof_digest, begin_proof_expires_at_high_water, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'PREPARED', ?13, ?14, ?15, ?15)",
-        params![input.operation_id().as_bytes().as_slice(), input.installation_owner_id().as_bytes().as_slice(), input.provider_id().as_str(), action_sql(input.action()), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get(), input.allocated_credential_version().map(|v| v.version()), input.allocated_credential_version().map(|v| v.ref_digest().to_vec()), input.target_credential_version().map(|v| v.version()), input.target_credential_version().map(|v| v.ref_digest().to_vec()), input.begin_proof_digest().as_bytes().as_slice(), expiry, effective_now],
+        "INSERT INTO provider_credential_operations (operation_id, installation_owner_id, provider_id, action, command_id, idempotency_key, expected_lifecycle_revision, expected_credential_fence, allocated_credential_version, allocated_ref_digest, target_credential_version, target_ref_digest, state, begin_proof_digest, begin_proof_expires_at_high_water, migration_id, migration_phase, migration_old_tuple_digest, migration_new_tuple_digest, broker_migration_binding_digest, qualified_release_tuple_digest, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'PREPARED', ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?21)",
+        params![input.operation_id().as_bytes().as_slice(), input.installation_owner_id().as_bytes().as_slice(), input.provider_id().as_str(), action_sql(input.action()), input.command_id().as_bytes().as_slice(), input.idempotency_key().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get(), input.allocated_credential_version().map(|v| v.version()), input.allocated_credential_version().map(|v| v.ref_digest().to_vec()), input.target_credential_version().map(|v| v.version()), input.target_credential_version().map(|v| v.ref_digest().to_vec()), input.begin_proof_digest().as_bytes().as_slice(), expiry, migration.map(|v| v.migration_id().as_bytes().to_vec()), migration.map(|v| match v.phase() { WriterIdentityMigrationPhase::OldWriterEffect => "EFFECT", WriterIdentityMigrationPhase::NewWriterVerify => "VERIFY" }), migration.map(|v| v.old_tuple_digest().as_bytes().to_vec()), migration.map(|v| v.new_tuple_digest().as_bytes().to_vec()), migration.map(|v| v.binding_digest().as_bytes().to_vec()), qualified_release_tuple.digest().as_bytes().to_vec(), effective_now],
     ).map_err(map_sql)?;
     match input.action() {
-        CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy => {
+        CredentialOperationAction::Pair
+        | CredentialOperationAction::MigrateLegacy
+        | CredentialOperationAction::WriterIdentityMigrationEffect
+        | CredentialOperationAction::WriterIdentityMigrationVerify
+        | CredentialOperationAction::LegacySourceCleanup => {
             transaction.execute("UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1", params![effective_now, input.provider_id().as_str()]).map_err(map_sql)?;
         }
         CredentialOperationAction::Revoke => {
@@ -156,4 +180,7 @@ fn exact_replay(
         && u64::try_from(expiry).ok() == Some(input.begin_proof_expires_at_high_water())
         && existing.metadata().command_id() == input.command_id()
         && existing.metadata().idempotency_key() == input.idempotency_key()
+        && existing.metadata().migration() == input.migration()
+        && existing.metadata().qualified_release_tuple_digest()
+            == input.qualified_release_tuple().map(|tuple| tuple.digest())
 }

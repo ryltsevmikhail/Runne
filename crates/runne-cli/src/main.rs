@@ -10,11 +10,9 @@ use runne_runtime_client::{
     LocalProfileError, LocalRuntimeProfile, RuntimeApiError, default_local_profile_path,
 };
 use runne_secure_store::{
-    MAX_PROVIDER_CREDENTIAL_BYTES, NativeProviderCredentialStore, ProviderCredentialAccessPolicy,
-    ProviderCredentialId, ProviderCredentialMaterial, ProviderCredentialStatus,
-    ProviderCredentialStore, SecureStoreError,
+    NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
-use zeroize::Zeroize as _;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -184,5 +182,7 @@ mod release;
 
 #[cfg(test)]
 pub mod credential_test_support;
+#[cfg(test)]
+mod provider_credential_legacy_tests;
 #[cfg(test)]
 mod provider_credential_tests;

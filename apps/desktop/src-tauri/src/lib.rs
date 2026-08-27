@@ -10,6 +10,7 @@ mod open_selected_workspace_request;
 mod operational_telemetry_command;
 mod prepare_workspace_request;
 mod prepared_workspace;
+pub(crate) mod provider_credential_enrollment;
 mod renderer_generation;
 pub mod task_run_channel;
 mod tray;
@@ -53,7 +54,6 @@ pub use updater_status::{UpdateStatusSnapshot, UpdateStatusStore};
 struct IpcError {
     code: &'static str,
 }
-
 pub type RuntimeConnectionFuture<'a> =
     Pin<Box<dyn Future<Output = Result<RuntimeAvailability, AppCoreError>> + Send + 'a>>;
 struct NativeRootAdmission {

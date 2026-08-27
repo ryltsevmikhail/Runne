@@ -1,18 +1,15 @@
 use super::{
     CliError, CredentialBackend, CredentialIdentityResolver, CredentialOutcome, OsString,
     OutputFormat, ProcessOutcome, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, Read, SecureStoreError, VecDeque, process_outcome,
-    run_provider_credential_with,
+    SecureStoreError, VecDeque, process_outcome, run_provider_credential_with,
 };
+use std::io::Read;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 
 pub struct ProcessResult {
     pub outcome: ProcessOutcome,
-    pub delete_calls: usize,
     pub resolver_calls: usize,
-    pub store_calls: usize,
-    pub store_received_stdin_secret: bool,
 }
 
 pub fn run(
@@ -23,10 +20,7 @@ pub fn run(
 ) -> ProcessResult {
     let mut backend = Backend {
         configured: scenario == "status",
-        failure: scenario == "backend-error" || scenario == "set-backend-error",
-        delete_calls: 0,
-        store_calls: 0,
-        store_received_stdin_secret: false,
+        failure: scenario == "backend-error",
     };
     let resolver = Resolver::new(
         scenario == "resolver-error" || scenario == "set-resolver-error" || scenario == "delete",
@@ -41,10 +35,7 @@ pub fn run(
     );
     ProcessResult {
         outcome: process_outcome(result, OutputFormat::Text),
-        delete_calls: backend.delete_calls,
         resolver_calls: resolver.calls.get(),
-        store_calls: backend.store_calls,
-        store_received_stdin_secret: backend.store_received_stdin_secret,
     }
 }
 
@@ -90,9 +81,6 @@ impl CredentialIdentityResolver for Resolver {
 struct Backend {
     configured: bool,
     failure: bool,
-    delete_calls: usize,
-    store_calls: usize,
-    store_received_stdin_secret: bool,
 }
 
 impl CredentialBackend for Backend {
@@ -111,28 +99,5 @@ impl CredentialBackend for Backend {
         } else {
             CredentialOutcome::Missing
         })
-    }
-
-    fn store(
-        &mut self,
-        _id: ProviderCredentialId,
-        credential: &ProviderCredentialMaterial,
-        _access: &ProviderCredentialAccessPolicy,
-    ) -> Result<(), SecureStoreError> {
-        self.store_calls += 1;
-        self.store_received_stdin_secret = credential.with_bytes(|bytes| bytes == b"stdin-secret");
-        if self.failure {
-            return Err(SecureStoreError::OperationFailed(
-                "backend-detail".to_owned(),
-            ));
-        }
-        self.configured = true;
-        Ok(())
-    }
-
-    fn delete(&mut self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
-        self.delete_calls += 1;
-        self.configured = false;
-        Ok(())
     }
 }

@@ -3,7 +3,15 @@ mod authority_admission_tests;
 #[cfg(test)]
 mod authority_lease_tests;
 #[cfg(test)]
+mod authority_replay_provider_tests;
+#[cfg(test)]
 mod authority_test_support;
+#[cfg(test)]
+mod dispatch_coordinator_online_expiry_tests;
+#[cfg(test)]
+mod dispatch_coordinator_online_failure_tests;
+#[cfg(test)]
+mod dispatch_coordinator_online_tests;
 #[cfg(test)]
 mod dispatch_effect_tests;
 mod durable_readback;
@@ -11,9 +19,25 @@ mod durable_readback;
 mod effect_start_tests;
 #[cfg(test)]
 mod effect_start_v24_tests;
+#[cfg(test)]
+mod online_claim_provider_tests;
+#[cfg(test)]
+mod online_effect_deadline_tests;
+#[cfg(test)]
+mod online_effect_live_boundary_tests;
+pub(crate) mod online_effect_proof;
+#[cfg(test)]
+mod online_effect_start_tests;
+use online_effect_proof::{OnlineEffectProofCapabilitySet, OnlineEffectProofState};
+#[cfg(test)]
+mod online_proof_test_support;
 
 include!("execution_store/decomposition/part_01.rs");
 include!("execution_store/decomposition/part_02.rs");
+include!("execution_store/decomposition/runtime_launch.rs");
+include!("execution_store/decomposition/online_effect_start.rs");
+include!("execution_store/decomposition/online_effect_proof_install.rs");
+include!("execution_store/decomposition/online_issuance.rs");
 include!("execution_store/decomposition/part_03.rs");
 include!("execution_store/decomposition/part_04.rs");
 include!("execution_store/decomposition/part_05.rs");
@@ -34,9 +58,17 @@ impl ProviderExecutionStore for SqliteProviderExecutionStore {
 
     fn activate_journal_key(
         &self,
+        _key: ProviderJournalKeyBinding,
+    ) -> Result<(), ProviderExecutionError> {
+        Err(ProviderExecutionError::JournalKeyUnavailable)
+    }
+
+    fn activate_journal_key_with_keyring(
+        &self,
+        keyring: &dyn runne_secure_store::ProviderJournalKeyring,
         key: ProviderJournalKeyBinding,
     ) -> Result<(), ProviderExecutionError> {
-        self.activate_journal_key_impl(key)
+        self.activate_journal_key_impl(keyring, key)
     }
 
     fn journal_key_reference_count(

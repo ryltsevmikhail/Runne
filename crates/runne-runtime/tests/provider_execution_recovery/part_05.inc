@@ -40,9 +40,9 @@ static IGNORING_RECOVERY_OBSERVER: IgnoringRecoveryObserver = IgnoringRecoveryOb
 async fn crash_after_application_commit_before_outbox_ack_replays_one_completion_identity() {
     const OUTPUT: &[u8] = b"idempotent-terminal-output-marker-92";
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let writer = runtime(&keyring, fixture.execution.as_ref());
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &writer,
         &fixture,

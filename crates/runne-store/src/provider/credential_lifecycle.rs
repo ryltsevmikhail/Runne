@@ -1,3 +1,5 @@
+#[cfg(test)]
+use std::sync::Barrier;
 use std::{
     path::Path,
     sync::{Arc, Mutex},
@@ -41,6 +43,8 @@ pub struct SqliteProviderCredentialLifecycleStore {
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
     authority: CredentialLifecycleAuthority,
     enrollment_authority: CredentialEnrollmentStoreAuthority,
+    #[cfg(test)]
+    before_online_authorization_pause: Mutex<Option<(Arc<Barrier>, Arc<Barrier>)>>,
 }
 
 impl SqliteProviderCredentialLifecycleStore {
@@ -157,6 +161,8 @@ impl SqliteProviderCredentialLifecycleStore {
             now,
             authority,
             enrollment_authority,
+            #[cfg(test)]
+            before_online_authorization_pause: Mutex::new(None),
         })
     }
 

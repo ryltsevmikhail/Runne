@@ -38,6 +38,7 @@ fn exact_renewal_extends_both_leases_by_600_and_preserves_utilization() {
         .store
         .install_runtime_authority(&fixture.config)
         .unwrap();
+    let launch = fixture.activate(&fixture.config);
     let state = authority_row(&fixture.path);
     assert_eq!(
         (state.capability_expires_at, state.approval_expires_at),
@@ -46,10 +47,10 @@ fn exact_renewal_extends_both_leases_by_600_and_preserves_utilization() {
     assert_eq!(fixture.store.utilization().unwrap(), before);
 
     fixture.clock.set(1_699);
-    assert!(fixture.issue(2).is_ok());
+    assert!(fixture.issue_with(&launch, 2).is_ok());
     fixture.clock.set(1_700);
     assert_eq!(
-        fixture.issue(3),
+        fixture.issue_with(&launch, 3),
         Err(ProviderAdmissionError::CapabilityExpired)
     );
 }
@@ -125,13 +126,13 @@ fn stale_or_revoked_capability_and_approval_epochs_fail_typed_and_closed() {
             revoked.approval_revocation_epoch += 1;
             revoked.approval_allowed = false;
         }
-        fixture.store.install_runtime_authority(&revoked).unwrap();
+        let launch = fixture.activate(&revoked);
         let expected = if capability {
             ProviderAdmissionError::CapabilityRevoked
         } else {
             ProviderAdmissionError::ApprovalRevoked
         };
-        assert_eq!(fixture.issue(1), Err(expected.clone()));
+        assert_eq!(fixture.issue_with(&launch, 1), Err(expected.clone()));
         assert_eq!(fixture.store.admitted_count().unwrap(), 0);
 
         let mut stale = revoked.clone();
@@ -168,14 +169,14 @@ fn denial_disposition_requires_a_prior_allowed_state() {
         } else {
             denied.approval_allowed = false;
         }
-        fixture.store.install_runtime_authority(&denied).unwrap();
-        fixture.store.install_runtime_authority(&denied).unwrap();
+        let launch = fixture.activate(&denied);
+        super::online_proof_test_support::arm(&fixture.store);
         let expected = if capability {
             ProviderAdmissionError::CapabilityDenied
         } else {
             ProviderAdmissionError::ApprovalDenied
         };
-        assert_eq!(fixture.issue(1), Err(expected));
+        assert_eq!(fixture.issue_with(&launch, 1), Err(expected));
     }
 }
 
@@ -194,13 +195,13 @@ fn revocation_disposition_requires_a_prior_allowed_state() {
             revoked.approval_revision += 1;
             revoked.approval_revocation_epoch += 1;
         }
-        fixture.store.install_runtime_authority(&revoked).unwrap();
+        let launch = fixture.activate(&revoked);
         let expected = if capability {
             ProviderAdmissionError::CapabilityRevoked
         } else {
             ProviderAdmissionError::ApprovalRevoked
         };
-        assert_eq!(fixture.issue(1), Err(expected));
+        assert_eq!(fixture.issue_with(&launch, 1), Err(expected));
     }
 }
 
@@ -239,8 +240,10 @@ fn persisted_revocation_evidence_survives_reopen() {
     drop(fixture.store);
 
     let reopened = SqliteProviderExecutionStore::open_with_now(&path, Arc::new(|| 1_100)).unwrap();
+    super::online_proof_test_support::arm(&reopened);
+    let launch = reopened.activate_runtime_launch(&revoked).unwrap();
     assert_eq!(
-        reopened.issue(&prepare_request(&path, 1)),
+        reopened.issue(&launch, &prepare_request(&launch, &path, 1)),
         Err(ProviderAdmissionError::CapabilityRevoked)
     );
     let markers: (i64, i64) = Connection::open(path)

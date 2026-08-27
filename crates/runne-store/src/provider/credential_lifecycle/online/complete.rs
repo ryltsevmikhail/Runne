@@ -1,8 +1,9 @@
 use super::SqliteProviderCredentialLifecycleStore;
 use super::rows::{ensure_head, fence, load_head, map_sql, readiness, snapshot};
 use runne_provider::{
-    CompleteCredentialOperation, CredentialFence, CredentialLifecycleError,
-    CredentialLifecycleSnapshot, CredentialOperationAction, CredentialOperationState,
+    CompleteCredentialOperation, CredentialCompletionReceipt, CredentialFence,
+    CredentialLifecycleError, CredentialLifecycleSnapshot, CredentialOperationAction,
+    CredentialOperationState,
     HardFenceProvider, ProviderId,
 };
 use rusqlite::{TransactionBehavior, params};
@@ -11,7 +12,7 @@ use sha2::{Digest, Sha256};
 pub(super) fn complete(
     store: &SqliteProviderCredentialLifecycleStore,
     input: CompleteCredentialOperation,
-) -> Result<CredentialLifecycleSnapshot, CredentialLifecycleError> {
+) -> Result<CredentialCompletionReceipt, CredentialLifecycleError> {
     let mut connection = store.connection.lock().map_err(super::map_lock)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -21,34 +22,22 @@ pub(super) fn complete(
         input.operation_id(),
         &store.enrollment_authority,
     )?;
-    if matches!(
-        operation.action(),
-        CredentialOperationAction::Pair
-            | CredentialOperationAction::Revoke
-            | CredentialOperationAction::MigrateLegacy
-    ) && input.readiness_observation().is_none()
-    {
+    let legacy_source_cleanup = operation.action() == CredentialOperationAction::LegacySourceCleanup;
+    if input.readiness_observation().is_none() != legacy_source_cleanup {
         return Err(CredentialLifecycleError::Conflict);
     }
     if operation.state() == CredentialOperationState::Completed {
-        let readiness_replay = super::readiness_observation::matches_replay(
-            &transaction,
-            &operation,
-            input.readiness_observation(),
-        )?;
-        let exact_replay = operation.lifecycle_revision() == input.expected_lifecycle_revision()
-            && operation.fence() == input.expected_prior_fence()
-            && operation.metadata().readback_disposition() == Some(input.readback().disposition())
-            && operation.metadata().readback_observation_digest()
-                == Some(input.readback().observation_digest())
-            && readiness_replay;
-        if !exact_replay {
+        if operation.lifecycle_revision() != input.expected_lifecycle_revision()
+            || operation.fence() != input.expected_prior_fence()
+        {
             return Err(CredentialLifecycleError::Conflict);
         }
-        let result = match input.readiness_observation() {
-            Some(_) => super::readiness_observation::completion_receipt(&transaction, &operation)?,
-            None => lifecycle_from(&transaction, operation.provider())?,
-        };
+        let result = super::completion_receipt::load(
+            &transaction,
+            &operation,
+            &input,
+            &store.enrollment_authority,
+        )?;
         transaction.commit().map_err(map_sql)?;
         return Ok(result);
     }
@@ -57,6 +46,7 @@ pub(super) fn complete(
         || operation.fence() != input.expected_prior_fence()
         || operation.metadata().readback_observation_digest()
             != Some(input.readback().observation_digest())
+        || operation.metadata().readback_disposition() != Some(input.readback().disposition())
     {
         return Err(CredentialLifecycleError::Conflict);
     }
@@ -88,23 +78,48 @@ pub(super) fn complete(
             super::compatibility_mirror::activate(&transaction, version)?;
             transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, active_credential_version=?1, active_ref_digest=?2, observed_at_high_water=MAX(observed_at_high_water, ?3) WHERE provider_id=?4", params![version.version(), version.ref_digest().to_vec(), (store.now)(), operation.provider().as_str()]).map_err(map_sql)?;
         }
-        CredentialOperationAction::Revoke | CredentialOperationAction::RetiredVersionCleanup => {
+        CredentialOperationAction::Revoke => {
             let target = operation
                 .target_credential_version()
                 .ok_or(CredentialLifecycleError::CorruptState)?;
             super::compatibility_mirror::delete(&transaction, target)?;
         }
-        CredentialOperationAction::LegacySourceCleanup => {}
+        CredentialOperationAction::RetiredVersionCleanup => {
+            if head.hard_fenced
+                || head.lifecycle != input.expected_lifecycle_revision().get() as i64
+                || head.fence != input.expected_prior_fence().get() as i64
+            {
+                return Err(CredentialLifecycleError::Conflict);
+            }
+            let target = operation
+                .target_credential_version()
+                .ok_or(CredentialLifecycleError::CorruptState)?;
+            super::compatibility_mirror::delete(&transaction, target)?;
+            let changed = transaction.execute("UPDATE provider_credential_authority_heads SET lifecycle_revision=lifecycle_revision+1, credential_fence=credential_fence+1, readiness_revision=readiness_revision+1, observed_at_high_water=MAX(observed_at_high_water, ?1) WHERE provider_id=?2 AND lifecycle_revision=?3 AND credential_fence=?4 AND hard_fence_disposition IS NULL", params![(store.now)(), operation.provider().as_str(), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get()]).map_err(map_sql)?;
+            if changed != 1 {
+                return Err(CredentialLifecycleError::Conflict);
+            }
+        }
+        CredentialOperationAction::LegacySourceCleanup => {
+            if head.hard_fenced
+                || head.lifecycle != input.expected_lifecycle_revision().get() as i64
+                || head.fence != input.expected_prior_fence().get() as i64
+            {
+                return Err(CredentialLifecycleError::Conflict);
+            }
+        }
         _ => return Err(CredentialLifecycleError::Conflict),
     }
     if let Some(observation) = input.readiness_observation() {
         super::readiness_observation::persist(&transaction, &operation, observation)?;
     }
+    let result = super::completion_receipt::persist(
+        &transaction,
+        &operation,
+        &input,
+        &store.enrollment_authority,
+    )?;
     transaction.execute("UPDATE provider_credential_operations SET state='COMPLETED', terminal_disposition='COMPLETED', updated_at=?1 WHERE operation_id=?2 AND state='READBACK_VERIFIED'", params![(store.now)(), input.operation_id().as_bytes().as_slice()]).map_err(map_sql)?;
-    let result = match input.readiness_observation() {
-        Some(_) => super::readiness_observation::completion_receipt(&transaction, &operation)?,
-        None => lifecycle_from(&transaction, operation.provider())?,
-    };
     transaction.commit().map_err(map_sql)?;
     Ok(result)
 }

@@ -1,7 +1,12 @@
 #![allow(dead_code)]
 
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/provider_credential_fixture.rs"]
 mod provider_credential_fixture;
+#[path = "provider_recovery_full_audit_parts/runtime_config.rs"]
+mod runtime_config;
+use runtime_config::runtime_config;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 

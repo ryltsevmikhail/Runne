@@ -2,8 +2,9 @@
 #[test]
 fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usable() {
     let database = validated_reopen::ProviderTestDatabase::new("provider-generation-restart");
-    let (store, request) = initialize(&database);
-    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&request).unwrap() else {
+    let (store, launch, request) = initialize(&database);
+    let ProviderAuthorityIssueOutcome::Winner(admitted) = store.issue(&launch, &request).unwrap()
+    else {
         panic!("first generation must admit one attempt")
     };
     let attempt_id = admitted.claim().attempt_id;
@@ -19,9 +20,7 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
     let mut restarted = config();
     restarted.generation = 12;
     restarted.fencing_token = 14;
-    store
-        .install_runtime_authority_and_advance_worker_lease(&restarted)
-        .unwrap();
+    let restarted_launch = store.activate_runtime_launch(&restarted).unwrap();
 
     let reopened = database
         .dispatch()
@@ -43,7 +42,7 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
             .is_err()
     );
     assert_eq!(
-        store.issue(&request),
+        store.issue(&restarted_launch, &request),
         Ok(ProviderAuthorityIssueOutcome::Existing {
             state: runne_provider::ProviderRepositoryState::Uncertain,
         })
@@ -74,21 +73,25 @@ fn authority_restart_atomically_freezes_old_live_attempt_before_new_lease_is_usa
 #[test]
 fn begin_immediate_allows_one_winner_across_two_store_handles() {
     let database = validated_reopen::ProviderTestDatabase::new("provider-two-writer");
-    let (_store, request) = initialize(&database);
+    let (_store, launch, request) = initialize(&database);
     let first = database.execution();
+    arm(&first);
     let second = database.execution();
+    arm(&second);
     let barrier = Arc::new(Barrier::new(3));
 
     let first_barrier = Arc::clone(&barrier);
+    let first_launch = Arc::clone(&launch);
     let first_request = request.clone();
     let first_thread = std::thread::spawn(move || {
         first_barrier.wait();
-        first.issue(&first_request)
+        first.issue(&first_launch, &first_request)
     });
     let second_barrier = Arc::clone(&barrier);
+    let second_launch = Arc::clone(&launch);
     let second_thread = std::thread::spawn(move || {
         second_barrier.wait();
-        second.issue(&request)
+        second.issue(&second_launch, &request)
     });
     barrier.wait();
 
@@ -112,10 +115,15 @@ fn begin_immediate_allows_one_winner_across_two_store_handles() {
 #[test]
 fn active_journal_key_preflight_returns_only_the_exact_non_secret_binding() {
     let database = validated_reopen::ProviderTestDatabase::new("provider-key-preflight");
-    let (store, _) = initialize(&database);
+    let store = database.execution();
+    let _launch = store.activate_runtime_launch(&config()).unwrap();
     let key = ProviderJournalKeyBinding::new([21; 16], 1, [1; 16], 7).unwrap();
 
     assert_eq!(store.active_journal_key_binding().unwrap(), None);
-    store.activate_journal_key(key).unwrap();
+    assert_eq!(
+        store.activate_journal_key(key),
+        Err(runne_application::provider::ProviderExecutionError::JournalKeyUnavailable)
+    );
+    crate::online_proof::activate(&store, key);
     assert_eq!(store.active_journal_key_binding().unwrap(), Some(key));
 }

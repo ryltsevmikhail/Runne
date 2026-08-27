@@ -51,7 +51,6 @@ fn current_schema_requires_bound_promotion_projection_columns() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
     for column in [
         "promotion_codec_version",
         "promotion_projection_bytes",

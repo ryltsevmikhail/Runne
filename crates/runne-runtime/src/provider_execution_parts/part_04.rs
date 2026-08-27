@@ -14,7 +14,39 @@ where
             .acknowledge_terminal_outbox(outbox_id, receipt_digest)
             .map_err(map_execution_error)
     }
-
+}
+impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
+where
+    K: ProviderJournalKeyring + ?Sized,
+    S: ProviderExecutionStore + ProviderTerminalPersistence,
+    P: ProviderTerminalPricing,
+{
+    fn rebind_forward_active_key(
+        &self,
+        previous: ProviderJournalKeyBinding,
+    ) -> Result<ProviderJournalKeyBinding, RuntimeProviderExecutionError> {
+        let next = self
+            .store
+            .active_journal_key_binding()
+            .map_err(map_execution_error)?
+            .ok_or(RuntimeProviderExecutionError::JournalKeyUnavailable)?;
+        if next.runtime_authority_id() != previous.runtime_authority_id()
+            || next.database_generation() != previous.database_generation()
+            || next.key_version() <= previous.key_version()
+        {
+            return Err(RuntimeProviderExecutionError::JournalKeyUnavailable);
+        }
+        self.load_key(next)?;
+        let mut active_key = self
+            .active_key
+            .lock()
+            .map_err(|_| RuntimeProviderExecutionError::PersistenceUnavailable)?;
+        if active_key.is_some_and(|active| active.key_version() > next.key_version()) {
+            return Err(RuntimeProviderExecutionError::JournalKeyUnavailable);
+        }
+        *active_key = Some(next);
+        Ok(next)
+    }
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -57,7 +89,6 @@ where
         }
         Ok(applied)
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -97,7 +128,6 @@ where
         self.acknowledge_terminal_output(recovered.record().outbox_id, receipt_digest)?;
         Ok(true)
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -111,7 +141,6 @@ where
             .map_err(|_| RuntimeProviderExecutionError::PersistenceUnavailable)?
             .ok_or(RuntimeProviderExecutionError::JournalKeyUnavailable)
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -127,7 +156,6 @@ where
             .load_provider_journal_key(secure_ref_from_binding(binding)?)
             .map_err(map_secure_store_error)
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -146,7 +174,6 @@ where
             }
         }
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where

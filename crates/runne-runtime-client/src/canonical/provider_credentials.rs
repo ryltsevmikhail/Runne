@@ -1,12 +1,15 @@
 use runne_api::{
-    MAX_PROVIDER_CREDENTIAL_BYTES_V1, PROVIDER_CREDENTIAL_CONTROL_CAPABILITY_V1,
-    ProviderCredentialProviderV1, ProviderCredentialStatusV1,
+    MAX_PROVIDER_CREDENTIAL_BYTES_V1, ProviderCredentialProviderV1, ProviderCredentialStatusV1,
 };
 
 /// Runtime command identity plus zeroizing provider material.
 pub struct PairProviderCredentialRequest {
     pub(crate) identity: CommandIdentity,
     provider: ProviderCredentialProviderV1,
+    #[expect(
+        dead_code,
+        reason = "legacy compatibility retains zeroizing material without any transport reader"
+    )]
     material: Zeroizing<Vec<u8>>,
 }
 
@@ -83,112 +86,118 @@ impl ProviderCredentialMutationAckDto {
 }
 
 impl AuthenticatedRuntimeClient {
-    /// Stores provider material through the authenticated runtime owner.
+    /// Returns the closed V1 compatibility disposition.
     ///
     /// # Errors
     ///
-    /// Returns a typed, redacted transport/API failure when the runtime
-    /// rejects the mutation or the response is malformed.
+    /// V1 material transport is permanently unavailable. Consumers must use the
+    /// protected V2 enrollment flow once its qualified profile is available.
+    #[expect(
+        clippy::unused_async,
+        reason = "legacy compatibility preserves the published asynchronous client API"
+    )]
     pub async fn pair_provider_credential(
         &self,
-        request: PairProviderCredentialRequest,
+        _request: PairProviderCredentialRequest,
     ) -> Result<ProviderCredentialMutationAckDto, RuntimeApiError> {
-        require_capability(self, PROVIDER_CREDENTIAL_CONTROL_CAPABILITY_V1)?;
-        let provider = request.provider;
-        let body = request.material.as_slice();
-        let body = serde_json::to_vec(&ProviderCredentialBodyWire {
-            credential: URL_SAFE_NO_PAD.encode(body),
-        })
-        .map_err(|_| invalid_request())?;
-        let response = self
-            .command_request(
-                self.client
-                    .put(self.url(&format!("/v1/providers/{}/credential", provider.as_str()))),
-                &request.identity,
-            )?
-            .header(CONTENT_TYPE, "application/json")
-            .body(body)
-            .send()
-            .await
-            .map_err(map_transport)?;
-        read_provider_ack(response, provider).await
+        Err(legacy_control_closed())
     }
 
-    /// Deletes provider material through the authenticated runtime owner.
+    /// Returns the closed V1 compatibility disposition.
     ///
     /// # Errors
     ///
-    /// Returns a typed, redacted transport/API failure when the runtime
-    /// rejects the mutation or the response is malformed.
+    /// V1 mutation transport is permanently unavailable. Consumers must use
+    /// the protected V2 enrollment flow once its qualified profile is available.
+    #[expect(
+        clippy::unused_async,
+        reason = "legacy compatibility preserves the published asynchronous client API"
+    )]
     pub async fn revoke_provider_credential(
         &self,
-        request: RevokeProviderCredentialRequest,
+        _request: RevokeProviderCredentialRequest,
     ) -> Result<ProviderCredentialMutationAckDto, RuntimeApiError> {
-        require_capability(self, PROVIDER_CREDENTIAL_CONTROL_CAPABILITY_V1)?;
-        let provider = request.provider;
-        let response = self
-            .command_request(
-                self.client
-                    .delete(self.url(&format!("/v1/providers/{}/credential", provider.as_str()))),
-                &request.identity,
-            )?
-            .send()
-            .await
-            .map_err(map_transport)?;
-        read_provider_ack(response, provider).await
+        Err(legacy_control_closed())
     }
 }
 
-#[derive(serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ProviderCredentialBodyWire {
-    credential: String,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ProviderCredentialAckWire {
-    provider_id: String,
-    status: String,
-}
-
-async fn read_provider_ack(
-    response: reqwest::Response,
-    expected_provider: ProviderCredentialProviderV1,
-) -> Result<ProviderCredentialMutationAckDto, RuntimeApiError> {
-    let wire: ProviderCredentialAckWire = read_success_json(response, &[202]).await?;
-    let provider =
-        ProviderCredentialProviderV1::parse(&wire.provider_id).map_err(|_| invalid_response())?;
-    if provider != expected_provider {
-        return Err(invalid_response());
-    }
-    let status = match wire.status.as_str() {
-        "configured" => ProviderCredentialStatusV1::Configured,
-        "missing" => ProviderCredentialStatusV1::Missing,
-        "unsupported" => ProviderCredentialStatusV1::Unsupported,
-        "access_denied" => ProviderCredentialStatusV1::AccessDenied,
-        "identity_mismatch" => ProviderCredentialStatusV1::IdentityMismatch,
-        "unavailable" => ProviderCredentialStatusV1::Unavailable,
-        _ => return Err(invalid_response()),
-    };
-    Ok(ProviderCredentialMutationAckDto { provider, status })
+const fn legacy_control_closed() -> RuntimeApiError {
+    RuntimeApiError::new(RuntimeApiErrorKind::Unavailable)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
-    #[test]
-    fn provider_ack_wire_is_closed_and_status_is_bounded() {
-        let wire: ProviderCredentialAckWire =
-            serde_json::from_str(r#"{"providerId":"openai","status":"configured"}"#)
-                .expect("valid provider acknowledgement");
-        assert_eq!(wire.provider_id, "openai");
-        assert!(
-            serde_json::from_str::<ProviderCredentialAckWire>(
-                r#"{"providerId":"openai","status":"configured","credential":"secret"}"#
-            )
-            .is_err()
+    #[tokio::test]
+    async fn legacy_mutations_are_closed_before_transport() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("listener");
+        let client = test_client(listener.local_addr().expect("listener address"));
+        let identity = CommandIdentity::new(CanonicalId::now_v7(), "legacy-control")
+            .expect("command identity");
+        let provider = ProviderCredentialProviderV1::parse("openai").expect("provider");
+        let pair =
+            PairProviderCredentialRequest::new(identity.clone(), provider, b"test-value".to_vec())
+                .expect("pair request");
+
+        assert_eq!(
+            client
+                .pair_provider_credential(pair)
+                .await
+                .expect_err("legacy pair is closed")
+                .kind(),
+            RuntimeApiErrorKind::Unavailable
         );
+        assert_eq!(
+            client
+                .revoke_provider_credential(RevokeProviderCredentialRequest::new(
+                    identity, provider
+                ))
+                .await
+                .expect_err("legacy revoke is closed")
+                .kind(),
+            RuntimeApiErrorKind::Unavailable
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_millis(50), listener.accept())
+                .await
+                .is_err(),
+            "legacy mutation opened a transport connection"
+        );
+    }
+
+    fn test_client(address: std::net::SocketAddr) -> AuthenticatedRuntimeClient {
+        AuthenticatedRuntimeClient::from_protected_bundled_session(
+            reqwest::Client::builder()
+                .timeout(Duration::from_millis(50))
+                .build()
+                .expect("client"),
+            format!("http://{address}"),
+            RuntimeSessionAuthority::from_local_session([7; 32]),
+            RuntimeSessionInfo {
+                profile_id: crate::EXPECTED_BUNDLE_ID.to_owned(),
+                schema_hash: crate::GOLDEN_BUNDLE_HASH.to_owned(),
+                runtime_version: "test".to_owned(),
+                capabilities: PROTECTED_RUNTIME_CAPABILITIES
+                    .iter()
+                    .map(|capability| (*capability).to_owned())
+                    .collect(),
+                authority_id: "authority".to_owned(),
+                principal_id: "principal".to_owned(),
+                event_log_lineage_id: "lineage".to_owned(),
+                daemon_instance_id: "daemon".to_owned(),
+                launch_generation: 1,
+                session_id: "session".to_owned(),
+                authorization_epoch: 1,
+                sensitivity_ceiling: "sensitive".to_owned(),
+                certificate_sha256: "certificate".to_owned(),
+                capability_digest: "digest".to_owned(),
+            },
+            Vec::new(),
+        )
     }
 }

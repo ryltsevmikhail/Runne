@@ -47,11 +47,15 @@
     },
     {
       "path": "openapi.json",
-      "sha256": "3c6b377314573f54f48b421303df6418e9794bf02ab399ec06867ef2c840cc98"
+      "sha256": "fe0e366499e66d312ee99883cab6eeac6d346a109cd29365bdb25d10b3771568"
+    },
+    {
+      "path": "schemas/approval-v1.schema.json",
+      "sha256": "3ef34c6ef6c6d5ed3de95e5a5d673757a47e7bd726a7cb03b3f6939de3e3285d"
     },
     {
       "path": "schemas/local-runtime-profile-v3.schema.json",
-      "sha256": "f30da485276d765f0dfbca4ec2b917759f0fe6227de24a6dbe1f15daebb01c8f"
+      "sha256": "4d0612914cb3349de071aa71b5ce3e3f14a83d1c1d536d1ec3a663187ce2c7e1"
     },
     {
       "path": "schemas/local-session-v2.schema.json",
@@ -110,7 +114,6 @@
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",
@@ -143,7 +146,6 @@
     "replay.aggregate.sse.v1",
     "runtime.operational-telemetry.v1",
     "approval.control.v1",
-    "provider.credential-control.v1",
     "project.list.v1",
     "project.get.v1",
     "project.create.v1",

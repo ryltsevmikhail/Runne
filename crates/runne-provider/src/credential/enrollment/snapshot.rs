@@ -7,7 +7,10 @@ use super::{
     CredentialReadinessRevision, CredentialTerminalDisposition,
 };
 
+mod recovery;
 mod validation;
+
+pub use recovery::CredentialRecoveryWork;
 
 /// Immutable durable view of one credential enrollment operation.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -181,31 +184,6 @@ impl CredentialLifecycleSnapshot {
     /// Returns the next provider-local monotonic version allocation.
     pub const fn next_credential_version(&self) -> u64 {
         self.next_credential_version
-    }
-}
-
-/// Recovery work for a non-terminal operation requiring reconciliation.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CredentialRecoveryWork {
-    operation: CredentialOperationSnapshot,
-}
-
-impl CredentialRecoveryWork {
-    /// Accepts only post-claim operations that may require reconciliation.
-    pub fn new(operation: CredentialOperationSnapshot) -> Result<Self, CredentialEnrollmentError> {
-        if !matches!(
-            operation.state(),
-            CredentialOperationState::Claimed
-                | CredentialOperationState::NativeEffectObserved
-                | CredentialOperationState::ReadbackVerified
-        ) {
-            return Err(CredentialEnrollmentError::InvalidTransition);
-        }
-        Ok(Self { operation })
-    }
-    /// Returns the immutable operation snapshot.
-    pub const fn operation(&self) -> &CredentialOperationSnapshot {
-        &self.operation
     }
 }
 

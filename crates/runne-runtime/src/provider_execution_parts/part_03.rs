@@ -1,6 +1,6 @@
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
-    K: ProviderJournalKeyring + ?Sized,
+    K: ProviderJournalKeyring,
     S: ProviderExecutionStore + ProviderTerminalPersistence,
     P: ProviderTerminalPricing,
 {
@@ -34,7 +34,7 @@ where
             .map_err(map_secure_store_error)?;
         let binding = binding_from_secure_ref(key_ref)?;
         self.store
-            .activate_journal_key(binding)
+            .activate_journal_key_with_keyring(self.keyring, binding)
             .map_err(map_execution_error)?;
         *self
             .active_key
@@ -43,6 +43,7 @@ where
         Ok(binding)
     }
 }
+
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
     K: ProviderJournalKeyring + ?Sized,
@@ -61,7 +62,6 @@ where
             .map_err(|_| RuntimeProviderExecutionError::PersistenceUnavailable)? = Some(binding);
         Ok(())
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -103,66 +103,6 @@ where
             .map_err(|_| RuntimeProviderExecutionError::PersistenceUnavailable)? = Some(binding);
         Ok(binding)
     }
-
-}
-impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
-where
-    K: ProviderJournalKeyring + ?Sized,
-    S: ProviderExecutionStore + ProviderTerminalPersistence,
-    P: ProviderTerminalPricing,
-{
-    /// Encrypts and commits one normalized event.
-    fn commit_polled_event(
-        &self,
-        context: &ProviderEventJournalContext,
-        event: &ProviderStreamEvent,
-    ) -> Result<(ProviderJournalAppendOutcome, ProviderStreamItem), RuntimeProviderExecutionError>
-    {
-        let event = match self
-            .redaction
-            .scan_before_journal(context, event)
-            .map_err(|_| RuntimeProviderExecutionError::PolicyDenied)?
-        {
-            PreJournalProviderEvent::Append(event) => event,
-            PreJournalProviderEvent::Terminal(_) => {
-                return Err(RuntimeProviderExecutionError::PolicyDenied);
-            }
-        };
-        if event.sequence() == u64::MAX {
-            return Err(RuntimeProviderExecutionError::JournalCorrupt);
-        }
-        let sanitized_item = ProviderStreamItem::from_event(event.clone())
-            .map_err(|_| RuntimeProviderExecutionError::JournalCorrupt)?;
-        let key = self.current_key()?;
-        let material = self.load_key(key)?;
-        let event_kind = event_kind_code(event.kind());
-        let terminal = matches!(
-            event.kind(),
-            ProviderStreamEventKind::Finished { .. }
-                | ProviderStreamEventKind::ScannerCompleted { .. }
-        );
-        let plaintext =
-            serde_json::to_vec(&event).map_err(|_| RuntimeProviderExecutionError::JournalCorrupt)?;
-        let aad = event_aad(context, key, event.sequence(), event_kind, terminal);
-        let encrypted = self.seal(&material, &aad, &plaintext)?;
-        let outcome = self
-            .store
-            .append_encrypted_event(&ProviderJournalAppendRequest {
-                attempt_id: context.attempt_id,
-                fencing_token: context.fencing_token,
-                sequence: event.sequence(),
-                event_kind,
-                terminal,
-                call_digest_version: context.call_digest_version,
-                profile_digest: context.profile_digest,
-                runtime_generation: context.runtime_generation,
-                key,
-                encrypted,
-            })
-            .map_err(map_execution_error)?;
-        Ok((outcome, sanitized_item))
-    }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -213,7 +153,6 @@ where
             }
         }
     }
-
 }
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
@@ -257,8 +196,7 @@ where
                         event.kind(),
                         ProviderStreamEventKind::Finished { .. }
                             | ProviderStreamEventKind::ScannerCompleted { .. }
-                    )
-                        != record.terminal
+                    ) != record.terminal
                 {
                     return Err(RuntimeProviderExecutionError::JournalCorrupt);
                 }
@@ -266,5 +204,4 @@ where
             })
             .collect()
     }
-
 }

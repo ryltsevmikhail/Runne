@@ -23,21 +23,33 @@ impl SqliteProviderDispatchStore {
     /// Persists immutable prepared metadata or returns exact replay.
     pub fn persist_prepared(
         &self,
+        launch: &super::ProviderRuntimeLaunchCapability,
         record: &PreparedProviderRecord,
     ) -> Result<PersistPreparedOutcome, ProviderStoreError> {
         let record_digest = prepared_record_digest(record);
-        let connection = self
+        let mut connection = self
             .connection
             .lock()
             .map_err(|_| ProviderStoreError::Unavailable)?;
-        if let Some(stored) = load_prepared(&connection, record.call_id)? {
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(|_| ProviderStoreError::Unavailable)?;
+        launch
+            .verify_current(&transaction)
+            .map_err(|error| match error {
+                runne_application::provider::ProviderAdmissionError::StaleFencingToken => {
+                    ProviderStoreError::StaleFencingToken
+                }
+                _ => ProviderStoreError::LaunchCapabilityRequired,
+            })?;
+        if let Some(stored) = load_prepared(&transaction, record.call_id)? {
             return if stored == *record {
                 Ok(PersistPreparedOutcome::Replayed)
             } else {
                 Err(ProviderStoreError::PreparedConflict)
             };
         }
-        connection
+        transaction
             .execute(
                 "INSERT INTO provider_prepared_requests
                  (call_id, prepared_digest, render_digest, profile_digest, record_digest,
@@ -52,6 +64,9 @@ impl SqliteProviderDispatchStore {
                     encode_digest_version(record.call_digest_version),
                 ],
             )
+            .map_err(|_| ProviderStoreError::Unavailable)?;
+        transaction
+            .commit()
             .map_err(|_| ProviderStoreError::Unavailable)?;
         Ok(PersistPreparedOutcome::Inserted)
     }

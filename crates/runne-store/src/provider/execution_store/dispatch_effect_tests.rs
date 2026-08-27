@@ -7,21 +7,21 @@ use runne_application::prohibited_content::{
 use runne_application::provider::{ProviderCoordinatorRequest, ProviderLeaseBindingKind};
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
-    CancelDisposition, CancelRequest, CredentialLease, CredentialVersionRef, DispatchError,
-    DispatchRequest, ModelRef, PrepareCredentialVersion, PrepareError, PreparedRequest,
-    ProviderCall, ProviderCallId, ProviderCredentialVersionStore, ProviderFuture, ProviderId,
-    ProviderPort, ProviderStreamId, ProviderStreamItem, ReconcileRequest,
-    ReconciliationDisposition, StreamCursor, StreamError,
+    CancelDisposition, CancelRequest, DispatchError, DispatchRequest, ModelRef, PrepareError,
+    PreparedRequest, ProviderCall, ProviderCallId, ProviderFuture, ProviderId, ProviderPort,
+    ProviderStreamId, ProviderStreamItem, ReconcileRequest, ReconciliationDisposition,
+    StreamCursor, StreamError,
 };
 
 use super::super::{
     CredentialDispatchBinding, ProviderCoordinatorOutcome, ProviderEffectPort,
     ProviderEffectStartReceipt, ProviderReadyEffect, ProviderRuntimeAuthorityConfig,
-    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
-    SqliteProviderDispatchStore,
+    SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore,
 };
 use super::SqliteProviderExecutionStore;
 use super::authority_test_support::configured_connection;
+use crate::provider::credential_lifecycle::online_claim_test_support::open_test_store;
+use crate::provider::credential_lifecycle::online_test_support::complete_pair;
 
 struct Ready;
 impl ProviderReadyEffect for Ready {
@@ -117,54 +117,48 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     }
     let path = daemon.join("provider.sqlite");
     let path_text = path.to_str().unwrap();
+    let credential = open_test_store(&path, 100);
+    complete_pair(&credential, 91, "coordinator-online");
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(path_text, configured_connection(&path))
             .unwrap();
     let execution =
         SqliteProviderExecutionStore::open_with_connection(path_text, configured_connection(&path))
             .unwrap();
-    let credential = SqliteProviderCredentialLifecycleStore::open_connection_at(
-        configured_connection(&path),
-        100,
-    )
-    .unwrap();
-    let credential_ref = CredentialVersionRef::new(ProviderId::new("fixture").unwrap(), 1).unwrap();
-    credential
-        .create_prepared(PrepareCredentialVersion::new(credential_ref.clone()))
-        .unwrap();
-    credential
-        .activate(CredentialLease::new(credential_ref, [1; 16], i64::MAX, 1).unwrap())
-        .unwrap();
-    execution
-        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
-            runtime_authority_id: [1; 16],
-            database_generation: 1,
-            principal_id: "principal".into(),
-            owner_id: "owner".into(),
-            scope: "provider.dispatch".into(),
-            generation: 1,
-            fencing_token: 1,
-            capability_grant_id: "grant".into(),
-            capability_revision: 1,
-            capability_allowed: true,
-            capability_revocation_epoch: 1,
-            approval_id: "approval".into(),
-            approval_revision: 1,
-            approval_allowed: true,
-            approval_revocation_epoch: 1,
-            profile_digest: [2; 32],
-            pricing_revision_digest: [3; 32],
-            activation_binding_kind: ProviderLeaseBindingKind::ProtectedV2,
-            activation_binding_digest: [4; 32],
-            token_budget_limit: 10_000,
-            cost_budget_limit_micros: 1_000_000,
-            authority_ttl_seconds: 120,
-            lease_ttl_seconds: 600,
-        })
-        .unwrap();
+    let config = ProviderRuntimeAuthorityConfig {
+        runtime_authority_id: [1; 16],
+        database_generation: 1,
+        principal_id: "principal".into(),
+        owner_id: "owner".into(),
+        scope: "provider.dispatch".into(),
+        generation: 1,
+        fencing_token: 1,
+        capability_grant_id: "grant".into(),
+        capability_revision: 1,
+        capability_allowed: true,
+        capability_revocation_epoch: 1,
+        approval_id: "approval".into(),
+        approval_revision: 1,
+        approval_allowed: true,
+        approval_revocation_epoch: 1,
+        profile_digest: [2; 32],
+        pricing_revision_digest: [3; 32],
+        activation_binding_kind: ProviderLeaseBindingKind::ProtectedV2,
+        activation_binding_digest: [4; 32],
+        token_budget_limit: 10_000,
+        cost_budget_limit_micros: 1_000_000,
+        authority_ttl_seconds: 120,
+        lease_ttl_seconds: 600,
+    };
+    let launch = execution.activate_runtime_launch(&config).unwrap();
+    super::online_proof_test_support::arm_for_authority(
+        &execution,
+        config.runtime_authority_id,
+        config.database_generation,
+    );
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
-        ModelRef::new(ProviderId::new("fixture").unwrap(), "model", "2026-08-01").unwrap(),
+        ModelRef::new(ProviderId::new("openai").unwrap(), "model", "2026-08-01").unwrap(),
         [5; 32],
         64,
         serde_json::Value::Null,
@@ -175,7 +169,7 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        crate::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        crate::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &Guard,
@@ -205,8 +199,15 @@ fn lost_effect_readback_freezes_before_stage2_send() {
         })
         .unwrap();
     assert_eq!(state, 6);
-    let durable: (i64, i64) = rusqlite::Connection::open(daemon.join("provider.sqlite")).unwrap().query_row(
-        "SELECT (SELECT COUNT(*) FROM provider_effect_starts), (SELECT COUNT(*) FROM security_audit_pre_effect)", [], |row| Ok((row.get(0)?, row.get(1)?)),
-    ).unwrap();
-    assert_eq!(durable, (1, 1));
+    let durable: (i64, i64, i64) = rusqlite::Connection::open(daemon.join("provider.sqlite"))
+        .unwrap()
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM provider_effect_starts),
+                (SELECT COUNT(*) FROM provider_online_credential_effect_bindings),
+                (SELECT COUNT(*) FROM security_audit_pre_effect)",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(durable, (1, 1, 1));
 }

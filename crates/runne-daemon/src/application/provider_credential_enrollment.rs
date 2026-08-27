@@ -1,0 +1,18 @@
+mod coordinator;
+mod effect_authority;
+mod operation_handle;
+mod readback;
+mod recovery;
+
+#[allow(unused_imports)]
+pub(super) use coordinator::ProviderCredentialAdmission;
+use effect_authority::ProviderCredentialEffectAuthority;
+#[allow(unused_imports)]
+use operation_handle::ProviderCredentialOperationHandleIssuer;
+pub(crate) use readback::CredentialEnrollmentReadback;
+pub(crate) use recovery::CredentialEnrollmentRecoveryGateway;
+#[cfg(test)]
+use recovery::WriterExitDiagnostic;
+
+#[cfg(test)]
+mod tests;

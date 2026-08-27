@@ -3,14 +3,13 @@ use runne_provider::ProviderRepositoryState;
 #[test]
 fn duplicate_client_retry_issue_returns_existing_without_new_rows() {
     let (database, request, _record) = setup("recovery-duplicate-issue", 6);
-    let execution = database.execution();
     let _claim = issue_winner(&database, &request);
     let before_connection = database.query_connection();
     let before = sql_snapshot(&before_connection);
     drop(before_connection);
 
     assert_eq!(
-        execution.issue(&request),
+        database.issue(&request),
         Ok(ProviderAuthorityIssueOutcome::Existing {
             state: ProviderRepositoryState::Dispatching,
         })
@@ -22,7 +21,7 @@ fn duplicate_client_retry_issue_returns_existing_without_new_rows() {
     let mut conflicting = request.clone();
     conflicting.requested_output_tokens -= 1;
     assert_eq!(
-        execution.issue(&conflicting),
+        database.issue(&conflicting),
         Err(ProviderAdmissionError::AuthorityConflict)
     );
     let after_conflict = database.query_connection();

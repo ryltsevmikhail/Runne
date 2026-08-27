@@ -1,0 +1,122 @@
+//! Desktop-owned broker handoff and exact child cleanup.
+
+use std::fmt;
+
+use runne_platform_ports::provider_credential_broker::{
+    BrokerHandoffError, ProviderCredentialBrokerPort, WriterOwnership, WriterOwnershipState,
+};
+
+/// Non-serializable process evidence accepted only after platform validation.
+pub struct WriterProcessEvidence {
+    start: [u8; 32],
+    image: [u8; 32],
+    channel: [u8; 32],
+}
+
+impl WriterProcessEvidence {
+    #[cfg(test)]
+    const fn test_only(
+        start_identity: [u8; 32],
+        image_identity: [u8; 32],
+        channel_identity: [u8; 32],
+    ) -> Self {
+        Self {
+            start: start_identity,
+            image: image_identity,
+            channel: channel_identity,
+        }
+    }
+    fn is_complete(&self) -> bool {
+        self.start != [0; 32] && self.image != [0; 32] && self.channel != [0; 32]
+    }
+}
+
+impl fmt::Debug for WriterProcessEvidence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("WriterProcessEvidence(<native-only>)")
+    }
+}
+
+/// Exact desktop-held process operations. Implementations may only target the
+/// retained child handle, never a PID lookup.
+pub trait RetainedWriterProcess {
+    /// # Errors
+    ///
+    /// Returns a closed failure when the retained child cannot be terminated.
+    fn terminate_retained_child(&mut self) -> Result<(), BrokerHandoffError>;
+
+    /// # Errors
+    ///
+    /// Returns a closed failure when the retained child cannot be reaped.
+    fn reap_retained_child(&mut self) -> Result<(), BrokerHandoffError>;
+}
+
+/// Owns Tauri's half of the broker handoff until daemon ACK and always owns wait/reap.
+pub struct PlatformCredentialBroker<P> {
+    process: P,
+    evidence: WriterProcessEvidence,
+    ownership: WriterOwnership,
+}
+
+impl<P: RetainedWriterProcess> PlatformCredentialBroker<P> {
+    /// Creates a broker only with platform-validated endpoint/process evidence.
+    ///
+    /// # Errors
+    ///
+    /// Returns a closed failure when evidence is incomplete.
+    pub fn new(process: P, evidence: WriterProcessEvidence) -> Result<Self, BrokerHandoffError> {
+        if !evidence.is_complete() {
+            return Err(BrokerHandoffError::Rejected);
+        }
+        Ok(Self {
+            process,
+            evidence,
+            ownership: WriterOwnership::spawned(),
+        })
+    }
+
+    #[must_use]
+    pub const fn ownership_state(&self) -> WriterOwnershipState {
+        self.ownership.state()
+    }
+}
+
+impl<P: RetainedWriterProcess> ProviderCredentialBrokerPort for PlatformCredentialBroker<P> {
+    /// # Errors
+    ///
+    /// Returns a closed failure if transfer was already started or evidence is invalid.
+    fn transfer_to_daemon(&mut self) -> Result<(), BrokerHandoffError> {
+        if !self.evidence.is_complete() {
+            return Err(BrokerHandoffError::Rejected);
+        }
+        self.ownership.begin_transfer()
+    }
+
+    /// # Errors
+    ///
+    /// Returns a closed failure unless transfer is pending.
+    fn acknowledge_daemon_kill_capability(&mut self) -> Result<(), BrokerHandoffError> {
+        self.ownership.acknowledge_daemon_kill_capability()
+    }
+
+    /// # Errors
+    ///
+    /// Returns a closed failure after daemon kill capability acknowledgement.
+    fn terminate_exact_retained_child(&mut self) -> Result<(), BrokerHandoffError> {
+        if !self.ownership.tauri_may_kill() {
+            return Err(BrokerHandoffError::Rejected);
+        }
+        self.process.terminate_retained_child()
+    }
+
+    /// # Errors
+    ///
+    /// Returns a closed failure if the retained child cannot be reaped or is already reaped.
+    fn reap_exact_retained_child(&mut self) -> Result<(), BrokerHandoffError> {
+        self.process.reap_retained_child()?;
+        self.ownership.reap()
+    }
+}
+
+#[cfg(test)]
+mod tests;

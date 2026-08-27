@@ -86,6 +86,16 @@ pub trait ProviderExecutionStore: Send + Sync {
         key: ProviderJournalKeyBinding,
     ) -> Result<(), ProviderExecutionError>;
 
+    /// Internal activation port that proves all retained key bindings are loadable.
+    #[doc(hidden)]
+    fn activate_journal_key_with_keyring(
+        &self,
+        _keyring: &dyn runne_secure_store::ProviderJournalKeyring,
+        _key: ProviderJournalKeyBinding,
+    ) -> Result<(), ProviderExecutionError> {
+        Err(ProviderExecutionError::JournalKeyUnavailable)
+    }
+
     /// Counts journal/outbox references to one key version.
     fn journal_key_reference_count(
         &self,

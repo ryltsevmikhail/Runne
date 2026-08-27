@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { GcAlert, GcButton, GcTextarea } from '@runne/product/shared/ui'
+import { SubmitPrompt } from '@runne/product/submit-prompt'
+import { GcAlert, GcButton } from '@runne/product/shared/ui'
 
 import {
   useConversationChat,
@@ -19,7 +20,6 @@ const {
   draft,
   recovery,
   canCompose,
-  canSend,
   canResync,
   statusCopy,
   loadConversation,
@@ -122,24 +122,12 @@ const {
         </ol>
       </div>
 
-      <form
-        class="conversation-chat__composer"
-        @submit.prevent="submitMessage"
-      >
-        <GcTextarea
-          v-model="draft"
-          :label="translate('conversation.message')"
-          :placeholder="translate('conversation.placeholder')"
-          :rows="3"
-          :state="canCompose ? 'default' : 'disabled'"
-        />
-        <GcButton
-          :disabled="!canSend"
-          type="submit"
-        >
-          {{ sending ? translate('conversation.running') : translate('conversation.send') }}
-        </GcButton>
-      </form>
+      <SubmitPrompt
+        v-model="draft"
+        :disabled="!canCompose"
+        :pending="sending"
+        @submit="submitMessage"
+      />
     </template>
   </section>
 </template>
@@ -250,13 +238,4 @@ const {
   text-align: center;
 }
 
-.conversation-chat__composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: var(--runne-space-md);
-  padding: var(--runne-space-md) var(--runne-space-lg);
-  border-top: 1px solid var(--runne-border);
-  background: var(--runne-surface);
-}
 </style>

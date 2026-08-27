@@ -22,41 +22,14 @@ impl AppCore {
         &self,
         approval_id: &str,
     ) -> Result<CanonicalApprovalSummary, AppCoreError> {
-        let approval_id = CanonicalId::parse(approval_id)
-            .map_err(|_| AppCoreError::InvalidMutation)?;
+        let approval_id =
+            CanonicalId::parse(approval_id).map_err(|_| AppCoreError::InvalidMutation)?;
         let _operation = self.runtime_operation.lock().await;
         self.live_runtime_client()?
             .get_approval(approval_id)
             .await
             .map(|value| CanonicalApprovalSummary::from(&value))
             .map_err(|_| AppCoreError::RuntimeUnavailable)
-    }
-
-    /// Commits a policy-bound approval decision through the durable mutation ledger.
-    ///
-    /// # Errors
-    /// Returns a closed error when bindings are stale, the runtime is unavailable, or the decision is rejected.
-    pub async fn respond_to_approval(
-        &self,
-        approval_id: &str,
-        expected_version: u64,
-        decision: runne_runtime_client::ApprovalDecisionDto,
-        action_digest: &str,
-        policy_revision: u64,
-        renderer_generation: u64,
-    ) -> Result<runne_runtime_client::ApprovalDecisionAcknowledgementDto, AppCoreError> {
-        let approval_id = CanonicalId::parse(approval_id).map_err(|_| AppCoreError::InvalidMutation)?;
-        let digest = hex::decode(action_digest)
-            .ok()
-            .and_then(|value| value.try_into().ok())
-            .ok_or(AppCoreError::InvalidMutation)?;
-        let lease = self.prepare_mutation(MutationRequest::respond_to_approval(
-            approval_id, expected_version, decision, digest, policy_revision, renderer_generation,
-        )?).await?;
-        match self.dispatch_prepared_mutation(lease).await? {
-            MutationDispatchResult::ApprovalDecision(value) => Ok(value),
-            _ => Err(AppCoreError::InvalidMutation),
-        }
     }
 }
 
@@ -108,7 +81,9 @@ pub struct CanonicalApprovalDecisionAcknowledgement {
     pub state: CanonicalApprovalState,
 }
 
-impl From<runne_runtime_client::ApprovalDecisionAcknowledgementDto> for CanonicalApprovalDecisionAcknowledgement {
+impl From<runne_runtime_client::ApprovalDecisionAcknowledgementDto>
+    for CanonicalApprovalDecisionAcknowledgement
+{
     fn from(value: runne_runtime_client::ApprovalDecisionAcknowledgementDto) -> Self {
         Self {
             approval_id: value.approval_id().to_string(),
@@ -140,3 +115,5 @@ impl From<runne_runtime_client::ApprovalStateDto> for CanonicalApprovalState {
         }
     }
 }
+
+include!("approval_confirmation.rs");

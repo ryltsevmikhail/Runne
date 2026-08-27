@@ -190,7 +190,9 @@ const fn repository_state(state: ProviderDispatchState) -> ProviderRepositorySta
 
 const fn repository_error(error: ProviderStoreError) -> ProviderRepositoryError {
     match error {
-        ProviderStoreError::Unavailable => ProviderRepositoryError::Unavailable,
+        ProviderStoreError::Unavailable | ProviderStoreError::LaunchCapabilityRequired => {
+            ProviderRepositoryError::Unavailable
+        }
         ProviderStoreError::CorruptData => ProviderRepositoryError::CorruptData,
         ProviderStoreError::PreparedMismatch => ProviderRepositoryError::PreparedMismatch,
         ProviderStoreError::StaleFencingToken => ProviderRepositoryError::StaleFencingToken,

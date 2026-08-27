@@ -2,7 +2,7 @@
 #[tokio::test(flavor = "current_thread")]
 async fn provider_bytes_without_local_commit_freeze_attempt_as_uncertain() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
     let provider = CommitCheckingProvider {
         store: Arc::clone(&fixture.execution),
@@ -124,12 +124,15 @@ impl ProviderTerminalPersistence for FailAppendAndFreezeStore {
 #[tokio::test(flavor = "current_thread")]
 async fn durable_poll_marker_blocks_repoll_when_append_and_freeze_both_fail() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let failing = FailAppendAndFreezeStore {
         inner: Arc::clone(&fixture.execution),
     };
+    let binding = runtime(&keyring, fixture.execution.as_ref())
+        .preflight_existing_active_key([1; 16], 7)
+        .unwrap();
     let writer = runtime(&keyring, &failing);
-    writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+    writer.use_existing_active_key(binding).unwrap();
     let event = ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap();
     let provider = CommitCheckingProvider {
         store: Arc::clone(&fixture.execution),

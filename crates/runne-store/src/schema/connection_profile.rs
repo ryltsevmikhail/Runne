@@ -1,5 +1,7 @@
 use std::ops::Deref;
 
+include!("online_issuance_guard.rs");
+
 /// Factory-selected role for a managed SQLite connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionMode {
@@ -37,6 +39,7 @@ pub struct ManagedConnection {
     connection: Connection,
     _validated: ConnectionProfileCapability,
     identity: Option<ConnectionIdentityGuard>,
+    online_issuance_guard: OnlineIssuanceGuard,
 }
 
 mod managed_authority {
@@ -66,6 +69,14 @@ impl ManagedConnection {
         behavior: TransactionBehavior,
     ) -> SqliteResult<Transaction<'_>> {
         self.connection.transaction_with_behavior(behavior)
+    }
+
+    pub(crate) fn online_issuance_guard(&self) -> OnlineIssuanceGuard {
+        self.online_issuance_guard.clone()
+    }
+
+    pub(crate) fn restore_online_issuance_guard(&self) -> SqliteResult<()> {
+        self.online_issuance_guard.restore(&self.connection)
     }
 }
 
@@ -105,6 +116,7 @@ pub(crate) fn open_test_shared_writer(db_path: &Path) -> SqliteResult<ManagedCon
     connection.execute_batch(
         "PRAGMA journal_mode = WAL; PRAGMA synchronous = FULL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
     )?;
+    let online_issuance_guard = install_online_issuance_guard(&connection)?;
     Ok(ManagedConnection {
         connection,
         _validated: ConnectionProfileCapability {
@@ -112,6 +124,7 @@ pub(crate) fn open_test_shared_writer(db_path: &Path) -> SqliteResult<ManagedCon
             memory_database: false,
         },
         identity: None,
+        online_issuance_guard,
     })
 }
 
@@ -141,10 +154,12 @@ fn managed_after_profile(
         identity.retain_created_sidecars()?;
     }
     verify_connection_identity(&connection, identity.as_ref())?;
+    let online_issuance_guard = install_online_issuance_guard(&connection)?;
     Ok(ManagedConnection {
         connection,
         _validated: capability,
         identity,
+        online_issuance_guard,
     })
 }
 
@@ -176,6 +191,7 @@ fn verify_managed_profile(
 
 /// Runs integrity/schema gates only for a factory-managed connection.
 pub fn readiness_from_managed(connection: &ManagedConnection) -> SqliteResult<Readiness> {
+    connection.restore_online_issuance_guard()?;
     verify_connection_identity(&connection.connection, connection.identity.as_ref())?;
     verify_managed_profile(&connection.connection, &connection._validated)?;
     run_startup_gates_raw(&connection.connection, "")?;
@@ -184,6 +200,7 @@ pub fn readiness_from_managed(connection: &ManagedConnection) -> SqliteResult<Re
 
 /// Re-verifies the managed profile and schema before publication.
 pub fn publication_from_managed(connection: &ManagedConnection) -> SqliteResult<PublicationPermit> {
+    connection.restore_online_issuance_guard()?;
     verify_connection_identity(&connection.connection, connection.identity.as_ref())?;
     verify_managed_profile(&connection.connection, &connection._validated)?;
     run_startup_gates_raw(&connection.connection, "")?;

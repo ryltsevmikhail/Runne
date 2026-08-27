@@ -19,8 +19,10 @@ use runne_store::provider::{
     SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
     SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
-#[path = "support/provider_credential_fixture.rs"]
-mod provider_credential_fixture;
+#[path = "support/online_credential_fixture.rs"]
+mod online_credential_fixture;
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -153,14 +155,15 @@ fn fixture() -> (
     SqliteProviderDispatchStore,
     SqliteProviderExecutionStore,
     SqliteProviderCredentialLifecycleStore,
+    runne_store::provider::ProviderRuntimeLaunchCapability,
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-dispatch-coordinator");
     let dispatch = database.dispatch();
     let execution = database.execution();
-    let credential = provider_credential_fixture::credential(&database, "fixture", [1; 16], 1, 100);
-    execution
-        .install_runtime_authority(&ProviderRuntimeAuthorityConfig {
+    let credential = online_credential_fixture::credential(&database, "fixture", 4);
+    let launch = execution
+        .activate_runtime_launch(&ProviderRuntimeAuthorityConfig {
             runtime_authority_id: [1; 16],
             database_generation: 1,
             principal_id: "principal".into(),
@@ -187,6 +190,7 @@ fn fixture() -> (
             lease_ttl_seconds: 600,
         })
         .unwrap();
+    online_proof::arm(&execution, 1);
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
         ModelRef::new(ProviderId::new("fixture").unwrap(), "model", "2026-08-01").unwrap(),
@@ -200,6 +204,7 @@ fn fixture() -> (
         dispatch,
         execution,
         credential,
+        launch,
         ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
@@ -219,12 +224,12 @@ fn fixture() -> (
 
 #[test]
 fn adapter_rejection_after_effect_cas_is_durably_uncertain() {
-    let (_directory, dispatch, execution, credential, request) = fixture();
+    let (_directory, dispatch, execution, credential, launch, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Rejected);
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &Guard(true),
@@ -239,12 +244,12 @@ fn adapter_rejection_after_effect_cas_is_durably_uncertain() {
 
 #[test]
 fn timeout_after_effect_cas_is_uncertain_and_exact_replay_does_not_retry() {
-    let (_directory, dispatch, execution, credential, request) = fixture();
+    let (_directory, dispatch, execution, credential, launch, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Timeout);
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &Guard(true),

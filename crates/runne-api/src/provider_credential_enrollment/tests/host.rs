@@ -4,11 +4,13 @@ use super::super::{
     BeginProviderCredentialEnrollment, ProviderCredentialBaseRequestAuthority,
     ProviderCredentialEnrollmentHostError, ProviderCredentialEnrollmentHostPort,
     ProviderCredentialHostFuture, ProviderCredentialIntentConsumptionProof,
-    ProviderCredentialOperationIdV2, ProviderCredentialOperationKindV2,
+    ProviderCredentialOperationHandleV2, ProviderCredentialOperationKindV2,
     ProviderCredentialOperationSnapshotV2, ProviderCredentialProviderV2,
     ProviderCredentialRequestAuthorityPair, ProviderCredentialStatusFuture,
     VerifyProviderCredential,
 };
+use crate::{ApiActor, ApiPrincipalId, ProviderCredentialCommandContext};
+use runne_domain::id::{CommandId, IdempotencyKey};
 
 #[test]
 fn provider_credential_request_authorities_require_all_server_derived_bindings() {
@@ -62,9 +64,49 @@ fn provider_credential_request_authorities_require_all_server_derived_bindings()
 }
 
 #[test]
+fn begin_intent_binding_changes_for_each_bound_command_field() {
+    let pair = BeginProviderCredentialEnrollment::new(
+        super::super::ProviderCredentialEnrollmentActionV2::Pair,
+        ProviderCredentialProviderV2::OpenAi,
+        7,
+        "018f8d23-7f90-7c00-8000-000000000001",
+        "idempotency-a",
+        "intent-a",
+    )
+    .unwrap();
+    let changed = BeginProviderCredentialEnrollment::new(
+        super::super::ProviderCredentialEnrollmentActionV2::Revoke,
+        ProviderCredentialProviderV2::DeepSeek,
+        8,
+        "018f8d23-7f90-7c00-8000-000000000002",
+        "idempotency-b",
+        "intent-b",
+    )
+    .unwrap();
+    let context = ProviderCredentialCommandContext {
+        command_id: CommandId::from_bytes([1; 16]),
+        idempotency_key: IdempotencyKey::new("context-a").unwrap(),
+        principal: ApiPrincipalId::new("principal-a").unwrap(),
+        actor: ApiActor::new("actor-a").unwrap(),
+    };
+    let bindings = super::super::ProviderCredentialBeginIntentBinding::new(&pair, &context);
+    let changed_bindings =
+        super::super::ProviderCredentialBeginIntentBinding::new(&changed, &context);
+
+    assert_ne!(
+        bindings.action_provider_revision_digest(),
+        changed_bindings.action_provider_revision_digest()
+    );
+    assert_ne!(
+        bindings.command_identity_digest(),
+        changed_bindings.command_identity_digest()
+    );
+}
+
+#[test]
 fn provider_credential_operation_snapshot_and_host_port_are_safe_and_closed() {
     let snapshot: ProviderCredentialOperationSnapshotV2 = serde_json::from_value(json!({
-        "operationId": "0102030405060708090a0b0c0d0e0f10",
+        "operationId": "0102030405060708090a0b0c0d0e0f10aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "brokerRendezvousId": "rendezvous-openai-7",
         "providerId": "openai",
         "operationKind": "pair",
@@ -114,7 +156,7 @@ fn provider_credential_operation_snapshot_and_host_port_are_safe_and_closed() {
 #[test]
 fn verification_operation_snapshot_has_no_broker_or_enrollment_action() {
     let input = json!({
-        "operationId": "0102030405060708090a0b0c0d0e0f11",
+        "operationId": "0102030405060708090a0b0c0d0e0f11aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "brokerRendezvousId": null,
         "providerId": "openai",
         "operationKind": "verify_remote",
@@ -178,7 +220,7 @@ impl ProviderCredentialEnrollmentHostPort for ClosedHost {
         &'a self,
         _authority: ProviderCredentialBaseRequestAuthority,
         _context: crate::ProviderCredentialCommandContext,
-        _operation_id: ProviderCredentialOperationIdV2,
+        _operation_handle: ProviderCredentialOperationHandleV2,
     ) -> ProviderCredentialHostFuture<'a> {
         Box::pin(async { Err(ProviderCredentialEnrollmentHostError::Unavailable) })
     }

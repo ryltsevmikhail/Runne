@@ -33,8 +33,9 @@ use runne_secure_store::{
 };
 use runne_store::provider::{
     ProviderCoordinatorOutcome, ProviderEffectPort, ProviderRuntimeAuthorityConfig,
-    SqliteProviderCredentialLifecycleStore, SqliteProviderDispatchCoordinator,
-    SqliteProviderDispatchStore, SqliteProviderExecutionStore, SqliteProviderRecoveryStore,
+    ProviderRuntimeLaunchCapability, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderDispatchCoordinator, SqliteProviderDispatchStore, SqliteProviderExecutionStore,
+    SqliteProviderRecoveryStore,
 };
 use runne_store::store::StoreTransaction;
 use sha2::{Digest, Sha256};
@@ -47,6 +48,7 @@ mod composition_telemetry;
 mod credential_reader;
 #[cfg(any(test, feature = "test-support"))]
 mod credential_versions;
+mod dispatch_binding;
 mod effect_adapter;
 mod execution;
 mod loopback_tail;
@@ -54,6 +56,7 @@ mod openai_profile;
 mod projection;
 pub(crate) mod readiness;
 mod recovery;
+mod runtime_launch;
 mod runtime_store;
 mod selected_provider;
 mod shared_profile;

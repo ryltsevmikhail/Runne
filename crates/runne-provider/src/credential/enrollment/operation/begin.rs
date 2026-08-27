@@ -5,8 +5,9 @@ use crate::{CredentialVersionRef, ProviderId};
 use super::super::CredentialOperationSnapshot;
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialOperationAction,
-    CredentialOperationId,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialMigrationMetadata,
+    CredentialOperationAction, CredentialOperationId, CredentialQualifiedReleaseTuple,
+    WriterIdentityMigrationPhase,
 };
 
 /// Protected user-authorized request to begin one public enrollment action.
@@ -24,6 +25,8 @@ pub struct BeginCredentialOperation {
     expected_prior_fence: CredentialFence,
     begin_proof_digest: CredentialBindingDigest,
     begin_proof_expires_at_high_water: u64,
+    migration: Option<CredentialMigrationMetadata>,
+    qualified_release_tuple: Option<CredentialQualifiedReleaseTuple>,
 }
 
 #[allow(missing_docs)]
@@ -57,6 +60,11 @@ impl BeginCredentialOperation {
                         .as_ref()
                         .is_some_and(|version| version.provider() == &provider_id)
             }
+            CredentialOperationAction::WriterIdentityMigrationEffect
+            | CredentialOperationAction::WriterIdentityMigrationVerify
+            | CredentialOperationAction::LegacySourceCleanup => {
+                allocated_credential_version.is_none() && target_credential_version.is_none()
+            }
             _ => false,
         };
         if !valid
@@ -78,6 +86,8 @@ impl BeginCredentialOperation {
             expected_prior_fence,
             begin_proof_digest,
             begin_proof_expires_at_high_water,
+            migration: None,
+            qualified_release_tuple: None,
         })
     }
 
@@ -116,6 +126,42 @@ impl BeginCredentialOperation {
     }
     pub const fn begin_proof_expires_at_high_water(&self) -> u64 {
         self.begin_proof_expires_at_high_water
+    }
+    /// Attaches authority-issued provenance for exactly one writer migration action.
+    pub fn with_migration(
+        mut self,
+        migration: CredentialMigrationMetadata,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        let expected = match self.action {
+            CredentialOperationAction::WriterIdentityMigrationEffect => {
+                WriterIdentityMigrationPhase::OldWriterEffect
+            }
+            CredentialOperationAction::WriterIdentityMigrationVerify => {
+                WriterIdentityMigrationPhase::NewWriterVerify
+            }
+            _ => return Err(CredentialEnrollmentError::InvalidInput),
+        };
+        if migration.phase() != expected {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        self.migration = Some(migration);
+        Ok(self)
+    }
+    /// Returns authority-issued migration provenance when this is a migration action.
+    pub const fn migration(&self) -> Option<&CredentialMigrationMetadata> {
+        self.migration.as_ref()
+    }
+    /// Attaches the authority-sealed qualified release tuple required for persistence.
+    pub fn with_qualified_release_tuple(
+        mut self,
+        qualified_release_tuple: CredentialQualifiedReleaseTuple,
+    ) -> Self {
+        self.qualified_release_tuple = Some(qualified_release_tuple);
+        self
+    }
+    /// Returns the sealed release tuple when durable admission may persist this request.
+    pub const fn qualified_release_tuple(&self) -> Option<&CredentialQualifiedReleaseTuple> {
+        self.qualified_release_tuple.as_ref()
     }
 }
 

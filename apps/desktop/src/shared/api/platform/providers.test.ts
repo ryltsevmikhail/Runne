@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { getProviderStatus, pairProviderCredential, revokeProviderCredential } from './providers'
+import { getProviderStatus, requestProviderCredentialIntent } from './providers'
 
 const openai = {
   providerId: 'openai',
@@ -32,22 +32,17 @@ describe('getProviderStatus', () => {
 })
 
 describe('provider credential mutations', () => {
-  it('sends material as a one-shot command and returns only safe status', async () => {
+  it('sends only a pairing intent, never renderer credential material', async () => {
     const invoke = async (command: string, args?: Record<string, unknown>) => {
-      expect(command).toBe('pair_provider_credential')
-      expect(args).toEqual({ provider: 'openai', credential: 'secret-value' })
-      return { providerId: 'openai', status: 'configured' }
+      expect(command).toBe('request_provider_credential_intent')
+      expect(args).toEqual({ request: { provider: 'openai', action: 'pair', expectedRevision: 7 } })
+      return 'pending'
     }
-    await expect(pairProviderCredential('openai', 'secret-value', invoke)).resolves.toEqual({
-      providerId: 'openai',
-      status: 'configured',
-    })
+    await expect(requestProviderCredentialIntent('openai', 'pair', 7, invoke)).resolves.toBe('pending')
   })
 
-  it('rejects unsafe input and credential-shaped response leakage', async () => {
-    await expect(pairProviderCredential('openai', 'line\nvalue', async () => ({}))).rejects.toThrow()
-    await expect(revokeProviderCredential('deepseek', async () => ({
-      providerId: 'deepseek', status: 'missing', credential: 'secret',
-    }))).rejects.toThrow()
+  it('rejects invalid revision and credential-shaped response leakage', async () => {
+    await expect(requestProviderCredentialIntent('openai', 'pair', 0, async () => ({}))).rejects.toThrow()
+    await expect(requestProviderCredentialIntent('deepseek', 'pair', 1, async () => ({ credential: 'secret' }))).rejects.toThrow()
   })
 })

@@ -5,7 +5,9 @@ use runne_provider::{
     CredentialVersionRef, ObserveNativeEffect, ProviderCredentialEnrollmentStore,
 };
 
-use super::online_test_support::{admit_claim, digest, operation, provider, revoke, store};
+use super::online_test_support::{
+    admit_claim, complete_pair, digest, operation, provider, revoke, store,
+};
 
 #[test]
 fn credential_online_pair_completion_persists_readiness_atomically() {
@@ -42,6 +44,38 @@ fn credential_online_pair_completion_persists_readiness_atomically() {
             operation(90).as_bytes().to_vec(),
         )
     );
+}
+
+#[test]
+fn credential_online_completion_returns_the_persisted_receipt() {
+    let store = store();
+    prepare_pair(&store);
+
+    let receipt = ProviderCredentialEnrollmentStore::complete_with_receipt(&store, completion())
+        .unwrap();
+
+    assert_eq!(receipt.operation_id(), operation(90));
+}
+
+#[test]
+fn credential_online_pair_fixture_persists_its_authority_issued_qualified_tuple() {
+    let store = store();
+
+    complete_pair(&store, 90, "qualified-pair");
+
+    let tuple: Vec<u8> = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT qualified_release_tuple_digest FROM provider_credential_operations
+             WHERE operation_id=?1",
+            [operation(90).as_bytes().as_slice()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(tuple, [92; 32]);
+    assert_ne!(tuple, vec![0; 32]);
 }
 
 #[test]

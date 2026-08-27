@@ -7,15 +7,16 @@ use runne_domain::timestamp::Timestamp;
 use runne_store::codec::{StoreCodec, TaskRunEventCodec};
 use runne_store::integrity::compute_integrity_digest_with_global_position;
 use runne_store::schema::{
-    apply_migrations, apply_migrations_through_v18_for_test, apply_migrations_through_v19_for_test,
+    CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v18_for_test,
+    apply_migrations_through_v19_for_test,
 };
 use rusqlite::{Connection, params};
 
 #[test]
-fn complete_v19_history_rebuilds_to_v23() {
+fn complete_v19_history_rebuilds_to_current_schema() {
     let connection = v19_taskrun();
     apply_migrations(&connection).unwrap();
-    assert_eq!(version(&connection), 23);
+    assert_eq!(version(&connection), CURRENT_SCHEMA_VERSION);
     let projection: Vec<u8> = connection
         .query_row(
             "SELECT promotion_projection_bytes FROM aggregate_state_snapshots",

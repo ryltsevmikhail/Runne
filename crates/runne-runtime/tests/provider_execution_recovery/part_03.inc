@@ -3,15 +3,15 @@
 async fn remote_failure_without_usage_consumes_full_reservation_without_conversation_outbox() {
     const PARTIAL: &str = "remote-failed-partial-must-not-be-applied-83";
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &DENYING_GUARD,
         &ALLOWING_REDACTION,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(
@@ -119,15 +119,15 @@ async fn remote_failure_without_usage_consumes_full_reservation_without_conversa
 async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
     const OUTPUT: &str = "registered-prohibited-provider-output-marker-82";
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &FIXED_PRICING,
         &DENYING_GUARD,
         &ALLOWING_REDACTION,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(&runtime, &fixture, successful_events(OUTPUT)).await;
 
     assert_eq!(
@@ -154,19 +154,19 @@ async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
 #[tokio::test(flavor = "current_thread")]
 async fn mismatched_exact_profile_pricing_creates_no_accounting_or_outbox() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let openai_profile = OpenAiResponsesTextProfile::from_json(include_bytes!(
         "../../../../docs/profiles/openai-responses-text-v1.json"
     ))
     .unwrap();
     let runtime = RuntimeProviderExecution::new(
-        &keyring,
+        keyring.as_ref(),
         fixture.execution.as_ref(),
         &openai_profile,
         &ALLOWING_GUARD,
         &ALLOWING_REDACTION,
     );
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     poll_events(
         &runtime,
         &fixture,
@@ -259,9 +259,9 @@ impl ProviderPort for CommitCheckingProvider {
 #[tokio::test(flavor = "current_thread")]
 async fn each_event_commit_precedes_the_next_adapter_poll() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let runtime = runtime(&keyring, fixture.execution.as_ref());
-    runtime.create_and_activate_key([1; 16], 7, 1).unwrap();
+    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
     let events = vec![
         ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
         ProviderStreamEvent::new(

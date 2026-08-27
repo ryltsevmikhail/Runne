@@ -6,12 +6,12 @@ use super::*;
 
 #[test]
 fn prohibited_content_stops_prepare_admission_and_dispatch() {
-    let (_database, dispatch, execution, credential, request) = fixture();
+    let (_database, dispatch, execution, credential, launch, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Streaming);
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &Guard(false),
@@ -27,12 +27,12 @@ fn prohibited_content_stops_prepare_admission_and_dispatch() {
 
 #[test]
 fn sqlite_admission_dispatches_once_and_exact_replay_never_redispaches() {
-    let (_database, dispatch, execution, credential, request) = fixture();
+    let (_database, dispatch, execution, credential, launch, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Streaming);
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &provider,
         &Guard(true),
@@ -79,7 +79,7 @@ impl ProviderEffectPort for RevokingEffect<'_> {
 
 #[test]
 fn revocation_during_staging_cannot_race_through_effect_start() {
-    let (database, dispatch, execution, credential, request) = fixture();
+    let (database, dispatch, execution, credential, launch, request) = fixture();
     let provider = RecordingProvider::new(ProviderMode::Streaming);
     let effect = RevokingEffect {
         lifecycle: &credential,
@@ -88,7 +88,7 @@ fn revocation_during_staging_cannot_race_through_effect_start() {
     let coordinator = SqliteProviderDispatchCoordinator::new(
         &dispatch,
         &execution,
-        runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+        runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
         &provider,
         &effect,
         &Guard(true),

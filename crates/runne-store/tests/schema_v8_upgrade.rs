@@ -6,7 +6,9 @@ use runne_domain::{
     task_run::TaskRunEvent,
     timestamp::Timestamp,
 };
-use runne_store::schema::{CURRENT_SCHEMA_VERSION, apply_migrations};
+use runne_store::schema::{
+    CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v23_for_test,
+};
 use runne_store::{
     codec::{StoreCodec, TaskRunEventCodec},
     integrity::compute_integrity_digest_with_global_position,
@@ -24,7 +26,7 @@ fn table_exists(conn: &Connection, name: &str) -> bool {
 
 fn released_v8_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
-    apply_migrations(&conn).unwrap();
+    apply_migrations_through_v23_for_test(&conn).unwrap();
     let triggers = conn
         .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'")
         .unwrap()
@@ -99,8 +101,6 @@ fn released_v8_upgrades_to_current_schema_and_rejects_invalid_values() {
         })
         .unwrap();
     assert_eq!(version, CURRENT_SCHEMA_VERSION);
-    assert_eq!(CURRENT_SCHEMA_VERSION, 23);
-    assert_eq!(version, 23);
     assert!(table_exists(&conn, "verification_evidence"));
     assert!(table_exists(&conn, "consumption_intents"));
     assert!(!table_exists(&conn, "verification_evidence_v10"));

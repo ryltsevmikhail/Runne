@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn serialized_prohibited_and_unavailable_guards_stop_before_prepare() {
     for mode in [GuardMode::Prohibited, GuardMode::Unavailable] {
-        let (_directory, dispatch, execution, credential, request) = fixture();
+        let (_directory, dispatch, execution, credential, launch, request) = fixture();
         let provider = Provider::new(Response::Stream);
         let guard = Guard {
             mode,
@@ -12,7 +12,7 @@ fn serialized_prohibited_and_unavailable_guards_stop_before_prepare() {
         let coordinator = SqliteProviderDispatchCoordinator::new(
             &dispatch,
             &execution,
-            runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+            runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
             &provider,
             &provider,
             &guard,
@@ -31,7 +31,7 @@ fn serialized_prohibited_and_unavailable_guards_stop_before_prepare() {
 #[test]
 fn oversized_reservations_are_rejected_before_admission_or_dispatch() {
     for oversized_output in [false, true] {
-        let (_directory, dispatch, execution, credential, mut request) = fixture();
+        let (_directory, dispatch, execution, credential, launch, mut request) = fixture();
         if oversized_output {
             request.requested_output_tokens =
                 u32::try_from(runne_provider::MAX_PROVIDER_USAGE_TOKENS + 1).unwrap();
@@ -46,7 +46,7 @@ fn oversized_reservations_are_rejected_before_admission_or_dispatch() {
         let coordinator = SqliteProviderDispatchCoordinator::new(
             &dispatch,
             &execution,
-            runne_store::provider::CredentialDispatchAuthority::new(&credential, [1; 16], 1),
+            runne_store::provider::CredentialDispatchAuthority::new(&credential, &launch),
             &provider,
             &provider,
             &guard,

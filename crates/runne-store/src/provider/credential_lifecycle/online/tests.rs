@@ -232,7 +232,8 @@ fn credential_online_migrate_legacy_is_deferred_without_head_mutation() {
         digest(62),
         200,
     )
-    .unwrap();
+    .unwrap()
+    .with_qualified_release_tuple(qualified_release(92));
 
     assert_eq!(
         ProviderCredentialEnrollmentStore::begin(&store, input).unwrap_err(),

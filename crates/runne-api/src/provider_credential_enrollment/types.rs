@@ -3,10 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 mod ids;
+mod intent_binding;
 mod operation;
 mod snapshot;
 
-pub use ids::ProviderCredentialOperationIdV2;
+pub use ids::ProviderCredentialOperationHandleV2;
+pub use intent_binding::ProviderCredentialBeginIntentBinding;
 pub use operation::{
     ProviderCredentialOperationKindV2, ProviderCredentialOperationSnapshotV2,
     ProviderCredentialOperationStateV2,

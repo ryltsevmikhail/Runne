@@ -7,7 +7,8 @@ use runne_provider::{
 
 use super::online_claim_test_support::{open_test_store, seal_claim};
 use super::online_test_support::{
-    admit_claim, begin, claim_at, digest, operation, store, ticket_at, ticket_state,
+    admit_claim, begin, claim_at, digest, operation, qualified_release, store, ticket_at,
+    ticket_state,
 };
 
 #[test]
@@ -79,6 +80,7 @@ fn unrelated_begin(provider: ProviderId) -> BeginCredentialOperation {
         200,
     )
     .unwrap()
+    .with_qualified_release_tuple(qualified_release(92))
 }
 
 fn observed_at(

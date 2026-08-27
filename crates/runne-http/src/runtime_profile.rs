@@ -1,6 +1,7 @@
 //! Authenticated exact runtime profile query.
 #![allow(dead_code)] // Mounted only by the crate-owned local TLS boundary in Task 4B.
 
+use crate::provider_credentials::provider_credential_router;
 use crate::runtime_profile_helpers::sensitivity_label;
 use axum::{
     Json, Router,
@@ -8,13 +9,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
-use runne_api::{ApiActor, ProviderCredentialControlHostPort, ProviderStatusSnapshotV1};
+use runne_api::ProviderStatusSnapshotV1;
 use runne_application::local_session::AuthenticatedRuntimeSession;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
-
-use crate::provider_credentials::{ProviderCredentialHttpState, provider_credential_router};
 /// Immutable exact profile advertised by the running daemon.
 #[derive(Clone)]
 pub struct RuntimeProfileHttpState {
@@ -23,7 +21,6 @@ pub struct RuntimeProfileHttpState {
     runtime_version: &'static str,
     capabilities: &'static [&'static str],
     provider_statuses: Vec<ProviderStatusSnapshotV1>,
-    provider_credential_control: Option<ProviderCredentialHttpState>,
 }
 
 impl RuntimeProfileHttpState {
@@ -40,23 +37,12 @@ impl RuntimeProfileHttpState {
             runtime_version,
             capabilities,
             provider_statuses: Vec::new(),
-            provider_credential_control: None,
         }
     }
 
     #[must_use]
     pub fn with_provider_statuses(mut self, statuses: Vec<ProviderStatusSnapshotV1>) -> Self {
         self.provider_statuses = statuses;
-        self
-    }
-
-    #[must_use]
-    pub fn with_provider_credential_control(
-        mut self,
-        host: Arc<dyn ProviderCredentialControlHostPort>,
-        actor: ApiActor,
-    ) -> Self {
-        self.provider_credential_control = Some(ProviderCredentialHttpState::new(host, actor));
         self
     }
 }
@@ -117,17 +103,10 @@ pub fn runtime_profile_router(state: RuntimeProfileHttpState) -> Router {
 /// extension rather than from daemon-owned handler state. This keeps the
 /// advertised profile tied to the authority validated by `SessionAuthLayer`.
 pub(crate) fn runtime_profile_session_router(state: RuntimeProfileHttpState) -> Router {
-    let provider_control = state
-        .provider_credential_control
-        .clone()
-        .filter(|_| state.advertises(runne_api::PROVIDER_CREDENTIAL_CONTROL_CAPABILITY_V1));
     let router = Router::new()
         .route("/v1/runtime/profile", get(session_runtime_profile))
         .with_state(state.clone());
-    match provider_control {
-        Some(control) => router.merge(provider_credential_router(control)),
-        None => router,
-    }
+    router.merge(provider_credential_router())
 }
 
 async fn session_runtime_profile(

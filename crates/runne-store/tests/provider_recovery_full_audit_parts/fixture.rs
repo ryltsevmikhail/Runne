@@ -6,30 +6,80 @@ use runne_provider::{
 };
 use runne_store::provider::{
     CredentialDispatchBinding, PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderDispatchState, ProviderRuntimeAuthorityConfig,
-    SqliteProviderCredentialLifecycleStore,
+    ProviderDispatchState, ProviderRuntimeAuthorityConfig, SqliteProviderCredentialLifecycleStore,
+    SqliteProviderExecutionStore,
 };
 use rusqlite::{Connection, params};
+use std::cell::RefCell;
+
+struct ArmedProviderTestDatabase {
+    database: validated_reopen::ProviderTestDatabase,
+    execution: SqliteProviderExecutionStore,
+    launch: RefCell<runne_store::provider::ProviderRuntimeLaunchCapability>,
+}
+
+impl ArmedProviderTestDatabase {
+    fn new(name: &str) -> Self {
+        let database = validated_reopen::ProviderTestDatabase::new(name);
+        let execution = database.execution();
+        let config = runtime_config::runtime_config();
+        let launch = execution
+            .activate_runtime_launch(&config)
+            .unwrap();
+        crate::online_proof::arm(&execution, config.database_generation);
+        Self {
+            database,
+            execution,
+            launch: RefCell::new(launch),
+        }
+    }
+
+    fn execution(&self) -> SqliteProviderExecutionStore {
+        let execution = self.database.execution();
+        crate::online_proof::arm(&execution, 7);
+        execution
+    }
+
+    fn issue(
+        &self,
+        request: &ProviderAuthorityIssueRequest,
+    ) -> Result<ProviderAuthorityIssueOutcome, ProviderAdmissionError> {
+        self.execution.issue(&self.launch.borrow(), request)
+    }
+
+    fn activate_runtime_launch(
+        &self,
+        config: &ProviderRuntimeAuthorityConfig,
+    ) -> Result<(), ProviderAdmissionError> {
+        let launch = self.execution().activate_runtime_launch(config)?;
+        *self.launch.borrow_mut() = launch;
+        Ok(())
+    }
+}
+
+impl std::ops::Deref for ArmedProviderTestDatabase {
+    type Target = validated_reopen::ProviderTestDatabase;
+
+    fn deref(&self) -> &Self::Target {
+        &self.database
+    }
+}
 
 fn setup(
     name: &str,
     call_byte: u8,
 ) -> (
-    validated_reopen::ProviderTestDatabase,
+    ArmedProviderTestDatabase,
     ProviderAuthorityIssueRequest,
     PreparedProviderRecord,
 ) {
-    let database = validated_reopen::ProviderTestDatabase::new(name);
+    let database = ArmedProviderTestDatabase::new(name);
     let (request, record) = prepared_request(&database, call_byte);
-    database
-        .execution()
-        .install_runtime_authority(&runtime_config())
-        .unwrap();
     (database, request, record)
 }
 
 fn prepared_request(
-    database: &validated_reopen::ProviderTestDatabase,
+    database: &ArmedProviderTestDatabase,
     call_byte: u8,
 ) -> (ProviderAuthorityIssueRequest, PreparedProviderRecord) {
     let call = ProviderCall::new(
@@ -53,8 +103,12 @@ fn prepared_request(
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    database.dispatch().persist_prepared(&record).unwrap();
+    database
+        .dispatch()
+        .persist_prepared(&database.launch.borrow(), &record)
+        .unwrap();
     let request = ProviderAuthorityIssueRequest {
+        provider_id: call.model_ref().provider_id().clone(),
         principal_id: "principal-1".into(),
         conversation_id: ConversationId::from_bytes([call_byte.wrapping_add(10); 16]),
         taskrun_id: TaskRunId::from_bytes([call_byte.wrapping_add(20); 16]),
@@ -76,36 +130,8 @@ fn prepared_request(
     (request, record)
 }
 
-fn runtime_config() -> ProviderRuntimeAuthorityConfig {
-    ProviderRuntimeAuthorityConfig {
-        runtime_authority_id: [1; 16],
-        database_generation: 7,
-        principal_id: "principal-1".into(),
-        owner_id: "runtime-owner-1".into(),
-        scope: "provider.dispatch".into(),
-        generation: 11,
-        fencing_token: 13,
-        capability_grant_id: "grant-provider-network-1".into(),
-        capability_revision: 2,
-        capability_allowed: true,
-        capability_revocation_epoch: 1,
-        approval_id: "approval-provider-network-1".into(),
-        approval_revision: 3,
-        approval_allowed: true,
-        approval_revocation_epoch: 1,
-        profile_digest: [2; 32],
-        pricing_revision_digest: [3; 32],
-        activation_binding_kind: runne_application::provider::ProviderLeaseBindingKind::ProtectedV2,
-        activation_binding_digest: [4; 32],
-        token_budget_limit: 10_000,
-        cost_budget_limit_micros: 1_000_000,
-        authority_ttl_seconds: 120,
-        lease_ttl_seconds: 600,
-    }
-}
-
 fn rotated_runtime_config() -> ProviderRuntimeAuthorityConfig {
-    let mut config = runtime_config();
+    let mut config = runtime_config::runtime_config();
     config.generation = 12;
     config.fencing_token = 14;
     config
@@ -133,10 +159,11 @@ fn remove_fault(connection: &rusqlite::Connection) -> Result<(), rusqlite::Error
 }
 
 fn issue_winner(
-    database: &validated_reopen::ProviderTestDatabase,
+    database: &ArmedProviderTestDatabase,
     request: &ProviderAuthorityIssueRequest,
 ) -> ProviderDispatchClaim {
-    let ProviderAuthorityIssueOutcome::Winner(admission) = database.execution().issue(request).unwrap()
+    let ProviderAuthorityIssueOutcome::Winner(admission) =
+        database.issue(request).unwrap()
     else {
         panic!("first exact issue must win");
     };
@@ -169,7 +196,9 @@ fn credential(
 
 fn table_count(connection: &Connection, table: &str) -> i64 {
     connection
-        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row.get(0))
+        .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
         .unwrap()
 }
 
@@ -199,7 +228,10 @@ fn dispatch_state(
         .state
 }
 
-fn update_digest_version(database: &validated_reopen::ProviderTestDatabase, call_id: ProviderCallId) {
+fn update_digest_version(
+    database: &validated_reopen::ProviderTestDatabase,
+    call_id: ProviderCallId,
+) {
     let connection = database.connection();
     connection
         .execute_batch("PRAGMA ignore_check_constraints = ON;")
@@ -253,7 +285,9 @@ fn sql_table_rows(connection: &Connection, table: &str) -> Vec<Vec<String>> {
         .collect::<Vec<_>>()
         .join(", ");
     let mut rows = connection
-        .prepare(&format!("SELECT {values} FROM \"{table}\" ORDER BY {order}"))
+        .prepare(&format!(
+            "SELECT {values} FROM \"{table}\" ORDER BY {order}"
+        ))
         .unwrap();
     rows.query_map([], |row| {
         (0..columns.len())

@@ -14,6 +14,89 @@
   "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "openapi": "3.1.0",
   "paths": {
+    "/v1/approvals": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/approval-v1.schema.json#/$defs/list"
+                }
+              }
+            },
+            "description": "Authorized approvals"
+          }
+        },
+        "summary": "List pending approvals"
+      }
+    },
+    "/v1/approvals/{approvalId}": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approvalId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/approval-v1.schema.json#/$defs/approval"
+                }
+              }
+            },
+            "description": "Authorized approval"
+          }
+        },
+        "summary": "Get one approval"
+      }
+    },
+    "/v1/approvals/{approvalId}/decision": {
+      "post": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "approvalId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/approval-v1.schema.json#/$defs/decisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/approval-v1.schema.json#/$defs/decisionAcknowledgement"
+                }
+              }
+            },
+            "description": "Decision accepted"
+          }
+        },
+        "summary": "Decide approval"
+      }
+    },
     "/v1/local-session/authenticate": {
       "post": {
         "requestBody": {

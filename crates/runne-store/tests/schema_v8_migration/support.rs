@@ -60,8 +60,27 @@ fn drop_v12_fences(conn: &Connection) {
 }
 
 fn drop_v13_provider_execution(conn: &Connection) {
+    let triggers = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name GLOB 'provider_*'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for trigger in triggers {
+        conn.execute_batch(&format!("DROP TRIGGER \"{trigger}\";"))
+            .unwrap();
+    }
     conn.execute_batch(
-        "DROP TABLE bootstrap_reservation_tombstones;
+        "DROP TABLE provider_online_credential_effect_bindings;
+         DROP TABLE provider_online_dispatch_claim_providers;
+         DROP TABLE provider_online_dispatch_issuance_evidence;
+         DROP TABLE provider_credential_ticket_attempts;
+         DROP TABLE provider_credential_readiness_observations;
+         DROP TABLE provider_credential_verification_observations;
+         DROP TABLE provider_credential_authority_heads;
+         DROP TABLE provider_credential_operations;
+         DROP TABLE bootstrap_reservation_tombstones;
          DROP TABLE bootstrap_reservations;
          DROP TABLE bootstrap_last_observed_clock;
          DROP TABLE provider_credential_effect_bindings;

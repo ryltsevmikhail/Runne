@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[path = "support/online_proof.rs"]
+mod online_proof;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 

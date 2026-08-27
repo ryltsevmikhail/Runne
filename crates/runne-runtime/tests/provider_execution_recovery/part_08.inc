@@ -42,12 +42,12 @@ fn expected_settlement_digest(context: &ProviderEventJournalContext, output: &[u
 #[tokio::test(flavor = "current_thread")]
 async fn terminal_journal_reopen_finalizes_with_stable_runtime_identities() {
     let fixture = fixture();
-    let keyring = MemoryKeyring::default();
+    let keyring = fixture.keyring();
     let output = b"runtime-b6-reopen-output";
     let context = context(&fixture);
     {
         let writer = runtime(&keyring, fixture.execution.as_ref());
-        writer.create_and_activate_key([1; 16], 7, 1).unwrap();
+        writer.preflight_existing_active_key([1; 16], 7).unwrap();
         poll_events(&writer, &fixture, successful_events(std::str::from_utf8(output).unwrap())).await;
         let before = validated_connection(&fixture);
         assert_eq!(before.query_row("SELECT state FROM provider_dispatch_attempts", [], |r| r.get::<_, i64>(0)).unwrap(), 3);

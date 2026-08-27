@@ -1,4 +1,6 @@
-use runne_provider::{ClaimCredentialOperation, CredentialFence, HardFenceProvider, ProviderCredentialEnrollmentStore};
+use runne_provider::{
+    ClaimCredentialOperation, CredentialFence, HardFenceProvider, ProviderCredentialEnrollmentStore,
+};
 
 use super::online_claim_test_support::{open_test_store, seal_claim};
 use super::online_test_support::{

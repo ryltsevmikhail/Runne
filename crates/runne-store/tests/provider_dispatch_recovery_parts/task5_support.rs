@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
@@ -195,9 +195,7 @@ impl CredentialMatcher for SecretMatcher {
     }
 
     fn contains_match(&self, bytes: &[u8]) -> Result<bool, ScannerError> {
-        Ok(bytes
-            .windows(SECRET.len())
-            .any(|window| window == SECRET))
+        Ok(bytes.windows(SECRET.len()).any(|window| window == SECRET))
     }
 }
 
@@ -236,9 +234,7 @@ impl WithheldTailStore for SecretTailStore {
         binding: TailBinding,
     ) -> Result<Zeroizing<Vec<u8>>, TailStoreError> {
         let tails = self.tails.lock().unwrap();
-        let (stored, bytes) = tails
-            .get(reference)
-            .ok_or(TailStoreError::NotFound)?;
+        let (stored, bytes) = tails.get(reference).ok_or(TailStoreError::NotFound)?;
         if *stored != binding {
             return Err(TailStoreError::BindingMismatch);
         }

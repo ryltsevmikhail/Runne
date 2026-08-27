@@ -5,7 +5,7 @@
 /// - 1: Runtime/API error
 /// - 2: Usage error (invalid args, unknown command)
 /// - 3: Profile error (unavailable, incompatible)
-/// - 4: Credential error (input, operation, unsupported backend)
+/// - 4: Credential error (operation, unsupported backend)
 #[derive(Debug)]
 enum CliError {
     Help(String),
@@ -15,7 +15,6 @@ enum CliError {
     ProfileIncompatible,
     Runtime,
     Api(RuntimeApiError),
-    CredentialInput,
     CredentialOperation,
     UnsupportedCredentialBackend,
     HealthNonHealthy(String),
@@ -52,9 +51,7 @@ impl CliError {
             Self::Help(_) | Self::Version(_) => 0,
             Self::Usage | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
-            Self::CredentialInput
-            | Self::CredentialOperation
-            | Self::UnsupportedCredentialBackend => 4,
+            Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
             _ => 1,
         }
     }
@@ -69,7 +66,6 @@ impl CliError {
             Self::Runtime | Self::HealthNonHealthy(_) | Self::DoctorNonHealthy(_) => {
                 Some(ErrorCode::RuntimeUnavailable)
             }
-            Self::CredentialInput => Some(ErrorCode::CredentialInputInvalid),
             Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
             _ => Some(ErrorCode::ApiError),
@@ -94,8 +90,9 @@ impl fmt::Display for CliError {
                 }
                 Ok(())
             }
-            Self::CredentialInput => formatter.write_str("provider credential input is invalid"),
-            Self::CredentialOperation => formatter.write_str("provider credential operation failed"),
+            Self::CredentialOperation => {
+                formatter.write_str("provider credential operation failed")
+            }
             Self::UnsupportedCredentialBackend => {
                 formatter.write_str("provider credential backend is unsupported")
             }
@@ -110,9 +107,7 @@ impl fmt::Display for CliError {
             #[cfg(test)]
             Self::AuthorityNonInteractive => formatter.write_str("NONINTERACTIVE"),
             #[cfg(test)]
-            Self::AuthorityConfirmationFailed => {
-                formatter.write_str("CONFIRMATION_FAILED")
-            }
+            Self::AuthorityConfirmationFailed => formatter.write_str("CONFIRMATION_FAILED"),
             #[cfg(any(test, target_os = "macos"))]
             Self::AuthorityBackupTamperedOrWrongPassphrase => {
                 formatter.write_str("BACKUP_TAMPERED_OR_WRONG_PASSPHRASE")

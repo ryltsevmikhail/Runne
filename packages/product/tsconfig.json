@@ -14,5 +14,14 @@
     },
     "baseUrl": "."
   },
-  "include": ["shared/**/*.ts", "shared/**/*.vue"]
+  "include": [
+    "shared/**/*.ts",
+    "shared/**/*.vue",
+    "features/**/*.ts",
+    "features/**/*.vue",
+    "widgets/attention-queue/**/*.ts",
+    "widgets/attention-queue/**/*.vue",
+    "entities/task-run/**/*.ts",
+    "entities/task-run/**/*.vue"
+  ]
 }

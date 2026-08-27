@@ -1,12 +1,15 @@
 impl SqliteProviderExecutionStore {
     fn activate_journal_key_impl(
         &self,
+        keyring: &dyn ProviderJournalKeyring,
         key: ProviderJournalKeyBinding,
     ) -> Result<(), ProviderExecutionError> {
         let mut connection = self
             .connection
             .lock()
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        let candidate = OnlineEffectProofCapabilitySet::load(&connection, keyring, key)
+            .map_err(|_| ProviderExecutionError::JournalKeyUnavailable)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
@@ -24,8 +27,19 @@ impl SqliteProviderExecutionStore {
             }
             return Err(ProviderExecutionError::JournalKeyUnavailable);
         }
-        if let Some(active) = load_active_journal_key(&transaction)? {
+        let active = load_active_journal_key(&transaction)?;
+        let mut proof_state = self
+            .online_effect_proof
+            .lock()
+            .map_err(|_| ProviderExecutionError::JournalKeyUnavailable)?;
+        if let Some(ref active) = active {
             if key.key_version() <= active.binding.key_version() {
+                return Err(ProviderExecutionError::JournalKeyUnavailable);
+            }
+            if proof_state
+                .as_ref()
+                .is_none_or(|installed| installed.binding() != active.binding)
+            {
                 return Err(ProviderExecutionError::JournalKeyUnavailable);
             }
             transaction
@@ -59,9 +73,15 @@ impl SqliteProviderExecutionStore {
             .map_err(|_| ProviderExecutionError::JournalKeyUnavailable)?;
         transaction
             .commit()
-            .map_err(|_| ProviderExecutionError::StoreUnavailable)
+            .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        if active.is_some() {
+            let previous = proof_state
+                .take()
+                .ok_or(ProviderExecutionError::JournalKeyUnavailable)?;
+            *proof_state = Some(candidate.with_retained(previous));
+        }
+        Ok(())
     }
-
 }
 impl SqliteProviderExecutionStore {
     fn journal_key_reference_count_impl(
@@ -75,15 +95,17 @@ impl SqliteProviderExecutionStore {
         ensure_journal_key_exists(&connection, key)?;
         let count: i64 = connection
             .query_row(
-                "SELECT COUNT(*) FROM provider_encryption_nonces
-                 WHERE key_id = ?1 AND key_version = ?2",
-                params![key.key_id().as_slice(), execution_i64(key.key_version())?,],
+                "SELECT (SELECT COUNT(*) FROM provider_encryption_nonces
+                         WHERE key_id = ?1 AND key_version = ?2)
+                      + (SELECT COUNT(*) FROM provider_online_dispatch_issuance_evidence
+                         WHERE journal_key_id = ?1 AND journal_key_version = ?2
+                           AND journal_runtime_authority_id = ?3 AND journal_database_generation = ?4)",
+                params![key.key_id().as_slice(), execution_i64(key.key_version())?, key.runtime_authority_id().as_slice(), execution_i64(key.database_generation())?],
                 |row| row.get(0),
             )
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
         u64::try_from(count).map_err(|_| ProviderExecutionError::JournalCorrupt)
     }
-
 }
 impl SqliteProviderExecutionStore {
     fn remove_retired_journal_key_impl(
@@ -102,9 +124,12 @@ impl SqliteProviderExecutionStore {
         }
         let references: i64 = transaction
             .query_row(
-                "SELECT COUNT(*) FROM provider_encryption_nonces
-                 WHERE key_id = ?1 AND key_version = ?2",
-                params![key.key_id().as_slice(), execution_i64(key.key_version())?,],
+                "SELECT (SELECT COUNT(*) FROM provider_encryption_nonces
+                         WHERE key_id = ?1 AND key_version = ?2)
+                      + (SELECT COUNT(*) FROM provider_online_dispatch_issuance_evidence
+                         WHERE journal_key_id = ?1 AND journal_key_version = ?2
+                           AND journal_runtime_authority_id = ?3 AND journal_database_generation = ?4)",
+                params![key.key_id().as_slice(), execution_i64(key.key_version())?, key.runtime_authority_id().as_slice(), execution_i64(key.database_generation())?],
                 |row| row.get(0),
             )
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
@@ -125,7 +150,6 @@ impl SqliteProviderExecutionStore {
             .commit()
             .map_err(|_| ProviderExecutionError::StoreUnavailable)
     }
-
 }
 impl SqliteProviderExecutionStore {
     fn begin_provider_poll_impl(
@@ -207,5 +231,4 @@ impl SqliteProviderExecutionStore {
             .commit()
             .map_err(|_| ProviderExecutionError::StoreUnavailable)
     }
-
 }

@@ -5,8 +5,9 @@ use runne_domain::id::{CommandId, IdempotencyKey};
 use super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
     CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialNativeEffectDisposition,
-    CredentialOperationId, CredentialReadbackDisposition, CredentialTerminalDisposition,
-    WriterIdentityMigrationPhase, authority::EnrollmentAuthoritySeal,
+    CredentialOperationId, CredentialQualifiedReleaseTuple, CredentialReadbackDisposition,
+    CredentialTerminalDisposition, CredentialTicketAttempt, WriterIdentityMigrationPhase,
+    authority::EnrollmentAuthoritySeal,
 };
 
 /// Immutable migration fields persisted for a linked writer-identity operation.
@@ -21,6 +22,7 @@ pub struct CredentialMigrationMetadata {
     phase: WriterIdentityMigrationPhase,
     old_tuple_digest: CredentialBindingDigest,
     new_tuple_digest: CredentialBindingDigest,
+    binding_digest: CredentialBindingDigest,
     seal: Arc<EnrollmentAuthoritySeal>,
 }
 
@@ -30,6 +32,7 @@ impl PartialEq for CredentialMigrationMetadata {
             && self.phase == other.phase
             && self.old_tuple_digest == other.old_tuple_digest
             && self.new_tuple_digest == other.new_tuple_digest
+            && self.binding_digest == other.binding_digest
             && Arc::ptr_eq(&self.seal, &other.seal)
     }
 }
@@ -44,12 +47,14 @@ impl CredentialMigrationMetadata {
         phase: WriterIdentityMigrationPhase,
         old_tuple_digest: CredentialBindingDigest,
         new_tuple_digest: CredentialBindingDigest,
+        binding_digest: CredentialBindingDigest,
     ) -> Self {
         Self {
             migration_id,
             phase,
             old_tuple_digest,
             new_tuple_digest,
+            binding_digest,
             seal,
         }
     }
@@ -73,10 +78,14 @@ impl CredentialMigrationMetadata {
     pub const fn new_tuple_digest(&self) -> CredentialBindingDigest {
         self.new_tuple_digest
     }
+    /// Returns the immutable broker migration binding digest.
+    pub const fn binding_digest(&self) -> CredentialBindingDigest {
+        self.binding_digest
+    }
 }
 
 /// Safe durable metadata for an enrollment operation snapshot.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CredentialOperationMetadata {
     command_id: CommandId,
     idempotency_key: IdempotencyKey,
@@ -94,6 +103,8 @@ pub struct CredentialOperationMetadata {
     created_at_high_water: i64,
     updated_at_high_water: i64,
     tombstone_digest: Option<CredentialBindingDigest>,
+    qualified_release_tuple: Option<CredentialQualifiedReleaseTuple>,
+    claimed_ticket_attempt: Option<CredentialTicketAttempt>,
 }
 
 impl CredentialOperationMetadata {
@@ -129,6 +140,8 @@ impl CredentialOperationMetadata {
             created_at_high_water,
             updated_at_high_water,
             tombstone_digest: None,
+            qualified_release_tuple: None,
+            claimed_ticket_attempt: None,
         })
     }
     /// Adds the exact digests atomically consumed by a successful claim.
@@ -169,6 +182,22 @@ impl CredentialOperationMetadata {
     /// Adds the permanent tombstone digest.
     pub fn with_tombstone(mut self, digest: CredentialBindingDigest) -> Self {
         self.tombstone_digest = Some(digest);
+        self
+    }
+    /// Adds the sealed qualified release tuple retained for exact completion replay.
+    pub(crate) fn with_qualified_release_tuple(
+        mut self,
+        qualified_release_tuple: CredentialQualifiedReleaseTuple,
+    ) -> Self {
+        self.qualified_release_tuple = Some(qualified_release_tuple);
+        self
+    }
+    /// Adds the immutable claimed ticket attempt retained for completion replay.
+    pub(crate) fn with_claimed_ticket_attempt(
+        mut self,
+        claimed_ticket_attempt: CredentialTicketAttempt,
+    ) -> Self {
+        self.claimed_ticket_attempt = Some(claimed_ticket_attempt);
         self
     }
     /// Returns the canonical command identity.
@@ -234,6 +263,45 @@ impl CredentialOperationMetadata {
     /// Returns the permanent tombstone digest.
     pub const fn tombstone_digest(&self) -> Option<CredentialBindingDigest> {
         self.tombstone_digest
+    }
+    /// Returns the retained qualified release tuple digest.
+    pub const fn qualified_release_tuple_digest(&self) -> Option<CredentialBindingDigest> {
+        match self.qualified_release_tuple.as_ref() {
+            Some(tuple) => Some(tuple.digest()),
+            None => None,
+        }
+    }
+    /// Returns the claimed one-use ticket attempt when the operation crossed claim.
+    pub const fn claimed_ticket_attempt(&self) -> Option<CredentialTicketAttempt> {
+        self.claimed_ticket_attempt
+    }
+}
+
+impl Clone for CredentialOperationMetadata {
+    fn clone(&self) -> Self {
+        Self {
+            command_id: self.command_id,
+            idempotency_key: self.idempotency_key.clone(),
+            installation_owner_id: self.installation_owner_id,
+            expected_lifecycle_revision: self.expected_lifecycle_revision,
+            expected_prior_fence: self.expected_prior_fence,
+            begin_proof_digest: self.begin_proof_digest,
+            continuation_binding_digest: self.continuation_binding_digest,
+            process_release_binding_digest: self.process_release_binding_digest,
+            native_effect_disposition: self.native_effect_disposition,
+            readback_disposition: self.readback_disposition,
+            readback_observation_digest: self.readback_observation_digest,
+            terminal_disposition: self.terminal_disposition,
+            migration: self.migration.clone(),
+            created_at_high_water: self.created_at_high_water,
+            updated_at_high_water: self.updated_at_high_water,
+            tombstone_digest: self.tombstone_digest,
+            qualified_release_tuple: self
+                .qualified_release_tuple
+                .as_ref()
+                .map(CredentialQualifiedReleaseTuple::duplicate),
+            claimed_ticket_attempt: self.claimed_ticket_attempt,
+        }
     }
 }
 

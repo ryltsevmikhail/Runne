@@ -13,11 +13,10 @@ fn credential_online_ticket_expiry_boundaries_gate_initial_issue() {
         begin_with_operation(141, 141, "expiry-minus-one", 142, 100),
     )
     .unwrap();
-    assert!(ProviderCredentialEnrollmentStore::issue_ticket_attempt(
-        &valid,
-        ticket(141, 1, 143, 144),
-    )
-    .is_ok());
+    assert!(
+        ProviderCredentialEnrollmentStore::issue_ticket_attempt(&valid, ticket(141, 1, 143, 144),)
+            .is_ok()
+    );
     drop(valid);
 
     let equal = open_test_store(&path, 100);

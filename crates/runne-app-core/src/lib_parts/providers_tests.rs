@@ -8,3 +8,20 @@ fn provider_statuses_require_an_authenticated_owner_projection() {
         AppCoreError::RuntimeUnavailable
     ));
 }
+
+#[test]
+fn app_core_has_no_legacy_provider_credential_mutation_ingress() {
+    const SOURCE: &str = include_str!("providers.rs");
+    for prohibited in [
+        "pair_provider_credential",
+        "revoke_provider_credential",
+        "PairProviderCredentialRequest",
+        "RevokeProviderCredentialRequest",
+        "ProviderCredentialMutationAckDto",
+    ] {
+        assert!(
+            !SOURCE.contains(prohibited),
+            "legacy provider credential ingress remains reachable: {prohibited}"
+        );
+    }
+}

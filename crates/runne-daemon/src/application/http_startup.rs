@@ -2,7 +2,9 @@ use super::replay_authorization::DaemonReplayAuthorization;
 use super::shutdown::map_recovery_state;
 use super::*;
 mod command_hosts;
+mod provider_credentials;
 mod session;
+use provider_credentials::runtime_capabilities;
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
@@ -155,7 +157,6 @@ pub(super) async fn start_http_and_runtime(
         provider_service.as_ref(),
         &binding,
     );
-    let provider_credential_control = super::http_startup_support::provider_credential_control();
     let command_hosts = command_hosts::compose(
         &store,
         root_admission_keys,
@@ -184,8 +185,7 @@ pub(super) async fn start_http_and_runtime(
         .with_provider_statuses(super::provider_status::provider_statuses(
             &provider_activation,
             provider_readiness,
-        ))
-        .with_provider_credential_control(Arc::new(provider_credential_control), actor.clone()),
+        )),
         TaskRunHttpState::new(task_run_host, actor.clone()),
         ConversationHttpState::new(conversation_host, actor.clone()),
         runne_http::project_workspace::ProjectWorkspaceHttpState::new(
@@ -280,18 +280,5 @@ pub(super) async fn start_http_and_runtime(
         runtime_capabilities,
     })
 }
-#[cfg(feature = "desktop-protected")]
-fn runtime_capabilities(protected: bool, has_keys: bool) -> &'static [&'static str] {
-    if protected && has_keys {
-        runne_runtime::bundle::PUBLISHED_RUNTIME_CAPABILITIES
-    } else {
-        runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
-    }
-}
-#[cfg(not(feature = "desktop-protected"))]
-fn runtime_capabilities(_: bool, _: bool) -> &'static [&'static str] {
-    runne_runtime::bundle::BASE_RUNTIME_CAPABILITIES
-}
-
 #[cfg(test)]
 mod tests;

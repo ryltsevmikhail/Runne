@@ -129,6 +129,10 @@ fn generated_artifacts() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractGene
             canonical_json(&provider_credentials_schema())?,
         ),
         (
+            "schemas/approval-v1.schema.json",
+            canonical_json(&approval_schema())?,
+        ),
+        (
             "schemas/replay-v1.schema.json",
             canonical_json(&replay_schema())?,
         ),

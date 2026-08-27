@@ -113,7 +113,6 @@ pub enum ErrorCode {
     ApiError,
 
     // Credential errors (exit 4)
-    CredentialInputInvalid,
     CredentialOperationFailed,
     CredentialBackendUnsupported,
 }
@@ -126,9 +125,7 @@ impl ErrorCode {
             Self::InvalidArguments | Self::UnknownCommand => 2,
             Self::ProfileUnavailable | Self::ProfileIncompatible => 3,
             Self::RuntimeUnavailable | Self::ApiError => 1,
-            Self::CredentialInputInvalid
-            | Self::CredentialOperationFailed
-            | Self::CredentialBackendUnsupported => 4,
+            Self::CredentialOperationFailed | Self::CredentialBackendUnsupported => 4,
         }
     }
 }
