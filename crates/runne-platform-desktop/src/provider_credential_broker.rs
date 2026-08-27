@@ -1,6 +1,8 @@
 //! Desktop-owned broker handoff and exact child cleanup.
 
 mod launch;
+#[cfg(unix)]
+mod unix;
 
 use std::fmt;
 
@@ -9,6 +11,8 @@ use runne_platform_ports::provider_credential_broker::{
 };
 
 pub use launch::writer_command;
+#[cfg(unix)]
+pub use unix::{UnixWriterBrokerEndpoints, configure_unix_writer_channels};
 
 /// Non-serializable process evidence accepted only after platform validation.
 pub struct WriterProcessEvidence {
