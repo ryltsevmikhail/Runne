@@ -2,9 +2,11 @@ mod broker;
 mod coordinator;
 mod effect_authority;
 mod operation_handle;
+mod operation_projection;
 mod projection;
 mod readback;
 mod recovery;
+mod resume;
 mod status;
 mod verified_frames;
 

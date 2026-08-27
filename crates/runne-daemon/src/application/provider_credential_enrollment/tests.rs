@@ -127,6 +127,7 @@ mod broker_exchange;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
 pub(super) mod recovery;
+mod resume;
 mod status;
 mod verified_frames;
 #[path = "tests/verified_frames_support.rs"]
