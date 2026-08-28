@@ -64,14 +64,23 @@ fn verification(
     let row: Option<VerificationRow> = connection
         .query_row(
             "SELECT verification_kind, state, result, verifier_revision, observed_at
-             FROM provider_credential_verification_observations
-             WHERE provider_id=?1 AND lifecycle_revision=?2 AND credential_fence=?3
-               AND active_credential_version=?4 AND active_ref_digest=?5
+             FROM provider_credential_verification_observations AS verification
+             WHERE verification.provider_id=?1 AND verification.lifecycle_revision=?2
+               AND verification.credential_fence=?3 AND verification.readiness_revision=?4
+               AND verification.active_credential_version=?5 AND verification.active_ref_digest=?6
+               AND EXISTS(SELECT 1 FROM provider_credential_readiness_observations AS readiness
+                          WHERE readiness.provider_id=verification.provider_id
+                            AND readiness.lifecycle_revision=verification.lifecycle_revision
+                            AND readiness.readiness_revision=verification.readiness_revision
+                            AND readiness.disposition='READY'
+                            AND readiness.active_binding_digest=verification.active_ref_digest
+                            AND readiness.release_tuple_digest=verification.release_tuple_digest)
              ORDER BY started_at DESC, observation_id DESC LIMIT 1",
             (
                 provider.as_str(),
                 head.lifecycle,
                 head.fence,
+                head.readiness,
                 i64::try_from(active.version()).map_err(|_| CredentialLifecycleError::CorruptState)?,
                 active.ref_digest().as_slice(),
             ),

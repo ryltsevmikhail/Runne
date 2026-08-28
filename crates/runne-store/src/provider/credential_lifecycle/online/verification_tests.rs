@@ -1,8 +1,8 @@
 use runne_provider::{
     BeginCredentialVerification, CompleteCredentialVerification, CredentialFence,
-    CredentialLifecycleError, CredentialLifecycleRevision, CredentialVerificationKind,
-    CredentialVerificationObservation, CredentialVerificationResult, CredentialVerifierRevision,
-    CredentialVersionRef, ProviderCredentialEnrollmentStore,
+    CredentialLifecycleError, CredentialLifecycleRevision, CredentialReadinessRevision,
+    CredentialVerificationKind, CredentialVerificationObservation, CredentialVerificationResult,
+    CredentialVerifierRevision, CredentialVersionRef, ProviderCredentialEnrollmentStore,
 };
 
 use super::online_test_support::{complete_pair, digest, operation, provider, store};
@@ -17,6 +17,8 @@ fn credential_online_verification_requires_an_exact_active_ref() {
         CredentialVerificationKind::Local,
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
+        CredentialReadinessRevision::new(1).unwrap(),
+        digest(53),
         digest(52),
         CredentialVerifierRevision::new(1).unwrap(),
         100,
@@ -41,6 +43,8 @@ fn credential_online_verification_persists_exact_active_ref_for_completion() {
         CredentialVerificationKind::Local,
         CredentialLifecycleRevision::new(2).unwrap(),
         CredentialFence::new(2).unwrap(),
+        CredentialReadinessRevision::new(2).unwrap(),
+        digest(92),
         digest(53),
         CredentialVerifierRevision::new(1).unwrap(),
         100,

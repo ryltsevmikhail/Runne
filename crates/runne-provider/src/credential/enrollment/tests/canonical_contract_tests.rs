@@ -128,6 +128,8 @@ fn credential_enrollment_review_canonical_snapshots_and_verification_are_immutab
         CredentialVerificationKind::Local,
         revision,
         fence,
+        CredentialReadinessRevision::new(1).unwrap(),
+        CredentialBindingDigest::from_measured([3; 32]).unwrap(),
         digest,
         CredentialVerifierRevision::new(1).unwrap(),
         1,

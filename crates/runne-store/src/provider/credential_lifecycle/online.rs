@@ -261,6 +261,9 @@ mod online_ticket_expiry_tests;
 #[path = "online/verification_context_tests.rs"]
 mod online_verification_context_tests;
 #[cfg(test)]
+#[path = "online/verification_binding_tests.rs"]
+mod online_verification_binding_tests;
+#[cfg(test)]
 #[path = "online/verification_tests.rs"]
 mod online_verification_tests;
 #[cfg(test)]

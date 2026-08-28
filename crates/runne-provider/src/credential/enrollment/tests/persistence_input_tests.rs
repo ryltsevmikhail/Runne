@@ -152,6 +152,8 @@ fn credential_enrollment_persistence_inputs_are_safe_and_exact() {
         CredentialVerificationKind::Local,
         revision,
         fence,
+        CredentialReadinessRevision::new(1).unwrap(),
+        digest(11),
         digest(10),
         CredentialVerifierRevision::new(1).unwrap(),
         30,

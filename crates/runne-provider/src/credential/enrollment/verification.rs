@@ -2,8 +2,8 @@ use crate::ProviderId;
 
 use super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialLifecycleRevision, CredentialOperationId, CredentialVerificationKind,
-    CredentialVerificationResult, CredentialVerifierRevision,
+    CredentialLifecycleRevision, CredentialOperationId, CredentialReadinessRevision,
+    CredentialVerificationKind, CredentialVerificationResult, CredentialVerifierRevision,
 };
 
 mod context;
@@ -21,6 +21,8 @@ pub struct BeginCredentialVerification {
     kind: CredentialVerificationKind,
     expected_lifecycle_revision: CredentialLifecycleRevision,
     expected_prior_fence: CredentialFence,
+    expected_readiness_revision: CredentialReadinessRevision,
+    expected_release_tuple_digest: CredentialBindingDigest,
     intent_proof_digest: CredentialBindingDigest,
     verifier_revision: CredentialVerifierRevision,
     started_at_high_water: i64,
@@ -37,6 +39,8 @@ impl BeginCredentialVerification {
         kind: CredentialVerificationKind,
         expected_lifecycle_revision: CredentialLifecycleRevision,
         expected_prior_fence: CredentialFence,
+        expected_readiness_revision: CredentialReadinessRevision,
+        expected_release_tuple_digest: CredentialBindingDigest,
         intent_proof_digest: CredentialBindingDigest,
         verifier_revision: CredentialVerifierRevision,
         started_at_high_water: i64,
@@ -52,6 +56,8 @@ impl BeginCredentialVerification {
             kind,
             expected_lifecycle_revision,
             expected_prior_fence,
+            expected_readiness_revision,
+            expected_release_tuple_digest,
             intent_proof_digest,
             verifier_revision,
             started_at_high_water,
@@ -83,6 +89,14 @@ impl BeginCredentialVerification {
     /// Returns the expected provider fence.
     pub const fn expected_prior_fence(&self) -> CredentialFence {
         self.expected_prior_fence
+    }
+    /// Returns the required current readiness revision.
+    pub const fn expected_readiness_revision(&self) -> CredentialReadinessRevision {
+        self.expected_readiness_revision
+    }
+    /// Returns the required current qualified release tuple digest.
+    pub const fn expected_release_tuple_digest(&self) -> CredentialBindingDigest {
+        self.expected_release_tuple_digest
     }
     /// Returns the accepted intent-proof digest.
     pub const fn intent_proof_digest(&self) -> CredentialBindingDigest {

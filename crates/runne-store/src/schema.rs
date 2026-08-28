@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 29;
+pub const CURRENT_SCHEMA_VERSION: i64 = 30;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +108,8 @@ include!("schema/migrations/v28_provider_credential_completion_receipt.rs");
 include!("schema/provider_credential_v28_schema.rs");
 include!("schema/migrations/v29_provider_credential_attachment.rs");
 include!("schema/provider_credential_v29_schema.rs");
+include!("schema/migrations/v30_provider_credential_verification_binding.rs");
+include!("schema/provider_credential_v30_schema.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 pub(crate) mod provider_schema;
@@ -159,5 +161,6 @@ mod tests {
     include!("schema/tests/credential_v27.rs");
     include!("schema/tests/credential_v28.rs");
     include!("schema/tests/credential_v29.rs");
+    include!("schema/tests/credential_v30.rs");
     include!("schema/tests/frozen_migrations.rs");
 }

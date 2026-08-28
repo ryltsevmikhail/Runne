@@ -1,12 +1,12 @@
 #[test]
-fn v29_is_the_current_schema_version() {
-    assert_eq!(CURRENT_SCHEMA_VERSION, 29);
+fn v29_remains_a_released_schema_boundary() {
+    assert_eq!(CURRENT_SCHEMA_VERSION, 30);
 }
 
 #[test]
 fn v29_catalog_preserves_the_append_only_attachment_boundary() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 29).unwrap();
 
     assert!(v29_predecessor_matches(&connection).unwrap());
     assert!(v29_catalog_matches(&connection).unwrap());
@@ -36,7 +36,7 @@ fn v29_catalog_preserves_the_append_only_attachment_boundary() {
 }
 
 #[test]
-fn production_store_open_creates_and_reopens_v29() {
+fn production_store_open_creates_and_reopens_v30() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("created-v29.sqlite");
 
@@ -44,5 +44,5 @@ fn production_store_open_creates_and_reopens_v29() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
 
     let connection = Connection::open(path).unwrap();
-    assert!(v29_matches(&connection, 29).unwrap());
+    assert!(v30_matches(&connection, 30).unwrap());
 }

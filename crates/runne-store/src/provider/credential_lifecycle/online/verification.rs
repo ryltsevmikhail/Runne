@@ -6,6 +6,8 @@ use runne_provider::{
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
+type LeasedVerificationRow = (String, i64, i64, i64, Vec<u8>, i64, Vec<u8>, i64);
+
 pub(super) fn begin(
     store: &SqliteProviderCredentialLifecycleStore,
     input: BeginCredentialVerification,
@@ -18,10 +20,21 @@ pub(super) fn begin(
     if head.hard_fenced
         || head.lifecycle != input.expected_lifecycle_revision().get() as i64
         || head.fence != input.expected_prior_fence().get() as i64
+        || head.readiness != input.expected_readiness_revision().get() as i64
     {
         return Err(CredentialLifecycleError::Conflict);
     }
     let active = head.active.ok_or(CredentialLifecycleError::Conflict)?;
+    if !current_ready_binding(
+        &transaction,
+        input.provider(),
+        head.lifecycle,
+        head.readiness,
+        &active,
+        &input.expected_release_tuple_digest().as_bytes(),
+    )? {
+        return Err(CredentialLifecycleError::Conflict);
+    }
     if let Some(operation) = input.operation_id() {
         let count: i64 = transaction.query_row("SELECT COUNT(*) FROM provider_credential_operations WHERE operation_id=?1 AND provider_id=?2 AND state NOT IN ('TOMBSTONED', 'CANCELLED', 'EXPIRED')", params![operation.as_bytes().as_slice(), input.provider().as_str()], |row| row.get(0)).map_err(map_sql)?;
         if count != 1 {
@@ -33,7 +46,7 @@ pub(super) fn begin(
         return Err(CredentialLifecycleError::Conflict);
     }
     transaction.execute("UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1", params![input.started_at_high_water(), input.provider().as_str()]).map_err(map_sql)?;
-    transaction.execute("INSERT INTO provider_credential_verification_observations (observation_id, provider_id, verification_kind, lifecycle_revision, credential_fence, active_credential_version, active_ref_digest, state, intent_proof_digest, proof_consumed, verifier_revision, started_at, expires_at_high_water, operation_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'LEASED', ?8, 1, ?9, ?10, ?11, ?12)", params![input.observation_id().as_bytes().as_slice(), input.provider().as_str(), kind(input.kind()), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get(), active.version(), active.ref_digest().as_slice(), input.intent_proof_digest().as_bytes().as_slice(), input.verifier_revision().get(), input.started_at_high_water(), input.expires_at_high_water(), input.operation_id().map(|id| id.as_bytes().to_vec())]).map_err(map_sql)?;
+    transaction.execute("INSERT INTO provider_credential_verification_observations (observation_id, provider_id, verification_kind, lifecycle_revision, credential_fence, readiness_revision, release_tuple_digest, active_credential_version, active_ref_digest, state, intent_proof_digest, proof_consumed, verifier_revision, started_at, expires_at_high_water, operation_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'LEASED', ?10, 1, ?11, ?12, ?13, ?14)", params![input.observation_id().as_bytes().as_slice(), input.provider().as_str(), kind(input.kind()), input.expected_lifecycle_revision().get(), input.expected_prior_fence().get(), input.expected_readiness_revision().get(), input.expected_release_tuple_digest().as_bytes().as_slice(), active.version(), active.ref_digest().as_slice(), input.intent_proof_digest().as_bytes().as_slice(), input.verifier_revision().get(), input.started_at_high_water(), input.expires_at_high_water(), input.operation_id().map(|id| id.as_bytes().to_vec())]).map_err(map_sql)?;
     transaction.commit().map_err(map_sql)?;
     Ok(store
         .enrollment_authority
@@ -48,8 +61,8 @@ pub(super) fn complete(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(map_sql)?;
-    let row: Option<(String, i64, i64, i64, Vec<u8>, i64)> = transaction.query_row("SELECT provider_id, lifecycle_revision, credential_fence, active_credential_version, active_ref_digest, expires_at_high_water FROM provider_credential_verification_observations WHERE observation_id=?1 AND state='LEASED'", [input.observation_id().as_bytes().as_slice()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))).optional().map_err(map_sql)?;
-    let (provider, lifecycle, fence, active_version, active_digest, expires) =
+    let row: Option<LeasedVerificationRow> = transaction.query_row("SELECT provider_id, lifecycle_revision, credential_fence, readiness_revision, release_tuple_digest, active_credential_version, active_ref_digest, expires_at_high_water FROM provider_credential_verification_observations WHERE observation_id=?1 AND state='LEASED'", [input.observation_id().as_bytes().as_slice()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?))).optional().map_err(map_sql)?;
+    let (provider, lifecycle, fence, readiness_revision, release_tuple, active_version, active_digest, expires) =
         row.ok_or(CredentialLifecycleError::Conflict)?;
     if lifecycle != input.expected_lifecycle_revision().get() as i64
         || fence != input.expected_prior_fence().get() as i64
@@ -70,8 +83,19 @@ pub(super) fn complete(
     if head.hard_fenced
         || head.lifecycle != lifecycle
         || head.fence != fence
+        || head.readiness != readiness_revision
         || head.active.as_ref() != Some(&active)
     {
+        return Err(CredentialLifecycleError::Conflict);
+    }
+    if !current_ready_binding(
+        &transaction,
+        &provider,
+        lifecycle,
+        readiness_revision,
+        &active,
+        &release_tuple,
+    )? {
         return Err(CredentialLifecycleError::Conflict);
     }
     transaction.execute("UPDATE provider_credential_authority_heads SET observed_at_high_water=?1 WHERE provider_id=?2 AND observed_at_high_water<=?1", params![input.observation().observed_at_high_water(), provider.as_str()]).map_err(map_sql)?;
@@ -81,6 +105,31 @@ pub(super) fn complete(
     }
     transaction.commit().map_err(map_sql)?;
     Ok(input.observation().clone())
+}
+
+fn current_ready_binding(
+    transaction: &rusqlite::Transaction<'_>,
+    provider: &runne_provider::ProviderId,
+    lifecycle_revision: i64,
+    readiness_revision: i64,
+    active: &runne_provider::CredentialVersionRef,
+    release_tuple_digest: &[u8],
+) -> Result<bool, CredentialLifecycleError> {
+    let readiness: Option<(String, Vec<u8>, Vec<u8>)> = transaction
+        .query_row(
+            "SELECT disposition, active_binding_digest, release_tuple_digest
+             FROM provider_credential_readiness_observations
+             WHERE provider_id=?1 AND lifecycle_revision=?2 AND readiness_revision=?3",
+            params![provider.as_str(), lifecycle_revision, readiness_revision],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(map_sql)?;
+    Ok(readiness.is_some_and(|(disposition, binding, release)| {
+        disposition == "READY"
+            && binding == active.ref_digest().as_slice()
+            && release == release_tuple_digest
+    }))
 }
 fn kind(value: runne_provider::CredentialVerificationKind) -> &'static str {
     match value {

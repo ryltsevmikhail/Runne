@@ -1,7 +1,8 @@
 use super::super::{
     BeginCredentialVerification, CredentialBindingDigest, CredentialEnrollmentAuthorityPair,
     CredentialEnrollmentError, CredentialFence, CredentialLifecycleRevision, CredentialOperationId,
-    CredentialVerificationKind, CredentialVerifierRevision, WriterIdentityMigrationPhase,
+    CredentialReadinessRevision, CredentialVerificationKind, CredentialVerifierRevision,
+    WriterIdentityMigrationPhase,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
@@ -142,6 +143,8 @@ fn begin(value: u8) -> BeginCredentialVerification {
         CredentialVerificationKind::Local,
         CredentialLifecycleRevision::new(1).unwrap(),
         CredentialFence::new(1).unwrap(),
+        CredentialReadinessRevision::new(1).unwrap(),
+        digest(value + 21),
         digest(value + 20),
         CredentialVerifierRevision::new(1).unwrap(),
         1,

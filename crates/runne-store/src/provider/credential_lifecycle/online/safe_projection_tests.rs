@@ -1,8 +1,8 @@
 use runne_provider::{
     BeginCredentialVerification, CompleteCredentialVerification, CredentialFence,
-    CredentialLifecycleRevision, CredentialReadinessDisposition, CredentialVerificationKind,
-    CredentialVerificationObservation, CredentialVerificationResult, CredentialVerifierRevision,
-    ProviderCredentialEnrollmentStore,
+    CredentialLifecycleRevision, CredentialReadinessDisposition, CredentialReadinessRevision,
+    CredentialVerificationKind, CredentialVerificationObservation, CredentialVerificationResult,
+    CredentialVerifierRevision, ProviderCredentialEnrollmentStore,
 };
 
 use super::online_test_support::{complete_pair, digest, operation, provider, store};
@@ -39,6 +39,8 @@ fn safe_projection_uses_only_a_current_verification_observation() {
             CredentialVerificationKind::Local,
             CredentialLifecycleRevision::new(2).unwrap(),
             CredentialFence::new(2).unwrap(),
+            CredentialReadinessRevision::new(2).unwrap(),
+            digest(92),
             digest(76),
             CredentialVerifierRevision::new(4).unwrap(),
             100,
