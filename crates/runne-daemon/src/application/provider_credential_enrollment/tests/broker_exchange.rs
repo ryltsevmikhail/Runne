@@ -5,17 +5,19 @@ use runne_provider::{
 };
 use zeroize::Zeroizing;
 
-use super::broker_support::{RecordingChannel, claim_measurements, fixture};
+use super::broker_support::{RecordingChannel, claim_measurements, fixture, issue_context};
 
 #[test]
 fn broker_claim_exchange_reads_one_claim_and_writes_only_accepted_frame() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let receipt = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,
@@ -80,12 +82,14 @@ fn broker_claim_exchange_reads_one_claim_and_writes_only_accepted_frame() {
 #[test]
 fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let receipt = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,
@@ -161,12 +165,14 @@ fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
 #[test]
 fn broker_effect_exchange_rejects_a_substituted_binding_without_state_transition() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let receipt = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,
@@ -240,12 +246,14 @@ fn broker_effect_exchange_rejects_a_substituted_binding_without_state_transition
 #[test]
 fn broker_issue_frame_carries_the_exact_durable_command_for_its_ticket_attempt() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let receipt = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,

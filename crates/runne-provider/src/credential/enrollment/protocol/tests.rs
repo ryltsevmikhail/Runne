@@ -16,6 +16,7 @@ fn credential_enrollment_codec_round_trips_only_known_versioned_frames() {
         operation_id,
         attempt,
         ticket,
+        binding: binding(),
         command: command(operation_id, attempt),
     };
     let bytes = CredentialBrokerFrameCodec::encode(frame).unwrap();
@@ -29,6 +30,7 @@ fn credential_enrollment_codec_reads_one_exact_frame_from_a_control_stream() {
         operation_id: CredentialOperationId::from_bytes([6; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(3).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        binding: binding(),
         command: command(
             CredentialOperationId::from_bytes([6; 16]).unwrap(),
             CredentialTicketAttempt::new(3).unwrap(),
@@ -50,6 +52,7 @@ fn credential_enrollment_codec_writes_one_canonical_frame_to_a_control_stream() 
         operation_id: CredentialOperationId::from_bytes([7; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(4).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        binding: binding(),
         command: command(
             CredentialOperationId::from_bytes([7; 16]).unwrap(),
             CredentialTicketAttempt::new(4).unwrap(),
@@ -70,6 +73,7 @@ fn credential_enrollment_codec_rejects_a_truncated_control_stream_frame() {
         operation_id: CredentialOperationId::from_bytes([8; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(5).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        binding: binding(),
         command: command(
             CredentialOperationId::from_bytes([8; 16]).unwrap(),
             CredentialTicketAttempt::new(5).unwrap(),
@@ -83,8 +87,9 @@ fn credential_enrollment_codec_rejects_a_truncated_control_stream_frame() {
 
 #[test]
 fn credential_enrollment_codec_rejects_unknown_version_kind_and_oversized_frames() {
+    assert_eq!(CredentialBrokerFrameCodec::VERSION, 2);
     for frame in [
-        vec![2, 1],
+        vec![1, 1],
         vec![CredentialBrokerFrameCodec::VERSION, 0xff],
         vec![0; CredentialBrokerFrameCodec::MAX_FRAME_BYTES + 1],
     ] {
@@ -98,6 +103,7 @@ fn credential_enrollment_codec_rejects_short_and_long_raw_tickets() {
         operation_id: CredentialOperationId::from_bytes([2; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(1).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        binding: binding(),
         command: command(
             CredentialOperationId::from_bytes([2; 16]).unwrap(),
             CredentialTicketAttempt::new(1).unwrap(),
@@ -129,6 +135,10 @@ fn command(
     .unwrap()
 }
 
+fn binding() -> CredentialBindingDigest {
+    CredentialBindingDigest::from_measured([42; 32]).unwrap()
+}
+
 #[test]
 fn credential_enrollment_codec_rejects_an_issue_command_for_another_ticket_attempt() {
     let operation_id = CredentialOperationId::from_bytes([9; 16]).unwrap();
@@ -136,6 +146,7 @@ fn credential_enrollment_codec_rejects_an_issue_command_for_another_ticket_attem
         operation_id,
         attempt: CredentialTicketAttempt::new(1).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        binding: binding(),
         command: command(operation_id, CredentialTicketAttempt::new(2).unwrap()),
     };
 

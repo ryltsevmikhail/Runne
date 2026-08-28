@@ -14,6 +14,7 @@ use runne_provider::{
 };
 use zeroize::Zeroizing;
 
+use super::super::broker::issue::ClaimIssueContext;
 use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 
 pub(crate) struct Fixture {
@@ -82,9 +83,40 @@ pub(crate) fn fixture() -> Fixture {
     }
 }
 
+pub(crate) fn issue_context(fixture: &Fixture) -> ClaimIssueContext {
+    issue_context_for(fixture, fixture.continuation)
+}
+
+pub(crate) fn issue_context_for(
+    fixture: &Fixture,
+    continuation: runne_provider::CredentialBindingDigest,
+) -> ClaimIssueContext {
+    fixture
+        .broker
+        .claim_issue_context(
+            claim_measurements_for(&fixture.measurements, continuation, 8),
+            continuation,
+            7,
+            8,
+        )
+        .unwrap()
+}
+
 pub(crate) fn claim_measurements(
     authority: &runne_provider::CredentialEnrollmentMeasurementAuthority,
     claim: &ClaimCredentialOperation,
+) -> CredentialMeasurementSnapshot {
+    claim_measurements_for(
+        authority,
+        claim.continuation_binding_digest(),
+        claim.desktop_supervisor_generation(),
+    )
+}
+
+pub(crate) fn claim_measurements_for(
+    authority: &runne_provider::CredentialEnrollmentMeasurementAuthority,
+    continuation: runne_provider::CredentialBindingDigest,
+    desktop_supervisor_generation: u64,
 ) -> CredentialMeasurementSnapshot {
     CredentialMeasurementSnapshot::new(
         authority.candidate_source_identity([10; 32]).unwrap(),
@@ -96,14 +128,14 @@ pub(crate) fn claim_measurements(
         authority.daemon_authority_id([16; 32]).unwrap(),
         authority.protected_session_id([17; 32]).unwrap(),
         authority
-            .desktop_supervisor_generation(claim.desktop_supervisor_generation())
+            .desktop_supervisor_generation(desktop_supervisor_generation)
             .unwrap(),
         authority.writer_launch_id([18; 32]).unwrap(),
         authority.writer_process_start_identity([19; 32]).unwrap(),
         authority.writer_process_handle_identity([20; 32]).unwrap(),
         authority.broker_channel_binding([21; 32]).unwrap(),
         authority
-            .continuation_binding_digest(claim.continuation_binding_digest().as_bytes())
+            .continuation_binding_digest(continuation.as_bytes())
             .unwrap(),
     )
     .unwrap()

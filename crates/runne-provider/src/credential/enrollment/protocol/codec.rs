@@ -13,7 +13,7 @@ pub struct CredentialBrokerFrameCodec;
 
 impl CredentialBrokerFrameCodec {
     /// The only supported broker codec version.
-    pub const VERSION: u8 = 1;
+    pub const VERSION: u8 = 2;
     /// Upper bound including version, kind, and all payload fields.
     pub const MAX_FRAME_BYTES: usize = 4 * 1024;
 
@@ -25,6 +25,7 @@ impl CredentialBrokerFrameCodec {
                 operation_id,
                 attempt,
                 ticket,
+                binding,
                 command,
             } => {
                 if command.operation_id() != operation_id || command.ticket_attempt() != attempt {
@@ -34,6 +35,7 @@ impl CredentialBrokerFrameCodec {
                 id(&mut bytes, operation_id);
                 encode_attempt(&mut bytes, attempt);
                 bytes.extend_from_slice(ticket.bytes());
+                digest(&mut bytes, binding);
                 encode_command(&mut bytes, command)?;
             }
             CredentialBrokerFrame::Claim {
@@ -92,6 +94,7 @@ impl CredentialBrokerFrameCodec {
                 operation_id: read_id(bytes, &mut cursor)?,
                 attempt: read_attempt(bytes, &mut cursor)?,
                 ticket: read_ticket(bytes, &mut cursor)?,
+                binding: read_digest(bytes, &mut cursor)?,
                 command: read_command(bytes, &mut cursor)?,
             },
             2 => CredentialBrokerFrame::Claim {
@@ -185,7 +188,7 @@ fn exact_frame_length(prefix: [u8; 2]) -> Result<usize, CredentialEnrollmentErro
         return Err(CredentialEnrollmentError::InvalidFrame);
     }
     match prefix[1] {
-        1 => Ok(2 + 16 + 8 + 32 + 2),
+        1 => Ok(2 + 16 + 8 + 32 + 32 + 2),
         2 => Ok(2 + 16 + 8 + 32 + 32),
         3 => Ok(2 + 16 + 8),
         4 => Ok(2 + 16 + 8 + 1),

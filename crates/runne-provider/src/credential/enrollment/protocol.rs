@@ -35,6 +35,8 @@ pub enum CredentialBrokerFrame {
         attempt: CredentialTicketAttempt,
         /// Opaque raw ticket.
         ticket: RawCredentialTicket,
+        /// Precomputed complete claim binding for this exact ticket attempt.
+        binding: CredentialBindingDigest,
         /// Canonical non-secret native effect command for this exact attempt.
         command: CredentialBrokerCommand,
     },

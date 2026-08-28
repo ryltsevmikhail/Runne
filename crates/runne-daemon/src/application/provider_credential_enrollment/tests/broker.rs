@@ -7,17 +7,21 @@ use runne_provider::{
 };
 use zeroize::Zeroizing;
 
-use super::broker_support::{RecordingChannel, claim_measurements, fixture};
+use super::broker_support::{
+    RecordingChannel, claim_measurements, fixture, issue_context, issue_context_for,
+};
 
 #[test]
 fn ticket_nonce_is_exactly_256_bits_and_rng_failure_is_closed() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let fills = Cell::new(0);
 
     let failure = fixture.broker.issue_ticket_with_test_entropy(
         fixture.operation.clone(),
         fixture.continuation,
+        &context,
         60,
         &fixture.store,
         &mut channel,
@@ -40,6 +44,7 @@ fn ticket_nonce_is_exactly_256_bits_and_rng_failure_is_closed() {
         .issue_ticket(
             fixture.operation,
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,
@@ -61,12 +66,14 @@ fn ticket_nonce_is_exactly_256_bits_and_rng_failure_is_closed() {
 #[test]
 fn broker_claim_binding_admits_only_the_exact_issued_ticket() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let receipt = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,
@@ -135,12 +142,14 @@ fn broker_claim_binding_admits_only_the_exact_issued_ticket() {
 #[test]
 fn broker_claim_binding_rejects_command_substitution_before_store_claim() {
     let fixture = fixture();
+    let context = issue_context(&fixture);
     let mut channel = RecordingChannel::default();
     let receipt = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &context,
             60,
             &fixture.store,
             &mut channel,
@@ -204,11 +213,14 @@ fn broker_reissue_tombstones_the_old_ticket_before_a_new_attempt() {
     let mut channel = RecordingChannel::default();
     let reissue_continuation =
         runne_provider::CredentialBindingDigest::from_measured([6; 32]).unwrap();
+    let first_context = issue_context_for(&fixture, reissue_continuation);
+    let second_context = issue_context(&fixture);
     let first = fixture
         .broker
         .issue_ticket(
             fixture.operation.clone(),
             reissue_continuation,
+            &first_context,
             60,
             &fixture.store,
             &mut channel,
@@ -225,6 +237,7 @@ fn broker_reissue_tombstones_the_old_ticket_before_a_new_attempt() {
         .issue_ticket(
             fixture.operation.clone(),
             fixture.continuation,
+            &second_context,
             60,
             &fixture.store,
             &mut channel,

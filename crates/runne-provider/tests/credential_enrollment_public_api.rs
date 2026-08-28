@@ -89,6 +89,7 @@ fn credential_enrollment_public_authorities_bind_commands_and_measurements_to_on
         operation_id,
         attempt,
         ticket,
+        binding: CredentialBindingDigest::from_measured([12; 32]).unwrap(),
         command: CredentialBrokerCommand::new(
             operation_id,
             attempt,

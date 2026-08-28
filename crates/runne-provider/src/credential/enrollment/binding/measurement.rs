@@ -233,6 +233,11 @@ impl CredentialMeasurementSnapshot {
         self.desktop_supervisor_generation.generation()
     }
 
+    /// Returns the immutable continuation digest bound to this measurement snapshot.
+    pub const fn continuation_binding_digest(&self) -> CredentialBindingDigest {
+        self.continuation_binding_digest.digest()
+    }
+
     pub(crate) fn belongs_to(&self, seal: &Arc<EnrollmentAuthoritySeal>) -> bool {
         self.candidate_source_identity.belongs_to(seal)
     }

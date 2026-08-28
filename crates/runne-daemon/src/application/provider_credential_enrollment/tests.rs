@@ -125,6 +125,7 @@ mod begin_admission;
 pub(crate) mod begin_admission_support;
 mod broker;
 mod broker_exchange;
+mod broker_issue;
 #[path = "tests/broker_support.rs"]
 mod broker_support;
 mod host;

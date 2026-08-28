@@ -16,8 +16,8 @@ pub(crate) mod claim;
 mod legacy_import;
 mod migration_metadata;
 mod ticket;
+mod validation;
 pub mod writer;
-
 pub use legacy_import::CredentialLegacyImportAuthorization;
 #[derive(Debug)]
 pub(crate) struct EnrollmentAuthoritySeal;
