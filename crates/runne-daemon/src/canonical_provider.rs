@@ -27,9 +27,8 @@ use runne_runtime::provider_redaction::{
     ProhibitedContentCredentialMatcher, ProviderEventRedactionBoundary,
 };
 use runne_secure_store::{
-    NativeWithheldTailStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialReadback, ProviderCredentialStatus, ProviderJournalKeyStatus,
-    ProviderJournalKeyring,
+    NativeWithheldTailStore, ProviderCredentialAccessPolicy, ProviderCredentialReadback,
+    ProviderCredentialStatus, ProviderJournalKeyStatus, ProviderJournalKeyring,
 };
 use runne_store::provider::{
     ProviderCoordinatorOutcome, ProviderEffectPort, ProviderRuntimeAuthorityConfig,

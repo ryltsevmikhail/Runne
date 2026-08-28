@@ -3,14 +3,18 @@ use super::readiness::{
 };
 use super::*;
 use crate::application::provider_credential_enrollment::CredentialEnrollmentRecoveryGateway;
-use crate::application::workspace_internal::{
-    ProtectedProviderDependencyCapsule, ProviderDependencyState,
-};
+#[cfg(test)]
+use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
+use crate::application::workspace_internal::ProviderDependencyState;
 use runne_observability::operational::RecoveryObservationRegistry;
+#[cfg(test)]
+use runne_secure_store::ProviderCredentialId;
 mod credential_reader;
 #[cfg(all(feature = "test-support", not(test)))]
 mod fixture_credentials;
+mod input;
 
+pub(crate) use input::DaemonCanonicalProviderComposition;
 pub(super) const PROVIDER_POLICY_V1_TOKEN_BUDGET: u64 = 1_000_000;
 pub(super) const PROVIDER_POLICY_V1_COST_BUDGET_MICROS: u64 = 10_000_000;
 pub(super) const PROVIDER_POLICY_V1_EFFECT_TTL_SECONDS: u64 = 120;
@@ -39,28 +43,6 @@ pub struct DaemonCanonicalProviderService {
     pub(super) fencing_token: u64,
     pub(super) launch_capability: ProviderRuntimeLaunchCapability,
     pub(super) recovery_registry: Arc<RecoveryObservationRegistry>,
-}
-
-pub(crate) struct DaemonCanonicalProviderComposition {
-    pub(crate) db_path: String,
-    pub(crate) dispatch_connection: runne_store::schema::ManagedConnection,
-    pub(crate) execution_connection: runne_store::schema::ManagedConnection,
-    pub(crate) credential_connection: runne_store::schema::ManagedConnection,
-    pub(crate) runtime_authority_id: [u8; 16],
-    pub(crate) runtime_generation: u64,
-    pub(crate) activation_provenance: DaemonActivationProvenance,
-    pub(crate) expected_profile_digest: [u8; 32],
-    pub(crate) conversation_store: StoreTransaction,
-    pub(crate) conversation_service: Arc<dyn ConversationTextCommandService>,
-    pub(crate) prohibited_content: Arc<dyn ProhibitedContentPort>,
-    pub(crate) profile: Arc<SharedTextProviderProfile>,
-    pub(crate) adapter_factory: Arc<ProviderEffectFactory>,
-    pub(crate) provider_id: &'static str,
-    pub(crate) model_id: &'static str,
-    pub(crate) model_revision: &'static str,
-    pub(crate) scope: &'static str,
-    pub(crate) credential_id: ProviderCredentialId,
-    pub(crate) dependencies: ProtectedProviderDependencyCapsule,
 }
 
 impl DaemonCanonicalProviderService {
