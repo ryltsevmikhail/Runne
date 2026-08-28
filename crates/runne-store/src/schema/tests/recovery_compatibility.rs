@@ -1,9 +1,3 @@
-// Task 6 status ledger:
-// 8 covered: released V8 migration/open is tested below.
-// 10 partial: local current preflight is covered externally; the historical
-// old-binary portion is blocked because no historical-binary harness exists.
-// 11 blocked: rollback with an authority switch is not implemented or qualified.
-
 #[test]
 fn v20_rejects_released_v8_fixture_without_a_valid_complete_replay_history() {
     let temporary = tempfile::tempdir().unwrap();
