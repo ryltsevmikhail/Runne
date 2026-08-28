@@ -46,10 +46,16 @@ fn retention_baseline_resume_v2_is_published_after_v1() {
 }
 
 #[test]
-fn published_capabilities_equal_catalog_exact_order() {
-    // Both sets are pinned to the same committed bundle.json: exact order and
-    // content must stay identical.
-    assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, RUNTIME_CAPABILITY_CATALOG);
+fn published_capabilities_are_an_ordered_catalog_prefix() {
+    assert_eq!(
+        RUNTIME_CAPABILITY_CATALOG.get(..PUBLISHED_RUNTIME_CAPABILITIES.len()),
+        Some(PUBLISHED_RUNTIME_CAPABILITIES),
+    );
+    assert!(!PUBLISHED_RUNTIME_CAPABILITIES.contains(&"provider.credential-enrollment.v2"));
+    assert_eq!(
+        RUNTIME_CAPABILITY_CATALOG.last(),
+        Some(&"provider.credential-enrollment.v2")
+    );
 }
 
 #[test]

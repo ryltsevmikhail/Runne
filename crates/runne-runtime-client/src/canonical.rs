@@ -19,6 +19,8 @@ include!("canonical/processes.rs");
 include!("canonical/editor.rs");
 include!("canonical/approvals.rs");
 include!("canonical/provider_credentials.rs");
+include!("canonical/provider_credential_enrollment.rs");
+include!("canonical/enrollment_wire.rs");
 
 mod project_workspace;
 pub use project_workspace::*;

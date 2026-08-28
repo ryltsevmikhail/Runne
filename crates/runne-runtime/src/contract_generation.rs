@@ -40,6 +40,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "golden/local-session-v2.json",
     "golden/operational-telemetry.json",
     "golden/project-workspace.json",
+    "golden/provider-credential-enrollment-v2.json",
     "golden/replay-conversation.json",
     "golden/replay-resume-v2.json",
     "golden/replay-retention-gap-v2.json",
@@ -54,6 +55,7 @@ pub const GENERATED_ARTIFACT_PATHS: &[&str] = &[
     "schemas/local-session-v2.schema.json",
     "schemas/operational-telemetry-v1.schema.json",
     "schemas/project-workspace-v2.schema.json",
+    "schemas/provider-credential-enrollment-v2.schema.json",
     "schemas/provider-credentials-v1.schema.json",
     "schemas/replay-v1.schema.json",
     "schemas/sse-v1.schema.json",
@@ -99,5 +101,6 @@ include!("contract_generation/workspace_editor_openapi.rs");
 include!("contract_generation/workspace_diffs_schema.rs");
 include!("contract_generation/workspace_diffs_openapi.rs");
 include!("contract_generation/provider_credentials.rs");
+include!("contract_generation/provider_credential_enrollment.rs");
 include!("contract_generation/openapi.rs");
 include!("contract_generation/replay_retention_goldens.rs");

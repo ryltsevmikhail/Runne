@@ -16,7 +16,7 @@ pub const GENERATOR_SCHEMA_VERSION: u32 = 1;
 ///
 /// Updated only by the authoritative contract generator.
 pub const PUBLISHED_BUNDLE_HASH: &str =
-    "fd83580faa27046b6355996c9b3ba56689f096591b4a03c51fb6f3c6ce5ff220";
+    "c211e57be1d5401aba6597aedc776300b8468123343cd3aece0460a894482aa0";
 
 /// Exact additive command/query and Aggregate replay surface mounted by the
 /// current local daemon.
@@ -112,6 +112,7 @@ pub const RUNTIME_CAPABILITY_CATALOG: &[&str] = &[
     "workspace.files.read.v1",
     "workspace.changes.read.v1",
     "workspace.editor.open.v1",
+    "provider.credential-enrollment.v2",
 ];
 
 #[cfg(test)]
@@ -119,7 +120,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replay_capabilities_are_published_in_catalog_order() {
+    fn unqualified_profile_omits_enrollment_while_catalog_supports_it() {
         let expected = [
             "conversation.create.v1",
             "conversation.generate_text.v1",
@@ -152,7 +153,11 @@ mod tests {
             "workspace.editor.open.v1",
         ];
         assert_eq!(PUBLISHED_RUNTIME_CAPABILITIES, expected);
-        assert_eq!(RUNTIME_CAPABILITY_CATALOG, expected);
+        assert!(!PUBLISHED_RUNTIME_CAPABILITIES.contains(&"provider.credential-enrollment.v2"));
+        assert_eq!(
+            RUNTIME_CAPABILITY_CATALOG,
+            [&expected[..], &["provider.credential-enrollment.v2"]].concat()
+        );
     }
 
     #[test]

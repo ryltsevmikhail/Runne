@@ -31,7 +31,8 @@ pub use canonical::{
     WORKSPACE_FILES_CAPABILITY_V1, WorkspaceChangeEntryDto, WorkspaceChangeKindDto,
     WorkspaceChangeSetDto, WorkspaceDiffDto, WorkspaceDiffHunkDto, WorkspaceDiffLineDto,
     WorkspaceDiffLineKindDto, WorkspaceFileContentDto, WorkspaceFileEntryDto, WorkspaceFileKindDto,
-    WorkspaceFilePageDto, protected_profile_matches,
+    WorkspaceFilePageDto, ENROLLMENT_QUALIFIED_RUNTIME_CAPABILITIES,
+    PROVIDER_CREDENTIAL_ENROLLMENT_CAPABILITY_V2, protected_profile_matches,
 };
 pub use canonical::{
     BindWorkspaceRootRequest, CreateProjectRequest, CreateWorkspaceRequest, ExistingProjectRequest,
@@ -44,6 +45,13 @@ pub use canonical::{ConversationGenerationFailureReason, ConversationTextRejecti
 pub use canonical::{
     PairProviderCredentialRequest, ProviderCredentialMutationAckDto,
     RevokeProviderCredentialRequest,
+};
+pub use runne_api::{
+    BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
+    ProviderCredentialOperationHandleV2, ProviderCredentialOperationKindV2,
+    ProviderCredentialOperationSnapshotV2, ProviderCredentialProviderV2,
+    ProviderCredentialSafeSnapshotV2, ProviderCredentialVerificationKindV2,
+    VerifyProviderCredential,
 };
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,

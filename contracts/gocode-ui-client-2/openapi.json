@@ -3869,6 +3869,374 @@
           }
         ]
       }
+    },
+    "/v2/provider-credential-enrollment": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/beginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/operationResponse"
+                }
+              }
+            },
+            "description": "Enrollment operation accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v2/provider-credential-enrollment/resume": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/resumeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/operationResponse"
+                }
+              }
+            },
+            "description": "Enrollment operation resumed"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v2/provider-credential-enrollment/verify": {
+      "post": {
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/verifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/operationResponse"
+                }
+              }
+            },
+            "description": "Credential verification accepted"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
+    },
+    "/v2/providers/{provider}/credential-enrollment": {
+      "get": {
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "openai",
+                "deepseek"
+              ],
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/statusResponse"
+                }
+              }
+            },
+            "description": "Current provider credential projection"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "schemas/provider-credential-enrollment-v2.schema.json#/$defs/error"
+                }
+              }
+            },
+            "description": "Canonical redacted error"
+          }
+        },
+        "security": [
+          {
+            "sessionAuth": []
+          }
+        ]
+      }
     }
   }
 }

@@ -151,6 +151,7 @@ fn openapi() -> Value {
     workspace_editor_openapi(&mut document);
     workspace_diffs_openapi(&mut document);
     provider_credentials_openapi(&mut document);
+    provider_credential_enrollment_openapi(&mut document);
     document
 }
 

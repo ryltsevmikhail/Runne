@@ -125,7 +125,9 @@ fn bundle_digest_is_content_only_and_check_never_rewrites() {
         "workspace.editor.open.v1",
     ]);
     assert_eq!(bundle["publishedCapabilities"], expected_capabilities);
-    assert_eq!(bundle["capabilityCatalog"], expected_capabilities);
+    let mut expected_catalog = expected_capabilities.as_array().unwrap().clone();
+    expected_catalog.push(serde_json::json!("provider.credential-enrollment.v2"));
+    assert_eq!(bundle["capabilityCatalog"], serde_json::Value::Array(expected_catalog));
     assert!(
         !bundle
             .as_object()
