@@ -103,4 +103,5 @@ include!("contract_generation/workspace_diffs_openapi.rs");
 include!("contract_generation/provider_credentials.rs");
 include!("contract_generation/provider_credential_enrollment.rs");
 include!("contract_generation/openapi.rs");
+include!("contract_generation/local_session_golden.rs");
 include!("contract_generation/replay_retention_goldens.rs");
