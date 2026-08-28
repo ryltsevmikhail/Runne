@@ -97,8 +97,10 @@ mod tests {
         VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
     };
     use runne_provider::{
-        CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialOperationId,
-        CredentialTicketAttempt, RawCredentialTicket,
+        CredentialBrokerCommand, CredentialBrokerFrame, CredentialBrokerFrameCodec,
+        CredentialBrokerTarget, CredentialFence, CredentialLifecycleRevision,
+        CredentialOperationAction, CredentialOperationId, CredentialTicketAttempt,
+        CredentialVersionRef, ProviderId, RawCredentialTicket,
     };
 
     use super::UnixCredentialBrokerChannel;
@@ -107,9 +109,13 @@ mod tests {
     fn authenticated_handoff_channel_exchanges_one_exact_broker_frame() {
         let directory = tempfile::tempdir().unwrap();
         let executable = directory.path().join("writer-fixture");
+        let expected = CredentialBrokerFrameCodec::encode(issue_ticket()).unwrap();
         std::fs::write(
             &executable,
-            "#!/bin/sh\n[ \"$1\" = \"__provider-credential-broker-v1\" ] || exit 11\ndd bs=1 count=58 >&2 2>/dev/null\n",
+            format!(
+                "#!/bin/sh\n[ \"$1\" = \"__provider-credential-broker-v1\" ] || exit 11\ndd bs=1 count={} >&2 2>/dev/null\n",
+                expected.len()
+            ),
         )
         .unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -135,12 +141,6 @@ mod tests {
         .unwrap();
         let received = receiver_thread.join().unwrap().unwrap();
         let mut channel = UnixCredentialBrokerChannel::from_authenticated_handoff(received);
-        let expected = CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::IssueTicket {
-            operation_id: CredentialOperationId::from_bytes([3; 16]).unwrap(),
-            attempt: CredentialTicketAttempt::new(1).unwrap(),
-            ticket: RawCredentialTicket::generate().unwrap(),
-        })
-        .unwrap();
 
         channel
             .send_frame(CredentialBrokerFrameCodec::decode(&expected).unwrap())
@@ -156,5 +156,28 @@ mod tests {
         ));
         drop(channel);
         process.reap_retained_child().unwrap();
+    }
+
+    fn issue_ticket() -> CredentialBrokerFrame {
+        let operation_id = CredentialOperationId::from_bytes([3; 16]).unwrap();
+        let attempt = CredentialTicketAttempt::new(1).unwrap();
+        CredentialBrokerFrame::IssueTicket {
+            operation_id,
+            attempt,
+            ticket: RawCredentialTicket::generate().unwrap(),
+            command: CredentialBrokerCommand::new(
+                operation_id,
+                attempt,
+                ProviderId::new("openai").unwrap(),
+                CredentialOperationAction::Pair,
+                CredentialBrokerTarget::Version(
+                    CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap(),
+                ),
+                CredentialLifecycleRevision::new(1).unwrap(),
+                CredentialFence::new(1).unwrap(),
+                None,
+            )
+            .unwrap(),
+        }
     }
 }

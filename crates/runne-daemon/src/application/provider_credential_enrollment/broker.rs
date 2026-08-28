@@ -136,11 +136,17 @@ impl ProviderCredentialBroker {
                 .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)?,
             )
             .map_err(map_store)?;
+        let command = runne_provider::CredentialBrokerCommand::from_operation(
+            receipt.operation(),
+            receipt.ticket_attempt(),
+        )
+        .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?;
         let frame = Zeroizing::new(
             CredentialBrokerFrameCodec::encode(CredentialBrokerFrame::IssueTicket {
                 operation_id: receipt.operation().operation_id(),
                 attempt: receipt.ticket_attempt(),
                 ticket,
+                command,
             })
             .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)?,
         );

@@ -1,6 +1,10 @@
+use crate::{CredentialVersionRef, ProviderId};
+
 use super::super::{
-    CredentialBindingDigest, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialDisposition, CredentialOperationId, CredentialTicketAttempt, RawCredentialTicket,
+    CredentialBindingDigest, CredentialBrokerCommand, CredentialBrokerFrame,
+    CredentialBrokerFrameCodec, CredentialBrokerTarget, CredentialDisposition, CredentialFence,
+    CredentialLifecycleRevision, CredentialOperationAction, CredentialOperationId,
+    CredentialTicketAttempt, RawCredentialTicket,
 };
 
 #[test]
@@ -12,6 +16,7 @@ fn credential_enrollment_codec_round_trips_only_known_versioned_frames() {
         operation_id,
         attempt,
         ticket,
+        command: command(operation_id, attempt),
     };
     let bytes = CredentialBrokerFrameCodec::encode(frame).unwrap();
     let decoded = CredentialBrokerFrameCodec::decode(&bytes).unwrap();
@@ -24,12 +29,19 @@ fn credential_enrollment_codec_reads_one_exact_frame_from_a_control_stream() {
         operation_id: CredentialOperationId::from_bytes([6; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(3).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        command: command(
+            CredentialOperationId::from_bytes([6; 16]).unwrap(),
+            CredentialTicketAttempt::new(3).unwrap(),
+        ),
     };
     let encoded = CredentialBrokerFrameCodec::encode(frame).unwrap();
     let decoded = CredentialBrokerFrameCodec::read_from(&mut std::io::Cursor::new(&encoded))
         .expect("one complete control frame");
 
-    assert_eq!(CredentialBrokerFrameCodec::encode(decoded).unwrap(), encoded);
+    assert_eq!(
+        CredentialBrokerFrameCodec::encode(decoded).unwrap(),
+        encoded
+    );
 }
 
 #[test]
@@ -38,6 +50,10 @@ fn credential_enrollment_codec_writes_one_canonical_frame_to_a_control_stream() 
         operation_id: CredentialOperationId::from_bytes([7; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(4).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        command: command(
+            CredentialOperationId::from_bytes([7; 16]).unwrap(),
+            CredentialTicketAttempt::new(4).unwrap(),
+        ),
     })
     .unwrap();
     let frame = CredentialBrokerFrameCodec::decode(&encoded).unwrap();
@@ -54,6 +70,10 @@ fn credential_enrollment_codec_rejects_a_truncated_control_stream_frame() {
         operation_id: CredentialOperationId::from_bytes([8; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(5).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        command: command(
+            CredentialOperationId::from_bytes([8; 16]).unwrap(),
+            CredentialTicketAttempt::new(5).unwrap(),
+        ),
     })
     .unwrap();
     encoded.pop();
@@ -78,6 +98,10 @@ fn credential_enrollment_codec_rejects_short_and_long_raw_tickets() {
         operation_id: CredentialOperationId::from_bytes([2; 16]).unwrap(),
         attempt: CredentialTicketAttempt::new(1).unwrap(),
         ticket: RawCredentialTicket::generate().unwrap(),
+        command: command(
+            CredentialOperationId::from_bytes([2; 16]).unwrap(),
+            CredentialTicketAttempt::new(1).unwrap(),
+        ),
     };
     let mut bytes = CredentialBrokerFrameCodec::encode(frame).unwrap();
     let mut long = bytes.clone();
@@ -85,6 +109,37 @@ fn credential_enrollment_codec_rejects_short_and_long_raw_tickets() {
     bytes.pop();
     assert!(CredentialBrokerFrameCodec::decode(&bytes).is_err());
     assert!(CredentialBrokerFrameCodec::decode(&long).is_err());
+}
+
+fn command(
+    operation_id: CredentialOperationId,
+    attempt: CredentialTicketAttempt,
+) -> CredentialBrokerCommand {
+    let provider = ProviderId::new("openai").unwrap();
+    CredentialBrokerCommand::new(
+        operation_id,
+        attempt,
+        provider.clone(),
+        CredentialOperationAction::Pair,
+        CredentialBrokerTarget::Version(CredentialVersionRef::new(provider, 1).unwrap()),
+        CredentialLifecycleRevision::new(1).unwrap(),
+        CredentialFence::new(1).unwrap(),
+        None,
+    )
+    .unwrap()
+}
+
+#[test]
+fn credential_enrollment_codec_rejects_an_issue_command_for_another_ticket_attempt() {
+    let operation_id = CredentialOperationId::from_bytes([9; 16]).unwrap();
+    let frame = CredentialBrokerFrame::IssueTicket {
+        operation_id,
+        attempt: CredentialTicketAttempt::new(1).unwrap(),
+        ticket: RawCredentialTicket::generate().unwrap(),
+        command: command(operation_id, CredentialTicketAttempt::new(2).unwrap()),
+    };
+
+    assert!(CredentialBrokerFrameCodec::encode(frame).is_err());
 }
 
 #[test]

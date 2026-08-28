@@ -1,8 +1,6 @@
 use super::SqliteProviderCredentialLifecycleStore;
 use super::rows::{map_sql, snapshot};
-use runne_provider::{
-    CredentialBrokerCommand, CredentialBrokerTarget, CredentialLifecycleError, CredentialRecoveryWork,
-};
+use runne_provider::{CredentialLifecycleError, CredentialRecoveryWork};
 use rusqlite::TransactionBehavior;
 
 pub(super) fn reconcile(
@@ -24,11 +22,7 @@ pub(super) fn reconcile(
                 .map_err(|_| CredentialLifecycleError::CorruptState)?,
         )
         .map_err(|_| CredentialLifecycleError::CorruptState)?;
-        let snapshot = snapshot(
-                &transaction,
-                operation,
-                &store.enrollment_authority,
-            )?;
+        let snapshot = snapshot(&transaction, operation, &store.enrollment_authority)?;
         let attempt: Option<i64> = transaction.query_row(
             "SELECT claimed_ticket_attempt FROM provider_credential_operations WHERE operation_id=?1",
             [operation.as_bytes().as_slice()],
@@ -37,8 +31,10 @@ pub(super) fn reconcile(
         let attempt = runne_provider::CredentialTicketAttempt::new(
             u64::try_from(attempt.ok_or(CredentialLifecycleError::CorruptState)?)
                 .map_err(|_| CredentialLifecycleError::CorruptState)?,
-        ).map_err(|_| CredentialLifecycleError::CorruptState)?;
-        let command = recovery_command(&snapshot, attempt)?;
+        )
+        .map_err(|_| CredentialLifecycleError::CorruptState)?;
+        let command = runne_provider::CredentialBrokerCommand::from_operation(&snapshot, attempt)
+            .map_err(|_| CredentialLifecycleError::CorruptState)?;
         let recovery = CredentialRecoveryWork::new(snapshot.clone())
             .map_err(|_| CredentialLifecycleError::CorruptState)?;
         work.push(
@@ -94,40 +90,4 @@ pub(super) fn reconcile(
         .map_err(map_sql)?;
     transaction.commit().map_err(map_sql)?;
     Ok(work)
-}
-
-fn recovery_command(
-    operation: &runne_provider::CredentialOperationSnapshot,
-    attempt: runne_provider::CredentialTicketAttempt,
-) -> Result<CredentialBrokerCommand, CredentialLifecycleError> {
-    let (target, binding) = match operation.action() {
-        runne_provider::CredentialOperationAction::Pair
-        | runne_provider::CredentialOperationAction::Revoke
-        | runne_provider::CredentialOperationAction::RetiredVersionCleanup => (
-            CredentialBrokerTarget::Version(
-                operation
-                    .allocated_credential_version()
-                    .or(operation.target_credential_version())
-                    .ok_or(CredentialLifecycleError::CorruptState)?
-                    .clone(),
-            ), None),
-        runne_provider::CredentialOperationAction::MigrateLegacy => (
-            CredentialBrokerTarget::LegacyImport(
-                operation
-                    .allocated_credential_version()
-                    .ok_or(CredentialLifecycleError::CorruptState)?
-                    .clone(),
-            ), None),
-        runne_provider::CredentialOperationAction::LegacySourceCleanup => (CredentialBrokerTarget::LegacySource, None),
-        runne_provider::CredentialOperationAction::WriterIdentityMigrationEffect
-        | runne_provider::CredentialOperationAction::WriterIdentityMigrationVerify => {
-            let metadata = operation
-                .metadata()
-                .migration()
-                .ok_or(CredentialLifecycleError::CorruptState)?;
-            (CredentialBrokerTarget::Migration { migration_id: metadata.migration_id(), phase: metadata.phase() }, Some(metadata.binding_digest()))
-        }
-    };
-    CredentialBrokerCommand::new(operation.operation_id(), attempt, operation.provider().clone(), operation.action(), target, operation.lifecycle_revision(), operation.fence(), binding)
-        .map_err(|_| CredentialLifecycleError::CorruptState)
 }

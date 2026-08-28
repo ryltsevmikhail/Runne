@@ -1,4 +1,4 @@
-use crate::{CredentialVersionRef, ProviderId};
+use crate::{CredentialOperationSnapshot, CredentialVersionRef, ProviderId};
 
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
@@ -81,6 +81,63 @@ impl CredentialBrokerCommand {
             expected_prior_fence,
             migration_binding,
         })
+    }
+
+    /// Derives the only valid non-secret effect command for one durable operation attempt.
+    pub fn from_operation(
+        operation: &CredentialOperationSnapshot,
+        attempt: CredentialTicketAttempt,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        let (target, migration_binding) = match operation.action() {
+            CredentialOperationAction::Pair
+            | CredentialOperationAction::Revoke
+            | CredentialOperationAction::RetiredVersionCleanup => (
+                CredentialBrokerTarget::Version(
+                    operation
+                        .allocated_credential_version()
+                        .or(operation.target_credential_version())
+                        .ok_or(CredentialEnrollmentError::InvalidInput)?
+                        .clone(),
+                ),
+                None,
+            ),
+            CredentialOperationAction::MigrateLegacy => (
+                CredentialBrokerTarget::LegacyImport(
+                    operation
+                        .allocated_credential_version()
+                        .ok_or(CredentialEnrollmentError::InvalidInput)?
+                        .clone(),
+                ),
+                None,
+            ),
+            CredentialOperationAction::LegacySourceCleanup => {
+                (CredentialBrokerTarget::LegacySource, None)
+            }
+            CredentialOperationAction::WriterIdentityMigrationEffect
+            | CredentialOperationAction::WriterIdentityMigrationVerify => {
+                let migration = operation
+                    .metadata()
+                    .migration()
+                    .ok_or(CredentialEnrollmentError::InvalidInput)?;
+                (
+                    CredentialBrokerTarget::Migration {
+                        migration_id: migration.migration_id(),
+                        phase: migration.phase(),
+                    },
+                    Some(migration.binding_digest()),
+                )
+            }
+        };
+        Self::new(
+            operation.operation_id(),
+            attempt,
+            operation.provider().clone(),
+            operation.action(),
+            target,
+            operation.lifecycle_revision(),
+            operation.fence(),
+            migration_binding,
+        )
     }
 
     /// Returns the exact durable operation identity.

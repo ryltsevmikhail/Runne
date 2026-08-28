@@ -35,6 +35,8 @@ pub enum CredentialBrokerFrame {
         attempt: CredentialTicketAttempt,
         /// Opaque raw ticket.
         ticket: RawCredentialTicket,
+        /// Canonical non-secret native effect command for this exact attempt.
+        command: CredentialBrokerCommand,
     },
     /// Writer returns the raw ticket and immutable claim-binding digest.
     Claim {

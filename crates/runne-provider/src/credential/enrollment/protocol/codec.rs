@@ -2,7 +2,7 @@ use std::io::{Read, Write};
 
 use zeroize::Zeroizing;
 
-use super::CredentialBrokerFrame;
+use super::{CredentialBrokerCommand, CredentialBrokerCommandCodec, CredentialBrokerFrame};
 use crate::credential::enrollment::{
     CredentialBindingDigest, CredentialDisposition, CredentialEnrollmentError,
     CredentialOperationId, CredentialTicketAttempt, RawCredentialTicket,
@@ -25,11 +25,16 @@ impl CredentialBrokerFrameCodec {
                 operation_id,
                 attempt,
                 ticket,
+                command,
             } => {
+                if command.operation_id() != operation_id || command.ticket_attempt() != attempt {
+                    return Err(CredentialEnrollmentError::InvalidFrame);
+                }
                 bytes.push(1);
                 id(&mut bytes, operation_id);
                 encode_attempt(&mut bytes, attempt);
                 bytes.extend_from_slice(ticket.bytes());
+                encode_command(&mut bytes, command)?;
             }
             CredentialBrokerFrame::Claim {
                 operation_id,
@@ -87,6 +92,7 @@ impl CredentialBrokerFrameCodec {
                 operation_id: read_id(bytes, &mut cursor)?,
                 attempt: read_attempt(bytes, &mut cursor)?,
                 ticket: read_ticket(bytes, &mut cursor)?,
+                command: read_command(bytes, &mut cursor)?,
             },
             2 => CredentialBrokerFrame::Claim {
                 operation_id: read_id(bytes, &mut cursor)?,
@@ -114,7 +120,7 @@ impl CredentialBrokerFrameCodec {
             },
             _ => return Err(CredentialEnrollmentError::InvalidFrame),
         };
-        if cursor != bytes.len() {
+        if cursor != bytes.len() || !valid_issue_command(&frame) {
             return Err(CredentialEnrollmentError::InvalidFrame);
         }
         Ok(frame)
@@ -138,6 +144,26 @@ impl CredentialBrokerFrameCodec {
         reader
             .read_exact(&mut bytes[2..])
             .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        if prefix[1] == 1 {
+            let command_length = usize::from(u16::from_be_bytes(
+                bytes[length - 2..]
+                    .try_into()
+                    .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
+            ));
+            if command_length == 0
+                || command_length > CredentialBrokerCommandCodec::MAX_COMMAND_BYTES
+                || length
+                    .checked_add(command_length)
+                    .ok_or(CredentialEnrollmentError::InvalidFrame)?
+                    > Self::MAX_FRAME_BYTES
+            {
+                return Err(CredentialEnrollmentError::InvalidFrame);
+            }
+            bytes.resize(length + command_length, 0);
+            reader
+                .read_exact(&mut bytes[length..])
+                .map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+        }
         Self::decode(&bytes)
     }
 
@@ -159,7 +185,7 @@ fn exact_frame_length(prefix: [u8; 2]) -> Result<usize, CredentialEnrollmentErro
         return Err(CredentialEnrollmentError::InvalidFrame);
     }
     match prefix[1] {
-        1 => Ok(2 + 16 + 8 + 32),
+        1 => Ok(2 + 16 + 8 + 32 + 2),
         2 => Ok(2 + 16 + 8 + 32 + 32),
         3 => Ok(2 + 16 + 8),
         4 => Ok(2 + 16 + 8 + 1),
@@ -230,4 +256,34 @@ fn read_ticket(
             .try_into()
             .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
     )
+}
+fn encode_command(
+    bytes: &mut Vec<u8>,
+    command: CredentialBrokerCommand,
+) -> Result<(), CredentialEnrollmentError> {
+    let command = CredentialBrokerCommandCodec::encode(&command)?;
+    let length =
+        u16::try_from(command.len()).map_err(|_| CredentialEnrollmentError::InvalidFrame)?;
+    bytes.extend_from_slice(&length.to_be_bytes());
+    bytes.extend_from_slice(&command);
+    Ok(())
+}
+fn read_command(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> Result<CredentialBrokerCommand, CredentialEnrollmentError> {
+    let length = usize::from(u16::from_be_bytes(
+        take(bytes, cursor, 2)?
+            .try_into()
+            .map_err(|_| CredentialEnrollmentError::InvalidFrame)?,
+    ));
+    if length == 0 || length > CredentialBrokerCommandCodec::MAX_COMMAND_BYTES {
+        return Err(CredentialEnrollmentError::InvalidFrame);
+    }
+    CredentialBrokerCommandCodec::decode(take(bytes, cursor, length)?)
+}
+fn valid_issue_command(frame: &CredentialBrokerFrame) -> bool {
+    matches!(frame, CredentialBrokerFrame::IssueTicket { operation_id, attempt, command, .. }
+        if command.operation_id() == *operation_id && command.ticket_attempt() == *attempt)
+        || !matches!(frame, CredentialBrokerFrame::IssueTicket { .. })
 }

@@ -1,6 +1,7 @@
 use runne_provider::{
-    ClaimCredentialOperation, CredentialBrokerFrame, CredentialBrokerFrameCodec,
-    CredentialBindingDigest, CredentialOperationState, ProviderCredentialEnrollmentStore,
+    ClaimCredentialOperation, CredentialBindingDigest, CredentialBrokerCommand,
+    CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialBrokerTarget,
+    CredentialOperationState, ProviderCredentialEnrollmentStore,
 };
 use zeroize::Zeroizing;
 
@@ -24,6 +25,7 @@ fn broker_claim_exchange_reads_one_claim_and_writes_only_accepted_frame() {
         operation_id,
         attempt,
         ticket,
+        ..
     } = CredentialBrokerFrameCodec::decode(&channel.frames.pop().unwrap()).unwrap()
     else {
         panic!("broker must issue a ticket frame");
@@ -93,6 +95,7 @@ fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
         operation_id,
         attempt,
         ticket,
+        ..
     } = CredentialBrokerFrameCodec::decode(&channel.frames.pop().unwrap()).unwrap()
     else {
         panic!("broker must issue a ticket frame");
@@ -145,7 +148,10 @@ fn broker_effect_exchange_requires_the_claim_binding_before_possible_effect() {
         .observe_effect_from_channel(claim, &fixture.store, &mut channel)
         .unwrap();
 
-    assert_eq!(observed.state(), CredentialOperationState::NativeEffectObserved);
+    assert_eq!(
+        observed.state(),
+        CredentialOperationState::NativeEffectObserved
+    );
     assert_eq!(
         fixture.store.load_operation(operation_id).unwrap().state(),
         CredentialOperationState::NativeEffectObserved
@@ -170,6 +176,7 @@ fn broker_effect_exchange_rejects_a_substituted_binding_without_state_transition
         operation_id,
         attempt,
         ticket,
+        ..
     } = CredentialBrokerFrameCodec::decode(&channel.frames.pop().unwrap()).unwrap()
     else {
         panic!("broker must issue a ticket frame");
@@ -228,4 +235,50 @@ fn broker_effect_exchange_rejects_a_substituted_binding_without_state_transition
         fixture.store.load_operation(operation_id).unwrap().state(),
         CredentialOperationState::Claimed
     );
+}
+
+#[test]
+fn broker_issue_frame_carries_the_exact_durable_command_for_its_ticket_attempt() {
+    let fixture = fixture();
+    let mut channel = RecordingChannel::default();
+    let receipt = fixture
+        .broker
+        .issue_ticket(
+            fixture.operation.clone(),
+            fixture.continuation,
+            60,
+            &fixture.store,
+            &mut channel,
+        )
+        .unwrap();
+    let CredentialBrokerFrame::IssueTicket {
+        operation_id,
+        attempt,
+        command,
+        ..
+    } = CredentialBrokerFrameCodec::decode(&channel.frames.pop().unwrap()).unwrap()
+    else {
+        panic!("broker must issue a ticket frame");
+    };
+    let expected = CredentialBrokerCommand::new(
+        fixture.operation.operation_id(),
+        receipt.ticket_attempt(),
+        fixture.operation.provider().clone(),
+        fixture.operation.action(),
+        CredentialBrokerTarget::Version(
+            fixture
+                .operation
+                .allocated_credential_version()
+                .unwrap()
+                .clone(),
+        ),
+        fixture.operation.lifecycle_revision(),
+        fixture.operation.fence(),
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(operation_id, fixture.operation.operation_id());
+    assert_eq!(attempt, receipt.ticket_attempt());
+    assert_eq!(command, expected);
 }
