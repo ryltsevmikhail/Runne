@@ -60,6 +60,7 @@ pub fn spawn_unix_writer_from_daemon_endpoint(
     BrokerHandoffError,
 > {
     let channel_binding = endpoint.channel_binding();
+    let publication_public_key = endpoint.publication_public_key();
     let endpoints = UnixWriterBrokerEndpoints::from_daemon_control(channel_binding)?;
     let mut command = writer_command(spec);
     configure_daemon_owned_writer_control(&mut command, endpoint.into_control())?;
@@ -67,10 +68,12 @@ pub fn spawn_unix_writer_from_daemon_endpoint(
         .spawn()
         .map_err(|_| BrokerHandoffError::Unavailable)?;
     let process = UnixRetainedWriterProcess::from_spawned(child)?;
-    let evidence = WriterProcessEvidence::from_native_writer(
+    let evidence = WriterProcessEvidence::from_daemon_owned_writer(
         process.writer_start_identity()?,
         spec.artifact().image_digest(),
+        spec.artifact().release_tuple_digest(),
         channel_binding,
+        publication_public_key,
     )?;
     Ok((endpoints, process, evidence))
 }

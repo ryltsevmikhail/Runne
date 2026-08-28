@@ -6,6 +6,8 @@ use rand::{RngCore, rngs::OsRng};
 use runne_api::CredentialBrokerTransferAuthenticator;
 use runne_api::ProviderCredentialEnrollmentHostError;
 #[cfg(feature = "desktop-protected")]
+use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
+#[cfg(feature = "desktop-protected")]
 use runne_provider::CredentialBindingDigest;
 use runne_provider::daemon_credential_publication::CredentialSecretPublicationSigner;
 
@@ -92,8 +94,13 @@ impl DaemonBrokerAuthority {
     pub(super) fn into_authenticated_channel(
         mut self,
         evidence: runne_platform_desktop::provider_credential_broker::WriterProcessEvidence,
+        launch: &VerifiedWriterLaunchSpec,
     ) -> Result<UnixCredentialBrokerChannel, ProviderCredentialEnrollmentHostError> {
-        if evidence.channel_binding() != self.channel_binding {
+        if !evidence.matches_daemon_owned_launch(
+            launch,
+            self.channel_binding,
+            self.publication_public_key,
+        ) {
             return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
         let signer = self
@@ -202,18 +209,24 @@ impl DaemonOwnedUnixBrokerRendezvous {
 
     /// Sends the writer endpoint only through the authenticated protected control transport.
     #[cfg(feature = "desktop-protected")]
+    #[cfg_attr(
+        all(test, not(target_os = "linux")),
+        allow(dead_code, reason = "descriptor admission is fail-closed off Linux")
+    )]
     pub(super) fn handoff_writer_endpoint(
         &mut self,
-        transport: &mut UnixStream,
+        transport: UnixStream,
         authenticator: &CredentialBrokerTransferAuthenticator,
     ) -> Result<[u8; 32], ProviderCredentialEnrollmentHostError> {
         let binding = self.channel_binding;
+        let publication_public_key = self.publication_public_key;
         let writer = self.take_writer_endpoint()?;
         runne_platform_desktop::provider_credential_broker::send_daemon_owned_writer_endpoint(
             transport,
             writer,
             authenticator,
             binding,
+            publication_public_key,
         )
         .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         Ok(binding)
@@ -232,42 +245,5 @@ fn configure(stream: &UnixStream) -> Result<(), ProviderCredentialEnrollmentHost
 mod tests;
 
 #[cfg(all(test, feature = "desktop-protected"))]
-mod protected_tests {
-    use runne_api::LaunchSecret;
-
-    use super::*;
-
-    #[test]
-    fn protected_handoff_moves_only_the_daemon_created_writer_endpoint() {
-        let mut rendezvous = DaemonOwnedUnixBrokerRendezvous::create().unwrap();
-        let expected = rendezvous.channel_binding();
-        let (mut sender, mut receiver) = UnixStream::pair().unwrap();
-        let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
-        let sender_authenticator =
-            CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-        let receiver_authenticator =
-            CredentialBrokerTransferAuthenticator::from_protected_activation(&keys);
-        let receiver_thread = std::thread::spawn(move || {
-            runne_platform_desktop::provider_credential_broker::receive_daemon_owned_writer_endpoint(
-                &mut receiver,
-                &receiver_authenticator,
-                expected,
-            )
-        });
-
-        assert_eq!(
-            rendezvous
-                .handoff_writer_endpoint(&mut sender, &sender_authenticator)
-                .unwrap(),
-            expected
-        );
-        assert_eq!(
-            receiver_thread.join().unwrap().unwrap().channel_binding(),
-            expected
-        );
-        assert!(matches!(
-            rendezvous.handoff_writer_endpoint(&mut sender, &sender_authenticator),
-            Err(ProviderCredentialEnrollmentHostError::AccessDenied)
-        ));
-    }
-}
+#[path = "rendezvous/protected_tests.rs"]
+mod protected_tests;

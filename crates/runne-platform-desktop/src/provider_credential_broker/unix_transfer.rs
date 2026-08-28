@@ -1,6 +1,8 @@
 //! Authenticated one-shot transfer of a writer control endpoint.
 
-use std::io::{IoSlice, IoSliceMut, Read, Write};
+#[cfg(target_os = "linux")]
+use std::io::IoSliceMut;
+use std::io::{IoSlice, Read, Write};
 use std::mem::MaybeUninit;
 use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::net::UnixStream;
@@ -8,11 +10,11 @@ use std::os::unix::net::UnixStream;
 use rand::RngCore;
 use runne_api::CredentialBrokerTransferAuthenticator;
 use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
-use rustix::io::{FdFlags, fcntl_setfd};
-use rustix::net::{
-    RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
-    SendAncillaryMessage, SendFlags, recvmsg, sendmsg,
-};
+#[cfg(target_os = "linux")]
+use rustix::io::{FdFlags, fcntl_getfd};
+#[cfg(target_os = "linux")]
+use rustix::net::{RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, recvmsg};
+use rustix::net::{SendAncillaryBuffer, SendAncillaryMessage, SendFlags, sendmsg};
 
 use super::{UnixWriterBrokerEndpoints, WriterProcessEvidence};
 
@@ -20,6 +22,10 @@ const CHALLENGE_BYTES: usize = 96;
 const RECORD_BYTES: usize = CHALLENGE_BYTES + 96;
 const FRAME_BYTES: usize = RECORD_BYTES + 32;
 const TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+const CHALLENGE_TAG: &[u8] =
+    b"gocode/provider-credential-broker/legacy-writer-control/v1/challenge\0";
+const RESPONSE_TAG: &[u8] =
+    b"gocode/provider-credential-broker/legacy-writer-control/v1/response\0";
 
 /// Daemon-owned control endpoint and the platform-issued child evidence.
 pub struct UnixReceivedWriterControl {
@@ -63,7 +69,10 @@ pub fn transfer_unix_writer_control(
     let receiver_proof =
         <[u8; 32]>::try_from(&challenge[64..]).map_err(|_| BrokerHandoffError::Rejected)?;
     if challenge[..32] != channel
-        || !authenticator.verifies_transfer(&challenge[..64], &receiver_proof)
+        || !authenticator.verifies_transfer(
+            &transcript(CHALLENGE_TAG, &challenge[..64]),
+            &receiver_proof,
+        )
     {
         return Err(BrokerHandoffError::Rejected);
     }
@@ -73,7 +82,7 @@ pub fn transfer_unix_writer_control(
     record[CHALLENGE_BYTES..128].copy_from_slice(&start);
     record[128..160].copy_from_slice(&image);
     record[160..].copy_from_slice(&channel);
-    let proof = authenticator.authenticate_transfer(&record);
+    let proof = authenticator.authenticate_transfer(&transcript(RESPONSE_TAG, &record));
     let mut frame = [0; FRAME_BYTES];
     frame[..RECORD_BYTES].copy_from_slice(&record);
     frame[RECORD_BYTES..].copy_from_slice(&proof);
@@ -103,7 +112,8 @@ pub fn receive_unix_writer_control(
     let mut challenge = [0; CHALLENGE_BYTES];
     challenge[..32].copy_from_slice(&expected_channel);
     rand::rngs::OsRng.fill_bytes(&mut challenge[32..64]);
-    let challenge_proof = authenticator.authenticate_transfer(&challenge[..64]);
+    let challenge_proof =
+        authenticator.authenticate_transfer(&transcript(CHALLENGE_TAG, &challenge[..64]));
     challenge[64..].copy_from_slice(&challenge_proof);
     transport
         .write_all(&challenge)
@@ -113,7 +123,9 @@ pub fn receive_unix_writer_control(
     record.copy_from_slice(&frame[..RECORD_BYTES]);
     let proof =
         <[u8; 32]>::try_from(&frame[RECORD_BYTES..]).map_err(|_| BrokerHandoffError::Rejected)?;
-    if !authenticator.verifies_transfer(&record, &proof) || record[..CHALLENGE_BYTES] != challenge {
+    if !authenticator.verifies_transfer(&transcript(RESPONSE_TAG, &record), &proof)
+        || record[..CHALLENGE_BYTES] != challenge
+    {
         return Err(BrokerHandoffError::Rejected);
     }
     let start = <[u8; 32]>::try_from(&record[CHALLENGE_BYTES..128])
@@ -136,6 +148,13 @@ fn configure(stream: &UnixStream) -> Result<(), BrokerHandoffError> {
         .set_read_timeout(Some(TRANSFER_TIMEOUT))
         .and_then(|()| stream.set_write_timeout(Some(TRANSFER_TIMEOUT)))
         .map_err(|_| BrokerHandoffError::Unavailable)
+}
+
+fn transcript(tag: &[u8], record: &[u8]) -> Vec<u8> {
+    let mut transcript = Vec::with_capacity(tag.len() + record.len());
+    transcript.extend_from_slice(tag);
+    transcript.extend_from_slice(record);
+    transcript
 }
 
 pub(super) fn send_descriptor<const FRAME_SIZE: usize>(
@@ -161,6 +180,7 @@ pub(super) fn send_descriptor<const FRAME_SIZE: usize>(
         .ok_or(BrokerHandoffError::Unavailable)
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn receive_descriptor<const FRAME_SIZE: usize>(
     transport: &mut UnixStream,
 ) -> Result<([u8; FRAME_SIZE], OwnedFd), BrokerHandoffError> {
@@ -172,14 +192,17 @@ pub(super) fn receive_descriptor<const FRAME_SIZE: usize>(
         &mut *transport,
         &mut iov,
         &mut ancillary,
-        RecvFlags::empty(),
+        RecvFlags::CMSG_CLOEXEC,
     )
     .map_err(|_| BrokerHandoffError::Unavailable)?;
     if received.bytes == 0 || received.flags.intersects(rustix::net::ReturnFlags::CTRUNC) {
         return Err(BrokerHandoffError::Rejected);
     }
     let descriptor = received_descriptor(&mut ancillary)?;
-    fcntl_setfd(&descriptor, FdFlags::CLOEXEC).map_err(|_| BrokerHandoffError::Unavailable)?;
+    let flags = fcntl_getfd(&descriptor).map_err(|_| BrokerHandoffError::Unavailable)?;
+    if !flags.contains(FdFlags::CLOEXEC) {
+        return Err(BrokerHandoffError::Unavailable);
+    }
     if received.bytes < frame.len() {
         transport
             .read_exact(&mut frame[received.bytes..])
@@ -188,6 +211,14 @@ pub(super) fn receive_descriptor<const FRAME_SIZE: usize>(
     Ok((frame, descriptor))
 }
 
+#[cfg(not(target_os = "linux"))]
+pub(super) fn receive_descriptor<const FRAME_SIZE: usize>(
+    _transport: &mut UnixStream,
+) -> Result<([u8; FRAME_SIZE], OwnedFd), BrokerHandoffError> {
+    Err(BrokerHandoffError::Unavailable)
+}
+
+#[cfg(target_os = "linux")]
 fn received_descriptor(
     ancillary: &mut RecvAncillaryBuffer<'_>,
 ) -> Result<OwnedFd, BrokerHandoffError> {
