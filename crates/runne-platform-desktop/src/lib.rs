@@ -3,6 +3,7 @@
 mod protected_runtime;
 /// Platform-validated writer-process handoff for protected credential enrollment.
 pub mod provider_credential_broker;
+mod provider_credential_prompt;
 mod root_handle_broker;
 mod updater;
 mod updater_artifact;
@@ -20,6 +21,8 @@ pub use protected_runtime::{
     ProtectedBundledRuntimeLaunchSpec, ProtectedBundledRuntimeProcess,
     ProtectedBundledRuntimeSupervisor, discover_bundled_runtime,
 };
+#[cfg(target_os = "linux")]
+pub use provider_credential_prompt::LinuxPinentryPrompt;
 #[cfg(all(any(unix, windows), feature = "protected-channel-integration"))]
 pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
