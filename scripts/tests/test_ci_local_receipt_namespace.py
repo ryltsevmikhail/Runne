@@ -20,6 +20,7 @@ class LocalInputReceiptNamespaceTests(unittest.TestCase):
             self.assertEqual(components[-1], "/usr/bin")
             self.assertNotIn(os.fspath(runtime.account_home / ".cargo/bin"), components)
             self.assertNotIn(os.fspath(runtime.base_commands["node"].parent), components)
+            self.assertEqual(environment["XDG_RUNTIME_DIR"], environment["TMPDIR"])
             for commands in runtime.rust_commands.values():
                 self.assertNotIn(os.fspath(commands["cargo"].parent), components)
             for name, target in runtime.frontend.items():
