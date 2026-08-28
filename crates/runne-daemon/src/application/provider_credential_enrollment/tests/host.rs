@@ -71,6 +71,7 @@ async fn composed_host_begins_then_resumes_the_same_safe_operation() {
     let directory = tempfile::tempdir().unwrap();
     let (lifecycle_authority, _) = CredentialAuthorityPair::new().split();
     let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let legacy_import_authority = enrollment_authority.clone();
     let store =
         runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
             &directory.path().join("host.sqlite"),
@@ -82,6 +83,7 @@ async fn composed_host_begins_then_resumes_the_same_safe_operation() {
     let host = super::super::host::DaemonProviderCredentialEnrollmentHost::new(
         verifier,
         measurements,
+        legacy_import_authority,
         super::super::operation_handle::ProviderCredentialOperationHandleIssuer::new([9; 32]),
         &store,
         &reader,

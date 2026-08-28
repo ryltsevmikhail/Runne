@@ -13,9 +13,12 @@ use super::{
 };
 
 pub(crate) mod claim;
+mod legacy_import;
 mod migration_metadata;
 mod ticket;
 pub mod writer;
+
+pub use legacy_import::CredentialLegacyImportAuthorization;
 
 #[derive(Debug)]
 pub(crate) struct EnrollmentAuthoritySeal;
@@ -54,6 +57,7 @@ impl Default for CredentialEnrollmentAuthorityPair {
 }
 
 /// Store-side authority that exclusively issues enrollment transition commands.
+#[derive(Clone)]
 pub struct CredentialEnrollmentStoreAuthority {
     seal: Arc<EnrollmentAuthoritySeal>,
 }

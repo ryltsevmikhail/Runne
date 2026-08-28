@@ -20,7 +20,7 @@ pub use authority::writer::{
 #[allow(unused_imports)]
 pub use authority::{
     CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority,
-    CredentialEnrollmentStoreAuthority,
+    CredentialEnrollmentStoreAuthority, CredentialLegacyImportAuthorization,
 };
 pub use binding::{
     BrokerChannelBinding, CandidateSourceIdentity, ContinuationBindingDigest, ContractBundleDigest,

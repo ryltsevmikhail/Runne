@@ -153,7 +153,7 @@ fn action(
             Ok(runne_provider::CredentialOperationAction::Revoke)
         }
         runne_api::ProviderCredentialEnrollmentActionV2::MigrateLegacy => {
-            Err(ProviderCredentialEnrollmentHostError::Unsupported)
+            Ok(runne_provider::CredentialOperationAction::MigrateLegacy)
         }
     }
 }

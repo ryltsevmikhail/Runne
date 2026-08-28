@@ -18,7 +18,7 @@ use super::{
 #[test]
 fn legacy_import_commits_its_barrier_receipt_and_cleanup_atomically() {
     let store = store();
-    super::begin::begin_legacy_for_test(&store, legacy_begin()).unwrap();
+    ProviderCredentialEnrollmentStore::begin(&store, authorized_legacy_begin(&store)).unwrap();
     issue_ticket(&store, ticket(60, 1, 61, 62)).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         &store,
@@ -96,7 +96,7 @@ fn legacy_import_commits_its_barrier_receipt_and_cleanup_atomically() {
 #[test]
 fn legacy_import_rolls_back_the_barrier_when_receipt_validation_rejects_readiness() {
     let store = store();
-    super::begin::begin_legacy_for_test(&store, legacy_begin()).unwrap();
+    ProviderCredentialEnrollmentStore::begin(&store, authorized_legacy_begin(&store)).unwrap();
     issue_ticket(&store, ticket(60, 1, 61, 62)).unwrap();
     ProviderCredentialEnrollmentStore::claim(
         &store,
@@ -167,4 +167,17 @@ fn legacy_begin() -> BeginCredentialOperation {
     )
     .unwrap()
     .with_qualified_release_tuple(qualified_release(92))
+}
+
+fn authorized_legacy_begin(
+    store: &super::SqliteProviderCredentialLifecycleStore,
+) -> BeginCredentialOperation {
+    let input = legacy_begin();
+    let authorization = store
+        .enrollment_authority
+        .issue_legacy_import_authorization(&input)
+        .unwrap();
+    input
+        .with_legacy_import_authorization(authorization)
+        .unwrap()
 }

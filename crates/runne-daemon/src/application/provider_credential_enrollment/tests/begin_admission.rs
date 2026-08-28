@@ -3,7 +3,9 @@ use runne_api::{
     ProviderCredentialEnrollmentHostError, ProviderCredentialRequestAuthorityPair,
     ProviderCredentialRequestAuthorityVerifier,
 };
-use runne_provider::{BeginCredentialOperation, CredentialEnrollmentAuthorityPair};
+use runne_provider::{
+    BeginCredentialOperation, CredentialEnrollmentAuthorityPair, CredentialOperationAction,
+};
 
 use super::super::ProviderCredentialAdmission;
 use super::begin_admission_support::{begin, context, lifecycle_snapshot};
@@ -153,6 +155,49 @@ fn daemon_begin_keeps_bridge_seconds_proof_expiry_unchanged() {
         .unwrap();
 
     assert_eq!(input.begin_proof_expires_at_high_water(), 1_900);
+}
+
+#[test]
+fn daemon_migrate_legacy_requires_and_mints_the_store_paired_authorization() {
+    let (issuer, verifier) = ProviderCredentialRequestAuthorityPair::new().split();
+    let authority = issuer
+        .issue_base([1; 32], [2; 32], [3; 32], 1, [4; 32], 1, [5; 32])
+        .unwrap();
+    let command = begin(ProviderCredentialEnrollmentActionV2::MigrateLegacy);
+    let context = context();
+    let binding = ProviderCredentialBeginIntentBinding::new(&command, &context);
+    let proof = issuer
+        .issue_intent_proof(
+            [6; 32],
+            [3; 32],
+            *binding.action_provider_revision_digest(),
+            *binding.command_identity_digest(),
+            10,
+        )
+        .unwrap();
+    let (legacy_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+
+    let closed = admission(verifier.clone()).begin_input(
+        &authority,
+        &proof,
+        &command,
+        &context,
+        lifecycle_snapshot(),
+    );
+    assert_eq!(
+        closed,
+        Err(ProviderCredentialEnrollmentHostError::Unsupported)
+    );
+
+    let input = ProviderCredentialAdmission::with_legacy_import_authority(
+        verifier,
+        measurements,
+        legacy_authority,
+    )
+    .begin_input(&authority, &proof, &command, &context, lifecycle_snapshot())
+    .unwrap();
+    assert_eq!(input.action(), CredentialOperationAction::MigrateLegacy);
+    assert!(input.legacy_import_authorization().is_some());
 }
 
 fn admission(verifier: ProviderCredentialRequestAuthorityVerifier) -> ProviderCredentialAdmission {

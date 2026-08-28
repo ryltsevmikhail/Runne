@@ -9,9 +9,9 @@ use runne_api::{
 };
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, CredentialBindingDigest,
-    CredentialEnrollmentMeasurementAuthority, CredentialInstallationOwnerId,
-    CredentialLifecycleSnapshot, CredentialOperationAction, CredentialOperationId,
-    CredentialVersionRef, ProviderCredentialEnrollmentStore, ProviderId,
+    CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority,
+    CredentialInstallationOwnerId, CredentialLifecycleSnapshot, CredentialOperationAction,
+    CredentialOperationId, CredentialVersionRef, ProviderCredentialEnrollmentStore, ProviderId,
 };
 
 #[allow(dead_code)]
@@ -24,6 +24,7 @@ pub(super) enum ProviderCredentialBeginAdmission {
 pub(crate) struct ProviderCredentialAdmission {
     verifier: ProviderCredentialRequestAuthorityVerifier,
     measurements: CredentialEnrollmentMeasurementAuthority,
+    legacy_import_authority: Option<CredentialEnrollmentStoreAuthority>,
 }
 
 impl ProviderCredentialAdmission {
@@ -36,6 +37,20 @@ impl ProviderCredentialAdmission {
         Self {
             verifier,
             measurements,
+            legacy_import_authority: None,
+        }
+    }
+
+    /// Adds the store-paired capability required for an authenticated legacy import.
+    pub(crate) const fn with_legacy_import_authority(
+        verifier: ProviderCredentialRequestAuthorityVerifier,
+        measurements: CredentialEnrollmentMeasurementAuthority,
+        legacy_import_authority: CredentialEnrollmentStoreAuthority,
+    ) -> Self {
+        Self {
+            verifier,
+            measurements,
+            legacy_import_authority: Some(legacy_import_authority),
         }
     }
 
@@ -163,9 +178,11 @@ impl ProviderCredentialAdmission {
                 None,
                 snapshot.active_version().cloned(),
             ),
-            runne_api::ProviderCredentialEnrollmentActionV2::MigrateLegacy => {
-                return Err(ProviderCredentialEnrollmentHostError::Unsupported);
-            }
+            runne_api::ProviderCredentialEnrollmentActionV2::MigrateLegacy => (
+                CredentialOperationAction::MigrateLegacy,
+                Some(version(&provider, snapshot.next_credential_version())?),
+                None,
+            ),
         };
         let owner = CredentialInstallationOwnerId::from_bytes(*authority.installation_identity())
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
@@ -180,7 +197,7 @@ impl ProviderCredentialAdmission {
             .issue_qualified_credential_release_tuple(manifest)
             .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
         let operation_id = allocate_operation_id()?;
-        BeginCredentialOperation::new(
+        let input = BeginCredentialOperation::new(
             context.command_id,
             context.idempotency_key.clone(),
             operation_id,
@@ -196,7 +213,19 @@ impl ProviderCredentialAdmission {
                 .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
         )
         .map(|input| input.with_qualified_release_tuple(tuple))
-        .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
+        .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        if action != CredentialOperationAction::MigrateLegacy {
+            return Ok(input);
+        }
+        let authorization = self
+            .legacy_import_authority
+            .as_ref()
+            .ok_or(ProviderCredentialEnrollmentHostError::Unsupported)?
+            .issue_legacy_import_authorization(&input)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
+        input
+            .with_legacy_import_authorization(authorization)
+            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
     }
 }
 

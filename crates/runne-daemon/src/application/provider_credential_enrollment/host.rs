@@ -16,7 +16,10 @@ use runne_api::{
     ProviderCredentialOperationSnapshotV2, ProviderCredentialProviderV2,
     ProviderCredentialStatusFuture, VerifyProviderCredential,
 };
-use runne_provider::{CredentialEnrollmentMeasurementAuthority, ProviderCredentialEnrollmentStore};
+use runne_provider::{
+    CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority,
+    ProviderCredentialEnrollmentStore,
+};
 
 use super::{
     CredentialEnrollmentReadback, ProviderCredentialAdmission, ProviderCredentialEnrollmentStatus,
@@ -47,9 +50,11 @@ pub(crate) struct DaemonProviderCredentialEnrollmentHost<'a, S: ?Sized, R: ?Size
 
 impl<'a, S: ?Sized, R: ?Sized, V> DaemonProviderCredentialEnrollmentHost<'a, S, R, V> {
     /// Separates credential material handling into the supplied verification boundary.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         verifier: runne_api::ProviderCredentialRequestAuthorityVerifier,
         measurements: CredentialEnrollmentMeasurementAuthority,
+        legacy_import_authority: CredentialEnrollmentStoreAuthority,
         handles: ProviderCredentialOperationHandleIssuer,
         store: &'a S,
         reader: &'a R,
@@ -58,7 +63,11 @@ impl<'a, S: ?Sized, R: ?Sized, V> DaemonProviderCredentialEnrollmentHost<'a, S, 
     ) -> Self {
         Self {
             begin: ProviderCredentialEnrollmentBegin::new(
-                ProviderCredentialAdmission::new(verifier.clone(), measurements.clone()),
+                ProviderCredentialAdmission::with_legacy_import_authority(
+                    verifier.clone(),
+                    measurements.clone(),
+                    legacy_import_authority,
+                ),
                 handles.duplicate(),
                 store,
                 reader,

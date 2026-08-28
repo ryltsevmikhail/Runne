@@ -5,9 +5,9 @@ use crate::{CredentialVersionRef, ProviderId};
 use super::super::CredentialOperationSnapshot;
 use super::super::{
     CredentialBindingDigest, CredentialEnrollmentError, CredentialFence,
-    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialMigrationMetadata,
-    CredentialOperationAction, CredentialOperationId, CredentialQualifiedReleaseTuple,
-    WriterIdentityMigrationPhase,
+    CredentialInstallationOwnerId, CredentialLegacyImportAuthorization,
+    CredentialLifecycleRevision, CredentialMigrationMetadata, CredentialOperationAction,
+    CredentialOperationId, CredentialQualifiedReleaseTuple, WriterIdentityMigrationPhase,
 };
 
 /// Protected user-authorized request to begin one public enrollment action.
@@ -27,6 +27,7 @@ pub struct BeginCredentialOperation {
     begin_proof_expires_at_high_water: u64,
     migration: Option<CredentialMigrationMetadata>,
     qualified_release_tuple: Option<CredentialQualifiedReleaseTuple>,
+    legacy_import_authorization: Option<CredentialLegacyImportAuthorization>,
 }
 
 #[allow(missing_docs)]
@@ -88,6 +89,7 @@ impl BeginCredentialOperation {
             begin_proof_expires_at_high_water,
             migration: None,
             qualified_release_tuple: None,
+            legacy_import_authorization: None,
         })
     }
 
@@ -162,6 +164,21 @@ impl BeginCredentialOperation {
     /// Returns the sealed release tuple when durable admission may persist this request.
     pub const fn qualified_release_tuple(&self) -> Option<&CredentialQualifiedReleaseTuple> {
         self.qualified_release_tuple.as_ref()
+    }
+    pub fn with_legacy_import_authorization(
+        mut self,
+        authorization: CredentialLegacyImportAuthorization,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        if self.action != CredentialOperationAction::MigrateLegacy {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        self.legacy_import_authorization = Some(authorization);
+        Ok(self)
+    }
+    pub const fn legacy_import_authorization(
+        &self,
+    ) -> Option<&CredentialLegacyImportAuthorization> {
+        self.legacy_import_authorization.as_ref()
     }
 }
 

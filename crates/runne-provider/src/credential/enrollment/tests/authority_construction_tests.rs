@@ -1,8 +1,11 @@
+use runne_domain::id::{CommandId, IdempotencyKey};
+
 use super::super::{
-    BeginCredentialVerification, CredentialBindingDigest, CredentialEnrollmentAuthorityPair,
-    CredentialEnrollmentError, CredentialFence, CredentialLifecycleRevision, CredentialOperationId,
-    CredentialReadinessRevision, CredentialVerificationKind, CredentialVerifierRevision,
-    WriterIdentityMigrationPhase,
+    BeginCredentialOperation, BeginCredentialVerification, CredentialBindingDigest,
+    CredentialEnrollmentAuthorityPair, CredentialEnrollmentError, CredentialFence,
+    CredentialInstallationOwnerId, CredentialLifecycleRevision, CredentialOperationAction,
+    CredentialOperationId, CredentialReadinessRevision, CredentialVerificationKind,
+    CredentialVerifierRevision, WriterIdentityMigrationPhase,
 };
 use crate::{CredentialVersionRef, ProviderId};
 
@@ -135,6 +138,30 @@ fn credential_migration_metadata_restart_hydration_remains_store_authority_bound
     );
 }
 
+#[test]
+fn legacy_import_authorization_requires_the_exact_store_paired_begin_request() {
+    let (store, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let (foreign_store, _) = CredentialEnrollmentAuthorityPair::new().split();
+    let input = legacy_begin(&measurements, 31);
+    let authorization = store.issue_legacy_import_authorization(&input).unwrap();
+
+    assert!(
+        store
+            .validate_legacy_import_authorization(&input, &authorization)
+            .is_ok()
+    );
+    assert!(
+        foreign_store
+            .validate_legacy_import_authorization(&input, &authorization)
+            .is_err()
+    );
+    assert!(
+        store
+            .validate_legacy_import_authorization(&legacy_begin(&measurements, 32), &authorization)
+            .is_err()
+    );
+}
+
 fn begin(value: u8) -> BeginCredentialVerification {
     BeginCredentialVerification::new(
         CredentialOperationId::from_bytes([value; 16]).unwrap(),
@@ -151,6 +178,34 @@ fn begin(value: u8) -> BeginCredentialVerification {
         2,
     )
     .unwrap()
+}
+
+fn legacy_begin(
+    measurements: &super::super::CredentialEnrollmentMeasurementAuthority,
+    value: u8,
+) -> BeginCredentialOperation {
+    let provider = ProviderId::new("openai").unwrap();
+    let tuple = measurements
+        .issue_qualified_credential_release_tuple(
+            measurements.release_manifest_digest([value; 32]).unwrap(),
+        )
+        .unwrap();
+    BeginCredentialOperation::new(
+        CommandId::from_bytes([value; 16]),
+        IdempotencyKey::new(format!("legacy-{value}")).unwrap(),
+        CredentialOperationId::from_bytes([value.wrapping_add(1); 16]).unwrap(),
+        CredentialInstallationOwnerId::from_bytes([value.wrapping_add(2); 32]).unwrap(),
+        provider.clone(),
+        CredentialOperationAction::MigrateLegacy,
+        Some(CredentialVersionRef::new(provider, 1).unwrap()),
+        None,
+        CredentialLifecycleRevision::new(1).unwrap(),
+        CredentialFence::new(1).unwrap(),
+        digest(value.wrapping_add(3)),
+        100,
+    )
+    .unwrap()
+    .with_qualified_release_tuple(tuple)
 }
 
 fn process(
