@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-#![allow(clippy::needless_pass_by_value)]
+#![allow(dead_code, clippy::needless_pass_by_value)]
 use runne_provider::{
     DispatchAttemptId, DispatchRequest, ModelRef, PreparedRequest, ProviderCall, ProviderCallId,
     ProviderCapability, ProviderDispatchClaim, ProviderId, ProviderInputRole, ProviderTextInput,
